@@ -39,10 +39,22 @@
   },
   "hotPaths": [
     {
+      "path": "src/components/GraphCanvas.tsx",
+      "accessCount": 15,
+      "lastAccessed": 1773480680556,
+      "type": "file"
+    },
+    {
       "path": "",
       "accessCount": 8,
       "lastAccessed": 1773478060886,
       "type": "directory"
+    },
+    {
+      "path": "src/hooks/useGraphStore.ts",
+      "accessCount": 8,
+      "lastAccessed": 1773480678894,
+      "type": "file"
     },
     {
       "path": "deepse/requirements/ontology.md",
@@ -81,6 +93,24 @@
       "type": "file"
     },
     {
+      "path": "src/App.tsx",
+      "accessCount": 4,
+      "lastAccessed": 1773480679678,
+      "type": "file"
+    },
+    {
+      "path": "src-tauri/src/commands.rs",
+      "accessCount": 4,
+      "lastAccessed": 1773480682196,
+      "type": "file"
+    },
+    {
+      "path": "src-tauri/capabilities/default.json",
+      "accessCount": 4,
+      "lastAccessed": 1773480682488,
+      "type": "file"
+    },
+    {
       "path": "deepse/requirements/conversensus-ontology.png",
       "accessCount": 3,
       "lastAccessed": 1773477543947,
@@ -93,15 +123,183 @@
       "type": "file"
     },
     {
+      "path": "src/components/FileManager.tsx",
+      "accessCount": 3,
+      "lastAccessed": 1773480679974,
+      "type": "file"
+    },
+    {
+      "path": "src-tauri/src/storage.rs",
+      "accessCount": 3,
+      "lastAccessed": 1773480681964,
+      "type": "file"
+    },
+    {
       "path": "deepse/requirements/anarchiteccture-example.png",
       "accessCount": 2,
       "lastAccessed": 1773477544595,
       "type": "file"
     },
     {
+      "path": "src-tauri/Cargo.toml",
+      "accessCount": 2,
+      "lastAccessed": 1773479138464,
+      "type": "file"
+    },
+    {
+      "path": "src/test-setup.ts",
+      "accessCount": 2,
+      "lastAccessed": 1773480000073,
+      "type": "file"
+    },
+    {
+      "path": "src/types/graph.ts",
+      "accessCount": 2,
+      "lastAccessed": 1773480678562,
+      "type": "file"
+    },
+    {
+      "path": "src/hooks/useTauriFiles.ts",
+      "accessCount": 2,
+      "lastAccessed": 1773480679178,
+      "type": "file"
+    },
+    {
+      "path": "src/components/CustomNode.tsx",
+      "accessCount": 2,
+      "lastAccessed": 1773480680789,
+      "type": "file"
+    },
+    {
+      "path": "src/components/CustomEdge.tsx",
+      "accessCount": 2,
+      "lastAccessed": 1773480680969,
+      "type": "file"
+    },
+    {
+      "path": "src-tauri/src/models.rs",
+      "accessCount": 2,
+      "lastAccessed": 1773480681572,
+      "type": "file"
+    },
+    {
+      "path": "src/hooks/useGraphStore.test.ts",
+      "accessCount": 2,
+      "lastAccessed": 1773480695011,
+      "type": "file"
+    },
+    {
       "path": "deepse",
       "accessCount": 1,
       "lastAccessed": 1773477176978,
+      "type": "directory"
+    },
+    {
+      "path": "package.json",
+      "accessCount": 1,
+      "lastAccessed": 1773478812732,
+      "type": "file"
+    },
+    {
+      "path": "vite.config.ts",
+      "accessCount": 1,
+      "lastAccessed": 1773478816880,
+      "type": "file"
+    },
+    {
+      "path": "tsconfig.json",
+      "accessCount": 1,
+      "lastAccessed": 1773478830858,
+      "type": "file"
+    },
+    {
+      "path": "tsconfig.node.json",
+      "accessCount": 1,
+      "lastAccessed": 1773478835823,
+      "type": "file"
+    },
+    {
+      "path": "index.html",
+      "accessCount": 1,
+      "lastAccessed": 1773478839638,
+      "type": "file"
+    },
+    {
+      "path": "src/main.tsx",
+      "accessCount": 1,
+      "lastAccessed": 1773478860610,
+      "type": "file"
+    },
+    {
+      "path": "src/index.css",
+      "accessCount": 1,
+      "lastAccessed": 1773478894025,
+      "type": "file"
+    },
+    {
+      "path": "src/App.css",
+      "accessCount": 1,
+      "lastAccessed": 1773478899351,
+      "type": "file"
+    },
+    {
+      "path": "src/components/FileManager.css",
+      "accessCount": 1,
+      "lastAccessed": 1773478971380,
+      "type": "file"
+    },
+    {
+      "path": "src/components/CustomNode.css",
+      "accessCount": 1,
+      "lastAccessed": 1773478989376,
+      "type": "file"
+    },
+    {
+      "path": "src/components/Toolbar.tsx",
+      "accessCount": 1,
+      "lastAccessed": 1773479008986,
+      "type": "file"
+    },
+    {
+      "path": "src/components/Toolbar.css",
+      "accessCount": 1,
+      "lastAccessed": 1773479017997,
+      "type": "file"
+    },
+    {
+      "path": "src/components/GraphCanvas.css",
+      "accessCount": 1,
+      "lastAccessed": 1773479054541,
+      "type": "file"
+    },
+    {
+      "path": "src-tauri/src/lib.rs",
+      "accessCount": 1,
+      "lastAccessed": 1773479117892,
+      "type": "file"
+    },
+    {
+      "path": "src-tauri/src/main.rs",
+      "accessCount": 1,
+      "lastAccessed": 1773479119102,
+      "type": "file"
+    },
+    {
+      "path": "src-tauri/tauri.conf.json",
+      "accessCount": 1,
+      "lastAccessed": 1773479126578,
+      "type": "file"
+    },
+    {
+      "path": "src-tauri/src/fixtures/sample.conversensus.json",
+      "accessCount": 1,
+      "lastAccessed": 1773479142847,
+      "type": "file"
+    },
+    {
+      "path": "src",
+      "accessCount": 1,
+      "lastAccessed": 1773480629191,
       "type": "directory"
     }
   ],

@@ -1,0 +1,77 @@
+{
+  "project": "conversensus Step 0",
+  "description": "Tauri v2 + React 19 + React Flow desktop graph editor — minimal viable implementation",
+  "stories": [
+    {
+      "id": "US-001",
+      "title": "Project Scaffolding and Data Model",
+      "priority": 1,
+      "passes": true,
+      "acceptanceCriteria": [
+        "`cargo tauri dev` launches a desktop window showing a React hello-world",
+        "Rust model structs (ConversensusFile, Sheet, Node, Edge) compile and can serialize/deserialize a fixture JSON with `sheets` as an array",
+        "TypeScript types exist in `src/types/graph.ts` and are importable, including NodeStyle and EdgeStyle",
+        "Sample fixture file round-trips through Rust serde without data loss",
+        "`npx vitest run` executes successfully; `cargo test` compiles and runs"
+      ]
+    },
+    {
+      "id": "US-002",
+      "title": "File I/O via Tauri Commands",
+      "priority": 2,
+      "passes": true,
+      "acceptanceCriteria": [
+        "User can create a new file (blank graph with `sheets` array containing one default sheet)",
+        "User can save a file via native Save dialog; resulting JSON is valid and has `sheets` as an array",
+        "User can open an existing `.conversensus.json` file via native Open dialog; data loads correctly",
+        "Opening a malformed file shows an error message (does not crash)",
+        "Opening a file with an unrecognized `version` value surfaces a clear error to the user",
+        "Opening a file with `sheets.length !== 1` surfaces a clear error",
+        "File extension is `.conversensus.json`",
+        "All Tauri `invoke` calls are in `useTauriFiles.ts` and nowhere else"
+      ]
+    },
+    {
+      "id": "US-003",
+      "title": "Graph Canvas with Node and Edge Display",
+      "priority": 3,
+      "passes": true,
+      "acceptanceCriteria": [
+        "Opening a fixture file displays nodes as labeled boxes at their saved positions",
+        "Edges render as directed arrows between nodes with labels visible on the edge (label sourced from properties[\"label\"])",
+        "Canvas supports pan (drag background) and zoom (scroll wheel)",
+        "Nodes can be selected by clicking; edges can be selected by clicking",
+        "Multiple selection works (shift-click or drag-select)"
+      ]
+    },
+    {
+      "id": "US-004",
+      "title": "Graph Editing Operations",
+      "priority": 4,
+      "passes": true,
+      "acceptanceCriteria": [
+        "User can create a node by double-clicking empty canvas space; an inline text editor appears immediately in the new node (no browser dialogs)",
+        "User can create a directed edge by dragging from one node's handle to another node",
+        "User can assign/edit a label on an edge via inline editing (double-click the edge label text, no prompt)",
+        "User can edit node text by double-clicking the node (inline editing, not a prompt)",
+        "User can delete selected nodes and edges with Delete key; connected edges are cleaned up",
+        "User can drag nodes to new positions; positions persist after save/reload",
+        "Unsaved changes are indicated in the window title (asterisk or 'modified' marker)"
+      ]
+    },
+    {
+      "id": "US-005",
+      "title": "File Management Polish and Integration Testing",
+      "priority": 5,
+      "passes": true,
+      "acceptanceCriteria": [
+        "Closing the app or opening a new file with unsaved changes prompts the user to save",
+        "Ctrl/Cmd+S saves, Ctrl/Cmd+O opens, Ctrl/Cmd+N creates new file",
+        "A graph with 50+ nodes and edges loads and renders without noticeable lag",
+        "Full round-trip test passes: create -> edit -> save -> close -> reopen -> all data intact including positions and labels",
+        "Vitest tests pass for graph store operations and file hooks",
+        "`cargo test` passes for model serialization, version checking, and sheets-length validation"
+      ]
+    }
+  ]
+}

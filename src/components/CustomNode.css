@@ -1,0 +1,43 @@
+.custom-node {
+  background: #1e3a5f;
+  border: 2px solid #2d6a9f;
+  border-radius: 6px;
+  padding: 8px 12px;
+  min-width: 120px;
+  max-width: 280px;
+  cursor: default;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.custom-node.selected {
+  border-color: #61dafb;
+  box-shadow: 0 0 0 2px rgba(97, 218, 251, 0.25);
+}
+
+.node-content {
+  font-size: 14px;
+  color: #e0e0e0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  min-height: 20px;
+  user-select: none;
+}
+
+.placeholder {
+  color: #666;
+  font-style: italic;
+  font-size: 12px;
+}
+
+.node-editor {
+  width: 100%;
+  background: #0f2d4a;
+  color: #e0e0e0;
+  border: 1px solid #61dafb;
+  border-radius: 3px;
+  padding: 4px;
+  font-size: 14px;
+  font-family: inherit;
+  resize: both;
+  outline: none;
+}
