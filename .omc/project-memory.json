@@ -37,6 +37,73 @@
       "keyFiles": []
     }
   },
-  "hotPaths": [],
+  "hotPaths": [
+    {
+      "path": "",
+      "accessCount": 8,
+      "lastAccessed": 1773478060886,
+      "type": "directory"
+    },
+    {
+      "path": "deepse/requirements/ontology.md",
+      "accessCount": 7,
+      "lastAccessed": 1773478065343,
+      "type": "file"
+    },
+    {
+      "path": "deepse/requirements/summary.md",
+      "accessCount": 6,
+      "lastAccessed": 1773478065622,
+      "type": "file"
+    },
+    {
+      "path": "deepse/requirements/loadmap.md",
+      "accessCount": 5,
+      "lastAccessed": 1773478064751,
+      "type": "file"
+    },
+    {
+      "path": "deepse/requirements/usecase.md",
+      "accessCount": 5,
+      "lastAccessed": 1773478066168,
+      "type": "file"
+    },
+    {
+      "path": "README.md",
+      "accessCount": 4,
+      "lastAccessed": 1773477659580,
+      "type": "file"
+    },
+    {
+      "path": "deepse/requirements/index.md",
+      "accessCount": 4,
+      "lastAccessed": 1773478066232,
+      "type": "file"
+    },
+    {
+      "path": "deepse/requirements/conversensus-ontology.png",
+      "accessCount": 3,
+      "lastAccessed": 1773477543947,
+      "type": "file"
+    },
+    {
+      "path": "deepse/contexts/index.md",
+      "accessCount": 3,
+      "lastAccessed": 1773477659014,
+      "type": "file"
+    },
+    {
+      "path": "deepse/requirements/anarchiteccture-example.png",
+      "accessCount": 2,
+      "lastAccessed": 1773477544595,
+      "type": "file"
+    },
+    {
+      "path": "deepse",
+      "accessCount": 1,
+      "lastAccessed": 1773477176978,
+      "type": "directory"
+    }
+  ],
   "userDirectives": []
 }
