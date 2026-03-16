@@ -1,28 +1,28 @@
-import { useCallback, useEffect, useRef } from 'react'
 import {
-  ReactFlow,
-  ReactFlowProvider,
+  addEdge,
   Background,
   Controls,
-  MiniMap,
-  Panel,
-  addEdge,
-  useNodesState,
-  useEdgesState,
-  useReactFlow,
-  type Node,
   type Edge,
+  MiniMap,
+  type Node,
   type OnConnect,
-} from '@xyflow/react'
-import '@xyflow/react/dist/style.css'
-import type { GraphFile, GraphNode, GraphEdge } from '@conversensus/shared'
+  Panel,
+  ReactFlow,
+  ReactFlowProvider,
+  useEdgesState,
+  useNodesState,
+  useReactFlow,
+} from '@xyflow/react';
+import { useCallback, useEffect, useRef } from 'react';
+import '@xyflow/react/dist/style.css';
+import type { GraphEdge, GraphFile, GraphNode } from '@conversensus/shared';
 
 function toFlowNodes(nodes: GraphNode[]): Node[] {
   return nodes.map((n) => ({
     id: n.id,
     position: n.position,
     data: { label: n.content },
-  }))
+  }));
 }
 
 function toFlowEdges(edges: GraphEdge[]): Edge[] {
@@ -31,7 +31,7 @@ function toFlowEdges(edges: GraphEdge[]): Edge[] {
     source: e.source,
     target: e.target,
     label: e.label,
-  }))
+  }));
 }
 
 function fromFlowNodes(nodes: Node[]): GraphNode[] {
@@ -39,7 +39,7 @@ function fromFlowNodes(nodes: Node[]): GraphNode[] {
     id: n.id,
     content: String(n.data.label ?? ''),
     position: n.position,
-  }))
+  }));
 }
 
 function fromFlowEdges(edges: Edge[]): GraphEdge[] {
@@ -48,72 +48,83 @@ function fromFlowEdges(edges: Edge[]): GraphEdge[] {
     source: e.source,
     target: e.target,
     label: typeof e.label === 'string' ? e.label : undefined,
-  }))
+  }));
 }
 
 type Props = {
-  file: GraphFile
-  onChange: (file: GraphFile) => void
-}
+  file: GraphFile;
+  onChange: (file: GraphFile) => void;
+};
 
 function GraphEditorInner({ file, onChange }: Props) {
-  const { screenToFlowPosition } = useReactFlow()
+  const { screenToFlowPosition } = useReactFlow();
   const [nodes, setNodes, onNodesChange] = useNodesState(
     toFlowNodes(file.sheet.nodes),
-  )
+  );
   const [edges, setEdges, onEdgesChange] = useEdgesState(
     toFlowEdges(file.sheet.edges),
-  )
-  // 初回マウント時の onChange 抑制
-  const mounted = useRef(false)
+  );
 
-  // file が切り替わったら React Flow の state をリセット
+  // 常に最新の file / onChange を参照するための ref
+  const fileRef = useRef(file);
+  fileRef.current = file;
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+
+  // 初回マウント時の onChange 抑制フラグ
+  const mounted = useRef(false);
+
+  // file.id が変わったとき (ファイル切り替え) だけ React Flow の state をリセット
+  // biome-ignore lint/correctness/useExhaustiveDependencies: file.id の変化のみをトリガーにする意図的な設計
   useEffect(() => {
-    mounted.current = false
-    setNodes(toFlowNodes(file.sheet.nodes))
-    setEdges(toFlowEdges(file.sheet.edges))
-  }, [file.id]) // eslint-disable-line react-hooks/exhaustive-deps
+    mounted.current = false;
+    setNodes(toFlowNodes(fileRef.current.sheet.nodes));
+    setEdges(toFlowEdges(fileRef.current.sheet.edges));
+  }, [file.id, setNodes, setEdges]);
 
   // nodes/edges が変わったら親に通知
   useEffect(() => {
     if (!mounted.current) {
-      mounted.current = true
-      return
+      mounted.current = true;
+      return;
     }
-    onChange({
-      ...file,
+    onChangeRef.current({
+      ...fileRef.current,
       sheet: {
-        ...file.sheet,
+        ...fileRef.current.sheet,
         nodes: fromFlowNodes(nodes),
         edges: fromFlowEdges(edges),
       },
-    })
-  }, [nodes, edges]) // eslint-disable-line react-hooks/exhaustive-deps
+    });
+  }, [nodes, edges]);
 
   const onConnect: OnConnect = useCallback(
     (connection) => setEdges((es) => addEdge(connection, es)),
     [setEdges],
-  )
+  );
 
   const addNode = useCallback(
     (position?: { x: number; y: number }) => {
-      const id = crypto.randomUUID()
-      const pos = position ?? { x: 100 + Math.random() * 200, y: 100 + Math.random() * 200 }
+      const id = crypto.randomUUID();
+      const pos = position ?? {
+        x: 100 + Math.random() * 200,
+        y: 100 + Math.random() * 200,
+      };
       setNodes((ns) => [
         ...ns,
         { id, position: pos, data: { label: '新しいノード' } },
-      ])
+      ]);
     },
     [setNodes],
-  )
+  );
 
   const onPaneDoubleClick = useCallback(
     (e: MouseEvent) => {
-      const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY })
-      addNode(pos)
+      const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+      addNode(pos);
     },
     [screenToFlowPosition, addNode],
-  )
+  );
 
   return (
     <div style={{ width: '100%', height: '100%' }}>
@@ -131,6 +142,7 @@ function GraphEditorInner({ file, onChange }: Props) {
         <MiniMap />
         <Panel position="top-right">
           <button
+            type="button"
             onClick={() => addNode()}
             style={{
               padding: '6px 12px',
@@ -147,7 +159,7 @@ function GraphEditorInner({ file, onChange }: Props) {
         </Panel>
       </ReactFlow>
     </div>
-  )
+  );
 }
 
 export function GraphEditor(props: Props) {
@@ -155,5 +167,5 @@ export function GraphEditor(props: Props) {
     <ReactFlowProvider>
       <GraphEditorInner {...props} />
     </ReactFlowProvider>
-  )
+  );
 }
