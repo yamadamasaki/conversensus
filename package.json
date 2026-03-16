@@ -9,6 +9,11 @@
   "scripts": {
     "dev:server": "bun run --watch src/server/src/index.ts",
     "dev:client": "bun run --cwd src/client dev",
-    "typecheck": "bun run --cwd src/client tsc --noEmit"
+    "typecheck": "bun run --cwd src/client tsc --noEmit",
+    "lint": "bun --bun biome check src/",
+    "lint:fix": "bun --bun biome check --write src/"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.7"
   }
 }
