@@ -1,0 +1,14 @@
+{
+  "name": "conversensus",
+  "private": true,
+  "workspaces": [
+    "src/shared",
+    "src/server",
+    "src/client"
+  ],
+  "scripts": {
+    "dev:server": "bun run --watch src/server/src/index.ts",
+    "dev:client": "bun run --cwd src/client dev",
+    "typecheck": "bun run --cwd src/client tsc --noEmit"
+  }
+}
