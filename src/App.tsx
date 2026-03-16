@@ -12,6 +12,13 @@ export default function App() {
   const isDirty = useGraphStore((s) => s.isDirty);
   const { saveFile } = useTauriFiles();
 
+  // Auto-create a new file on startup so the canvas is immediately usable
+  useEffect(() => {
+    if (!useGraphStore.getState().file) {
+      useGraphStore.getState().newFile();
+    }
+  }, []);
+
   const title = `conversensus${fileName ? ` — ${fileName}` : ""}${isDirty ? " •" : ""}`;
 
   // Update window title

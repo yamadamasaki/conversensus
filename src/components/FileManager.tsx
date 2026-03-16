@@ -1,11 +1,12 @@
 import { useEffect } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { useTauriFiles } from "../hooks/useTauriFiles";
 import "./FileManager.css";
 
 export function FileManager() {
   const { newFile, openFile, saveFile } = useTauriFiles();
 
-  // Keyboard shortcuts
+  // JS-side keyboard shortcuts (fallback for non-macOS / when WKWebView forwards them)
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
@@ -23,6 +24,18 @@ export function FileManager() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
+  }, [newFile, openFile, saveFile]);
+
+  // Native macOS menu shortcuts via Tauri events (reliable on macOS WKWebView)
+  useEffect(() => {
+    const unlistens = [
+      listen("menu:new_file", () => newFile()),
+      listen("menu:open_file", () => openFile()),
+      listen("menu:save_file", () => saveFile()),
+    ];
+    return () => {
+      unlistens.forEach((p) => p.then((fn) => fn()));
+    };
   }, [newFile, openFile, saveFile]);
 
   return (

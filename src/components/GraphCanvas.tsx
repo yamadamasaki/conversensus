@@ -12,7 +12,6 @@ import {
   type OnConnect,
   applyNodeChanges,
   applyEdgeChanges,
-  addEdge,
   type Connection,
   BackgroundVariant,
 } from "@xyflow/react";
@@ -85,10 +84,17 @@ export function GraphCanvas() {
   );
   const rfEdges = useMemo(() => domainEdges.map(toRFEdge), [domainEdges]);
 
-  // React Flow controlled mode: node changes come back through these handlers
+  // React Flow controlled mode: node changes come back through these handlers.
+  // We MUST skip 'dimensions' changes: React Flow v12 hides nodes until initialized,
+  // and forwarding dimension changes back strips the internal `initialized` field,
+  // creating an infinite remeasure loop that keeps nodes permanently invisible.
   const onNodesChange: OnNodesChange = useCallback(
     (changes) => {
-      const updated = applyNodeChanges(changes, rfNodes);
+      const relevant = changes.filter(
+        (c) => c.type === "position" || c.type === "select" || c.type === "remove"
+      );
+      if (relevant.length === 0) return;
+      const updated = applyNodeChanges(relevant, rfNodes);
       applyNodeChangesStore(updated.map((n) => fromRFNode(n, domainNodes)));
     },
     [rfNodes, domainNodes, applyNodeChangesStore]
@@ -119,38 +125,22 @@ export function GraphCanvas() {
     (connection: Connection) => {
       if (!connection.source || !connection.target) return;
       addEdgeAction(connection.source, connection.target);
-      // Also apply to RF state so it renders immediately
-      applyEdgeChangesStore(
-        addEdge(connection, rfEdges).map((e) => {
-          const orig = domainEdges.find((d) => d.id === e.id);
-          return (
-            orig ?? {
-              id: e.id,
-              source: e.source,
-              target: e.target,
-              properties: { label: "" },
-              style: {},
-            }
-          );
-        })
-      );
     },
-    [addEdgeAction, rfEdges, domainEdges, applyEdgeChangesStore]
+    [addEdgeAction]
   );
 
-  // Double-click on canvas pane (not on a node/edge) → create node
+  // Double-click on canvas pane → create node.
+  // Passed as `onDoubleClick` via ...rest spread to the ReactFlow root div,
+  // so it fires before React Flow's internal handlers can stop propagation.
+  // zoomOnDoubleClick is disabled to prevent viewport zoom conflict.
   const onCanvasDoubleClick = useCallback(
     (event: React.MouseEvent) => {
-      const target = event.target as HTMLElement;
-      // Only trigger when clicking the pane background, not nodes/edges/controls
-      if (
-        target.classList.contains("react-flow__pane") ||
-        target.classList.contains("react-flow__background")
-      ) {
-        const position = screenToFlowPosition({ x: event.clientX, y: event.clientY });
-        addNode(position);
-        setTimeout(() => clearNewlyCreatedNode(), 100);
-      }
+      const target = event.target as Element;
+      // Only create node when clicking on pane background (not on nodes/edges)
+      if (!target.closest(".react-flow__pane")) return;
+      const position = screenToFlowPosition({ x: event.clientX, y: event.clientY });
+      addNode(position);
+      setTimeout(() => clearNewlyCreatedNode(), 100);
     },
     [addNode, screenToFlowPosition, clearNewlyCreatedNode]
   );
@@ -195,7 +185,6 @@ export function GraphCanvas() {
       />
       <div
         className="graph-canvas"
-        onDoubleClick={onCanvasDoubleClick}
         onKeyDown={onKeyDown}
         tabIndex={0}
       >
@@ -205,6 +194,8 @@ export function GraphCanvas() {
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
+          onDoubleClick={onCanvasDoubleClick}
+          zoomOnDoubleClick={false}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
           fitView

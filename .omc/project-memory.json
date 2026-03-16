@@ -135,15 +135,15 @@
       "type": "file"
     },
     {
-      "path": "deepse/requirements/anarchiteccture-example.png",
-      "accessCount": 2,
-      "lastAccessed": 1773477544595,
+      "path": "src-tauri/Cargo.toml",
+      "accessCount": 3,
+      "lastAccessed": 1773482363018,
       "type": "file"
     },
     {
-      "path": "src-tauri/Cargo.toml",
+      "path": "deepse/requirements/anarchiteccture-example.png",
       "accessCount": 2,
-      "lastAccessed": 1773479138464,
+      "lastAccessed": 1773477544595,
       "type": "file"
     },
     {
@@ -186,6 +186,18 @@
       "path": "src/hooks/useGraphStore.test.ts",
       "accessCount": 2,
       "lastAccessed": 1773480695011,
+      "type": "file"
+    },
+    {
+      "path": "src-tauri/src/lib.rs",
+      "accessCount": 2,
+      "lastAccessed": 1773482326297,
+      "type": "file"
+    },
+    {
+      "path": "src-tauri/tauri.conf.json",
+      "accessCount": 2,
+      "lastAccessed": 1773482334990,
       "type": "file"
     },
     {
@@ -273,21 +285,9 @@
       "type": "file"
     },
     {
-      "path": "src-tauri/src/lib.rs",
-      "accessCount": 1,
-      "lastAccessed": 1773479117892,
-      "type": "file"
-    },
-    {
       "path": "src-tauri/src/main.rs",
       "accessCount": 1,
       "lastAccessed": 1773479119102,
-      "type": "file"
-    },
-    {
-      "path": "src-tauri/tauri.conf.json",
-      "accessCount": 1,
-      "lastAccessed": 1773479126578,
       "type": "file"
     },
     {
