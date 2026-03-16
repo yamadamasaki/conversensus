@@ -12,7 +12,8 @@
     "typecheck": "bun run --cwd src/client tsc --noEmit",
     "lint": "bun --bun biome check src/",
     "lint:fix": "bun --bun biome check --write src/",
-    "setup": "cp scripts/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit && echo 'pre-commit hook installed'"
+    "setup": "cp scripts/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit && echo 'pre-commit hook installed'",
+    "test": "bun test src/"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.7"
