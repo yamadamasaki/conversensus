@@ -35,3 +35,11 @@ bun run setup   # pre-commit hook をインストール (lint + typecheck が co
 - 各 step の実装が完了したら pull request を作成する
 - pull request は approve されるまでマージしない
 - approve を受けてからマージし, 次の step のブランチを切る
+
+  ## コードレビュー基準
+
+  - 設計方針 (deepse/architecture/) との間に一貫性があること
+  - テスト・コードには, そのコードを正確に反映するテスト仕様書 (.test.md) が存在し, 人間の開発者にとって理解し易いものであること
+  - lint / typecheck / test がすべてパスしていること
+  - 自明でないロジックにはコメントが付加されていること
+  - それぞれの言語やライブラリ, ツールのベスト・プラクティスに従っていること
