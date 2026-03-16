@@ -11,10 +11,10 @@
     "dev:client": "bun run --cwd src/client dev",
     "typecheck": "bun run --cwd src/client tsc --noEmit",
     "lint": "bun --bun biome check src/",
-    "lint:fix": "bun --bun biome check --write src/"
+    "lint:fix": "bun --bun biome check --write src/",
+    "setup": "cp scripts/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit && echo 'pre-commit hook installed'"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.4.7",
-    "@rollup/rollup-darwin-arm64": "^4.59.0"
+    "@biomejs/biome": "^2.4.7"
   }
 }
