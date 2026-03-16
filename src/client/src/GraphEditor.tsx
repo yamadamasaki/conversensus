@@ -2,9 +2,7 @@ import {
   addEdge,
   Background,
   Controls,
-  type Edge,
   MiniMap,
-  type Node,
   type OnConnect,
   Panel,
   ReactFlow,
@@ -15,41 +13,13 @@ import {
 } from '@xyflow/react';
 import { useCallback, useEffect, useRef } from 'react';
 import '@xyflow/react/dist/style.css';
-import type { GraphEdge, GraphFile, GraphNode } from '@conversensus/shared';
-
-function toFlowNodes(nodes: GraphNode[]): Node[] {
-  return nodes.map((n) => ({
-    id: n.id,
-    position: n.position,
-    data: { label: n.content },
-  }));
-}
-
-function toFlowEdges(edges: GraphEdge[]): Edge[] {
-  return edges.map((e) => ({
-    id: e.id,
-    source: e.source,
-    target: e.target,
-    label: e.label,
-  }));
-}
-
-function fromFlowNodes(nodes: Node[]): GraphNode[] {
-  return nodes.map((n) => ({
-    id: n.id,
-    content: String(n.data.label ?? ''),
-    position: n.position,
-  }));
-}
-
-function fromFlowEdges(edges: Edge[]): GraphEdge[] {
-  return edges.map((e) => ({
-    id: e.id,
-    source: e.source,
-    target: e.target,
-    label: typeof e.label === 'string' ? e.label : undefined,
-  }));
-}
+import type { GraphFile } from '@conversensus/shared';
+import {
+  fromFlowEdges,
+  fromFlowNodes,
+  toFlowEdges,
+  toFlowNodes,
+} from './graphTransform';
 
 type Props = {
   file: GraphFile;

@@ -20,6 +20,13 @@ bun run setup   # pre-commit hook をインストール (lint + typecheck が co
 - ARM64 ネイティブの Node.js が必要 (Rosetta 経由の x64 では `bun run dev:client` が動作しない)
 - node_modules に問題が起きた場合は `rm -rf node_modules && bun install` でクリーンインストール
 
+## テスト方針
+
+- 自明なコード (型定義のみ, fetch の薄いラッパーなど) を除き, 単体テストを書く
+- テストファイルはテスト対象と同じディレクトリに置く: `foo.ts` → `foo.test.ts`
+- テストファイルと同じ場所に `foo.test.md` を置き, **何を・なぜ・どのようにテストするか** を記述する
+- テスト実行: `bun test`
+
 ## 開発フロー
 
 - 実装は step ごとにブランチを切って進める
