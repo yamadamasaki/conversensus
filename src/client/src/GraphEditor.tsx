@@ -108,7 +108,7 @@ function GraphEditorInner({ file, onChange }: Props) {
   )
 
   const onPaneDoubleClick = useCallback(
-    (e: React.MouseEvent) => {
+    (e: MouseEvent) => {
       const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY })
       addNode(pos)
     },
@@ -123,7 +123,7 @@ function GraphEditorInner({ file, onChange }: Props) {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
-        onDoubleClick={onPaneDoubleClick}
+        onPaneDoubleClick={onPaneDoubleClick}
         fitView
       >
         <Background />
