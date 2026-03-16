@@ -6,7 +6,13 @@ import { deleteFile, listFiles, readFile, writeFile } from './storage';
 
 const app = new Hono();
 
-app.use('*', cors({ origin: 'http://localhost:5173' }));
+app.use(
+  '*',
+  cors({
+    origin: (origin) =>
+      origin?.startsWith('http://localhost:') ? origin : null,
+  }),
+);
 
 // GET /files - ファイル一覧
 app.get('/files', async (c) => {
