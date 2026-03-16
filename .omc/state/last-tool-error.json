@@ -1,7 +1,0 @@
-{
-  "tool_name": "Bash",
-  "tool_input_preview": "{\"command\":\"npx tsc --noEmit 2>&1\",\"description\":\"TypeScript check after GraphCanvas updates\"}",
-  "error": "Exit code 2\n(node:85309) ExperimentalWarning: Support for loading ES Module in require() is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\nsrc/components/GraphCanvas.tsx(201,11): error TS2322: Type '{ children: Element[]; nodes: Node[]; edges: Edge[]; onNodesChange: OnNodesChange; onEdgesChange: OnEdgesChange; onConnect: OnConnect; onPaneDoubleClick: (event: MouseEvent<...>) => void; nodeTypes: { ...; }; edgeTypes: { ....",
-  "timestamp": "2026-03-14T09:24:10.632Z",
-  "retry_count": 1
-}
