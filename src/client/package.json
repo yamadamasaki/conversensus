@@ -4,9 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "bunx --bun vite",
+    "dev": "bunx vite",
     "build": "tsc -b && bunx --bun vite build",
-    "preview": "bunx --bun vite preview"
+    "preview": "bunx vite preview"
   },
   "dependencies": {
     "@conversensus/shared": "workspace:*",

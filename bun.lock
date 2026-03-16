@@ -6,6 +6,7 @@
       "name": "conversensus",
       "devDependencies": {
         "@biomejs/biome": "^2.4.7",
+        "@rollup/rollup-darwin-arm64": "^4.59.0",
       },
     },
     "src/client": {

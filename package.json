@@ -14,6 +14,7 @@
     "lint:fix": "bun --bun biome check --write src/"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.4.7"
+    "@biomejs/biome": "^2.4.7",
+    "@rollup/rollup-darwin-arm64": "^4.59.0"
   }
 }
