@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'bun:test';
-import type { GraphEdge, GraphNode } from '@conversensus/shared';
+import type {
+  EdgeId,
+  GraphEdge,
+  GraphNode,
+  NodeId,
+} from '@conversensus/shared';
 import type { Edge, Node } from '@xyflow/react';
 import {
   fromFlowEdges,
@@ -9,9 +14,9 @@ import {
 } from './graphTransform';
 
 const graphNodes: GraphNode[] = [
-  { id: 'n1', content: 'ノード1', position: { x: 10, y: 20 } },
+  { id: 'n1' as NodeId, content: 'ノード1', position: { x: 10, y: 20 } },
   {
-    id: 'n2',
+    id: 'n2' as NodeId,
     content: 'ノード2',
     position: { x: 100, y: 200 },
     style: { color: 'red' },
@@ -19,8 +24,13 @@ const graphNodes: GraphNode[] = [
 ];
 
 const graphEdges: GraphEdge[] = [
-  { id: 'e1', source: 'n1', target: 'n2', label: 'ラベル' },
-  { id: 'e2', source: 'n2', target: 'n1' },
+  {
+    id: 'e1' as EdgeId,
+    source: 'n1' as NodeId,
+    target: 'n2' as NodeId,
+    label: 'ラベル',
+  },
+  { id: 'e2' as EdgeId, source: 'n2' as NodeId, target: 'n1' as NodeId },
 ];
 
 describe('toFlowNodes', () => {

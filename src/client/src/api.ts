@@ -1,17 +1,23 @@
-import type { GraphFile, GraphFileListItem } from '@conversensus/shared';
+import {
+  type GraphFile,
+  type GraphFileListItem,
+  GraphFileListItemSchema,
+  GraphFileSchema,
+} from '@conversensus/shared';
+import { z } from 'zod';
 
-const BASE = 'http://localhost:3000';
+const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:3000';
 
 export async function fetchFiles(): Promise<GraphFileListItem[]> {
   const res = await fetch(`${BASE}/files`);
   if (!res.ok) throw new Error('Failed to fetch files');
-  return res.json();
+  return z.array(GraphFileListItemSchema).parse(await res.json());
 }
 
 export async function fetchFile(id: string): Promise<GraphFile> {
   const res = await fetch(`${BASE}/files/${id}`);
   if (!res.ok) throw new Error('Failed to fetch file');
-  return res.json();
+  return GraphFileSchema.parse(await res.json());
 }
 
 export async function createFile(name: string): Promise<GraphFile> {
@@ -21,7 +27,7 @@ export async function createFile(name: string): Promise<GraphFile> {
     body: JSON.stringify({ name }),
   });
   if (!res.ok) throw new Error('Failed to create file');
-  return res.json();
+  return GraphFileSchema.parse(await res.json());
 }
 
 export async function saveFile(file: GraphFile): Promise<GraphFile> {
@@ -31,7 +37,7 @@ export async function saveFile(file: GraphFile): Promise<GraphFile> {
     body: JSON.stringify(file),
   });
   if (!res.ok) throw new Error('Failed to save file');
-  return res.json();
+  return GraphFileSchema.parse(await res.json());
 }
 
 export async function removeFile(id: string): Promise<void> {
