@@ -69,7 +69,9 @@ function GraphEditorInner({ file, onChange }: Props) {
   }, [nodes, edges]);
 
   const onConnect: OnConnect = useCallback(
-    (connection) => setEdges((es) => addEdge(connection, es)),
+    // React Flow の自動生成 ID は UUID 形式でないため, 明示的に UUID を指定する
+    (connection) =>
+      setEdges((es) => addEdge({ ...connection, id: crypto.randomUUID() }, es)),
     [setEdges],
   );
 
