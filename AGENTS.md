@@ -43,6 +43,42 @@ bun run setup   # pre-commit hook をインストール (lint + typecheck が co
 - 実装完了後, Issue にコメントで報告する
 - PR の description に `Closes #N` を記載して Issue と紐付ける
 
+## コーディング規約
+
+### 1. 原始型エイリアス
+
+原始型 (`string`, `number` など) をそのまま使わず, 意味的なエイリアスを定義する.
+
+```typescript
+export type NodeContent = string;
+export type EdgeLabel = string;
+export type FileName = string;
+export type SheetName = string;
+```
+
+### 2. ID には Branded UUID 型
+
+ID フィールドには Zod の `.brand()` を使って branded UUID 型を定義する.
+異なるエンティティの ID を混同しないよう, エンティティごとに異なる型とする.
+- Zod スキーマで UUID フォーマットを強制し, API 境界でバリデーションする
+- ドメイン内部の境界 (React Flow など) では `as NodeId` のキャストを使う
+
+```typescript
+export const NodeIdSchema = z.string().uuid().brand<'NodeId'>();
+export type NodeId = z.infer<typeof NodeIdSchema>;
+// EdgeId, SheetId, FileId も同様
+```
+
+### 3. 固定値は定数として定義する
+
+マジックリテラル (文字列・数値の直書き) は使わず, 名前付き定数として定義する.
+
+```typescript
+const SERVER_PORT = 3000;
+const DEFAULT_FILE_NAME = '無題';
+const DEFAULT_SHEET_NAME = 'Sheet 1';
+```
+
 ## コードレビュー基準
 
 優先度の高い順に

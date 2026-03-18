@@ -2,20 +2,35 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { GraphFile } from '@conversensus/shared';
+import type {
+  EdgeId,
+  FileId,
+  GraphFile,
+  NodeId,
+  SheetId,
+} from '@conversensus/shared';
 import { deleteFile, listFiles, readFile, writeFile } from './storage';
 
 let tmpDir: string;
 
 const sampleFile = (): GraphFile => ({
-  id: 'test-id-1',
+  id: 'test-id-1' as FileId,
   name: 'テストファイル',
   description: '説明',
   sheet: {
-    id: 'sheet-1',
+    id: 'sheet-1' as SheetId,
     name: 'Sheet 1',
-    nodes: [{ id: 'n1', content: 'ノード1', position: { x: 10, y: 20 } }],
-    edges: [{ id: 'e1', source: 'n1', target: 'n2', label: 'ラベル' }],
+    nodes: [
+      { id: 'n1' as NodeId, content: 'ノード1', position: { x: 10, y: 20 } },
+    ],
+    edges: [
+      {
+        id: 'e1' as EdgeId,
+        source: 'n1' as NodeId,
+        target: 'n2' as NodeId,
+        label: 'ラベル',
+      },
+    ],
   },
 });
 
@@ -63,8 +78,8 @@ describe('storage', () => {
     });
 
     it('複数ファイルをすべてリストアップする', async () => {
-      await writeFile({ ...sampleFile(), id: 'id-a', name: 'A' });
-      await writeFile({ ...sampleFile(), id: 'id-b', name: 'B' });
+      await writeFile({ ...sampleFile(), id: 'id-a' as FileId, name: 'A' });
+      await writeFile({ ...sampleFile(), id: 'id-b' as FileId, name: 'B' });
       const result = await listFiles();
       expect(result).toHaveLength(2);
       const ids = result.map((f) => f.id).sort();
