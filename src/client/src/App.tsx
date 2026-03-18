@@ -15,27 +15,46 @@ export default function App() {
     fetchFiles().then(setFiles).catch(console.error);
   }, []);
 
+  // アンマウント時にオートセーブタイマーをキャンセルする
+  useEffect(() => {
+    return () => {
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+    };
+  }, []);
+
   const openFile = useCallback(async (id: string) => {
-    const file = await fetchFile(id);
-    setActiveFile(file);
+    try {
+      const file = await fetchFile(id);
+      setActiveFile(file);
+    } catch (err) {
+      console.error('Failed to open file:', err);
+    }
   }, []);
 
   const handleCreate = useCallback(async () => {
-    const name = newFileName.trim() || '無題';
-    const file = await createFile(name);
-    setFiles((fs) => [
-      ...fs,
-      { id: file.id, name: file.name, description: file.description },
-    ]);
-    setActiveFile(file);
-    setNewFileName('');
+    try {
+      const name = newFileName.trim() || '無題';
+      const file = await createFile(name);
+      setFiles((fs) => [
+        ...fs,
+        { id: file.id, name: file.name, description: file.description },
+      ]);
+      setActiveFile(file);
+      setNewFileName('');
+    } catch (err) {
+      console.error('Failed to create file:', err);
+    }
   }, [newFileName]);
 
   const handleDelete = useCallback(
     async (id: string) => {
-      await removeFile(id);
-      setFiles((fs) => fs.filter((f) => f.id !== id));
-      if (activeFile?.id === id) setActiveFile(null);
+      try {
+        await removeFile(id);
+        setFiles((fs) => fs.filter((f) => f.id !== id));
+        if (activeFile?.id === id) setActiveFile(null);
+      } catch (err) {
+        console.error('Failed to delete file:', err);
+      }
     },
     [activeFile],
   );
@@ -44,18 +63,22 @@ export default function App() {
     setActiveFile(updated);
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(async () => {
-      await saveFile(updated);
-      setFiles((fs) =>
-        fs.map((f) =>
-          f.id === updated.id
-            ? {
-                id: updated.id,
-                name: updated.name,
-                description: updated.description,
-              }
-            : f,
-        ),
-      );
+      try {
+        await saveFile(updated);
+        setFiles((fs) =>
+          fs.map((f) =>
+            f.id === updated.id
+              ? {
+                  id: updated.id,
+                  name: updated.name,
+                  description: updated.description,
+                }
+              : f,
+          ),
+        );
+      } catch (err) {
+        console.error('Failed to save file:', err);
+      }
     }, AUTOSAVE_DELAY);
   }, []);
 

@@ -1,12 +1,18 @@
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import type { GraphFile, GraphFileListItem } from '@conversensus/shared';
 
 function dataDir() {
   return process.env.DATA_DIR ?? join(import.meta.dir, '../../../data');
 }
 
+// パストラバーサル対策: id に使用できる文字を制限し, dataDir 外へのパスを拒否する
 function filePath(id: string) {
-  return join(dataDir(), `${id}.json`);
+  if (!/^[a-zA-Z0-9_-]+$/.test(id)) throw new Error('Invalid file ID');
+  const dir = resolve(dataDir());
+  const resolved = resolve(dir, `${id}.json`);
+  if (!resolved.startsWith(dir + '/') && resolved !== dir)
+    throw new Error('Path traversal detected');
+  return resolved;
 }
 
 export async function listFiles(): Promise<GraphFileListItem[]> {
