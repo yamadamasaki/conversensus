@@ -5,7 +5,7 @@ import type {
   GraphNode,
   NodeId,
 } from '@conversensus/shared';
-import type { Edge, Node } from '@xyflow/react';
+import { type Edge, MarkerType, type Node } from '@xyflow/react';
 import {
   fromFlowEdges,
   fromFlowNodes,
@@ -63,8 +63,16 @@ describe('toFlowEdges', () => {
       source: 'n1',
       target: 'n2',
       label: 'ラベル',
+      type: 'editableLabel',
+      markerEnd: { type: MarkerType.ArrowClosed },
     });
-    expect(result[1]).toMatchObject({ id: 'e2', source: 'n2', target: 'n1' });
+    expect(result[1]).toMatchObject({
+      id: 'e2',
+      source: 'n2',
+      target: 'n1',
+      type: 'editableLabel',
+      markerEnd: { type: MarkerType.ArrowClosed },
+    });
   });
 
   it('空配列は空配列を返す', () => {

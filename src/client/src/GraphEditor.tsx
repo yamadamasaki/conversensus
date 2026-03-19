@@ -2,6 +2,7 @@ import {
   addEdge,
   Background,
   Controls,
+  MarkerType,
   MiniMap,
   type OnConnect,
   Panel,
@@ -11,9 +12,10 @@ import {
   useNodesState,
   useReactFlow,
 } from '@xyflow/react';
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import '@xyflow/react/dist/style.css';
 import type { GraphFile } from '@conversensus/shared';
+import { EditableLabelEdge } from './EditableLabelEdge';
 import {
   fromFlowEdges,
   fromFlowNodes,
@@ -68,10 +70,22 @@ function GraphEditorInner({ file, onChange }: Props) {
     });
   }, [nodes, edges]);
 
+  const edgeTypes = useMemo(() => ({ editableLabel: EditableLabelEdge }), []);
+
   const onConnect: OnConnect = useCallback(
     // React Flow の自動生成 ID は UUID 形式でないため, 明示的に UUID を指定する
     (connection) =>
-      setEdges((es) => addEdge({ ...connection, id: crypto.randomUUID() }, es)),
+      setEdges((es) =>
+        addEdge(
+          {
+            ...connection,
+            id: crypto.randomUUID(),
+            type: 'editableLabel',
+            markerEnd: { type: MarkerType.ArrowClosed },
+          },
+          es,
+        ),
+      ),
     [setEdges],
   );
 
@@ -103,6 +117,7 @@ function GraphEditorInner({ file, onChange }: Props) {
       <ReactFlow
         nodes={nodes}
         edges={edges}
+        edgeTypes={edgeTypes}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}

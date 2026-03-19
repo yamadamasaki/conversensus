@@ -10,7 +10,7 @@ function filePath(id: string) {
   if (!/^[a-zA-Z0-9_-]+$/.test(id)) throw new Error('Invalid file ID');
   const dir = resolve(dataDir());
   const resolved = resolve(dir, `${id}.json`);
-  if (!resolved.startsWith(dir + '/') && resolved !== dir)
+  if (!resolved.startsWith(`${dir}/`) && resolved !== dir)
     throw new Error('Path traversal detected');
   return resolved;
 }

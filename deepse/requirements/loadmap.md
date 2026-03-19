@@ -26,10 +26,12 @@
 
 ### platform step 2
 
-- platform step 1 が終了した段階で考える.
+- platform step 1 が終了した段階で考える
 
-## functional progression
+## function progression
 
 ### function step 1
 
-- step 0 が終了した段階で考える.
+個人がスタンドアロンで利用する場合の, 一画面上の操作を一通り実装し, これだけでツールとして利用できるようにする.
+
+see https://github.com/yamadamasaki/conversensus/milestone/2
