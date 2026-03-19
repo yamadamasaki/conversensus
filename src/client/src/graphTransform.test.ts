@@ -41,11 +41,13 @@ describe('toFlowNodes', () => {
       id: 'n1',
       position: { x: 10, y: 20 },
       data: { label: 'ノード1' },
+      type: 'editableNode',
     });
     expect(result[1]).toMatchObject({
       id: 'n2',
       position: { x: 100, y: 200 },
       data: { label: 'ノード2' },
+      type: 'editableNode',
     });
   });
 
