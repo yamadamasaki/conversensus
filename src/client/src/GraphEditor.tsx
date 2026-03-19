@@ -137,6 +137,7 @@ function GraphEditorInner({ file, onChange }: Props) {
         edgeTypes={edgeTypes}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
+        connectionMode="loose"
         onConnect={onConnect}
         onReconnect={onReconnect}
         edgesReconnectable
