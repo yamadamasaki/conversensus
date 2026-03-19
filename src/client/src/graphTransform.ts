@@ -4,7 +4,7 @@ import type {
   GraphNode,
   NodeId,
 } from '@conversensus/shared';
-import type { Edge, Node } from '@xyflow/react';
+import { type Edge, MarkerType, type Node } from '@xyflow/react';
 
 export function toFlowNodes(nodes: GraphNode[]): Node[] {
   return nodes.map((n) => ({
@@ -20,6 +20,7 @@ export function toFlowEdges(edges: GraphEdge[]): Edge[] {
     source: e.source,
     target: e.target,
     label: e.label,
+    markerEnd: { type: MarkerType.ArrowClosed },
   }));
 }
 

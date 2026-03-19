@@ -2,6 +2,7 @@ import {
   addEdge,
   Background,
   Controls,
+  MarkerType,
   MiniMap,
   type OnConnect,
   Panel,
@@ -71,7 +72,16 @@ function GraphEditorInner({ file, onChange }: Props) {
   const onConnect: OnConnect = useCallback(
     // React Flow の自動生成 ID は UUID 形式でないため, 明示的に UUID を指定する
     (connection) =>
-      setEdges((es) => addEdge({ ...connection, id: crypto.randomUUID() }, es)),
+      setEdges((es) =>
+        addEdge(
+          {
+            ...connection,
+            id: crypto.randomUUID(),
+            markerEnd: { type: MarkerType.ArrowClosed },
+          },
+          es,
+        ),
+      ),
     [setEdges],
   );
 
