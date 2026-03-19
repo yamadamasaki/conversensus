@@ -20,6 +20,7 @@ export function toFlowEdges(edges: GraphEdge[]): Edge[] {
     source: e.source,
     target: e.target,
     label: e.label,
+    type: 'editableLabel',
     markerEnd: { type: MarkerType.ArrowClosed },
   }));
 }
