@@ -87,9 +87,7 @@ export function EditableLabelEdge({
               autoFocus
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
-              onBlur={() => {
-                if (!composing) confirm();
-              }}
+              onBlur={confirm}
               onCompositionStart={() => setComposing(true)}
               onCompositionEnd={() => setComposing(false)}
               onKeyDown={(e) => {

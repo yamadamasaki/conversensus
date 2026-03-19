@@ -33,6 +33,7 @@ export function EditableNode({ id, data }: NodeProps) {
       <Handle type="target" position={Position.Top} />
       {/* biome-ignore lint/a11y/noStaticElementInteractions: ノードコンテナはダブルクリックで編集を開始する */}
       <div
+        className="nodrag nopan"
         style={{
           padding: '8px 12px',
           borderRadius: 6,
@@ -50,9 +51,7 @@ export function EditableNode({ id, data }: NodeProps) {
             autoFocus
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
-            onBlur={() => {
-              if (!composing) confirm();
-            }}
+            onBlur={confirm}
             onCompositionStart={() => setComposing(true)}
             onCompositionEnd={() => setComposing(false)}
             onKeyDown={(e) => {

@@ -78,6 +78,16 @@ describe('EditableNode', () => {
     expect(screen.queryByRole('textbox')).toBeNull();
   });
 
+  it('onBlur で確定し setNodes を呼び出す', () => {
+    render(<EditableNode {...makeProps()} />);
+    fireEvent.dblClick(screen.getByText('テストノード'));
+    const input = screen.getByRole('textbox') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '変更内容' } });
+    fireEvent.blur(input);
+    expect(mockSetNodes).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('textbox')).toBeNull();
+  });
+
   it('IME 変換中 (compositionStart 後) は Enter で確定しない', () => {
     render(<EditableNode {...makeProps()} />);
     fireEvent.dblClick(screen.getByText('テストノード'));
