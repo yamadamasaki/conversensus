@@ -22,6 +22,7 @@ export function EditableLabelEdge({
   const { setEdges } = useReactFlow();
   const [editing, setEditing] = useState(false);
   const [inputValue, setInputValue] = useState('');
+  const [composing, setComposing] = useState(false);
 
   const [edgePath, labelX, labelY] = getBezierPath({
     sourceX,
@@ -81,8 +82,10 @@ export function EditableLabelEdge({
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onBlur={confirm}
+              onCompositionStart={() => setComposing(true)}
+              onCompositionEnd={() => setComposing(false)}
               onKeyDown={(e) => {
-                if (e.isComposing) return; // IME 変換中は無視
+                if (composing) return; // IME 変換中は無視
                 if (e.key === 'Enter') confirm();
                 if (e.key === 'Escape') cancel();
               }}
