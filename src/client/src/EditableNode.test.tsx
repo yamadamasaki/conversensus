@@ -14,10 +14,12 @@ mock.module('@xyflow/react', () => ({
   useReactFlow: () => ({ setNodes: mockSetNodes }),
 }));
 
-// react-markdown はポータル不要のため children を直接レンダリング
-mock.module('react-markdown', () => ({
-  default: ({ children }: { children: ReactNode }) => <>{children}</>,
-}));
+// react-markdown: spy として呼び出しを記録しつつ children をレンダリング
+const mockReactMarkdown = mock(({ children }: { children: ReactNode }) => (
+  <span data-testid="markdown">{children}</span>
+));
+
+mock.module('react-markdown', () => ({ default: mockReactMarkdown }));
 
 mock.module('remark-gfm', () => ({ default: () => {} }));
 
@@ -44,6 +46,7 @@ const makeProps = (label = 'テストノード'): TestNodeProps => ({
 describe('EditableNode', () => {
   beforeEach(() => {
     mockSetNodes.mockClear();
+    mockReactMarkdown.mockClear();
   });
 
   afterEach(() => {
@@ -53,6 +56,12 @@ describe('EditableNode', () => {
   it('ラベルを表示する', () => {
     render(<EditableNode {...makeProps()} />);
     expect(screen.getByText('テストノード')).toBeDefined();
+  });
+
+  it('ラベルを ReactMarkdown で描画する', () => {
+    render(<EditableNode {...makeProps('**太字**')} />);
+    expect(mockReactMarkdown).toHaveBeenCalled();
+    expect(screen.getByTestId('markdown')).toBeDefined();
   });
 
   it('空ラベルでは編集促進テキストを表示する', () => {

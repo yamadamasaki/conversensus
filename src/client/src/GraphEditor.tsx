@@ -19,6 +19,7 @@ import type { GraphFile } from '@conversensus/shared';
 import { EditableLabelEdge } from './EditableLabelEdge';
 import { EditableNode } from './EditableNode';
 import {
+  DEFAULT_NODE_STYLE,
   fromFlowEdges,
   fromFlowNodes,
   toFlowEdges,
@@ -114,7 +115,7 @@ function GraphEditorInner({ file, onChange }: Props) {
           position: pos,
           data: { label: '' },
           type: 'editableNode',
-          style: { width: 160, height: 80 },
+          style: DEFAULT_NODE_STYLE,
         },
       ]);
     },

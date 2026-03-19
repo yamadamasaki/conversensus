@@ -6,7 +6,7 @@ import type {
 } from '@conversensus/shared';
 import { type Edge, MarkerType, type Node } from '@xyflow/react';
 
-const DEFAULT_NODE_STYLE = { width: 160, height: 80 };
+export const DEFAULT_NODE_STYLE = { width: 160, height: 80 };
 
 export function toFlowNodes(nodes: GraphNode[]): Node[] {
   return nodes.map((n) => ({
@@ -35,7 +35,7 @@ export function fromFlowNodes(nodes: Node[]): GraphNode[] {
     id: n.id as NodeId,
     content: String(n.data.label ?? ''),
     position: n.position,
-    style: n.style,
+    style: { width: n.style?.width, height: n.style?.height },
   }));
 }
 
