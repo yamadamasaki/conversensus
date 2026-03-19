@@ -82,6 +82,7 @@ export function EditableLabelEdge({
               onChange={(e) => setInputValue(e.target.value)}
               onBlur={confirm}
               onKeyDown={(e) => {
+                if (e.isComposing) return; // IME 変換中は無視
                 if (e.key === 'Enter') confirm();
                 if (e.key === 'Escape') cancel();
               }}
