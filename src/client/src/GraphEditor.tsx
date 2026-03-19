@@ -112,8 +112,9 @@ function GraphEditorInner({ file, onChange }: Props) {
         {
           id,
           position: pos,
-          data: { label: '新しいノード' },
+          data: { label: '' },
           type: 'editableNode',
+          style: { width: 160, height: 80 },
         },
       ]);
     },
