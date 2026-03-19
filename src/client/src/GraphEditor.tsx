@@ -8,6 +8,7 @@ import {
   Panel,
   ReactFlow,
   ReactFlowProvider,
+  reconnectEdge,
   useEdgesState,
   useNodesState,
   useReactFlow,
@@ -74,6 +75,14 @@ function GraphEditorInner({ file, onChange }: Props) {
   const nodeTypes = useMemo(() => ({ editableNode: EditableNode }), []);
   const edgeTypes = useMemo(() => ({ editableLabel: EditableLabelEdge }), []);
 
+  const onReconnect = useCallback(
+    (
+      oldEdge: Parameters<typeof reconnectEdge>[0],
+      newConnection: Parameters<typeof reconnectEdge>[1],
+    ) => setEdges((es) => reconnectEdge(oldEdge, newConnection, es)),
+    [setEdges],
+  );
+
   const onConnect: OnConnect = useCallback(
     // React Flow の自動生成 ID は UUID 形式でないため, 明示的に UUID を指定する
     (connection) =>
@@ -129,6 +138,8 @@ function GraphEditorInner({ file, onChange }: Props) {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
+        onReconnect={onReconnect}
+        edgesReconnectable
         onPaneDoubleClick={onPaneDoubleClick}
         fitView
       >
