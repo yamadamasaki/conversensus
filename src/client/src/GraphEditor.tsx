@@ -16,6 +16,7 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 import '@xyflow/react/dist/style.css';
 import type { GraphFile } from '@conversensus/shared';
 import { EditableLabelEdge } from './EditableLabelEdge';
+import { EditableNode } from './EditableNode';
 import {
   fromFlowEdges,
   fromFlowNodes,
@@ -70,6 +71,7 @@ function GraphEditorInner({ file, onChange }: Props) {
     });
   }, [nodes, edges]);
 
+  const nodeTypes = useMemo(() => ({ editableNode: EditableNode }), []);
   const edgeTypes = useMemo(() => ({ editableLabel: EditableLabelEdge }), []);
 
   const onConnect: OnConnect = useCallback(
@@ -98,7 +100,12 @@ function GraphEditorInner({ file, onChange }: Props) {
       };
       setNodes((ns) => [
         ...ns,
-        { id, position: pos, data: { label: '新しいノード' } },
+        {
+          id,
+          position: pos,
+          data: { label: '新しいノード' },
+          type: 'editableNode',
+        },
       ]);
     },
     [setNodes],
@@ -117,6 +124,7 @@ function GraphEditorInner({ file, onChange }: Props) {
       <ReactFlow
         nodes={nodes}
         edges={edges}
+        nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}

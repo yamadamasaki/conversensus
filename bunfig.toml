@@ -1,2 +1,5 @@
 [install]
 # bun workspaces
+
+[test]
+preload = ["./src/test-setup.ts"]

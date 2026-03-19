@@ -11,6 +11,7 @@ export function toFlowNodes(nodes: GraphNode[]): Node[] {
     id: n.id,
     position: n.position,
     data: { label: n.content },
+    type: 'editableNode',
   }));
 }
 
