@@ -1,4 +1,10 @@
 {
+  "permissions": {
+    "allow": [
+      "mcp__plugin_oh-my-claudecode_t__lsp_diagnostics",
+      "mcp__plugin_oh-my-claudecode_t__ast_grep_search"
+    ]
+  },
   "enabledPlugins": {
     "claude-mem@thedotmack": true
   }
