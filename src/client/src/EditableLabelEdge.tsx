@@ -45,7 +45,10 @@ export function EditableLabelEdge({
     setEditing(false);
   }, [id, inputValue, setEdges]);
 
-  const cancel = useCallback(() => setEditing(false), []);
+  const cancel = useCallback(() => {
+    setInputValue(String(label ?? ''));
+    setEditing(false);
+  }, [label]);
 
   return (
     <>
@@ -58,7 +61,10 @@ export function EditableLabelEdge({
         stroke="transparent"
         fill="none"
         style={{ cursor: 'pointer' }}
-        onDoubleClick={startEdit}
+        onDoubleClick={(e) => {
+          e.stopPropagation();
+          startEdit();
+        }}
       />
       <EdgeLabelRenderer>
         <button
@@ -81,7 +87,9 @@ export function EditableLabelEdge({
               autoFocus
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
-              onBlur={confirm}
+              onBlur={() => {
+                if (!composing) confirm();
+              }}
               onCompositionStart={() => setComposing(true)}
               onCompositionEnd={() => setComposing(false)}
               onKeyDown={(e) => {
