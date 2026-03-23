@@ -89,21 +89,9 @@ export function GroupNode({
         style={{ zIndex: 10, pointerEvents: 'all' }}
       />
       <Handle
-        type="target"
-        position={Position.Top}
-        id="target-top"
-        style={{ zIndex: 10, pointerEvents: 'all' }}
-      />
-      <Handle
         type="source"
         position={Position.Bottom}
         id="source-bottom"
-        style={{ zIndex: 10, pointerEvents: 'all' }}
-      />
-      <Handle
-        type="target"
-        position={Position.Bottom}
-        id="target-bottom"
         style={{ zIndex: 10, pointerEvents: 'all' }}
       />
       <Handle
@@ -113,21 +101,9 @@ export function GroupNode({
         style={{ zIndex: 10, pointerEvents: 'all' }}
       />
       <Handle
-        type="target"
-        position={Position.Left}
-        id="target-left"
-        style={{ zIndex: 10, pointerEvents: 'all' }}
-      />
-      <Handle
         type="source"
         position={Position.Right}
         id="source-right"
-        style={{ zIndex: 10, pointerEvents: 'all' }}
-      />
-      <Handle
-        type="target"
-        position={Position.Right}
-        id="target-right"
         style={{ zIndex: 10, pointerEvents: 'all' }}
       />
       <div

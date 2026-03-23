@@ -1,6 +1,7 @@
 import {
   addEdge,
   Background,
+  ConnectionMode,
   Controls,
   MarkerType,
   MiniMap,
@@ -132,9 +133,16 @@ function GraphEditorInner({ file, onChange }: Props) {
   const groupSelectedNodes = useCallback(() => {
     setNodes((ns) => {
       const selected = ns.filter((n) => n.selected);
-      if (selected.length < 2) return ns;
+      if (selected.length < 1) return ns;
 
-      // 選択ノードのバウンディングボックスを計算 (絶対座標)
+      // 選択ノードが同じ親を持つ場合, その親の中にグループを作る
+      const sharedParentId = selected.every(
+        (n) => n.parentId === selected[0].parentId,
+      )
+        ? selected[0].parentId
+        : undefined;
+
+      // 選択ノードのバウンディングボックスを計算 (sharedParentId がある場合は相対座標)
       const minX = Math.min(...selected.map((n) => n.position.x));
       const minY = Math.min(...selected.map((n) => n.position.y));
       const maxX = Math.max(
@@ -169,26 +177,38 @@ function GraphEditorInner({ file, onChange }: Props) {
         position: { x: parentX, y: parentY },
         data: { label: 'グループ' },
         type: 'groupNode' as const,
+        parentId: sharedParentId,
         style: { width: parentWidth, height: parentHeight, nodeType: 'group' },
       };
 
       const selectedIds = new Set(selected.map((n) => n.id));
 
-      return [
-        parentNode,
-        ...ns.map((n) => {
-          if (!selectedIds.has(n.id)) return n;
-          return {
-            ...n,
-            parentId,
-            selected: false,
-            position: {
-              x: n.position.x - parentX,
-              y: n.position.y - parentY,
-            },
-          };
-        }),
-      ];
+      const mappedNodes = ns.map((n) => {
+        if (!selectedIds.has(n.id)) return n;
+        return {
+          ...n,
+          parentId,
+          selected: false,
+          position: {
+            x: n.position.x - parentX,
+            y: n.position.y - parentY,
+          },
+        };
+      });
+
+      // React Flow では親ノードを子ノードより前に配置する必要がある
+      // ネスト時は sharedParentId の直後に挿入する
+      if (sharedParentId) {
+        const idx = mappedNodes.findIndex((n) => n.id === sharedParentId);
+        const insertAt = idx >= 0 ? idx + 1 : 0;
+        return [
+          ...mappedNodes.slice(0, insertAt),
+          parentNode,
+          ...mappedNodes.slice(insertAt),
+        ];
+      }
+
+      return [parentNode, ...mappedNodes];
     });
   }, [setNodes]);
 
@@ -238,7 +258,7 @@ function GraphEditorInner({ file, onChange }: Props) {
         edgeTypes={edgeTypes}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
-        connectionMode="loose"
+        connectionMode={ConnectionMode.Loose}
         onConnect={onConnect}
         onReconnect={onReconnect}
         onNodeDragStop={onNodeDragStop}

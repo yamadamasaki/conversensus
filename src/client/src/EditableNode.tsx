@@ -56,9 +56,7 @@ export function EditableNode({ id, data, selected }: NodeProps) {
         minHeight={40}
         onResizeEnd={onResizeEnd}
       />
-      <Handle type="target" position={Position.Top} id="target-top" />
-      <Handle type="target" position={Position.Left} id="target-left" />
-      <Handle type="target" position={Position.Right} id="target-right" />
+      <Handle type="source" position={Position.Top} id="source-top" />
       {/* biome-ignore lint/a11y/noStaticElementInteractions: ノードコンテナはダブルクリックで編集を開始する */}
       <div
         style={{
