@@ -46,9 +46,17 @@ export function EditableNode({ id, data, selected }: NodeProps) {
   return (
     <>
       <NodeResizer isVisible={selected} minWidth={80} minHeight={40} />
-      <Handle type="target" position={Position.Top} id="target-top" />
-      <Handle type="target" position={Position.Left} id="target-left" />
-      <Handle type="target" position={Position.Right} id="target-right" />
+      <Handle
+        type="source"
+        position={Position.Top}
+        id="center"
+        style={{
+          left: '50%',
+          top: '50%',
+          transform: 'translate(-50%, -50%)',
+          opacity: 0,
+        }}
+      />
       {/* biome-ignore lint/a11y/noStaticElementInteractions: ノードコンテナはダブルクリックで編集を開始する */}
       <div
         style={{
@@ -104,9 +112,6 @@ export function EditableNode({ id, data, selected }: NodeProps) {
           </div>
         )}
       </div>
-      <Handle type="source" position={Position.Bottom} id="source-bottom" />
-      <Handle type="source" position={Position.Left} id="source-left" />
-      <Handle type="source" position={Position.Right} id="source-right" />
     </>
   );
 }
