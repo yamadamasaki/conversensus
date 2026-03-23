@@ -21,6 +21,13 @@ export function GroupNode({
     [setNodes],
   );
 
+  // ドラッグのたびに変わる絶対座標を ref で保持し, コールバックの再生成を防ぐ
+  const positionAbsoluteRef = useRef({
+    x: positionAbsoluteX,
+    y: positionAbsoluteY,
+  });
+  positionAbsoluteRef.current = { x: positionAbsoluteX, y: positionAbsoluteY };
+
   const onBodyDoubleClick = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
@@ -31,8 +38,8 @@ export function GroupNode({
           id: crypto.randomUUID(),
           parentId: id,
           position: {
-            x: flowPos.x - positionAbsoluteX,
-            y: flowPos.y - positionAbsoluteY,
+            x: flowPos.x - positionAbsoluteRef.current.x,
+            y: flowPos.y - positionAbsoluteRef.current.y,
           },
           data: { label: '' },
           type: 'editableNode',
@@ -40,7 +47,7 @@ export function GroupNode({
         },
       ]);
     },
-    [id, positionAbsoluteX, positionAbsoluteY, screenToFlowPosition, setNodes],
+    [id, screenToFlowPosition, setNodes],
   );
   const [editing, setEditing] = useState(false);
   const [inputValue, setInputValue] = useState('');

@@ -33,6 +33,9 @@ import {
   toFlowNodes,
 } from './graphTransform';
 
+const DOUBLE_CLICK_INTERVAL_MS = 300;
+const DOUBLE_CLICK_THRESHOLD_PX = 5;
+
 type Props = {
   file: GraphFile;
   onChange: (file: GraphFile) => void;
@@ -250,8 +253,13 @@ function GraphEditorInner({ file, onChange }: Props) {
       const now = Date.now();
       const dx = e.clientX - lastPaneClickPos.current.x;
       const dy = e.clientY - lastPaneClickPos.current.y;
-      const isSameSpot = Math.abs(dx) < 5 && Math.abs(dy) < 5;
-      if (now - lastPaneClickTime.current < 300 && isSameSpot) {
+      const isSameSpot =
+        Math.abs(dx) < DOUBLE_CLICK_THRESHOLD_PX &&
+        Math.abs(dy) < DOUBLE_CLICK_THRESHOLD_PX;
+      if (
+        now - lastPaneClickTime.current < DOUBLE_CLICK_INTERVAL_MS &&
+        isSameSpot
+      ) {
         const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
         addNode(pos);
         lastPaneClickTime.current = 0;
