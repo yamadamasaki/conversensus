@@ -208,10 +208,23 @@ function GraphEditorInner({ file, onChange }: Props) {
     setNodes((ns) => recalculateParentBounds(ns));
   }, [setNodes]);
 
-  const onPaneDoubleClick = useCallback(
-    (e: MouseEvent) => {
-      const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
-      addNode(pos);
+  const lastPaneClickTime = useRef(0);
+  const lastPaneClickPos = useRef({ x: 0, y: 0 });
+
+  const onPaneClick = useCallback(
+    (e: React.MouseEvent) => {
+      const now = Date.now();
+      const dx = e.clientX - lastPaneClickPos.current.x;
+      const dy = e.clientY - lastPaneClickPos.current.y;
+      const isSameSpot = Math.abs(dx) < 5 && Math.abs(dy) < 5;
+      if (now - lastPaneClickTime.current < 300 && isSameSpot) {
+        const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+        addNode(pos);
+        lastPaneClickTime.current = 0;
+      } else {
+        lastPaneClickTime.current = now;
+        lastPaneClickPos.current = { x: e.clientX, y: e.clientY };
+      }
     },
     [screenToFlowPosition, addNode],
   );
@@ -230,7 +243,8 @@ function GraphEditorInner({ file, onChange }: Props) {
         onReconnect={onReconnect}
         onNodeDragStop={onNodeDragStop}
         edgesReconnectable
-        onPaneDoubleClick={onPaneDoubleClick}
+        onPaneClick={onPaneClick}
+        zoomOnDoubleClick={false}
         fitView
       >
         <Background />
