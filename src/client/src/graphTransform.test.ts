@@ -9,6 +9,7 @@ import { type Edge, MarkerType, type Node } from '@xyflow/react';
 import {
   fromFlowEdges,
   fromFlowNodes,
+  recalculateParentBounds,
   toFlowEdges,
   toFlowNodes,
 } from './graphTransform';
@@ -158,6 +159,151 @@ describe('toFlowNodes → fromFlowNodes の対称性', () => {
       content: 'ノード2',
       style: { x: 100, y: 200 },
     });
+  });
+});
+
+describe('toFlowNodes: グループノード (parentId / nodeType)', () => {
+  it('nodeType=group の GraphNode は groupNode 型に変換される', () => {
+    const nodes: GraphNode[] = [
+      {
+        id: 'g1' as NodeId,
+        content: 'グループ',
+        style: { x: 0, y: 0, width: 200, height: 150, nodeType: 'group' },
+      },
+    ];
+    expect(toFlowNodes(nodes)[0].type).toBe('groupNode');
+  });
+
+  it('parentId を持つ GraphNode は parentId が引き継がれる', () => {
+    const nodes: GraphNode[] = [
+      {
+        id: 'n1' as NodeId,
+        content: 'child',
+        parentId: 'g1' as NodeId,
+        style: { x: 20, y: 50 },
+      },
+    ];
+    expect(toFlowNodes(nodes)[0].parentId).toBe('g1');
+  });
+});
+
+describe('fromFlowNodes: parentId / groupNode', () => {
+  it('parentId を持つ Node は parentId が引き継がれる', () => {
+    const flowNodes: Node[] = [
+      {
+        id: 'n1',
+        parentId: 'g1',
+        position: { x: 20, y: 50 },
+        data: { label: 'child' },
+        type: 'editableNode',
+      },
+    ];
+    expect(fromFlowNodes(flowNodes)[0].parentId).toBe('g1');
+  });
+
+  it('groupNode 型は style.nodeType=group として保存される', () => {
+    const flowNodes: Node[] = [
+      {
+        id: 'g1',
+        position: { x: 0, y: 0 },
+        data: { label: 'グループ' },
+        type: 'groupNode',
+      },
+    ];
+    expect(fromFlowNodes(flowNodes)[0].style?.nodeType).toBe('group');
+  });
+});
+
+describe('recalculateParentBounds', () => {
+  const makeParent = (
+    id: string,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+  ): Node => ({
+    id,
+    position: { x, y },
+    data: {},
+    type: 'groupNode',
+    style: { width: w, height: h },
+  });
+
+  const makeChild = (
+    id: string,
+    parentId: string,
+    x: number,
+    y: number,
+    w = 160,
+    h = 80,
+  ): Node => ({
+    id,
+    parentId,
+    position: { x, y },
+    data: {},
+    type: 'editableNode',
+    style: { width: w, height: h },
+  });
+
+  it('子ノードがない場合は変化なし', () => {
+    const nodes = [makeParent('g1', 0, 0, 300, 200)];
+    expect(recalculateParentBounds(nodes)).toEqual(nodes);
+  });
+
+  it('子ノードが境界内に収まっている場合は変化なし', () => {
+    // child at (20, 50) with 160x80: right=180 < 300-20, bottom=130 < 200-20
+    const nodes = [
+      makeParent('g1', 0, 0, 300, 200),
+      makeChild('n1', 'g1', 20, 50),
+    ];
+    expect(recalculateParentBounds(nodes)).toEqual(nodes);
+  });
+
+  it('子ノードが右にはみ出した場合, 親の幅が拡大される', () => {
+    // child at (200, 50): right=360 → newWidth = 360 + GROUP_PADDING = 380
+    const nodes = [
+      makeParent('g1', 0, 0, 300, 200),
+      makeChild('n1', 'g1', 200, 50),
+    ];
+    const result = recalculateParentBounds(nodes);
+    const parent = result.find((n) => n.id === 'g1');
+    expect(Number(parent?.style?.width)).toBe(380);
+    expect(Number(parent?.style?.height)).toBe(200);
+    expect(parent?.position).toEqual({ x: 0, y: 0 });
+  });
+
+  it('子ノードが下にはみ出した場合, 親の高さが拡大される', () => {
+    // child at (20, 150): bottom=230 → newHeight = 230 + GROUP_PADDING = 250
+    const nodes = [
+      makeParent('g1', 0, 0, 300, 200),
+      makeChild('n1', 'g1', 20, 150),
+    ];
+    const result = recalculateParentBounds(nodes);
+    expect(Number(result.find((n) => n.id === 'g1')?.style?.height)).toBe(250);
+  });
+
+  it('子ノードが左にはみ出した場合, 親が左にシフトし子の相対位置が調整される', () => {
+    // child at (5, 50): leftOverflow = GROUP_PADDING - 5 = 15
+    // parent.x = 100 - 15 = 85, child.x = 5 + 15 = 20
+    const nodes = [
+      makeParent('g1', 100, 100, 300, 200),
+      makeChild('n1', 'g1', 5, 50),
+    ];
+    const result = recalculateParentBounds(nodes);
+    expect(result.find((n) => n.id === 'g1')?.position.x).toBe(85);
+    expect(result.find((n) => n.id === 'n1')?.position.x).toBe(20);
+  });
+
+  it('子ノードが上にはみ出した場合, 親が上にシフトし子の相対位置が調整される', () => {
+    // child at (20, 10): topOverflow = GROUP_TITLE_HEIGHT + GROUP_PADDING - 10 = 40
+    // parent.y = 100 - 40 = 60, child.y = 10 + 40 = 50
+    const nodes = [
+      makeParent('g1', 100, 100, 300, 200),
+      makeChild('n1', 'g1', 20, 10),
+    ];
+    const result = recalculateParentBounds(nodes);
+    expect(result.find((n) => n.id === 'g1')?.position.y).toBe(60);
+    expect(result.find((n) => n.id === 'n1')?.position.y).toBe(50);
   });
 });
 

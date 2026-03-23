@@ -23,12 +23,12 @@ import {
   DEFAULT_NODE_STYLE,
   fromFlowEdges,
   fromFlowNodes,
+  GROUP_PADDING,
+  GROUP_TITLE_HEIGHT,
+  recalculateParentBounds,
   toFlowEdges,
   toFlowNodes,
 } from './graphTransform';
-
-const GROUP_PADDING = 20;
-const GROUP_TITLE_HEIGHT = 30;
 
 type Props = {
   file: GraphFile;
@@ -204,6 +204,10 @@ function GraphEditorInner({ file, onChange }: Props) {
     return () => window.removeEventListener('keydown', handler);
   }, [groupSelectedNodes]);
 
+  const onNodeDragStop = useCallback(() => {
+    setNodes((ns) => recalculateParentBounds(ns));
+  }, [setNodes]);
+
   const onPaneDoubleClick = useCallback(
     (e: MouseEvent) => {
       const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
@@ -224,6 +228,7 @@ function GraphEditorInner({ file, onChange }: Props) {
         connectionMode="loose"
         onConnect={onConnect}
         onReconnect={onReconnect}
+        onNodeDragStop={onNodeDragStop}
         edgesReconnectable
         onPaneDoubleClick={onPaneDoubleClick}
         fitView

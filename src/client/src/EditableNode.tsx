@@ -8,9 +8,14 @@ import {
 import { useCallback, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { recalculateParentBounds } from './graphTransform';
 
 export function EditableNode({ id, data, selected }: NodeProps) {
   const { setNodes } = useReactFlow();
+  const onResizeEnd = useCallback(
+    () => setNodes((ns) => recalculateParentBounds(ns)),
+    [setNodes],
+  );
   const [editing, setEditing] = useState(false);
   const [inputValue, setInputValue] = useState('');
   // Escape 後の onBlur で confirm が呼ばれないようにするフラグ
@@ -45,7 +50,12 @@ export function EditableNode({ id, data, selected }: NodeProps) {
 
   return (
     <>
-      <NodeResizer isVisible={selected} minWidth={80} minHeight={40} />
+      <NodeResizer
+        isVisible={selected}
+        minWidth={80}
+        minHeight={40}
+        onResizeEnd={onResizeEnd}
+      />
       <Handle type="target" position={Position.Top} id="target-top" />
       <Handle type="target" position={Position.Left} id="target-left" />
       <Handle type="target" position={Position.Right} id="target-right" />

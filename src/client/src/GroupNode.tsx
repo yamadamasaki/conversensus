@@ -6,9 +6,14 @@ import {
   useReactFlow,
 } from '@xyflow/react';
 import { useCallback, useRef, useState } from 'react';
+import { recalculateParentBounds } from './graphTransform';
 
 export function GroupNode({ id, data, selected }: NodeProps) {
   const { setNodes } = useReactFlow();
+  const onResizeEnd = useCallback(
+    () => setNodes((ns) => recalculateParentBounds(ns)),
+    [setNodes],
+  );
   const [editing, setEditing] = useState(false);
   const [inputValue, setInputValue] = useState('');
   const [composing, setComposing] = useState(false);
@@ -43,7 +48,12 @@ export function GroupNode({ id, data, selected }: NodeProps) {
 
   return (
     <>
-      <NodeResizer isVisible={selected} minWidth={120} minHeight={80} />
+      <NodeResizer
+        isVisible={selected}
+        minWidth={120}
+        minHeight={80}
+        onResizeEnd={onResizeEnd}
+      />
       <Handle
         type="source"
         position={Position.Top}
