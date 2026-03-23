@@ -27,6 +27,7 @@ export type Style = z.infer<typeof StyleSchema>;
 export const GraphNodeSchema = z.object({
   id: NodeIdSchema,
   content: z.string(),
+  parentId: NodeIdSchema.optional(),
   style: StyleSchema.optional(),
 });
 
