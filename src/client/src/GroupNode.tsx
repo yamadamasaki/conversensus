@@ -11,6 +11,7 @@ export function GroupNode({ id, data, selected }: NodeProps) {
   const { setNodes } = useReactFlow();
   const [editing, setEditing] = useState(false);
   const [inputValue, setInputValue] = useState('');
+  const [composing, setComposing] = useState(false);
   const cancelledRef = useRef(false);
 
   const label = String(data.label ?? '');
@@ -91,7 +92,10 @@ export function GroupNode({ id, data, selected }: NodeProps) {
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onBlur={confirm}
+              onCompositionStart={() => setComposing(true)}
+              onCompositionEnd={() => setComposing(false)}
               onKeyDown={(e) => {
+                if (composing) return;
                 if (e.key === 'Enter') confirm();
                 if (e.key === 'Escape') cancel();
               }}
