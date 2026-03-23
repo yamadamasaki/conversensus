@@ -44,17 +44,10 @@ export function GroupNode({ id, data, selected }: NodeProps) {
   return (
     <>
       <NodeResizer isVisible={selected} minWidth={120} minHeight={80} />
-      <Handle
-        type="source"
-        position={Position.Top}
-        id="center"
-        style={{
-          left: '50%',
-          top: '50%',
-          transform: 'translate(-50%, -50%)',
-          opacity: 0,
-        }}
-      />
+      <Handle type="source" position={Position.Top} id="top" />
+      <Handle type="source" position={Position.Bottom} id="bottom" />
+      <Handle type="source" position={Position.Left} id="left" />
+      <Handle type="source" position={Position.Right} id="right" />
       <div
         style={{
           width: '100%',
