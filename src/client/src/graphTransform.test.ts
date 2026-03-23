@@ -318,3 +318,82 @@ describe('toFlowEdges → fromFlowEdges の対称性', () => {
     });
   });
 });
+
+describe('toFlowEdges: sourceHandle / targetHandle', () => {
+  it('sourceHandle と targetHandle が React Flow の Edge に渡される', () => {
+    const edges: GraphEdge[] = [
+      {
+        id: 'e1' as EdgeId,
+        source: 'n1' as NodeId,
+        target: 'n2' as NodeId,
+        sourceHandle: 'source-bottom',
+        targetHandle: 'source-top',
+      },
+    ];
+    const result = toFlowEdges(edges);
+    expect(result[0].sourceHandle).toBe('source-bottom');
+    expect(result[0].targetHandle).toBe('source-top');
+  });
+
+  it('sourceHandle / targetHandle が undefined の場合は undefined になる', () => {
+    const result = toFlowEdges(graphEdges);
+    expect(result[0].sourceHandle).toBeUndefined();
+    expect(result[0].targetHandle).toBeUndefined();
+  });
+});
+
+describe('fromFlowEdges: sourceHandle / targetHandle', () => {
+  it('sourceHandle と targetHandle が GraphEdge に保持される', () => {
+    const flowEdges: Edge[] = [
+      {
+        id: 'e1',
+        source: 'n1',
+        target: 'n2',
+        sourceHandle: 'source-bottom',
+        targetHandle: 'source-top',
+      },
+    ];
+    const result = fromFlowEdges(flowEdges);
+    expect(result[0].sourceHandle).toBe('source-bottom');
+    expect(result[0].targetHandle).toBe('source-top');
+  });
+
+  it('sourceHandle が null の場合は undefined になる', () => {
+    const flowEdges: Edge[] = [
+      {
+        id: 'e1',
+        source: 'n1',
+        target: 'n2',
+        sourceHandle: null,
+        targetHandle: null,
+      },
+    ];
+    const result = fromFlowEdges(flowEdges);
+    expect(result[0].sourceHandle).toBeUndefined();
+    expect(result[0].targetHandle).toBeUndefined();
+  });
+
+  it('sourceHandle がない Edge は undefined になる', () => {
+    const flowEdges: Edge[] = [{ id: 'e1', source: 'n1', target: 'n2' }];
+    const result = fromFlowEdges(flowEdges);
+    expect(result[0].sourceHandle).toBeUndefined();
+    expect(result[0].targetHandle).toBeUndefined();
+  });
+});
+
+describe('toFlowEdges → fromFlowEdges: sourceHandle / targetHandle の対称性', () => {
+  it('handle 情報が変換して戻すと復元される', () => {
+    const edges: GraphEdge[] = [
+      {
+        id: 'e1' as EdgeId,
+        source: 'n1' as NodeId,
+        target: 'n2' as NodeId,
+        sourceHandle: 'source-right',
+        targetHandle: 'source-left',
+      },
+    ];
+    const result = fromFlowEdges(toFlowEdges(edges));
+    expect(result[0].sourceHandle).toBe('source-right');
+    expect(result[0].targetHandle).toBe('source-left');
+  });
+});
