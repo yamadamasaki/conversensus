@@ -237,38 +237,21 @@ function GraphEditorInner({ file, onChange }: Props) {
         <Controls />
         <MiniMap />
         <Panel position="top-right">
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button
-              type="button"
-              onClick={() => addNode()}
-              style={{
-                padding: '6px 12px',
-                fontSize: 13,
-                cursor: 'pointer',
-                background: '#4f6ef7',
-                color: '#fff',
-                border: 'none',
-                borderRadius: 6,
-              }}
-            >
-              + ノードを追加
-            </button>
-            <button
-              type="button"
-              onClick={groupSelectedNodes}
-              style={{
-                padding: '6px 12px',
-                fontSize: 13,
-                cursor: 'pointer',
-                background: '#7c9ef8',
-                color: '#fff',
-                border: 'none',
-                borderRadius: 6,
-              }}
-            >
-              グループ化
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={groupSelectedNodes}
+            style={{
+              padding: '6px 12px',
+              fontSize: 13,
+              cursor: 'pointer',
+              background: '#7c9ef8',
+              color: '#fff',
+              border: 'none',
+              borderRadius: 6,
+            }}
+          >
+            グループ化
+          </button>
         </Panel>
       </ReactFlow>
     </div>

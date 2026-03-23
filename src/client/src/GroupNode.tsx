@@ -6,13 +6,41 @@ import {
   useReactFlow,
 } from '@xyflow/react';
 import { useCallback, useRef, useState } from 'react';
-import { recalculateParentBounds } from './graphTransform';
+import { DEFAULT_NODE_STYLE, recalculateParentBounds } from './graphTransform';
 
-export function GroupNode({ id, data, selected }: NodeProps) {
-  const { setNodes } = useReactFlow();
+export function GroupNode({
+  id,
+  data,
+  selected,
+  positionAbsoluteX,
+  positionAbsoluteY,
+}: NodeProps) {
+  const { setNodes, screenToFlowPosition } = useReactFlow();
   const onResizeEnd = useCallback(
     () => setNodes((ns) => recalculateParentBounds(ns)),
     [setNodes],
+  );
+
+  const onBodyDoubleClick = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      const flowPos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+      setNodes((ns) => [
+        ...ns,
+        {
+          id: crypto.randomUUID(),
+          parentId: id,
+          position: {
+            x: flowPos.x - positionAbsoluteX,
+            y: flowPos.y - positionAbsoluteY,
+          },
+          data: { label: '' },
+          type: 'editableNode',
+          style: DEFAULT_NODE_STYLE,
+        },
+      ]);
+    },
+    [id, positionAbsoluteX, positionAbsoluteY, screenToFlowPosition, setNodes],
   );
   const [editing, setEditing] = useState(false);
   const [inputValue, setInputValue] = useState('');
@@ -129,7 +157,14 @@ export function GroupNode({ id, data, selected }: NodeProps) {
             display: 'flex',
             alignItems: 'center',
           }}
-          onDoubleClick={!editing ? startEdit : undefined}
+          onDoubleClick={
+            !editing
+              ? (e) => {
+                  e.stopPropagation();
+                  startEdit();
+                }
+              : undefined
+          }
         >
           {editing ? (
             <input
@@ -162,7 +197,8 @@ export function GroupNode({ id, data, selected }: NodeProps) {
             <span>{label || 'グループ'}</span>
           )}
         </div>
-        <div style={{ flex: 1 }} />
+        {/* biome-ignore lint/a11y/noStaticElementInteractions: 本体エリアはダブルクリックで子ノードを追加する */}
+        <div style={{ flex: 1 }} onDoubleClick={onBodyDoubleClick} />
       </div>
     </>
   );
