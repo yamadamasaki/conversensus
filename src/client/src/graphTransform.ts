@@ -16,7 +16,8 @@ export function toFlowNodes(nodes: GraphNode[]): Node[] {
       y: typeof n.style?.y === 'number' ? n.style.y : 0,
     },
     data: { label: n.content },
-    type: 'editableNode',
+    type: n.style?.nodeType === 'group' ? 'groupNode' : 'editableNode',
+    parentId: n.parentId,
     style: n.style ?? DEFAULT_NODE_STYLE,
   }));
 }
@@ -37,11 +38,13 @@ export function fromFlowNodes(nodes: Node[]): GraphNode[] {
   return nodes.map((n) => ({
     id: n.id as NodeId,
     content: String(n.data.label ?? ''),
+    parentId: n.parentId as NodeId | undefined,
     style: {
       x: n.position.x,
       y: n.position.y,
       width: n.style?.width,
       height: n.style?.height,
+      ...(n.type === 'groupNode' ? { nodeType: 'group' } : {}),
     },
   }));
 }
