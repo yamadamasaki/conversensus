@@ -1,15 +1,17 @@
 import {
   addEdge,
   Background,
+  type Connection,
   ConnectionMode,
   Controls,
+  type Edge,
   MarkerType,
   MiniMap,
   type OnConnect,
+  type OnReconnect,
   Panel,
   ReactFlow,
   ReactFlowProvider,
-  reconnectEdge,
   useEdgesState,
   useNodesState,
   useReactFlow,
@@ -84,11 +86,23 @@ function GraphEditorInner({ file, onChange }: Props) {
   );
   const edgeTypes = useMemo(() => ({ editableLabel: EditableLabelEdge }), []);
 
-  const onReconnect = useCallback(
-    (
-      oldEdge: Parameters<typeof reconnectEdge>[0],
-      newConnection: Parameters<typeof reconnectEdge>[1],
-    ) => setEdges((es) => reconnectEdge(oldEdge, newConnection, es)),
+  // reconnectEdge は元の UUID を破棄して xy-edge__... 形式の ID を生成するため,
+  // 元の ID を保持したまま接続先のみ更新する独自実装を使用する
+  const onReconnect: OnReconnect = useCallback(
+    (oldEdge: Edge, newConnection: Connection) =>
+      setEdges((es) =>
+        es.map((e) =>
+          e.id === oldEdge.id
+            ? {
+                ...e,
+                source: newConnection.source,
+                target: newConnection.target,
+                sourceHandle: newConnection.sourceHandle,
+                targetHandle: newConnection.targetHandle,
+              }
+            : e,
+        ),
+      ),
     [setEdges],
   );
 
