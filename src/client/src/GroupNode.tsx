@@ -44,10 +44,54 @@ export function GroupNode({ id, data, selected }: NodeProps) {
   return (
     <>
       <NodeResizer isVisible={selected} minWidth={120} minHeight={80} />
-      <Handle type="source" position={Position.Top} id="top" />
-      <Handle type="source" position={Position.Bottom} id="bottom" />
-      <Handle type="source" position={Position.Left} id="left" />
-      <Handle type="source" position={Position.Right} id="right" />
+      <Handle
+        type="source"
+        position={Position.Top}
+        id="source-top"
+        style={{ zIndex: 10, pointerEvents: 'all' }}
+      />
+      <Handle
+        type="target"
+        position={Position.Top}
+        id="target-top"
+        style={{ zIndex: 10, pointerEvents: 'all' }}
+      />
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        id="source-bottom"
+        style={{ zIndex: 10, pointerEvents: 'all' }}
+      />
+      <Handle
+        type="target"
+        position={Position.Bottom}
+        id="target-bottom"
+        style={{ zIndex: 10, pointerEvents: 'all' }}
+      />
+      <Handle
+        type="source"
+        position={Position.Left}
+        id="source-left"
+        style={{ zIndex: 10, pointerEvents: 'all' }}
+      />
+      <Handle
+        type="target"
+        position={Position.Left}
+        id="target-left"
+        style={{ zIndex: 10, pointerEvents: 'all' }}
+      />
+      <Handle
+        type="source"
+        position={Position.Right}
+        id="source-right"
+        style={{ zIndex: 10, pointerEvents: 'all' }}
+      />
+      <Handle
+        type="target"
+        position={Position.Right}
+        id="target-right"
+        style={{ zIndex: 10, pointerEvents: 'all' }}
+      />
       <div
         style={{
           width: '100%',
