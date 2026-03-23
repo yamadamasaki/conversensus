@@ -1,14 +1,17 @@
 import {
   addEdge,
   Background,
+  type Connection,
+  ConnectionMode,
   Controls,
+  type Edge,
   MarkerType,
   MiniMap,
   type OnConnect,
+  type OnReconnect,
   Panel,
   ReactFlow,
   ReactFlowProvider,
-  reconnectEdge,
   useEdgesState,
   useNodesState,
   useReactFlow,
@@ -29,6 +32,9 @@ import {
   toFlowEdges,
   toFlowNodes,
 } from './graphTransform';
+
+const DOUBLE_CLICK_INTERVAL_MS = 300;
+const DOUBLE_CLICK_THRESHOLD_PX = 5;
 
 type Props = {
   file: GraphFile;
@@ -83,11 +89,23 @@ function GraphEditorInner({ file, onChange }: Props) {
   );
   const edgeTypes = useMemo(() => ({ editableLabel: EditableLabelEdge }), []);
 
-  const onReconnect = useCallback(
-    (
-      oldEdge: Parameters<typeof reconnectEdge>[0],
-      newConnection: Parameters<typeof reconnectEdge>[1],
-    ) => setEdges((es) => reconnectEdge(oldEdge, newConnection, es)),
+  // reconnectEdge は元の UUID を破棄して xy-edge__... 形式の ID を生成するため,
+  // 元の ID を保持したまま接続先のみ更新する独自実装を使用する
+  const onReconnect: OnReconnect = useCallback(
+    (oldEdge: Edge, newConnection: Connection) =>
+      setEdges((es) =>
+        es.map((e) =>
+          e.id === oldEdge.id
+            ? {
+                ...e,
+                source: newConnection.source,
+                target: newConnection.target,
+                sourceHandle: newConnection.sourceHandle,
+                targetHandle: newConnection.targetHandle,
+              }
+            : e,
+        ),
+      ),
     [setEdges],
   );
 
@@ -132,9 +150,16 @@ function GraphEditorInner({ file, onChange }: Props) {
   const groupSelectedNodes = useCallback(() => {
     setNodes((ns) => {
       const selected = ns.filter((n) => n.selected);
-      if (selected.length < 2) return ns;
+      if (selected.length < 1) return ns;
 
-      // 選択ノードのバウンディングボックスを計算 (絶対座標)
+      // 選択ノードが同じ親を持つ場合, その親の中にグループを作る
+      const sharedParentId = selected.every(
+        (n) => n.parentId === selected[0].parentId,
+      )
+        ? selected[0].parentId
+        : undefined;
+
+      // 選択ノードのバウンディングボックスを計算 (sharedParentId がある場合は相対座標)
       const minX = Math.min(...selected.map((n) => n.position.x));
       const minY = Math.min(...selected.map((n) => n.position.y));
       const maxX = Math.max(
@@ -169,26 +194,38 @@ function GraphEditorInner({ file, onChange }: Props) {
         position: { x: parentX, y: parentY },
         data: { label: 'グループ' },
         type: 'groupNode' as const,
+        parentId: sharedParentId,
         style: { width: parentWidth, height: parentHeight, nodeType: 'group' },
       };
 
       const selectedIds = new Set(selected.map((n) => n.id));
 
-      return [
-        parentNode,
-        ...ns.map((n) => {
-          if (!selectedIds.has(n.id)) return n;
-          return {
-            ...n,
-            parentId,
-            selected: false,
-            position: {
-              x: n.position.x - parentX,
-              y: n.position.y - parentY,
-            },
-          };
-        }),
-      ];
+      const mappedNodes = ns.map((n) => {
+        if (!selectedIds.has(n.id)) return n;
+        return {
+          ...n,
+          parentId,
+          selected: false,
+          position: {
+            x: n.position.x - parentX,
+            y: n.position.y - parentY,
+          },
+        };
+      });
+
+      // React Flow では親ノードを子ノードより前に配置する必要がある
+      // ネスト時は sharedParentId の直後に挿入する
+      if (sharedParentId) {
+        const idx = mappedNodes.findIndex((n) => n.id === sharedParentId);
+        const insertAt = idx >= 0 ? idx + 1 : 0;
+        return [
+          ...mappedNodes.slice(0, insertAt),
+          parentNode,
+          ...mappedNodes.slice(insertAt),
+        ];
+      }
+
+      return [parentNode, ...mappedNodes];
     });
   }, [setNodes]);
 
@@ -208,10 +245,28 @@ function GraphEditorInner({ file, onChange }: Props) {
     setNodes((ns) => recalculateParentBounds(ns));
   }, [setNodes]);
 
-  const onPaneDoubleClick = useCallback(
-    (e: MouseEvent) => {
-      const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
-      addNode(pos);
+  const lastPaneClickTime = useRef(0);
+  const lastPaneClickPos = useRef({ x: 0, y: 0 });
+
+  const onPaneClick = useCallback(
+    (e: React.MouseEvent) => {
+      const now = Date.now();
+      const dx = e.clientX - lastPaneClickPos.current.x;
+      const dy = e.clientY - lastPaneClickPos.current.y;
+      const isSameSpot =
+        Math.abs(dx) < DOUBLE_CLICK_THRESHOLD_PX &&
+        Math.abs(dy) < DOUBLE_CLICK_THRESHOLD_PX;
+      if (
+        now - lastPaneClickTime.current < DOUBLE_CLICK_INTERVAL_MS &&
+        isSameSpot
+      ) {
+        const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+        addNode(pos);
+        lastPaneClickTime.current = 0;
+      } else {
+        lastPaneClickTime.current = now;
+        lastPaneClickPos.current = { x: e.clientX, y: e.clientY };
+      }
     },
     [screenToFlowPosition, addNode],
   );
@@ -225,50 +280,34 @@ function GraphEditorInner({ file, onChange }: Props) {
         edgeTypes={edgeTypes}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
-        connectionMode="loose"
+        connectionMode={ConnectionMode.Loose}
         onConnect={onConnect}
         onReconnect={onReconnect}
         onNodeDragStop={onNodeDragStop}
         edgesReconnectable
-        onPaneDoubleClick={onPaneDoubleClick}
+        onPaneClick={onPaneClick}
+        zoomOnDoubleClick={false}
         fitView
       >
         <Background />
         <Controls />
         <MiniMap />
         <Panel position="top-right">
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button
-              type="button"
-              onClick={() => addNode()}
-              style={{
-                padding: '6px 12px',
-                fontSize: 13,
-                cursor: 'pointer',
-                background: '#4f6ef7',
-                color: '#fff',
-                border: 'none',
-                borderRadius: 6,
-              }}
-            >
-              + ノードを追加
-            </button>
-            <button
-              type="button"
-              onClick={groupSelectedNodes}
-              style={{
-                padding: '6px 12px',
-                fontSize: 13,
-                cursor: 'pointer',
-                background: '#7c9ef8',
-                color: '#fff',
-                border: 'none',
-                borderRadius: 6,
-              }}
-            >
-              グループ化
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={groupSelectedNodes}
+            style={{
+              padding: '6px 12px',
+              fontSize: 13,
+              cursor: 'pointer',
+              background: '#7c9ef8',
+              color: '#fff',
+              border: 'none',
+              borderRadius: 6,
+            }}
+          >
+            グループ化
+          </button>
         </Panel>
       </ReactFlow>
     </div>

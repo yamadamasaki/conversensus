@@ -29,6 +29,8 @@ export function toFlowEdges(edges: GraphEdge[]): Edge[] {
     id: e.id,
     source: e.source,
     target: e.target,
+    sourceHandle: e.sourceHandle,
+    targetHandle: e.targetHandle,
     label: e.label,
     type: 'editableLabel',
     markerEnd: { type: MarkerType.ArrowClosed },
@@ -167,6 +169,8 @@ export function fromFlowEdges(edges: Edge[]): GraphEdge[] {
     id: e.id as EdgeId,
     source: e.source as NodeId,
     target: e.target as NodeId,
+    sourceHandle: e.sourceHandle ?? undefined,
+    targetHandle: e.targetHandle ?? undefined,
     label: typeof e.label === 'string' ? e.label : undefined,
   }));
 }

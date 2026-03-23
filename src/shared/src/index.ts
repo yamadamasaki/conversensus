@@ -35,6 +35,8 @@ export const GraphEdgeSchema = z.object({
   id: EdgeIdSchema,
   source: NodeIdSchema,
   target: NodeIdSchema,
+  sourceHandle: z.string().optional(),
+  targetHandle: z.string().optional(),
   label: z.string().optional(),
   style: StyleSchema.optional(),
 });
