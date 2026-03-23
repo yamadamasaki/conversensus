@@ -14,12 +14,11 @@ import {
 } from './graphTransform';
 
 const graphNodes: GraphNode[] = [
-  { id: 'n1' as NodeId, content: 'ノード1', position: { x: 10, y: 20 } },
+  { id: 'n1' as NodeId, content: 'ノード1', style: { x: 10, y: 20 } },
   {
     id: 'n2' as NodeId,
     content: 'ノード2',
-    position: { x: 100, y: 200 },
-    style: { color: 'red' },
+    style: { x: 100, y: 200, color: 'red' },
   },
 ];
 
@@ -96,7 +95,7 @@ describe('fromFlowNodes', () => {
     expect(result[0]).toMatchObject({
       id: 'n1',
       content: 'ノード1',
-      position: { x: 10, y: 20 },
+      style: { x: 10, y: 20 },
     });
   });
 
@@ -152,12 +151,12 @@ describe('toFlowNodes → fromFlowNodes の対称性', () => {
     expect(result[0]).toMatchObject({
       id: 'n1',
       content: 'ノード1',
-      position: { x: 10, y: 20 },
+      style: { x: 10, y: 20 },
     });
     expect(result[1]).toMatchObject({
       id: 'n2',
       content: 'ノード2',
-      position: { x: 100, y: 200 },
+      style: { x: 100, y: 200 },
     });
   });
 });

@@ -21,7 +21,7 @@ const sampleFile = (): GraphFile => ({
     id: 'sheet-1' as SheetId,
     name: 'Sheet 1',
     nodes: [
-      { id: 'n1' as NodeId, content: 'ノード1', position: { x: 10, y: 20 } },
+      { id: 'n1' as NodeId, content: 'ノード1', style: { x: 10, y: 20 } },
     ],
     edges: [
       {

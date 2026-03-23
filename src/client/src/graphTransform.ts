@@ -11,7 +11,10 @@ export const DEFAULT_NODE_STYLE = { width: 160, height: 80 };
 export function toFlowNodes(nodes: GraphNode[]): Node[] {
   return nodes.map((n) => ({
     id: n.id,
-    position: n.position,
+    position: {
+      x: typeof n.style?.x === 'number' ? n.style.x : 0,
+      y: typeof n.style?.y === 'number' ? n.style.y : 0,
+    },
     data: { label: n.content },
     type: 'editableNode',
     style: n.style ?? DEFAULT_NODE_STYLE,
@@ -34,8 +37,12 @@ export function fromFlowNodes(nodes: Node[]): GraphNode[] {
   return nodes.map((n) => ({
     id: n.id as NodeId,
     content: String(n.data.label ?? ''),
-    position: n.position,
-    style: { width: n.style?.width, height: n.style?.height },
+    style: {
+      x: n.position.x,
+      y: n.position.y,
+      width: n.style?.width,
+      height: n.style?.height,
+    },
   }));
 }
 

@@ -20,9 +20,6 @@ export type FileDescription = string;
 export type SheetName = string;
 
 // --- Compound type schemas ---
-export const PositionSchema = z.object({ x: z.number(), y: z.number() });
-export type Position = z.infer<typeof PositionSchema>;
-
 export const StyleSchema = z.record(z.string(), z.unknown());
 export type Style = z.infer<typeof StyleSchema>;
 
@@ -30,7 +27,6 @@ export type Style = z.infer<typeof StyleSchema>;
 export const GraphNodeSchema = z.object({
   id: NodeIdSchema,
   content: z.string(),
-  position: PositionSchema,
   style: StyleSchema.optional(),
 });
 
