@@ -164,6 +164,47 @@ export function recalculateParentBounds(nodes: Node[]): Node[] {
   });
 }
 
+// 選択ノードと、それら間のエッジを収集する
+export function collectCopyData(
+  nodes: Node[],
+  edges: Edge[],
+): { nodes: Node[]; edges: Edge[] } {
+  const selected = nodes.filter((n) => n.selected);
+  const selectedIds = new Set(selected.map((n) => n.id));
+  const relatedEdges = edges.filter(
+    (e) => selectedIds.has(e.source) && selectedIds.has(e.target),
+  );
+  return { nodes: selected, edges: relatedEdges };
+}
+
+// クリップボードのノード/エッジから新しい UUID・オフセット位置でペーストデータを生成する
+export function buildPastedData(
+  clipboard: { nodes: Node[]; edges: Edge[] },
+  offset: number,
+): { nodes: Node[]; edges: Edge[] } {
+  const idMap = new Map<string, string>(
+    clipboard.nodes.map((n) => [n.id, crypto.randomUUID()]),
+  );
+
+  const nodes: Node[] = clipboard.nodes.map((n) => ({
+    ...n,
+    id: idMap.get(n.id) as string,
+    // parentId がコピーセット内にある場合は新 ID を使用, なければ root に配置
+    parentId: n.parentId ? idMap.get(n.parentId) : undefined,
+    selected: true,
+    position: { x: n.position.x + offset, y: n.position.y + offset },
+  }));
+
+  const edges: Edge[] = clipboard.edges.map((e) => ({
+    ...e,
+    id: crypto.randomUUID(),
+    source: idMap.get(e.source) as string,
+    target: idMap.get(e.target) as string,
+  }));
+
+  return { nodes, edges };
+}
+
 export function fromFlowEdges(edges: Edge[]): GraphEdge[] {
   return edges.map((e) => ({
     id: e.id as EdgeId,
