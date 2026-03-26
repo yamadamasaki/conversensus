@@ -46,7 +46,7 @@ type Props = {
 };
 
 function GraphEditorInner({ file, onChange }: Props) {
-  const { screenToFlowPosition } = useReactFlow();
+  const { screenToFlowPosition, getNodes, getEdges } = useReactFlow();
   const [nodes, setNodes, onNodesChange] = useNodesState(
     toFlowNodes(file.sheet.nodes),
   );
@@ -252,15 +252,9 @@ function GraphEditorInner({ file, onChange }: Props) {
   const clipboard = useRef<{ nodes: Node[]; edges: Edge[] } | null>(null);
 
   const copySelectedNodes = useCallback(() => {
-    setNodes((ns) => {
-      setEdges((es) => {
-        const copied = collectCopyData(ns, es);
-        if (copied.nodes.length > 0) clipboard.current = copied;
-        return es;
-      });
-      return ns;
-    });
-  }, [setNodes, setEdges]);
+    const copied = collectCopyData(getNodes(), getEdges());
+    if (copied.nodes.length > 0) clipboard.current = copied;
+  }, [getNodes, getEdges]);
 
   const pasteNodes = useCallback(() => {
     if (!clipboard.current) return;
@@ -278,9 +272,12 @@ function GraphEditorInner({ file, onChange }: Props) {
   }, [setNodes, setEdges]);
 
   // Cmd+C / Ctrl+C でコピー, Cmd+V / Ctrl+V でペースト
+  // INPUT / TEXTAREA 編集中は標準のクリップボード操作を妨げない
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey)) return;
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
       if (e.key === 'c') {
         e.preventDefault();
         copySelectedNodes();

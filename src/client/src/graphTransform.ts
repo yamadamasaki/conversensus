@@ -206,14 +206,37 @@ export function buildPastedData(
     clipboard.nodes.map((n) => [n.id, crypto.randomUUID()]),
   );
 
-  const nodes: Node[] = clipboard.nodes.map((n) => ({
-    ...n,
-    id: idMap.get(n.id) as string,
-    // parentId がコピーセット内にある場合は新 ID を使用, なければ root に配置
-    parentId: n.parentId ? idMap.get(n.parentId) : undefined,
-    selected: true,
-    position: { x: n.position.x + offset, y: n.position.y + offset },
-  }));
+  const mappedNodes: Node[] = clipboard.nodes.map((n) => {
+    const newParentId = n.parentId ? idMap.get(n.parentId) : undefined;
+    // 親がコピーセット内にある子ノードは相対座標のままオフセット不要
+    const applyOffset = !newParentId;
+    return {
+      ...n,
+      id: idMap.get(n.id) as string,
+      parentId: newParentId,
+      selected: true,
+      position: {
+        x: n.position.x + (applyOffset ? offset : 0),
+        y: n.position.y + (applyOffset ? offset : 0),
+      },
+    };
+  });
+
+  // React Flow は親ノードを子ノードより前に並べる必要があるため,
+  // parentId が解決済みの順にトポロジカルソートする
+  const sorted: Node[] = [];
+  const remaining = [...mappedNodes];
+  const addedIds = new Set<string>();
+  while (remaining.length > 0) {
+    const idx = remaining.findIndex(
+      (n) => !n.parentId || addedIds.has(n.parentId),
+    );
+    if (idx === -1) break; // 循環がある場合は残りをそのまま追加
+    const [node] = remaining.splice(idx, 1);
+    sorted.push(node);
+    addedIds.add(node.id);
+  }
+  sorted.push(...remaining);
 
   const edges: Edge[] = clipboard.edges.map((e) => ({
     ...e,
@@ -222,7 +245,7 @@ export function buildPastedData(
     target: idMap.get(e.target) as string,
   }));
 
-  return { nodes, edges };
+  return { nodes: sorted, edges };
 }
 
 export function fromFlowEdges(edges: Edge[]): GraphEdge[] {

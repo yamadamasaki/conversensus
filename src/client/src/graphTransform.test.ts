@@ -537,4 +537,28 @@ describe('buildPastedData', () => {
     const { nodes } = buildPastedData(clipboard, 0);
     expect(nodes[0].parentId).toBeUndefined();
   });
+
+  it('コピーセット内の親子ノードで子にはオフセットを適用しない', () => {
+    const parent = makeNode('g1', true); // position { x:10, y:20 }
+    const child = makeNode('n1', true, 'g1'); // position { x:10, y:20 } (relative)
+    const clipboard = { nodes: [parent, child], edges: [] };
+    const { nodes } = buildPastedData(clipboard, 30);
+    const newParent = nodes.find((n) => n.data.label === 'g1');
+    const newChild = nodes.find((n) => n.data.label === 'n1');
+    // 親のみオフセット: 10+30=40, 20+30=50
+    expect(newParent?.position).toEqual({ x: 40, y: 50 });
+    // 子は相対座標のままオフセットなし
+    expect(newChild?.position).toEqual({ x: 10, y: 20 });
+  });
+
+  it('ペースト後のノード配列で親は子より前に並ぶ', () => {
+    const parent = makeNode('g1', true);
+    const child = makeNode('n1', true, 'g1');
+    // 意図的に子→親の順でクリップボードに入れる
+    const clipboard = { nodes: [child, parent], edges: [] };
+    const { nodes } = buildPastedData(clipboard, 0);
+    const parentIdx = nodes.findIndex((n) => n.data.label === 'g1');
+    const childIdx = nodes.findIndex((n) => n.data.label === 'n1');
+    expect(parentIdx).toBeLessThan(childIdx);
+  });
 });
