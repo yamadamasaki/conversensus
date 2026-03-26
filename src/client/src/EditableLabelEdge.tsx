@@ -8,6 +8,7 @@ import {
   getStraightPath,
   useReactFlow,
 } from '@xyflow/react';
+import { useCallback, useRef } from 'react';
 import { useInlineEdit } from './hooks/useInlineEdit';
 
 function getEdgePath(
@@ -32,6 +33,8 @@ function getEdgePath(
       return getBezierPath(params);
   }
 }
+
+const DRAG_THRESHOLD_PX = 3;
 
 export function EditableLabelEdge({
   id,
@@ -58,6 +61,9 @@ export function EditableLabelEdge({
     targetPosition,
   });
 
+  const offsetX = (data?.labelOffsetX as number | undefined) ?? 0;
+  const offsetY = (data?.labelOffsetY as number | undefined) ?? 0;
+
   const {
     editing,
     inputValue,
@@ -70,6 +76,55 @@ export function EditableLabelEdge({
   } = useInlineEdit(String(label ?? ''), (value) =>
     setEdges((es) => es.map((e) => (e.id === id ? { ...e, label: value } : e))),
   );
+
+  // ドラッグ追跡
+  const dragStartRef = useRef({ x: 0, y: 0, offsetX: 0, offsetY: 0 });
+  const isDraggingRef = useRef(false);
+
+  const handlePointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      if (editing) return;
+      e.stopPropagation();
+      isDraggingRef.current = false;
+      dragStartRef.current = { x: e.clientX, y: e.clientY, offsetX, offsetY };
+      e.currentTarget.setPointerCapture(e.pointerId);
+    },
+    [editing, offsetX, offsetY],
+  );
+
+  const handlePointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
+      const dx = e.clientX - dragStartRef.current.x;
+      const dy = e.clientY - dragStartRef.current.y;
+      if (
+        !isDraggingRef.current &&
+        (Math.abs(dx) > DRAG_THRESHOLD_PX || Math.abs(dy) > DRAG_THRESHOLD_PX)
+      ) {
+        isDraggingRef.current = true;
+      }
+      if (!isDraggingRef.current) return;
+      setEdges((es) =>
+        es.map((ed) =>
+          ed.id === id
+            ? {
+                ...ed,
+                data: {
+                  ...ed.data,
+                  labelOffsetX: dragStartRef.current.offsetX + dx,
+                  labelOffsetY: dragStartRef.current.offsetY + dy,
+                },
+              }
+            : ed,
+        ),
+      );
+    },
+    [id, setEdges],
+  );
+
+  const handlePointerUp = useCallback((e: React.PointerEvent) => {
+    e.currentTarget.releasePointerCapture(e.pointerId);
+  }, []);
 
   return (
     <>
@@ -92,15 +147,27 @@ export function EditableLabelEdge({
           type="button"
           style={{
             position: 'absolute',
-            transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
+            transform: `translate(-50%, -50%) translate(${labelX + offsetX}px,${labelY + offsetY}px)`,
             pointerEvents: 'all',
             background: 'none',
             border: 'none',
             padding: 0,
-            cursor: 'default',
+            cursor: editing ? 'default' : 'grab',
           }}
           className="nodrag nopan"
-          onDoubleClick={!editing ? startEdit : undefined}
+          onDoubleClick={
+            !editing
+              ? (e) => {
+                  if (!isDraggingRef.current) {
+                    e.stopPropagation();
+                    startEdit();
+                  }
+                }
+              : undefined
+          }
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
         >
           {editing ? (
             <input
@@ -135,7 +202,7 @@ export function EditableLabelEdge({
                   padding: '2px 6px',
                   borderRadius: 3,
                   border: '1px solid #ddd',
-                  cursor: 'pointer',
+                  cursor: 'grab',
                 }}
               >
                 {label}

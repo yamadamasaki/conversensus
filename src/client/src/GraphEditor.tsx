@@ -102,6 +102,8 @@ function GraphEditorInner({ file, onChange }: Props) {
                 target: newConnection.target,
                 sourceHandle: newConnection.sourceHandle,
                 targetHandle: newConnection.targetHandle,
+                // 再接続時はラベル位置を中央にリセット
+                data: { ...e.data, labelOffsetX: 0, labelOffsetY: 0 },
               }
             : e,
         ),
