@@ -8,7 +8,7 @@ import {
   getStraightPath,
   useReactFlow,
 } from '@xyflow/react';
-import { useCallback, useState } from 'react';
+import { useInlineEdit } from './hooks/useInlineEdit';
 
 function getEdgePath(
   pathType: EdgePathType,
@@ -47,9 +47,6 @@ export function EditableLabelEdge({
   data,
 }: EdgeProps) {
   const { setEdges } = useReactFlow();
-  const [editing, setEditing] = useState(false);
-  const [inputValue, setInputValue] = useState('');
-  const [composing, setComposing] = useState(false);
 
   const pathType = (data?.pathType as EdgePathType | undefined) ?? 'bezier';
   const [edgePath, labelX, labelY] = getEdgePath(pathType, {
@@ -61,22 +58,18 @@ export function EditableLabelEdge({
     targetPosition,
   });
 
-  const startEdit = useCallback(() => {
-    setInputValue(String(label ?? ''));
-    setEditing(true);
-  }, [label]);
-
-  const confirm = useCallback(() => {
-    setEdges((es) =>
-      es.map((e) => (e.id === id ? { ...e, label: inputValue } : e)),
-    );
-    setEditing(false);
-  }, [id, inputValue, setEdges]);
-
-  const cancel = useCallback(() => {
-    setInputValue(String(label ?? ''));
-    setEditing(false);
-  }, [label]);
+  const {
+    editing,
+    inputValue,
+    setInputValue,
+    composing,
+    setComposing,
+    startEdit,
+    confirm,
+    cancel,
+  } = useInlineEdit(String(label ?? ''), (value) =>
+    setEdges((es) => es.map((e) => (e.id === id ? { ...e, label: value } : e))),
+  );
 
   return (
     <>
