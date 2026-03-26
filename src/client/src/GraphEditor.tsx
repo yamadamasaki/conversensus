@@ -17,9 +17,9 @@ import {
   useNodesState,
   useReactFlow,
 } from '@xyflow/react';
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import '@xyflow/react/dist/style.css';
-import type { GraphFile } from '@conversensus/shared';
+import type { EdgePathType, GraphFile } from '@conversensus/shared';
 import { EditableLabelEdge } from './EditableLabelEdge';
 import { EditableNode } from './EditableNode';
 import { GroupNode } from './GroupNode';
@@ -290,6 +290,37 @@ function GraphEditorInner({ file, onChange }: Props) {
     return () => window.removeEventListener('keydown', handler);
   }, [copySelectedNodes, pasteNodes]);
 
+  const [contextMenu, setContextMenu] = useState<{
+    edgeId: string;
+    x: number;
+    y: number;
+  } | null>(null);
+
+  const onEdgeContextMenu = useCallback((e: React.MouseEvent, edge: Edge) => {
+    e.preventDefault();
+    setContextMenu({ edgeId: edge.id, x: e.clientX, y: e.clientY });
+  }, []);
+
+  const setEdgePathType = useCallback(
+    (edgeId: string, pathType: EdgePathType) => {
+      setEdges((es) =>
+        es.map((e) =>
+          e.id === edgeId ? { ...e, data: { ...e.data, pathType } } : e,
+        ),
+      );
+      setContextMenu(null);
+    },
+    [setEdges],
+  );
+
+  // コンテキストメニュー外クリックで閉じる
+  useEffect(() => {
+    if (!contextMenu) return;
+    const handler = () => setContextMenu(null);
+    window.addEventListener('mousedown', handler);
+    return () => window.removeEventListener('mousedown', handler);
+  }, [contextMenu]);
+
   const lastPaneClickTime = useRef(0);
   const lastPaneClickPos = useRef({ x: 0, y: 0 });
 
@@ -331,6 +362,7 @@ function GraphEditorInner({ file, onChange }: Props) {
         onNodeDragStop={onNodeDragStop}
         edgesReconnectable
         onPaneClick={onPaneClick}
+        onEdgeContextMenu={onEdgeContextMenu}
         zoomOnDoubleClick={false}
         fitView
       >
@@ -355,6 +387,51 @@ function GraphEditorInner({ file, onChange }: Props) {
           </button>
         </Panel>
       </ReactFlow>
+      {contextMenu && (
+        // biome-ignore lint/a11y/noStaticElementInteractions: context menu uses mousedown to block propagation
+        <div
+          style={{
+            position: 'fixed',
+            top: contextMenu.y,
+            left: contextMenu.x,
+            background: '#fff',
+            border: '1px solid #ddd',
+            borderRadius: 6,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+            zIndex: 1000,
+            minWidth: 140,
+            padding: '4px 0',
+          }}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          {(
+            [
+              ['bezier', 'Bezier（曲線）'],
+              ['straight', 'Straight（直線）'],
+              ['step', 'Step（直角）'],
+              ['smoothstep', 'Smooth Step（角丸）'],
+            ] as [EdgePathType, string][]
+          ).map(([type, label]) => (
+            <button
+              key={type}
+              type="button"
+              onClick={() => setEdgePathType(contextMenu.edgeId, type)}
+              style={{
+                display: 'block',
+                width: '100%',
+                padding: '6px 14px',
+                textAlign: 'left',
+                background: 'none',
+                border: 'none',
+                fontSize: 13,
+                cursor: 'pointer',
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

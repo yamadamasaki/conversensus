@@ -31,6 +31,14 @@ export const GraphNodeSchema = z.object({
   style: StyleSchema.optional(),
 });
 
+export const EdgePathTypeSchema = z.enum([
+  'bezier',
+  'straight',
+  'step',
+  'smoothstep',
+]);
+export type EdgePathType = z.infer<typeof EdgePathTypeSchema>;
+
 export const GraphEdgeSchema = z.object({
   id: EdgeIdSchema,
   source: NodeIdSchema,
@@ -38,6 +46,7 @@ export const GraphEdgeSchema = z.object({
   sourceHandle: z.string().optional(),
   targetHandle: z.string().optional(),
   label: z.string().optional(),
+  pathType: EdgePathTypeSchema.optional(),
   style: StyleSchema.optional(),
 });
 
