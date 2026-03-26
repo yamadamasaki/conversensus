@@ -101,6 +101,28 @@ describe('toFlowEdges', () => {
     ];
     expect(toFlowEdges(edges)[0].data?.pathType).toBe('bezier');
   });
+
+  it('labelOffsetX/Y が指定されている場合は data.labelOffsetX/Y に変換される', () => {
+    const edges: GraphEdge[] = [
+      {
+        id: 'e1' as EdgeId,
+        source: 'n1' as NodeId,
+        target: 'n2' as NodeId,
+        labelOffsetX: 30,
+        labelOffsetY: -15,
+      },
+    ];
+    expect(toFlowEdges(edges)[0].data?.labelOffsetX).toBe(30);
+    expect(toFlowEdges(edges)[0].data?.labelOffsetY).toBe(-15);
+  });
+
+  it('labelOffsetX/Y が未指定の場合は data.labelOffsetX/Y が 0 になる', () => {
+    const edges: GraphEdge[] = [
+      { id: 'e1' as EdgeId, source: 'n1' as NodeId, target: 'n2' as NodeId },
+    ];
+    expect(toFlowEdges(edges)[0].data?.labelOffsetX).toBe(0);
+    expect(toFlowEdges(edges)[0].data?.labelOffsetY).toBe(0);
+  });
 });
 
 describe('fromFlowNodes', () => {
@@ -176,6 +198,38 @@ describe('fromFlowEdges', () => {
   it('data.pathType がない場合は pathType が undefined になる', () => {
     const flowEdges: Edge[] = [{ id: 'e1', source: 'n1', target: 'n2' }];
     expect(fromFlowEdges(flowEdges)[0].pathType).toBeUndefined();
+  });
+
+  it('data.labelOffsetX/Y が GraphEdge.labelOffsetX/Y に復元される', () => {
+    const flowEdges: Edge[] = [
+      {
+        id: 'e1',
+        source: 'n1',
+        target: 'n2',
+        data: { labelOffsetX: 30, labelOffsetY: -15 },
+      },
+    ];
+    expect(fromFlowEdges(flowEdges)[0].labelOffsetX).toBe(30);
+    expect(fromFlowEdges(flowEdges)[0].labelOffsetY).toBe(-15);
+  });
+
+  it('data.labelOffsetX/Y が 0 の場合は labelOffsetX/Y が undefined になる', () => {
+    const flowEdges: Edge[] = [
+      {
+        id: 'e1',
+        source: 'n1',
+        target: 'n2',
+        data: { labelOffsetX: 0, labelOffsetY: 0 },
+      },
+    ];
+    expect(fromFlowEdges(flowEdges)[0].labelOffsetX).toBeUndefined();
+    expect(fromFlowEdges(flowEdges)[0].labelOffsetY).toBeUndefined();
+  });
+
+  it('data.labelOffsetX/Y がない場合は labelOffsetX/Y が undefined になる', () => {
+    const flowEdges: Edge[] = [{ id: 'e1', source: 'n1', target: 'n2' }];
+    expect(fromFlowEdges(flowEdges)[0].labelOffsetX).toBeUndefined();
+    expect(fromFlowEdges(flowEdges)[0].labelOffsetY).toBeUndefined();
   });
 });
 
@@ -361,6 +415,21 @@ describe('toFlowEdges → fromFlowEdges の対称性', () => {
       },
     ];
     expect(fromFlowEdges(toFlowEdges(edges))[0].pathType).toBe('smoothstep');
+  });
+
+  it('labelOffset が変換して戻すと復元される', () => {
+    const edges: GraphEdge[] = [
+      {
+        id: 'e1' as EdgeId,
+        source: 'n1' as NodeId,
+        target: 'n2' as NodeId,
+        labelOffsetX: 42,
+        labelOffsetY: -8,
+      },
+    ];
+    const result = fromFlowEdges(toFlowEdges(edges))[0];
+    expect(result.labelOffsetX).toBe(42);
+    expect(result.labelOffsetY).toBe(-8);
   });
 });
 
