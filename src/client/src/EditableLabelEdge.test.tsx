@@ -136,8 +136,12 @@ describe('EditableLabelEdge', () => {
     fireEvent.dblClick(screen.getByText('テストラベル'));
     const input = screen.getByRole('textbox') as HTMLInputElement;
     fireEvent.compositionStart(input);
+    fireEvent.change(input, { target: { value: '変換後テキスト' } });
     fireEvent.compositionEnd(input);
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(mockDispatch).toHaveBeenCalledTimes(1);
+    expect((mockDispatch.mock.calls[0][0] as { type: string }).type).toBe(
+      'EDGE_RELABELED',
+    );
   });
 });
