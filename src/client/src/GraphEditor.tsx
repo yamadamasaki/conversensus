@@ -7,6 +7,7 @@ import {
   type Edge,
   MarkerType,
   MiniMap,
+  type Node,
   type OnConnect,
   type OnReconnect,
   Panel,
@@ -23,6 +24,8 @@ import { EditableLabelEdge } from './EditableLabelEdge';
 import { EditableNode } from './EditableNode';
 import { GroupNode } from './GroupNode';
 import {
+  buildPastedData,
+  collectCopyData,
   DEFAULT_NODE_STYLE,
   fromFlowEdges,
   fromFlowNodes,
@@ -35,6 +38,7 @@ import {
 
 const DOUBLE_CLICK_INTERVAL_MS = 300;
 const DOUBLE_CLICK_THRESHOLD_PX = 5;
+const PASTE_OFFSET_PX = 20;
 
 type Props = {
   file: GraphFile;
@@ -42,7 +46,7 @@ type Props = {
 };
 
 function GraphEditorInner({ file, onChange }: Props) {
-  const { screenToFlowPosition } = useReactFlow();
+  const { screenToFlowPosition, getNodes, getEdges } = useReactFlow();
   const [nodes, setNodes, onNodesChange] = useNodesState(
     toFlowNodes(file.sheet.nodes),
   );
@@ -244,6 +248,47 @@ function GraphEditorInner({ file, onChange }: Props) {
   const onNodeDragStop = useCallback(() => {
     setNodes((ns) => recalculateParentBounds(ns));
   }, [setNodes]);
+
+  const clipboard = useRef<{ nodes: Node[]; edges: Edge[] } | null>(null);
+
+  const copySelectedNodes = useCallback(() => {
+    const copied = collectCopyData(getNodes(), getEdges());
+    if (copied.nodes.length > 0) clipboard.current = copied;
+  }, [getNodes, getEdges]);
+
+  const pasteNodes = useCallback(() => {
+    if (!clipboard.current) return;
+    const { nodes: newNodes, edges: newEdges } = buildPastedData(
+      clipboard.current,
+      PASTE_OFFSET_PX,
+    );
+    setNodes((ns) => [
+      ...ns.map((n) => ({ ...n, selected: false })),
+      ...newNodes,
+    ]);
+    setEdges((es) => [...es, ...newEdges]);
+    // 次の貼り付けがさらにオフセットされるようクリップボードを更新
+    clipboard.current = { nodes: newNodes, edges: newEdges };
+  }, [setNodes, setEdges]);
+
+  // Cmd+C / Ctrl+C でコピー, Cmd+V / Ctrl+V でペースト
+  // INPUT / TEXTAREA 編集中は標準のクリップボード操作を妨げない
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      if (e.key === 'c') {
+        e.preventDefault();
+        copySelectedNodes();
+      } else if (e.key === 'v') {
+        e.preventDefault();
+        pasteNodes();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [copySelectedNodes, pasteNodes]);
 
   const lastPaneClickTime = useRef(0);
   const lastPaneClickPos = useRef({ x: 0, y: 0 });

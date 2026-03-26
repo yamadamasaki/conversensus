@@ -7,6 +7,8 @@ import type {
 } from '@conversensus/shared';
 import { type Edge, MarkerType, type Node } from '@xyflow/react';
 import {
+  buildPastedData,
+  collectCopyData,
   fromFlowEdges,
   fromFlowNodes,
   recalculateParentBounds,
@@ -395,5 +397,168 @@ describe('toFlowEdges → fromFlowEdges: sourceHandle / targetHandle の対称�
     const result = fromFlowEdges(toFlowEdges(edges));
     expect(result[0].sourceHandle).toBe('source-right');
     expect(result[0].targetHandle).toBe('source-left');
+  });
+});
+
+// ---- collectCopyData ----
+
+const makeNode = (id: string, selected = false, parentId?: string): Node => ({
+  id,
+  position: { x: 10, y: 20 },
+  data: { label: id },
+  type: 'editableNode',
+  selected,
+  parentId,
+});
+
+const makeEdge = (id: string, source: string, target: string): Edge => ({
+  id,
+  source,
+  target,
+});
+
+describe('collectCopyData', () => {
+  it('選択ノードのみを返す', () => {
+    const nodes = [makeNode('n1', true), makeNode('n2', false)];
+    const { nodes: result } = collectCopyData(nodes, []);
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('n1');
+  });
+
+  it('選択ノード間のエッジのみを返す', () => {
+    const nodes = [
+      makeNode('n1', true),
+      makeNode('n2', true),
+      makeNode('n3', false),
+    ];
+    const edges = [
+      makeEdge('e1', 'n1', 'n2'), // 両端選択 → 含む
+      makeEdge('e2', 'n1', 'n3'), // 片端未選択 → 除外
+    ];
+    const { edges: result } = collectCopyData(nodes, edges);
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('e1');
+  });
+
+  it('選択ノードが0件の場合は空を返す', () => {
+    const nodes = [makeNode('n1', false)];
+    const { nodes: ns, edges: es } = collectCopyData(nodes, []);
+    expect(ns).toHaveLength(0);
+    expect(es).toHaveLength(0);
+  });
+
+  it('選択されたグループノードの子ノードも含まれる', () => {
+    const group: Node = {
+      id: 'g1',
+      position: { x: 0, y: 0 },
+      data: { label: 'group' },
+      type: 'groupNode',
+      selected: true,
+    };
+    const child = makeNode('n1', false, 'g1');
+    const unrelated = makeNode('n2', false);
+    const { nodes: result } = collectCopyData([group, child, unrelated], []);
+    const ids = result.map((n) => n.id);
+    expect(ids).toContain('g1');
+    expect(ids).toContain('n1');
+    expect(ids).not.toContain('n2');
+  });
+
+  it('ネストされたグループの孫ノードも再帰的に含まれる', () => {
+    const outer: Node = {
+      id: 'g1',
+      position: { x: 0, y: 0 },
+      data: { label: 'outer' },
+      type: 'groupNode',
+      selected: true,
+    };
+    const inner: Node = {
+      id: 'g2',
+      position: { x: 0, y: 0 },
+      data: { label: 'inner' },
+      type: 'groupNode',
+      selected: false,
+      parentId: 'g1',
+    };
+    const grandchild = makeNode('n1', false, 'g2');
+    const { nodes: result } = collectCopyData([outer, inner, grandchild], []);
+    expect(result.map((n) => n.id).sort()).toEqual(['g1', 'g2', 'n1']);
+  });
+});
+
+// ---- buildPastedData ----
+
+describe('buildPastedData', () => {
+  it('ペースト後のノードは新しい UUID を持つ', () => {
+    const clipboard = { nodes: [makeNode('n1', true)], edges: [] };
+    const { nodes } = buildPastedData(clipboard, 20);
+    expect(nodes[0].id).not.toBe('n1');
+    expect(nodes[0].id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    );
+  });
+
+  it('ペースト後のノード位置は offset だけずれる', () => {
+    const clipboard = { nodes: [makeNode('n1', true)], edges: [] };
+    const { nodes } = buildPastedData(clipboard, 30);
+    expect(nodes[0].position).toEqual({ x: 40, y: 50 }); // 10+30, 20+30
+  });
+
+  it('ペースト後のノードは selected=true になる', () => {
+    const clipboard = { nodes: [makeNode('n1', false)], edges: [] };
+    const { nodes } = buildPastedData(clipboard, 0);
+    expect(nodes[0].selected).toBe(true);
+  });
+
+  it('エッジの source/target も新しい UUID に更新される', () => {
+    const clipboard = {
+      nodes: [makeNode('n1', true), makeNode('n2', true)],
+      edges: [makeEdge('e1', 'n1', 'n2')],
+    };
+    const { nodes, edges } = buildPastedData(clipboard, 0);
+    expect(edges[0].source).toBe(nodes[0].id);
+    expect(edges[0].target).toBe(nodes[1].id);
+    expect(edges[0].id).not.toBe('e1');
+  });
+
+  it('parentId がコピーセット内なら新 ID に付け替える', () => {
+    const parent = makeNode('g1', true);
+    const child = makeNode('n1', true, 'g1');
+    const clipboard = { nodes: [parent, child], edges: [] };
+    const { nodes } = buildPastedData(clipboard, 0);
+    const newParent = nodes.find((n) => n.data.label === 'g1');
+    const newChild = nodes.find((n) => n.data.label === 'n1');
+    expect(newChild?.parentId).toBe(newParent?.id);
+  });
+
+  it('parentId がコピーセット外なら parentId を解除する (root 配置)', () => {
+    const child = makeNode('n1', true, 'external-group');
+    const clipboard = { nodes: [child], edges: [] };
+    const { nodes } = buildPastedData(clipboard, 0);
+    expect(nodes[0].parentId).toBeUndefined();
+  });
+
+  it('コピーセット内の親子ノードで子にはオフセットを適用しない', () => {
+    const parent = makeNode('g1', true); // position { x:10, y:20 }
+    const child = makeNode('n1', true, 'g1'); // position { x:10, y:20 } (relative)
+    const clipboard = { nodes: [parent, child], edges: [] };
+    const { nodes } = buildPastedData(clipboard, 30);
+    const newParent = nodes.find((n) => n.data.label === 'g1');
+    const newChild = nodes.find((n) => n.data.label === 'n1');
+    // 親のみオフセット: 10+30=40, 20+30=50
+    expect(newParent?.position).toEqual({ x: 40, y: 50 });
+    // 子は相対座標のままオフセットなし
+    expect(newChild?.position).toEqual({ x: 10, y: 20 });
+  });
+
+  it('ペースト後のノード配列で親は子より前に並ぶ', () => {
+    const parent = makeNode('g1', true);
+    const child = makeNode('n1', true, 'g1');
+    // 意図的に子→親の順でクリップボードに入れる
+    const clipboard = { nodes: [child, parent], edges: [] };
+    const { nodes } = buildPastedData(clipboard, 0);
+    const parentIdx = nodes.findIndex((n) => n.data.label === 'g1');
+    const childIdx = nodes.findIndex((n) => n.data.label === 'n1');
+    expect(parentIdx).toBeLessThan(childIdx);
   });
 });

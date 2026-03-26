@@ -164,6 +164,90 @@ export function recalculateParentBounds(nodes: Node[]): Node[] {
   });
 }
 
+// 選択ノードと、それら間のエッジを収集する
+// グループノードが選択されている場合, 子孫ノードも再帰的に含める
+export function collectCopyData(
+  nodes: Node[],
+  edges: Edge[],
+): { nodes: Node[]; edges: Edge[] } {
+  const selected = nodes.filter((n) => n.selected);
+  if (selected.length === 0) return { nodes: [], edges: [] };
+
+  const includedIds = new Set(selected.map((n) => n.id));
+
+  const addDescendants = (parentId: string) => {
+    for (const node of nodes) {
+      if (node.parentId === parentId && !includedIds.has(node.id)) {
+        includedIds.add(node.id);
+        addDescendants(node.id);
+      }
+    }
+  };
+
+  for (const node of selected) {
+    if (node.type === 'groupNode') {
+      addDescendants(node.id);
+    }
+  }
+
+  const includedNodes = nodes.filter((n) => includedIds.has(n.id));
+  const relatedEdges = edges.filter(
+    (e) => includedIds.has(e.source) && includedIds.has(e.target),
+  );
+  return { nodes: includedNodes, edges: relatedEdges };
+}
+
+// クリップボードのノード/エッジから新しい UUID・オフセット位置でペーストデータを生成する
+export function buildPastedData(
+  clipboard: { nodes: Node[]; edges: Edge[] },
+  offset: number,
+): { nodes: Node[]; edges: Edge[] } {
+  const idMap = new Map<string, string>(
+    clipboard.nodes.map((n) => [n.id, crypto.randomUUID()]),
+  );
+
+  const mappedNodes: Node[] = clipboard.nodes.map((n) => {
+    const newParentId = n.parentId ? idMap.get(n.parentId) : undefined;
+    // 親がコピーセット内にある子ノードは相対座標のままオフセット不要
+    const applyOffset = !newParentId;
+    return {
+      ...n,
+      id: idMap.get(n.id) as string,
+      parentId: newParentId,
+      selected: true,
+      position: {
+        x: n.position.x + (applyOffset ? offset : 0),
+        y: n.position.y + (applyOffset ? offset : 0),
+      },
+    };
+  });
+
+  // React Flow は親ノードを子ノードより前に並べる必要があるため,
+  // parentId が解決済みの順にトポロジカルソートする
+  const sorted: Node[] = [];
+  const remaining = [...mappedNodes];
+  const addedIds = new Set<string>();
+  while (remaining.length > 0) {
+    const idx = remaining.findIndex(
+      (n) => !n.parentId || addedIds.has(n.parentId),
+    );
+    if (idx === -1) break; // 循環がある場合は残りをそのまま追加
+    const [node] = remaining.splice(idx, 1);
+    sorted.push(node);
+    addedIds.add(node.id);
+  }
+  sorted.push(...remaining);
+
+  const edges: Edge[] = clipboard.edges.map((e) => ({
+    ...e,
+    id: crypto.randomUUID(),
+    source: idMap.get(e.source) as string,
+    target: idMap.get(e.target) as string,
+  }));
+
+  return { nodes: sorted, edges };
+}
+
 export function fromFlowEdges(edges: Edge[]): GraphEdge[] {
   return edges.map((e) => ({
     id: e.id as EdgeId,
