@@ -35,7 +35,11 @@ export function toFlowEdges(edges: GraphEdge[]): Edge[] {
     label: e.label,
     type: 'editableLabel',
     markerEnd: { type: MarkerType.ArrowClosed },
-    data: { pathType: e.pathType ?? 'bezier' },
+    data: {
+      pathType: e.pathType ?? 'bezier',
+      labelOffsetX: e.labelOffsetX ?? 0,
+      labelOffsetY: e.labelOffsetY ?? 0,
+    },
   }));
 }
 
@@ -259,5 +263,7 @@ export function fromFlowEdges(edges: Edge[]): GraphEdge[] {
     targetHandle: e.targetHandle ?? undefined,
     label: typeof e.label === 'string' ? e.label : undefined,
     pathType: (e.data?.pathType as EdgePathType | undefined) ?? undefined,
+    labelOffsetX: (e.data?.labelOffsetX as number | undefined) || undefined,
+    labelOffsetY: (e.data?.labelOffsetY as number | undefined) || undefined,
   }));
 }

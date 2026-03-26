@@ -60,6 +60,8 @@ export const GraphEdgeSchema = z.object({
   targetHandle: z.string().optional(),
   label: z.string().optional(),
   pathType: EdgePathTypeSchema.optional(),
+  labelOffsetX: z.number().optional(),
+  labelOffsetY: z.number().optional(),
   style: StyleSchema.optional(),
 });
 
