@@ -1,17 +1,25 @@
 import type { Edge, Node } from '@xyflow/react';
-import type { Dispatch, SetStateAction } from 'react';
 import { useCallback, useEffect, useRef } from 'react';
-import { buildPastedData, collectCopyData } from '../graphTransform';
+import type { GraphEvent } from '../events/GraphEvent';
+import { makeEventBase } from '../events/GraphEvent';
+import {
+  buildPastedData,
+  collectCopyData,
+  fromFlowEdges,
+  fromFlowNodes,
+} from '../graphTransform';
 
 const PASTE_OFFSET_PX = 20;
 
 export function useClipboard(
   getNodes: () => Node[],
   getEdges: () => Edge[],
-  setNodes: Dispatch<SetStateAction<Node[]>>,
-  setEdges: Dispatch<SetStateAction<Edge[]>>,
+  dispatch: (event: GraphEvent) => void,
 ): { copySelectedNodes: () => void; pasteNodes: () => void } {
-  const clipboard = useRef<{ nodes: Node[]; edges: Edge[] } | null>(null);
+  const clipboard = useRef<{
+    nodes: Node[];
+    edges: Edge[];
+  } | null>(null);
 
   const copySelectedNodes = useCallback(() => {
     const copied = collectCopyData(getNodes(), getEdges());
@@ -24,17 +32,16 @@ export function useClipboard(
       clipboard.current,
       PASTE_OFFSET_PX,
     );
-    setNodes((ns) => [
-      ...ns.map((n) => ({ ...n, selected: false })),
-      ...newNodes,
-    ]);
-    setEdges((es) => [...es, ...newEdges]);
+    dispatch({
+      ...makeEventBase('structure'),
+      type: 'NODES_PASTED',
+      nodes: fromFlowNodes(newNodes),
+      edges: fromFlowEdges(newEdges),
+    });
     // 次の貼り付けがさらにオフセットされるようクリップボードを更新
     clipboard.current = { nodes: newNodes, edges: newEdges };
-  }, [setNodes, setEdges]);
+  }, [dispatch]);
 
-  // Cmd+C / Ctrl+C でコピー, Cmd+V / Ctrl+V でペースト
-  // INPUT / TEXTAREA 編集中は標準のクリップボード操作を妨げない
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey)) return;

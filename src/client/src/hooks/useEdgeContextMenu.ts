@@ -1,7 +1,9 @@
-import type { EdgePathType } from '@conversensus/shared';
+import type { EdgeId, EdgePathType } from '@conversensus/shared';
 import type { Edge } from '@xyflow/react';
-import type { Dispatch, MouseEvent, SetStateAction } from 'react';
+import type { MouseEvent } from 'react';
 import { useCallback, useEffect, useState } from 'react';
+import type { GraphEvent } from '../events/GraphEvent';
+import { makeEventBase } from '../events/GraphEvent';
 
 const CONTEXT_MENU_WIDTH = 160;
 const CONTEXT_MENU_HEIGHT = 185; // header + 4 items の概算
@@ -16,7 +18,7 @@ export type EdgeContextMenuState = {
 
 export function useEdgeContextMenu(
   getEdges: () => Edge[],
-  setEdges: Dispatch<SetStateAction<Edge[]>>,
+  dispatch: (event: GraphEvent) => void,
 ): {
   contextMenu: EdgeContextMenuState;
   onEdgeContextMenu: (e: MouseEvent, edge: Edge) => void;
@@ -28,13 +30,11 @@ export function useEdgeContextMenu(
     (e: MouseEvent, edge: Edge) => {
       e.preventDefault();
       const currentEdges = getEdges();
-      // 右クリックした edge が選択中なら選択中の全 edge を対象にする
       const targets = edge.selected
         ? currentEdges.filter((ed) => ed.selected)
         : [edge];
       const targetEdgeIds = targets.map((ed) => ed.id);
 
-      // 対象エッジの pathType が全て一致するか確認
       const types = targets.map(
         (ed) => (ed.data?.pathType as EdgePathType | undefined) ?? 'bezier',
       );
@@ -42,7 +42,6 @@ export function useEdgeContextMenu(
         ? types[0]
         : null;
 
-      // 画面端からはみ出さないよう位置を補正
       const x = Math.min(e.clientX, window.innerWidth - CONTEXT_MENU_WIDTH - 8);
       const y = Math.min(
         e.clientY,
@@ -55,15 +54,22 @@ export function useEdgeContextMenu(
 
   const setEdgePathType = useCallback(
     (targetEdgeIds: string[], pathType: EdgePathType) => {
-      const targetSet = new Set(targetEdgeIds);
-      setEdges((es) =>
-        es.map((e) =>
-          targetSet.has(e.id) ? { ...e, data: { ...e.data, pathType } } : e,
-        ),
-      );
+      const currentEdges = getEdges();
+      for (const edgeId of targetEdgeIds) {
+        const edge = currentEdges.find((e) => e.id === edgeId);
+        const fromPathType =
+          (edge?.data?.pathType as EdgePathType | undefined) ?? 'bezier';
+        dispatch({
+          ...makeEventBase('presentation'),
+          type: 'EDGE_STYLE_CHANGED',
+          edgeId: edgeId as EdgeId,
+          from: { pathType: fromPathType },
+          to: { pathType },
+        });
+      }
       setContextMenu(null);
     },
-    [setEdges],
+    [getEdges, dispatch],
   );
 
   // コンテキストメニュー外クリック / ESC で閉じる

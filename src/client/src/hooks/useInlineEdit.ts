@@ -10,7 +10,12 @@ export function useInlineEdit(
 ) {
   const [editing, setEditing] = useState(false);
   const [inputValue, setInputValue] = useState('');
-  const [composing, setComposing] = useState(false);
+  // composing はイベントハンドラ内でのみ参照するため ref で管理する
+  // (state だと compositionEnd 後の再レンダリング前に keyDown が来た場合に古い値を参照する)
+  const composingRef = useRef(false);
+  const setComposing = useCallback((value: boolean) => {
+    composingRef.current = value;
+  }, []);
   // Escape 後の onBlur で confirm が呼ばれないようにするフラグ
   const cancelledRef = useRef(false);
 
@@ -39,7 +44,7 @@ export function useInlineEdit(
     editing,
     inputValue,
     setInputValue,
-    composing,
+    composingRef,
     setComposing,
     startEdit,
     confirm,

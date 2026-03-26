@@ -1,4 +1,4 @@
-import type { EdgePathType } from '@conversensus/shared';
+import type { EdgeId, EdgePathType } from '@conversensus/shared';
 import {
   BaseEdge,
   EdgeLabelRenderer,
@@ -9,6 +9,8 @@ import {
   useReactFlow,
 } from '@xyflow/react';
 import { useCallback, useRef } from 'react';
+import { useEventDispatch } from './EventDispatchContext';
+import { makeEventBase } from './events/GraphEvent';
 import { useInlineEdit } from './hooks/useInlineEdit';
 
 function getEdgePath(
@@ -50,6 +52,7 @@ export function EditableLabelEdge({
   data,
 }: EdgeProps) {
   const { setEdges } = useReactFlow();
+  const { dispatch, setDragging } = useEventDispatch();
 
   const pathType = (data?.pathType as EdgePathType | undefined) ?? 'bezier';
   const [edgePath, labelX, labelY] = getEdgePath(pathType, {
@@ -68,17 +71,31 @@ export function EditableLabelEdge({
     editing,
     inputValue,
     setInputValue,
-    composing,
+    composingRef,
     setComposing,
     startEdit,
     confirm,
     cancel,
-  } = useInlineEdit(String(label ?? ''), (value) =>
-    setEdges((es) => es.map((e) => (e.id === id ? { ...e, label: value } : e))),
-  );
+  } = useInlineEdit(String(label ?? ''), (value) => {
+    const from = String(label ?? '');
+    if (value !== from) {
+      dispatch({
+        ...makeEventBase('content'),
+        type: 'EDGE_RELABELED',
+        edgeId: id as EdgeId,
+        from,
+        to: value,
+      });
+    }
+  });
 
   // ドラッグ追跡
-  const dragStartRef = useRef({ x: 0, y: 0, offsetX: 0, offsetY: 0 });
+  const dragStartRef = useRef({
+    x: 0,
+    y: 0,
+    offsetX: 0,
+    offsetY: 0,
+  });
   const isDraggingRef = useRef(false);
 
   const handlePointerDown = useCallback(
@@ -86,10 +103,16 @@ export function EditableLabelEdge({
       if (editing) return;
       e.stopPropagation();
       isDraggingRef.current = false;
-      dragStartRef.current = { x: e.clientX, y: e.clientY, offsetX, offsetY };
+      dragStartRef.current = {
+        x: e.clientX,
+        y: e.clientY,
+        offsetX,
+        offsetY,
+      };
       e.currentTarget.setPointerCapture(e.pointerId);
+      setDragging(true);
     },
-    [editing, offsetX, offsetY],
+    [editing, offsetX, offsetY, setDragging],
   );
 
   const handlePointerMove = useCallback(
@@ -122,9 +145,33 @@ export function EditableLabelEdge({
     [id, setEdges],
   );
 
-  const handlePointerUp = useCallback((e: React.PointerEvent) => {
-    e.currentTarget.releasePointerCapture(e.pointerId);
-  }, []);
+  const handlePointerUp = useCallback(
+    (e: React.PointerEvent) => {
+      if (isDraggingRef.current) {
+        // ドラッグ完了 → EDGE_LABEL_MOVED を dispatch
+        const fromOffset = {
+          offsetX: dragStartRef.current.offsetX,
+          offsetY: dragStartRef.current.offsetY,
+        };
+        const dx = e.clientX - dragStartRef.current.x;
+        const dy = e.clientY - dragStartRef.current.y;
+        const toOffset = {
+          offsetX: dragStartRef.current.offsetX + dx,
+          offsetY: dragStartRef.current.offsetY + dy,
+        };
+        dispatch({
+          ...makeEventBase('presentation'),
+          type: 'EDGE_LABEL_MOVED',
+          edgeId: id as EdgeId,
+          from: fromOffset,
+          to: toOffset,
+        });
+      }
+      e.currentTarget.releasePointerCapture(e.pointerId);
+      setDragging(false);
+    },
+    [dispatch, id, setDragging],
+  );
 
   return (
     <>
@@ -179,7 +226,7 @@ export function EditableLabelEdge({
               onCompositionStart={() => setComposing(true)}
               onCompositionEnd={() => setComposing(false)}
               onKeyDown={(e) => {
-                if (composing) return; // IME 変換中は無視
+                if (composingRef.current) return; // IME 変換中は無視
                 if (e.key === 'Enter') confirm();
                 if (e.key === 'Escape') cancel();
               }}

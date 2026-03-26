@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 
 // bun では mock.module() はホイストされないため, await import() の前に呼ぶことで
 // EditableNode が @xyflow/react を読み込む前にモックを登録できる
-const mockSetNodes = mock((_updater: unknown) => {});
+const mockGetNode = mock((_id: string) => undefined);
 
 mock.module('@xyflow/react', () => ({
   // biome-ignore lint/suspicious/noExplicitAny: テスト用スタブ
@@ -11,7 +11,16 @@ mock.module('@xyflow/react', () => ({
   // biome-ignore lint/suspicious/noExplicitAny: テスト用スタブ
   NodeResizer: (_props: any) => null,
   Position: { Top: 'top', Bottom: 'bottom', Left: 'left', Right: 'right' },
-  useReactFlow: () => ({ setNodes: mockSetNodes }),
+  useReactFlow: () => ({ getNode: mockGetNode }),
+}));
+
+const mockDispatch = mock((_event: unknown) => {});
+
+mock.module('./EventDispatchContext', () => ({
+  useEventDispatch: () => ({
+    dispatch: mockDispatch,
+    setDragging: mock((_dragging: boolean) => {}),
+  }),
 }));
 
 // react-markdown: spy として呼び出しを記録しつつ children をレンダリング
@@ -45,7 +54,8 @@ const makeProps = (label = 'テストノード'): TestNodeProps => ({
 
 describe('EditableNode', () => {
   beforeEach(() => {
-    mockSetNodes.mockClear();
+    mockGetNode.mockClear();
+    mockDispatch.mockClear();
     mockReactMarkdown.mockClear();
   });
 
@@ -78,23 +88,26 @@ describe('EditableNode', () => {
     expect(textarea.value).toBe('テストノード');
   });
 
-  it('onBlur で確定し setNodes を呼び出す', () => {
+  it('onBlur で確定し NODE_RELABELED を dispatch する', () => {
     render(<EditableNode {...makeProps()} />);
     fireEvent.dblClick(screen.getByText('テストノード'));
     const textarea = screen.getByRole('textbox') as HTMLTextAreaElement;
     fireEvent.change(textarea, { target: { value: '変更内容' } });
     fireEvent.blur(textarea);
-    expect(mockSetNodes).toHaveBeenCalledTimes(1);
+    expect(mockDispatch).toHaveBeenCalledTimes(1);
+    expect((mockDispatch.mock.calls[0][0] as { type: string }).type).toBe(
+      'NODE_RELABELED',
+    );
     expect(screen.queryByRole('textbox')).toBeNull();
   });
 
-  it('Escape でキャンセルし setNodes を呼ばない', () => {
+  it('Escape でキャンセルし dispatch を呼ばない', () => {
     render(<EditableNode {...makeProps()} />);
     fireEvent.dblClick(screen.getByText('テストノード'));
     const textarea = screen.getByRole('textbox') as HTMLTextAreaElement;
     fireEvent.change(textarea, { target: { value: '変更しない' } });
     fireEvent.keyDown(textarea, { key: 'Escape' });
-    expect(mockSetNodes).not.toHaveBeenCalled();
+    expect(mockDispatch).not.toHaveBeenCalled();
     expect(screen.queryByRole('textbox')).toBeNull();
   });
 
@@ -103,7 +116,7 @@ describe('EditableNode', () => {
     fireEvent.dblClick(screen.getByText('テストノード'));
     const textarea = screen.getByRole('textbox') as HTMLTextAreaElement;
     fireEvent.keyDown(textarea, { key: 'Enter' });
-    expect(mockSetNodes).not.toHaveBeenCalled();
+    expect(mockDispatch).not.toHaveBeenCalled();
     expect(screen.getByRole('textbox')).toBeDefined(); // まだ編集中
   });
 });
