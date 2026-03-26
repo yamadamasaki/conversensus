@@ -23,12 +23,25 @@ export type SheetName = string;
 export const StyleSchema = z.record(z.string(), z.unknown());
 export type Style = z.infer<typeof StyleSchema>;
 
+// ノードの永続化スタイル: 座標・サイズ・種別を型安全に定義
+// catchall で未知フィールドを保持し前方互換性を確保する
+export const NodeStyleSchema = z
+  .object({
+    x: z.number().optional(),
+    y: z.number().optional(),
+    width: z.union([z.number(), z.string()]).optional(),
+    height: z.union([z.number(), z.string()]).optional(),
+    nodeType: z.literal('group').optional(),
+  })
+  .catchall(z.unknown());
+export type NodeStyle = z.infer<typeof NodeStyleSchema>;
+
 // --- Domain schemas ---
 export const GraphNodeSchema = z.object({
   id: NodeIdSchema,
   content: z.string(),
   parentId: NodeIdSchema.optional(),
-  style: StyleSchema.optional(),
+  style: NodeStyleSchema.optional(),
 });
 
 export const EdgePathTypeSchema = z.enum([

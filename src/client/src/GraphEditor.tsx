@@ -7,7 +7,6 @@ import {
   type Edge,
   MarkerType,
   MiniMap,
-  type Node,
   type OnConnect,
   type OnReconnect,
   Panel,
@@ -17,28 +16,24 @@ import {
   useNodesState,
   useReactFlow,
 } from '@xyflow/react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import '@xyflow/react/dist/style.css';
 import type { EdgePathType, GraphFile } from '@conversensus/shared';
 import { EditableLabelEdge } from './EditableLabelEdge';
 import { EditableNode } from './EditableNode';
 import { GroupNode } from './GroupNode';
 import {
-  buildPastedData,
-  collectCopyData,
   DEFAULT_NODE_STYLE,
   fromFlowEdges,
   fromFlowNodes,
-  GROUP_PADDING,
-  GROUP_TITLE_HEIGHT,
   recalculateParentBounds,
   toFlowEdges,
   toFlowNodes,
 } from './graphTransform';
-
-const DOUBLE_CLICK_INTERVAL_MS = 300;
-const DOUBLE_CLICK_THRESHOLD_PX = 5;
-const PASTE_OFFSET_PX = 20;
+import { useClipboard } from './hooks/useClipboard';
+import { useEdgeContextMenu } from './hooks/useEdgeContextMenu';
+import { useGroupNodes } from './hooks/useGroupNodes';
+import { usePaneDoubleClick } from './hooks/usePaneDoubleClick';
 
 type Props = {
   file: GraphFile;
@@ -123,7 +118,7 @@ function GraphEditorInner({ file, onChange }: Props) {
             id: crypto.randomUUID(),
             type: 'editableLabel',
             markerEnd: { type: MarkerType.ArrowClosed },
-            data: { pathType: 'bezier' },
+            data: { pathType: 'bezier' satisfies EdgePathType },
           },
           es,
         ),
@@ -152,238 +147,17 @@ function GraphEditorInner({ file, onChange }: Props) {
     [setNodes],
   );
 
-  const groupSelectedNodes = useCallback(() => {
-    setNodes((ns) => {
-      const selected = ns.filter((n) => n.selected);
-      if (selected.length < 1) return ns;
-
-      // 選択ノードが同じ親を持つ場合, その親の中にグループを作る
-      const sharedParentId = selected.every(
-        (n) => n.parentId === selected[0].parentId,
-      )
-        ? selected[0].parentId
-        : undefined;
-
-      // 選択ノードのバウンディングボックスを計算 (sharedParentId がある場合は相対座標)
-      const minX = Math.min(...selected.map((n) => n.position.x));
-      const minY = Math.min(...selected.map((n) => n.position.y));
-      const maxX = Math.max(
-        ...selected.map(
-          (n) =>
-            n.position.x +
-            Number(
-              n.measured?.width ?? n.style?.width ?? DEFAULT_NODE_STYLE.width,
-            ),
-        ),
-      );
-      const maxY = Math.max(
-        ...selected.map(
-          (n) =>
-            n.position.y +
-            Number(
-              n.measured?.height ??
-                n.style?.height ??
-                DEFAULT_NODE_STYLE.height,
-            ),
-        ),
-      );
-
-      const parentX = minX - GROUP_PADDING;
-      const parentY = minY - GROUP_PADDING - GROUP_TITLE_HEIGHT;
-      const parentWidth = maxX - minX + GROUP_PADDING * 2;
-      const parentHeight = maxY - minY + GROUP_PADDING * 2 + GROUP_TITLE_HEIGHT;
-      const parentId = crypto.randomUUID();
-
-      const parentNode = {
-        id: parentId,
-        position: { x: parentX, y: parentY },
-        data: { label: 'グループ' },
-        type: 'groupNode' as const,
-        parentId: sharedParentId,
-        style: { width: parentWidth, height: parentHeight, nodeType: 'group' },
-      };
-
-      const selectedIds = new Set(selected.map((n) => n.id));
-
-      const mappedNodes = ns.map((n) => {
-        if (!selectedIds.has(n.id)) return n;
-        return {
-          ...n,
-          parentId,
-          selected: false,
-          position: {
-            x: n.position.x - parentX,
-            y: n.position.y - parentY,
-          },
-        };
-      });
-
-      // React Flow では親ノードを子ノードより前に配置する必要がある
-      // ネスト時は sharedParentId の直後に挿入する
-      if (sharedParentId) {
-        const idx = mappedNodes.findIndex((n) => n.id === sharedParentId);
-        const insertAt = idx >= 0 ? idx + 1 : 0;
-        return [
-          ...mappedNodes.slice(0, insertAt),
-          parentNode,
-          ...mappedNodes.slice(insertAt),
-        ];
-      }
-
-      return [parentNode, ...mappedNodes];
-    });
-  }, [setNodes]);
-
-  // Cmd+G / Ctrl+G でグループ化
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'g') {
-        e.preventDefault();
-        groupSelectedNodes();
-      }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [groupSelectedNodes]);
-
   const onNodeDragStop = useCallback(() => {
     setNodes((ns) => recalculateParentBounds(ns));
   }, [setNodes]);
 
-  const clipboard = useRef<{ nodes: Node[]; edges: Edge[] } | null>(null);
-
-  const copySelectedNodes = useCallback(() => {
-    const copied = collectCopyData(getNodes(), getEdges());
-    if (copied.nodes.length > 0) clipboard.current = copied;
-  }, [getNodes, getEdges]);
-
-  const pasteNodes = useCallback(() => {
-    if (!clipboard.current) return;
-    const { nodes: newNodes, edges: newEdges } = buildPastedData(
-      clipboard.current,
-      PASTE_OFFSET_PX,
-    );
-    setNodes((ns) => [
-      ...ns.map((n) => ({ ...n, selected: false })),
-      ...newNodes,
-    ]);
-    setEdges((es) => [...es, ...newEdges]);
-    // 次の貼り付けがさらにオフセットされるようクリップボードを更新
-    clipboard.current = { nodes: newNodes, edges: newEdges };
-  }, [setNodes, setEdges]);
-
-  // Cmd+C / Ctrl+C でコピー, Cmd+V / Ctrl+V でペースト
-  // INPUT / TEXTAREA 編集中は標準のクリップボード操作を妨げない
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey)) return;
-      const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
-      if (e.key === 'c') {
-        e.preventDefault();
-        copySelectedNodes();
-      } else if (e.key === 'v') {
-        e.preventDefault();
-        pasteNodes();
-      }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [copySelectedNodes, pasteNodes]);
-
-  const [contextMenu, setContextMenu] = useState<{
-    targetEdgeIds: string[];
-    // 対象が全て同じ種類なら表示, 混在の場合は null
-    currentPathType: EdgePathType | null;
-    x: number;
-    y: number;
-  } | null>(null);
-
-  const CONTEXT_MENU_WIDTH = 160;
-  const CONTEXT_MENU_HEIGHT = 185; // header + 4 items の概算
-
-  const onEdgeContextMenu = useCallback(
-    (e: React.MouseEvent, edge: Edge) => {
-      e.preventDefault();
-      const currentEdges = getEdges();
-      // 右クリックした edge が選択中なら選択中の全 edge を対象にする
-      const targets = edge.selected
-        ? currentEdges.filter((ed) => ed.selected)
-        : [edge];
-      const targetEdgeIds = targets.map((ed) => ed.id);
-
-      // 対象エッジの pathType が全て一致するか確認
-      const types = targets.map(
-        (ed) => (ed.data?.pathType as EdgePathType | undefined) ?? 'bezier',
-      );
-      const currentPathType = types.every((t) => t === types[0])
-        ? types[0]
-        : null;
-
-      // 画面端からはみ出さないよう位置を補正
-      const x = Math.min(e.clientX, window.innerWidth - CONTEXT_MENU_WIDTH - 8);
-      const y = Math.min(
-        e.clientY,
-        window.innerHeight - CONTEXT_MENU_HEIGHT - 8,
-      );
-      setContextMenu({ targetEdgeIds, currentPathType, x, y });
-    },
-    [getEdges],
-  );
-
-  const setEdgePathType = useCallback(
-    (targetEdgeIds: string[], pathType: EdgePathType) => {
-      const targetSet = new Set(targetEdgeIds);
-      setEdges((es) =>
-        es.map((e) =>
-          targetSet.has(e.id) ? { ...e, data: { ...e.data, pathType } } : e,
-        ),
-      );
-      setContextMenu(null);
-    },
-    [setEdges],
-  );
-
-  // コンテキストメニュー外クリック / ESC で閉じる
-  useEffect(() => {
-    if (!contextMenu) return;
-    const onMouseDown = () => setContextMenu(null);
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setContextMenu(null);
-    };
-    window.addEventListener('mousedown', onMouseDown);
-    window.addEventListener('keydown', onKeyDown);
-    return () => {
-      window.removeEventListener('mousedown', onMouseDown);
-      window.removeEventListener('keydown', onKeyDown);
-    };
-  }, [contextMenu]);
-
-  const lastPaneClickTime = useRef(0);
-  const lastPaneClickPos = useRef({ x: 0, y: 0 });
-
-  const onPaneClick = useCallback(
-    (e: React.MouseEvent) => {
-      const now = Date.now();
-      const dx = e.clientX - lastPaneClickPos.current.x;
-      const dy = e.clientY - lastPaneClickPos.current.y;
-      const isSameSpot =
-        Math.abs(dx) < DOUBLE_CLICK_THRESHOLD_PX &&
-        Math.abs(dy) < DOUBLE_CLICK_THRESHOLD_PX;
-      if (
-        now - lastPaneClickTime.current < DOUBLE_CLICK_INTERVAL_MS &&
-        isSameSpot
-      ) {
-        const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
-        addNode(pos);
-        lastPaneClickTime.current = 0;
-      } else {
-        lastPaneClickTime.current = now;
-        lastPaneClickPos.current = { x: e.clientX, y: e.clientY };
-      }
-    },
-    [screenToFlowPosition, addNode],
-  );
+  // --- Custom hooks ---
+  const { groupSelectedNodes } = useGroupNodes(setNodes);
+  // Cmd+C / Cmd+V のキーボード登録は useClipboard 内で行われる
+  useClipboard(getNodes, getEdges, setNodes, setEdges);
+  const { contextMenu, onEdgeContextMenu, setEdgePathType } =
+    useEdgeContextMenu(getEdges, setEdges);
+  const { onPaneClick } = usePaneDoubleClick(screenToFlowPosition, addNode);
 
   return (
     <div style={{ width: '100%', height: '100%' }}>

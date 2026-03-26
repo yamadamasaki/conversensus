@@ -15,8 +15,8 @@ export function toFlowNodes(nodes: GraphNode[]): Node[] {
   return nodes.map((n) => ({
     id: n.id,
     position: {
-      x: typeof n.style?.x === 'number' ? n.style.x : 0,
-      y: typeof n.style?.y === 'number' ? n.style.y : 0,
+      x: n.style?.x ?? 0,
+      y: n.style?.y ?? 0,
     },
     data: { label: n.content },
     type: n.style?.nodeType === 'group' ? 'groupNode' : 'editableNode',
