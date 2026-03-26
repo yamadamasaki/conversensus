@@ -24,20 +24,14 @@ export function useGroupNodes(
       ? selected[0].parentId
       : undefined;
 
-    const minX = Math.min(
-      ...selected.map((n) => n.position.x),
-    );
-    const minY = Math.min(
-      ...selected.map((n) => n.position.y),
-    );
+    const minX = Math.min(...selected.map((n) => n.position.x));
+    const minY = Math.min(...selected.map((n) => n.position.y));
     const maxX = Math.max(
       ...selected.map(
         (n) =>
           n.position.x +
           Number(
-            n.measured?.width ??
-              n.style?.width ??
-              DEFAULT_NODE_STYLE.width,
+            n.measured?.width ?? n.style?.width ?? DEFAULT_NODE_STYLE.width,
           ),
       ),
     );
@@ -46,9 +40,7 @@ export function useGroupNodes(
         (n) =>
           n.position.y +
           Number(
-            n.measured?.height ??
-              n.style?.height ??
-              DEFAULT_NODE_STYLE.height,
+            n.measured?.height ?? n.style?.height ?? DEFAULT_NODE_STYLE.height,
           ),
       ),
     );
@@ -56,8 +48,7 @@ export function useGroupNodes(
     const parentX = minX - GROUP_PADDING;
     const parentY = minY - GROUP_PADDING - GROUP_TITLE_HEIGHT;
     const parentWidth = maxX - minX + GROUP_PADDING * 2;
-    const parentHeight =
-      maxY - minY + GROUP_PADDING * 2 + GROUP_TITLE_HEIGHT;
+    const parentHeight = maxY - minY + GROUP_PADDING * 2 + GROUP_TITLE_HEIGHT;
     const parentId = crypto.randomUUID() as NodeId;
 
     const parentData: GraphNode = {

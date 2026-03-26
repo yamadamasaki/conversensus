@@ -71,7 +71,7 @@ export function EditableLabelEdge({
     editing,
     inputValue,
     setInputValue,
-    composing,
+    composingRef,
     setComposing,
     startEdit,
     confirm,
@@ -226,7 +226,7 @@ export function EditableLabelEdge({
               onCompositionStart={() => setComposing(true)}
               onCompositionEnd={() => setComposing(false)}
               onKeyDown={(e) => {
-                if (composing) return; // IME 変換中は無視
+                if (composingRef.current) return; // IME 変換中は無視
                 if (e.key === 'Enter') confirm();
                 if (e.key === 'Escape') cancel();
               }}

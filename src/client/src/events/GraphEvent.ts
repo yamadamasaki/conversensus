@@ -188,9 +188,7 @@ export type GraphEvent =
   | NodeStyleChangedEvent
   | EdgeLabelMovedEvent;
 
-export function makeEventBase<
-  C extends GraphEvent['category'],
->(
+export function makeEventBase<C extends GraphEvent['category']>(
   category: C,
 ): EventBase & { category: C } {
   return {

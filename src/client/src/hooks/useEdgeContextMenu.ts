@@ -1,4 +1,4 @@
-import type { EdgePathType, EdgeId } from '@conversensus/shared';
+import type { EdgeId, EdgePathType } from '@conversensus/shared';
 import type { Edge } from '@xyflow/react';
 import type { MouseEvent } from 'react';
 import { useCallback, useEffect, useState } from 'react';
@@ -22,13 +22,9 @@ export function useEdgeContextMenu(
 ): {
   contextMenu: EdgeContextMenuState;
   onEdgeContextMenu: (e: MouseEvent, edge: Edge) => void;
-  setEdgePathType: (
-    targetEdgeIds: string[],
-    pathType: EdgePathType,
-  ) => void;
+  setEdgePathType: (targetEdgeIds: string[], pathType: EdgePathType) => void;
 } {
-  const [contextMenu, setContextMenu] =
-    useState<EdgeContextMenuState>(null);
+  const [contextMenu, setContextMenu] = useState<EdgeContextMenuState>(null);
 
   const onEdgeContextMenu = useCallback(
     (e: MouseEvent, edge: Edge) => {
@@ -40,20 +36,13 @@ export function useEdgeContextMenu(
       const targetEdgeIds = targets.map((ed) => ed.id);
 
       const types = targets.map(
-        (ed) =>
-          (ed.data?.pathType as EdgePathType | undefined) ??
-          'bezier',
+        (ed) => (ed.data?.pathType as EdgePathType | undefined) ?? 'bezier',
       );
-      const currentPathType = types.every(
-        (t) => t === types[0],
-      )
+      const currentPathType = types.every((t) => t === types[0])
         ? types[0]
         : null;
 
-      const x = Math.min(
-        e.clientX,
-        window.innerWidth - CONTEXT_MENU_WIDTH - 8,
-      );
+      const x = Math.min(e.clientX, window.innerWidth - CONTEXT_MENU_WIDTH - 8);
       const y = Math.min(
         e.clientY,
         window.innerHeight - CONTEXT_MENU_HEIGHT - 8,
@@ -67,13 +56,9 @@ export function useEdgeContextMenu(
     (targetEdgeIds: string[], pathType: EdgePathType) => {
       const currentEdges = getEdges();
       for (const edgeId of targetEdgeIds) {
-        const edge = currentEdges.find(
-          (e) => e.id === edgeId,
-        );
+        const edge = currentEdges.find((e) => e.id === edgeId);
         const fromPathType =
-          (edge?.data?.pathType as
-            | EdgePathType
-            | undefined) ?? 'bezier';
+          (edge?.data?.pathType as EdgePathType | undefined) ?? 'bezier';
         dispatch({
           ...makeEventBase('presentation'),
           type: 'EDGE_STYLE_CHANGED',

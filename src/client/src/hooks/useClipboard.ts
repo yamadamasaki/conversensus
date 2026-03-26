@@ -28,8 +28,10 @@ export function useClipboard(
 
   const pasteNodes = useCallback(() => {
     if (!clipboard.current) return;
-    const { nodes: newNodes, edges: newEdges } =
-      buildPastedData(clipboard.current, PASTE_OFFSET_PX);
+    const { nodes: newNodes, edges: newEdges } = buildPastedData(
+      clipboard.current,
+      PASTE_OFFSET_PX,
+    );
     dispatch({
       ...makeEventBase('structure'),
       type: 'NODES_PASTED',

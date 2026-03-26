@@ -10,7 +10,19 @@ mock.module('@xyflow/react', () => ({
   // EdgeLabelRenderer はポータルで描画するため, テスト用に children を直接レンダリング
   EdgeLabelRenderer: ({ children }: { children: ReactNode }) => <>{children}</>,
   getBezierPath: () => ['M0,0 L100,100', 50, 50],
+  getSmoothStepPath: () => ['M0,0 L100,100', 50, 50],
+  getStraightPath: () => ['M0,0 L100,100', 50, 50],
   useReactFlow: () => ({ setEdges: mockSetEdges }),
+}));
+
+const mockDispatch = mock((_event: unknown) => {});
+const mockSetDragging = mock((_dragging: boolean) => {});
+
+mock.module('./EventDispatchContext', () => ({
+  useEventDispatch: () => ({
+    dispatch: mockDispatch,
+    setDragging: mockSetDragging,
+  }),
 }));
 
 const { render, screen, fireEvent, cleanup } = await import(
@@ -37,6 +49,8 @@ const makeProps = (label?: string): TestEdgeProps => ({
 describe('EditableLabelEdge', () => {
   beforeEach(() => {
     mockSetEdges.mockClear();
+    mockDispatch.mockClear();
+    mockSetDragging.mockClear();
   });
 
   afterEach(() => {
@@ -71,33 +85,39 @@ describe('EditableLabelEdge', () => {
     expect(input.value).toBe('');
   });
 
-  it('Enter で確定し setEdges を呼び出す', () => {
+  it('Enter で確定し EDGE_RELABELED を dispatch する', () => {
     render(<EditableLabelEdge {...makeProps('テストラベル')} />);
     fireEvent.dblClick(screen.getByText('テストラベル'));
     const input = screen.getByRole('textbox') as HTMLInputElement;
     fireEvent.change(input, { target: { value: '新しいラベル' } });
     fireEvent.keyDown(input, { key: 'Enter' });
-    expect(mockSetEdges).toHaveBeenCalledTimes(1);
+    expect(mockDispatch).toHaveBeenCalledTimes(1);
+    expect((mockDispatch.mock.calls[0][0] as { type: string }).type).toBe(
+      'EDGE_RELABELED',
+    );
     expect(screen.queryByRole('textbox')).toBeNull();
   });
 
-  it('Escape でキャンセルし setEdges を呼ばない', () => {
+  it('Escape でキャンセルし dispatch を呼ばない', () => {
     render(<EditableLabelEdge {...makeProps('テストラベル')} />);
     fireEvent.dblClick(screen.getByText('テストラベル'));
     const input = screen.getByRole('textbox') as HTMLInputElement;
     fireEvent.change(input, { target: { value: '変更しない' } });
     fireEvent.keyDown(input, { key: 'Escape' });
-    expect(mockSetEdges).not.toHaveBeenCalled();
+    expect(mockDispatch).not.toHaveBeenCalled();
     expect(screen.queryByRole('textbox')).toBeNull();
   });
 
-  it('onBlur で確定し setEdges を呼び出す', () => {
+  it('onBlur で確定し EDGE_RELABELED を dispatch する', () => {
     render(<EditableLabelEdge {...makeProps('テストラベル')} />);
     fireEvent.dblClick(screen.getByText('テストラベル'));
     const input = screen.getByRole('textbox') as HTMLInputElement;
     fireEvent.change(input, { target: { value: '変更内容' } });
     fireEvent.blur(input);
-    expect(mockSetEdges).toHaveBeenCalledTimes(1);
+    expect(mockDispatch).toHaveBeenCalledTimes(1);
+    expect((mockDispatch.mock.calls[0][0] as { type: string }).type).toBe(
+      'EDGE_RELABELED',
+    );
     expect(screen.queryByRole('textbox')).toBeNull();
   });
 
@@ -107,7 +127,7 @@ describe('EditableLabelEdge', () => {
     const input = screen.getByRole('textbox') as HTMLInputElement;
     fireEvent.compositionStart(input);
     fireEvent.keyDown(input, { key: 'Enter' });
-    expect(mockSetEdges).not.toHaveBeenCalled();
+    expect(mockDispatch).not.toHaveBeenCalled();
     expect(screen.getByRole('textbox')).toBeDefined(); // まだ編集中
   });
 
@@ -118,6 +138,6 @@ describe('EditableLabelEdge', () => {
     fireEvent.compositionStart(input);
     fireEvent.compositionEnd(input);
     fireEvent.keyDown(input, { key: 'Enter' });
-    expect(mockSetEdges).toHaveBeenCalledTimes(1);
+    expect(mockDispatch).toHaveBeenCalledTimes(1);
   });
 });

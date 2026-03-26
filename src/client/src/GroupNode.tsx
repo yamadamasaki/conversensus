@@ -94,7 +94,7 @@ export function GroupNode({
     editing,
     inputValue,
     setInputValue,
-    composing,
+    composingRef,
     setComposing,
     startEdit,
     confirm,
@@ -191,7 +191,7 @@ export function GroupNode({
               onCompositionStart={() => setComposing(true)}
               onCompositionEnd={() => setComposing(false)}
               onKeyDown={(e) => {
-                if (composing) return;
+                if (composingRef.current) return;
                 if (e.key === 'Enter') confirm();
                 if (e.key === 'Escape') cancel();
               }}
