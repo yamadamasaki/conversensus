@@ -165,16 +165,36 @@ export function recalculateParentBounds(nodes: Node[]): Node[] {
 }
 
 // 選択ノードと、それら間のエッジを収集する
+// グループノードが選択されている場合, 子孫ノードも再帰的に含める
 export function collectCopyData(
   nodes: Node[],
   edges: Edge[],
 ): { nodes: Node[]; edges: Edge[] } {
   const selected = nodes.filter((n) => n.selected);
-  const selectedIds = new Set(selected.map((n) => n.id));
+  if (selected.length === 0) return { nodes: [], edges: [] };
+
+  const includedIds = new Set(selected.map((n) => n.id));
+
+  const addDescendants = (parentId: string) => {
+    for (const node of nodes) {
+      if (node.parentId === parentId && !includedIds.has(node.id)) {
+        includedIds.add(node.id);
+        addDescendants(node.id);
+      }
+    }
+  };
+
+  for (const node of selected) {
+    if (node.type === 'groupNode') {
+      addDescendants(node.id);
+    }
+  }
+
+  const includedNodes = nodes.filter((n) => includedIds.has(n.id));
   const relatedEdges = edges.filter(
-    (e) => selectedIds.has(e.source) && selectedIds.has(e.target),
+    (e) => includedIds.has(e.source) && includedIds.has(e.target),
   );
-  return { nodes: selected, edges: relatedEdges };
+  return { nodes: includedNodes, edges: relatedEdges };
 }
 
 // クリップボードのノード/エッジから新しい UUID・オフセット位置でペーストデータを生成する

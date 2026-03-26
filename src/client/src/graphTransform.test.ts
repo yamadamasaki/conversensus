@@ -446,6 +446,44 @@ describe('collectCopyData', () => {
     expect(ns).toHaveLength(0);
     expect(es).toHaveLength(0);
   });
+
+  it('選択されたグループノードの子ノードも含まれる', () => {
+    const group: Node = {
+      id: 'g1',
+      position: { x: 0, y: 0 },
+      data: { label: 'group' },
+      type: 'groupNode',
+      selected: true,
+    };
+    const child = makeNode('n1', false, 'g1');
+    const unrelated = makeNode('n2', false);
+    const { nodes: result } = collectCopyData([group, child, unrelated], []);
+    const ids = result.map((n) => n.id);
+    expect(ids).toContain('g1');
+    expect(ids).toContain('n1');
+    expect(ids).not.toContain('n2');
+  });
+
+  it('ネストされたグループの孫ノードも再帰的に含まれる', () => {
+    const outer: Node = {
+      id: 'g1',
+      position: { x: 0, y: 0 },
+      data: { label: 'outer' },
+      type: 'groupNode',
+      selected: true,
+    };
+    const inner: Node = {
+      id: 'g2',
+      position: { x: 0, y: 0 },
+      data: { label: 'inner' },
+      type: 'groupNode',
+      selected: false,
+      parentId: 'g1',
+    };
+    const grandchild = makeNode('n1', false, 'g2');
+    const { nodes: result } = collectCopyData([outer, inner, grandchild], []);
+    expect(result.map((n) => n.id).sort()).toEqual(['g1', 'g2', 'n1']);
+  });
 });
 
 // ---- buildPastedData ----
