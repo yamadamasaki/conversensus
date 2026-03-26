@@ -1,4 +1,4 @@
-import type { EdgePathType } from '@conversensus/shared';
+import type { EdgeId, EdgePathType } from '@conversensus/shared';
 import {
   BaseEdge,
   EdgeLabelRenderer,
@@ -9,6 +9,8 @@ import {
   useReactFlow,
 } from '@xyflow/react';
 import { useCallback, useRef } from 'react';
+import { useEventDispatch } from './EventDispatchContext';
+import { makeEventBase } from './events/GraphEvent';
 import { useInlineEdit } from './hooks/useInlineEdit';
 
 function getEdgePath(
@@ -50,6 +52,7 @@ export function EditableLabelEdge({
   data,
 }: EdgeProps) {
   const { setEdges } = useReactFlow();
+  const dispatch = useEventDispatch();
 
   const pathType = (data?.pathType as EdgePathType | undefined) ?? 'bezier';
   const [edgePath, labelX, labelY] = getEdgePath(pathType, {
@@ -73,12 +76,26 @@ export function EditableLabelEdge({
     startEdit,
     confirm,
     cancel,
-  } = useInlineEdit(String(label ?? ''), (value) =>
-    setEdges((es) => es.map((e) => (e.id === id ? { ...e, label: value } : e))),
-  );
+  } = useInlineEdit(String(label ?? ''), (value) => {
+    const from = String(label ?? '');
+    if (value !== from) {
+      dispatch({
+        ...makeEventBase('content'),
+        type: 'EDGE_RELABELED',
+        edgeId: id as EdgeId,
+        from,
+        to: value,
+      });
+    }
+  });
 
   // ドラッグ追跡
-  const dragStartRef = useRef({ x: 0, y: 0, offsetX: 0, offsetY: 0 });
+  const dragStartRef = useRef({
+    x: 0,
+    y: 0,
+    offsetX: 0,
+    offsetY: 0,
+  });
   const isDraggingRef = useRef(false);
 
   const handlePointerDown = useCallback(
@@ -86,7 +103,12 @@ export function EditableLabelEdge({
       if (editing) return;
       e.stopPropagation();
       isDraggingRef.current = false;
-      dragStartRef.current = { x: e.clientX, y: e.clientY, offsetX, offsetY };
+      dragStartRef.current = {
+        x: e.clientX,
+        y: e.clientY,
+        offsetX,
+        offsetY,
+      };
       e.currentTarget.setPointerCapture(e.pointerId);
     },
     [editing, offsetX, offsetY],
@@ -94,12 +116,14 @@ export function EditableLabelEdge({
 
   const handlePointerMove = useCallback(
     (e: React.PointerEvent) => {
-      if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
+      if (!e.currentTarget.hasPointerCapture(e.pointerId))
+        return;
       const dx = e.clientX - dragStartRef.current.x;
       const dy = e.clientY - dragStartRef.current.y;
       if (
         !isDraggingRef.current &&
-        (Math.abs(dx) > DRAG_THRESHOLD_PX || Math.abs(dy) > DRAG_THRESHOLD_PX)
+        (Math.abs(dx) > DRAG_THRESHOLD_PX ||
+          Math.abs(dy) > DRAG_THRESHOLD_PX)
       ) {
         isDraggingRef.current = true;
       }
@@ -111,8 +135,10 @@ export function EditableLabelEdge({
                 ...ed,
                 data: {
                   ...ed.data,
-                  labelOffsetX: dragStartRef.current.offsetX + dx,
-                  labelOffsetY: dragStartRef.current.offsetY + dy,
+                  labelOffsetX:
+                    dragStartRef.current.offsetX + dx,
+                  labelOffsetY:
+                    dragStartRef.current.offsetY + dy,
                 },
               }
             : ed,
@@ -122,9 +148,32 @@ export function EditableLabelEdge({
     [id, setEdges],
   );
 
-  const handlePointerUp = useCallback((e: React.PointerEvent) => {
-    e.currentTarget.releasePointerCapture(e.pointerId);
-  }, []);
+  const handlePointerUp = useCallback(
+    (e: React.PointerEvent) => {
+      if (isDraggingRef.current) {
+        // ドラッグ完了 → EDGE_LABEL_MOVED を dispatch
+        const fromOffset = {
+          offsetX: dragStartRef.current.offsetX,
+          offsetY: dragStartRef.current.offsetY,
+        };
+        const dx = e.clientX - dragStartRef.current.x;
+        const dy = e.clientY - dragStartRef.current.y;
+        const toOffset = {
+          offsetX: dragStartRef.current.offsetX + dx,
+          offsetY: dragStartRef.current.offsetY + dy,
+        };
+        dispatch({
+          ...makeEventBase('presentation'),
+          type: 'EDGE_LABEL_MOVED',
+          edgeId: id as EdgeId,
+          from: fromOffset,
+          to: toOffset,
+        });
+      }
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    },
+    [dispatch, id],
+  );
 
   return (
     <>

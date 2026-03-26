@@ -1,3 +1,4 @@
+import type { GraphNode, NodeId } from '@conversensus/shared';
 import {
   Handle,
   type NodeProps,
@@ -6,6 +7,8 @@ import {
   useReactFlow,
 } from '@xyflow/react';
 import { useCallback, useRef } from 'react';
+import { useEventDispatch } from './EventDispatchContext';
+import { makeEventBase } from './events/GraphEvent';
 import { DEFAULT_NODE_STYLE, recalculateParentBounds } from './graphTransform';
 import { useInlineEdit } from './hooks/useInlineEdit';
 
@@ -16,10 +19,54 @@ export function GroupNode({
   positionAbsoluteX,
   positionAbsoluteY,
 }: NodeProps) {
-  const { setNodes, screenToFlowPosition } = useReactFlow();
+  const { setNodes, screenToFlowPosition, getNode } = useReactFlow();
+  const dispatch = useEventDispatch();
+
+  // onResizeStart で現在のサイズを保存
+  const preSizeRef = useRef({ width: 0, height: 0 });
+
+  const onResizeStart = useCallback(() => {
+    const node = getNode(id);
+    if (node) {
+      preSizeRef.current = {
+        width: Number(
+          node.measured?.width ??
+            node.style?.width ??
+            0,
+        ),
+        height: Number(
+          node.measured?.height ??
+            node.style?.height ??
+            0,
+        ),
+      };
+    }
+  }, [getNode, id]);
+
   const onResizeEnd = useCallback(
-    () => setNodes((ns) => recalculateParentBounds(ns)),
-    [setNodes],
+    (
+      _event: unknown,
+      params: { width: number; height: number },
+    ) => {
+      setNodes((ns) => recalculateParentBounds(ns));
+      const from = preSizeRef.current;
+      if (
+        from.width !== params.width ||
+        from.height !== params.height
+      ) {
+        dispatch({
+          ...makeEventBase('layout'),
+          type: 'NODE_RESIZED',
+          nodeId: id as NodeId,
+          from,
+          to: {
+            width: params.width,
+            height: params.height,
+          },
+        });
+      }
+    },
+    [setNodes, dispatch, id],
   );
 
   // ドラッグのたびに変わる絶対座標を ref で保持し, コールバックの再生成を防ぐ
@@ -32,23 +79,29 @@ export function GroupNode({
   const onBodyDoubleClick = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
-      const flowPos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
-      setNodes((ns) => [
-        ...ns,
-        {
-          id: crypto.randomUUID(),
-          parentId: id,
-          position: {
-            x: flowPos.x - positionAbsoluteRef.current.x,
-            y: flowPos.y - positionAbsoluteRef.current.y,
-          },
-          data: { label: '' },
-          type: 'editableNode',
-          style: DEFAULT_NODE_STYLE,
-        },
-      ]);
+      const flowPos = screenToFlowPosition({
+        x: e.clientX,
+        y: e.clientY,
+      });
+      const nodeId = crypto.randomUUID() as NodeId;
+      const pos = {
+        x: flowPos.x - positionAbsoluteRef.current.x,
+        y: flowPos.y - positionAbsoluteRef.current.y,
+      };
+      const graphNode: GraphNode = {
+        id: nodeId,
+        content: '',
+        parentId: id as NodeId,
+        style: { x: pos.x, y: pos.y, ...DEFAULT_NODE_STYLE },
+      };
+      dispatch({
+        ...makeEventBase('structure'),
+        type: 'NODE_ADDED',
+        nodeId,
+        data: graphNode,
+      });
     },
-    [id, screenToFlowPosition, setNodes],
+    [id, screenToFlowPosition, dispatch],
   );
   const label = String(data.label ?? '');
 
@@ -61,13 +114,17 @@ export function GroupNode({
     startEdit,
     confirm,
     cancel,
-  } = useInlineEdit(label, (value) =>
-    setNodes((ns) =>
-      ns.map((n) =>
-        n.id === id ? { ...n, data: { ...n.data, label: value } } : n,
-      ),
-    ),
-  );
+  } = useInlineEdit(label, (value) => {
+    if (value !== label) {
+      dispatch({
+        ...makeEventBase('content'),
+        type: 'NODE_RELABELED',
+        nodeId: id as NodeId,
+        from: label,
+        to: value,
+      });
+    }
+  });
 
   return (
     <>
@@ -75,6 +132,7 @@ export function GroupNode({
         isVisible={selected}
         minWidth={120}
         minHeight={80}
+        onResizeStart={onResizeStart}
         onResizeEnd={onResizeEnd}
       />
       <Handle

@@ -1,3 +1,4 @@
+import type { NodeId } from '@conversensus/shared';
 import {
   Handle,
   type NodeProps,
@@ -5,29 +6,79 @@ import {
   Position,
   useReactFlow,
 } from '@xyflow/react';
-import { useCallback } from 'react';
+import { useCallback, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { useEventDispatch } from './EventDispatchContext';
+import { makeEventBase } from './events/GraphEvent';
 import { recalculateParentBounds } from './graphTransform';
 import { useInlineEdit } from './hooks/useInlineEdit';
 
 export function EditableNode({ id, data, selected }: NodeProps) {
-  const { setNodes } = useReactFlow();
+  const { setNodes, getNode } = useReactFlow();
+  const dispatch = useEventDispatch();
+
+  // onResizeStart で現在のサイズを保存
+  const preSizeRef = useRef({ width: 0, height: 0 });
+
+  const onResizeStart = useCallback(() => {
+    const node = getNode(id);
+    if (node) {
+      preSizeRef.current = {
+        width: Number(
+          node.measured?.width ??
+            node.style?.width ??
+            0,
+        ),
+        height: Number(
+          node.measured?.height ??
+            node.style?.height ??
+            0,
+        ),
+      };
+    }
+  }, [getNode, id]);
+
   const onResizeEnd = useCallback(
-    () => setNodes((ns) => recalculateParentBounds(ns)),
-    [setNodes],
+    (
+      _event: unknown,
+      params: { width: number; height: number },
+    ) => {
+      setNodes((ns) => recalculateParentBounds(ns));
+      const from = preSizeRef.current;
+      if (
+        from.width !== params.width ||
+        from.height !== params.height
+      ) {
+        dispatch({
+          ...makeEventBase('layout'),
+          type: 'NODE_RESIZED',
+          nodeId: id as NodeId,
+          from,
+          to: {
+            width: params.width,
+            height: params.height,
+          },
+        });
+      }
+    },
+    [setNodes, dispatch, id],
   );
 
   const label = String(data.label ?? '');
 
   const { editing, inputValue, setInputValue, startEdit, confirm, cancel } =
-    useInlineEdit(label, (value) =>
-      setNodes((ns) =>
-        ns.map((n) =>
-          n.id === id ? { ...n, data: { ...n.data, label: value } } : n,
-        ),
-      ),
-    );
+    useInlineEdit(label, (value) => {
+      if (value !== label) {
+        dispatch({
+          ...makeEventBase('content'),
+          type: 'NODE_RELABELED',
+          nodeId: id as NodeId,
+          from: label,
+          to: value,
+        });
+      }
+    });
 
   return (
     <>
@@ -35,6 +86,7 @@ export function EditableNode({ id, data, selected }: NodeProps) {
         isVisible={selected}
         minWidth={80}
         minHeight={40}
+        onResizeStart={onResizeStart}
         onResizeEnd={onResizeEnd}
       />
       <Handle type="source" position={Position.Top} id="source-top" />
