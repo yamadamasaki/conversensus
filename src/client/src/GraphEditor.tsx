@@ -7,6 +7,7 @@ import {
   type Edge,
   MarkerType,
   MiniMap,
+  type Node,
   type OnConnect,
   type OnReconnect,
   Panel,
@@ -35,6 +36,7 @@ import {
 
 const DOUBLE_CLICK_INTERVAL_MS = 300;
 const DOUBLE_CLICK_THRESHOLD_PX = 5;
+const PASTE_OFFSET_PX = 20;
 
 type Props = {
   file: GraphFile;
@@ -244,6 +246,82 @@ function GraphEditorInner({ file, onChange }: Props) {
   const onNodeDragStop = useCallback(() => {
     setNodes((ns) => recalculateParentBounds(ns));
   }, [setNodes]);
+
+  const clipboard = useRef<{ nodes: Node[]; edges: Edge[] } | null>(null);
+
+  const copySelectedNodes = useCallback(() => {
+    setNodes((ns) => {
+      const selected = ns.filter((n) => n.selected);
+      if (selected.length === 0) return ns;
+      const selectedIds = new Set(selected.map((n) => n.id));
+      setEdges((es) => {
+        const relatedEdges = es.filter(
+          (e) => selectedIds.has(e.source) && selectedIds.has(e.target),
+        );
+        clipboard.current = { nodes: selected, edges: relatedEdges };
+        return es;
+      });
+      return ns;
+    });
+  }, [setNodes, setEdges]);
+
+  const pasteNodes = useCallback(() => {
+    if (!clipboard.current) return;
+    const { nodes: copiedNodes, edges: copiedEdges } = clipboard.current;
+
+    // 旧 ID → 新 UUID のマッピング
+    const idMap = new Map<string, string>(
+      copiedNodes.map((n) => [n.id, crypto.randomUUID()]),
+    );
+
+    const newNodes: Node[] = copiedNodes.map((n) => {
+      const newId = idMap.get(n.id) as string;
+      // parentId がコピーセット内にある場合は新 ID を使用, なければ root に配置
+      const newParentId = n.parentId ? idMap.get(n.parentId) : undefined;
+      return {
+        ...n,
+        id: newId,
+        parentId: newParentId,
+        selected: true,
+        position: {
+          x: n.position.x + PASTE_OFFSET_PX,
+          y: n.position.y + PASTE_OFFSET_PX,
+        },
+      };
+    });
+
+    const newEdges: Edge[] = copiedEdges.map((e) => ({
+      ...e,
+      id: crypto.randomUUID(),
+      source: idMap.get(e.source) as string,
+      target: idMap.get(e.target) as string,
+    }));
+
+    setNodes((ns) => [
+      ...ns.map((n) => ({ ...n, selected: false })),
+      ...newNodes,
+    ]);
+    setEdges((es) => [...es, ...newEdges]);
+
+    // 次の貼り付けがさらにオフセットされるようクリップボードを更新
+    clipboard.current = { nodes: newNodes, edges: newEdges };
+  }, [setNodes, setEdges]);
+
+  // Cmd+C / Ctrl+C でコピー, Cmd+V / Ctrl+V でペースト
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      if (e.key === 'c') {
+        e.preventDefault();
+        copySelectedNodes();
+      } else if (e.key === 'v') {
+        e.preventDefault();
+        pasteNodes();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [copySelectedNodes, pasteNodes]);
 
   const lastPaneClickTime = useRef(0);
   const lastPaneClickPos = useRef({ x: 0, y: 0 });
