@@ -11,12 +11,11 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useEventDispatch } from './EventDispatchContext';
 import { makeEventBase } from './events/GraphEvent';
-import { recalculateParentBounds } from './graphTransform';
 import { useInlineEdit } from './hooks/useInlineEdit';
 
 export function EditableNode({ id, data, selected }: NodeProps) {
-  const { setNodes, getNode } = useReactFlow();
-  const dispatch = useEventDispatch();
+  const { getNode } = useReactFlow();
+  const { dispatch } = useEventDispatch();
 
   // onResizeStart で現在のサイズを保存
   const preSizeRef = useRef({ width: 0, height: 0 });
@@ -25,31 +24,16 @@ export function EditableNode({ id, data, selected }: NodeProps) {
     const node = getNode(id);
     if (node) {
       preSizeRef.current = {
-        width: Number(
-          node.measured?.width ??
-            node.style?.width ??
-            0,
-        ),
-        height: Number(
-          node.measured?.height ??
-            node.style?.height ??
-            0,
-        ),
+        width: Number(node.measured?.width ?? node.style?.width ?? 0),
+        height: Number(node.measured?.height ?? node.style?.height ?? 0),
       };
     }
   }, [getNode, id]);
 
   const onResizeEnd = useCallback(
-    (
-      _event: unknown,
-      params: { width: number; height: number },
-    ) => {
-      setNodes((ns) => recalculateParentBounds(ns));
+    (_event: unknown, params: { width: number; height: number }) => {
       const from = preSizeRef.current;
-      if (
-        from.width !== params.width ||
-        from.height !== params.height
-      ) {
+      if (from.width !== params.width || from.height !== params.height) {
         dispatch({
           ...makeEventBase('layout'),
           type: 'NODE_RESIZED',
@@ -62,7 +46,7 @@ export function EditableNode({ id, data, selected }: NodeProps) {
         });
       }
     },
-    [setNodes, dispatch, id],
+    [dispatch, id],
   );
 
   const label = String(data.label ?? '');

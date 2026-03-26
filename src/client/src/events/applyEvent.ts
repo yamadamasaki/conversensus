@@ -1,5 +1,9 @@
 import type { Edge, Node } from '@xyflow/react';
-import { toFlowEdges, toFlowNodes } from '../graphTransform';
+import {
+  recalculateParentBounds,
+  toFlowEdges,
+  toFlowNodes,
+} from '../graphTransform';
 import type { GraphEvent } from './GraphEvent';
 
 export function applyEvent(
@@ -18,8 +22,7 @@ export function applyEvent(
       return {
         nodes: nodes.filter((n) => n.id !== event.nodeId),
         edges: edges.filter(
-          (e) =>
-            e.source !== event.nodeId && e.target !== event.nodeId,
+          (e) => e.source !== event.nodeId && e.target !== event.nodeId,
         ),
       };
 
@@ -58,13 +61,9 @@ export function applyEvent(
 
     case 'NODES_GROUPED': {
       const parentNode = toFlowNodes([event.parentData])[0];
-      const childMap = new Map(
-        event.children.map((c) => [c.nodeId, c]),
-      );
+      const childMap = new Map(event.children.map((c) => [c.nodeId, c]));
       const updatedNodes = nodes.map((n) => {
-        const child = childMap.get(
-          n.id as typeof event.parentId,
-        );
+        const child = childMap.get(n.id as typeof event.parentId);
         if (!child) return n;
         return {
           ...n,
@@ -88,16 +87,12 @@ export function applyEvent(
     }
 
     case 'NODES_UNGROUPED': {
-      const childMap = new Map(
-        event.children.map((c) => [c.nodeId, c]),
-      );
+      const childMap = new Map(event.children.map((c) => [c.nodeId, c]));
       return {
         nodes: nodes
           .filter((n) => n.id !== event.parentId)
           .map((n) => {
-            const child = childMap.get(
-              n.id as typeof event.parentId,
-            );
+            const child = childMap.get(n.id as typeof event.parentId);
             if (!child) return n;
             return {
               ...n,
@@ -113,10 +108,7 @@ export function applyEvent(
       const newNodes = toFlowNodes(event.nodes);
       const newEdges = toFlowEdges(event.edges);
       return {
-        nodes: [
-          ...nodes.map((n) => ({ ...n, selected: false })),
-          ...newNodes,
-        ],
+        nodes: [...nodes.map((n) => ({ ...n, selected: false })), ...newNodes],
         edges: [...edges, ...newEdges],
       };
     }
@@ -144,35 +136,35 @@ export function applyEvent(
       return {
         nodes,
         edges: edges.map((e) =>
-          e.id === event.edgeId
-            ? { ...e, label: event.to }
-            : e,
+          e.id === event.edgeId ? { ...e, label: event.to } : e,
         ),
       };
 
     case 'NODE_MOVED':
       return {
-        nodes: nodes.map((n) =>
-          n.id === event.nodeId
-            ? { ...n, position: event.to }
-            : n,
+        nodes: recalculateParentBounds(
+          nodes.map((n) =>
+            n.id === event.nodeId ? { ...n, position: event.to } : n,
+          ),
         ),
         edges,
       };
 
     case 'NODE_RESIZED':
       return {
-        nodes: nodes.map((n) =>
-          n.id === event.nodeId
-            ? {
-                ...n,
-                style: {
-                  ...n.style,
-                  width: event.to.width,
-                  height: event.to.height,
-                },
-              }
-            : n,
+        nodes: recalculateParentBounds(
+          nodes.map((n) =>
+            n.id === event.nodeId
+              ? {
+                  ...n,
+                  style: {
+                    ...n.style,
+                    width: event.to.width,
+                    height: event.to.height,
+                  },
+                }
+              : n,
+          ),
         ),
         edges,
       };

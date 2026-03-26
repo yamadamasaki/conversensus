@@ -19,6 +19,7 @@ export function useEventStore(
   canUndo: boolean;
   canRedo: boolean;
   eventLog: GraphEvent[];
+  setDragging: (dragging: boolean) => void;
 } {
   const eventLogRef = useRef<GraphEvent[]>([]);
   const undoStackRef = useRef<GraphEvent[]>([]);
@@ -28,6 +29,10 @@ export function useEventStore(
 
   const stateRef = useRef({ nodes, edges });
   stateRef.current = { nodes, edges };
+  const isDraggingRef = useRef(false);
+  const setDragging = useCallback((dragging: boolean) => {
+    isDraggingRef.current = dragging;
+  }, []);
 
   const dispatch = useCallback(
     (event: GraphEvent) => {
@@ -94,6 +99,7 @@ export function useEventStore(
       if (!(e.metaKey || e.ctrlKey)) return;
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      if (isDraggingRef.current) return;
       if (e.key === 'z' && !e.shiftKey) {
         e.preventDefault();
         undo();
@@ -113,5 +119,6 @@ export function useEventStore(
     canUndo,
     canRedo,
     eventLog: eventLogRef.current,
+    setDragging,
   };
 }

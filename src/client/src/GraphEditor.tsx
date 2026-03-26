@@ -11,8 +11,10 @@ import {
   ConnectionMode,
   Controls,
   type Edge,
+  type EdgeChange,
   MiniMap,
   type Node,
+  type NodeChange,
   type OnConnect,
   type OnReconnect,
   Panel,
@@ -29,13 +31,12 @@ import { EdgeContextMenu } from './EdgeContextMenu';
 import { EditableLabelEdge } from './EditableLabelEdge';
 import { EditableNode } from './EditableNode';
 import { EventDispatchContext } from './EventDispatchContext';
-import { GroupNode } from './GroupNode';
 import { makeEventBase } from './events/GraphEvent';
+import { GroupNode } from './GroupNode';
 import {
   DEFAULT_NODE_STYLE,
   fromFlowEdges,
   fromFlowNodes,
-  recalculateParentBounds,
   toFlowEdges,
   toFlowNodes,
 } from './graphTransform';
@@ -51,8 +52,7 @@ type Props = {
 };
 
 function GraphEditorInner({ file, onChange }: Props) {
-  const { screenToFlowPosition, getNodes, getEdges } =
-    useReactFlow();
+  const { screenToFlowPosition, getNodes, getEdges } = useReactFlow();
   const [nodes, setNodes, onNodesChange] = useNodesState(
     toFlowNodes(file.sheet.nodes),
   );
@@ -97,13 +97,10 @@ function GraphEditorInner({ file, onChange }: Props) {
     () => ({ editableNode: EditableNode, groupNode: GroupNode }),
     [],
   );
-  const edgeTypes = useMemo(
-    () => ({ editableLabel: EditableLabelEdge }),
-    [],
-  );
+  const edgeTypes = useMemo(() => ({ editableLabel: EditableLabelEdge }), []);
 
   // --- Event store ---
-  const { dispatch, undo, redo } = useEventStore(
+  const { dispatch, undo, redo, setDragging } = useEventStore(
     nodes,
     edges,
     setNodes,
@@ -111,18 +108,15 @@ function GraphEditorInner({ file, onChange }: Props) {
   );
 
   // --- Node drag tracking for NODE_MOVED ---
-  const preDragPositionsRef = useRef<
-    Map<string, { x: number; y: number }>
-  >(new Map());
+  const preDragPositionsRef = useRef<Map<string, { x: number; y: number }>>(
+    new Map(),
+  );
 
   const onNodeDragStart = useCallback(
     (_: React.MouseEvent, _node: Node) => {
       const currentNodes = getNodes();
       preDragPositionsRef.current = new Map(
-        currentNodes.map((n) => [
-          n.id,
-          { x: n.position.x, y: n.position.y },
-        ]),
+        currentNodes.map((n) => [n.id, { x: n.position.x, y: n.position.y }]),
       );
     },
     [getNodes],
@@ -130,13 +124,8 @@ function GraphEditorInner({ file, onChange }: Props) {
 
   const onNodeDragStop = useCallback(
     (_: React.MouseEvent, node: Node) => {
-      setNodes((ns) => recalculateParentBounds(ns));
       const from = preDragPositionsRef.current.get(node.id);
-      if (
-        from &&
-        (from.x !== node.position.x ||
-          from.y !== node.position.y)
-      ) {
+      if (from && (from.x !== node.position.x || from.y !== node.position.y)) {
         dispatch({
           ...makeEventBase('layout'),
           type: 'NODE_MOVED',
@@ -149,7 +138,7 @@ function GraphEditorInner({ file, onChange }: Props) {
         });
       }
     },
-    [setNodes, dispatch],
+    [dispatch],
   );
 
   // reconnectEdge は元の UUID を破棄して xy-edge__... 形式の ID を生成するため,
@@ -169,10 +158,8 @@ function GraphEditorInner({ file, onChange }: Props) {
         to: {
           source: newConnection.source as NodeId,
           target: newConnection.target as NodeId,
-          sourceHandle:
-            newConnection.sourceHandle ?? undefined,
-          targetHandle:
-            newConnection.targetHandle ?? undefined,
+          sourceHandle: newConnection.sourceHandle ?? undefined,
+          targetHandle: newConnection.targetHandle ?? undefined,
         },
       });
     },
@@ -226,19 +213,14 @@ function GraphEditorInner({ file, onChange }: Props) {
   // React Flow の組み込み削除を無効化し, dispatch 経由で処理する
   const handleDeleteKey = useCallback(
     (e: KeyboardEvent) => {
-      if (e.key !== 'Delete' && e.key !== 'Backspace')
-        return;
+      if (e.key !== 'Delete' && e.key !== 'Backspace') return;
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
 
       const currentNodes = getNodes();
       const currentEdges = getEdges();
-      const selectedNodes = currentNodes.filter(
-        (n) => n.selected,
-      );
-      const selectedEdges = currentEdges.filter(
-        (e) => e.selected,
-      );
+      const selectedNodes = currentNodes.filter((n) => n.selected);
+      const selectedEdges = currentEdges.filter((e) => e.selected);
 
       for (const node of selectedNodes) {
         const graphNodes = fromFlowNodes([node]);
@@ -264,33 +246,41 @@ function GraphEditorInner({ file, onChange }: Props) {
 
   useEffect(() => {
     window.addEventListener('keydown', handleDeleteKey);
-    return () =>
-      window.removeEventListener('keydown', handleDeleteKey);
+    return () => window.removeEventListener('keydown', handleDeleteKey);
   }, [handleDeleteKey]);
 
-  // --- Custom hooks ---
-  const { groupSelectedNodes } = useGroupNodes(
-    getNodes,
-    dispatch,
+  // remove タイプの変更は dispatch 経由で処理するためフィルタする
+  const handleNodesChange = useCallback(
+    (changes: NodeChange[]) => {
+      onNodesChange(changes.filter((c) => c.type !== 'remove'));
+    },
+    [onNodesChange],
   );
+
+  const handleEdgesChange = useCallback(
+    (changes: EdgeChange[]) => {
+      onEdgesChange(changes.filter((c) => c.type !== 'remove'));
+    },
+    [onEdgesChange],
+  );
+
+  // --- Custom hooks ---
+  const { groupSelectedNodes } = useGroupNodes(getNodes, dispatch);
   useClipboard(getNodes, getEdges, dispatch);
   const { contextMenu, onEdgeContextMenu, setEdgePathType } =
     useEdgeContextMenu(getEdges, dispatch);
-  const { onPaneClick } = usePaneDoubleClick(
-    screenToFlowPosition,
-    addNode,
-  );
+  const { onPaneClick } = usePaneDoubleClick(screenToFlowPosition, addNode);
 
   return (
-    <EventDispatchContext.Provider value={dispatch}>
+    <EventDispatchContext.Provider value={{ dispatch, setDragging }}>
       <div style={{ width: '100%', height: '100%' }}>
         <ReactFlow
           nodes={nodes}
           edges={edges}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
+          onNodesChange={handleNodesChange}
+          onEdgesChange={handleEdgesChange}
           connectionMode={ConnectionMode.Loose}
           onConnect={onConnect}
           onReconnect={onReconnect}

@@ -52,7 +52,7 @@ export function EditableLabelEdge({
   data,
 }: EdgeProps) {
   const { setEdges } = useReactFlow();
-  const dispatch = useEventDispatch();
+  const { dispatch, setDragging } = useEventDispatch();
 
   const pathType = (data?.pathType as EdgePathType | undefined) ?? 'bezier';
   const [edgePath, labelX, labelY] = getEdgePath(pathType, {
@@ -110,20 +110,19 @@ export function EditableLabelEdge({
         offsetY,
       };
       e.currentTarget.setPointerCapture(e.pointerId);
+      setDragging(true);
     },
-    [editing, offsetX, offsetY],
+    [editing, offsetX, offsetY, setDragging],
   );
 
   const handlePointerMove = useCallback(
     (e: React.PointerEvent) => {
-      if (!e.currentTarget.hasPointerCapture(e.pointerId))
-        return;
+      if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
       const dx = e.clientX - dragStartRef.current.x;
       const dy = e.clientY - dragStartRef.current.y;
       if (
         !isDraggingRef.current &&
-        (Math.abs(dx) > DRAG_THRESHOLD_PX ||
-          Math.abs(dy) > DRAG_THRESHOLD_PX)
+        (Math.abs(dx) > DRAG_THRESHOLD_PX || Math.abs(dy) > DRAG_THRESHOLD_PX)
       ) {
         isDraggingRef.current = true;
       }
@@ -135,10 +134,8 @@ export function EditableLabelEdge({
                 ...ed,
                 data: {
                   ...ed.data,
-                  labelOffsetX:
-                    dragStartRef.current.offsetX + dx,
-                  labelOffsetY:
-                    dragStartRef.current.offsetY + dy,
+                  labelOffsetX: dragStartRef.current.offsetX + dx,
+                  labelOffsetY: dragStartRef.current.offsetY + dy,
                 },
               }
             : ed,
@@ -171,8 +168,9 @@ export function EditableLabelEdge({
         });
       }
       e.currentTarget.releasePointerCapture(e.pointerId);
+      setDragging(false);
     },
-    [dispatch, id],
+    [dispatch, id, setDragging],
   );
 
   return (
