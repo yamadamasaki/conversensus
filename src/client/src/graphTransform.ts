@@ -1,5 +1,6 @@
 import type {
   EdgeId,
+  EdgePathType,
   GraphEdge,
   GraphNode,
   NodeId,
@@ -34,6 +35,7 @@ export function toFlowEdges(edges: GraphEdge[]): Edge[] {
     label: e.label,
     type: 'editableLabel',
     markerEnd: { type: MarkerType.ArrowClosed },
+    data: { pathType: e.pathType ?? 'bezier' },
   }));
 }
 
@@ -256,5 +258,6 @@ export function fromFlowEdges(edges: Edge[]): GraphEdge[] {
     sourceHandle: e.sourceHandle ?? undefined,
     targetHandle: e.targetHandle ?? undefined,
     label: typeof e.label === 'string' ? e.label : undefined,
+    pathType: (e.data?.pathType as EdgePathType | undefined) ?? undefined,
   }));
 }

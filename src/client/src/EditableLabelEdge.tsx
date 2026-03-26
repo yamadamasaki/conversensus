@@ -1,11 +1,37 @@
+import type { EdgePathType } from '@conversensus/shared';
 import {
   BaseEdge,
   EdgeLabelRenderer,
   type EdgeProps,
   getBezierPath,
+  getSmoothStepPath,
+  getStraightPath,
   useReactFlow,
 } from '@xyflow/react';
 import { useCallback, useState } from 'react';
+
+function getEdgePath(
+  pathType: EdgePathType,
+  params: {
+    sourceX: number;
+    sourceY: number;
+    sourcePosition: EdgeProps['sourcePosition'];
+    targetX: number;
+    targetY: number;
+    targetPosition: EdgeProps['targetPosition'];
+  },
+): ReturnType<typeof getBezierPath> {
+  switch (pathType) {
+    case 'straight':
+      return getStraightPath(params);
+    case 'step':
+      return getSmoothStepPath({ ...params, borderRadius: 0 });
+    case 'smoothstep':
+      return getSmoothStepPath(params);
+    default:
+      return getBezierPath(params);
+  }
+}
 
 export function EditableLabelEdge({
   id,
@@ -18,13 +44,15 @@ export function EditableLabelEdge({
   label,
   markerEnd,
   style,
+  data,
 }: EdgeProps) {
   const { setEdges } = useReactFlow();
   const [editing, setEditing] = useState(false);
   const [inputValue, setInputValue] = useState('');
   const [composing, setComposing] = useState(false);
 
-  const [edgePath, labelX, labelY] = getBezierPath({
+  const pathType = (data?.pathType as EdgePathType | undefined) ?? 'bezier';
+  const [edgePath, labelX, labelY] = getEdgePath(pathType, {
     sourceX,
     sourceY,
     sourcePosition,

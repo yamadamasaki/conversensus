@@ -17,9 +17,9 @@ import {
   useNodesState,
   useReactFlow,
 } from '@xyflow/react';
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import '@xyflow/react/dist/style.css';
-import type { GraphFile } from '@conversensus/shared';
+import type { EdgePathType, GraphFile } from '@conversensus/shared';
 import { EditableLabelEdge } from './EditableLabelEdge';
 import { EditableNode } from './EditableNode';
 import { GroupNode } from './GroupNode';
@@ -123,6 +123,7 @@ function GraphEditorInner({ file, onChange }: Props) {
             id: crypto.randomUUID(),
             type: 'editableLabel',
             markerEnd: { type: MarkerType.ArrowClosed },
+            data: { pathType: 'bezier' },
           },
           es,
         ),
@@ -290,6 +291,74 @@ function GraphEditorInner({ file, onChange }: Props) {
     return () => window.removeEventListener('keydown', handler);
   }, [copySelectedNodes, pasteNodes]);
 
+  const [contextMenu, setContextMenu] = useState<{
+    targetEdgeIds: string[];
+    // 対象が全て同じ種類なら表示, 混在の場合は null
+    currentPathType: EdgePathType | null;
+    x: number;
+    y: number;
+  } | null>(null);
+
+  const CONTEXT_MENU_WIDTH = 160;
+  const CONTEXT_MENU_HEIGHT = 185; // header + 4 items の概算
+
+  const onEdgeContextMenu = useCallback(
+    (e: React.MouseEvent, edge: Edge) => {
+      e.preventDefault();
+      const currentEdges = getEdges();
+      // 右クリックした edge が選択中なら選択中の全 edge を対象にする
+      const targets = edge.selected
+        ? currentEdges.filter((ed) => ed.selected)
+        : [edge];
+      const targetEdgeIds = targets.map((ed) => ed.id);
+
+      // 対象エッジの pathType が全て一致するか確認
+      const types = targets.map(
+        (ed) => (ed.data?.pathType as EdgePathType | undefined) ?? 'bezier',
+      );
+      const currentPathType = types.every((t) => t === types[0])
+        ? types[0]
+        : null;
+
+      // 画面端からはみ出さないよう位置を補正
+      const x = Math.min(e.clientX, window.innerWidth - CONTEXT_MENU_WIDTH - 8);
+      const y = Math.min(
+        e.clientY,
+        window.innerHeight - CONTEXT_MENU_HEIGHT - 8,
+      );
+      setContextMenu({ targetEdgeIds, currentPathType, x, y });
+    },
+    [getEdges],
+  );
+
+  const setEdgePathType = useCallback(
+    (targetEdgeIds: string[], pathType: EdgePathType) => {
+      const targetSet = new Set(targetEdgeIds);
+      setEdges((es) =>
+        es.map((e) =>
+          targetSet.has(e.id) ? { ...e, data: { ...e.data, pathType } } : e,
+        ),
+      );
+      setContextMenu(null);
+    },
+    [setEdges],
+  );
+
+  // コンテキストメニュー外クリック / ESC で閉じる
+  useEffect(() => {
+    if (!contextMenu) return;
+    const onMouseDown = () => setContextMenu(null);
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setContextMenu(null);
+    };
+    window.addEventListener('mousedown', onMouseDown);
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('mousedown', onMouseDown);
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [contextMenu]);
+
   const lastPaneClickTime = useRef(0);
   const lastPaneClickPos = useRef({ x: 0, y: 0 });
 
@@ -331,6 +400,7 @@ function GraphEditorInner({ file, onChange }: Props) {
         onNodeDragStop={onNodeDragStop}
         edgesReconnectable
         onPaneClick={onPaneClick}
+        onEdgeContextMenu={onEdgeContextMenu}
         zoomOnDoubleClick={false}
         fitView
       >
@@ -355,6 +425,73 @@ function GraphEditorInner({ file, onChange }: Props) {
           </button>
         </Panel>
       </ReactFlow>
+      {contextMenu && (
+        // biome-ignore lint/a11y/noStaticElementInteractions: context menu uses mousedown to block propagation
+        <div
+          style={{
+            position: 'fixed',
+            top: contextMenu.y,
+            left: contextMenu.x,
+            background: '#fff',
+            border: '1px solid #ddd',
+            borderRadius: 6,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+            zIndex: 1000,
+            minWidth: 160,
+            padding: '4px 0',
+          }}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <div
+            style={{
+              padding: '4px 14px 6px',
+              fontSize: 11,
+              color: '#888',
+              borderBottom: '1px solid #eee',
+              marginBottom: 4,
+            }}
+          >
+            {contextMenu.targetEdgeIds.length === 1
+              ? 'エッジの種類'
+              : `${contextMenu.targetEdgeIds.length} 本のエッジを変更`}
+          </div>
+          {(
+            [
+              ['bezier', 'Bezier（曲線）'],
+              ['straight', 'Straight（直線）'],
+              ['step', 'Step（直角）'],
+              ['smoothstep', 'Smooth Step（角丸）'],
+            ] as [EdgePathType, string][]
+          ).map(([type, label]) => {
+            const isCurrent = contextMenu.currentPathType === type;
+            return (
+              <button
+                key={type}
+                type="button"
+                onClick={() => setEdgePathType(contextMenu.targetEdgeIds, type)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  width: '100%',
+                  padding: '6px 14px',
+                  textAlign: 'left',
+                  background: 'none',
+                  border: 'none',
+                  fontSize: 13,
+                  fontWeight: isCurrent ? 'bold' : 'normal',
+                  cursor: 'pointer',
+                }}
+              >
+                <span style={{ width: 12, flexShrink: 0 }}>
+                  {isCurrent ? '✓' : ''}
+                </span>
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

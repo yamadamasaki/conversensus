@@ -82,6 +82,25 @@ describe('toFlowEdges', () => {
   it('空配列は空配列を返す', () => {
     expect(toFlowEdges([])).toEqual([]);
   });
+
+  it('pathType が指定されている場合は data.pathType に変換される', () => {
+    const edges: GraphEdge[] = [
+      {
+        id: 'e1' as EdgeId,
+        source: 'n1' as NodeId,
+        target: 'n2' as NodeId,
+        pathType: 'straight',
+      },
+    ];
+    expect(toFlowEdges(edges)[0].data?.pathType).toBe('straight');
+  });
+
+  it('pathType が未指定の場合は data.pathType が "bezier" になる', () => {
+    const edges: GraphEdge[] = [
+      { id: 'e1' as EdgeId, source: 'n1' as NodeId, target: 'n2' as NodeId },
+    ];
+    expect(toFlowEdges(edges)[0].data?.pathType).toBe('bezier');
+  });
 });
 
 describe('fromFlowNodes', () => {
@@ -145,6 +164,18 @@ describe('fromFlowEdges', () => {
 
   it('空配列は空配列を返す', () => {
     expect(fromFlowEdges([])).toEqual([]);
+  });
+
+  it('data.pathType が GraphEdge.pathType に復元される', () => {
+    const flowEdges: Edge[] = [
+      { id: 'e1', source: 'n1', target: 'n2', data: { pathType: 'step' } },
+    ];
+    expect(fromFlowEdges(flowEdges)[0].pathType).toBe('step');
+  });
+
+  it('data.pathType がない場合は pathType が undefined になる', () => {
+    const flowEdges: Edge[] = [{ id: 'e1', source: 'n1', target: 'n2' }];
+    expect(fromFlowEdges(flowEdges)[0].pathType).toBeUndefined();
   });
 });
 
@@ -318,6 +349,18 @@ describe('toFlowEdges → fromFlowEdges の対称性', () => {
       target: 'n2',
       label: 'ラベル',
     });
+  });
+
+  it('pathType が変換して戻すと復元される', () => {
+    const edges: GraphEdge[] = [
+      {
+        id: 'e1' as EdgeId,
+        source: 'n1' as NodeId,
+        target: 'n2' as NodeId,
+        pathType: 'smoothstep',
+      },
+    ];
+    expect(fromFlowEdges(toFlowEdges(edges))[0].pathType).toBe('smoothstep');
   });
 });
 
