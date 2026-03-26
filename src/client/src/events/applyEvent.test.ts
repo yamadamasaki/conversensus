@@ -8,6 +8,7 @@ import type {
 import { type Edge, MarkerType, type Node } from '@xyflow/react';
 import { applyEvent } from './applyEvent';
 import type { GraphEvent } from './GraphEvent';
+import { invertEvent } from './invertEvent';
 
 // テスト用イベントベース (id/timestamp は固定値)
 const base = { id: 'evt', timestamp: 0, userId: 'local' } as const;
@@ -417,7 +418,6 @@ describe('EDGE_LABEL_MOVED', () => {
 
 describe('round-trip: apply → invert → apply = 元の状態', () => {
   it('NODE_MOVED', () => {
-    const { invertEvent } = require('./invertEvent');
     const event: GraphEvent = {
       ...base,
       category: 'layout',
@@ -432,7 +432,6 @@ describe('round-trip: apply → invert → apply = 元の状態', () => {
   });
 
   it('NODE_RELABELED', () => {
-    const { invertEvent } = require('./invertEvent');
     const event: GraphEvent = {
       ...base,
       category: 'content',
@@ -447,7 +446,6 @@ describe('round-trip: apply → invert → apply = 元の状態', () => {
   });
 
   it('NODE_ADDED → NODE_DELETED (undo) = 元の状態', () => {
-    const { invertEvent } = require('./invertEvent');
     const event: GraphEvent = {
       ...base,
       category: 'structure',
@@ -463,7 +461,6 @@ describe('round-trip: apply → invert → apply = 元の状態', () => {
   });
 
   it('EDGE_STYLE_CHANGED', () => {
-    const { invertEvent } = require('./invertEvent');
     const event: GraphEvent = {
       ...base,
       category: 'presentation',

@@ -1,6 +1,6 @@
 import type { Edge, Node } from '@xyflow/react';
 import type { Dispatch, SetStateAction } from 'react';
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { applyEvent } from '../events/applyEvent';
 import type { GraphEvent } from '../events/GraphEvent';
 import { invertEvent } from '../events/invertEvent';
@@ -23,22 +23,22 @@ export function useEventStore(
   const eventLogRef = useRef<GraphEvent[]>([]);
   const undoStackRef = useRef<GraphEvent[]>([]);
   const redoStackRef = useRef<GraphEvent[]>([]);
-  const canUndoRef = useRef(false);
-  const canRedoRef = useRef(false);
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
 
   const stateRef = useRef({ nodes, edges });
   stateRef.current = { nodes, edges };
 
   const dispatch = useCallback(
     (event: GraphEvent) => {
-      const { nodes: currentNodes, edges: currentEdges } =
-        stateRef.current;
+      const { nodes: currentNodes, edges: currentEdges } = stateRef.current;
       const inverse = invertEvent(event);
       const { nodes: newNodes, edges: newEdges } = applyEvent(
         event,
         currentNodes,
         currentEdges,
       );
+      stateRef.current = { nodes: newNodes, edges: newEdges };
       setNodes(newNodes);
       setEdges(newEdges);
       eventLogRef.current = [...eventLogRef.current, event];
@@ -47,8 +47,8 @@ export function useEventStore(
         inverse,
       ];
       redoStackRef.current = [];
-      canUndoRef.current = true;
-      canRedoRef.current = false;
+      setCanUndo(true);
+      setCanRedo(false);
     },
     [setNodes, setEdges],
   );
@@ -56,43 +56,37 @@ export function useEventStore(
   const undo = useCallback(() => {
     const inverseEvent = undoStackRef.current.pop();
     if (!inverseEvent) return;
-    const { nodes: currentNodes, edges: currentEdges } =
-      stateRef.current;
+    const { nodes: currentNodes, edges: currentEdges } = stateRef.current;
     redoStackRef.current.push(invertEvent(inverseEvent));
     const { nodes: newNodes, edges: newEdges } = applyEvent(
       inverseEvent,
       currentNodes,
       currentEdges,
     );
+    stateRef.current = { nodes: newNodes, edges: newEdges };
     setNodes(newNodes);
     setEdges(newEdges);
-    eventLogRef.current = [
-      ...eventLogRef.current,
-      inverseEvent,
-    ];
-    canUndoRef.current = undoStackRef.current.length > 0;
-    canRedoRef.current = true;
+    eventLogRef.current = [...eventLogRef.current, inverseEvent];
+    setCanUndo(undoStackRef.current.length > 0);
+    setCanRedo(true);
   }, [setNodes, setEdges]);
 
   const redo = useCallback(() => {
     const redoEvent = redoStackRef.current.pop();
     if (!redoEvent) return;
-    const { nodes: currentNodes, edges: currentEdges } =
-      stateRef.current;
+    const { nodes: currentNodes, edges: currentEdges } = stateRef.current;
     undoStackRef.current.push(invertEvent(redoEvent));
     const { nodes: newNodes, edges: newEdges } = applyEvent(
       redoEvent,
       currentNodes,
       currentEdges,
     );
+    stateRef.current = { nodes: newNodes, edges: newEdges };
     setNodes(newNodes);
     setEdges(newEdges);
-    eventLogRef.current = [
-      ...eventLogRef.current,
-      redoEvent,
-    ];
-    canUndoRef.current = true;
-    canRedoRef.current = redoStackRef.current.length > 0;
+    eventLogRef.current = [...eventLogRef.current, redoEvent];
+    setCanUndo(true);
+    setCanRedo(redoStackRef.current.length > 0);
   }, [setNodes, setEdges]);
 
   useEffect(() => {
@@ -116,12 +110,8 @@ export function useEventStore(
     dispatch,
     undo,
     redo,
-    get canUndo() {
-      return canUndoRef.current;
-    },
-    get canRedo() {
-      return canRedoRef.current;
-    },
+    canUndo,
+    canRedo,
     eventLog: eventLogRef.current,
   };
 }
