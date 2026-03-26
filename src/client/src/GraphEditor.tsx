@@ -344,12 +344,19 @@ function GraphEditorInner({ file, onChange }: Props) {
     [setEdges],
   );
 
-  // コンテキストメニュー外クリックで閉じる
+  // コンテキストメニュー外クリック / ESC で閉じる
   useEffect(() => {
     if (!contextMenu) return;
-    const handler = () => setContextMenu(null);
-    window.addEventListener('mousedown', handler);
-    return () => window.removeEventListener('mousedown', handler);
+    const onMouseDown = () => setContextMenu(null);
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setContextMenu(null);
+    };
+    window.addEventListener('mousedown', onMouseDown);
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('mousedown', onMouseDown);
+      window.removeEventListener('keydown', onKeyDown);
+    };
   }, [contextMenu]);
 
   const lastPaneClickTime = useRef(0);
