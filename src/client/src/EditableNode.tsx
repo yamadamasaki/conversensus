@@ -5,10 +5,11 @@ import {
   Position,
   useReactFlow,
 } from '@xyflow/react';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { recalculateParentBounds } from './graphTransform';
+import { useInlineEdit } from './hooks/useInlineEdit';
 
 export function EditableNode({ id, data, selected }: NodeProps) {
   const { setNodes } = useReactFlow();
@@ -16,37 +17,17 @@ export function EditableNode({ id, data, selected }: NodeProps) {
     () => setNodes((ns) => recalculateParentBounds(ns)),
     [setNodes],
   );
-  const [editing, setEditing] = useState(false);
-  const [inputValue, setInputValue] = useState('');
-  // Escape 後の onBlur で confirm が呼ばれないようにするフラグ
-  const cancelledRef = useRef(false);
 
   const label = String(data.label ?? '');
 
-  const startEdit = useCallback(() => {
-    cancelledRef.current = false;
-    setInputValue(label);
-    setEditing(true);
-  }, [label]);
-
-  const confirm = useCallback(() => {
-    if (cancelledRef.current) {
-      cancelledRef.current = false;
-      return;
-    }
-    setNodes((ns) =>
-      ns.map((n) =>
-        n.id === id ? { ...n, data: { ...n.data, label: inputValue } } : n,
+  const { editing, inputValue, setInputValue, startEdit, confirm, cancel } =
+    useInlineEdit(label, (value) =>
+      setNodes((ns) =>
+        ns.map((n) =>
+          n.id === id ? { ...n, data: { ...n.data, label: value } } : n,
+        ),
       ),
     );
-    setEditing(false);
-  }, [id, inputValue, setNodes]);
-
-  const cancel = useCallback(() => {
-    cancelledRef.current = true;
-    setInputValue(label);
-    setEditing(false);
-  }, [label]);
 
   return (
     <>

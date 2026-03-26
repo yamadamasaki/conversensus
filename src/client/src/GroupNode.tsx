@@ -5,8 +5,9 @@ import {
   Position,
   useReactFlow,
 } from '@xyflow/react';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useRef } from 'react';
 import { DEFAULT_NODE_STYLE, recalculateParentBounds } from './graphTransform';
+import { useInlineEdit } from './hooks/useInlineEdit';
 
 export function GroupNode({
   id,
@@ -49,37 +50,24 @@ export function GroupNode({
     },
     [id, screenToFlowPosition, setNodes],
   );
-  const [editing, setEditing] = useState(false);
-  const [inputValue, setInputValue] = useState('');
-  const [composing, setComposing] = useState(false);
-  const cancelledRef = useRef(false);
-
   const label = String(data.label ?? '');
 
-  const startEdit = useCallback(() => {
-    cancelledRef.current = false;
-    setInputValue(label);
-    setEditing(true);
-  }, [label]);
-
-  const confirm = useCallback(() => {
-    if (cancelledRef.current) {
-      cancelledRef.current = false;
-      return;
-    }
+  const {
+    editing,
+    inputValue,
+    setInputValue,
+    composing,
+    setComposing,
+    startEdit,
+    confirm,
+    cancel,
+  } = useInlineEdit(label, (value) =>
     setNodes((ns) =>
       ns.map((n) =>
-        n.id === id ? { ...n, data: { ...n.data, label: inputValue } } : n,
+        n.id === id ? { ...n, data: { ...n.data, label: value } } : n,
       ),
-    );
-    setEditing(false);
-  }, [id, inputValue, setNodes]);
-
-  const cancel = useCallback(() => {
-    cancelledRef.current = true;
-    setInputValue(label);
-    setEditing(false);
-  }, [label]);
+    ),
+  );
 
   return (
     <>
