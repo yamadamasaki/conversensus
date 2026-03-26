@@ -291,21 +291,30 @@ function GraphEditorInner({ file, onChange }: Props) {
   }, [copySelectedNodes, pasteNodes]);
 
   const [contextMenu, setContextMenu] = useState<{
-    edgeId: string;
+    targetEdgeIds: string[];
     x: number;
     y: number;
   } | null>(null);
 
-  const onEdgeContextMenu = useCallback((e: React.MouseEvent, edge: Edge) => {
-    e.preventDefault();
-    setContextMenu({ edgeId: edge.id, x: e.clientX, y: e.clientY });
-  }, []);
+  const onEdgeContextMenu = useCallback(
+    (e: React.MouseEvent, edge: Edge) => {
+      e.preventDefault();
+      const currentEdges = getEdges();
+      // 右クリックした edge が選択中なら選択中の全 edge を対象にする
+      const targetEdgeIds = edge.selected
+        ? currentEdges.filter((ed) => ed.selected).map((ed) => ed.id)
+        : [edge.id];
+      setContextMenu({ targetEdgeIds, x: e.clientX, y: e.clientY });
+    },
+    [getEdges],
+  );
 
   const setEdgePathType = useCallback(
-    (edgeId: string, pathType: EdgePathType) => {
+    (targetEdgeIds: string[], pathType: EdgePathType) => {
+      const targetSet = new Set(targetEdgeIds);
       setEdges((es) =>
         es.map((e) =>
-          e.id === edgeId ? { ...e, data: { ...e.data, pathType } } : e,
+          targetSet.has(e.id) ? { ...e, data: { ...e.data, pathType } } : e,
         ),
       );
       setContextMenu(null);
@@ -399,11 +408,24 @@ function GraphEditorInner({ file, onChange }: Props) {
             borderRadius: 6,
             boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
             zIndex: 1000,
-            minWidth: 140,
+            minWidth: 160,
             padding: '4px 0',
           }}
           onMouseDown={(e) => e.stopPropagation()}
         >
+          <div
+            style={{
+              padding: '4px 14px 6px',
+              fontSize: 11,
+              color: '#888',
+              borderBottom: '1px solid #eee',
+              marginBottom: 4,
+            }}
+          >
+            {contextMenu.targetEdgeIds.length === 1
+              ? 'エッジの種類'
+              : `${contextMenu.targetEdgeIds.length} 本のエッジを変更`}
+          </div>
           {(
             [
               ['bezier', 'Bezier（曲線）'],
@@ -415,7 +437,7 @@ function GraphEditorInner({ file, onChange }: Props) {
             <button
               key={type}
               type="button"
-              onClick={() => setEdgePathType(contextMenu.edgeId, type)}
+              onClick={() => setEdgePathType(contextMenu.targetEdgeIds, type)}
               style={{
                 display: 'block',
                 width: '100%',
