@@ -20,7 +20,7 @@ function getEdgePath(
     targetY: number;
     targetPosition: EdgeProps['targetPosition'];
   },
-): [string, number, number] {
+): ReturnType<typeof getBezierPath> {
   switch (pathType) {
     case 'straight':
       return getStraightPath(params);

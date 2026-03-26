@@ -123,6 +123,7 @@ function GraphEditorInner({ file, onChange }: Props) {
             id: crypto.randomUUID(),
             type: 'editableLabel',
             markerEnd: { type: MarkerType.ArrowClosed },
+            data: { pathType: 'bezier' },
           },
           es,
         ),
@@ -292,19 +293,40 @@ function GraphEditorInner({ file, onChange }: Props) {
 
   const [contextMenu, setContextMenu] = useState<{
     targetEdgeIds: string[];
+    // 対象が全て同じ種類なら表示, 混在の場合は null
+    currentPathType: EdgePathType | null;
     x: number;
     y: number;
   } | null>(null);
+
+  const CONTEXT_MENU_WIDTH = 160;
+  const CONTEXT_MENU_HEIGHT = 185; // header + 4 items の概算
 
   const onEdgeContextMenu = useCallback(
     (e: React.MouseEvent, edge: Edge) => {
       e.preventDefault();
       const currentEdges = getEdges();
       // 右クリックした edge が選択中なら選択中の全 edge を対象にする
-      const targetEdgeIds = edge.selected
-        ? currentEdges.filter((ed) => ed.selected).map((ed) => ed.id)
-        : [edge.id];
-      setContextMenu({ targetEdgeIds, x: e.clientX, y: e.clientY });
+      const targets = edge.selected
+        ? currentEdges.filter((ed) => ed.selected)
+        : [edge];
+      const targetEdgeIds = targets.map((ed) => ed.id);
+
+      // 対象エッジの pathType が全て一致するか確認
+      const types = targets.map(
+        (ed) => (ed.data?.pathType as EdgePathType | undefined) ?? 'bezier',
+      );
+      const currentPathType = types.every((t) => t === types[0])
+        ? types[0]
+        : null;
+
+      // 画面端からはみ出さないよう位置を補正
+      const x = Math.min(e.clientX, window.innerWidth - CONTEXT_MENU_WIDTH - 8);
+      const y = Math.min(
+        e.clientY,
+        window.innerHeight - CONTEXT_MENU_HEIGHT - 8,
+      );
+      setContextMenu({ targetEdgeIds, currentPathType, x, y });
     },
     [getEdges],
   );
@@ -433,25 +455,34 @@ function GraphEditorInner({ file, onChange }: Props) {
               ['step', 'Step（直角）'],
               ['smoothstep', 'Smooth Step（角丸）'],
             ] as [EdgePathType, string][]
-          ).map(([type, label]) => (
-            <button
-              key={type}
-              type="button"
-              onClick={() => setEdgePathType(contextMenu.targetEdgeIds, type)}
-              style={{
-                display: 'block',
-                width: '100%',
-                padding: '6px 14px',
-                textAlign: 'left',
-                background: 'none',
-                border: 'none',
-                fontSize: 13,
-                cursor: 'pointer',
-              }}
-            >
-              {label}
-            </button>
-          ))}
+          ).map(([type, label]) => {
+            const isCurrent = contextMenu.currentPathType === type;
+            return (
+              <button
+                key={type}
+                type="button"
+                onClick={() => setEdgePathType(contextMenu.targetEdgeIds, type)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  width: '100%',
+                  padding: '6px 14px',
+                  textAlign: 'left',
+                  background: 'none',
+                  border: 'none',
+                  fontSize: 13,
+                  fontWeight: isCurrent ? 'bold' : 'normal',
+                  cursor: 'pointer',
+                }}
+              >
+                <span style={{ width: 12, flexShrink: 0 }}>
+                  {isCurrent ? '✓' : ''}
+                </span>
+                {label}
+              </button>
+            );
+          })}
         </div>
       )}
     </div>
