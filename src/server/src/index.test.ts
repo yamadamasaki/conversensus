@@ -43,7 +43,7 @@ describe('API routes', () => {
       const body = await res.json();
       expect(body.name).toBe('新規ファイル');
       expect(body.id).toBeTruthy();
-      expect(body.sheet).toBeTruthy();
+      expect(body.sheets).toBeArrayOfSize(1);
     });
 
     it('name 省略時は "無題" になる', async () => {
@@ -99,7 +99,7 @@ describe('API routes', () => {
           body: JSON.stringify({
             id: 'nonexistent',
             name: 'x',
-            sheet: { id: 's', name: 's', nodes: [], edges: [] },
+            sheets: [{ id: 's', name: 's', nodes: [], edges: [] }],
           }),
         }),
       );
