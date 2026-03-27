@@ -10,34 +10,165 @@ import { GraphEditor } from './GraphEditor';
 
 const AUTOSAVE_DELAY = 1000; // ms
 
-// インライン編集用のユーティリティコンポーネント
-function InlineEditField({
-  value,
-  onCommit,
-  onCancel,
-  style,
+// ---- ポップアップコンポーネント ----
+
+type PopupTarget =
+  | { type: 'file'; id: string }
+  | { type: 'sheet'; fileId: string; sheetId: string };
+
+function SettingsPopup({
+  name,
+  description,
+  onSave,
+  onDelete,
+  onClose,
+  deleteLabel,
 }: {
-  value: string;
-  onCommit: (v: string) => void;
-  onCancel: () => void;
-  style?: React.CSSProperties;
+  name: string;
+  description: string;
+  onSave: (name: string, description: string) => void;
+  onDelete: () => void;
+  onClose: () => void;
+  deleteLabel: string;
 }) {
-  const [draft, setDraft] = useState(value);
+  const [draftName, setDraftName] = useState(name);
+  const [draftDesc, setDraftDesc] = useState(description);
+  const popupRef = useRef<HTMLDivElement>(null);
+  const nameComposingRef = useRef(false);
+  const descComposingRef = useRef(false);
+
+  // クリック外でポップアップを閉じる
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (popupRef.current && !popupRef.current.contains(e.target as Node)) {
+        onSave(draftName.trim() || name, draftDesc);
+        onClose();
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [draftName, draftDesc, name, onSave, onClose]);
+
+  const handleSave = () => {
+    onSave(draftName.trim() || name, draftDesc);
+    onClose();
+  };
+
   return (
-    <input
-      // biome-ignore lint/a11y/noAutofocus: インライン編集開始時に即座に入力できるよう必要
-      autoFocus
-      value={draft}
-      onChange={(e) => setDraft(e.target.value)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') onCommit(draft.trim() || value);
-        if (e.key === 'Escape') onCancel();
+    <div
+      ref={popupRef}
+      style={{
+        position: 'absolute',
+        right: 8,
+        top: 0,
+        zIndex: 100,
+        background: '#fff',
+        border: '1px solid #ccc',
+        borderRadius: 6,
+        boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+        padding: 12,
+        width: 220,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 8,
       }}
-      onBlur={() => onCommit(draft.trim() || value)}
-      style={{ fontSize: 13, padding: '0 2px', width: '100%', ...style }}
-    />
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <label htmlFor="popup-name" style={{ fontSize: 11, color: '#666' }}>
+          名前
+        </label>
+        <input
+          id="popup-name"
+          // biome-ignore lint/a11y/noAutofocus: ポップアップ表示時に即座に編集できるよう必要
+          autoFocus
+          value={draftName}
+          onChange={(e) => setDraftName(e.target.value)}
+          onCompositionStart={() => {
+            nameComposingRef.current = true;
+          }}
+          onCompositionEnd={() => {
+            nameComposingRef.current = false;
+          }}
+          onKeyDown={(e) => {
+            if (nameComposingRef.current) return;
+            if (e.key === 'Enter') handleSave();
+            if (e.key === 'Escape') onClose();
+          }}
+          style={{
+            fontSize: 13,
+            padding: '4px 6px',
+            borderRadius: 4,
+            border: '1px solid #ccc',
+          }}
+        />
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <label htmlFor="popup-desc" style={{ fontSize: 11, color: '#666' }}>
+          概要
+        </label>
+        <textarea
+          id="popup-desc"
+          value={draftDesc}
+          onChange={(e) => setDraftDesc(e.target.value)}
+          onCompositionStart={() => {
+            descComposingRef.current = true;
+          }}
+          onCompositionEnd={() => {
+            descComposingRef.current = false;
+          }}
+          onKeyDown={(e) => {
+            if (descComposingRef.current) return;
+            if (e.key === 'Escape') onClose();
+          }}
+          placeholder="概要を入力…"
+          rows={3}
+          style={{
+            fontSize: 12,
+            padding: '4px 6px',
+            borderRadius: 4,
+            border: '1px solid #ccc',
+            resize: 'vertical',
+            fontFamily: 'inherit',
+          }}
+        />
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 4 }}>
+        <button
+          type="button"
+          onClick={onDelete}
+          style={{
+            fontSize: 12,
+            padding: '4px 8px',
+            borderRadius: 4,
+            border: '1px solid #f44',
+            background: 'none',
+            color: '#f44',
+            cursor: 'pointer',
+          }}
+        >
+          {deleteLabel}
+        </button>
+        <button
+          type="button"
+          onClick={handleSave}
+          style={{
+            fontSize: 12,
+            padding: '4px 12px',
+            borderRadius: 4,
+            border: 'none',
+            background: '#4f6ef7',
+            color: '#fff',
+            cursor: 'pointer',
+          }}
+        >
+          保存
+        </button>
+      </div>
+    </div>
   );
 }
+
+// ---- メインコンポーネント ----
 
 export default function App() {
   const [files, setFiles] = useState<GraphFileListItem[]>([]);
@@ -47,15 +178,9 @@ export default function App() {
     new Set(),
   );
   const [newFileName, setNewFileName] = useState('');
-
-  // 編集中の項目 (type: 'file' | 'sheet', id, field: 'name' | 'description')
-  const [editing, setEditing] = useState<{
-    type: 'file' | 'sheet';
-    id: string;
-    field: 'name' | 'description';
-  } | null>(null);
-
+  const [popupTarget, setPopupTarget] = useState<PopupTarget | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const newFileComposingRef = useRef(false);
 
   useEffect(() => {
     fetchFiles().then(setFiles).catch(console.error);
@@ -113,17 +238,65 @@ export default function App() {
     }
   }, [newFileName]);
 
+  const persistFile = useCallback(async (updated: GraphFile) => {
+    setActiveFile(updated);
+    setFiles((fs) =>
+      fs.map((f) =>
+        f.id === updated.id
+          ? {
+              id: updated.id,
+              name: updated.name,
+              description: updated.description,
+            }
+          : f,
+      ),
+    );
+    try {
+      await saveFile(updated);
+    } catch (err) {
+      console.error('Failed to save file:', err);
+    }
+  }, []);
+
+  const handleChange = useCallback(
+    (updated: GraphFile) => {
+      setActiveFile(updated);
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      saveTimer.current = setTimeout(
+        () => persistFile(updated),
+        AUTOSAVE_DELAY,
+      );
+    },
+    [persistFile],
+  );
+
+  // ファイル設定を保存
+  const handleSaveFileSettings = useCallback(
+    async (fileId: string, name: string, description: string) => {
+      if (!activeFile || activeFile.id !== fileId) return;
+      const updated = {
+        ...activeFile,
+        name,
+        description: description || undefined,
+      };
+      await persistFile(updated);
+    },
+    [activeFile, persistFile],
+  );
+
+  // ファイル削除
   const handleDeleteFile = useCallback(
     async (id: string) => {
-      const target = activeFile?.id === id ? activeFile : null;
-      if (target && target.sheets.length > 0) {
-        if (
-          !window.confirm(
-            `「${target.name}」を削除しますか？\nシートも全て削除されます。`,
-          )
+      const target = files.find((f) => f.id === id);
+      if (
+        target &&
+        activeFile?.id === id &&
+        activeFile.sheets.length > 0 &&
+        !window.confirm(
+          `「${target.name}」を削除しますか？\nシートも全て削除されます。`,
         )
-          return;
-      }
+      )
+        return;
       try {
         await removeFile(id);
         setFiles((fs) => fs.filter((f) => f.id !== id));
@@ -136,83 +309,53 @@ export default function App() {
           next.delete(id);
           return next;
         });
+        setPopupTarget(null);
       } catch (err) {
         console.error('Failed to delete file:', err);
       }
     },
-    [activeFile],
+    [activeFile, files],
   );
 
-  const handleChange = useCallback((updated: GraphFile) => {
-    setActiveFile(updated);
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(async () => {
-      try {
-        await saveFile(updated);
-        setFiles((fs) =>
-          fs.map((f) =>
-            f.id === updated.id
-              ? {
-                  id: updated.id,
-                  name: updated.name,
-                  description: updated.description,
-                }
-              : f,
-          ),
-        );
-      } catch (err) {
-        console.error('Failed to save file:', err);
-      }
-    }, AUTOSAVE_DELAY);
-  }, []);
-
-  // ファイルのフィールドを更新して即時保存
-  const updateFileField = useCallback(
-    async (field: 'name' | 'description', value: string) => {
-      if (!activeFile) return;
-      const updated = { ...activeFile, [field]: value || undefined };
-      setActiveFile(updated);
-      setFiles((fs) =>
-        fs.map((f) =>
-          f.id === updated.id
-            ? {
-                id: updated.id,
-                name: updated.name,
-                description: updated.description,
-              }
-            : f,
-        ),
-      );
-      try {
-        await saveFile(updated);
-      } catch (err) {
-        console.error('Failed to save file:', err);
-      }
-    },
-    [activeFile],
-  );
-
-  // シートのフィールドを更新して即時保存
-  const updateSheetField = useCallback(
-    async (sheetId: string, field: 'name' | 'description', value: string) => {
+  // シート設定を保存
+  const handleSaveSheetSettings = useCallback(
+    async (sheetId: string, name: string, description: string) => {
       if (!activeFile) return;
       const updated: GraphFile = {
         ...activeFile,
         sheets: activeFile.sheets.map((s) =>
-          s.id === sheetId ? { ...s, [field]: value || undefined } : s,
+          s.id === sheetId
+            ? { ...s, name, description: description || undefined }
+            : s,
         ),
       };
-      setActiveFile(updated);
-      try {
-        await saveFile(updated);
-      } catch (err) {
-        console.error('Failed to save file:', err);
-      }
+      await persistFile(updated);
     },
-    [activeFile],
+    [activeFile, persistFile],
   );
 
-  // シートを追加
+  // シート削除
+  const handleDeleteSheet = useCallback(
+    async (sheetId: string) => {
+      if (!activeFile) return;
+      if (activeFile.sheets.length <= 1) {
+        alert('最後のシートは削除できません');
+        return;
+      }
+      const updated: GraphFile = {
+        ...activeFile,
+        sheets: activeFile.sheets.filter((s) => s.id !== sheetId),
+      };
+      if (activeSheetId === sheetId) {
+        setActiveSheetId((updated.sheets[0]?.id ?? null) as SheetId | null);
+      }
+      setPopupTarget(null);
+      await persistFile(updated);
+    },
+    [activeFile, activeSheetId, persistFile],
+  );
+
+  // シート追加
   const handleAddSheet = useCallback(async () => {
     if (!activeFile) return;
     const newSheet: Sheet = {
@@ -225,48 +368,19 @@ export default function App() {
       ...activeFile,
       sheets: [...activeFile.sheets, newSheet],
     };
-    setActiveFile(updated);
     setActiveSheetId(newSheet.id);
-    try {
-      await saveFile(updated);
-    } catch (err) {
-      console.error('Failed to add sheet:', err);
-    }
-  }, [activeFile]);
+    await persistFile(updated);
+  }, [activeFile, persistFile]);
 
-  // シートを削除
-  const handleDeleteSheet = useCallback(
-    async (sheetId: string) => {
-      if (!activeFile) return;
-      if (activeFile.sheets.length <= 1) {
-        alert('最後のシートは削除できません');
-        return;
-      }
-      const updated: GraphFile = {
-        ...activeFile,
-        sheets: activeFile.sheets.filter((s) => s.id !== sheetId),
-      };
-      setActiveFile(updated);
-      if (activeSheetId === sheetId) {
-        setActiveSheetId((updated.sheets[0]?.id ?? null) as SheetId | null);
-      }
-      try {
-        await saveFile(updated);
-      } catch (err) {
-        console.error('Failed to delete sheet:', err);
-      }
-    },
-    [activeFile, activeSheetId],
-  );
-
-  const btnStyle: React.CSSProperties = {
+  const gearBtnStyle: React.CSSProperties = {
     background: 'none',
     border: 'none',
     cursor: 'pointer',
-    color: '#999',
-    fontSize: 11,
+    color: '#aaa',
+    fontSize: 13,
     padding: '0 2px',
     lineHeight: 1,
+    flexShrink: 0,
   };
 
   return (
@@ -284,11 +398,21 @@ export default function App() {
       >
         <h2 style={{ margin: 0, fontSize: 16 }}>conversensus</h2>
 
+        {/* 新規ファイル作成 */}
         <div style={{ display: 'flex', gap: 4 }}>
           <input
             value={newFileName}
             onChange={(e) => setNewFileName(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
+            onCompositionStart={() => {
+              newFileComposingRef.current = true;
+            }}
+            onCompositionEnd={() => {
+              newFileComposingRef.current = false;
+            }}
+            onKeyDown={(e) => {
+              if (newFileComposingRef.current) return;
+              if (e.key === 'Enter') handleCreate();
+            }}
             placeholder="ファイル名"
             style={{ flex: 1, padding: '4px 6px', fontSize: 13 }}
           />
@@ -301,6 +425,7 @@ export default function App() {
           </button>
         </div>
 
+        {/* ファイル一覧 */}
         <ul
           style={{
             listStyle: 'none',
@@ -314,6 +439,9 @@ export default function App() {
             const isExpanded = expandedFileIds.has(f.id);
             const isActiveFile = activeFile?.id === f.id;
             const fileData = isActiveFile ? activeFile : null;
+            const fileDesc = fileData?.description ?? f.description;
+            const isFilePopupOpen =
+              popupTarget?.type === 'file' && popupTarget.id === f.id;
 
             return (
               <li key={f.id}>
@@ -326,109 +454,77 @@ export default function App() {
                     padding: '4px 4px',
                     borderRadius: 4,
                     background: isActiveFile ? '#e8f0fe' : 'transparent',
+                    position: 'relative',
                   }}
                 >
                   {/* 展開トグル */}
                   <button
                     type="button"
                     onClick={() => toggleExpand(f.id)}
-                    style={{ ...btnStyle, color: '#555', fontSize: 10 }}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      color: '#555',
+                      fontSize: 10,
+                      padding: '0 2px',
+                      flexShrink: 0,
+                    }}
                   >
                     {isExpanded ? '▼' : '▶'}
                   </button>
 
-                  {/* ファイル名 */}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    {editing?.type === 'file' &&
-                    editing.id === f.id &&
-                    editing.field === 'name' ? (
-                      <InlineEditField
-                        value={fileData?.name ?? f.name}
-                        onCommit={(v) => {
-                          setEditing(null);
-                          updateFileField('name', v);
-                        }}
-                        onCancel={() => setEditing(null)}
-                      />
-                    ) : (
-                      <button
-                        type="button"
-                        style={{
-                          flex: 1,
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                          fontSize: 13,
-                          fontWeight: 600,
-                          background: 'none',
-                          border: 'none',
-                          cursor: 'pointer',
-                          textAlign: 'left',
-                          padding: 0,
-                          width: '100%',
-                        }}
-                        onClick={() => toggleExpand(f.id)}
-                        onDoubleClick={() =>
-                          setEditing({ type: 'file', id: f.id, field: 'name' })
-                        }
-                      >
-                        {f.name}
-                      </button>
-                    )}
-                    {/* ファイル概要 */}
-                    {editing?.type === 'file' &&
-                    editing.id === f.id &&
-                    editing.field === 'description' ? (
-                      <InlineEditField
-                        value={fileData?.description ?? f.description ?? ''}
-                        onCommit={(v) => {
-                          setEditing(null);
-                          updateFileField('description', v);
-                        }}
-                        onCancel={() => setEditing(null)}
-                        style={{ fontSize: 11, color: '#666' }}
-                      />
-                    ) : (
-                      <button
-                        type="button"
-                        style={{
-                          fontSize: 11,
-                          color: '#888',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                          cursor: isActiveFile ? 'text' : 'default',
-                          minHeight: 14,
-                          background: 'none',
-                          border: 'none',
-                          padding: 0,
-                          textAlign: 'left',
-                          width: '100%',
-                        }}
-                        onClick={() =>
-                          isActiveFile &&
-                          setEditing({
-                            type: 'file',
-                            id: f.id,
-                            field: 'description',
-                          })
-                        }
-                      >
-                        {(fileData?.description ?? f.description) ||
-                          (isActiveFile ? '概要を追加…' : '')}
-                      </button>
-                    )}
-                  </div>
-
-                  {/* ファイル削除ボタン */}
+                  {/* ファイル名 (hover で description を表示) */}
                   <button
                     type="button"
-                    onClick={() => handleDeleteFile(f.id)}
-                    style={btnStyle}
-                    title="ファイルを削除"
+                    title={fileDesc ?? undefined}
+                    style={{
+                      flex: 1,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      fontSize: 13,
+                      fontWeight: 600,
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      padding: 0,
+                    }}
+                    onClick={() => toggleExpand(f.id)}
                   >
-                    ×
+                    {f.name}
                   </button>
+
+                  {/* ギアボタン */}
+                  <button
+                    type="button"
+                    title="設定"
+                    style={gearBtnStyle}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setPopupTarget(
+                        isFilePopupOpen ? null : { type: 'file', id: f.id },
+                      );
+                      if (!isActiveFile) openFile(f.id);
+                    }}
+                  >
+                    ⚙
+                  </button>
+
+                  {/* ファイル設定ポップアップ */}
+                  {isFilePopupOpen && fileData && (
+                    <SettingsPopup
+                      name={fileData.name}
+                      description={fileData.description ?? ''}
+                      onSave={(name, desc) =>
+                        handleSaveFileSettings(f.id, name, desc)
+                      }
+                      onDelete={() => handleDeleteFile(f.id)}
+                      onClose={() => setPopupTarget(null)}
+                      deleteLabel="ファイルを削除"
+                    />
+                  )}
                 </div>
 
                 {/* シート一覧 (展開時) */}
@@ -436,6 +532,10 @@ export default function App() {
                   <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
                     {fileData.sheets.map((s) => {
                       const isActiveSheet = activeSheetId === s.id;
+                      const isSheetPopupOpen =
+                        popupTarget?.type === 'sheet' &&
+                        popupTarget.sheetId === s.id;
+
                       return (
                         <li key={s.id}>
                           <div
@@ -448,103 +548,70 @@ export default function App() {
                               background: isActiveSheet
                                 ? '#c8dcfe'
                                 : 'transparent',
+                              position: 'relative',
                             }}
                           >
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              {editing?.type === 'sheet' &&
-                              editing.id === s.id &&
-                              editing.field === 'name' ? (
-                                <InlineEditField
-                                  value={s.name}
-                                  onCommit={(v) => {
-                                    setEditing(null);
-                                    updateSheetField(s.id, 'name', v);
-                                  }}
-                                  onCancel={() => setEditing(null)}
-                                />
-                              ) : (
-                                <button
-                                  type="button"
-                                  style={{
-                                    overflow: 'hidden',
-                                    textOverflow: 'ellipsis',
-                                    whiteSpace: 'nowrap',
-                                    fontSize: 12,
-                                    background: 'none',
-                                    border: 'none',
-                                    cursor: 'pointer',
-                                    textAlign: 'left',
-                                    padding: 0,
-                                    width: '100%',
-                                  }}
-                                  onClick={() => setActiveSheetId(s.id)}
-                                  onDoubleClick={() =>
-                                    setEditing({
-                                      type: 'sheet',
-                                      id: s.id,
-                                      field: 'name',
-                                    })
-                                  }
-                                >
-                                  {s.name}
-                                </button>
-                              )}
-                              {/* シート概要 */}
-                              {editing?.type === 'sheet' &&
-                              editing.id === s.id &&
-                              editing.field === 'description' ? (
-                                <InlineEditField
-                                  value={s.description ?? ''}
-                                  onCommit={(v) => {
-                                    setEditing(null);
-                                    updateSheetField(s.id, 'description', v);
-                                  }}
-                                  onCancel={() => setEditing(null)}
-                                  style={{ fontSize: 10, color: '#666' }}
-                                />
-                              ) : (
-                                <button
-                                  type="button"
-                                  style={{
-                                    fontSize: 10,
-                                    color: '#999',
-                                    overflow: 'hidden',
-                                    textOverflow: 'ellipsis',
-                                    whiteSpace: 'nowrap',
-                                    cursor: 'text',
-                                    minHeight: 12,
-                                    background: 'none',
-                                    border: 'none',
-                                    padding: 0,
-                                    textAlign: 'left',
-                                    width: '100%',
-                                  }}
-                                  onClick={() =>
-                                    setEditing({
-                                      type: 'sheet',
-                                      id: s.id,
-                                      field: 'description',
-                                    })
-                                  }
-                                >
-                                  {s.description || '概要を追加…'}
-                                </button>
-                              )}
-                            </div>
-                            {/* シート削除ボタン */}
+                            {/* シート名 (hover で description を表示) */}
                             <button
                               type="button"
-                              onClick={() => handleDeleteSheet(s.id)}
-                              style={btnStyle}
-                              title="シートを削除"
+                              title={s.description ?? undefined}
+                              style={{
+                                flex: 1,
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                                fontSize: 12,
+                                background: 'none',
+                                border: 'none',
+                                cursor: 'pointer',
+                                textAlign: 'left',
+                                padding: 0,
+                              }}
+                              onClick={() => setActiveSheetId(s.id)}
                             >
-                              ×
+                              {s.name}
                             </button>
+
+                            {/* ギアボタン */}
+                            <button
+                              type="button"
+                              title="設定"
+                              style={{ ...gearBtnStyle, fontSize: 12 }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setPopupTarget(
+                                  isSheetPopupOpen
+                                    ? null
+                                    : {
+                                        type: 'sheet',
+                                        fileId: f.id,
+                                        sheetId: s.id,
+                                      },
+                                );
+                              }}
+                            >
+                              ⚙
+                            </button>
+
+                            {/* シート設定ポップアップ */}
+                            {isSheetPopupOpen && (
+                              <SettingsPopup
+                                name={s.name}
+                                description={s.description ?? ''}
+                                onSave={(name, desc) =>
+                                  handleSaveSheetSettings(s.id, name, desc)
+                                }
+                                onDelete={() => handleDeleteSheet(s.id)}
+                                onClose={() => setPopupTarget(null)}
+                                deleteLabel="シートを削除"
+                              />
+                            )}
                           </div>
                         </li>
                       );
                     })}
-                    {/* シート追加ボタン */}
+
+                    {/* シート追加 */}
                     <li>
                       <button
                         type="button"
@@ -573,7 +640,7 @@ export default function App() {
       </aside>
 
       {/* メインエリア */}
-      <main style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+      <main style={{ flex: 1 }}>
         {activeFile && activeSheetId ? (
           <GraphEditor
             file={activeFile}
