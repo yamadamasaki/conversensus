@@ -96,20 +96,21 @@ describe('SettingsPopup', () => {
     expect(mockOnSave).toHaveBeenCalledTimes(1);
   });
 
-  it('Escape キーで onClose が呼ばれる (名前フィールド)', () => {
-    renderPopup();
+  it('Escape キーで onSave と onClose が呼ばれる (名前フィールド)', () => {
+    renderPopup({ name: 'ファイル', description: '説明' });
     fireEvent.keyDown(screen.getByRole('textbox', { name: '名前' }), {
       key: 'Escape',
     });
+    expect(mockOnSave).toHaveBeenCalledWith('ファイル', '説明');
     expect(mockOnClose).toHaveBeenCalledTimes(1);
-    expect(mockOnSave).not.toHaveBeenCalled();
   });
 
-  it('Escape キーで onClose が呼ばれる (概要フィールド)', () => {
-    renderPopup();
+  it('Escape キーで onSave と onClose が呼ばれる (概要フィールド)', () => {
+    renderPopup({ name: 'ファイル', description: '説明' });
     fireEvent.keyDown(screen.getByRole('textbox', { name: '概要' }), {
       key: 'Escape',
     });
+    expect(mockOnSave).toHaveBeenCalledWith('ファイル', '説明');
     expect(mockOnClose).toHaveBeenCalledTimes(1);
   });
 

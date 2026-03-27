@@ -1,8 +1,9 @@
+import type { FileId, SheetId } from '@conversensus/shared';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 export type PopupTarget =
-  | { type: 'file'; id: string }
-  | { type: 'sheet'; fileId: string; sheetId: string };
+  | { type: 'file'; id: FileId }
+  | { type: 'sheet'; fileId: FileId; sheetId: SheetId };
 
 type Props = {
   name: string;
@@ -27,22 +28,40 @@ export function SettingsPopup({
   const nameComposingRef = useRef(false);
   const descComposingRef = useRef(false);
 
-  // クリック外でポップアップを閉じる
+  // 最新の draft/callback を ref で保持し, outside-click ハンドラの再登録を防ぐ
+  const draftNameRef = useRef(draftName);
+  draftNameRef.current = draftName;
+  const draftDescRef = useRef(draftDesc);
+  draftDescRef.current = draftDesc;
+  const nameRef = useRef(name);
+  nameRef.current = name;
+  const onSaveRef = useRef(onSave);
+  onSaveRef.current = onSave;
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  // クリック外で保存してポップアップを閉じる (マウント時に1回だけ登録)
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (popupRef.current && !popupRef.current.contains(e.target as Node)) {
-        onSave(draftName.trim() || name, draftDesc);
-        onClose();
+        onSaveRef.current(
+          draftNameRef.current.trim() || nameRef.current,
+          draftDescRef.current,
+        );
+        onCloseRef.current();
       }
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
-  }, [draftName, draftDesc, name, onSave, onClose]);
+  }, []);
 
   const handleSave = useCallback(() => {
-    onSave(draftName.trim() || name, draftDesc);
-    onClose();
-  }, [draftName, draftDesc, name, onSave, onClose]);
+    onSaveRef.current(
+      draftNameRef.current.trim() || nameRef.current,
+      draftDescRef.current,
+    );
+    onCloseRef.current();
+  }, []);
 
   return (
     <div
@@ -82,7 +101,7 @@ export function SettingsPopup({
           onKeyDown={(e) => {
             if (nameComposingRef.current) return;
             if (e.key === 'Enter') handleSave();
-            if (e.key === 'Escape') onClose();
+            if (e.key === 'Escape') handleSave();
           }}
           style={{
             fontSize: 13,
@@ -108,7 +127,7 @@ export function SettingsPopup({
           }}
           onKeyDown={(e) => {
             if (descComposingRef.current) return;
-            if (e.key === 'Escape') onClose();
+            if (e.key === 'Escape') handleSave();
           }}
           placeholder="概要を入力…"
           rows={3}

@@ -29,14 +29,7 @@ export async function listFiles(): Promise<GraphFileListItem[]> {
 export async function readFile(id: string): Promise<GraphFile | null> {
   const file = Bun.file(filePath(id));
   if (!(await file.exists())) return null;
-  // biome-ignore lint/suspicious/noExplicitAny: 旧フォーマット (sheet 単数) との互換性
-  const raw: any = await file.json();
-  // 旧フォーマット: { sheet: {...} } → 新フォーマット: { sheets: [{...}] }
-  if (raw.sheet && !raw.sheets) {
-    raw.sheets = [raw.sheet];
-    delete raw.sheet;
-  }
-  return raw as GraphFile;
+  return file.json() as Promise<GraphFile>;
 }
 
 export async function writeFile(data: GraphFile): Promise<void> {

@@ -128,8 +128,6 @@ export default function App() {
       const target = files.find((f) => f.id === id);
       if (
         target &&
-        activeFile?.id === id &&
-        activeFile.sheets.length > 0 &&
         !window.confirm(
           `「${target.name}」を削除しますか？\nシートも全て削除されます。`,
         )
