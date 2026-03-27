@@ -1,21 +1,32 @@
-import type { GraphFile, GraphFileListItem } from '@conversensus/shared';
+import type {
+  GraphFile,
+  GraphFileListItem,
+  Sheet,
+  SheetId,
+} from '@conversensus/shared';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createFile, fetchFile, fetchFiles, removeFile, saveFile } from './api';
 import { GraphEditor } from './GraphEditor';
+import type { PopupTarget } from './SettingsPopup';
+import { Sidebar } from './Sidebar';
 
 const AUTOSAVE_DELAY = 1000; // ms
 
 export default function App() {
   const [files, setFiles] = useState<GraphFileListItem[]>([]);
   const [activeFile, setActiveFile] = useState<GraphFile | null>(null);
+  const [activeSheetId, setActiveSheetId] = useState<SheetId | null>(null);
+  const [expandedFileIds, setExpandedFileIds] = useState<Set<string>>(
+    new Set(),
+  );
   const [newFileName, setNewFileName] = useState('');
+  const [popupTarget, setPopupTarget] = useState<PopupTarget | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     fetchFiles().then(setFiles).catch(console.error);
   }, []);
 
-  // アンマウント時にオートセーブタイマーをキャンセルする
   useEffect(() => {
     return () => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
@@ -26,10 +37,30 @@ export default function App() {
     try {
       const file = await fetchFile(id);
       setActiveFile(file);
+      setActiveSheetId((file.sheets[0]?.id ?? null) as SheetId | null);
+      setExpandedFileIds((prev) => new Set([...prev, id]));
     } catch (err) {
       console.error('Failed to open file:', err);
     }
   }, []);
+
+  const toggleExpand = useCallback(
+    (id: string) => {
+      setExpandedFileIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(id)) {
+          next.delete(id);
+        } else {
+          next.add(id);
+          if (!activeFile || activeFile.id !== id) {
+            openFile(id);
+          }
+        }
+        return next;
+      });
+    },
+    [activeFile, openFile],
+  );
 
   const handleCreate = useCallback(async () => {
     try {
@@ -40,142 +71,167 @@ export default function App() {
         { id: file.id, name: file.name, description: file.description },
       ]);
       setActiveFile(file);
+      setActiveSheetId((file.sheets[0]?.id ?? null) as SheetId | null);
+      setExpandedFileIds((prev) => new Set([...prev, file.id]));
       setNewFileName('');
     } catch (err) {
       console.error('Failed to create file:', err);
     }
   }, [newFileName]);
 
-  const handleDelete = useCallback(
+  const persistFile = useCallback(async (updated: GraphFile) => {
+    setActiveFile(updated);
+    setFiles((fs) =>
+      fs.map((f) =>
+        f.id === updated.id
+          ? {
+              id: updated.id,
+              name: updated.name,
+              description: updated.description,
+            }
+          : f,
+      ),
+    );
+    try {
+      await saveFile(updated);
+    } catch (err) {
+      console.error('Failed to save file:', err);
+    }
+  }, []);
+
+  const handleChange = useCallback(
+    (updated: GraphFile) => {
+      setActiveFile(updated);
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      saveTimer.current = setTimeout(
+        () => persistFile(updated),
+        AUTOSAVE_DELAY,
+      );
+    },
+    [persistFile],
+  );
+
+  const handleSaveFileSettings = useCallback(
+    async (fileId: string, name: string, description: string) => {
+      if (!activeFile || activeFile.id !== fileId) return;
+      await persistFile({
+        ...activeFile,
+        name,
+        description: description || undefined,
+      });
+    },
+    [activeFile, persistFile],
+  );
+
+  const handleDeleteFile = useCallback(
     async (id: string) => {
+      const target = files.find((f) => f.id === id);
+      if (
+        target &&
+        !window.confirm(
+          `「${target.name}」を削除しますか？\nシートも全て削除されます。`,
+        )
+      )
+        return;
       try {
         await removeFile(id);
         setFiles((fs) => fs.filter((f) => f.id !== id));
-        if (activeFile?.id === id) setActiveFile(null);
+        if (activeFile?.id === id) {
+          setActiveFile(null);
+          setActiveSheetId(null);
+        }
+        setExpandedFileIds((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+        setPopupTarget(null);
       } catch (err) {
         console.error('Failed to delete file:', err);
       }
     },
-    [activeFile],
+    [activeFile, files],
   );
 
-  const handleChange = useCallback((updated: GraphFile) => {
-    setActiveFile(updated);
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(async () => {
-      try {
-        await saveFile(updated);
-        setFiles((fs) =>
-          fs.map((f) =>
-            f.id === updated.id
-              ? {
-                  id: updated.id,
-                  name: updated.name,
-                  description: updated.description,
-                }
-              : f,
-          ),
-        );
-      } catch (err) {
-        console.error('Failed to save file:', err);
+  const handleSaveSheetSettings = useCallback(
+    async (sheetId: string, name: string, description: string) => {
+      if (!activeFile) return;
+      await persistFile({
+        ...activeFile,
+        sheets: activeFile.sheets.map((s) =>
+          s.id === sheetId
+            ? { ...s, name, description: description || undefined }
+            : s,
+        ),
+      });
+    },
+    [activeFile, persistFile],
+  );
+
+  const handleDeleteSheet = useCallback(
+    async (sheetId: string) => {
+      if (!activeFile) return;
+      if (activeFile.sheets.length <= 1) {
+        alert('最後のシートは削除できません');
+        return;
       }
-    }, AUTOSAVE_DELAY);
-  }, []);
+      const updated: GraphFile = {
+        ...activeFile,
+        sheets: activeFile.sheets.filter((s) => s.id !== sheetId),
+      };
+      if (activeSheetId === sheetId) {
+        setActiveSheetId((updated.sheets[0]?.id ?? null) as SheetId | null);
+      }
+      setPopupTarget(null);
+      await persistFile(updated);
+    },
+    [activeFile, activeSheetId, persistFile],
+  );
+
+  const handleAddSheet = useCallback(async () => {
+    if (!activeFile) return;
+    const newSheet: Sheet = {
+      id: crypto.randomUUID() as SheetId,
+      name: `Sheet ${activeFile.sheets.length + 1}`,
+      nodes: [],
+      edges: [],
+    };
+    const updated: GraphFile = {
+      ...activeFile,
+      sheets: [...activeFile.sheets, newSheet],
+    };
+    setActiveSheetId(newSheet.id);
+    await persistFile(updated);
+  }, [activeFile, persistFile]);
 
   return (
     <div style={{ display: 'flex', height: '100vh', fontFamily: 'sans-serif' }}>
-      {/* サイドバー */}
-      <aside
-        style={{
-          width: 240,
-          borderRight: '1px solid #ddd',
-          display: 'flex',
-          flexDirection: 'column',
-          padding: 12,
-          gap: 8,
-        }}
-      >
-        <h2 style={{ margin: 0, fontSize: 16 }}>conversensus</h2>
-
-        <div style={{ display: 'flex', gap: 4 }}>
-          <input
-            value={newFileName}
-            onChange={(e) => setNewFileName(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
-            placeholder="ファイル名"
-            style={{ flex: 1, padding: '4px 6px', fontSize: 13 }}
-          />
-          <button
-            type="button"
-            onClick={handleCreate}
-            style={{ padding: '4px 8px', fontSize: 13 }}
-          >
-            +
-          </button>
-        </div>
-
-        <ul
-          style={{
-            listStyle: 'none',
-            margin: 0,
-            padding: 0,
-            flex: 1,
-            overflowY: 'auto',
-          }}
-        >
-          {files.map((f) => (
-            <li
-              key={f.id}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 4,
-                padding: '4px 6px',
-                borderRadius: 4,
-                background: activeFile?.id === f.id ? '#e8f0fe' : 'transparent',
-                cursor: 'pointer',
-              }}
-            >
-              <button
-                type="button"
-                style={{
-                  flex: 1,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                  fontSize: 13,
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  textAlign: 'left',
-                  padding: 0,
-                }}
-                onClick={() => openFile(f.id)}
-              >
-                {f.name}
-              </button>
-              <button
-                type="button"
-                onClick={() => handleDelete(f.id)}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  color: '#999',
-                  fontSize: 12,
-                }}
-              >
-                x
-              </button>
-            </li>
-          ))}
-        </ul>
-      </aside>
-
-      {/* メインエリア */}
+      <Sidebar
+        files={files}
+        activeFile={activeFile}
+        activeSheetId={activeSheetId}
+        expandedFileIds={expandedFileIds}
+        newFileName={newFileName}
+        popupTarget={popupTarget}
+        onNewFileNameChange={setNewFileName}
+        onCreateFile={handleCreate}
+        onToggleExpand={toggleExpand}
+        onOpenFile={openFile}
+        onSelectSheet={setActiveSheetId}
+        onAddSheet={handleAddSheet}
+        onSetPopupTarget={setPopupTarget}
+        onSaveFileSettings={handleSaveFileSettings}
+        onDeleteFile={handleDeleteFile}
+        onSaveSheetSettings={handleSaveSheetSettings}
+        onDeleteSheet={handleDeleteSheet}
+      />
       <main style={{ flex: 1 }}>
-        {activeFile ? (
-          <GraphEditor file={activeFile} onChange={handleChange} />
+        {activeFile && activeSheetId ? (
+          <GraphEditor
+            file={activeFile}
+            activeSheetId={activeSheetId}
+            onChange={handleChange}
+          />
         ) : (
           <div
             style={{

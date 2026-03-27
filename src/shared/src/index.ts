@@ -68,6 +68,7 @@ export const GraphEdgeSchema = z.object({
 export const SheetSchema = z.object({
   id: SheetIdSchema,
   name: z.string(),
+  description: z.string().optional(),
   nodes: z.array(GraphNodeSchema),
   edges: z.array(GraphEdgeSchema),
 });
@@ -76,7 +77,7 @@ export const GraphFileSchema = z.object({
   id: FileIdSchema,
   name: z.string(),
   description: z.string().optional(),
-  sheet: SheetSchema,
+  sheets: z.array(SheetSchema),
 });
 
 export const GraphFileListItemSchema = z.object({

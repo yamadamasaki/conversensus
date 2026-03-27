@@ -17,21 +17,23 @@ const sampleFile = (): GraphFile => ({
   id: 'test-id-1' as FileId,
   name: 'テストファイル',
   description: '説明',
-  sheet: {
-    id: 'sheet-1' as SheetId,
-    name: 'Sheet 1',
-    nodes: [
-      { id: 'n1' as NodeId, content: 'ノード1', style: { x: 10, y: 20 } },
-    ],
-    edges: [
-      {
-        id: 'e1' as EdgeId,
-        source: 'n1' as NodeId,
-        target: 'n2' as NodeId,
-        label: 'ラベル',
-      },
-    ],
-  },
+  sheets: [
+    {
+      id: 'sheet-1' as SheetId,
+      name: 'Sheet 1',
+      nodes: [
+        { id: 'n1' as NodeId, content: 'ノード1', style: { x: 10, y: 20 } },
+      ],
+      edges: [
+        {
+          id: 'e1' as EdgeId,
+          source: 'n1' as NodeId,
+          target: 'n2' as NodeId,
+          label: 'ラベル',
+        },
+      ],
+    },
+  ],
 });
 
 beforeEach(async () => {

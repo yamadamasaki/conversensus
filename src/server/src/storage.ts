@@ -29,7 +29,7 @@ export async function listFiles(): Promise<GraphFileListItem[]> {
 export async function readFile(id: string): Promise<GraphFile | null> {
   const file = Bun.file(filePath(id));
   if (!(await file.exists())) return null;
-  return file.json();
+  return file.json() as Promise<GraphFile>;
 }
 
 export async function writeFile(data: GraphFile): Promise<void> {
