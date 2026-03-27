@@ -133,9 +133,6 @@ export function SettingsPopup({
           onCompositionEnd={() => {
             descComposingRef.current = false;
           }}
-          onKeyDown={(e) => {
-            if (descComposingRef.current) return;
-          }}
           placeholder="概要を入力…"
           rows={3}
           style={{
