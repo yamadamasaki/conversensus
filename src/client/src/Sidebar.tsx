@@ -1,7 +1,9 @@
-import type {
-  GraphFile,
-  GraphFileListItem,
-  SheetId,
+import {
+  type ConversensusFile,
+  ConversensusFileSchema,
+  type GraphFile,
+  type GraphFileListItem,
+  type SheetId,
 } from '@conversensus/shared';
 import { useRef } from 'react';
 import type { PopupTarget } from './SettingsPopup';
@@ -16,6 +18,7 @@ type Props = {
   popupTarget: PopupTarget | null;
   onNewFileNameChange: (name: string) => void;
   onCreateFile: () => void;
+  onImportFile: (data: ConversensusFile) => void;
   onToggleExpand: (id: string) => void;
   onOpenFile: (id: string) => void;
   onSelectSheet: (sheetId: SheetId) => void;
@@ -23,6 +26,7 @@ type Props = {
   onSetPopupTarget: (target: PopupTarget | null) => void;
   onSaveFileSettings: (fileId: string, name: string, desc: string) => void;
   onDeleteFile: (id: string) => void;
+  onExportFile: (fileId: string) => void;
   onSaveSheetSettings: (sheetId: string, name: string, desc: string) => void;
   onDeleteSheet: (sheetId: string) => void;
 };
@@ -47,6 +51,7 @@ export function Sidebar({
   popupTarget,
   onNewFileNameChange,
   onCreateFile,
+  onImportFile,
   onToggleExpand,
   onOpenFile,
   onSelectSheet,
@@ -54,10 +59,40 @@ export function Sidebar({
   onSetPopupTarget,
   onSaveFileSettings,
   onDeleteFile,
+  onExportFile,
   onSaveSheetSettings,
   onDeleteSheet,
 }: Props) {
   const newFileComposingRef = useRef(false);
+  const importInputRef = useRef<HTMLInputElement>(null);
+
+  const handleImportChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const json = JSON.parse(ev.target?.result as string);
+        const parsed = ConversensusFileSchema.safeParse(json);
+        if (!parsed.success) {
+          const messages = parsed.error.errors
+            .map((err) => `${err.path.join('.')}: ${err.message}`)
+            .join('\n');
+          alert(`ファイル形式が不正です:\n${messages}`);
+          return;
+        }
+        onImportFile(parsed.data);
+      } catch {
+        alert('ファイルの読み込みに失敗しました');
+      }
+    };
+    reader.onerror = () => {
+      alert('ファイルの読み込みに失敗しました');
+    };
+    reader.readAsText(file);
+    // 同じファイルを再選択できるようリセット
+    e.target.value = '';
+  };
 
   return (
     <aside
@@ -96,6 +131,21 @@ export function Sidebar({
           style={{ padding: '4px 8px', fontSize: 13 }}
         >
           +
+        </button>
+        <input
+          ref={importInputRef}
+          type="file"
+          accept=".conversensus"
+          style={{ display: 'none' }}
+          onChange={handleImportChange}
+        />
+        <button
+          type="button"
+          title="インポート (.conversensus)"
+          onClick={() => importInputRef.current?.click()}
+          style={{ padding: '4px 8px', fontSize: 13 }}
+        >
+          ↑
         </button>
       </div>
 
@@ -197,6 +247,7 @@ export function Sidebar({
                     onDelete={() => onDeleteFile(f.id)}
                     onClose={() => onSetPopupTarget(null)}
                     deleteLabel="ファイルを削除"
+                    onExport={() => onExportFile(f.id)}
                   />
                 )}
               </div>

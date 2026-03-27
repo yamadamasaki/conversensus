@@ -138,4 +138,112 @@ describe('API routes', () => {
       expect(res.status).toBe(404);
     });
   });
+
+  describe('POST /files/import', () => {
+    const validPayload = () => ({
+      version: '1',
+      id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+      name: 'インポートファイル',
+      description: 'テスト',
+      sheets: [
+        {
+          id: 'ffffffff-0000-1111-2222-333333333333',
+          name: 'Sheet 1',
+          nodes: [],
+          edges: [],
+        },
+      ],
+    });
+
+    it('正常なファイルをインポートして 201 を返す', async () => {
+      const res = await fetch(
+        new Request('http://localhost/files/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(validPayload()),
+        }),
+      );
+      expect(res.status).toBe(201);
+      const body = await res.json();
+      expect(body.name).toBe('インポートファイル');
+      expect(body.sheets).toBeArrayOfSize(1);
+    });
+
+    it('インポート後はファイル/シート/ノード/エッジの ID がすべて再生成される', async () => {
+      const payload = validPayload();
+      // ノードとエッジを含むシートに拡張
+      const nodeId = '11111111-1111-1111-1111-111111111111';
+      const edgeId = '22222222-2222-2222-2222-222222222222';
+      payload.sheets[0].nodes = [
+        { id: nodeId, content: 'テスト', style: { x: 0, y: 0 } },
+      ];
+      payload.sheets[0].edges = [
+        { id: edgeId, source: nodeId, target: nodeId },
+      ];
+      const res = await fetch(
+        new Request('http://localhost/files/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        }),
+      );
+      const body = await res.json();
+      expect(body.id).not.toBe(payload.id);
+      expect(body.sheets[0].id).not.toBe(payload.sheets[0].id);
+      expect(body.sheets[0].nodes[0].id).not.toBe(nodeId);
+      expect(body.sheets[0].edges[0].id).not.toBe(edgeId);
+      // source/target も新 ID に付け替えられている
+      expect(body.sheets[0].edges[0].source).toBe(body.sheets[0].nodes[0].id);
+    });
+
+    it('インポートしたファイルが一覧に現れる', async () => {
+      await fetch(
+        new Request('http://localhost/files/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(validPayload()),
+        }),
+      );
+      const list = await (
+        await fetch(new Request('http://localhost/files'))
+      ).json();
+      expect(list).toHaveLength(1);
+      expect(list[0].name).toBe('インポートファイル');
+    });
+
+    it('version フィールドがない場合は 400 を返す', async () => {
+      const { version: _, ...noVersion } = validPayload();
+      const res = await fetch(
+        new Request('http://localhost/files/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(noVersion),
+        }),
+      );
+      expect(res.status).toBe(400);
+    });
+
+    it('version が不正な値の場合は 400 を返す', async () => {
+      const res = await fetch(
+        new Request('http://localhost/files/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...validPayload(), version: '99' }),
+        }),
+      );
+      expect(res.status).toBe(400);
+    });
+
+    it('sheets フィールドがない場合は 400 を返す', async () => {
+      const { sheets: _, ...noSheets } = validPayload();
+      const res = await fetch(
+        new Request('http://localhost/files/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(noSheets),
+        }),
+      );
+      expect(res.status).toBe(400);
+    });
+  });
 });

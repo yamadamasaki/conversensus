@@ -96,21 +96,28 @@ describe('SettingsPopup', () => {
     expect(mockOnSave).toHaveBeenCalledTimes(1);
   });
 
-  it('Escape キーで onSave と onClose が呼ばれる (名前フィールド)', () => {
+  it('Escape キーで保存せずに onClose が呼ばれる (名前フィールド)', () => {
     renderPopup({ name: 'ファイル', description: '説明' });
     fireEvent.keyDown(screen.getByRole('textbox', { name: '名前' }), {
       key: 'Escape',
     });
-    expect(mockOnSave).toHaveBeenCalledWith('ファイル', '説明');
+    expect(mockOnSave).not.toHaveBeenCalled();
     expect(mockOnClose).toHaveBeenCalledTimes(1);
   });
 
-  it('Escape キーで onSave と onClose が呼ばれる (概要フィールド)', () => {
+  it('Escape キーで保存せずに onClose が呼ばれる (概要フィールド)', () => {
     renderPopup({ name: 'ファイル', description: '説明' });
     fireEvent.keyDown(screen.getByRole('textbox', { name: '概要' }), {
       key: 'Escape',
     });
-    expect(mockOnSave).toHaveBeenCalledWith('ファイル', '説明');
+    expect(mockOnSave).not.toHaveBeenCalled();
+    expect(mockOnClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('グローバル Escape キーで保存せずに onClose が呼ばれる', () => {
+    renderPopup({ name: 'ファイル', description: '説明' });
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(mockOnSave).not.toHaveBeenCalled();
     expect(mockOnClose).toHaveBeenCalledTimes(1);
   });
 

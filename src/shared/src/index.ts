@@ -93,6 +93,15 @@ export type Sheet = z.infer<typeof SheetSchema>;
 export type GraphFile = z.infer<typeof GraphFileSchema>;
 export type GraphFileListItem = z.infer<typeof GraphFileListItemSchema>;
 
+// --- Import/Export file format ---
+export const CONVERSENSUS_FILE_VERSION = '1' as const;
+
+// .conversensus ファイル形式: GraphFile に version ヘッダを付与
+export const ConversensusFileSchema = GraphFileSchema.extend({
+  version: z.literal(CONVERSENSUS_FILE_VERSION),
+});
+export type ConversensusFile = z.infer<typeof ConversensusFileSchema>;
+
 // --- HTTP API request/response schemas ---
 export const CreateFileRequestSchema = z.object({
   name: z.string().optional(),
