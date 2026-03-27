@@ -12,6 +12,7 @@ type Props = {
   onDelete: () => void;
   onClose: () => void;
   deleteLabel: string;
+  onExport?: () => void;
 };
 
 export function SettingsPopup({
@@ -21,6 +22,7 @@ export function SettingsPopup({
   onDelete,
   onClose,
   deleteLabel,
+  onExport,
 }: Props) {
   const [draftName, setDraftName] = useState(name);
   const [draftDesc, setDraftDesc] = useState(description);
@@ -141,6 +143,24 @@ export function SettingsPopup({
           }}
         />
       </div>
+      {onExport && (
+        <button
+          type="button"
+          onClick={onExport}
+          style={{
+            fontSize: 12,
+            padding: '4px 8px',
+            borderRadius: 4,
+            border: '1px solid #888',
+            background: 'none',
+            color: '#555',
+            cursor: 'pointer',
+            width: '100%',
+          }}
+        >
+          エクスポート (.conversensus)
+        </button>
+      )}
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 4 }}>
         <button
           type="button"

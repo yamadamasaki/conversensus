@@ -1,4 +1,6 @@
 import {
+  CONVERSENSUS_FILE_VERSION,
+  type ConversensusFile,
   type GraphFile,
   type GraphFileListItem,
   GraphFileListItemSchema,
@@ -43,4 +45,29 @@ export async function saveFile(file: GraphFile): Promise<GraphFile> {
 export async function removeFile(id: string): Promise<void> {
   const res = await fetch(`${BASE}/files/${id}`, { method: 'DELETE' });
   if (!res.ok) throw new Error('Failed to delete file');
+}
+
+export async function importFile(data: ConversensusFile): Promise<GraphFile> {
+  const res = await fetch(`${BASE}/files/import`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Failed to import file');
+  return GraphFileSchema.parse(await res.json());
+}
+
+export function exportFile(file: GraphFile): void {
+  const data: ConversensusFile = {
+    ...file,
+    version: CONVERSENSUS_FILE_VERSION,
+  };
+  const json = JSON.stringify(data, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${file.name}.conversensus`;
+  a.click();
+  URL.revokeObjectURL(url);
 }

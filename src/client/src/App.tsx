@@ -1,11 +1,20 @@
 import type {
+  ConversensusFile,
   GraphFile,
   GraphFileListItem,
   Sheet,
   SheetId,
 } from '@conversensus/shared';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { createFile, fetchFile, fetchFiles, removeFile, saveFile } from './api';
+import {
+  createFile,
+  exportFile,
+  fetchFile,
+  fetchFiles,
+  importFile,
+  removeFile,
+  saveFile,
+} from './api';
 import { GraphEditor } from './GraphEditor';
 import type { PopupTarget } from './SettingsPopup';
 import { Sidebar } from './Sidebar';
@@ -188,6 +197,35 @@ export default function App() {
     [activeFile, activeSheetId, persistFile],
   );
 
+  const handleImportFile = useCallback(async (data: ConversensusFile) => {
+    try {
+      const file = await importFile(data);
+      setFiles((fs) => [
+        ...fs,
+        { id: file.id, name: file.name, description: file.description },
+      ]);
+      setActiveFile(file);
+      setActiveSheetId((file.sheets[0]?.id ?? null) as SheetId | null);
+      setExpandedFileIds((prev) => new Set([...prev, file.id]));
+    } catch (err) {
+      console.error('Failed to import file:', err);
+      alert('インポートに失敗しました。ファイル形式を確認してください。');
+    }
+  }, []);
+
+  const handleExportFile = useCallback(
+    async (fileId: string) => {
+      try {
+        const file =
+          activeFile?.id === fileId ? activeFile : await fetchFile(fileId);
+        exportFile(file);
+      } catch (err) {
+        console.error('Failed to export file:', err);
+      }
+    },
+    [activeFile],
+  );
+
   const handleAddSheet = useCallback(async () => {
     if (!activeFile) return;
     const newSheet: Sheet = {
@@ -215,6 +253,7 @@ export default function App() {
         popupTarget={popupTarget}
         onNewFileNameChange={setNewFileName}
         onCreateFile={handleCreate}
+        onImportFile={handleImportFile}
         onToggleExpand={toggleExpand}
         onOpenFile={openFile}
         onSelectSheet={setActiveSheetId}
@@ -222,6 +261,7 @@ export default function App() {
         onSetPopupTarget={setPopupTarget}
         onSaveFileSettings={handleSaveFileSettings}
         onDeleteFile={handleDeleteFile}
+        onExportFile={handleExportFile}
         onSaveSheetSettings={handleSaveSheetSettings}
         onDeleteSheet={handleDeleteSheet}
       />
