@@ -13,6 +13,8 @@ import {
   Controls,
   type Edge,
   type EdgeChange,
+  getNodesBounds,
+  getViewportForBounds,
   MiniMap,
   type Node,
   type NodeChange,
@@ -25,6 +27,7 @@ import {
   useNodesState,
   useReactFlow,
 } from '@xyflow/react';
+import { toPng } from 'html-to-image';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import '@xyflow/react/dist/style.css';
 import type { GraphFile } from '@conversensus/shared';
@@ -280,6 +283,41 @@ function GraphEditorInner({ file, activeSheetId, onChange }: Props) {
     useEdgeContextMenu(getEdges, dispatch);
   const { onPaneClick } = usePaneDoubleClick(screenToFlowPosition, addNode);
 
+  // --- PNG export ---
+  const handleExportPng = useCallback(() => {
+    const nodes = getNodes();
+    const bounds = getNodesBounds(nodes);
+    const width = 1920;
+    const height = 1080;
+    const viewport = getViewportForBounds(bounds, width, height, 0.5, 2, 0.1);
+    const viewportEl = document.querySelector(
+      '.react-flow__viewport',
+    ) as HTMLElement | null;
+    if (!viewportEl) return;
+    toPng(viewportEl, {
+      backgroundColor: '#ffffff',
+      width,
+      height,
+      style: {
+        width: String(width),
+        height: String(height),
+        transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})`,
+      },
+    }).then((dataUrl) => {
+      const a = document.createElement('a');
+      a.href = dataUrl;
+      const sheetName =
+        fileRef.current.sheets.find((s) => s.id === activeSheetIdRef.current)
+          ?.name ?? 'sheet';
+      const safeName = `${fileRef.current.name} - ${sheetName}`.replace(
+        /[/\\:*?"<>|]/g,
+        '_',
+      );
+      a.download = `${safeName}.png`;
+      a.click();
+    });
+  }, [getNodes]);
+
   return (
     <EventDispatchContext.Provider value={{ dispatch, setDragging }}>
       <div style={{ width: '100%', height: '100%' }}>
@@ -352,6 +390,22 @@ function GraphEditorInner({ file, activeSheetId, onChange }: Props) {
               }}
             >
               グループ化
+            </button>
+            <button
+              type="button"
+              onClick={handleExportPng}
+              style={{
+                padding: '6px 12px',
+                fontSize: 13,
+                cursor: 'pointer',
+                background: '#e0e0e0',
+                color: '#333',
+                border: 'none',
+                borderRadius: 6,
+                marginLeft: 8,
+              }}
+            >
+              PNG
             </button>
           </Panel>
         </ReactFlow>
