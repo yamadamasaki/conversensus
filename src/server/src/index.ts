@@ -1,8 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import {
+  ConversensusFileSchema,
   CreateFileRequestSchema,
+  type EdgeId,
   type FileId,
   type GraphFile,
+  type NodeId,
   type SheetId,
   UpdateFileRequestSchema,
 } from '@conversensus/shared';
@@ -82,6 +85,44 @@ app.put('/files/:id', async (c) => {
   const data: GraphFile = { ...parsed.data, id: existing.id };
   await writeFile(data);
   return c.json(data);
+});
+
+// POST /files/import - .conversensus ファイルをインポートして新規ファイルとして保存
+app.post('/files/import', async (c) => {
+  const raw = await c.req.json().catch(() => null);
+  const parsed = ConversensusFileSchema.safeParse(raw);
+  if (!parsed.success) {
+    return c.json({ error: parsed.error.flatten() }, 400);
+  }
+  const { version: _, ...fileData } = parsed.data;
+  // sheet/node/edge の ID も再生成し, 参照 (source/target/parentId) を付け替える
+  const data: GraphFile = {
+    ...fileData,
+    id: randomUUID() as FileId,
+    sheets: fileData.sheets.map((sheet) => {
+      const nodeIdMap = new Map<string, NodeId>(
+        sheet.nodes.map((n) => [n.id, randomUUID() as NodeId]),
+      );
+      return {
+        ...sheet,
+        id: randomUUID() as SheetId,
+        nodes: sheet.nodes.map((n) => ({
+          ...n,
+          // biome-ignore lint/style/noNonNullAssertion: nodeIdMap は同じ nodes 配列から構築されるため必ず存在する
+          id: nodeIdMap.get(n.id)!,
+          parentId: n.parentId ? nodeIdMap.get(n.parentId) : undefined,
+        })),
+        edges: sheet.edges.map((e) => ({
+          ...e,
+          id: randomUUID() as EdgeId,
+          source: (nodeIdMap.get(e.source) ?? e.source) as NodeId,
+          target: (nodeIdMap.get(e.target) ?? e.target) as NodeId,
+        })),
+      };
+    }),
+  };
+  await writeFile(data);
+  return c.json(data, 201);
 });
 
 // DELETE /files/:id - ファイル削除
