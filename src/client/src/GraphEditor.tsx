@@ -4,6 +4,7 @@ import type {
   GraphEdge,
   GraphNode,
   NodeId,
+  SheetId,
 } from '@conversensus/shared';
 import {
   Background,
@@ -48,34 +49,41 @@ import { usePaneDoubleClick } from './hooks/usePaneDoubleClick';
 
 type Props = {
   file: GraphFile;
+  activeSheetId: SheetId;
   onChange: (file: GraphFile) => void;
 };
 
-function GraphEditorInner({ file, onChange }: Props) {
+function GraphEditorInner({ file, activeSheetId, onChange }: Props) {
   const { screenToFlowPosition, getNodes, getEdges } = useReactFlow();
+  const activeSheet = file.sheets.find((s) => s.id === activeSheetId);
   const [nodes, setNodes, onNodesChange] = useNodesState(
-    toFlowNodes(file.sheet.nodes),
+    toFlowNodes(activeSheet?.nodes ?? []),
   );
   const [edges, setEdges, onEdgesChange] = useEdgesState(
-    toFlowEdges(file.sheet.edges),
+    toFlowEdges(activeSheet?.edges ?? []),
   );
 
-  // 常に最新の file / onChange を参照するための ref
+  // 常に最新の file / activeSheetId / onChange を参照するための ref
   const fileRef = useRef(file);
   fileRef.current = file;
+  const activeSheetIdRef = useRef(activeSheetId);
+  activeSheetIdRef.current = activeSheetId;
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
 
   // 初回マウント時の onChange 抑制フラグ
   const mounted = useRef(false);
 
-  // file.id が変わったとき (ファイル切り替え) だけ React Flow の state をリセット
-  // biome-ignore lint/correctness/useExhaustiveDependencies: file.id の変化のみをトリガーにする意図的な設計
+  // file.id または activeSheetId が変わったとき React Flow の state をリセット
+  // biome-ignore lint/correctness/useExhaustiveDependencies: file.id / activeSheetId の変化のみをトリガーにする意図的な設計
   useEffect(() => {
     mounted.current = false;
-    setNodes(toFlowNodes(fileRef.current.sheet.nodes));
-    setEdges(toFlowEdges(fileRef.current.sheet.edges));
-  }, [file.id, setNodes, setEdges]);
+    const sheet = fileRef.current.sheets.find(
+      (s) => s.id === activeSheetIdRef.current,
+    );
+    setNodes(toFlowNodes(sheet?.nodes ?? []));
+    setEdges(toFlowEdges(sheet?.edges ?? []));
+  }, [file.id, activeSheetId, setNodes, setEdges]);
 
   // nodes/edges が変わったら親に通知
   useEffect(() => {
@@ -83,13 +91,14 @@ function GraphEditorInner({ file, onChange }: Props) {
       mounted.current = true;
       return;
     }
+    const currentSheetId = activeSheetIdRef.current;
     onChangeRef.current({
       ...fileRef.current,
-      sheet: {
-        ...fileRef.current.sheet,
-        nodes: fromFlowNodes(nodes),
-        edges: fromFlowEdges(edges),
-      },
+      sheets: fileRef.current.sheets.map((s) =>
+        s.id === currentSheetId
+          ? { ...s, nodes: fromFlowNodes(nodes), edges: fromFlowEdges(edges) }
+          : s,
+      ),
     });
   }, [nodes, edges]);
 

@@ -4,3 +4,4 @@ data/
 .env
 .omc
 src/client/.vite/
+.claude/settings.local.json

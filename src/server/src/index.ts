@@ -49,12 +49,14 @@ app.post('/files', async (c) => {
     id,
     name: body.name ?? DEFAULT_FILE_NAME,
     description: body.description,
-    sheet: {
-      id: randomUUID() as SheetId,
-      name: body.sheet?.name ?? DEFAULT_SHEET_NAME,
-      nodes: [],
-      edges: [],
-    },
+    sheets: [
+      {
+        id: randomUUID() as SheetId,
+        name: body.sheet?.name ?? DEFAULT_SHEET_NAME,
+        nodes: [],
+        edges: [],
+      },
+    ],
   };
   await writeFile(data);
   return c.json(data, 201);
