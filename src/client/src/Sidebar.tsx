@@ -1,8 +1,9 @@
-import type {
-  ConversensusFile,
-  GraphFile,
-  GraphFileListItem,
-  SheetId,
+import {
+  type ConversensusFile,
+  ConversensusFileSchema,
+  type GraphFile,
+  type GraphFileListItem,
+  type SheetId,
 } from '@conversensus/shared';
 import { useRef } from 'react';
 import type { PopupTarget } from './SettingsPopup';
@@ -71,13 +72,22 @@ export function Sidebar({
     const reader = new FileReader();
     reader.onload = (ev) => {
       try {
-        const data = JSON.parse(
-          ev.target?.result as string,
-        ) as ConversensusFile;
-        onImportFile(data);
+        const json = JSON.parse(ev.target?.result as string);
+        const parsed = ConversensusFileSchema.safeParse(json);
+        if (!parsed.success) {
+          const messages = parsed.error.errors
+            .map((err) => `${err.path.join('.')}: ${err.message}`)
+            .join('\n');
+          alert(`ファイル形式が不正です:\n${messages}`);
+          return;
+        }
+        onImportFile(parsed.data);
       } catch {
         alert('ファイルの読み込みに失敗しました');
       }
+    };
+    reader.onerror = () => {
+      alert('ファイルの読み込みに失敗しました');
     };
     reader.readAsText(file);
     // 同じファイルを再選択できるようリセット

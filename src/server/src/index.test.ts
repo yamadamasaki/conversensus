@@ -169,8 +169,17 @@ describe('API routes', () => {
       expect(body.sheets).toBeArrayOfSize(1);
     });
 
-    it('インポート後は新規 ID が割り当てられる', async () => {
+    it('インポート後はファイル/シート/ノード/エッジの ID がすべて再生成される', async () => {
       const payload = validPayload();
+      // ノードとエッジを含むシートに拡張
+      const nodeId = '11111111-1111-1111-1111-111111111111';
+      const edgeId = '22222222-2222-2222-2222-222222222222';
+      payload.sheets[0].nodes = [
+        { id: nodeId, content: 'テスト', style: { x: 0, y: 0 } },
+      ];
+      payload.sheets[0].edges = [
+        { id: edgeId, source: nodeId, target: nodeId },
+      ];
       const res = await fetch(
         new Request('http://localhost/files/import', {
           method: 'POST',
@@ -180,6 +189,11 @@ describe('API routes', () => {
       );
       const body = await res.json();
       expect(body.id).not.toBe(payload.id);
+      expect(body.sheets[0].id).not.toBe(payload.sheets[0].id);
+      expect(body.sheets[0].nodes[0].id).not.toBe(nodeId);
+      expect(body.sheets[0].edges[0].id).not.toBe(edgeId);
+      // source/target も新 ID に付け替えられている
+      expect(body.sheets[0].edges[0].source).toBe(body.sheets[0].nodes[0].id);
     });
 
     it('インポートしたファイルが一覧に現れる', async () => {

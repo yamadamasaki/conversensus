@@ -67,7 +67,8 @@ export function exportFile(file: GraphFile): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `${file.name}.conversensus`;
+  const safeName = file.name.replace(/[/\\:*?"<>|]/g, '_');
+  a.download = `${safeName}.conversensus`;
   a.click();
   URL.revokeObjectURL(url);
 }
