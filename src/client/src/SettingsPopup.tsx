@@ -42,9 +42,9 @@ export function SettingsPopup({
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
-  // クリック外で保存してポップアップを閉じる (マウント時に1回だけ登録)
+  // クリック外で保存 / Escape で破棄してポップアップを閉じる (マウント時に1回だけ登録)
   useEffect(() => {
-    const handler = (e: MouseEvent) => {
+    const mouseHandler = (e: MouseEvent) => {
       if (popupRef.current && !popupRef.current.contains(e.target as Node)) {
         onSaveRef.current(
           draftNameRef.current.trim() || nameRef.current,
@@ -53,8 +53,15 @@ export function SettingsPopup({
         onCloseRef.current();
       }
     };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    const keyHandler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCloseRef.current();
+    };
+    document.addEventListener('mousedown', mouseHandler);
+    document.addEventListener('keydown', keyHandler);
+    return () => {
+      document.removeEventListener('mousedown', mouseHandler);
+      document.removeEventListener('keydown', keyHandler);
+    };
   }, []);
 
   const handleSave = useCallback(() => {
@@ -103,7 +110,6 @@ export function SettingsPopup({
           onKeyDown={(e) => {
             if (nameComposingRef.current) return;
             if (e.key === 'Enter') handleSave();
-            if (e.key === 'Escape') handleSave();
           }}
           style={{
             fontSize: 13,
@@ -129,7 +135,6 @@ export function SettingsPopup({
           }}
           onKeyDown={(e) => {
             if (descComposingRef.current) return;
-            if (e.key === 'Escape') handleSave();
           }}
           placeholder="概要を入力…"
           rows={3}
