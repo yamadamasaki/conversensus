@@ -1,10 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import {
   ConversensusFileSchema,
+  ConversensusFileV1Schema,
   CreateFileRequestSchema,
   type EdgeId,
   type FileId,
   type GraphFile,
+  migrateV1toV2,
   type NodeId,
   type SheetId,
   UpdateFileRequestSchema,
@@ -90,12 +92,29 @@ app.put('/files/:id', async (c) => {
 // POST /files/import - .conversensus ファイルをインポートして新規ファイルとして保存
 app.post('/files/import', async (c) => {
   const raw = await c.req.json().catch(() => null);
-  const parsed = ConversensusFileSchema.safeParse(raw);
-  if (!parsed.success) {
-    return c.json({ error: parsed.error.flatten() }, 400);
+
+  // v2 を試み, 失敗したら v1 からマイグレーション
+  let parsedFile: ReturnType<typeof ConversensusFileSchema.safeParse>;
+  const parsedV2 = ConversensusFileSchema.safeParse(raw);
+  if (parsedV2.success) {
+    parsedFile = parsedV2;
+  } else {
+    const parsedV1 = ConversensusFileV1Schema.safeParse(raw);
+    if (parsedV1.success) {
+      parsedFile = ConversensusFileSchema.safeParse(
+        migrateV1toV2(parsedV1.data),
+      );
+    } else {
+      return c.json({ error: parsedV2.error.flatten() }, 400);
+    }
   }
-  const { version: _, ...fileData } = parsed.data;
-  // sheet/node/edge の ID も再生成し, 参照 (source/target/parentId) を付け替える
+
+  if (!parsedFile.success) {
+    return c.json({ error: parsedFile.error.flatten() }, 400);
+  }
+
+  const { version: _, ...fileData } = parsedFile.data;
+  // sheet/node/edge/layout の ID も再生成し, 参照 (source/target/parentId/nodeId) を付け替える
   const data: GraphFile = {
     ...fileData,
     id: randomUUID() as FileId,
@@ -117,6 +136,10 @@ app.post('/files/import', async (c) => {
           id: randomUUID() as EdgeId,
           source: (nodeIdMap.get(e.source) ?? e.source) as NodeId,
           target: (nodeIdMap.get(e.target) ?? e.target) as NodeId,
+        })),
+        layouts: sheet.layouts?.map((l) => ({
+          ...l,
+          nodeId: (nodeIdMap.get(l.nodeId) ?? l.nodeId) as NodeId,
         })),
       };
     }),

@@ -52,6 +52,7 @@ export function invertEvent(event: GraphEvent): GraphEvent {
         category: 'structure',
         parentId: event.parentId,
         parentData: event.parentData,
+        parentLayout: event.parentLayout,
         children: event.children,
       };
     case 'NODES_UNGROUPED':
@@ -61,6 +62,7 @@ export function invertEvent(event: GraphEvent): GraphEvent {
         category: 'structure',
         parentId: event.parentId,
         parentData: event.parentData,
+        parentLayout: event.parentLayout,
         children: event.children,
       };
     case 'NODES_PASTED':
@@ -71,6 +73,7 @@ export function invertEvent(event: GraphEvent): GraphEvent {
         nodeIds: event.nodes.map((n) => n.id),
         edgeIds: event.edges.map((e) => e.id),
         nodes: event.nodes,
+        layouts: event.layouts,
         edges: event.edges,
       };
     case 'NODES_PASTED_UNDO':
@@ -79,6 +82,7 @@ export function invertEvent(event: GraphEvent): GraphEvent {
         type: 'NODES_PASTED',
         category: 'structure',
         nodes: event.nodes,
+        layouts: event.layouts,
         edges: event.edges,
       };
     case 'NODE_RELABELED':

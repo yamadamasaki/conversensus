@@ -14,7 +14,10 @@ export function applyEvent(
   switch (event.type) {
     case 'NODE_ADDED':
       return {
-        nodes: [...nodes, toFlowNodes([event.data])[0]],
+        nodes: [
+          ...nodes,
+          toFlowNodes([event.data], event.layout ? [event.layout] : [])[0],
+        ],
         edges,
       };
 
@@ -60,7 +63,10 @@ export function applyEvent(
       };
 
     case 'NODES_GROUPED': {
-      const parentNode = toFlowNodes([event.parentData])[0];
+      const parentNode = toFlowNodes(
+        [event.parentData],
+        [event.parentLayout],
+      )[0];
       const childMap = new Map(event.children.map((c) => [c.nodeId, c]));
       const updatedNodes = nodes.map((n) => {
         const child = childMap.get(n.id as typeof event.parentId);
@@ -105,7 +111,7 @@ export function applyEvent(
     }
 
     case 'NODES_PASTED': {
-      const newNodes = toFlowNodes(event.nodes);
+      const newNodes = toFlowNodes(event.nodes, event.layouts);
       const newEdges = toFlowEdges(event.edges);
       return {
         nodes: [...nodes.map((n) => ({ ...n, selected: false })), ...newNodes],

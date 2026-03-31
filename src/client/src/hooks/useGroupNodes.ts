@@ -1,4 +1,4 @@
-import type { GraphNode, NodeId } from '@conversensus/shared';
+import type { GraphNode, NodeId, NodeLayout } from '@conversensus/shared';
 import type { Node } from '@xyflow/react';
 import { useCallback, useEffect } from 'react';
 import type { GraphEvent } from '../events/GraphEvent';
@@ -55,13 +55,15 @@ export function useGroupNodes(
       id: parentId,
       content: 'グループ',
       parentId: sharedParentId as NodeId | undefined,
-      style: {
-        x: parentX,
-        y: parentY,
-        width: parentWidth,
-        height: parentHeight,
-        nodeType: 'group',
-      },
+    };
+
+    const parentLayout: NodeLayout = {
+      nodeId: parentId,
+      x: parentX,
+      y: parentY,
+      width: parentWidth,
+      height: parentHeight,
+      nodeType: 'group',
     };
 
     const children = selected.map((n) => ({
@@ -82,6 +84,7 @@ export function useGroupNodes(
       type: 'NODES_GROUPED',
       parentId,
       parentData,
+      parentLayout,
       children,
     });
   }, [getNodes, dispatch]);

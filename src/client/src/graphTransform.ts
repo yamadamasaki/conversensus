@@ -4,6 +4,7 @@ import type {
   GraphEdge,
   GraphNode,
   NodeId,
+  NodeLayout,
 } from '@conversensus/shared';
 import { type Edge, MarkerType, type Node } from '@xyflow/react';
 
@@ -11,18 +12,37 @@ export const DEFAULT_NODE_STYLE = { width: 160, height: 80 };
 export const GROUP_PADDING = 20;
 export const GROUP_TITLE_HEIGHT = 30;
 
-export function toFlowNodes(nodes: GraphNode[]): Node[] {
-  return nodes.map((n) => ({
-    id: n.id,
-    position: {
-      x: n.style?.x ?? 0,
-      y: n.style?.y ?? 0,
-    },
-    data: { label: n.content },
-    type: n.style?.nodeType === 'group' ? 'groupNode' : 'editableNode',
-    parentId: n.parentId,
-    style: n.style ?? DEFAULT_NODE_STYLE,
-  }));
+function findLayout(layouts: NodeLayout[], nodeId: string): NodeLayout {
+  return (
+    layouts.find((l) => l.nodeId === nodeId) ?? {
+      nodeId: nodeId as NodeId,
+      x: 0,
+      y: 0,
+    }
+  );
+}
+
+export function toFlowNodes(
+  nodes: GraphNode[],
+  layouts: NodeLayout[] = [],
+): Node[] {
+  return nodes.map((n) => {
+    const layout = findLayout(layouts, n.id);
+    return {
+      id: n.id,
+      position: {
+        x: layout.x ?? 0,
+        y: layout.y ?? 0,
+      },
+      data: { label: n.content },
+      type: layout.nodeType === 'group' ? 'groupNode' : 'editableNode',
+      parentId: n.parentId,
+      style:
+        layout.width !== undefined || layout.height !== undefined
+          ? { width: layout.width, height: layout.height }
+          : DEFAULT_NODE_STYLE,
+    };
+  });
 }
 
 export function toFlowEdges(edges: GraphEdge[]): Edge[] {
@@ -44,19 +64,26 @@ export function toFlowEdges(edges: GraphEdge[]): Edge[] {
 }
 
 // React Flow boundary: ids are plain strings, cast to branded types
-export function fromFlowNodes(nodes: Node[]): GraphNode[] {
-  return nodes.map((n) => ({
+export function fromFlowNodes(nodes: Node[]): {
+  nodes: GraphNode[];
+  layouts: NodeLayout[];
+} {
+  const graphNodes: GraphNode[] = nodes.map((n) => ({
     id: n.id as NodeId,
     content: String(n.data.label ?? ''),
     parentId: n.parentId as NodeId | undefined,
-    style: {
-      x: n.position.x,
-      y: n.position.y,
-      width: n.style?.width,
-      height: n.style?.height,
-      ...(n.type === 'groupNode' ? { nodeType: 'group' } : {}),
-    },
   }));
+
+  const layouts: NodeLayout[] = nodes.map((n) => ({
+    nodeId: n.id as NodeId,
+    x: n.position.x,
+    y: n.position.y,
+    width: n.style?.width as number | string | undefined,
+    height: n.style?.height as number | string | undefined,
+    ...(n.type === 'groupNode' ? { nodeType: 'group' as const } : {}),
+  }));
+
+  return { nodes: graphNodes, layouts };
 }
 
 // 子ノードが親ノードの境界をはみ出している場合, 親を拡大して全ての子を包む

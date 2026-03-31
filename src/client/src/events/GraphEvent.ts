@@ -4,7 +4,7 @@ import type {
   GraphEdge,
   GraphNode,
   NodeId,
-  NodeStyle,
+  NodeLayout,
 } from '@conversensus/shared';
 
 type Position = { x: number; y: number };
@@ -24,6 +24,7 @@ export type NodeAddedEvent = EventBase & {
   type: 'NODE_ADDED';
   nodeId: NodeId;
   data: GraphNode;
+  layout?: NodeLayout;
 };
 export type NodeDeletedEvent = EventBase & {
   category: 'structure';
@@ -65,6 +66,7 @@ export type NodesGroupedEvent = EventBase & {
   type: 'NODES_GROUPED';
   parentId: NodeId;
   parentData: GraphNode;
+  parentLayout: NodeLayout;
   children: Array<{
     nodeId: NodeId;
     originalParentId: NodeId | undefined;
@@ -77,6 +79,7 @@ export type NodesUngroupedEvent = EventBase & {
   type: 'NODES_UNGROUPED';
   parentId: NodeId;
   parentData: GraphNode;
+  parentLayout: NodeLayout;
   children: Array<{
     nodeId: NodeId;
     originalParentId: NodeId | undefined;
@@ -88,6 +91,7 @@ export type NodesPastedEvent = EventBase & {
   category: 'structure';
   type: 'NODES_PASTED';
   nodes: GraphNode[];
+  layouts: NodeLayout[];
   edges: GraphEdge[];
 };
 export type NodesPastedUndoEvent = EventBase & {
@@ -96,6 +100,7 @@ export type NodesPastedUndoEvent = EventBase & {
   nodeIds: NodeId[];
   edgeIds: EdgeId[];
   nodes: GraphNode[];
+  layouts: NodeLayout[];
   edges: GraphEdge[];
 };
 
@@ -157,8 +162,8 @@ export type NodeStyleChangedEvent = EventBase & {
   category: 'presentation';
   type: 'NODE_STYLE_CHANGED';
   nodeId: NodeId;
-  from: NodeStyle;
-  to: NodeStyle;
+  from: NodeLayout;
+  to: NodeLayout;
 };
 export type EdgeLabelMovedEvent = EventBase & {
   category: 'presentation';

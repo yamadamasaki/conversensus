@@ -4,6 +4,7 @@ import type {
   GraphEdge,
   GraphNode,
   NodeId,
+  NodeLayout,
 } from '@conversensus/shared';
 import { type Edge, MarkerType, type Node } from '@xyflow/react';
 import {
@@ -17,12 +18,13 @@ import {
 } from './graphTransform';
 
 const graphNodes: GraphNode[] = [
-  { id: 'n1' as NodeId, content: 'ノード1', style: { x: 10, y: 20 } },
-  {
-    id: 'n2' as NodeId,
-    content: 'ノード2',
-    style: { x: 100, y: 200, color: 'red' },
-  },
+  { id: 'n1' as NodeId, content: 'ノード1' },
+  { id: 'n2' as NodeId, content: 'ノード2' },
+];
+
+const graphLayouts: NodeLayout[] = [
+  { nodeId: 'n1' as NodeId, x: 10, y: 20 },
+  { nodeId: 'n2' as NodeId, x: 100, y: 200 },
 ];
 
 const graphEdges: GraphEdge[] = [
@@ -37,7 +39,7 @@ const graphEdges: GraphEdge[] = [
 
 describe('toFlowNodes', () => {
   it('GraphNode を React Flow の Node に変換する', () => {
-    const result = toFlowNodes(graphNodes);
+    const result = toFlowNodes(graphNodes, graphLayouts);
     expect(result).toHaveLength(2);
     expect(result[0]).toMatchObject({
       id: 'n1',
@@ -55,6 +57,11 @@ describe('toFlowNodes', () => {
 
   it('空配列は空配列を返す', () => {
     expect(toFlowNodes([])).toEqual([]);
+  });
+
+  it('レイアウトがない場合は位置が (0, 0) になる', () => {
+    const result = toFlowNodes(graphNodes);
+    expect(result[0].position).toEqual({ x: 0, y: 0 });
   });
 });
 
@@ -126,7 +133,7 @@ describe('toFlowEdges', () => {
 });
 
 describe('fromFlowNodes', () => {
-  it('React Flow の Node を GraphNode に変換する', () => {
+  it('React Flow の Node を GraphNode と NodeLayout に変換する', () => {
     const flowNodes: Node[] = [
       {
         id: 'n1',
@@ -135,11 +142,15 @@ describe('fromFlowNodes', () => {
         type: 'default',
       },
     ];
-    const result = fromFlowNodes(flowNodes);
-    expect(result[0]).toMatchObject({
+    const { nodes, layouts } = fromFlowNodes(flowNodes);
+    expect(nodes[0]).toMatchObject({
       id: 'n1',
       content: 'ノード1',
-      style: { x: 10, y: 20 },
+    });
+    expect(layouts[0]).toMatchObject({
+      nodeId: 'n1',
+      x: 10,
+      y: 20,
     });
   });
 
@@ -147,12 +158,14 @@ describe('fromFlowNodes', () => {
     const flowNodes: Node[] = [
       { id: 'n1', position: { x: 0, y: 0 }, data: {}, type: 'default' },
     ];
-    const result = fromFlowNodes(flowNodes);
-    expect(result[0].content).toBe('');
+    const { nodes } = fromFlowNodes(flowNodes);
+    expect(nodes[0].content).toBe('');
   });
 
-  it('空配列は空配列を返す', () => {
-    expect(fromFlowNodes([])).toEqual([]);
+  it('空配列は空の nodes と layouts を返す', () => {
+    const { nodes, layouts } = fromFlowNodes([]);
+    expect(nodes).toEqual([]);
+    expect(layouts).toEqual([]);
   });
 });
 
@@ -235,42 +248,52 @@ describe('fromFlowEdges', () => {
 
 describe('toFlowNodes → fromFlowNodes の対称性', () => {
   it('変換して戻すと元のデータが復元される', () => {
-    const result = fromFlowNodes(toFlowNodes(graphNodes));
-    expect(result[0]).toMatchObject({
+    const { nodes, layouts } = fromFlowNodes(
+      toFlowNodes(graphNodes, graphLayouts),
+    );
+    expect(nodes[0]).toMatchObject({
       id: 'n1',
       content: 'ノード1',
-      style: { x: 10, y: 20 },
     });
-    expect(result[1]).toMatchObject({
+    expect(layouts[0]).toMatchObject({
+      nodeId: 'n1',
+      x: 10,
+      y: 20,
+    });
+    expect(nodes[1]).toMatchObject({
       id: 'n2',
       content: 'ノード2',
-      style: { x: 100, y: 200 },
+    });
+    expect(layouts[1]).toMatchObject({
+      nodeId: 'n2',
+      x: 100,
+      y: 200,
     });
   });
 });
 
 describe('toFlowNodes: グループノード (parentId / nodeType)', () => {
-  it('nodeType=group の GraphNode は groupNode 型に変換される', () => {
-    const nodes: GraphNode[] = [
+  it('nodeType=group の NodeLayout は groupNode 型に変換される', () => {
+    const nodes: GraphNode[] = [{ id: 'g1' as NodeId, content: 'グループ' }];
+    const layouts: NodeLayout[] = [
       {
-        id: 'g1' as NodeId,
-        content: 'グループ',
-        style: { x: 0, y: 0, width: 200, height: 150, nodeType: 'group' },
+        nodeId: 'g1' as NodeId,
+        x: 0,
+        y: 0,
+        width: 200,
+        height: 150,
+        nodeType: 'group',
       },
     ];
-    expect(toFlowNodes(nodes)[0].type).toBe('groupNode');
+    expect(toFlowNodes(nodes, layouts)[0].type).toBe('groupNode');
   });
 
   it('parentId を持つ GraphNode は parentId が引き継がれる', () => {
     const nodes: GraphNode[] = [
-      {
-        id: 'n1' as NodeId,
-        content: 'child',
-        parentId: 'g1' as NodeId,
-        style: { x: 20, y: 50 },
-      },
+      { id: 'n1' as NodeId, content: 'child', parentId: 'g1' as NodeId },
     ];
-    expect(toFlowNodes(nodes)[0].parentId).toBe('g1');
+    const layouts: NodeLayout[] = [{ nodeId: 'n1' as NodeId, x: 20, y: 50 }];
+    expect(toFlowNodes(nodes, layouts)[0].parentId).toBe('g1');
   });
 });
 
@@ -285,10 +308,10 @@ describe('fromFlowNodes: parentId / groupNode', () => {
         type: 'editableNode',
       },
     ];
-    expect(fromFlowNodes(flowNodes)[0].parentId).toBe('g1');
+    expect(fromFlowNodes(flowNodes).nodes[0].parentId).toBe('g1');
   });
 
-  it('groupNode 型は style.nodeType=group として保存される', () => {
+  it('groupNode 型は layout.nodeType=group として保存される', () => {
     const flowNodes: Node[] = [
       {
         id: 'g1',
@@ -297,7 +320,7 @@ describe('fromFlowNodes: parentId / groupNode', () => {
         type: 'groupNode',
       },
     ];
-    expect(fromFlowNodes(flowNodes)[0].style?.nodeType).toBe('group');
+    expect(fromFlowNodes(flowNodes).layouts[0].nodeType).toBe('group');
   });
 });
 

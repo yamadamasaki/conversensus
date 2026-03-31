@@ -1,4 +1,4 @@
-import type { GraphNode, NodeId } from '@conversensus/shared';
+import type { GraphNode, NodeId, NodeLayout } from '@conversensus/shared';
 import {
   Handle,
   type NodeProps,
@@ -77,13 +77,19 @@ export function GroupNode({
         id: nodeId,
         content: '',
         parentId: id as NodeId,
-        style: { x: pos.x, y: pos.y, ...DEFAULT_NODE_STYLE },
+      };
+      const layout: NodeLayout = {
+        nodeId,
+        x: pos.x,
+        y: pos.y,
+        ...DEFAULT_NODE_STYLE,
       };
       dispatch({
         ...makeEventBase('structure'),
         type: 'NODE_ADDED',
         nodeId,
         data: graphNode,
+        layout,
       });
     },
     [id, screenToFlowPosition, dispatch],

@@ -4,6 +4,7 @@ import type {
   GraphEdge,
   GraphNode,
   NodeId,
+  NodeLayout,
   SheetId,
 } from '@conversensus/shared';
 import {
@@ -60,7 +61,7 @@ function GraphEditorInner({ file, activeSheetId, onChange }: Props) {
   const { screenToFlowPosition, getNodes, getEdges } = useReactFlow();
   const activeSheet = file.sheets.find((s) => s.id === activeSheetId);
   const [nodes, setNodes, onNodesChange] = useNodesState(
-    toFlowNodes(activeSheet?.nodes ?? []),
+    toFlowNodes(activeSheet?.nodes ?? [], activeSheet?.layouts ?? []),
   );
   const [edges, setEdges, onEdgesChange] = useEdgesState(
     toFlowEdges(activeSheet?.edges ?? []),
@@ -84,7 +85,7 @@ function GraphEditorInner({ file, activeSheetId, onChange }: Props) {
     const sheet = fileRef.current.sheets.find(
       (s) => s.id === activeSheetIdRef.current,
     );
-    setNodes(toFlowNodes(sheet?.nodes ?? []));
+    setNodes(toFlowNodes(sheet?.nodes ?? [], sheet?.layouts ?? []));
     setEdges(toFlowEdges(sheet?.edges ?? []));
   }, [file.id, activeSheetId, setNodes, setEdges]);
 
@@ -95,11 +96,12 @@ function GraphEditorInner({ file, activeSheetId, onChange }: Props) {
       return;
     }
     const currentSheetId = activeSheetIdRef.current;
+    const { nodes: graphNodes, layouts } = fromFlowNodes(nodes);
     onChangeRef.current({
       ...fileRef.current,
       sheets: fileRef.current.sheets.map((s) =>
         s.id === currentSheetId
-          ? { ...s, nodes: fromFlowNodes(nodes), edges: fromFlowEdges(edges) }
+          ? { ...s, nodes: graphNodes, layouts, edges: fromFlowEdges(edges) }
           : s,
       ),
     });
@@ -209,13 +211,19 @@ function GraphEditorInner({ file, activeSheetId, onChange }: Props) {
       const graphNode: GraphNode = {
         id: nodeId,
         content: '',
-        style: { x: pos.x, y: pos.y, ...DEFAULT_NODE_STYLE },
+      };
+      const layout: NodeLayout = {
+        nodeId,
+        x: pos.x,
+        y: pos.y,
+        ...DEFAULT_NODE_STYLE,
       };
       dispatch({
         ...makeEventBase('structure'),
         type: 'NODE_ADDED',
         nodeId,
         data: graphNode,
+        layout,
       });
     },
     [dispatch],
@@ -235,7 +243,7 @@ function GraphEditorInner({ file, activeSheetId, onChange }: Props) {
       const selectedEdges = currentEdges.filter((e) => e.selected);
 
       for (const node of selectedNodes) {
-        const graphNodes = fromFlowNodes([node]);
+        const { nodes: graphNodes } = fromFlowNodes([node]);
         dispatch({
           ...makeEventBase('structure'),
           type: 'NODE_DELETED',
