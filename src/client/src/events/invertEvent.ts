@@ -27,6 +27,7 @@ export function invertEvent(event: GraphEvent): GraphEvent {
         category: 'structure',
         edgeId: event.edgeId,
         data: event.data,
+        edgeLayout: event.edgeLayout,
       };
     case 'EDGE_DELETED':
       return {
@@ -35,6 +36,7 @@ export function invertEvent(event: GraphEvent): GraphEvent {
         category: 'structure',
         edgeId: event.edgeId,
         data: event.data,
+        edgeLayout: event.edgeLayout,
       };
     case 'EDGE_RECONNECTED':
       return {
@@ -75,6 +77,7 @@ export function invertEvent(event: GraphEvent): GraphEvent {
         nodes: event.nodes,
         layouts: event.layouts,
         edges: event.edges,
+        edgeLayouts: event.edgeLayouts,
       };
     case 'NODES_PASTED_UNDO':
       return {
@@ -84,6 +87,7 @@ export function invertEvent(event: GraphEvent): GraphEvent {
         nodes: event.nodes,
         layouts: event.layouts,
         edges: event.edges,
+        edgeLayouts: event.edgeLayouts,
       };
     case 'NODE_RELABELED':
       return {

@@ -1,5 +1,6 @@
 import type {
   EdgeId,
+  EdgeLayout,
   EdgePathType,
   GraphEdge,
   GraphNode,
@@ -45,22 +46,28 @@ export function toFlowNodes(
   });
 }
 
-export function toFlowEdges(edges: GraphEdge[]): Edge[] {
-  return edges.map((e) => ({
-    id: e.id,
-    source: e.source,
-    target: e.target,
-    sourceHandle: e.sourceHandle,
-    targetHandle: e.targetHandle,
-    label: e.label,
-    type: 'editableLabel',
-    markerEnd: { type: MarkerType.ArrowClosed },
-    data: {
-      pathType: e.pathType ?? 'bezier',
-      labelOffsetX: e.labelOffsetX ?? 0,
-      labelOffsetY: e.labelOffsetY ?? 0,
-    },
-  }));
+export function toFlowEdges(
+  edges: GraphEdge[],
+  edgeLayouts: EdgeLayout[] = [],
+): Edge[] {
+  return edges.map((e) => {
+    const layout = edgeLayouts.find((l) => l.edgeId === e.id);
+    return {
+      id: e.id,
+      source: e.source,
+      target: e.target,
+      sourceHandle: layout?.sourceHandle,
+      targetHandle: layout?.targetHandle,
+      label: e.label,
+      type: 'editableLabel',
+      markerEnd: { type: MarkerType.ArrowClosed },
+      data: {
+        pathType: layout?.pathType ?? 'bezier',
+        labelOffsetX: layout?.labelOffsetX ?? 0,
+        labelOffsetY: layout?.labelOffsetY ?? 0,
+      },
+    };
+  });
 }
 
 // React Flow boundary: ids are plain strings, cast to branded types
@@ -281,16 +288,25 @@ export function buildPastedData(
   return { nodes: sorted, edges };
 }
 
-export function fromFlowEdges(edges: Edge[]): GraphEdge[] {
-  return edges.map((e) => ({
+export function fromFlowEdges(edges: Edge[]): {
+  edges: GraphEdge[];
+  edgeLayouts: EdgeLayout[];
+} {
+  const graphEdges: GraphEdge[] = edges.map((e) => ({
     id: e.id as EdgeId,
     source: e.source as NodeId,
     target: e.target as NodeId,
+    label: typeof e.label === 'string' ? e.label : undefined,
+  }));
+
+  const edgeLayouts: EdgeLayout[] = edges.map((e) => ({
+    edgeId: e.id as EdgeId,
     sourceHandle: e.sourceHandle ?? undefined,
     targetHandle: e.targetHandle ?? undefined,
-    label: typeof e.label === 'string' ? e.label : undefined,
     pathType: (e.data?.pathType as EdgePathType | undefined) ?? undefined,
     labelOffsetX: (e.data?.labelOffsetX as number | undefined) || undefined,
     labelOffsetY: (e.data?.labelOffsetY as number | undefined) || undefined,
   }));
+
+  return { edges: graphEdges, edgeLayouts };
 }

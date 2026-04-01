@@ -1,5 +1,6 @@
 import type {
   EdgeId,
+  EdgeLayout,
   EdgePathType,
   GraphEdge,
   GraphNode,
@@ -37,12 +38,14 @@ export type EdgeAddedEvent = EventBase & {
   type: 'EDGE_ADDED';
   edgeId: EdgeId;
   data: GraphEdge;
+  edgeLayout?: EdgeLayout;
 };
 export type EdgeDeletedEvent = EventBase & {
   category: 'structure';
   type: 'EDGE_DELETED';
   edgeId: EdgeId;
   data: GraphEdge;
+  edgeLayout?: EdgeLayout;
 };
 export type EdgeReconnectedEvent = EventBase & {
   category: 'structure';
@@ -93,6 +96,7 @@ export type NodesPastedEvent = EventBase & {
   nodes: GraphNode[];
   layouts: NodeLayout[];
   edges: GraphEdge[];
+  edgeLayouts: EdgeLayout[];
 };
 export type NodesPastedUndoEvent = EventBase & {
   category: 'structure';
@@ -102,6 +106,7 @@ export type NodesPastedUndoEvent = EventBase & {
   nodes: GraphNode[];
   layouts: NodeLayout[];
   edges: GraphEdge[];
+  edgeLayouts: EdgeLayout[];
 };
 
 // --- Content ---

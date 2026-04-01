@@ -122,6 +122,9 @@ app.post('/files/import', async (c) => {
       const nodeIdMap = new Map<string, NodeId>(
         sheet.nodes.map((n) => [n.id, randomUUID() as NodeId]),
       );
+      const edgeIdMap = new Map<string, EdgeId>(
+        sheet.edges.map((e) => [e.id, randomUUID() as EdgeId]),
+      );
       return {
         ...sheet,
         id: randomUUID() as SheetId,
@@ -133,13 +136,18 @@ app.post('/files/import', async (c) => {
         })),
         edges: sheet.edges.map((e) => ({
           ...e,
-          id: randomUUID() as EdgeId,
+          // biome-ignore lint/style/noNonNullAssertion: edgeIdMap は同じ edges 配列から構築されるため必ず存在する
+          id: edgeIdMap.get(e.id)!,
           source: (nodeIdMap.get(e.source) ?? e.source) as NodeId,
           target: (nodeIdMap.get(e.target) ?? e.target) as NodeId,
         })),
         layouts: sheet.layouts?.map((l) => ({
           ...l,
           nodeId: (nodeIdMap.get(l.nodeId) ?? l.nodeId) as NodeId,
+        })),
+        edgeLayouts: sheet.edgeLayouts?.map((l) => ({
+          ...l,
+          edgeId: (edgeIdMap.get(l.edgeId) ?? l.edgeId) as EdgeId,
         })),
       };
     }),

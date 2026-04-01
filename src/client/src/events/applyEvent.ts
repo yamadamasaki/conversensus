@@ -32,7 +32,13 @@ export function applyEvent(
     case 'EDGE_ADDED':
       return {
         nodes,
-        edges: [...edges, toFlowEdges([event.data])[0]],
+        edges: [
+          ...edges,
+          toFlowEdges(
+            [event.data],
+            event.edgeLayout ? [event.edgeLayout] : [],
+          )[0],
+        ],
       };
 
     case 'EDGE_DELETED':
@@ -112,7 +118,7 @@ export function applyEvent(
 
     case 'NODES_PASTED': {
       const newNodes = toFlowNodes(event.nodes, event.layouts);
-      const newEdges = toFlowEdges(event.edges);
+      const newEdges = toFlowEdges(event.edges, event.edgeLayouts);
       return {
         nodes: [...nodes.map((n) => ({ ...n, selected: false })), ...newNodes],
         edges: [...edges, ...newEdges],

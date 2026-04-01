@@ -54,6 +54,7 @@ export const GraphNodeSchema = z.object({
   id: NodeIdSchema,
   content: z.string(),
   parentId: NodeIdSchema.optional(),
+  properties: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const EdgePathTypeSchema = z.enum([
@@ -64,17 +65,27 @@ export const EdgePathTypeSchema = z.enum([
 ]);
 export type EdgePathType = z.infer<typeof EdgePathTypeSchema>;
 
+// エッジのレイアウトデータ: 経路・ラベル位置・スタイルを型安全に定義
+export const EdgeLayoutSchema = z
+  .object({
+    edgeId: EdgeIdSchema,
+    sourceHandle: z.string().optional(),
+    targetHandle: z.string().optional(),
+    pathType: EdgePathTypeSchema.optional(),
+    labelOffsetX: z.number().optional(),
+    labelOffsetY: z.number().optional(),
+    style: StyleSchema.optional(),
+  })
+  .catchall(z.unknown());
+export type EdgeLayout = z.infer<typeof EdgeLayoutSchema>;
+
+// セマンティックなグラフエッジ: source/target/label のみ保持
 export const GraphEdgeSchema = z.object({
   id: EdgeIdSchema,
   source: NodeIdSchema,
   target: NodeIdSchema,
-  sourceHandle: z.string().optional(),
-  targetHandle: z.string().optional(),
   label: z.string().optional(),
-  pathType: EdgePathTypeSchema.optional(),
-  labelOffsetX: z.number().optional(),
-  labelOffsetY: z.number().optional(),
-  style: StyleSchema.optional(),
+  properties: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const SheetSchema = z.object({
@@ -84,6 +95,7 @@ export const SheetSchema = z.object({
   nodes: z.array(GraphNodeSchema),
   edges: z.array(GraphEdgeSchema),
   layouts: z.array(NodeLayoutSchema).optional(),
+  edgeLayouts: z.array(EdgeLayoutSchema).optional(),
 });
 
 export const GraphFileSchema = z.object({
@@ -123,12 +135,26 @@ const GraphNodeV1Schema = z.object({
   style: NodeStyleSchema.optional(),
 });
 
+// v1 エッジはレイアウト情報を直接含む
+const GraphEdgeV1Schema = z.object({
+  id: EdgeIdSchema,
+  source: NodeIdSchema,
+  target: NodeIdSchema,
+  sourceHandle: z.string().optional(),
+  targetHandle: z.string().optional(),
+  label: z.string().optional(),
+  pathType: EdgePathTypeSchema.optional(),
+  labelOffsetX: z.number().optional(),
+  labelOffsetY: z.number().optional(),
+  style: StyleSchema.optional(),
+});
+
 const SheetV1Schema = z.object({
   id: SheetIdSchema,
   name: z.string(),
   description: z.string().optional(),
   nodes: z.array(GraphNodeV1Schema),
-  edges: z.array(GraphEdgeSchema),
+  edges: z.array(GraphEdgeV1Schema),
 });
 
 const GraphFileV1Schema = z.object({
@@ -159,6 +185,25 @@ export function migrateV1toV2(file: ConversensusFileV1): ConversensusFile {
           height: n.style?.height,
           nodeType: n.style?.nodeType,
         }));
+      const edgeLayouts: EdgeLayout[] = sheet.edges
+        .filter(
+          (e) =>
+            e.sourceHandle !== undefined ||
+            e.targetHandle !== undefined ||
+            e.pathType !== undefined ||
+            e.labelOffsetX !== undefined ||
+            e.labelOffsetY !== undefined ||
+            e.style !== undefined,
+        )
+        .map((e) => ({
+          edgeId: e.id,
+          sourceHandle: e.sourceHandle,
+          targetHandle: e.targetHandle,
+          pathType: e.pathType,
+          labelOffsetX: e.labelOffsetX,
+          labelOffsetY: e.labelOffsetY,
+          style: e.style,
+        }));
       return {
         ...sheet,
         nodes: sheet.nodes.map(({ id, content, parentId }) => ({
@@ -166,7 +211,14 @@ export function migrateV1toV2(file: ConversensusFileV1): ConversensusFile {
           content,
           parentId,
         })),
+        edges: sheet.edges.map(({ id, source, target, label }) => ({
+          id,
+          source,
+          target,
+          label,
+        })),
         layouts: layouts.length > 0 ? layouts : undefined,
+        edgeLayouts: edgeLayouts.length > 0 ? edgeLayouts : undefined,
       };
     }),
   };
