@@ -33,6 +33,7 @@ export const NodeLayoutSchema = z
     width: z.union([z.number(), z.string()]).optional(),
     height: z.union([z.number(), z.string()]).optional(),
     nodeType: z.literal('group').optional(),
+    parentId: NodeIdSchema.optional(),
   })
   .catchall(z.unknown());
 export type NodeLayout = z.infer<typeof NodeLayoutSchema>;
@@ -53,7 +54,6 @@ export type NodeStyle = z.infer<typeof NodeStyleSchema>;
 export const GraphNodeSchema = z.object({
   id: NodeIdSchema,
   content: z.string(),
-  parentId: NodeIdSchema.optional(),
   properties: z.record(z.string(), z.unknown()).optional(),
 });
 
@@ -119,13 +119,29 @@ export type GraphFile = z.infer<typeof GraphFileSchema>;
 export type GraphFileListItem = z.infer<typeof GraphFileListItemSchema>;
 
 // --- Import/Export file format ---
-export const CONVERSENSUS_FILE_VERSION = '2' as const;
+export const CONVERSENSUS_FILE_VERSION = '3' as const;
 
 // .conversensus ファイル形式: GraphFile に version ヘッダを付与
 export const ConversensusFileSchema = GraphFileSchema.extend({
   version: z.literal(CONVERSENSUS_FILE_VERSION),
 });
 export type ConversensusFile = z.infer<typeof ConversensusFileSchema>;
+
+// --- v2 スキーマ (マイグレーション用) ---
+// v2: parentId はノードに存在する (レイアウトへの移動前)
+const GraphNodeV2Schema = GraphNodeSchema.extend({
+  parentId: NodeIdSchema.optional(),
+});
+const SheetV2Schema = SheetSchema.extend({
+  nodes: z.array(GraphNodeV2Schema),
+});
+const GraphFileV2Schema = GraphFileSchema.extend({
+  sheets: z.array(SheetV2Schema),
+});
+export const ConversensusFileV2Schema = GraphFileV2Schema.extend({
+  version: z.literal('2'),
+});
+export type ConversensusFileV2 = z.infer<typeof ConversensusFileV2Schema>;
 
 // --- v1 スキーマ (マイグレーション用) ---
 const GraphNodeV1Schema = z.object({
@@ -170,7 +186,7 @@ export const ConversensusFileV1Schema = GraphFileV1Schema.extend({
 export type ConversensusFileV1 = z.infer<typeof ConversensusFileV1Schema>;
 
 // --- マイグレーション ---
-export function migrateV1toV2(file: ConversensusFileV1): ConversensusFile {
+export function migrateV1toV2(file: ConversensusFileV1): ConversensusFileV2 {
   return {
     ...file,
     version: '2',
@@ -229,6 +245,45 @@ export function migrateV1toV2(file: ConversensusFileV1): ConversensusFile {
         })),
         layouts: layouts.length > 0 ? layouts : undefined,
         edgeLayouts: edgeLayouts.length > 0 ? edgeLayouts : undefined,
+      };
+    }),
+  };
+}
+
+export function migrateV2toV3(file: ConversensusFileV2): ConversensusFile {
+  return {
+    ...file,
+    version: '3',
+    sheets: file.sheets.map((sheet) => {
+      // ノードの parentId を nodeId → parentId のマップとして収集
+      const nodeParentMap = new Map<string, NodeId>(
+        sheet.nodes
+          .filter((n) => n.parentId !== undefined)
+          .map((n) => [n.id as string, n.parentId as NodeId]),
+      );
+      const existingLayoutIds = new Set(
+        (sheet.layouts ?? []).map((l) => l.nodeId as string),
+      );
+      const updatedLayouts: NodeLayout[] = [
+        // 既存レイアウトに parentId をマージ
+        ...(sheet.layouts ?? []).map((l) => ({
+          ...l,
+          ...(nodeParentMap.has(l.nodeId as string)
+            ? { parentId: nodeParentMap.get(l.nodeId as string) }
+            : {}),
+        })),
+        // parentId を持つがレイアウトエントリが存在しないノードの新規エントリ
+        ...Array.from(nodeParentMap.entries())
+          .filter(([nodeId]) => !existingLayoutIds.has(nodeId))
+          .map(([nodeId, parentId]) => ({
+            nodeId: nodeId as NodeId,
+            parentId,
+          })),
+      ];
+      return {
+        ...sheet,
+        nodes: sheet.nodes.map(({ parentId: _parentId, ...rest }) => rest),
+        layouts: updatedLayouts.length > 0 ? updatedLayouts : undefined,
       };
     }),
   };

@@ -2,11 +2,13 @@ import { randomUUID } from 'node:crypto';
 import {
   ConversensusFileSchema,
   ConversensusFileV1Schema,
+  ConversensusFileV2Schema,
   CreateFileRequestSchema,
   type EdgeId,
   type FileId,
   type GraphFile,
   migrateV1toV2,
+  migrateV2toV3,
   type NodeId,
   type SheetId,
   UpdateFileRequestSchema,
@@ -93,19 +95,26 @@ app.put('/files/:id', async (c) => {
 app.post('/files/import', async (c) => {
   const raw = await c.req.json().catch(() => null);
 
-  // v2 を試み, 失敗したら v1 からマイグレーション
+  // v3 を試み, 失敗したら v2→v3, さらに失敗したら v1→v2→v3 マイグレーション
   let parsedFile: ReturnType<typeof ConversensusFileSchema.safeParse>;
-  const parsedV2 = ConversensusFileSchema.safeParse(raw);
-  if (parsedV2.success) {
-    parsedFile = parsedV2;
+  const parsedV3 = ConversensusFileSchema.safeParse(raw);
+  if (parsedV3.success) {
+    parsedFile = parsedV3;
   } else {
-    const parsedV1 = ConversensusFileV1Schema.safeParse(raw);
-    if (parsedV1.success) {
+    const parsedV2 = ConversensusFileV2Schema.safeParse(raw);
+    if (parsedV2.success) {
       parsedFile = ConversensusFileSchema.safeParse(
-        migrateV1toV2(parsedV1.data),
+        migrateV2toV3(parsedV2.data),
       );
     } else {
-      return c.json({ error: parsedV2.error.flatten() }, 400);
+      const parsedV1 = ConversensusFileV1Schema.safeParse(raw);
+      if (parsedV1.success) {
+        parsedFile = ConversensusFileSchema.safeParse(
+          migrateV2toV3(migrateV1toV2(parsedV1.data)),
+        );
+      } else {
+        return c.json({ error: parsedV3.error.flatten() }, 400);
+      }
     }
   }
 
@@ -132,7 +141,6 @@ app.post('/files/import', async (c) => {
           ...n,
           // biome-ignore lint/style/noNonNullAssertion: nodeIdMap は同じ nodes 配列から構築されるため必ず存在する
           id: nodeIdMap.get(n.id)!,
-          parentId: n.parentId ? nodeIdMap.get(n.parentId) : undefined,
         })),
         edges: sheet.edges.map((e) => ({
           ...e,
@@ -144,6 +152,9 @@ app.post('/files/import', async (c) => {
         layouts: sheet.layouts?.map((l) => ({
           ...l,
           nodeId: (nodeIdMap.get(l.nodeId) ?? l.nodeId) as NodeId,
+          ...(l.parentId
+            ? { parentId: (nodeIdMap.get(l.parentId) ?? l.parentId) as NodeId }
+            : {}),
         })),
         edgeLayouts: sheet.edgeLayouts?.map((l) => ({
           ...l,

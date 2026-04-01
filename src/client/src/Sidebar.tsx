@@ -2,9 +2,11 @@ import {
   type ConversensusFile,
   ConversensusFileSchema,
   ConversensusFileV1Schema,
+  ConversensusFileV2Schema,
   type GraphFile,
   type GraphFileListItem,
   migrateV1toV2,
+  migrateV2toV3,
   type SheetId,
 } from '@conversensus/shared';
 import { useRef } from 'react';
@@ -80,10 +82,16 @@ export function Sidebar({
           onImportFile(parsed.data);
           return;
         }
+        // v2 ファイルの場合はマイグレーションを試みる
+        const parsedV2 = ConversensusFileV2Schema.safeParse(json);
+        if (parsedV2.success) {
+          onImportFile(migrateV2toV3(parsedV2.data));
+          return;
+        }
         // v1 ファイルの場合はマイグレーションを試みる
         const parsedV1 = ConversensusFileV1Schema.safeParse(json);
         if (parsedV1.success) {
-          onImportFile(migrateV1toV2(parsedV1.data));
+          onImportFile(migrateV2toV3(migrateV1toV2(parsedV1.data)));
           return;
         }
         const messages = parsed.error.errors
