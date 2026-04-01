@@ -270,6 +270,7 @@ describe('NODES_PASTED', () => {
       nodes: [graphNode],
       layouts: [graphNodeLayout],
       edges: [graphEdge],
+      edgeLayouts: [],
     };
     const { nodes, edges } = applyEvent(event, [selectedN1, n2], [e1]);
     expect(nodes).toHaveLength(3);
@@ -480,6 +481,29 @@ describe('round-trip: apply → invert → apply = 元の状態', () => {
     const { nodes: restored } = applyEvent(invertEvent(event), after, []);
     expect(restored).toHaveLength(2);
     expect(restored.map((n) => n.id)).toEqual(['n1', 'n2']);
+  });
+
+  it('NODE_ADDED → undo → redo でレイアウトが保持される', () => {
+    const event: GraphEvent = {
+      ...base,
+      category: 'structure',
+      type: 'NODE_ADDED',
+      nodeId: graphNode.id,
+      data: graphNode,
+      layout: graphNodeLayout,
+    };
+    const { nodes: after } = applyEvent(event, [n1, n2], []);
+    const undoEvent = invertEvent(event); // NODE_DELETED with layout
+    const { nodes: undone } = applyEvent(undoEvent, after, []);
+    expect(undone).toHaveLength(2);
+    const redoEvent = invertEvent(undoEvent); // NODE_ADDED with layout
+    const { nodes: redone } = applyEvent(redoEvent, undone, []);
+    expect(redone).toHaveLength(3);
+    const readdedNode = redone.find((n) => n.id === graphNode.id);
+    expect(readdedNode?.position).toEqual({
+      x: graphNodeLayout.x,
+      y: graphNodeLayout.y,
+    });
   });
 
   it('EDGE_STYLE_CHANGED', () => {

@@ -179,11 +179,13 @@ export function migrateV1toV2(file: ConversensusFileV1): ConversensusFile {
         .filter((n) => n.style !== undefined)
         .map((n) => ({
           nodeId: n.id,
-          x: n.style?.x,
-          y: n.style?.y,
-          width: n.style?.width,
-          height: n.style?.height,
-          nodeType: n.style?.nodeType,
+          ...(n.style?.x !== undefined ? { x: n.style.x } : {}),
+          ...(n.style?.y !== undefined ? { y: n.style.y } : {}),
+          ...(n.style?.width !== undefined ? { width: n.style.width } : {}),
+          ...(n.style?.height !== undefined ? { height: n.style.height } : {}),
+          ...(n.style?.nodeType !== undefined
+            ? { nodeType: n.style.nodeType }
+            : {}),
         }));
       const edgeLayouts: EdgeLayout[] = sheet.edges
         .filter(
@@ -197,12 +199,20 @@ export function migrateV1toV2(file: ConversensusFileV1): ConversensusFile {
         )
         .map((e) => ({
           edgeId: e.id,
-          sourceHandle: e.sourceHandle,
-          targetHandle: e.targetHandle,
-          pathType: e.pathType,
-          labelOffsetX: e.labelOffsetX,
-          labelOffsetY: e.labelOffsetY,
-          style: e.style,
+          ...(e.sourceHandle !== undefined
+            ? { sourceHandle: e.sourceHandle }
+            : {}),
+          ...(e.targetHandle !== undefined
+            ? { targetHandle: e.targetHandle }
+            : {}),
+          ...(e.pathType !== undefined ? { pathType: e.pathType } : {}),
+          ...(e.labelOffsetX !== undefined
+            ? { labelOffsetX: e.labelOffsetX }
+            : {}),
+          ...(e.labelOffsetY !== undefined
+            ? { labelOffsetY: e.labelOffsetY }
+            : {}),
+          ...(e.style !== undefined ? { style: e.style } : {}),
         }));
       return {
         ...sheet,

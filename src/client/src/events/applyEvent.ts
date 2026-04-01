@@ -191,15 +191,24 @@ export function applyEvent(
         ),
       };
 
-    case 'NODE_STYLE_CHANGED':
+    case 'NODE_STYLE_CHANGED': {
+      const { width, height } = event.to;
       return {
         nodes: nodes.map((n) =>
           n.id === event.nodeId
-            ? { ...n, style: { ...n.style, ...event.to } }
+            ? {
+                ...n,
+                style: {
+                  ...n.style,
+                  ...(width !== undefined ? { width } : {}),
+                  ...(height !== undefined ? { height } : {}),
+                },
+              }
             : n,
         ),
         edges,
       };
+    }
 
     case 'EDGE_LABEL_MOVED':
       return {

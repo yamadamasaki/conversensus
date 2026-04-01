@@ -13,22 +13,17 @@ export const DEFAULT_NODE_STYLE = { width: 160, height: 80 };
 export const GROUP_PADDING = 20;
 export const GROUP_TITLE_HEIGHT = 30;
 
-function findLayout(layouts: NodeLayout[], nodeId: string): NodeLayout {
-  return (
-    layouts.find((l) => l.nodeId === nodeId) ?? {
-      nodeId: nodeId as NodeId,
-      x: 0,
-      y: 0,
-    }
-  );
-}
-
 export function toFlowNodes(
   nodes: GraphNode[],
   layouts: NodeLayout[] = [],
 ): Node[] {
+  const layoutMap = new Map(layouts.map((l) => [l.nodeId as string, l]));
   return nodes.map((n) => {
-    const layout = findLayout(layouts, n.id);
+    const layout = layoutMap.get(n.id) ?? {
+      nodeId: n.id as NodeId,
+      x: 0,
+      y: 0,
+    };
     return {
       id: n.id,
       position: {
@@ -50,8 +45,9 @@ export function toFlowEdges(
   edges: GraphEdge[],
   edgeLayouts: EdgeLayout[] = [],
 ): Edge[] {
+  const layoutMap = new Map(edgeLayouts.map((l) => [l.edgeId as string, l]));
   return edges.map((e) => {
-    const layout = edgeLayouts.find((l) => l.edgeId === e.id);
+    const layout = layoutMap.get(e.id);
     return {
       id: e.id,
       source: e.source,

@@ -11,6 +11,7 @@ export function invertEvent(event: GraphEvent): GraphEvent {
         category: 'structure',
         nodeId: event.nodeId,
         data: event.data,
+        layout: event.layout,
       };
     case 'NODE_DELETED':
       return {
@@ -19,6 +20,7 @@ export function invertEvent(event: GraphEvent): GraphEvent {
         category: 'structure',
         nodeId: event.nodeId,
         data: event.data,
+        layout: event.layout,
       };
     case 'EDGE_ADDED':
       return {

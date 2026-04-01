@@ -32,6 +32,7 @@ export type NodeDeletedEvent = EventBase & {
   type: 'NODE_DELETED';
   nodeId: NodeId;
   data: GraphNode;
+  layout?: NodeLayout;
 };
 export type EdgeAddedEvent = EventBase & {
   category: 'structure';
