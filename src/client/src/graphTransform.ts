@@ -1,9 +1,11 @@
 import type {
   EdgeId,
+  EdgeLayout,
   EdgePathType,
   GraphEdge,
   GraphNode,
   NodeId,
+  NodeLayout,
 } from '@conversensus/shared';
 import { type Edge, MarkerType, type Node } from '@xyflow/react';
 
@@ -11,52 +13,80 @@ export const DEFAULT_NODE_STYLE = { width: 160, height: 80 };
 export const GROUP_PADDING = 20;
 export const GROUP_TITLE_HEIGHT = 30;
 
-export function toFlowNodes(nodes: GraphNode[]): Node[] {
-  return nodes.map((n) => ({
-    id: n.id,
-    position: {
-      x: n.style?.x ?? 0,
-      y: n.style?.y ?? 0,
-    },
-    data: { label: n.content },
-    type: n.style?.nodeType === 'group' ? 'groupNode' : 'editableNode',
-    parentId: n.parentId,
-    style: n.style ?? DEFAULT_NODE_STYLE,
-  }));
+export function toFlowNodes(
+  nodes: GraphNode[],
+  layouts: NodeLayout[] = [],
+): Node[] {
+  const layoutMap = new Map(layouts.map((l) => [l.nodeId as string, l]));
+  return nodes.map((n) => {
+    const layout = layoutMap.get(n.id) ?? {
+      nodeId: n.id as NodeId,
+      x: 0,
+      y: 0,
+    };
+    return {
+      id: n.id,
+      position: {
+        x: layout.x ?? 0,
+        y: layout.y ?? 0,
+      },
+      data: { label: n.content },
+      type: layout.nodeType === 'group' ? 'groupNode' : 'editableNode',
+      parentId: n.parentId,
+      style:
+        layout.width !== undefined || layout.height !== undefined
+          ? { width: layout.width, height: layout.height }
+          : DEFAULT_NODE_STYLE,
+    };
+  });
 }
 
-export function toFlowEdges(edges: GraphEdge[]): Edge[] {
-  return edges.map((e) => ({
-    id: e.id,
-    source: e.source,
-    target: e.target,
-    sourceHandle: e.sourceHandle,
-    targetHandle: e.targetHandle,
-    label: e.label,
-    type: 'editableLabel',
-    markerEnd: { type: MarkerType.ArrowClosed },
-    data: {
-      pathType: e.pathType ?? 'bezier',
-      labelOffsetX: e.labelOffsetX ?? 0,
-      labelOffsetY: e.labelOffsetY ?? 0,
-    },
-  }));
+export function toFlowEdges(
+  edges: GraphEdge[],
+  edgeLayouts: EdgeLayout[] = [],
+): Edge[] {
+  const layoutMap = new Map(edgeLayouts.map((l) => [l.edgeId as string, l]));
+  return edges.map((e) => {
+    const layout = layoutMap.get(e.id);
+    return {
+      id: e.id,
+      source: e.source,
+      target: e.target,
+      sourceHandle: layout?.sourceHandle,
+      targetHandle: layout?.targetHandle,
+      label: e.label,
+      type: 'editableLabel',
+      markerEnd: { type: MarkerType.ArrowClosed },
+      data: {
+        pathType: layout?.pathType ?? 'bezier',
+        labelOffsetX: layout?.labelOffsetX ?? 0,
+        labelOffsetY: layout?.labelOffsetY ?? 0,
+      },
+    };
+  });
 }
 
 // React Flow boundary: ids are plain strings, cast to branded types
-export function fromFlowNodes(nodes: Node[]): GraphNode[] {
-  return nodes.map((n) => ({
+export function fromFlowNodes(nodes: Node[]): {
+  nodes: GraphNode[];
+  layouts: NodeLayout[];
+} {
+  const graphNodes: GraphNode[] = nodes.map((n) => ({
     id: n.id as NodeId,
     content: String(n.data.label ?? ''),
     parentId: n.parentId as NodeId | undefined,
-    style: {
-      x: n.position.x,
-      y: n.position.y,
-      width: n.style?.width,
-      height: n.style?.height,
-      ...(n.type === 'groupNode' ? { nodeType: 'group' } : {}),
-    },
   }));
+
+  const layouts: NodeLayout[] = nodes.map((n) => ({
+    nodeId: n.id as NodeId,
+    x: n.position.x,
+    y: n.position.y,
+    width: n.style?.width as number | string | undefined,
+    height: n.style?.height as number | string | undefined,
+    ...(n.type === 'groupNode' ? { nodeType: 'group' as const } : {}),
+  }));
+
+  return { nodes: graphNodes, layouts };
 }
 
 // 子ノードが親ノードの境界をはみ出している場合, 親を拡大して全ての子を包む
@@ -254,16 +284,25 @@ export function buildPastedData(
   return { nodes: sorted, edges };
 }
 
-export function fromFlowEdges(edges: Edge[]): GraphEdge[] {
-  return edges.map((e) => ({
+export function fromFlowEdges(edges: Edge[]): {
+  edges: GraphEdge[];
+  edgeLayouts: EdgeLayout[];
+} {
+  const graphEdges: GraphEdge[] = edges.map((e) => ({
     id: e.id as EdgeId,
     source: e.source as NodeId,
     target: e.target as NodeId,
+    label: typeof e.label === 'string' ? e.label : undefined,
+  }));
+
+  const edgeLayouts: EdgeLayout[] = edges.map((e) => ({
+    edgeId: e.id as EdgeId,
     sourceHandle: e.sourceHandle ?? undefined,
     targetHandle: e.targetHandle ?? undefined,
-    label: typeof e.label === 'string' ? e.label : undefined,
     pathType: (e.data?.pathType as EdgePathType | undefined) ?? undefined,
     labelOffsetX: (e.data?.labelOffsetX as number | undefined) || undefined,
     labelOffsetY: (e.data?.labelOffsetY as number | undefined) || undefined,
   }));
+
+  return { edges: graphEdges, edgeLayouts };
 }

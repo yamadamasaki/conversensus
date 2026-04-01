@@ -1,8 +1,10 @@
 import {
   type ConversensusFile,
   ConversensusFileSchema,
+  ConversensusFileV1Schema,
   type GraphFile,
   type GraphFileListItem,
+  migrateV1toV2,
   type SheetId,
 } from '@conversensus/shared';
 import { useRef } from 'react';
@@ -74,14 +76,20 @@ export function Sidebar({
       try {
         const json = JSON.parse(ev.target?.result as string);
         const parsed = ConversensusFileSchema.safeParse(json);
-        if (!parsed.success) {
-          const messages = parsed.error.errors
-            .map((err) => `${err.path.join('.')}: ${err.message}`)
-            .join('\n');
-          alert(`ファイル形式が不正です:\n${messages}`);
+        if (parsed.success) {
+          onImportFile(parsed.data);
           return;
         }
-        onImportFile(parsed.data);
+        // v1 ファイルの場合はマイグレーションを試みる
+        const parsedV1 = ConversensusFileV1Schema.safeParse(json);
+        if (parsedV1.success) {
+          onImportFile(migrateV1toV2(parsedV1.data));
+          return;
+        }
+        const messages = parsed.error.errors
+          .map((err) => `${err.path.join('.')}: ${err.message}`)
+          .join('\n');
+        alert(`ファイル形式が不正です:\n${messages}`);
       } catch {
         alert('ファイルの読み込みに失敗しました');
       }

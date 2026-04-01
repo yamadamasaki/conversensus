@@ -4,6 +4,7 @@ import type {
   GraphEdge,
   GraphNode,
   NodeId,
+  NodeLayout,
 } from '@conversensus/shared';
 import { type Edge, MarkerType, type Node } from '@xyflow/react';
 import { applyEvent } from './applyEvent';
@@ -38,7 +39,11 @@ const e1: Edge = {
 const graphNode: GraphNode = {
   id: 'n3' as NodeId,
   content: 'ノード3',
-  style: { x: 50, y: 60 },
+};
+const graphNodeLayout: NodeLayout = {
+  nodeId: 'n3' as NodeId,
+  x: 50,
+  y: 60,
 };
 const graphEdge: GraphEdge = {
   id: 'e2' as EdgeId,
@@ -58,6 +63,7 @@ describe('NODE_ADDED', () => {
       type: 'NODE_ADDED',
       nodeId: graphNode.id,
       data: graphNode,
+      layout: graphNodeLayout,
     };
     const { nodes, edges } = applyEvent(event, [n1, n2], [e1]);
     expect(nodes).toHaveLength(3);
@@ -172,7 +178,14 @@ describe('NODES_GROUPED', () => {
     const parentData: GraphNode = {
       id: 'parent' as NodeId,
       content: 'グループ',
-      style: { x: 0, y: 0, width: 200, height: 200, nodeType: 'group' },
+    };
+    const parentLayout: NodeLayout = {
+      nodeId: 'parent' as NodeId,
+      x: 0,
+      y: 0,
+      width: 200,
+      height: 200,
+      nodeType: 'group',
     };
     const event: GraphEvent = {
       ...base,
@@ -180,6 +193,7 @@ describe('NODES_GROUPED', () => {
       type: 'NODES_GROUPED',
       parentId: 'parent' as NodeId,
       parentData,
+      parentLayout,
       children: [
         {
           nodeId: 'n1' as NodeId,
@@ -215,7 +229,12 @@ describe('NODES_UNGROUPED', () => {
     const parentData: GraphNode = {
       id: 'parent' as NodeId,
       content: 'グループ',
-      style: { x: 0, y: 0, nodeType: 'group' },
+    };
+    const parentLayout: NodeLayout = {
+      nodeId: 'parent' as NodeId,
+      x: 0,
+      y: 0,
+      nodeType: 'group',
     };
     const event: GraphEvent = {
       ...base,
@@ -223,6 +242,7 @@ describe('NODES_UNGROUPED', () => {
       type: 'NODES_UNGROUPED',
       parentId: 'parent' as NodeId,
       parentData,
+      parentLayout,
       children: [
         {
           nodeId: 'n1' as NodeId,
@@ -248,7 +268,9 @@ describe('NODES_PASTED', () => {
       category: 'structure',
       type: 'NODES_PASTED',
       nodes: [graphNode],
+      layouts: [graphNodeLayout],
       edges: [graphEdge],
+      edgeLayouts: [],
     };
     const { nodes, edges } = applyEvent(event, [selectedN1, n2], [e1]);
     expect(nodes).toHaveLength(3);
@@ -268,6 +290,7 @@ describe('NODES_PASTED_UNDO', () => {
       nodeIds: ['n2' as NodeId],
       edgeIds: ['e1' as EdgeId],
       nodes: [],
+      layouts: [],
       edges: [],
     };
     const { nodes, edges } = applyEvent(event, [n1, n2], [e1]);
@@ -386,14 +409,13 @@ describe('NODE_STYLE_CHANGED', () => {
       category: 'presentation',
       type: 'NODE_STYLE_CHANGED',
       nodeId: 'n1' as NodeId,
-      from: {},
-      to: { background: '#eee' },
+      from: { nodeId: 'n1' as NodeId },
+      to: { nodeId: 'n1' as NodeId, width: 200 },
     };
     const { nodes } = applyEvent(event, [styledNode], []);
     expect(nodes[0].style).toMatchObject({
-      width: 160,
+      width: 200,
       height: 80,
-      background: '#eee',
     });
   });
 });
@@ -452,12 +474,36 @@ describe('round-trip: apply → invert → apply = 元の状態', () => {
       type: 'NODE_ADDED',
       nodeId: graphNode.id,
       data: graphNode,
+      layout: graphNodeLayout,
     };
     const { nodes: after } = applyEvent(event, [n1, n2], []);
     expect(after).toHaveLength(3);
     const { nodes: restored } = applyEvent(invertEvent(event), after, []);
     expect(restored).toHaveLength(2);
     expect(restored.map((n) => n.id)).toEqual(['n1', 'n2']);
+  });
+
+  it('NODE_ADDED → undo → redo でレイアウトが保持される', () => {
+    const event: GraphEvent = {
+      ...base,
+      category: 'structure',
+      type: 'NODE_ADDED',
+      nodeId: graphNode.id,
+      data: graphNode,
+      layout: graphNodeLayout,
+    };
+    const { nodes: after } = applyEvent(event, [n1, n2], []);
+    const undoEvent = invertEvent(event); // NODE_DELETED with layout
+    const { nodes: undone } = applyEvent(undoEvent, after, []);
+    expect(undone).toHaveLength(2);
+    const redoEvent = invertEvent(undoEvent); // NODE_ADDED with layout
+    const { nodes: redone } = applyEvent(redoEvent, undone, []);
+    expect(redone).toHaveLength(3);
+    const readdedNode = redone.find((n) => n.id === graphNode.id);
+    expect(readdedNode?.position).toEqual({
+      x: graphNodeLayout.x,
+      y: graphNodeLayout.y,
+    });
   });
 
   it('EDGE_STYLE_CHANGED', () => {

@@ -1,9 +1,11 @@
 import type {
   EdgeId,
+  EdgeLayout,
   EdgePathType,
   GraphEdge,
   GraphNode,
   NodeId,
+  NodeLayout,
   SheetId,
 } from '@conversensus/shared';
 import {
@@ -60,10 +62,10 @@ function GraphEditorInner({ file, activeSheetId, onChange }: Props) {
   const { screenToFlowPosition, getNodes, getEdges } = useReactFlow();
   const activeSheet = file.sheets.find((s) => s.id === activeSheetId);
   const [nodes, setNodes, onNodesChange] = useNodesState(
-    toFlowNodes(activeSheet?.nodes ?? []),
+    toFlowNodes(activeSheet?.nodes ?? [], activeSheet?.layouts ?? []),
   );
   const [edges, setEdges, onEdgesChange] = useEdgesState(
-    toFlowEdges(activeSheet?.edges ?? []),
+    toFlowEdges(activeSheet?.edges ?? [], activeSheet?.edgeLayouts ?? []),
   );
 
   // 常に最新の file / activeSheetId / onChange を参照するための ref
@@ -84,8 +86,8 @@ function GraphEditorInner({ file, activeSheetId, onChange }: Props) {
     const sheet = fileRef.current.sheets.find(
       (s) => s.id === activeSheetIdRef.current,
     );
-    setNodes(toFlowNodes(sheet?.nodes ?? []));
-    setEdges(toFlowEdges(sheet?.edges ?? []));
+    setNodes(toFlowNodes(sheet?.nodes ?? [], sheet?.layouts ?? []));
+    setEdges(toFlowEdges(sheet?.edges ?? [], sheet?.edgeLayouts ?? []));
   }, [file.id, activeSheetId, setNodes, setEdges]);
 
   // nodes/edges が変わったら親に通知
@@ -95,11 +97,13 @@ function GraphEditorInner({ file, activeSheetId, onChange }: Props) {
       return;
     }
     const currentSheetId = activeSheetIdRef.current;
+    const { nodes: graphNodes, layouts } = fromFlowNodes(nodes);
+    const { edges: graphEdges, edgeLayouts } = fromFlowEdges(edges);
     onChangeRef.current({
       ...fileRef.current,
       sheets: fileRef.current.sheets.map((s) =>
         s.id === currentSheetId
-          ? { ...s, nodes: fromFlowNodes(nodes), edges: fromFlowEdges(edges) }
+          ? { ...s, nodes: graphNodes, layouts, edges: graphEdges, edgeLayouts }
           : s,
       ),
     });
@@ -185,6 +189,9 @@ function GraphEditorInner({ file, activeSheetId, onChange }: Props) {
         id: edgeId,
         source: connection.source as NodeId,
         target: connection.target as NodeId,
+      };
+      const edgeLayout: EdgeLayout = {
+        edgeId,
         sourceHandle: connection.sourceHandle ?? undefined,
         targetHandle: connection.targetHandle ?? undefined,
         pathType: 'bezier' satisfies EdgePathType,
@@ -194,6 +201,7 @@ function GraphEditorInner({ file, activeSheetId, onChange }: Props) {
         type: 'EDGE_ADDED',
         edgeId,
         data: graphEdge,
+        edgeLayout,
       });
     },
     [dispatch],
@@ -209,13 +217,19 @@ function GraphEditorInner({ file, activeSheetId, onChange }: Props) {
       const graphNode: GraphNode = {
         id: nodeId,
         content: '',
-        style: { x: pos.x, y: pos.y, ...DEFAULT_NODE_STYLE },
+      };
+      const layout: NodeLayout = {
+        nodeId,
+        x: pos.x,
+        y: pos.y,
+        ...DEFAULT_NODE_STYLE,
       };
       dispatch({
         ...makeEventBase('structure'),
         type: 'NODE_ADDED',
         nodeId,
         data: graphNode,
+        layout,
       });
     },
     [dispatch],
@@ -235,7 +249,7 @@ function GraphEditorInner({ file, activeSheetId, onChange }: Props) {
       const selectedEdges = currentEdges.filter((e) => e.selected);
 
       for (const node of selectedNodes) {
-        const graphNodes = fromFlowNodes([node]);
+        const { nodes: graphNodes } = fromFlowNodes([node]);
         dispatch({
           ...makeEventBase('structure'),
           type: 'NODE_DELETED',
@@ -244,12 +258,13 @@ function GraphEditorInner({ file, activeSheetId, onChange }: Props) {
         });
       }
       for (const edge of selectedEdges) {
-        const graphEdges = fromFlowEdges([edge]);
+        const { edges: graphEdges, edgeLayouts } = fromFlowEdges([edge]);
         dispatch({
           ...makeEventBase('structure'),
           type: 'EDGE_DELETED',
           edgeId: edge.id as EdgeId,
           data: graphEdges[0],
+          edgeLayout: edgeLayouts[0],
         });
       }
     },

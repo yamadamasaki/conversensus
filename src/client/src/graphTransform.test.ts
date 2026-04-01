@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'bun:test';
 import type {
   EdgeId,
+  EdgeLayout,
   GraphEdge,
   GraphNode,
   NodeId,
+  NodeLayout,
 } from '@conversensus/shared';
 import { type Edge, MarkerType, type Node } from '@xyflow/react';
 import {
@@ -17,12 +19,13 @@ import {
 } from './graphTransform';
 
 const graphNodes: GraphNode[] = [
-  { id: 'n1' as NodeId, content: 'ノード1', style: { x: 10, y: 20 } },
-  {
-    id: 'n2' as NodeId,
-    content: 'ノード2',
-    style: { x: 100, y: 200, color: 'red' },
-  },
+  { id: 'n1' as NodeId, content: 'ノード1' },
+  { id: 'n2' as NodeId, content: 'ノード2' },
+];
+
+const graphLayouts: NodeLayout[] = [
+  { nodeId: 'n1' as NodeId, x: 10, y: 20 },
+  { nodeId: 'n2' as NodeId, x: 100, y: 200 },
 ];
 
 const graphEdges: GraphEdge[] = [
@@ -37,7 +40,7 @@ const graphEdges: GraphEdge[] = [
 
 describe('toFlowNodes', () => {
   it('GraphNode を React Flow の Node に変換する', () => {
-    const result = toFlowNodes(graphNodes);
+    const result = toFlowNodes(graphNodes, graphLayouts);
     expect(result).toHaveLength(2);
     expect(result[0]).toMatchObject({
       id: 'n1',
@@ -55,6 +58,11 @@ describe('toFlowNodes', () => {
 
   it('空配列は空配列を返す', () => {
     expect(toFlowNodes([])).toEqual([]);
+  });
+
+  it('レイアウトがない場合は位置が (0, 0) になる', () => {
+    const result = toFlowNodes(graphNodes);
+    expect(result[0].position).toEqual({ x: 0, y: 0 });
   });
 });
 
@@ -83,40 +91,35 @@ describe('toFlowEdges', () => {
     expect(toFlowEdges([])).toEqual([]);
   });
 
-  it('pathType が指定されている場合は data.pathType に変換される', () => {
+  it('edgeLayouts の pathType が data.pathType に変換される', () => {
     const edges: GraphEdge[] = [
-      {
-        id: 'e1' as EdgeId,
-        source: 'n1' as NodeId,
-        target: 'n2' as NodeId,
-        pathType: 'straight',
-      },
+      { id: 'e1' as EdgeId, source: 'n1' as NodeId, target: 'n2' as NodeId },
     ];
-    expect(toFlowEdges(edges)[0].data?.pathType).toBe('straight');
+    const edgeLayouts: EdgeLayout[] = [
+      { edgeId: 'e1' as EdgeId, pathType: 'straight' },
+    ];
+    expect(toFlowEdges(edges, edgeLayouts)[0].data?.pathType).toBe('straight');
   });
 
-  it('pathType が未指定の場合は data.pathType が "bezier" になる', () => {
+  it('edgeLayouts がない場合は data.pathType が "bezier" になる', () => {
     const edges: GraphEdge[] = [
       { id: 'e1' as EdgeId, source: 'n1' as NodeId, target: 'n2' as NodeId },
     ];
     expect(toFlowEdges(edges)[0].data?.pathType).toBe('bezier');
   });
 
-  it('labelOffsetX/Y が指定されている場合は data.labelOffsetX/Y に変換される', () => {
+  it('edgeLayouts の labelOffsetX/Y が data.labelOffsetX/Y に変換される', () => {
     const edges: GraphEdge[] = [
-      {
-        id: 'e1' as EdgeId,
-        source: 'n1' as NodeId,
-        target: 'n2' as NodeId,
-        labelOffsetX: 30,
-        labelOffsetY: -15,
-      },
+      { id: 'e1' as EdgeId, source: 'n1' as NodeId, target: 'n2' as NodeId },
     ];
-    expect(toFlowEdges(edges)[0].data?.labelOffsetX).toBe(30);
-    expect(toFlowEdges(edges)[0].data?.labelOffsetY).toBe(-15);
+    const edgeLayouts: EdgeLayout[] = [
+      { edgeId: 'e1' as EdgeId, labelOffsetX: 30, labelOffsetY: -15 },
+    ];
+    expect(toFlowEdges(edges, edgeLayouts)[0].data?.labelOffsetX).toBe(30);
+    expect(toFlowEdges(edges, edgeLayouts)[0].data?.labelOffsetY).toBe(-15);
   });
 
-  it('labelOffsetX/Y が未指定の場合は data.labelOffsetX/Y が 0 になる', () => {
+  it('edgeLayouts が未指定の場合は data.labelOffsetX/Y が 0 になる', () => {
     const edges: GraphEdge[] = [
       { id: 'e1' as EdgeId, source: 'n1' as NodeId, target: 'n2' as NodeId },
     ];
@@ -126,7 +129,7 @@ describe('toFlowEdges', () => {
 });
 
 describe('fromFlowNodes', () => {
-  it('React Flow の Node を GraphNode に変換する', () => {
+  it('React Flow の Node を GraphNode と NodeLayout に変換する', () => {
     const flowNodes: Node[] = [
       {
         id: 'n1',
@@ -135,11 +138,15 @@ describe('fromFlowNodes', () => {
         type: 'default',
       },
     ];
-    const result = fromFlowNodes(flowNodes);
-    expect(result[0]).toMatchObject({
+    const { nodes, layouts } = fromFlowNodes(flowNodes);
+    expect(nodes[0]).toMatchObject({
       id: 'n1',
       content: 'ノード1',
-      style: { x: 10, y: 20 },
+    });
+    expect(layouts[0]).toMatchObject({
+      nodeId: 'n1',
+      x: 10,
+      y: 20,
     });
   });
 
@@ -147,60 +154,67 @@ describe('fromFlowNodes', () => {
     const flowNodes: Node[] = [
       { id: 'n1', position: { x: 0, y: 0 }, data: {}, type: 'default' },
     ];
-    const result = fromFlowNodes(flowNodes);
-    expect(result[0].content).toBe('');
+    const { nodes } = fromFlowNodes(flowNodes);
+    expect(nodes[0].content).toBe('');
   });
 
-  it('空配列は空配列を返す', () => {
-    expect(fromFlowNodes([])).toEqual([]);
+  it('空配列は空の nodes と layouts を返す', () => {
+    const { nodes, layouts } = fromFlowNodes([]);
+    expect(nodes).toEqual([]);
+    expect(layouts).toEqual([]);
   });
 });
 
 describe('fromFlowEdges', () => {
-  it('React Flow の Edge を GraphEdge に変換する', () => {
+  it('React Flow の Edge を GraphEdge と EdgeLayout に変換する', () => {
     const flowEdges: Edge[] = [
       { id: 'e1', source: 'n1', target: 'n2', label: 'ラベル' },
     ];
-    const result = fromFlowEdges(flowEdges);
-    expect(result[0]).toMatchObject({
+    const { edges, edgeLayouts } = fromFlowEdges(flowEdges);
+    expect(edges[0]).toMatchObject({
       id: 'e1',
       source: 'n1',
       target: 'n2',
       label: 'ラベル',
     });
+    expect(edgeLayouts[0].edgeId).toBe('e1');
   });
 
   it('label が string でない場合は undefined になる', () => {
     const flowEdges: Edge[] = [
       { id: 'e1', source: 'n1', target: 'n2', label: 42 as unknown as string },
     ];
-    const result = fromFlowEdges(flowEdges);
-    expect(result[0].label).toBeUndefined();
+    const { edges } = fromFlowEdges(flowEdges);
+    expect(edges[0].label).toBeUndefined();
   });
 
   it('label がない Edge は label が undefined になる', () => {
     const flowEdges: Edge[] = [{ id: 'e2', source: 'n2', target: 'n1' }];
-    const result = fromFlowEdges(flowEdges);
-    expect(result[0].label).toBeUndefined();
+    const { edges } = fromFlowEdges(flowEdges);
+    expect(edges[0].label).toBeUndefined();
   });
 
-  it('空配列は空配列を返す', () => {
-    expect(fromFlowEdges([])).toEqual([]);
+  it('空配列は edges と edgeLayouts の空配列を返す', () => {
+    const { edges, edgeLayouts } = fromFlowEdges([]);
+    expect(edges).toEqual([]);
+    expect(edgeLayouts).toEqual([]);
   });
 
-  it('data.pathType が GraphEdge.pathType に復元される', () => {
+  it('data.pathType が EdgeLayout.pathType に復元される', () => {
     const flowEdges: Edge[] = [
       { id: 'e1', source: 'n1', target: 'n2', data: { pathType: 'step' } },
     ];
-    expect(fromFlowEdges(flowEdges)[0].pathType).toBe('step');
+    const { edgeLayouts } = fromFlowEdges(flowEdges);
+    expect(edgeLayouts[0].pathType).toBe('step');
   });
 
   it('data.pathType がない場合は pathType が undefined になる', () => {
     const flowEdges: Edge[] = [{ id: 'e1', source: 'n1', target: 'n2' }];
-    expect(fromFlowEdges(flowEdges)[0].pathType).toBeUndefined();
+    const { edgeLayouts } = fromFlowEdges(flowEdges);
+    expect(edgeLayouts[0].pathType).toBeUndefined();
   });
 
-  it('data.labelOffsetX/Y が GraphEdge.labelOffsetX/Y に復元される', () => {
+  it('data.labelOffsetX/Y が EdgeLayout.labelOffsetX/Y に復元される', () => {
     const flowEdges: Edge[] = [
       {
         id: 'e1',
@@ -209,8 +223,9 @@ describe('fromFlowEdges', () => {
         data: { labelOffsetX: 30, labelOffsetY: -15 },
       },
     ];
-    expect(fromFlowEdges(flowEdges)[0].labelOffsetX).toBe(30);
-    expect(fromFlowEdges(flowEdges)[0].labelOffsetY).toBe(-15);
+    const { edgeLayouts } = fromFlowEdges(flowEdges);
+    expect(edgeLayouts[0].labelOffsetX).toBe(30);
+    expect(edgeLayouts[0].labelOffsetY).toBe(-15);
   });
 
   it('data.labelOffsetX/Y が 0 の場合は labelOffsetX/Y が undefined になる', () => {
@@ -222,55 +237,67 @@ describe('fromFlowEdges', () => {
         data: { labelOffsetX: 0, labelOffsetY: 0 },
       },
     ];
-    expect(fromFlowEdges(flowEdges)[0].labelOffsetX).toBeUndefined();
-    expect(fromFlowEdges(flowEdges)[0].labelOffsetY).toBeUndefined();
+    const { edgeLayouts } = fromFlowEdges(flowEdges);
+    expect(edgeLayouts[0].labelOffsetX).toBeUndefined();
+    expect(edgeLayouts[0].labelOffsetY).toBeUndefined();
   });
 
   it('data.labelOffsetX/Y がない場合は labelOffsetX/Y が undefined になる', () => {
     const flowEdges: Edge[] = [{ id: 'e1', source: 'n1', target: 'n2' }];
-    expect(fromFlowEdges(flowEdges)[0].labelOffsetX).toBeUndefined();
-    expect(fromFlowEdges(flowEdges)[0].labelOffsetY).toBeUndefined();
+    const { edgeLayouts } = fromFlowEdges(flowEdges);
+    expect(edgeLayouts[0].labelOffsetX).toBeUndefined();
+    expect(edgeLayouts[0].labelOffsetY).toBeUndefined();
   });
 });
 
 describe('toFlowNodes → fromFlowNodes の対称性', () => {
   it('変換して戻すと元のデータが復元される', () => {
-    const result = fromFlowNodes(toFlowNodes(graphNodes));
-    expect(result[0]).toMatchObject({
+    const { nodes, layouts } = fromFlowNodes(
+      toFlowNodes(graphNodes, graphLayouts),
+    );
+    expect(nodes[0]).toMatchObject({
       id: 'n1',
       content: 'ノード1',
-      style: { x: 10, y: 20 },
     });
-    expect(result[1]).toMatchObject({
+    expect(layouts[0]).toMatchObject({
+      nodeId: 'n1',
+      x: 10,
+      y: 20,
+    });
+    expect(nodes[1]).toMatchObject({
       id: 'n2',
       content: 'ノード2',
-      style: { x: 100, y: 200 },
+    });
+    expect(layouts[1]).toMatchObject({
+      nodeId: 'n2',
+      x: 100,
+      y: 200,
     });
   });
 });
 
 describe('toFlowNodes: グループノード (parentId / nodeType)', () => {
-  it('nodeType=group の GraphNode は groupNode 型に変換される', () => {
-    const nodes: GraphNode[] = [
+  it('nodeType=group の NodeLayout は groupNode 型に変換される', () => {
+    const nodes: GraphNode[] = [{ id: 'g1' as NodeId, content: 'グループ' }];
+    const layouts: NodeLayout[] = [
       {
-        id: 'g1' as NodeId,
-        content: 'グループ',
-        style: { x: 0, y: 0, width: 200, height: 150, nodeType: 'group' },
+        nodeId: 'g1' as NodeId,
+        x: 0,
+        y: 0,
+        width: 200,
+        height: 150,
+        nodeType: 'group',
       },
     ];
-    expect(toFlowNodes(nodes)[0].type).toBe('groupNode');
+    expect(toFlowNodes(nodes, layouts)[0].type).toBe('groupNode');
   });
 
   it('parentId を持つ GraphNode は parentId が引き継がれる', () => {
     const nodes: GraphNode[] = [
-      {
-        id: 'n1' as NodeId,
-        content: 'child',
-        parentId: 'g1' as NodeId,
-        style: { x: 20, y: 50 },
-      },
+      { id: 'n1' as NodeId, content: 'child', parentId: 'g1' as NodeId },
     ];
-    expect(toFlowNodes(nodes)[0].parentId).toBe('g1');
+    const layouts: NodeLayout[] = [{ nodeId: 'n1' as NodeId, x: 20, y: 50 }];
+    expect(toFlowNodes(nodes, layouts)[0].parentId).toBe('g1');
   });
 });
 
@@ -285,10 +312,10 @@ describe('fromFlowNodes: parentId / groupNode', () => {
         type: 'editableNode',
       },
     ];
-    expect(fromFlowNodes(flowNodes)[0].parentId).toBe('g1');
+    expect(fromFlowNodes(flowNodes).nodes[0].parentId).toBe('g1');
   });
 
-  it('groupNode 型は style.nodeType=group として保存される', () => {
+  it('groupNode 型は layout.nodeType=group として保存される', () => {
     const flowNodes: Node[] = [
       {
         id: 'g1',
@@ -297,7 +324,7 @@ describe('fromFlowNodes: parentId / groupNode', () => {
         type: 'groupNode',
       },
     ];
-    expect(fromFlowNodes(flowNodes)[0].style?.nodeType).toBe('group');
+    expect(fromFlowNodes(flowNodes).layouts[0].nodeType).toBe('group');
   });
 });
 
@@ -396,8 +423,8 @@ describe('recalculateParentBounds', () => {
 
 describe('toFlowEdges → fromFlowEdges の対称性', () => {
   it('label ありの Edge は変換して戻すと復元される', () => {
-    const result = fromFlowEdges(toFlowEdges(graphEdges));
-    expect(result[0]).toMatchObject({
+    const { edges } = fromFlowEdges(toFlowEdges(graphEdges));
+    expect(edges[0]).toMatchObject({
       id: 'e1',
       source: 'n1',
       target: 'n2',
@@ -407,49 +434,50 @@ describe('toFlowEdges → fromFlowEdges の対称性', () => {
 
   it('pathType が変換して戻すと復元される', () => {
     const edges: GraphEdge[] = [
-      {
-        id: 'e1' as EdgeId,
-        source: 'n1' as NodeId,
-        target: 'n2' as NodeId,
-        pathType: 'smoothstep',
-      },
+      { id: 'e1' as EdgeId, source: 'n1' as NodeId, target: 'n2' as NodeId },
     ];
-    expect(fromFlowEdges(toFlowEdges(edges))[0].pathType).toBe('smoothstep');
+    const edgeLayouts: EdgeLayout[] = [
+      { edgeId: 'e1' as EdgeId, pathType: 'smoothstep' },
+    ];
+    const { edgeLayouts: result } = fromFlowEdges(
+      toFlowEdges(edges, edgeLayouts),
+    );
+    expect(result[0].pathType).toBe('smoothstep');
   });
 
   it('labelOffset が変換して戻すと復元される', () => {
     const edges: GraphEdge[] = [
-      {
-        id: 'e1' as EdgeId,
-        source: 'n1' as NodeId,
-        target: 'n2' as NodeId,
-        labelOffsetX: 42,
-        labelOffsetY: -8,
-      },
+      { id: 'e1' as EdgeId, source: 'n1' as NodeId, target: 'n2' as NodeId },
     ];
-    const result = fromFlowEdges(toFlowEdges(edges))[0];
-    expect(result.labelOffsetX).toBe(42);
-    expect(result.labelOffsetY).toBe(-8);
+    const edgeLayouts: EdgeLayout[] = [
+      { edgeId: 'e1' as EdgeId, labelOffsetX: 42, labelOffsetY: -8 },
+    ];
+    const { edgeLayouts: result } = fromFlowEdges(
+      toFlowEdges(edges, edgeLayouts),
+    );
+    expect(result[0].labelOffsetX).toBe(42);
+    expect(result[0].labelOffsetY).toBe(-8);
   });
 });
 
 describe('toFlowEdges: sourceHandle / targetHandle', () => {
-  it('sourceHandle と targetHandle が React Flow の Edge に渡される', () => {
+  it('edgeLayouts の sourceHandle / targetHandle が React Flow の Edge に渡される', () => {
     const edges: GraphEdge[] = [
+      { id: 'e1' as EdgeId, source: 'n1' as NodeId, target: 'n2' as NodeId },
+    ];
+    const edgeLayouts: EdgeLayout[] = [
       {
-        id: 'e1' as EdgeId,
-        source: 'n1' as NodeId,
-        target: 'n2' as NodeId,
+        edgeId: 'e1' as EdgeId,
         sourceHandle: 'source-bottom',
         targetHandle: 'source-top',
       },
     ];
-    const result = toFlowEdges(edges);
+    const result = toFlowEdges(edges, edgeLayouts);
     expect(result[0].sourceHandle).toBe('source-bottom');
     expect(result[0].targetHandle).toBe('source-top');
   });
 
-  it('sourceHandle / targetHandle が undefined の場合は undefined になる', () => {
+  it('edgeLayouts がない場合は sourceHandle / targetHandle が undefined になる', () => {
     const result = toFlowEdges(graphEdges);
     expect(result[0].sourceHandle).toBeUndefined();
     expect(result[0].targetHandle).toBeUndefined();
@@ -457,7 +485,7 @@ describe('toFlowEdges: sourceHandle / targetHandle', () => {
 });
 
 describe('fromFlowEdges: sourceHandle / targetHandle', () => {
-  it('sourceHandle と targetHandle が GraphEdge に保持される', () => {
+  it('sourceHandle と targetHandle が EdgeLayout に保持される', () => {
     const flowEdges: Edge[] = [
       {
         id: 'e1',
@@ -467,9 +495,9 @@ describe('fromFlowEdges: sourceHandle / targetHandle', () => {
         targetHandle: 'source-top',
       },
     ];
-    const result = fromFlowEdges(flowEdges);
-    expect(result[0].sourceHandle).toBe('source-bottom');
-    expect(result[0].targetHandle).toBe('source-top');
+    const { edgeLayouts } = fromFlowEdges(flowEdges);
+    expect(edgeLayouts[0].sourceHandle).toBe('source-bottom');
+    expect(edgeLayouts[0].targetHandle).toBe('source-top');
   });
 
   it('sourceHandle が null の場合は undefined になる', () => {
@@ -482,31 +510,34 @@ describe('fromFlowEdges: sourceHandle / targetHandle', () => {
         targetHandle: null,
       },
     ];
-    const result = fromFlowEdges(flowEdges);
-    expect(result[0].sourceHandle).toBeUndefined();
-    expect(result[0].targetHandle).toBeUndefined();
+    const { edgeLayouts } = fromFlowEdges(flowEdges);
+    expect(edgeLayouts[0].sourceHandle).toBeUndefined();
+    expect(edgeLayouts[0].targetHandle).toBeUndefined();
   });
 
   it('sourceHandle がない Edge は undefined になる', () => {
     const flowEdges: Edge[] = [{ id: 'e1', source: 'n1', target: 'n2' }];
-    const result = fromFlowEdges(flowEdges);
-    expect(result[0].sourceHandle).toBeUndefined();
-    expect(result[0].targetHandle).toBeUndefined();
+    const { edgeLayouts } = fromFlowEdges(flowEdges);
+    expect(edgeLayouts[0].sourceHandle).toBeUndefined();
+    expect(edgeLayouts[0].targetHandle).toBeUndefined();
   });
 });
 
 describe('toFlowEdges → fromFlowEdges: sourceHandle / targetHandle の対称性', () => {
   it('handle 情報が変換して戻すと復元される', () => {
     const edges: GraphEdge[] = [
+      { id: 'e1' as EdgeId, source: 'n1' as NodeId, target: 'n2' as NodeId },
+    ];
+    const edgeLayouts: EdgeLayout[] = [
       {
-        id: 'e1' as EdgeId,
-        source: 'n1' as NodeId,
-        target: 'n2' as NodeId,
+        edgeId: 'e1' as EdgeId,
         sourceHandle: 'source-right',
         targetHandle: 'source-left',
       },
     ];
-    const result = fromFlowEdges(toFlowEdges(edges));
+    const { edgeLayouts: result } = fromFlowEdges(
+      toFlowEdges(edges, edgeLayouts),
+    );
     expect(result[0].sourceHandle).toBe('source-right');
     expect(result[0].targetHandle).toBe('source-left');
   });

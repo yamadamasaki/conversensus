@@ -11,6 +11,7 @@ export function invertEvent(event: GraphEvent): GraphEvent {
         category: 'structure',
         nodeId: event.nodeId,
         data: event.data,
+        layout: event.layout,
       };
     case 'NODE_DELETED':
       return {
@@ -19,6 +20,7 @@ export function invertEvent(event: GraphEvent): GraphEvent {
         category: 'structure',
         nodeId: event.nodeId,
         data: event.data,
+        layout: event.layout,
       };
     case 'EDGE_ADDED':
       return {
@@ -27,6 +29,7 @@ export function invertEvent(event: GraphEvent): GraphEvent {
         category: 'structure',
         edgeId: event.edgeId,
         data: event.data,
+        edgeLayout: event.edgeLayout,
       };
     case 'EDGE_DELETED':
       return {
@@ -35,6 +38,7 @@ export function invertEvent(event: GraphEvent): GraphEvent {
         category: 'structure',
         edgeId: event.edgeId,
         data: event.data,
+        edgeLayout: event.edgeLayout,
       };
     case 'EDGE_RECONNECTED':
       return {
@@ -52,6 +56,7 @@ export function invertEvent(event: GraphEvent): GraphEvent {
         category: 'structure',
         parentId: event.parentId,
         parentData: event.parentData,
+        parentLayout: event.parentLayout,
         children: event.children,
       };
     case 'NODES_UNGROUPED':
@@ -61,6 +66,7 @@ export function invertEvent(event: GraphEvent): GraphEvent {
         category: 'structure',
         parentId: event.parentId,
         parentData: event.parentData,
+        parentLayout: event.parentLayout,
         children: event.children,
       };
     case 'NODES_PASTED':
@@ -71,7 +77,9 @@ export function invertEvent(event: GraphEvent): GraphEvent {
         nodeIds: event.nodes.map((n) => n.id),
         edgeIds: event.edges.map((e) => e.id),
         nodes: event.nodes,
+        layouts: event.layouts,
         edges: event.edges,
+        edgeLayouts: event.edgeLayouts,
       };
     case 'NODES_PASTED_UNDO':
       return {
@@ -79,7 +87,9 @@ export function invertEvent(event: GraphEvent): GraphEvent {
         type: 'NODES_PASTED',
         category: 'structure',
         nodes: event.nodes,
+        layouts: event.layouts,
         edges: event.edges,
+        edgeLayouts: event.edgeLayouts,
       };
     case 'NODE_RELABELED':
       return {

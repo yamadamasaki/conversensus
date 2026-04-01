@@ -14,7 +14,10 @@ export function applyEvent(
   switch (event.type) {
     case 'NODE_ADDED':
       return {
-        nodes: [...nodes, toFlowNodes([event.data])[0]],
+        nodes: [
+          ...nodes,
+          toFlowNodes([event.data], event.layout ? [event.layout] : [])[0],
+        ],
         edges,
       };
 
@@ -29,7 +32,13 @@ export function applyEvent(
     case 'EDGE_ADDED':
       return {
         nodes,
-        edges: [...edges, toFlowEdges([event.data])[0]],
+        edges: [
+          ...edges,
+          toFlowEdges(
+            [event.data],
+            event.edgeLayout ? [event.edgeLayout] : [],
+          )[0],
+        ],
       };
 
     case 'EDGE_DELETED':
@@ -60,7 +69,10 @@ export function applyEvent(
       };
 
     case 'NODES_GROUPED': {
-      const parentNode = toFlowNodes([event.parentData])[0];
+      const parentNode = toFlowNodes(
+        [event.parentData],
+        [event.parentLayout],
+      )[0];
       const childMap = new Map(event.children.map((c) => [c.nodeId, c]));
       const updatedNodes = nodes.map((n) => {
         const child = childMap.get(n.id as typeof event.parentId);
@@ -105,8 +117,8 @@ export function applyEvent(
     }
 
     case 'NODES_PASTED': {
-      const newNodes = toFlowNodes(event.nodes);
-      const newEdges = toFlowEdges(event.edges);
+      const newNodes = toFlowNodes(event.nodes, event.layouts);
+      const newEdges = toFlowEdges(event.edges, event.edgeLayouts);
       return {
         nodes: [...nodes.map((n) => ({ ...n, selected: false })), ...newNodes],
         edges: [...edges, ...newEdges],
@@ -179,15 +191,24 @@ export function applyEvent(
         ),
       };
 
-    case 'NODE_STYLE_CHANGED':
+    case 'NODE_STYLE_CHANGED': {
+      const { width, height } = event.to;
       return {
         nodes: nodes.map((n) =>
           n.id === event.nodeId
-            ? { ...n, style: { ...n.style, ...event.to } }
+            ? {
+                ...n,
+                style: {
+                  ...n.style,
+                  ...(width !== undefined ? { width } : {}),
+                  ...(height !== undefined ? { height } : {}),
+                },
+              }
             : n,
         ),
         edges,
       };
+    }
 
     case 'EDGE_LABEL_MOVED':
       return {

@@ -32,11 +32,15 @@ export function useClipboard(
       clipboard.current,
       PASTE_OFFSET_PX,
     );
+    const { nodes: graphNodes, layouts } = fromFlowNodes(newNodes);
+    const { edges: graphEdges, edgeLayouts } = fromFlowEdges(newEdges);
     dispatch({
       ...makeEventBase('structure'),
       type: 'NODES_PASTED',
-      nodes: fromFlowNodes(newNodes),
-      edges: fromFlowEdges(newEdges),
+      nodes: graphNodes,
+      layouts,
+      edges: graphEdges,
+      edgeLayouts,
     });
     // 次の貼り付けがさらにオフセットされるようクリップボードを更新
     clipboard.current = { nodes: newNodes, edges: newEdges };
