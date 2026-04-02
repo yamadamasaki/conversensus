@@ -1,11 +1,5 @@
 import type { GraphNode, NodeId, NodeLayout } from '@conversensus/shared';
-import {
-  Handle,
-  type NodeProps,
-  NodeResizer,
-  Position,
-  useReactFlow,
-} from '@xyflow/react';
+import { type NodeProps, NodeResizer, useReactFlow } from '@xyflow/react';
 import { useCallback, useRef } from 'react';
 import { useEventDispatch } from './EventDispatchContext';
 import { makeEventBase } from './events/GraphEvent';
@@ -76,13 +70,13 @@ export function GroupNode({
       const graphNode: GraphNode = {
         id: nodeId,
         content: '',
-        parentId: id as NodeId,
       };
       const layout: NodeLayout = {
         nodeId,
         x: pos.x,
         y: pos.y,
         ...DEFAULT_NODE_STYLE,
+        parentId: id as NodeId,
       };
       dispatch({
         ...makeEventBase('structure'),
@@ -125,30 +119,6 @@ export function GroupNode({
         minHeight={80}
         onResizeStart={onResizeStart}
         onResizeEnd={onResizeEnd}
-      />
-      <Handle
-        type="source"
-        position={Position.Top}
-        id="source-top"
-        style={{ zIndex: 10, pointerEvents: 'all' }}
-      />
-      <Handle
-        type="source"
-        position={Position.Bottom}
-        id="source-bottom"
-        style={{ zIndex: 10, pointerEvents: 'all' }}
-      />
-      <Handle
-        type="source"
-        position={Position.Left}
-        id="source-left"
-        style={{ zIndex: 10, pointerEvents: 'all' }}
-      />
-      <Handle
-        type="source"
-        position={Position.Right}
-        id="source-right"
-        style={{ zIndex: 10, pointerEvents: 'all' }}
       />
       <div
         style={{

@@ -32,7 +32,7 @@ export function toFlowNodes(
       },
       data: { label: n.content },
       type: layout.nodeType === 'group' ? 'groupNode' : 'editableNode',
-      parentId: n.parentId,
+      parentId: layout.parentId,
       style:
         layout.width !== undefined || layout.height !== undefined
           ? { width: layout.width, height: layout.height }
@@ -74,7 +74,6 @@ export function fromFlowNodes(nodes: Node[]): {
   const graphNodes: GraphNode[] = nodes.map((n) => ({
     id: n.id as NodeId,
     content: String(n.data.label ?? ''),
-    parentId: n.parentId as NodeId | undefined,
   }));
 
   const layouts: NodeLayout[] = nodes.map((n) => ({
@@ -84,6 +83,7 @@ export function fromFlowNodes(nodes: Node[]): {
     width: n.style?.width as number | string | undefined,
     height: n.style?.height as number | string | undefined,
     ...(n.type === 'groupNode' ? { nodeType: 'group' as const } : {}),
+    ...(n.parentId ? { parentId: n.parentId as NodeId } : {}),
   }));
 
   return { nodes: graphNodes, layouts };

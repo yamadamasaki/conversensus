@@ -1,0 +1,116 @@
+import { z } from 'zod';
+
+// --- Branded ID schemas (UUID enforced at API boundaries) ---
+export const NodeIdSchema = z.string().uuid().brand<'NodeId'>();
+export const EdgeIdSchema = z.string().uuid().brand<'EdgeId'>();
+export const SheetIdSchema = z.string().uuid().brand<'SheetId'>();
+export const FileIdSchema = z.string().uuid().brand<'FileId'>();
+
+// --- Branded ID types ---
+export type NodeId = z.infer<typeof NodeIdSchema>;
+export type EdgeId = z.infer<typeof EdgeIdSchema>;
+export type SheetId = z.infer<typeof SheetIdSchema>;
+export type FileId = z.infer<typeof FileIdSchema>;
+
+// --- Primitive type aliases ---
+export type NodeContent = string;
+export type EdgeLabel = string;
+export type FileName = string;
+export type FileDescription = string;
+export type SheetName = string;
+
+// --- Compound type schemas ---
+export const StyleSchema = z.record(z.string(), z.unknown());
+export type Style = z.infer<typeof StyleSchema>;
+
+// ノードのレイアウトデータ: 座標・サイズ・種別を型安全に定義
+// catchall で未知フィールドを保持し前方互換性を確保する
+export const NodeLayoutSchema = z
+  .object({
+    nodeId: NodeIdSchema,
+    x: z.number().optional(),
+    y: z.number().optional(),
+    width: z.union([z.number(), z.string()]).optional(),
+    height: z.union([z.number(), z.string()]).optional(),
+    nodeType: z.literal('group').optional(),
+    parentId: NodeIdSchema.optional(),
+  })
+  .catchall(z.unknown());
+export type NodeLayout = z.infer<typeof NodeLayoutSchema>;
+
+// --- Domain schemas ---
+export const GraphNodeSchema = z.object({
+  id: NodeIdSchema,
+  content: z.string(),
+  properties: z.record(z.string(), z.unknown()).optional(),
+});
+
+export const EdgePathTypeSchema = z.enum([
+  'bezier',
+  'straight',
+  'step',
+  'smoothstep',
+]);
+export type EdgePathType = z.infer<typeof EdgePathTypeSchema>;
+
+// エッジのレイアウトデータ: 経路・ラベル位置・スタイルを型安全に定義
+export const EdgeLayoutSchema = z
+  .object({
+    edgeId: EdgeIdSchema,
+    sourceHandle: z.string().optional(),
+    targetHandle: z.string().optional(),
+    pathType: EdgePathTypeSchema.optional(),
+    labelOffsetX: z.number().optional(),
+    labelOffsetY: z.number().optional(),
+    style: StyleSchema.optional(),
+  })
+  .catchall(z.unknown());
+export type EdgeLayout = z.infer<typeof EdgeLayoutSchema>;
+
+// セマンティックなグラフエッジ: source/target/label のみ保持
+export const GraphEdgeSchema = z.object({
+  id: EdgeIdSchema,
+  source: NodeIdSchema,
+  target: NodeIdSchema,
+  label: z.string().optional(),
+  properties: z.record(z.string(), z.unknown()).optional(),
+});
+
+export const SheetSchema = z.object({
+  id: SheetIdSchema,
+  name: z.string(),
+  description: z.string().optional(),
+  nodes: z.array(GraphNodeSchema),
+  edges: z.array(GraphEdgeSchema),
+  layouts: z.array(NodeLayoutSchema).optional(),
+  edgeLayouts: z.array(EdgeLayoutSchema).optional(),
+});
+
+export const GraphFileSchema = z.object({
+  id: FileIdSchema,
+  name: z.string(),
+  description: z.string().optional(),
+  sheets: z.array(SheetSchema),
+});
+
+export const GraphFileListItemSchema = z.object({
+  id: FileIdSchema,
+  name: z.string(),
+  description: z.string().optional(),
+});
+
+// --- Domain types (inferred from schemas) ---
+export type GraphNode = z.infer<typeof GraphNodeSchema>;
+export type GraphEdge = z.infer<typeof GraphEdgeSchema>;
+export type Sheet = z.infer<typeof SheetSchema>;
+export type GraphFile = z.infer<typeof GraphFileSchema>;
+export type GraphFileListItem = z.infer<typeof GraphFileListItemSchema>;
+
+// --- Current file format ---
+export const CONVERSENSUS_FILE_VERSION = '3' as const;
+
+// .conversensus ファイル形式: GraphFile に version ヘッダを付与
+export const ConversensusFileSchema = GraphFileSchema.extend({
+  version: z.literal(CONVERSENSUS_FILE_VERSION),
+});
+export type ConversensusFile = z.infer<typeof ConversensusFileSchema>;
