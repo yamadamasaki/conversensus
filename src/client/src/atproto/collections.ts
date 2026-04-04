@@ -41,11 +41,19 @@ async function getRecord(
 async function listRecords(
   collection: string,
 ): Promise<Array<{ uri: string; cid: string; value: unknown }>> {
-  const res = await getAgent().api.com.atproto.repo.listRecords({
-    repo: currentDid(),
-    collection,
-  });
-  return res.data.records;
+  const all: Array<{ uri: string; cid: string; value: unknown }> = [];
+  let cursor: string | undefined;
+  do {
+    const res = await getAgent().api.com.atproto.repo.listRecords({
+      repo: currentDid(),
+      collection,
+      limit: 100,
+      cursor,
+    });
+    all.push(...res.data.records);
+    cursor = res.data.cursor;
+  } while (cursor);
+  return all;
 }
 
 async function deleteRecord(collection: string, rkey: string): Promise<void> {

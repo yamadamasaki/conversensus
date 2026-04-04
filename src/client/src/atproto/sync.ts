@@ -9,7 +9,7 @@
  *   5. edgeLayout (並列、edgeRef が必要)
  */
 
-import type { GraphFile, NodeId, Sheet } from '@conversensus/shared';
+import type { EdgeId, GraphFile, NodeId, Sheet } from '@conversensus/shared';
 import {
   edgeLayouts,
   edges,
@@ -41,6 +41,11 @@ import type {
 
 // --- 書き込み ---
 
+/**
+ * 既知の制限: 削除された node/edge/layout は PDS から削除されません。
+ * 現状は追記/上書きのみで、差分削除は未実装です。
+ * TODO: PDS 上の既存 rkey と現在の Sheet を比較し、不要レコードを deleteRecord する
+ */
 export async function syncSheetToAtproto(sheet: Sheet): Promise<void> {
   const now = new Date().toISOString();
 
@@ -168,7 +173,7 @@ export async function fetchSheetsFromAtproto(): Promise<Sheet[]> {
     // edgeLayout: rkey = edgeId
     const sheetEdgeIds = new Set(sheetEdges.map((e) => e.id));
     const sheetEdgeLayouts = edgeLayoutRecords
-      .filter((r) => sheetEdgeIds.has(rkeyFromUri(r.uri) as never))
+      .filter((r) => sheetEdgeIds.has(rkeyFromUri(r.uri) as EdgeId))
       .map((r) =>
         recordToEdgeLayout(rkeyFromUri(r.uri), r.value as EdgeLayoutRecord),
       );

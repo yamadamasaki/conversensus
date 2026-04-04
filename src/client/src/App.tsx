@@ -22,8 +22,13 @@ import { Sidebar } from './Sidebar';
 
 const AUTOSAVE_DELAY = 1000; // ms
 
-// VITE_ATPROTO_HANDLE / VITE_ATPROTO_PASSWORD が設定されていれば起動時に自動ログイン
+/**
+ * ローカル開発専用: VITE_ATPROTO_* は Vite がビルド時にバンドルへ展開するため
+ * 本番ビルドでは絶対に使用しないこと。import.meta.env.DEV でガード済み。
+ * 本番環境ではログイン UI を実装すること。
+ */
 async function tryAtprotoAutoLogin(): Promise<void> {
+  if (!import.meta.env.DEV) return;
   const handle = import.meta.env.VITE_ATPROTO_HANDLE;
   const password = import.meta.env.VITE_ATPROTO_PASSWORD;
   if (!handle || !password) return;

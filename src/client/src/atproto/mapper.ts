@@ -97,6 +97,11 @@ export function nodeLayoutToRecord(
   };
 }
 
+/**
+ * 既知の制限: EdgeLayout / NodeLayout は .catchall(z.unknown()) を持つため
+ * lexicon に定義されていない追加フィールド (style など) は ATProto ラウンドトリップで失われます。
+ * 必要になった時点で lexicon と mapper を拡張してください。
+ */
 export function edgeLayoutToRecord(
   layout: EdgeLayout,
   edgeRef: StrongRef,

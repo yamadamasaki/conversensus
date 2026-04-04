@@ -31,8 +31,10 @@ export async function login(
   })();
   try {
     return await _loginPromise;
-  } finally {
-    _loginPromise = null;
+    // 成功時は _loginPromise を保持 → 以降の呼び出しはキャッシュされたセッションを返す
+  } catch (err) {
+    _loginPromise = null; // 失敗時のみリセットして再試行を許可
+    throw err;
   }
 }
 
