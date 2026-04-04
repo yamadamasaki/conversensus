@@ -1,0 +1,53 @@
+{
+  "lexicon": 1,
+  "id": "app.conversensus.graph.nodeLayout",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "Layout (position/size) for a node. rkey = NodeId (UUID), so exactly one current layout exists per node per repo. Layout changes replace this record via putRecord.",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": ["node", "createdAt"],
+        "properties": {
+          "node": {
+            "type": "ref",
+            "ref": "com.atproto.repo.strongRef",
+            "description": "The node record this layout applies to."
+          },
+          "x": {
+            "type": "integer",
+            "description": "X position in pixels."
+          },
+          "y": {
+            "type": "integer",
+            "description": "Y position in pixels."
+          },
+          "width": {
+            "type": "integer",
+            "description": "Width in pixels."
+          },
+          "height": {
+            "type": "integer",
+            "description": "Height in pixels."
+          },
+          "nodeType": {
+            "type": "string",
+            "knownValues": ["group"],
+            "description": "Special node rendering type. Currently only 'group' is defined."
+          },
+          "parent": {
+            "type": "ref",
+            "ref": "com.atproto.repo.strongRef",
+            "description": "Parent node record for grouped nodes."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime",
+            "description": "Timestamp of record creation (ISO 8601)."
+          }
+        }
+      }
+    }
+  }
+}

@@ -2,6 +2,9 @@ node_modules/
 dist/
 data/
 .env
+infra/pds/.env
+infra/pds/certs/
+src/client/.env.local
 .omc
 src/client/.vite/
 .claude/settings.local.json

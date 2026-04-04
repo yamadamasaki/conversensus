@@ -15,11 +15,30 @@ import {
   removeFile,
   saveFile,
 } from './api';
+import { login, syncFileToAtproto } from './atproto';
 import { GraphEditor } from './GraphEditor';
 import type { PopupTarget } from './SettingsPopup';
 import { Sidebar } from './Sidebar';
 
 const AUTOSAVE_DELAY = 1000; // ms
+
+/**
+ * ローカル開発専用: VITE_ATPROTO_* は Vite がビルド時にバンドルへ展開するため
+ * 本番ビルドでは絶対に使用しないこと。import.meta.env.DEV でガード済み。
+ * 本番環境ではログイン UI を実装すること。
+ */
+async function tryAtprotoAutoLogin(): Promise<void> {
+  if (!import.meta.env.DEV) return;
+  const handle = import.meta.env.VITE_ATPROTO_HANDLE;
+  const password = import.meta.env.VITE_ATPROTO_PASSWORD;
+  if (!handle || !password) return;
+  try {
+    await login(handle, password);
+    console.info('[atproto] auto-login:', handle);
+  } catch (err) {
+    console.warn('[atproto] auto-login failed (sync disabled):', err);
+  }
+}
 
 export default function App() {
   const [files, setFiles] = useState<GraphFileListItem[]>([]);
@@ -34,6 +53,7 @@ export default function App() {
 
   useEffect(() => {
     fetchFiles().then(setFiles).catch(console.error);
+    tryAtprotoAutoLogin();
   }, []);
 
   useEffect(() => {
@@ -103,6 +123,10 @@ export default function App() {
     );
     try {
       await saveFile(updated);
+      // ATProto sync: ログイン済みの場合のみバックグラウンドで同期
+      syncFileToAtproto(updated).catch((err) =>
+        console.warn('[atproto] sync failed:', err),
+      );
     } catch (err) {
       console.error('Failed to save file:', err);
     }

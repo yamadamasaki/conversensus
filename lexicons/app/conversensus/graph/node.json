@@ -1,0 +1,36 @@
+{
+  "lexicon": 1,
+  "id": "app.conversensus.graph.node",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "A semantic graph node. rkey = NodeId (UUID). Editing a node replaces this record via putRecord, preserving immutability in commit history.",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": ["sheet", "content", "createdAt"],
+        "properties": {
+          "sheet": {
+            "type": "ref",
+            "ref": "com.atproto.repo.strongRef",
+            "description": "The sheet this node belongs to."
+          },
+          "content": {
+            "type": "string",
+            "maxLength": 10000,
+            "description": "Text content / label of the node."
+          },
+          "properties": {
+            "type": "unknown",
+            "description": "Arbitrary key-value metadata. Application-defined."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime",
+            "description": "Timestamp of record creation (ISO 8601)."
+          }
+        }
+      }
+    }
+  }
+}

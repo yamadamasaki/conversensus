@@ -1,0 +1,46 @@
+{
+  "lexicon": 1,
+  "id": "app.conversensus.graph.edge",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "A semantic graph edge connecting two nodes. rkey = EdgeId (UUID). source/target reference node records via strongRef.",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": ["sheet", "source", "target", "createdAt"],
+        "properties": {
+          "sheet": {
+            "type": "ref",
+            "ref": "com.atproto.repo.strongRef",
+            "description": "The sheet this edge belongs to."
+          },
+          "source": {
+            "type": "ref",
+            "ref": "com.atproto.repo.strongRef",
+            "description": "The source node record."
+          },
+          "target": {
+            "type": "ref",
+            "ref": "com.atproto.repo.strongRef",
+            "description": "The target node record."
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 1000,
+            "description": "Optional label on the edge."
+          },
+          "properties": {
+            "type": "unknown",
+            "description": "Arbitrary key-value metadata. Application-defined."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime",
+            "description": "Timestamp of record creation (ISO 8601)."
+          }
+        }
+      }
+    }
+  }
+}
