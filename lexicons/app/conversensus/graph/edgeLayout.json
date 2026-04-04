@@ -1,0 +1,48 @@
+{
+  "lexicon": 1,
+  "id": "app.conversensus.graph.edgeLayout",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "Layout (path style, handle, label offset) for an edge. rkey = EdgeId (UUID), so exactly one current layout exists per edge per repo.",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": ["edge", "createdAt"],
+        "properties": {
+          "edge": {
+            "type": "ref",
+            "ref": "com.atproto.repo.strongRef",
+            "description": "The edge record this layout applies to."
+          },
+          "sourceHandle": {
+            "type": "string",
+            "description": "React Flow handle ID on the source node."
+          },
+          "targetHandle": {
+            "type": "string",
+            "description": "React Flow handle ID on the target node."
+          },
+          "pathType": {
+            "type": "string",
+            "knownValues": ["bezier", "straight", "step", "smoothstep"],
+            "description": "Edge path rendering style."
+          },
+          "labelOffsetX": {
+            "type": "integer",
+            "description": "Label X offset from edge midpoint in pixels."
+          },
+          "labelOffsetY": {
+            "type": "integer",
+            "description": "Label Y offset from edge midpoint in pixels."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime",
+            "description": "Timestamp of record creation (ISO 8601)."
+          }
+        }
+      }
+    }
+  }
+}

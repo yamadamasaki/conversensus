@@ -1,0 +1,32 @@
+{
+  "lexicon": 1,
+  "id": "app.conversensus.graph.sheet",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "A sheet (canvas) that groups nodes and edges. Nodes and edges reference their sheet via strongRef.",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": ["name", "createdAt"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 256,
+            "description": "Display name of the sheet."
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2048,
+            "description": "Optional description of the sheet."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime",
+            "description": "Timestamp of record creation (ISO 8601)."
+          }
+        }
+      }
+    }
+  }
+}

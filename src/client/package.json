@@ -9,6 +9,7 @@
     "preview": "bunx vite preview"
   },
   "dependencies": {
+    "@atproto/api": "^0.19.6",
     "@conversensus/shared": "workspace:*",
     "@xyflow/react": "^12.6.4",
     "html-to-image": "1.11.11",
