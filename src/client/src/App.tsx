@@ -108,7 +108,22 @@ export default function App() {
         await initCidCacheFromPds();
         startPolling((changes) => {
           console.info('[atproto] remote changes detected:', changes);
-          setRemoteChanges((prev) => [...prev, ...changes]);
+          // 同一 collection/rkey は最新値で上書き (重複キー警告を防ぎ, 最新状態を保持)
+          setRemoteChanges((prev) => {
+            const merged = [...prev];
+            for (const change of changes) {
+              const idx = merged.findIndex(
+                (c) =>
+                  c.collection === change.collection && c.rkey === change.rkey,
+              );
+              if (idx >= 0) {
+                merged[idx] = change;
+              } else {
+                merged.push(change);
+              }
+            }
+            return merged;
+          });
         });
       } catch {
         // ATProto 未設定時はサイレントにスキップ

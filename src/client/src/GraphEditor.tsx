@@ -94,6 +94,8 @@ function GraphEditorInner({
 
   // 初回マウント時の onChange 抑制フラグ
   const mounted = useRef(false);
+  // コンフリクトスタイル更新 (見た目のみ) による onChange 誤発火を抑制するフラグ
+  const conflictUpdatePendingRef = useRef(false);
 
   // file.id または activeSheetId が変わったとき React Flow の state をリセット
   // biome-ignore lint/correctness/useExhaustiveDependencies: file.id / activeSheetId の変化のみをトリガーにする意図的な設計
@@ -115,7 +117,10 @@ function GraphEditorInner({
   }, [file.id, activeSheetId, setNodes, setEdges]);
 
   // コンフリクト状態が変わったらノード/エッジのスタイルだけ更新
+  // NOTE: setNodes/setEdges は nodes/edges state を変化させるため onChange effect が
+  // 発火する。これはデータ変更ではなくスタイル変更なので conflictUpdatePendingRef で抑制する。
   useEffect(() => {
+    conflictUpdatePendingRef.current = true;
     setNodes((current) =>
       current.map((n) => ({
         ...n,
@@ -125,6 +130,7 @@ function GraphEditorInner({
   }, [conflictedNodeIds, setNodes]);
 
   useEffect(() => {
+    conflictUpdatePendingRef.current = true;
     setEdges((current) =>
       current.map((e) => {
         const conflicted = conflictedEdgeIds?.has(e.id) ?? false;
@@ -141,6 +147,11 @@ function GraphEditorInner({
   useEffect(() => {
     if (!mounted.current) {
       mounted.current = true;
+      return;
+    }
+    // コンフリクトスタイル更新 (見た目のみ) の場合は onChange を呼ばない
+    if (conflictUpdatePendingRef.current) {
+      conflictUpdatePendingRef.current = false;
       return;
     }
     const currentSheetId = activeSheetIdRef.current;
