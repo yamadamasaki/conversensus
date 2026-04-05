@@ -9,6 +9,12 @@ export {
   sheets,
 } from './collections';
 export {
+  initCidCacheFromPds,
+  POLL_INTERVAL_MS,
+  startPolling,
+  stopPolling,
+} from './poller';
+export {
   fetchSheetsFromAtproto,
   syncFileToAtproto,
   syncSheetToAtproto,
@@ -19,6 +25,7 @@ export type {
   NodeLayoutRecord,
   NodeRecord,
   RecordResult,
+  RemoteChange,
   SheetRecord,
   StrongRef,
 } from './types';
