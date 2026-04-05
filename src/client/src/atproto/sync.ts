@@ -10,6 +10,7 @@
  */
 
 import type { EdgeId, GraphFile, NodeId, Sheet } from '@conversensus/shared';
+import { cacheResult } from './cidCache';
 import {
   edgeLayouts,
   edges,
@@ -51,6 +52,7 @@ export async function syncSheetToAtproto(sheet: Sheet): Promise<void> {
 
   // 1. sheet レコードを put → sheetRef を取得
   const sheetResult = await sheets.put(sheet.id, sheetToRecord(sheet, now));
+  cacheResult(sheetResult.uri, sheetResult.cid);
   const sheetRef: StrongRef = { uri: sheetResult.uri, cid: sheetResult.cid };
 
   // 2. 全 node を put (並列) → nodeId → StrongRef マップを構築
@@ -61,6 +63,7 @@ export async function syncSheetToAtproto(sheet: Sheet): Promise<void> {
         node.id,
         nodeToRecord(node, sheetRef, now),
       );
+      cacheResult(result.uri, result.cid);
       nodeRefs.set(node.id, { uri: result.uri, cid: result.cid });
     }),
   );
@@ -81,6 +84,7 @@ export async function syncSheetToAtproto(sheet: Sheet): Promise<void> {
         edge.id,
         edgeToRecord(edge, sheetRef, sourceRef, targetRef, now),
       );
+      cacheResult(result.uri, result.cid);
       edgeRefs.set(edge.id, { uri: result.uri, cid: result.cid });
     }),
   );
@@ -94,10 +98,11 @@ export async function syncSheetToAtproto(sheet: Sheet): Promise<void> {
         const parentRef = layout.parentId
           ? nodeRefs.get(layout.parentId)
           : undefined;
-        await nodeLayouts.put(
+        const r = await nodeLayouts.put(
           layout.nodeId,
           nodeLayoutToRecord(layout, nodeRef, parentRef, now),
         );
+        cacheResult(r.uri, r.cid);
       }),
     );
   }
@@ -108,10 +113,11 @@ export async function syncSheetToAtproto(sheet: Sheet): Promise<void> {
       sheet.edgeLayouts.map(async (layout) => {
         const edgeRef = edgeRefs.get(layout.edgeId);
         if (!edgeRef) return;
-        await edgeLayouts.put(
+        const r = await edgeLayouts.put(
           layout.edgeId,
           edgeLayoutToRecord(layout, edgeRef, now),
         );
+        cacheResult(r.uri, r.cid);
       }),
     );
   }

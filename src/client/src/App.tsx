@@ -15,7 +15,14 @@ import {
   removeFile,
   saveFile,
 } from './api';
-import { login, syncFileToAtproto } from './atproto';
+import {
+  initCidCacheFromPds,
+  login,
+  type RemoteChange,
+  startPolling,
+  stopPolling,
+  syncFileToAtproto,
+} from './atproto';
 import { GraphEditor } from './GraphEditor';
 import type { PopupTarget } from './SettingsPopup';
 import { Sidebar } from './Sidebar';
@@ -49,11 +56,25 @@ export default function App() {
   );
   const [newFileName, setNewFileName] = useState('');
   const [popupTarget, setPopupTarget] = useState<PopupTarget | null>(null);
+  // リモート変更検出: ポーリングで検出された他ユーザーの変更を保持 (#59 でコンフリクト UI に利用)
+  const [_remoteChanges, setRemoteChanges] = useState<RemoteChange[]>([]);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     fetchFiles().then(setFiles).catch(console.error);
-    tryAtprotoAutoLogin();
+    // ATProto: ログイン後に CID キャッシュを初期化してポーリング開始
+    tryAtprotoAutoLogin().then(async () => {
+      try {
+        await initCidCacheFromPds();
+        startPolling((changes) => {
+          console.info('[atproto] remote changes detected:', changes);
+          setRemoteChanges((prev) => [...prev, ...changes]);
+        });
+      } catch {
+        // ATProto 未設定時はサイレントにスキップ
+      }
+    });
+    return () => stopPolling();
   }, []);
 
   useEffect(() => {
