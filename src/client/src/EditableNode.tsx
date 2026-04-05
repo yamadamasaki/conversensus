@@ -50,6 +50,7 @@ export function EditableNode({ id, data, selected }: NodeProps) {
   );
 
   const label = String(data.label ?? '');
+  const conflicted = data.conflicted === true;
 
   const { editing, inputValue, setInputValue, startEdit, confirm, cancel } =
     useInlineEdit(label, (value) => {
@@ -79,8 +80,8 @@ export function EditableNode({ id, data, selected }: NodeProps) {
         style={{
           padding: '8px 12px',
           borderRadius: 6,
-          border: '1px solid #ccc',
-          background: '#fff',
+          border: conflicted ? '2px solid #f97316' : '1px solid #ccc',
+          background: conflicted ? '#fff7ed' : '#fff',
           width: '100%',
           height: '100%',
           boxSizing: 'border-box',

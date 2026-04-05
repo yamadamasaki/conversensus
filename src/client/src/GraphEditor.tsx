@@ -56,16 +56,32 @@ type Props = {
   file: GraphFile;
   activeSheetId: SheetId;
   onChange: (file: GraphFile) => void;
+  conflictedNodeIds?: Set<string>;
+  conflictedEdgeIds?: Set<string>;
 };
 
-function GraphEditorInner({ file, activeSheetId, onChange }: Props) {
+function GraphEditorInner({
+  file,
+  activeSheetId,
+  onChange,
+  conflictedNodeIds,
+  conflictedEdgeIds,
+}: Props) {
   const { screenToFlowPosition, getNodes, getEdges } = useReactFlow();
   const activeSheet = file.sheets.find((s) => s.id === activeSheetId);
   const [nodes, setNodes, onNodesChange] = useNodesState(
-    toFlowNodes(activeSheet?.nodes ?? [], activeSheet?.layouts ?? []),
+    toFlowNodes(
+      activeSheet?.nodes ?? [],
+      activeSheet?.layouts ?? [],
+      conflictedNodeIds,
+    ),
   );
   const [edges, setEdges, onEdgesChange] = useEdgesState(
-    toFlowEdges(activeSheet?.edges ?? [], activeSheet?.edgeLayouts ?? []),
+    toFlowEdges(
+      activeSheet?.edges ?? [],
+      activeSheet?.edgeLayouts ?? [],
+      conflictedEdgeIds,
+    ),
   );
 
   // 常に最新の file / activeSheetId / onChange を参照するための ref
@@ -86,9 +102,40 @@ function GraphEditorInner({ file, activeSheetId, onChange }: Props) {
     const sheet = fileRef.current.sheets.find(
       (s) => s.id === activeSheetIdRef.current,
     );
-    setNodes(toFlowNodes(sheet?.nodes ?? [], sheet?.layouts ?? []));
-    setEdges(toFlowEdges(sheet?.edges ?? [], sheet?.edgeLayouts ?? []));
+    setNodes(
+      toFlowNodes(sheet?.nodes ?? [], sheet?.layouts ?? [], conflictedNodeIds),
+    );
+    setEdges(
+      toFlowEdges(
+        sheet?.edges ?? [],
+        sheet?.edgeLayouts ?? [],
+        conflictedEdgeIds,
+      ),
+    );
   }, [file.id, activeSheetId, setNodes, setEdges]);
+
+  // コンフリクト状態が変わったらノード/エッジのスタイルだけ更新
+  useEffect(() => {
+    setNodes((current) =>
+      current.map((n) => ({
+        ...n,
+        data: { ...n.data, conflicted: conflictedNodeIds?.has(n.id) ?? false },
+      })),
+    );
+  }, [conflictedNodeIds, setNodes]);
+
+  useEffect(() => {
+    setEdges((current) =>
+      current.map((e) => {
+        const conflicted = conflictedEdgeIds?.has(e.id) ?? false;
+        return {
+          ...e,
+          style: conflicted ? { stroke: '#f97316', strokeWidth: 3 } : undefined,
+          data: { ...e.data, conflicted },
+        };
+      }),
+    );
+  }, [conflictedEdgeIds, setEdges]);
 
   // nodes/edges が変わったら親に通知
   useEffect(() => {
@@ -442,3 +489,5 @@ export function GraphEditor(props: Props) {
     </ReactFlowProvider>
   );
 }
+
+export type { Props as GraphEditorProps };

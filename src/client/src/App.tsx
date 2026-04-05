@@ -5,7 +5,7 @@ import type {
   Sheet,
   SheetId,
 } from '@conversensus/shared';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   createFile,
   exportFile,
@@ -18,11 +18,13 @@ import {
 import {
   initCidCacheFromPds,
   login,
+  NSID,
   type RemoteChange,
   startPolling,
   stopPolling,
   syncFileToAtproto,
 } from './atproto';
+import { ConflictPanel } from './ConflictPanel';
 import { GraphEditor } from './GraphEditor';
 import type { PopupTarget } from './SettingsPopup';
 import { Sidebar } from './Sidebar';
@@ -56,9 +58,47 @@ export default function App() {
   );
   const [newFileName, setNewFileName] = useState('');
   const [popupTarget, setPopupTarget] = useState<PopupTarget | null>(null);
-  // リモート変更検出: ポーリングで検出された他ユーザーの変更を保持 (#59 でコンフリクト UI に利用)
-  const [_remoteChanges, setRemoteChanges] = useState<RemoteChange[]>([]);
+  // リモート変更検出: ポーリングで検出された他ユーザーの変更
+  const [remoteChanges, setRemoteChanges] = useState<RemoteChange[]>([]);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // コンフリクト中のノード/エッジ ID セット (GraphEditor へのハイライト用)
+  const conflictedNodeIds = useMemo(
+    () =>
+      new Set(
+        remoteChanges
+          .filter(
+            (c) =>
+              c.collection === NSID.node || c.collection === NSID.nodeLayout,
+          )
+          .map((c) => c.rkey),
+      ),
+    [remoteChanges],
+  );
+  const conflictedEdgeIds = useMemo(
+    () =>
+      new Set(
+        remoteChanges
+          .filter(
+            (c) =>
+              c.collection === NSID.edge || c.collection === NSID.edgeLayout,
+          )
+          .map((c) => c.rkey),
+      ),
+    [remoteChanges],
+  );
+
+  const handleDismissConflict = useCallback((change: RemoteChange) => {
+    setRemoteChanges((prev) =>
+      prev.filter(
+        (c) => !(c.collection === change.collection && c.rkey === change.rkey),
+      ),
+    );
+  }, []);
+
+  const handleDismissAllConflicts = useCallback(() => {
+    setRemoteChanges([]);
+  }, []);
 
   useEffect(() => {
     fetchFiles().then(setFiles).catch(console.error);
@@ -316,6 +356,8 @@ export default function App() {
             file={activeFile}
             activeSheetId={activeSheetId}
             onChange={handleChange}
+            conflictedNodeIds={conflictedNodeIds}
+            conflictedEdgeIds={conflictedEdgeIds}
           />
         ) : (
           <div
@@ -331,6 +373,11 @@ export default function App() {
           </div>
         )}
       </main>
+      <ConflictPanel
+        changes={remoteChanges}
+        onDismiss={handleDismissConflict}
+        onDismissAll={handleDismissAllConflicts}
+      />
     </div>
   );
 }
