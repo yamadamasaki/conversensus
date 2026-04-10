@@ -10,7 +10,7 @@
  */
 
 import type { EdgeId, GraphFile, NodeId, Sheet } from '@conversensus/shared';
-import { cacheResult } from './cidCache';
+import { cacheResult, getCreatedAt } from './cidCache';
 import {
   edgeLayouts,
   edges,
@@ -39,6 +39,7 @@ import type {
   SheetRecord,
   StrongRef,
 } from './types';
+import { NSID } from './types';
 
 // --- 書き込み ---
 
@@ -50,20 +51,28 @@ import type {
 export async function syncSheetToAtproto(sheet: Sheet): Promise<void> {
   const now = new Date().toISOString();
 
+  // 各レコードの createdAt は PDS から取得した値を優先して使う。
+  // 同じデータを再 sync しても CID が変わらないようにするため。
+
   // 1. sheet レコードを put → sheetRef を取得
-  const sheetResult = await sheets.put(sheet.id, sheetToRecord(sheet, now));
-  cacheResult(sheetResult.uri, sheetResult.cid);
+  const sheetCreatedAt = getCreatedAt(NSID.sheet, sheet.id) ?? now;
+  const sheetResult = await sheets.put(
+    sheet.id,
+    sheetToRecord(sheet, sheetCreatedAt),
+  );
+  cacheResult(sheetResult.uri, sheetResult.cid, sheetCreatedAt);
   const sheetRef: StrongRef = { uri: sheetResult.uri, cid: sheetResult.cid };
 
   // 2. 全 node を put (並列) → nodeId → StrongRef マップを構築
   const nodeRefs = new Map<string, StrongRef>();
   await Promise.all(
     sheet.nodes.map(async (node) => {
+      const nodeCreatedAt = getCreatedAt(NSID.node, node.id) ?? now;
       const result = await nodes.put(
         node.id,
-        nodeToRecord(node, sheetRef, now),
+        nodeToRecord(node, sheetRef, nodeCreatedAt),
       );
-      cacheResult(result.uri, result.cid);
+      cacheResult(result.uri, result.cid, nodeCreatedAt);
       nodeRefs.set(node.id, { uri: result.uri, cid: result.cid });
     }),
   );
@@ -80,11 +89,12 @@ export async function syncSheetToAtproto(sheet: Sheet): Promise<void> {
         );
         return;
       }
+      const edgeCreatedAt = getCreatedAt(NSID.edge, edge.id) ?? now;
       const result = await edges.put(
         edge.id,
-        edgeToRecord(edge, sheetRef, sourceRef, targetRef, now),
+        edgeToRecord(edge, sheetRef, sourceRef, targetRef, edgeCreatedAt),
       );
-      cacheResult(result.uri, result.cid);
+      cacheResult(result.uri, result.cid, edgeCreatedAt);
       edgeRefs.set(edge.id, { uri: result.uri, cid: result.cid });
     }),
   );
@@ -98,11 +108,13 @@ export async function syncSheetToAtproto(sheet: Sheet): Promise<void> {
         const parentRef = layout.parentId
           ? nodeRefs.get(layout.parentId)
           : undefined;
+        const layoutCreatedAt =
+          getCreatedAt(NSID.nodeLayout, layout.nodeId) ?? now;
         const r = await nodeLayouts.put(
           layout.nodeId,
-          nodeLayoutToRecord(layout, nodeRef, parentRef, now),
+          nodeLayoutToRecord(layout, nodeRef, parentRef, layoutCreatedAt),
         );
-        cacheResult(r.uri, r.cid);
+        cacheResult(r.uri, r.cid, layoutCreatedAt);
       }),
     );
   }
@@ -113,11 +125,13 @@ export async function syncSheetToAtproto(sheet: Sheet): Promise<void> {
       sheet.edgeLayouts.map(async (layout) => {
         const edgeRef = edgeRefs.get(layout.edgeId);
         if (!edgeRef) return;
+        const layoutCreatedAt =
+          getCreatedAt(NSID.edgeLayout, layout.edgeId) ?? now;
         const r = await edgeLayouts.put(
           layout.edgeId,
-          edgeLayoutToRecord(layout, edgeRef, now),
+          edgeLayoutToRecord(layout, edgeRef, layoutCreatedAt),
         );
-        cacheResult(r.uri, r.cid);
+        cacheResult(r.uri, r.cid, layoutCreatedAt);
       }),
     );
   }

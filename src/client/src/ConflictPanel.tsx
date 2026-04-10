@@ -43,11 +43,14 @@ function ChangeItem({
     semantic: true,
   };
   const value = change.value as Record<string, unknown>;
+  const isAdd = change.changeType === 'add';
+
+  const borderColor = isAdd ? '#22c55e' : info.semantic ? '#f97316' : '#94a3b8';
 
   return (
     <li
       style={{
-        borderLeft: `3px solid ${info.semantic ? '#f97316' : '#94a3b8'}`,
+        borderLeft: `3px solid ${borderColor}`,
         paddingLeft: 8,
         marginBottom: 8,
         fontSize: 12,
@@ -65,7 +68,18 @@ function ChangeItem({
           <code style={{ fontSize: 11, color: '#64748b' }}>
             {shortId(change.rkey)}
           </code>
-          {info.semantic ? (
+          {isAdd ? (
+            <span
+              style={{
+                marginLeft: 6,
+                fontSize: 10,
+                color: '#16a34a',
+                fontWeight: 'bold',
+              }}
+            >
+              追加
+            </span>
+          ) : info.semantic ? (
             <span
               style={{
                 marginLeft: 6,
@@ -121,8 +135,12 @@ function ChangeItem({
 export function ConflictPanel({ changes, onDismissAll, onDismiss }: Props) {
   if (changes.length === 0) return null;
 
+  const addCount = changes.filter((c) => c.changeType === 'add').length;
+  const updateCount = changes.filter((c) => c.changeType === 'update').length;
   const semanticCount = changes.filter(
-    (c) => COLLECTION_LABEL[c.collection]?.semantic !== false,
+    (c) =>
+      c.changeType === 'update' &&
+      COLLECTION_LABEL[c.collection]?.semantic !== false,
   ).length;
 
   return (
@@ -154,11 +172,17 @@ export function ConflictPanel({ changes, onDismissAll, onDismiss }: Props) {
       >
         <div>
           <span style={{ fontWeight: 'bold', fontSize: 13, color: '#c2410c' }}>
-            コンフリクト {changes.length} 件
+            リモート変更 {changes.length} 件
           </span>
-          {semanticCount > 0 && (
+          {addCount > 0 && (
+            <span style={{ fontSize: 11, color: '#16a34a', marginLeft: 6 }}>
+              追加 {addCount}
+            </span>
+          )}
+          {updateCount > 0 && (
             <span style={{ fontSize: 11, color: '#64748b', marginLeft: 6 }}>
-              (合意が必要: {semanticCount} 件)
+              変更 {updateCount}
+              {semanticCount > 0 ? ` (要確認 ${semanticCount})` : ''}
             </span>
           )}
         </div>
@@ -173,9 +197,9 @@ export function ConflictPanel({ changes, onDismissAll, onDismiss }: Props) {
           borderBottom: '1px solid #f1f5f9',
         }}
       >
-        他のユーザーが同じレコードを変更しました。
+        他のユーザーによるリモート変更を検出しました。
         <br />
-        オレンジのノード/エッジが対象です。
+        オレンジ: 変更あり / 緑: 新規追加
       </div>
 
       {/* 変更一覧 */}

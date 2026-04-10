@@ -8,6 +8,8 @@ export const NSID = {
   edge: 'app.conversensus.graph.edge',
   nodeLayout: 'app.conversensus.graph.nodeLayout',
   edgeLayout: 'app.conversensus.graph.edgeLayout',
+  branch: 'app.conversensus.graph.branch',
+  commit: 'app.conversensus.graph.commit',
 } as const;
 
 export type SheetRecord = {
@@ -66,4 +68,27 @@ export type RemoteChange = {
   rkey: string; // レコードキー (例: nodeId)
   cid: string; // 新しい CID
   value: unknown; // PDS 上の最新レコード値
+  changeType: 'add' | 'update'; // 新規追加 or 既存変更
+};
+
+export type BranchRecord = {
+  $type: typeof NSID.branch;
+  sheet: StrongRef;
+  name: string;
+  description?: string;
+  authorDid: string;
+  status: 'open' | 'merged' | 'closed';
+  baseCommit?: StrongRef; // 分岐元 commit (main は undefined)
+  createdAt: string;
+};
+
+export type CommitRecord = {
+  $type: typeof NSID.commit;
+  sheet: StrongRef;
+  branch: StrongRef;
+  message: string;
+  authorDid: string;
+  parentCommit?: StrongRef;
+  operations: unknown[]; // CommitOperation[] を JSON として格納
+  createdAt: string;
 };

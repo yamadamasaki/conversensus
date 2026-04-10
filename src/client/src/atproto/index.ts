@@ -1,6 +1,19 @@
+export {
+  applyOperations,
+  type Branch,
+  type Commit,
+  computeOperations,
+  createBranch,
+  createCommit,
+  createMainBranch,
+  fetchBranchesForSheet,
+  fetchCommitsForBranch,
+} from './branchState';
 export { currentDid, getAgent, login } from './client';
 export {
   atUri,
+  branches,
+  commits,
   edgeLayouts,
   edges,
   nodeLayouts,
@@ -20,6 +33,8 @@ export {
   syncSheetToAtproto,
 } from './sync';
 export type {
+  BranchRecord,
+  CommitRecord,
   EdgeLayoutRecord,
   EdgeRecord,
   NodeLayoutRecord,
