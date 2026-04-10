@@ -9,13 +9,16 @@
 
 import type {
   EdgeLayout,
+  FileId,
   GraphEdge,
+  GraphFile,
   GraphNode,
   NodeLayout,
   Sheet,
 } from '@conversensus/shared';
 import {
   EdgeIdSchema,
+  FileIdSchema,
   NodeIdSchema,
   SheetIdSchema,
 } from '@conversensus/shared';
@@ -23,6 +26,7 @@ import { rkeyFromUri } from './collections';
 import type {
   EdgeLayoutRecord,
   EdgeRecord,
+  FileRecord,
   NodeLayoutRecord,
   NodeRecord,
   SheetRecord,
@@ -31,13 +35,26 @@ import type {
 
 // --- ドメイン → ATProto レコード ---
 
+export function fileToRecord(
+  file: Pick<GraphFile, 'name' | 'description'>,
+  createdAt = new Date().toISOString(),
+): Omit<FileRecord, '$type'> {
+  return {
+    name: file.name,
+    ...(file.description !== undefined && { description: file.description }),
+    createdAt,
+  };
+}
+
 export function sheetToRecord(
   sheet: Pick<Sheet, 'name' | 'description'>,
   createdAt = new Date().toISOString(),
+  fileRef?: StrongRef,
 ): Omit<SheetRecord, '$type'> {
   return {
     name: sheet.name,
     ...(sheet.description !== undefined && { description: sheet.description }),
+    ...(fileRef !== undefined && { file: fileRef }),
     createdAt,
   };
 }
@@ -195,6 +212,19 @@ export function recordToSheetMeta(
 ): Pick<Sheet, 'id' | 'name' | 'description'> {
   return {
     id: SheetIdSchema.parse(rkey),
+    name: record.name,
+    ...(record.description !== undefined && {
+      description: record.description,
+    }),
+  };
+}
+
+export function recordToFileMeta(
+  rkey: string,
+  record: FileRecord,
+): Pick<GraphFile, 'id' | 'name' | 'description'> & { id: FileId } {
+  return {
+    id: FileIdSchema.parse(rkey),
     name: record.name,
     ...(record.description !== undefined && {
       description: record.description,

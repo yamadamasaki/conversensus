@@ -24,6 +24,8 @@ import {
   createCommit,
   fetchBranchesForSheet,
   fetchCommitsForBranch,
+  fetchFileFromAtproto,
+  fetchFilesFromAtproto,
   initCidCacheFromPds,
   login,
   NSID,
@@ -246,6 +248,19 @@ export default function App() {
     // ATProto: ログイン後に CID キャッシュを初期化してポーリング開始
     tryAtprotoAutoLogin().then(async () => {
       try {
+        // ATProto のファイル一覧を取得してローカル一覧とマージ
+        const atprotoFiles = await fetchFilesFromAtproto();
+        setFiles((local) => {
+          const localIds = new Set(local.map((f) => f.id));
+          const newFromAtproto = atprotoFiles.filter(
+            (f) => !localIds.has(f.id),
+          );
+          // ATProto 側の情報で既存エントリを上書き (name/description が最新)
+          const updated = local.map(
+            (f) => atprotoFiles.find((a) => a.id === f.id) ?? f,
+          );
+          return [...updated, ...newFromAtproto];
+        });
         await initCidCacheFromPds();
         startPolling((changes) => {
           console.info('[atproto] remote changes detected:', changes);
@@ -297,7 +312,16 @@ export default function App() {
 
   const openFile = useCallback(async (id: string) => {
     try {
-      const file = await fetchFile(id);
+      let file: GraphFile;
+      try {
+        // ATProto が primary
+        file = await fetchFileFromAtproto(id);
+        // ローカルキャッシュを非同期で更新
+        saveFile(file).catch(() => {});
+      } catch {
+        // ATProto 未ログイン / オフライン時はローカルにフォールバック
+        file = await fetchFile(id);
+      }
       setActiveFile(file);
       setActiveSheetId((file.sheets[0]?.id ?? null) as SheetId | null);
       setExpandedFileIds((prev) => new Set([...prev, id]));
@@ -354,15 +378,16 @@ export default function App() {
           : f,
       ),
     );
+    // ATProto が primary: 先に書き込む (ログイン済みの場合)
     try {
-      await saveFile(updated);
-      // ATProto sync: ログイン済みの場合のみバックグラウンドで同期
-      syncFileToAtproto(updated).catch((err) =>
-        console.warn('[atproto] sync failed:', err),
-      );
+      await syncFileToAtproto(updated);
     } catch (err) {
-      console.error('Failed to save file:', err);
+      console.warn('[atproto] sync failed (falling back to local):', err);
     }
+    // ローカル JSON はキャッシュ: 失敗してもサイレント
+    saveFile(updated).catch((err) =>
+      console.warn('[cache] local save failed:', err),
+    );
   }, []);
 
   const handleChange = useCallback(

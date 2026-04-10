@@ -4,6 +4,7 @@ import {
   type CommitRecord,
   type EdgeLayoutRecord,
   type EdgeRecord,
+  type FileRecord,
   type NodeLayoutRecord,
   type NodeRecord,
   NSID,
@@ -75,6 +76,27 @@ function rkeyFromUri(uri: string): string {
 function atUri(collection: string, rkey: string): string {
   return `at://${currentDid()}/${collection}/${rkey}`;
 }
+
+// --- File ---
+
+export const files = {
+  put(fileId: string, data: Omit<FileRecord, '$type'>): Promise<RecordResult> {
+    return putRecord(NSID.file, fileId, { $type: NSID.file, ...data });
+  },
+  get(fileId: string) {
+    return getRecord(NSID.file, fileId);
+  },
+  list() {
+    return listRecords(NSID.file);
+  },
+  delete(fileId: string) {
+    return deleteRecord(NSID.file, fileId);
+  },
+  async ref(fileId: string): Promise<StrongRef> {
+    const r = await getRecord(NSID.file, fileId);
+    return { uri: r.uri, cid: r.cid };
+  },
+};
 
 // --- Sheet ---
 

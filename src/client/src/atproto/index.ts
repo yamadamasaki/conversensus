@@ -16,6 +16,7 @@ export {
   commits,
   edgeLayouts,
   edges,
+  files,
   nodeLayouts,
   nodes,
   rkeyFromUri,
@@ -28,6 +29,8 @@ export {
   stopPolling,
 } from './poller';
 export {
+  fetchFileFromAtproto,
+  fetchFilesFromAtproto,
   fetchSheetsFromAtproto,
   syncFileToAtproto,
   syncSheetToAtproto,
@@ -37,6 +40,7 @@ export type {
   CommitRecord,
   EdgeLayoutRecord,
   EdgeRecord,
+  FileRecord,
   NodeLayoutRecord,
   NodeRecord,
   RecordResult,
