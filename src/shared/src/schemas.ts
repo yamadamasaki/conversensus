@@ -106,6 +106,46 @@ export type Sheet = z.infer<typeof SheetSchema>;
 export type GraphFile = z.infer<typeof GraphFileSchema>;
 export type GraphFileListItem = z.infer<typeof GraphFileListItemSchema>;
 
+// --- Branch / Commit types (for ATProto version control) ---
+
+export const BranchIdSchema = z.string().uuid().brand<'BranchId'>();
+export type BranchId = z.infer<typeof BranchIdSchema>;
+
+export const CommitIdSchema = z.string().uuid().brand<'CommitId'>();
+export type CommitId = z.infer<typeof CommitIdSchema>;
+
+export const CommitOperationSchema = z.discriminatedUnion('op', [
+  z.object({
+    op: z.literal('node.add'),
+    nodeId: z.string().uuid(),
+    content: z.string(),
+    properties: z.record(z.string(), z.unknown()).optional(),
+  }),
+  z.object({
+    op: z.literal('node.update'),
+    nodeId: z.string().uuid(),
+    content: z.string().optional(),
+    properties: z.record(z.string(), z.unknown()).optional(),
+  }),
+  z.object({ op: z.literal('node.remove'), nodeId: z.string().uuid() }),
+  z.object({
+    op: z.literal('edge.add'),
+    edgeId: z.string().uuid(),
+    sourceId: z.string().uuid(),
+    targetId: z.string().uuid(),
+    label: z.string().optional(),
+    properties: z.record(z.string(), z.unknown()).optional(),
+  }),
+  z.object({
+    op: z.literal('edge.update'),
+    edgeId: z.string().uuid(),
+    label: z.string().optional(),
+    properties: z.record(z.string(), z.unknown()).optional(),
+  }),
+  z.object({ op: z.literal('edge.remove'), edgeId: z.string().uuid() }),
+]);
+export type CommitOperation = z.infer<typeof CommitOperationSchema>;
+
 // --- Current file format ---
 export const CONVERSENSUS_FILE_VERSION = '3' as const;
 

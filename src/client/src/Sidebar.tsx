@@ -10,6 +10,7 @@ import {
   type SheetId,
 } from '@conversensus/shared';
 import { useRef } from 'react';
+import type { Branch } from './atproto';
 import type { PopupTarget } from './SettingsPopup';
 import { SettingsPopup } from './SettingsPopup';
 
@@ -20,6 +21,8 @@ type Props = {
   expandedFileIds: Set<string>;
   newFileName: string;
   popupTarget: PopupTarget | null;
+  sheetBranches: Map<string, Branch[]>;
+  activeBranchId: string | null;
   onNewFileNameChange: (name: string) => void;
   onCreateFile: () => void;
   onImportFile: (data: ConversensusFile) => void;
@@ -33,6 +36,8 @@ type Props = {
   onExportFile: (fileId: string) => void;
   onSaveSheetSettings: (sheetId: string, name: string, desc: string) => void;
   onDeleteSheet: (sheetId: string) => void;
+  onSelectBranch: (sheetId: SheetId, branch: Branch | null) => void;
+  onCreateBranch: (sheetId: SheetId) => void;
 };
 
 const gearBtnStyle: React.CSSProperties = {
@@ -53,6 +58,8 @@ export function Sidebar({
   expandedFileIds,
   newFileName,
   popupTarget,
+  sheetBranches,
+  activeBranchId,
   onNewFileNameChange,
   onCreateFile,
   onImportFile,
@@ -66,6 +73,8 @@ export function Sidebar({
   onExportFile,
   onSaveSheetSettings,
   onDeleteSheet,
+  onSelectBranch,
+  onCreateBranch,
 }: Props) {
   const newFileComposingRef = useRef(false);
   const importInputRef = useRef<HTMLInputElement>(null);
@@ -348,6 +357,96 @@ export function Sidebar({
                             />
                           )}
                         </div>
+
+                        {/* Branch 一覧 (シート選択時に表示) */}
+                        {isActiveSheet &&
+                          (() => {
+                            const bs = sheetBranches.get(s.id) ?? [];
+                            return (
+                              <ul
+                                style={{
+                                  listStyle: 'none',
+                                  margin: 0,
+                                  padding: 0,
+                                }}
+                              >
+                                {bs.map((branch) => {
+                                  const isActiveBranch =
+                                    activeBranchId === branch.id;
+                                  return (
+                                    <li key={branch.id}>
+                                      <div
+                                        style={{
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          gap: 2,
+                                          padding: '2px 4px 2px 36px',
+                                          borderRadius: 4,
+                                          background: isActiveBranch
+                                            ? '#dde8ff'
+                                            : 'transparent',
+                                        }}
+                                      >
+                                        <button
+                                          type="button"
+                                          style={{
+                                            flex: 1,
+                                            overflow: 'hidden',
+                                            textOverflow: 'ellipsis',
+                                            whiteSpace: 'nowrap',
+                                            fontSize: 11,
+                                            fontFamily: 'monospace',
+                                            background: 'none',
+                                            border: 'none',
+                                            cursor: 'pointer',
+                                            textAlign: 'left',
+                                            padding: 0,
+                                            color:
+                                              branch.name === 'main'
+                                                ? '#888'
+                                                : '#333',
+                                          }}
+                                          onClick={() =>
+                                            onSelectBranch(
+                                              s.id,
+                                              isActiveBranch &&
+                                                branch.name !== 'main'
+                                                ? null
+                                                : branch,
+                                            )
+                                          }
+                                        >
+                                          {branch.name === 'main'
+                                            ? '⎇ main'
+                                            : `⎇ ${branch.name}`}
+                                        </button>
+                                      </div>
+                                    </li>
+                                  );
+                                })}
+                                {/* 新しい branch を作成 */}
+                                <li>
+                                  <button
+                                    type="button"
+                                    onClick={() => onCreateBranch(s.id)}
+                                    style={{
+                                      display: 'block',
+                                      width: '100%',
+                                      textAlign: 'left',
+                                      padding: '2px 4px 2px 36px',
+                                      fontSize: 11,
+                                      color: '#4f6ef7',
+                                      background: 'none',
+                                      border: 'none',
+                                      cursor: 'pointer',
+                                    }}
+                                  >
+                                    + branch
+                                  </button>
+                                </li>
+                              </ul>
+                            );
+                          })()}
                       </li>
                     );
                   })}

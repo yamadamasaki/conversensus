@@ -56,16 +56,32 @@ type Props = {
   file: GraphFile;
   activeSheetId: SheetId;
   onChange: (file: GraphFile) => void;
+  conflictedNodeIds?: Set<string>;
+  conflictedEdgeIds?: Set<string>;
 };
 
-function GraphEditorInner({ file, activeSheetId, onChange }: Props) {
+function GraphEditorInner({
+  file,
+  activeSheetId,
+  onChange,
+  conflictedNodeIds,
+  conflictedEdgeIds,
+}: Props) {
   const { screenToFlowPosition, getNodes, getEdges } = useReactFlow();
   const activeSheet = file.sheets.find((s) => s.id === activeSheetId);
   const [nodes, setNodes, onNodesChange] = useNodesState(
-    toFlowNodes(activeSheet?.nodes ?? [], activeSheet?.layouts ?? []),
+    toFlowNodes(
+      activeSheet?.nodes ?? [],
+      activeSheet?.layouts ?? [],
+      conflictedNodeIds,
+    ),
   );
   const [edges, setEdges, onEdgesChange] = useEdgesState(
-    toFlowEdges(activeSheet?.edges ?? [], activeSheet?.edgeLayouts ?? []),
+    toFlowEdges(
+      activeSheet?.edges ?? [],
+      activeSheet?.edgeLayouts ?? [],
+      conflictedEdgeIds,
+    ),
   );
 
   // 常に最新の file / activeSheetId / onChange を参照するための ref
@@ -76,26 +92,74 @@ function GraphEditorInner({ file, activeSheetId, onChange }: Props) {
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
 
-  // 初回マウント時の onChange 抑制フラグ
-  const mounted = useRef(false);
+  // sheet/file 切り替え後、ReactFlow の初期化 (dimensions 計測) が完了するまで
+  // onChange を抑制するフラグ。ReactFlow はノード数分だけ dimensions 変更を発火するため
+  // 1回スキップの mounted フラグでは不十分 → タイマーで抑制期間を設ける。
+  const readyForSave = useRef(false);
+  // コンフリクトスタイル更新 (見た目のみ) による onChange 誤発火を抑制するフラグ
+  const conflictUpdatePendingRef = useRef(false);
 
   // file.id または activeSheetId が変わったとき React Flow の state をリセット
   // biome-ignore lint/correctness/useExhaustiveDependencies: file.id / activeSheetId の変化のみをトリガーにする意図的な設計
   useEffect(() => {
-    mounted.current = false;
+    readyForSave.current = false;
     const sheet = fileRef.current.sheets.find(
       (s) => s.id === activeSheetIdRef.current,
     );
-    setNodes(toFlowNodes(sheet?.nodes ?? [], sheet?.layouts ?? []));
-    setEdges(toFlowEdges(sheet?.edges ?? [], sheet?.edgeLayouts ?? []));
+    setNodes(
+      toFlowNodes(sheet?.nodes ?? [], sheet?.layouts ?? [], conflictedNodeIds),
+    );
+    setEdges(
+      toFlowEdges(
+        sheet?.edges ?? [],
+        sheet?.edgeLayouts ?? [],
+        conflictedEdgeIds,
+      ),
+    );
+    // ReactFlow の初期 dimensions 計測が完了するまで onChange を抑制 (150ms)
+    const t = setTimeout(() => {
+      readyForSave.current = true;
+    }, 150);
+    return () => clearTimeout(t);
   }, [file.id, activeSheetId, setNodes, setEdges]);
+
+  // コンフリクト状態が変わったらノード/エッジのスタイルだけ更新
+  // NOTE: setNodes/setEdges は nodes/edges state を変化させるため onChange effect が
+  // 発火する。これはデータ変更ではなくスタイル変更なので conflictUpdatePendingRef で抑制する。
+  useEffect(() => {
+    conflictUpdatePendingRef.current = true;
+    setNodes((current) =>
+      current.map((n) => ({
+        ...n,
+        data: { ...n.data, conflicted: conflictedNodeIds?.has(n.id) ?? false },
+      })),
+    );
+  }, [conflictedNodeIds, setNodes]);
+
+  useEffect(() => {
+    conflictUpdatePendingRef.current = true;
+    setEdges((current) =>
+      current.map((e) => {
+        const conflicted = conflictedEdgeIds?.has(e.id) ?? false;
+        return {
+          ...e,
+          style: conflicted ? { stroke: '#f97316', strokeWidth: 3 } : undefined,
+          data: { ...e.data, conflicted },
+        };
+      }),
+    );
+  }, [conflictedEdgeIds, setEdges]);
 
   // nodes/edges が変わったら親に通知
   useEffect(() => {
-    if (!mounted.current) {
-      mounted.current = true;
+    // コンフリクトスタイル更新 (見た目のみ) の場合は onChange を呼ばない
+    // readyForSave より先にチェックして pending フラグを必ずリセットする
+    if (conflictUpdatePendingRef.current) {
+      conflictUpdatePendingRef.current = false;
       return;
     }
+    // 初期化フェーズ (ReactFlow dimension 計測中) は onChange を呼ばない
+    if (!readyForSave.current) return;
     const currentSheetId = activeSheetIdRef.current;
     const { nodes: graphNodes, layouts } = fromFlowNodes(nodes);
     const { edges: graphEdges, edgeLayouts } = fromFlowEdges(edges);
@@ -442,3 +506,5 @@ export function GraphEditor(props: Props) {
     </ReactFlowProvider>
   );
 }
+
+export type { Props as GraphEditorProps };

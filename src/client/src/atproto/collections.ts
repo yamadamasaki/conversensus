@@ -1,5 +1,7 @@
 import { currentDid, getAgent } from './client';
 import {
+  type BranchRecord,
+  type CommitRecord,
   type EdgeLayoutRecord,
   type EdgeRecord,
   type NodeLayoutRecord,
@@ -35,7 +37,7 @@ async function getRecord(
     collection,
     rkey,
   });
-  return res.data;
+  return { ...res.data, cid: res.data.cid ?? '' };
 }
 
 async function listRecords(
@@ -186,6 +188,50 @@ export const edgeLayouts = {
   },
   delete(edgeId: string) {
     return deleteRecord(NSID.edgeLayout, edgeId);
+  },
+};
+
+// --- Branch ---
+
+export const branches = {
+  put(
+    branchId: string,
+    data: Omit<BranchRecord, '$type'>,
+  ): Promise<RecordResult> {
+    return putRecord(NSID.branch, branchId, { $type: NSID.branch, ...data });
+  },
+  get(branchId: string) {
+    return getRecord(NSID.branch, branchId);
+  },
+  list() {
+    return listRecords(NSID.branch);
+  },
+  delete(branchId: string) {
+    return deleteRecord(NSID.branch, branchId);
+  },
+  async ref(branchId: string): Promise<StrongRef> {
+    const r = await getRecord(NSID.branch, branchId);
+    return { uri: r.uri, cid: r.cid };
+  },
+};
+
+// --- Commit ---
+
+export const commits = {
+  put(
+    commitId: string,
+    data: Omit<CommitRecord, '$type'>,
+  ): Promise<RecordResult> {
+    return putRecord(NSID.commit, commitId, { $type: NSID.commit, ...data });
+  },
+  get(commitId: string) {
+    return getRecord(NSID.commit, commitId);
+  },
+  list() {
+    return listRecords(NSID.commit);
+  },
+  delete(commitId: string) {
+    return deleteRecord(NSID.commit, commitId);
   },
 };
 

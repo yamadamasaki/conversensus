@@ -40,13 +40,14 @@ export async function initCidCacheFromPds(): Promise<void> {
     COLLECTION_LISTS.map(async ([collection, list]) => {
       const records = await list();
       for (const r of records) {
-        setCid(collection, rkeyFromUri(r.uri), r.cid);
+        const createdAt = (r.value as { createdAt?: string }).createdAt;
+        setCid(collection, rkeyFromUri(r.uri), r.cid, createdAt);
       }
     }),
   );
 }
 
-/** キャッシュ済み CID と異なるレコードを収集して返す */
+/** キャッシュ済み CID と異なるレコード、および新規レコードを収集して返す */
 async function detectChanges(): Promise<RemoteChange[]> {
   const changes: RemoteChange[] = [];
 
@@ -56,9 +57,25 @@ async function detectChanges(): Promise<RemoteChange[]> {
       for (const r of records) {
         const rkey = rkeyFromUri(r.uri);
         const knownCid = getCid(collection, rkey);
-        if (knownCid !== undefined && knownCid !== r.cid) {
-          // キャッシュに存在するが CID が変わった → 他ユーザーによるリモート変更
-          changes.push({ collection, rkey, cid: r.cid, value: r.value });
+        if (knownCid === undefined) {
+          // キャッシュに未登録 → 他ユーザーが追加した新規レコード
+          changes.push({
+            collection,
+            rkey,
+            cid: r.cid,
+            value: r.value,
+            changeType: 'add',
+          });
+          cacheResult(r.uri, r.cid);
+        } else if (knownCid !== r.cid) {
+          // キャッシュに存在するが CID が変わった → 他ユーザーによる更新
+          changes.push({
+            collection,
+            rkey,
+            cid: r.cid,
+            value: r.value,
+            changeType: 'update',
+          });
           cacheResult(r.uri, r.cid); // キャッシュを最新に更新
         }
       }

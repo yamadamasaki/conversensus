@@ -16,6 +16,7 @@ export const GROUP_TITLE_HEIGHT = 30;
 export function toFlowNodes(
   nodes: GraphNode[],
   layouts: NodeLayout[] = [],
+  conflictedNodeIds?: Set<string>,
 ): Node[] {
   const layoutMap = new Map(layouts.map((l) => [l.nodeId as string, l]));
   return nodes.map((n) => {
@@ -30,7 +31,10 @@ export function toFlowNodes(
         x: layout.x ?? 0,
         y: layout.y ?? 0,
       },
-      data: { label: n.content },
+      data: {
+        label: n.content,
+        conflicted: conflictedNodeIds?.has(n.id) ?? false,
+      },
       type: layout.nodeType === 'group' ? 'groupNode' : 'editableNode',
       parentId: layout.parentId,
       style:
@@ -44,10 +48,12 @@ export function toFlowNodes(
 export function toFlowEdges(
   edges: GraphEdge[],
   edgeLayouts: EdgeLayout[] = [],
+  conflictedEdgeIds?: Set<string>,
 ): Edge[] {
   const layoutMap = new Map(edgeLayouts.map((l) => [l.edgeId as string, l]));
   return edges.map((e) => {
     const layout = layoutMap.get(e.id);
+    const conflicted = conflictedEdgeIds?.has(e.id) ?? false;
     return {
       id: e.id,
       source: e.source,
@@ -57,10 +63,12 @@ export function toFlowEdges(
       label: e.label,
       type: 'editableLabel',
       markerEnd: { type: MarkerType.ArrowClosed },
+      style: conflicted ? { stroke: '#f97316', strokeWidth: 3 } : undefined,
       data: {
         pathType: layout?.pathType ?? 'bezier',
         labelOffsetX: layout?.labelOffsetX ?? 0,
         labelOffsetY: layout?.labelOffsetY ?? 0,
+        conflicted,
       },
     };
   });

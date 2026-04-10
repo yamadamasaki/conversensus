@@ -5,27 +5,50 @@
  * - ポーリング時 (poller.ts) → 新 CID と比較してリモート変更を検出
  */
 
-const _cache = new Map<string, string>(); // `${collection}/${rkey}` → cid
+type CacheEntry = { cid: string; createdAt?: string };
+const _cache = new Map<string, CacheEntry>(); // `${collection}/${rkey}` → entry
 
 function key(collection: string, rkey: string): string {
   return `${collection}/${rkey}`;
 }
 
-export function setCid(collection: string, rkey: string, cid: string): void {
-  _cache.set(key(collection, rkey), cid);
+export function setCid(
+  collection: string,
+  rkey: string,
+  cid: string,
+  createdAt?: string,
+): void {
+  const existing = _cache.get(key(collection, rkey));
+  _cache.set(key(collection, rkey), {
+    cid,
+    // 一度キャッシュされた createdAt は変えない (CID 安定性のため)
+    createdAt: existing?.createdAt ?? createdAt,
+  });
 }
 
 export function getCid(collection: string, rkey: string): string | undefined {
-  return _cache.get(key(collection, rkey));
+  return _cache.get(key(collection, rkey))?.cid;
+}
+
+/** PDS から読んだ createdAt を返す。なければ undefined */
+export function getCreatedAt(
+  collection: string,
+  rkey: string,
+): string | undefined {
+  return _cache.get(key(collection, rkey))?.createdAt;
 }
 
 /** AT-URI から collection / rkey を取り出して setCid する */
-export function cacheResult(uri: string, cid: string): void {
+export function cacheResult(
+  uri: string,
+  cid: string,
+  createdAt?: string,
+): void {
   // AT-URI: "at://did/collection/rkey"
   const parts = uri.split('/');
   const collection = parts[3];
   const rkey = parts[4];
-  if (collection && rkey) setCid(collection, rkey, cid);
+  if (collection && rkey) setCid(collection, rkey, cid, createdAt);
 }
 
 export function clearCache(): void {

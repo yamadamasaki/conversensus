@@ -5,7 +5,7 @@ import type {
   Sheet,
   SheetId,
 } from '@conversensus/shared';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   createFile,
   exportFile,
@@ -16,13 +16,25 @@ import {
   saveFile,
 } from './api';
 import {
+  applyOperations,
+  type Branch,
+  type Commit,
+  computeOperations,
+  createBranch,
+  createCommit,
+  fetchBranchesForSheet,
+  fetchCommitsForBranch,
   initCidCacheFromPds,
   login,
+  NSID,
   type RemoteChange,
+  sheets,
   startPolling,
   stopPolling,
   syncFileToAtproto,
 } from './atproto';
+import { CommitDialog } from './CommitDialog';
+import { ConflictPanel } from './ConflictPanel';
 import { GraphEditor } from './GraphEditor';
 import type { PopupTarget } from './SettingsPopup';
 import { Sidebar } from './Sidebar';
@@ -56,9 +68,178 @@ export default function App() {
   );
   const [newFileName, setNewFileName] = useState('');
   const [popupTarget, setPopupTarget] = useState<PopupTarget | null>(null);
-  // リモート変更検出: ポーリングで検出された他ユーザーの変更を保持 (#59 でコンフリクト UI に利用)
-  const [_remoteChanges, setRemoteChanges] = useState<RemoteChange[]>([]);
+  // リモート変更検出: ポーリングで検出された他ユーザーの変更
+  const [remoteChanges, setRemoteChanges] = useState<RemoteChange[]>([]);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Branch / Commit state
+  const [activeBranch, setActiveBranch] = useState<Branch | null>(null);
+  const [sheetBranches, setSheetBranches] = useState<Map<string, Branch[]>>(
+    new Map(),
+  );
+  const [branchCommits, setBranchCommits] = useState<Commit[]>([]);
+  const [commitDialogOpen, setCommitDialogOpen] = useState(false);
+  // branch mode の base state (commit のたびに更新)
+  const branchBaseSheet = useRef<Sheet | null>(null);
+  // 最新 commit ref (parentCommit チェーン用)
+  const latestCommitRef = useRef<{ uri: string; cid: string } | null>(null);
+
+  // 'update' のみをオレンジハイライト対象とする (新規追加 'add' はハイライト不要)
+  const conflictedNodeIds = useMemo(
+    () =>
+      new Set(
+        remoteChanges
+          .filter(
+            (c) =>
+              c.changeType === 'update' &&
+              (c.collection === NSID.node || c.collection === NSID.nodeLayout),
+          )
+          .map((c) => c.rkey),
+      ),
+    [remoteChanges],
+  );
+  const conflictedEdgeIds = useMemo(
+    () =>
+      new Set(
+        remoteChanges
+          .filter(
+            (c) =>
+              c.changeType === 'update' &&
+              (c.collection === NSID.edge || c.collection === NSID.edgeLayout),
+          )
+          .map((c) => c.rkey),
+      ),
+    [remoteChanges],
+  );
+
+  const activeSheet = useMemo(
+    () => activeFile?.sheets.find((s) => s.id === activeSheetId) ?? null,
+    [activeFile, activeSheetId],
+  );
+
+  // branch が選択されている場合、base state + commits の operations を適用した sheet を表示
+  const displaySheet = useMemo((): Sheet | null => {
+    if (!activeSheet) return null;
+    if (!activeBranch || activeBranch.name === 'main') return activeSheet;
+    // branchCommits の全 operations を順番に適用
+    const allOps = branchCommits.flatMap((c) => c.operations);
+    return applyOperations(activeSheet, allOps);
+  }, [activeSheet, activeBranch, branchCommits]);
+
+  // 現在の branch での pending operations (未コミットの変更)
+  const pendingOps = useMemo(() => {
+    if (!branchBaseSheet.current || !activeSheet) return [];
+    if (!activeBranch || activeBranch.name === 'main') return [];
+    return computeOperations(branchBaseSheet.current, activeSheet);
+  }, [activeSheet, activeBranch]);
+
+  // branch が選択されている場合、displaySheet を activeFile に反映した仮の file を GraphEditor に渡す
+  const displayFile = useMemo((): GraphFile | null => {
+    if (!activeFile || !displaySheet || !activeSheetId) return activeFile;
+    if (!activeBranch || activeBranch.name === 'main') return activeFile;
+    return {
+      ...activeFile,
+      sheets: activeFile.sheets.map((s) =>
+        s.id === activeSheetId ? displaySheet : s,
+      ),
+    };
+  }, [activeFile, displaySheet, activeSheetId, activeBranch]);
+
+  const handleDismissConflict = useCallback((change: RemoteChange) => {
+    setRemoteChanges((prev) =>
+      prev.filter(
+        (c) => !(c.collection === change.collection && c.rkey === change.rkey),
+      ),
+    );
+  }, []);
+
+  const handleDismissAllConflicts = useCallback(() => {
+    setRemoteChanges([]);
+  }, []);
+
+  const handleSelectBranch = useCallback(
+    async (sheetId: SheetId, branch: Branch | null) => {
+      setActiveBranch(branch);
+      latestCommitRef.current = null;
+      if (!branch || branch.name === 'main') {
+        branchBaseSheet.current = null;
+        setBranchCommits([]);
+        return;
+      }
+      try {
+        const cs = await fetchCommitsForBranch(branch.uri);
+        setBranchCommits(cs);
+        // base state = activeFile の現在の sheet 状態
+        const sheet = activeFile?.sheets.find((s) => s.id === sheetId) ?? null;
+        branchBaseSheet.current = sheet;
+        if (cs.length > 0) {
+          const last = cs[cs.length - 1];
+          latestCommitRef.current = { uri: last.uri, cid: last.cid };
+        }
+      } catch (err) {
+        console.warn('[branch] fetch commits failed:', err);
+      }
+    },
+    [activeFile],
+  );
+
+  const handleCreateBranch = useCallback(async (sheetId: SheetId) => {
+    const name = window.prompt('branch 名を入力してください:');
+    if (!name?.trim()) return;
+    try {
+      const sheetRef = await sheets.ref(sheetId);
+      const branch = await createBranch(
+        name.trim(),
+        sheetId,
+        sheetRef,
+        latestCommitRef.current ?? undefined,
+      );
+      setSheetBranches((prev) => {
+        const next = new Map(prev);
+        const existing = next.get(sheetId) ?? [];
+        next.set(sheetId, [...existing, branch]);
+        return next;
+      });
+    } catch (err) {
+      console.warn('[branch] create failed:', err);
+      alert(
+        'branch の作成に失敗しました。ATProto にログインしているか確認してください。',
+      );
+    }
+  }, []);
+
+  const handleCommit = useCallback(
+    async (message: string) => {
+      if (!activeBranch || !activeSheetId || !activeFile) return;
+      const ops = pendingOps;
+      if (ops.length === 0) return;
+
+      try {
+        const sheetRef = await sheets.ref(activeSheetId);
+        const branchRef = { uri: activeBranch.uri, cid: activeBranch.cid };
+        const parentRef = latestCommitRef.current ?? undefined;
+
+        const commit = await createCommit(
+          message,
+          ops,
+          sheetRef,
+          branchRef,
+          parentRef,
+        );
+        setBranchCommits((prev) => [...prev, commit]);
+        latestCommitRef.current = { uri: commit.uri, cid: commit.cid };
+
+        // base state を更新 (次の commit の base)
+        branchBaseSheet.current =
+          activeFile.sheets.find((s) => s.id === activeSheetId) ?? null;
+        setCommitDialogOpen(false);
+      } catch (err) {
+        console.warn('[commit] create failed:', err);
+        alert('コミットに失敗しました。');
+      }
+    },
+    [activeBranch, activeSheetId, activeFile, pendingOps],
+  );
 
   useEffect(() => {
     fetchFiles().then(setFiles).catch(console.error);
@@ -68,7 +249,22 @@ export default function App() {
         await initCidCacheFromPds();
         startPolling((changes) => {
           console.info('[atproto] remote changes detected:', changes);
-          setRemoteChanges((prev) => [...prev, ...changes]);
+          // 同一 collection/rkey は最新値で上書き (重複キー警告を防ぎ, 最新状態を保持)
+          setRemoteChanges((prev) => {
+            const merged = [...prev];
+            for (const change of changes) {
+              const idx = merged.findIndex(
+                (c) =>
+                  c.collection === change.collection && c.rkey === change.rkey,
+              );
+              if (idx >= 0) {
+                merged[idx] = change;
+              } else {
+                merged.push(change);
+              }
+            }
+            return merged;
+          });
         });
       } catch {
         // ATProto 未設定時はサイレントにスキップ
@@ -82,6 +278,22 @@ export default function App() {
       if (saveTimer.current) clearTimeout(saveTimer.current);
     };
   }, []);
+
+  // activeSheetId が変わったら branches を fetch
+  useEffect(() => {
+    if (!activeSheetId) return;
+    fetchBranchesForSheet(activeSheetId)
+      .then((bs) => {
+        setSheetBranches((prev) => {
+          const next = new Map(prev);
+          next.set(activeSheetId, bs);
+          return next;
+        });
+      })
+      .catch(() => {
+        // ATProto 未ログイン時はサイレントスキップ
+      });
+  }, [activeSheetId]);
 
   const openFile = useCallback(async (id: string) => {
     try {
@@ -309,13 +521,19 @@ export default function App() {
         onExportFile={handleExportFile}
         onSaveSheetSettings={handleSaveSheetSettings}
         onDeleteSheet={handleDeleteSheet}
+        sheetBranches={sheetBranches}
+        activeBranchId={activeBranch?.id ?? null}
+        onSelectBranch={handleSelectBranch}
+        onCreateBranch={handleCreateBranch}
       />
       <main style={{ flex: 1 }}>
         {activeFile && activeSheetId ? (
           <GraphEditor
-            file={activeFile}
+            file={displayFile ?? activeFile}
             activeSheetId={activeSheetId}
             onChange={handleChange}
+            conflictedNodeIds={conflictedNodeIds}
+            conflictedEdgeIds={conflictedEdgeIds}
           />
         ) : (
           <div
@@ -331,6 +549,61 @@ export default function App() {
           </div>
         )}
       </main>
+      <ConflictPanel
+        changes={remoteChanges}
+        onDismiss={handleDismissConflict}
+        onDismissAll={handleDismissAllConflicts}
+      />
+      {activeBranch && activeBranch.name !== 'main' && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: 24,
+            right: 24,
+            zIndex: 100,
+            display: 'flex',
+            gap: 8,
+            alignItems: 'center',
+          }}
+        >
+          <span
+            style={{
+              fontSize: 12,
+              color: '#555',
+              background: '#fff',
+              padding: '4px 8px',
+              borderRadius: 4,
+              border: '1px solid #ddd',
+            }}
+          >
+            ⎇ {activeBranch.name}{' '}
+            {pendingOps.length > 0 ? `(${pendingOps.length} 変更)` : ''}
+          </span>
+          <button
+            type="button"
+            onClick={() => setCommitDialogOpen(true)}
+            disabled={pendingOps.length === 0}
+            style={{
+              padding: '6px 16px',
+              fontSize: 13,
+              background: pendingOps.length > 0 ? '#4f6ef7' : '#ccc',
+              color: '#fff',
+              border: 'none',
+              borderRadius: 4,
+              cursor: pendingOps.length > 0 ? 'pointer' : 'not-allowed',
+            }}
+          >
+            コミット
+          </button>
+        </div>
+      )}
+      {commitDialogOpen && (
+        <CommitDialog
+          operations={pendingOps}
+          onCommit={handleCommit}
+          onCancel={() => setCommitDialogOpen(false)}
+        />
+      )}
     </div>
   );
 }
