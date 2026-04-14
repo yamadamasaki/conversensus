@@ -31,7 +31,8 @@
 - アウトライナの拡張として
 - マインドマップの拡張として
 - RDF (Resource Description Framework) の拡張として
-- SOLID (Social Linked Data) の応用として
+- ~~SOLID (Social Linked Data) の応用として~~
 - ATProto (Authenticated Transfer Protocol) の応用として
-- ICP (Internet Computer Protocol) の応用として
+- ~~ICP (Internet Computer Protocol) の応用として~~
 - Olog (Ontology Log) の応用として
+  - [Ologs: a categorical framework for knowledge representation](https://arxiv.org/abs/1102.1889)
