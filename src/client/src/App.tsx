@@ -88,6 +88,8 @@ export default function App() {
   const [branchBaseVersion, setBranchBaseVersion] = useState(0);
   // branch 開始時の元 sheet (コミットをまたいでも変わらない: diff ハイライト用)
   const branchOriginalBase = useRef<Sheet | null>(null);
+  // branch URI → 最初に入ったときの trunk Sheet (trunk↔branch を行き来しても diff 基点を保持)
+  const branchOriginalBaseMap = useRef<Map<string, Sheet>>(new Map());
   // branch 開始前の activeFile (branch 離脱時に復元するため)
   const preBranchFile = useRef<GraphFile | null>(null);
   // 最新 commit ref (parentCommit チェーン用)
@@ -204,26 +206,39 @@ export default function App() {
 
   const handleSelectBranch = useCallback(
     async (sheetId: SheetId, branch: Branch | null) => {
-      setActiveBranch(branch);
       latestCommitRef.current = null;
       if (!branch || branch.name === 'main') {
+        setActiveBranch(branch);
         branchBaseSheet.current = null;
+        branchOriginalBase.current = null;
         setBranchCommits([]);
+        if (preBranchFile.current) {
+          setActiveFile(preBranchFile.current);
+          preBranchFile.current = null;
+        }
         return;
       }
       try {
         const cs = await fetchCommitsForBranch(branch.uri);
-        setBranchCommits(cs);
-        // base state = activeFile の現在の sheet 状態
+        // refs を先に確定させてから state を一括更新する。
+        // こうすることで setActiveBranch により key が変わり GraphEditor がリマウントされる時点で
+        // displaySheet が正しい branch 状態として計算される。
         const sheet = activeFile?.sheets.find((s) => s.id === sheetId) ?? null;
         branchBaseSheet.current = sheet;
-        branchOriginalBase.current = sheet;
+        // 初回のみ trunk state を記憶: trunk↔branch を行き来しても diff 基点を保持する
+        const storedBase = branchOriginalBaseMap.current.get(branch.uri);
+        branchOriginalBase.current = storedBase ?? sheet;
+        if (!storedBase && sheet) {
+          branchOriginalBaseMap.current.set(branch.uri, sheet);
+        }
         preBranchFile.current = activeFile ?? null;
-        setBranchBaseVersion((v) => v + 1);
         if (cs.length > 0) {
           const last = cs[cs.length - 1];
           latestCommitRef.current = { uri: last.uri, cid: last.cid };
         }
+        setBranchCommits(cs);
+        setBranchBaseVersion((v) => v + 1);
+        setActiveBranch(branch); // 最後に呼ぶことで displaySheet 確定後に key が変わる
       } catch (err) {
         console.warn('[branch] fetch commits failed:', err);
       }
@@ -621,6 +636,7 @@ export default function App() {
       <main style={{ flex: 1 }}>
         {activeFile && activeSheetId ? (
           <GraphEditor
+            key={`${activeSheetId}/${activeBranch?.id ?? 'trunk'}`}
             file={displayFile ?? activeFile}
             activeSheetId={activeSheetId}
             onChange={handleChange}
