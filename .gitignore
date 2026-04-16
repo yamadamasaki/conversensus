@@ -8,3 +8,4 @@ src/client/.env.local
 .omc
 src/client/.vite/
 .claude/settings.local.json
+infra/pds/pds-data
