@@ -13,11 +13,11 @@
 - コミュニケーションのツールとして
 - ミーティングのツールとして
 - 仕様書/設計書などの技術文書として
-- コミュニティ (間) の取引記録として
-- コミュニティ (間) の契約書として
-- コミュニティ (間) の合意形成のツールとして
-- コミュニティ (間) の意思決定のツールとして
-- コミュニティ (間) の知識継承のツールとして
+- コミュニティ間の取引記録として
+- コミュニティ間の契約書として
+- コミュニティ間の合意形成のツールとして
+- コミュニティ間の意思決定のツールとして
+- コミュニティ間の知識継承のツールとして
 
 ## 開かれた社会に向けて
 
@@ -34,5 +34,5 @@
 - ~~SOLID (Social Linked Data) の応用として~~
 - ATProto (Authenticated Transfer Protocol) の応用として
 - ~~ICP (Internet Computer Protocol) の応用として~~
-- Olog (Ontology Log) の応用として
+- Ologs (Ontology Logs) の応用として
   - [Ologs: a categorical framework for knowledge representation](https://arxiv.org/abs/1102.1889)
