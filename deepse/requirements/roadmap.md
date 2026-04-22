@@ -20,11 +20,11 @@
 
 ## platform progression
 
-### platform step 1 (web platform)
+### platform step 1 (ATProto/PDS)
 
 - 複数ユーザで利用する (認証あり)
 
-### platform step 2
+### platform step 2 (ATProto/)
 
 - platform step 1 が終了した段階で考える
 
