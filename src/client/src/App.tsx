@@ -88,6 +88,7 @@ export default function App() {
   const [branchCommits, setBranchCommits] = useState<Commit[]>([]);
   const [commitDialogOpen, setCommitDialogOpen] = useState(false);
   const [mergeDialogOpen, setMergeDialogOpen] = useState(false);
+  const [branchHasMerged, setBranchHasMerged] = useState(false);
   const [deleteBranchState, setDeleteBranchState] = useState<{
     sheetId: SheetId;
     branch: Branch;
@@ -218,6 +219,7 @@ export default function App() {
 
   const handleSelectBranch = useCallback(
     async (sheetId: SheetId, branch: Branch | null) => {
+      setBranchHasMerged(false);
       latestCommitRef.current = null;
       if (!branch || branch.name === 'main') {
         setActiveBranch(branch);
@@ -264,6 +266,7 @@ export default function App() {
     branchBaseSheet.current = null;
     branchOriginalBase.current = null;
     setBranchCommits([]);
+    setBranchHasMerged(false);
     // branch 開始前の activeFile を復元 (branch の編集内容は永続化されないため)
     if (preBranchFile.current) {
       setActiveFile(preBranchFile.current);
@@ -350,6 +353,7 @@ export default function App() {
       branchBaseSheet.current = null;
       branchOriginalBase.current = null;
       setBranchCommits([]);
+      setBranchHasMerged(false);
       if (preBranchFile.current) {
         setActiveFile(preBranchFile.current);
         preBranchFile.current = null;
@@ -609,17 +613,15 @@ export default function App() {
         latestCommitRef.current ?? undefined,
       );
 
-      const updatedBranch = await updateBranchStatus(activeBranch, 'merged');
-      setActiveBranch(updatedBranch);
-      setSheetBranches((prev) => {
-        const next = new Map(prev);
-        const existing = next.get(activeSheetId) ?? [];
-        next.set(
-          activeSheetId,
-          existing.map((b) => (b.id === activeBranch.id ? updatedBranch : b)),
-        );
-        return next;
-      });
+      // merge 後: branch を 'open' のまま保持し, commit/diff 状態をリセット
+      // (branch は close するまで繰り返し変更 → commit → merge できる)
+      latestCommitRef.current = null;
+      branchBaseSheet.current = mergedSheet;
+      branchOriginalBase.current = mergedSheet;
+      branchOriginalBaseMap.current.set(activeBranch.uri, mergedSheet);
+      setBranchCommits([]);
+      setBranchBaseVersion((v) => v + 1);
+      setBranchHasMerged(true);
       setMergeDialogOpen(false);
     } catch (err) {
       console.warn('[merge] failed:', err);
@@ -857,7 +859,10 @@ export default function App() {
               pendingOps.length === 0 &&
               branchCommits.length > 0 &&
               activeBranch.status === 'open';
-            const canClose = activeBranch.status === 'merged';
+            const canClose =
+              branchHasMerged &&
+              pendingOps.length === 0 &&
+              branchCommits.length === 0;
             return (
               <>
                 <button
