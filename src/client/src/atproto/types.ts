@@ -3,6 +3,7 @@ export type StrongRef = { uri: string; cid: string };
 
 // Lexicon NSID 定数
 export const NSID = {
+  file: 'app.conversensus.graph.file',
   sheet: 'app.conversensus.graph.sheet',
   node: 'app.conversensus.graph.node',
   edge: 'app.conversensus.graph.edge',
@@ -12,10 +13,18 @@ export const NSID = {
   commit: 'app.conversensus.graph.commit',
 } as const;
 
+export type FileRecord = {
+  $type: typeof NSID.file;
+  name: string;
+  description?: string;
+  createdAt: string;
+};
+
 export type SheetRecord = {
   $type: typeof NSID.sheet;
   name: string;
   description?: string;
+  file?: StrongRef; // 親ファイルへの参照 (後方互換のため optional)
   createdAt: string;
 };
 

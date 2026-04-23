@@ -9,11 +9,18 @@
  *   5. edgeLayout (並列、edgeRef が必要)
  */
 
-import type { EdgeId, GraphFile, NodeId, Sheet } from '@conversensus/shared';
+import type {
+  EdgeId,
+  GraphFile,
+  GraphFileListItem,
+  NodeId,
+  Sheet,
+} from '@conversensus/shared';
 import { cacheResult, getCreatedAt } from './cidCache';
 import {
   edgeLayouts,
   edges,
+  files,
   nodeLayouts,
   nodes,
   rkeyFromUri,
@@ -22,10 +29,12 @@ import {
 import {
   edgeLayoutToRecord,
   edgeToRecord,
+  fileToRecord,
   nodeLayoutToRecord,
   nodeToRecord,
   recordToEdge,
   recordToEdgeLayout,
+  recordToFileMeta,
   recordToNode,
   recordToNodeLayout,
   recordToSheetMeta,
@@ -34,6 +43,7 @@ import {
 import type {
   EdgeLayoutRecord,
   EdgeRecord,
+  FileRecord,
   NodeLayoutRecord,
   NodeRecord,
   SheetRecord,
@@ -48,7 +58,10 @@ import { NSID } from './types';
  * 現状は追記/上書きのみで、差分削除は未実装です。
  * TODO: PDS 上の既存 rkey と現在の Sheet を比較し、不要レコードを deleteRecord する
  */
-export async function syncSheetToAtproto(sheet: Sheet): Promise<void> {
+export async function syncSheetToAtproto(
+  sheet: Sheet,
+  fileRef?: StrongRef,
+): Promise<void> {
   const now = new Date().toISOString();
 
   // 各レコードの createdAt は PDS から取得した値を優先して使う。
@@ -58,7 +71,7 @@ export async function syncSheetToAtproto(sheet: Sheet): Promise<void> {
   const sheetCreatedAt = getCreatedAt(NSID.sheet, sheet.id) ?? now;
   const sheetResult = await sheets.put(
     sheet.id,
-    sheetToRecord(sheet, sheetCreatedAt),
+    sheetToRecord(sheet, sheetCreatedAt, fileRef),
   );
   cacheResult(sheetResult.uri, sheetResult.cid, sheetCreatedAt);
   const sheetRef: StrongRef = { uri: sheetResult.uri, cid: sheetResult.cid };
@@ -138,9 +151,20 @@ export async function syncSheetToAtproto(sheet: Sheet): Promise<void> {
 }
 
 export async function syncFileToAtproto(file: GraphFile): Promise<void> {
-  // 各シートを順次同期 (シート間に依存関係はないが並列にしすぎると PDS 負荷が高い)
+  const now = new Date().toISOString();
+
+  // 1. file レコードを put → fileRef を取得
+  const fileCreatedAt = getCreatedAt(NSID.file, file.id) ?? now;
+  const fileResult = await files.put(
+    file.id,
+    fileToRecord(file, fileCreatedAt),
+  );
+  cacheResult(fileResult.uri, fileResult.cid, fileCreatedAt);
+  const fileRef: StrongRef = { uri: fileResult.uri, cid: fileResult.cid };
+
+  // 2. 各シートを順次同期 (fileRef を渡してシート→ファイルの参照を記録)
   for (const sheet of file.sheets) {
-    await syncSheetToAtproto(sheet);
+    await syncSheetToAtproto(sheet, fileRef);
   }
 }
 
@@ -206,4 +230,86 @@ export async function fetchSheetsFromAtproto(): Promise<Sheet[]> {
       edgeLayouts: sheetEdgeLayouts.length > 0 ? sheetEdgeLayouts : undefined,
     };
   });
+}
+
+/** ATProto の file レコード一覧を取得して GraphFileListItem[] として返す */
+export async function fetchFilesFromAtproto(): Promise<GraphFileListItem[]> {
+  const fileRecords = await files.list();
+  return fileRecords.map((entry) =>
+    recordToFileMeta(rkeyFromUri(entry.uri), entry.value as FileRecord),
+  );
+}
+
+/**
+ * ATProto から特定ファイルを取得して GraphFile として返す
+ * シートは sheet.file 参照で照合する (file 参照がないシートは対象外)
+ */
+export async function fetchFileFromAtproto(fileId: string): Promise<GraphFile> {
+  const [
+    fileEntry,
+    sheetRecords,
+    nodeRecords,
+    edgeRecords,
+    nodeLayoutRecords,
+    edgeLayoutRecords,
+  ] = await Promise.all([
+    files.get(fileId),
+    sheets.list(),
+    nodes.list(),
+    edges.list(),
+    nodeLayouts.list(),
+    edgeLayouts.list(),
+  ]);
+
+  const fileMeta = recordToFileMeta(fileId, fileEntry.value as FileRecord);
+
+  // このファイルに属するシートだけ抽出 (sheet.file の rkey = fileId)
+  const fileSheets = sheetRecords.filter((entry) => {
+    const rec = entry.value as SheetRecord;
+    return rec.file !== undefined && rkeyFromUri(rec.file.uri) === fileId;
+  });
+
+  const sheetList: Sheet[] = fileSheets.map((sheetEntry) => {
+    const sheetRkey = rkeyFromUri(sheetEntry.uri);
+    const sheetRecord = sheetEntry.value as SheetRecord;
+    const sheetMeta = recordToSheetMeta(sheetRkey, sheetRecord);
+
+    const sheetNodeEntries = nodeRecords.filter(
+      (r) => rkeyFromUri((r.value as NodeRecord).sheet.uri) === sheetRkey,
+    );
+    const sheetEdgeEntries = edgeRecords.filter(
+      (r) => rkeyFromUri((r.value as EdgeRecord).sheet.uri) === sheetRkey,
+    );
+
+    const sheetNodes = sheetNodeEntries.map((r) =>
+      recordToNode(rkeyFromUri(r.uri), r.value as NodeRecord),
+    );
+    const sheetEdges = sheetEdgeEntries.map((r) =>
+      recordToEdge(rkeyFromUri(r.uri), r.value as EdgeRecord),
+    );
+
+    const sheetNodeIds = new Set(sheetNodes.map((n) => n.id));
+    const sheetLayouts = nodeLayoutRecords
+      .filter((r) => sheetNodeIds.has(rkeyFromUri(r.uri) as NodeId))
+      .map((r) =>
+        recordToNodeLayout(rkeyFromUri(r.uri), r.value as NodeLayoutRecord),
+      );
+
+    const sheetEdgeIds = new Set(sheetEdges.map((e) => e.id));
+    const sheetEdgeLayouts = edgeLayoutRecords
+      .filter((r) => sheetEdgeIds.has(rkeyFromUri(r.uri) as EdgeId))
+      .map((r) =>
+        recordToEdgeLayout(rkeyFromUri(r.uri), r.value as EdgeLayoutRecord),
+      );
+
+    return {
+      ...sheetMeta,
+      nodes: sheetNodes,
+      edges: sheetEdges,
+      layouts: sheetLayouts.length > 0 ? sheetLayouts : undefined,
+      edgeLayouts: sheetEdgeLayouts.length > 0 ? sheetEdgeLayouts : undefined,
+    };
+  });
+
+  return { ...fileMeta, sheets: sheetList };
 }

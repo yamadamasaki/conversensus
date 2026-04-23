@@ -8,16 +8,18 @@ import type {
 import {
   edgeLayoutToRecord,
   edgeToRecord,
+  fileToRecord,
   nodeLayoutToRecord,
   nodeToRecord,
   recordToEdge,
   recordToEdgeLayout,
+  recordToFileMeta,
   recordToNode,
   recordToNodeLayout,
   recordToSheetMeta,
   sheetToRecord,
 } from './mapper';
-import type { SheetRecord, StrongRef } from './types';
+import type { FileRecord, SheetRecord, StrongRef } from './types';
 
 const DID = 'did:plc:test0000000000000000000';
 const ref = (collection: string, rkey: string): StrongRef => ({
@@ -195,5 +197,91 @@ describe('edgeLayoutToRecord → recordToEdgeLayout 往復', () => {
     expect(restored.pathType).toBe('bezier');
     expect(restored.labelOffsetX).toBe(11);
     expect(restored.labelOffsetY).toBe(-5);
+  });
+});
+
+// --- fileToRecord ---
+
+describe('fileToRecord', () => {
+  it('name と createdAt を含むレコードを返す', () => {
+    const r = fileToRecord({ name: 'ファイル名' }, NOW);
+    expect(r.name).toBe('ファイル名');
+    expect(r.createdAt).toBe(NOW);
+  });
+
+  it('description が省略されたときフィールドが存在しない', () => {
+    const r = fileToRecord({ name: 'no-desc' }, NOW);
+    expect('description' in r).toBe(false);
+  });
+
+  it('description がある場合は含まれる', () => {
+    const r = fileToRecord({ name: 'with-desc', description: '説明文' }, NOW);
+    expect(r.description).toBe('説明文');
+  });
+});
+
+// --- recordToFileMeta ---
+
+describe('recordToFileMeta', () => {
+  const FILE_RKEY = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+
+  it('rkey が FileId に変換される', () => {
+    const record: FileRecord = {
+      $type: 'app.conversensus.graph.file',
+      name: 'F',
+      createdAt: NOW,
+    };
+    const meta = recordToFileMeta(FILE_RKEY, record);
+    expect(meta.id).toBe(FILE_RKEY);
+  });
+
+  it('name が正しくマッピングされる', () => {
+    const record: FileRecord = {
+      $type: 'app.conversensus.graph.file',
+      name: 'ファイル',
+      createdAt: NOW,
+    };
+    const meta = recordToFileMeta(FILE_RKEY, record);
+    expect(meta.name).toBe('ファイル');
+  });
+
+  it('description がない場合は undefined になる', () => {
+    const record: FileRecord = {
+      $type: 'app.conversensus.graph.file',
+      name: 'F',
+      createdAt: NOW,
+    };
+    const meta = recordToFileMeta(FILE_RKEY, record);
+    expect(meta.description).toBeUndefined();
+  });
+
+  it('description がある場合は正しくマッピングされる', () => {
+    const record: FileRecord = {
+      $type: 'app.conversensus.graph.file',
+      name: 'F',
+      description: 'ファイルの説明',
+      createdAt: NOW,
+    };
+    const meta = recordToFileMeta(FILE_RKEY, record);
+    expect(meta.description).toBe('ファイルの説明');
+  });
+});
+
+// --- sheetToRecord (fileRef あり) ---
+
+describe('sheetToRecord (fileRef パラメータ)', () => {
+  const FILE_REF = ref(
+    'app.conversensus.graph.file',
+    'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+  );
+
+  it('fileRef を渡すと file フィールドが含まれる', () => {
+    const r = sheetToRecord({ name: 'シート' }, NOW, FILE_REF);
+    expect(r.file).toEqual(FILE_REF);
+  });
+
+  it('fileRef を省略すると file フィールドが存在しない（後方互換）', () => {
+    const r = sheetToRecord({ name: 'シート' }, NOW);
+    expect('file' in r).toBe(false);
   });
 });
