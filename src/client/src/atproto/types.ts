@@ -11,6 +11,7 @@ export const NSID = {
   edgeLayout: 'app.conversensus.graph.edgeLayout',
   branch: 'app.conversensus.graph.branch',
   commit: 'app.conversensus.graph.commit',
+  merge: 'app.conversensus.graph.merge',
 } as const;
 
 export type FileRecord = {
@@ -99,5 +100,15 @@ export type CommitRecord = {
   authorDid: string;
   parentCommit?: StrongRef;
   operations: unknown[]; // CommitOperation[] を JSON として格納
+  createdAt: string;
+};
+
+export type MergeRecord = {
+  $type: typeof NSID.merge;
+  sheet: StrongRef;
+  branch: StrongRef;
+  message: string;
+  authorDid: string;
+  commit?: StrongRef;
   createdAt: string;
 };

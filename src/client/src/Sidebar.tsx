@@ -38,6 +38,7 @@ type Props = {
   onDeleteSheet: (sheetId: string) => void;
   onSelectBranch: (sheetId: SheetId, branch: Branch | null) => void;
   onCreateBranch: (sheetId: SheetId) => void;
+  onDeleteBranch: (sheetId: SheetId, branch: Branch) => void;
 };
 
 const gearBtnStyle: React.CSSProperties = {
@@ -75,6 +76,7 @@ export function Sidebar({
   onDeleteSheet,
   onSelectBranch,
   onCreateBranch,
+  onDeleteBranch,
 }: Props) {
   const newFileComposingRef = useRef(false);
   const importInputRef = useRef<HTMLInputElement>(null);
@@ -373,6 +375,7 @@ export function Sidebar({
                                 {bs.map((branch) => {
                                   const isActiveBranch =
                                     activeBranchId === branch.id;
+                                  const isClosed = branch.status === 'closed';
                                   return (
                                     <li key={branch.id}>
                                       <div
@@ -404,7 +407,12 @@ export function Sidebar({
                                             color:
                                               branch.name === 'main'
                                                 ? '#888'
-                                                : '#333',
+                                                : isClosed
+                                                  ? '#bbb'
+                                                  : '#333',
+                                            textDecoration: isClosed
+                                              ? 'line-through'
+                                              : 'none',
                                           }}
                                           onClick={() =>
                                             onSelectBranch(
@@ -420,6 +428,22 @@ export function Sidebar({
                                             ? '⎇ main'
                                             : `⎇ ${branch.name}`}
                                         </button>
+                                        {branch.name !== 'main' && (
+                                          <button
+                                            type="button"
+                                            title="branch を削除"
+                                            style={{
+                                              ...gearBtnStyle,
+                                              fontSize: 11,
+                                            }}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              onDeleteBranch(s.id, branch);
+                                            }}
+                                          >
+                                            ⚙
+                                          </button>
+                                        )}
                                       </div>
                                     </li>
                                   );

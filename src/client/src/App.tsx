@@ -23,6 +23,8 @@ import {
   computeOperations,
   createBranch,
   createCommit,
+  createMergeRecord,
+  deleteBranchFromPds,
   fetchBranchesForSheet,
   fetchCommitsForBranch,
   fetchFileFromAtproto,
@@ -35,10 +37,13 @@ import {
   startPolling,
   stopPolling,
   syncFileToAtproto,
+  updateBranchStatus,
 } from './atproto';
+import { BranchDeleteDialog } from './BranchDeleteDialog';
 import { CommitDialog } from './CommitDialog';
 import { ConflictPanel } from './ConflictPanel';
 import { GraphEditor } from './GraphEditor';
+import { MergeDialog } from './MergeDialog';
 import type { PopupTarget } from './SettingsPopup';
 import { Sidebar } from './Sidebar';
 
@@ -82,6 +87,13 @@ export default function App() {
   );
   const [branchCommits, setBranchCommits] = useState<Commit[]>([]);
   const [commitDialogOpen, setCommitDialogOpen] = useState(false);
+  const [mergeDialogOpen, setMergeDialogOpen] = useState(false);
+  const [deleteBranchState, setDeleteBranchState] = useState<{
+    sheetId: SheetId;
+    branch: Branch;
+    commits: Commit[];
+    hasPendingChanges: boolean;
+  } | null>(null);
   // branch mode の base state (commit のたびに更新)
   const branchBaseSheet = useRef<Sheet | null>(null);
   // branchBaseSheet の更新を useMemo に伝えるためのカウンタ (ref は deps に入れられないため)
@@ -318,6 +330,110 @@ export default function App() {
     [activeBranch, activeSheetId, activeFile, pendingOps],
   );
 
+  const handleClose = useCallback(async () => {
+    if (!activeBranch || !activeSheetId) return;
+    try {
+      await updateBranchStatus(activeBranch, 'closed');
+      setSheetBranches((prev) => {
+        const next = new Map(prev);
+        const existing = next.get(activeSheetId) ?? [];
+        next.set(
+          activeSheetId,
+          existing.map((b) =>
+            b.id === activeBranch.id ? { ...b, status: 'closed' as const } : b,
+          ),
+        );
+        return next;
+      });
+      // trunk に戻る
+      setActiveBranch(null);
+      branchBaseSheet.current = null;
+      branchOriginalBase.current = null;
+      setBranchCommits([]);
+      if (preBranchFile.current) {
+        setActiveFile(preBranchFile.current);
+        preBranchFile.current = null;
+      }
+    } catch (err) {
+      console.warn('[close] failed:', err);
+      alert('クローズに失敗しました。');
+    }
+  }, [activeBranch, activeSheetId]);
+
+  const handleDeleteBranch = useCallback(
+    async (sheetId: SheetId, branch: Branch) => {
+      try {
+        const branchCommitsList = await fetchCommitsForBranch(branch.uri);
+
+        // 他の branch がこの branch の commit を参照していないか確認
+        const allBranchesForSheet = sheetBranches.get(sheetId) ?? [];
+        const branchCommitUris = new Set(branchCommitsList.map((c) => c.uri));
+        const hasDependents = allBranchesForSheet.some(
+          (b) =>
+            b.id !== branch.id &&
+            b.baseCommitUri &&
+            branchCommitUris.has(b.baseCommitUri),
+        );
+        if (hasDependents) {
+          alert(
+            'このブランチを参照している他のブランチがあるため, 削除できません。',
+          );
+          return;
+        }
+
+        const hasPendingChanges =
+          activeBranch?.id === branch.id && pendingOps.length > 0;
+
+        setDeleteBranchState({
+          sheetId,
+          branch,
+          commits: branchCommitsList,
+          hasPendingChanges,
+        });
+      } catch (err) {
+        console.warn('[delete branch] fetch commits failed:', err);
+        alert('branch の情報取得に失敗しました。');
+      }
+    },
+    [sheetBranches, activeBranch, pendingOps],
+  );
+
+  const handleConfirmDeleteBranch = useCallback(async () => {
+    if (!deleteBranchState) return;
+    const { sheetId, branch } = deleteBranchState;
+
+    try {
+      await deleteBranchFromPds(branch);
+
+      // active branch だった場合は trunk に戻す
+      if (activeBranch?.id === branch.id) {
+        setActiveBranch(null);
+        branchBaseSheet.current = null;
+        branchOriginalBase.current = null;
+        setBranchCommits([]);
+        if (preBranchFile.current) {
+          setActiveFile(preBranchFile.current);
+          preBranchFile.current = null;
+        }
+      }
+
+      setSheetBranches((prev) => {
+        const next = new Map(prev);
+        const existing = next.get(sheetId) ?? [];
+        next.set(
+          sheetId,
+          existing.filter((b) => b.id !== branch.id),
+        );
+        return next;
+      });
+
+      setDeleteBranchState(null);
+    } catch (err) {
+      console.warn('[delete branch] failed:', err);
+      alert('branch の削除に失敗しました。');
+    }
+  }, [deleteBranchState, activeBranch]);
+
   useEffect(() => {
     fetchFiles().then(setFiles).catch(console.error);
     // ATProto: ログイン後に CID キャッシュを初期化してポーリング開始
@@ -464,6 +580,52 @@ export default function App() {
       console.warn('[cache] local save failed:', err),
     );
   }, []);
+
+  const handleMerge = useCallback(async () => {
+    if (!activeBranch || !activeSheetId) return;
+    const trunkFile = preBranchFile.current;
+    const trunkSheet = trunkFile?.sheets.find((s) => s.id === activeSheetId);
+    if (!trunkSheet || !trunkFile) return;
+
+    const allOps = branchCommits.flatMap((c) => c.operations);
+    const mergedSheet = applyOperations(trunkSheet, allOps);
+    const mergedFile: GraphFile = {
+      ...trunkFile,
+      sheets: trunkFile.sheets.map((s) =>
+        s.id === activeSheetId ? mergedSheet : s,
+      ),
+    };
+
+    try {
+      await persistFile(mergedFile);
+      preBranchFile.current = mergedFile;
+
+      const sheetRef = await sheets.ref(activeSheetId);
+      const branchRef = { uri: activeBranch.uri, cid: activeBranch.cid };
+      await createMergeRecord(
+        activeBranch,
+        sheetRef,
+        branchRef,
+        latestCommitRef.current ?? undefined,
+      );
+
+      const updatedBranch = await updateBranchStatus(activeBranch, 'merged');
+      setActiveBranch(updatedBranch);
+      setSheetBranches((prev) => {
+        const next = new Map(prev);
+        const existing = next.get(activeSheetId) ?? [];
+        next.set(
+          activeSheetId,
+          existing.map((b) => (b.id === activeBranch.id ? updatedBranch : b)),
+        );
+        return next;
+      });
+      setMergeDialogOpen(false);
+    } catch (err) {
+      console.warn('[merge] failed:', err);
+      alert('マージに失敗しました。');
+    }
+  }, [activeBranch, activeSheetId, branchCommits, persistFile]);
 
   const handleChange = useCallback(
     (updated: GraphFile) => {
@@ -632,6 +794,7 @@ export default function App() {
         activeBranchId={activeBranch?.id ?? null}
         onSelectBranch={handleSelectBranch}
         onCreateBranch={handleCreateBranch}
+        onDeleteBranch={handleDeleteBranch}
       />
       <main style={{ flex: 1 }}>
         {activeFile && activeSheetId ? (
@@ -687,22 +850,67 @@ export default function App() {
             ⎇ {activeBranch.name}{' '}
             {pendingOps.length > 0 ? `(${pendingOps.length} 変更)` : ''}
           </span>
-          <button
-            type="button"
-            onClick={() => setCommitDialogOpen(true)}
-            disabled={pendingOps.length === 0}
-            style={{
-              padding: '6px 16px',
-              fontSize: 13,
-              background: pendingOps.length > 0 ? '#4f6ef7' : '#ccc',
-              color: '#fff',
-              border: 'none',
-              borderRadius: 4,
-              cursor: pendingOps.length > 0 ? 'pointer' : 'not-allowed',
-            }}
-          >
-            コミット
-          </button>
+          {(() => {
+            const canCommit =
+              pendingOps.length > 0 && activeBranch.status === 'open';
+            const canMerge =
+              pendingOps.length === 0 &&
+              branchCommits.length > 0 &&
+              activeBranch.status === 'open';
+            const canClose = activeBranch.status === 'merged';
+            return (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setCommitDialogOpen(true)}
+                  disabled={!canCommit}
+                  style={{
+                    padding: '6px 16px',
+                    fontSize: 13,
+                    background: canCommit ? '#4f6ef7' : '#ccc',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: 4,
+                    cursor: canCommit ? 'pointer' : 'not-allowed',
+                  }}
+                >
+                  コミット
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMergeDialogOpen(true)}
+                  disabled={!canMerge}
+                  style={{
+                    padding: '6px 16px',
+                    fontSize: 13,
+                    background: canMerge ? '#e67e22' : '#ccc',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: 4,
+                    cursor: canMerge ? 'pointer' : 'not-allowed',
+                  }}
+                >
+                  マージ
+                </button>
+                <button
+                  type="button"
+                  onClick={handleClose}
+                  disabled={!canClose}
+                  style={{
+                    padding: '6px 16px',
+                    fontSize: 13,
+                    background: canClose ? '#555' : '#ccc',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: 4,
+                    cursor: canClose ? 'pointer' : 'not-allowed',
+                  }}
+                >
+                  クローズ
+                </button>
+              </>
+            );
+          })()}
         </div>
       )}
       {commitDialogOpen && (
@@ -710,6 +918,23 @@ export default function App() {
           operations={pendingOps}
           onCommit={handleCommit}
           onCancel={() => setCommitDialogOpen(false)}
+        />
+      )}
+      {mergeDialogOpen && activeBranch && (
+        <MergeDialog
+          branch={activeBranch}
+          commits={branchCommits}
+          onConfirm={handleMerge}
+          onCancel={() => setMergeDialogOpen(false)}
+        />
+      )}
+      {deleteBranchState && (
+        <BranchDeleteDialog
+          branch={deleteBranchState.branch}
+          commits={deleteBranchState.commits}
+          hasPendingChanges={deleteBranchState.hasPendingChanges}
+          onConfirm={handleConfirmDeleteBranch}
+          onCancel={() => setDeleteBranchState(null)}
         />
       )}
     </div>

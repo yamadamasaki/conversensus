@@ -5,6 +5,7 @@ import {
   type EdgeLayoutRecord,
   type EdgeRecord,
   type FileRecord,
+  type MergeRecord,
   type NodeLayoutRecord,
   type NodeRecord,
   NSID,
@@ -254,6 +255,20 @@ export const commits = {
   },
   delete(commitId: string) {
     return deleteRecord(NSID.commit, commitId);
+  },
+};
+
+// --- Merge ---
+
+export const merges = {
+  put(
+    mergeId: string,
+    data: Omit<MergeRecord, '$type'>,
+  ): Promise<RecordResult> {
+    return putRecord(NSID.merge, mergeId, { $type: NSID.merge, ...data });
+  },
+  list() {
+    return listRecords(NSID.merge);
   },
 };
 

@@ -6,8 +6,11 @@ export {
   createBranch,
   createCommit,
   createMainBranch,
+  createMergeRecord,
+  deleteBranchFromPds,
   fetchBranchesForSheet,
   fetchCommitsForBranch,
+  updateBranchStatus,
 } from './branchState';
 export { currentDid, getAgent, login } from './client';
 export {
@@ -41,6 +44,7 @@ export type {
   EdgeLayoutRecord,
   EdgeRecord,
   FileRecord,
+  MergeRecord,
   NodeLayoutRecord,
   NodeRecord,
   RecordResult,

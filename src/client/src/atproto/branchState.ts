@@ -15,7 +15,7 @@ import type {
   SheetId,
 } from '@conversensus/shared';
 import { currentDid } from './client';
-import { branches, commits, rkeyFromUri } from './collections';
+import { branches, commits, merges, rkeyFromUri } from './collections';
 import type { BranchRecord, CommitRecord, StrongRef } from './types';
 
 // --- Domain types ---
@@ -342,6 +342,42 @@ export async function createBranch(
     uri: result.uri,
     cid: result.cid,
   };
+}
+
+/** branch の status を更新して PDS に保存 */
+export async function updateBranchStatus(
+  branch: Branch,
+  status: 'open' | 'merged' | 'closed',
+): Promise<Branch> {
+  const current = await branches.get(branch.id);
+  const { $type: _, ...rest } = current.value as BranchRecord;
+  const result = await branches.put(branch.id, { ...rest, status });
+  return { ...branch, status, cid: result.cid };
+}
+
+/** merge レコードを作成して PDS に保存 */
+export async function createMergeRecord(
+  branch: Branch,
+  sheetRef: StrongRef,
+  branchRef: StrongRef,
+  latestCommitRef?: StrongRef,
+): Promise<void> {
+  const mergeId = crypto.randomUUID();
+  await merges.put(mergeId, {
+    sheet: sheetRef,
+    branch: branchRef,
+    message: `Merge branch '${branch.name}'`,
+    authorDid: currentDid(),
+    ...(latestCommitRef && { commit: latestCommitRef }),
+    createdAt: new Date().toISOString(),
+  });
+}
+
+/** branch とその全 commit を PDS から削除 */
+export async function deleteBranchFromPds(branch: Branch): Promise<void> {
+  const branchCommits = await fetchCommitsForBranch(branch.uri);
+  await Promise.all(branchCommits.map((c) => commits.delete(c.id)));
+  await branches.delete(branch.id);
 }
 
 /** commit を作成して ATProto に保存 */
