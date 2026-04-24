@@ -38,6 +38,9 @@ type Props = {
   onDeleteSheet: (sheetId: string) => void;
   onSelectBranch: (sheetId: SheetId, branch: Branch | null) => void;
   onCreateBranch: (sheetId: SheetId) => void;
+  onMergeBranch: (branch: Branch) => void;
+  onCloseBranch: (branch: Branch) => void;
+  onDeleteBranch: (branch: Branch) => void;
 };
 
 const gearBtnStyle: React.CSSProperties = {
@@ -75,6 +78,9 @@ export function Sidebar({
   onDeleteSheet,
   onSelectBranch,
   onCreateBranch,
+  onMergeBranch,
+  onCloseBranch,
+  onDeleteBranch,
 }: Props) {
   const newFileComposingRef = useRef(false);
   const importInputRef = useRef<HTMLInputElement>(null);
@@ -361,7 +367,12 @@ export function Sidebar({
                         {/* Branch 一覧 (シート選択時に表示) */}
                         {isActiveSheet &&
                           (() => {
-                            const bs = sheetBranches.get(s.id) ?? [];
+                            const bs = (sheetBranches.get(s.id) ?? []).filter(
+                              (b) =>
+                                b.name !== 'trunk' &&
+                                b.status !== 'merged' &&
+                                b.status !== 'closed',
+                            );
                             return (
                               <ul
                                 style={{
@@ -401,25 +412,66 @@ export function Sidebar({
                                             cursor: 'pointer',
                                             textAlign: 'left',
                                             padding: 0,
-                                            color:
-                                              branch.name === 'main'
-                                                ? '#888'
-                                                : '#333',
+                                            color: '#333',
                                           }}
                                           onClick={() =>
                                             onSelectBranch(
                                               s.id,
-                                              isActiveBranch &&
-                                                branch.name !== 'main'
-                                                ? null
-                                                : branch,
+                                              isActiveBranch ? null : branch,
                                             )
                                           }
                                         >
-                                          {branch.name === 'main'
-                                            ? '⎇ main'
-                                            : `⎇ ${branch.name}`}
+                                          ⎇ {branch.name}
                                         </button>
+                                        {/* merge / close / delete */}
+                                        {isActiveBranch && (
+                                          <>
+                                            <button
+                                              type="button"
+                                              title="trunk に merge"
+                                              style={{
+                                                ...gearBtnStyle,
+                                                fontSize: 10,
+                                              }}
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                onMergeBranch(branch);
+                                              }}
+                                            >
+                                              ↑
+                                            </button>
+                                            <button
+                                              type="button"
+                                              title="close"
+                                              style={{
+                                                ...gearBtnStyle,
+                                                fontSize: 10,
+                                              }}
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                onCloseBranch(branch);
+                                              }}
+                                            >
+                                              ✕
+                                            </button>
+                                          </>
+                                        )}
+                                        {!isActiveBranch && (
+                                          <button
+                                            type="button"
+                                            title="削除"
+                                            style={{
+                                              ...gearBtnStyle,
+                                              fontSize: 10,
+                                            }}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              onDeleteBranch(branch);
+                                            }}
+                                          >
+                                            🗑
+                                          </button>
+                                        )}
                                       </div>
                                     </li>
                                   );

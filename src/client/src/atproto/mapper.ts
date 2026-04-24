@@ -22,7 +22,7 @@ import {
   NodeIdSchema,
   SheetIdSchema,
 } from '@conversensus/shared';
-import { rkeyFromUri } from './collections';
+import { idFromRkey, rkeyFromUri } from './collections';
 import type {
   EdgeLayoutRecord,
   EdgeRecord,
@@ -147,7 +147,7 @@ export function edgeLayoutToRecord(
 
 export function recordToNode(rkey: string, record: NodeRecord): GraphNode {
   return {
-    id: NodeIdSchema.parse(rkey),
+    id: NodeIdSchema.parse(idFromRkey(rkey)),
     content: record.content,
     ...(record.properties !== undefined && {
       properties: record.properties as Record<string, unknown>,
@@ -157,9 +157,9 @@ export function recordToNode(rkey: string, record: NodeRecord): GraphNode {
 
 export function recordToEdge(rkey: string, record: EdgeRecord): GraphEdge {
   return {
-    id: EdgeIdSchema.parse(rkey),
-    source: NodeIdSchema.parse(rkeyFromUri(record.source.uri)),
-    target: NodeIdSchema.parse(rkeyFromUri(record.target.uri)),
+    id: EdgeIdSchema.parse(idFromRkey(rkey)),
+    source: NodeIdSchema.parse(idFromRkey(rkeyFromUri(record.source.uri))),
+    target: NodeIdSchema.parse(idFromRkey(rkeyFromUri(record.target.uri))),
     ...(record.label !== undefined && { label: record.label }),
     ...(record.properties !== undefined && {
       properties: record.properties as Record<string, unknown>,
@@ -172,14 +172,14 @@ export function recordToNodeLayout(
   record: NodeLayoutRecord,
 ): NodeLayout {
   return {
-    nodeId: NodeIdSchema.parse(rkey),
+    nodeId: NodeIdSchema.parse(idFromRkey(rkey)),
     ...(record.x !== undefined && { x: record.x }),
     ...(record.y !== undefined && { y: record.y }),
     ...(record.width !== undefined && { width: record.width }),
     ...(record.height !== undefined && { height: record.height }),
     ...(record.nodeType !== undefined && { nodeType: record.nodeType }),
     ...(record.parent !== undefined && {
-      parentId: NodeIdSchema.parse(rkeyFromUri(record.parent.uri)),
+      parentId: NodeIdSchema.parse(idFromRkey(rkeyFromUri(record.parent.uri))),
     }),
   };
 }
@@ -189,7 +189,7 @@ export function recordToEdgeLayout(
   record: EdgeLayoutRecord,
 ): EdgeLayout {
   return {
-    edgeId: EdgeIdSchema.parse(rkey),
+    edgeId: EdgeIdSchema.parse(idFromRkey(rkey)),
     ...(record.sourceHandle !== undefined && {
       sourceHandle: record.sourceHandle,
     }),

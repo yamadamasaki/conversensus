@@ -5,6 +5,7 @@ import {
   type EdgeLayoutRecord,
   type EdgeRecord,
   type FileRecord,
+  type MergeRecord,
   type NodeLayoutRecord,
   type NodeRecord,
   NSID,
@@ -12,6 +13,28 @@ import {
   type SheetRecord,
   type StrongRef,
 } from './types';
+
+// --- rkey ヘルパー ---
+// trunk node/edge の rkey: "trunk_{uuid}"
+// branch node/edge の rkey: "{branchId}_{uuid}"
+
+export const TRUNK_PREFIX = 'trunk';
+
+export function makeRkey(prefix: string, id: string): string {
+  return `${prefix}_${id}`;
+}
+
+// "trunk_uuid" → "uuid"、旧形式 "uuid" (プレフィックスなし) → "uuid" (後方互換)
+export function idFromRkey(rkey: string): string {
+  const idx = rkey.indexOf('_');
+  return idx >= 0 ? rkey.slice(idx + 1) : rkey;
+}
+
+// "trunk_uuid" → "trunk"、旧形式 "uuid" → TRUNK_PREFIX (後方互換)
+export function prefixFromRkey(rkey: string): string {
+  const idx = rkey.indexOf('_');
+  return idx >= 0 ? rkey.slice(0, idx) : TRUNK_PREFIX;
+}
 
 // --- 汎用ヘルパー ---
 
@@ -126,24 +149,27 @@ export const sheets = {
 // --- Node ---
 
 export const nodes = {
-  put(nodeId: string, data: Omit<NodeRecord, '$type'>): Promise<RecordResult> {
-    return putRecord(NSID.node, nodeId, { $type: NSID.node, ...data });
+  put(rkey: string, data: Omit<NodeRecord, '$type'>): Promise<RecordResult> {
+    return putRecord(NSID.node, rkey, { $type: NSID.node, ...data });
   },
-  get(nodeId: string) {
-    return getRecord(NSID.node, nodeId);
+  get(rkey: string) {
+    return getRecord(NSID.node, rkey);
   },
   list() {
     return listRecords(NSID.node);
   },
-  delete(nodeId: string) {
-    return deleteRecord(NSID.node, nodeId);
+  async listForPrefix(prefix: string) {
+    const all = await listRecords(NSID.node);
+    return all.filter((r) => prefixFromRkey(rkeyFromUri(r.uri)) === prefix);
   },
-  async ref(nodeId: string): Promise<StrongRef> {
-    const r = await getRecord(NSID.node, nodeId);
+  delete(rkey: string) {
+    return deleteRecord(NSID.node, rkey);
+  },
+  async ref(rkey: string): Promise<StrongRef> {
+    const r = await getRecord(NSID.node, rkey);
     return { uri: r.uri, cid: r.cid };
   },
-  // put 結果から直接 StrongRef を作る (追加のネットワークラウンドトリップなし)
-  refFromResult(_nodeId: string, result: RecordResult): StrongRef {
+  refFromResult(_rkey: string, result: RecordResult): StrongRef {
     return { uri: result.uri, cid: result.cid };
   },
 };
@@ -151,17 +177,21 @@ export const nodes = {
 // --- Edge ---
 
 export const edges = {
-  put(edgeId: string, data: Omit<EdgeRecord, '$type'>): Promise<RecordResult> {
-    return putRecord(NSID.edge, edgeId, { $type: NSID.edge, ...data });
+  put(rkey: string, data: Omit<EdgeRecord, '$type'>): Promise<RecordResult> {
+    return putRecord(NSID.edge, rkey, { $type: NSID.edge, ...data });
   },
-  get(edgeId: string) {
-    return getRecord(NSID.edge, edgeId);
+  get(rkey: string) {
+    return getRecord(NSID.edge, rkey);
   },
   list() {
     return listRecords(NSID.edge);
   },
-  delete(edgeId: string) {
-    return deleteRecord(NSID.edge, edgeId);
+  async listForPrefix(prefix: string) {
+    const all = await listRecords(NSID.edge);
+    return all.filter((r) => prefixFromRkey(rkeyFromUri(r.uri)) === prefix);
+  },
+  delete(rkey: string) {
+    return deleteRecord(NSID.edge, rkey);
   },
 };
 
@@ -169,23 +199,26 @@ export const edges = {
 
 export const nodeLayouts = {
   put(
-    nodeId: string,
+    rkey: string,
     data: Omit<NodeLayoutRecord, '$type'>,
   ): Promise<RecordResult> {
-    // rkey = nodeId: 1ノードにつき最新レイアウト1件
-    return putRecord(NSID.nodeLayout, nodeId, {
+    return putRecord(NSID.nodeLayout, rkey, {
       $type: NSID.nodeLayout,
       ...data,
     });
   },
-  get(nodeId: string) {
-    return getRecord(NSID.nodeLayout, nodeId);
+  get(rkey: string) {
+    return getRecord(NSID.nodeLayout, rkey);
   },
   list() {
     return listRecords(NSID.nodeLayout);
   },
-  delete(nodeId: string) {
-    return deleteRecord(NSID.nodeLayout, nodeId);
+  async listForPrefix(prefix: string) {
+    const all = await listRecords(NSID.nodeLayout);
+    return all.filter((r) => prefixFromRkey(rkeyFromUri(r.uri)) === prefix);
+  },
+  delete(rkey: string) {
+    return deleteRecord(NSID.nodeLayout, rkey);
   },
 };
 
@@ -193,23 +226,26 @@ export const nodeLayouts = {
 
 export const edgeLayouts = {
   put(
-    edgeId: string,
+    rkey: string,
     data: Omit<EdgeLayoutRecord, '$type'>,
   ): Promise<RecordResult> {
-    // rkey = edgeId: 1エッジにつき最新レイアウト1件
-    return putRecord(NSID.edgeLayout, edgeId, {
+    return putRecord(NSID.edgeLayout, rkey, {
       $type: NSID.edgeLayout,
       ...data,
     });
   },
-  get(edgeId: string) {
-    return getRecord(NSID.edgeLayout, edgeId);
+  get(rkey: string) {
+    return getRecord(NSID.edgeLayout, rkey);
   },
   list() {
     return listRecords(NSID.edgeLayout);
   },
-  delete(edgeId: string) {
-    return deleteRecord(NSID.edgeLayout, edgeId);
+  async listForPrefix(prefix: string) {
+    const all = await listRecords(NSID.edgeLayout);
+    return all.filter((r) => prefixFromRkey(rkeyFromUri(r.uri)) === prefix);
+  },
+  delete(rkey: string) {
+    return deleteRecord(NSID.edgeLayout, rkey);
   },
 };
 
@@ -254,6 +290,23 @@ export const commits = {
   },
   delete(commitId: string) {
     return deleteRecord(NSID.commit, commitId);
+  },
+};
+
+// --- Merge ---
+
+export const merges = {
+  put(
+    mergeId: string,
+    data: Omit<MergeRecord, '$type'>,
+  ): Promise<RecordResult> {
+    return putRecord(NSID.merge, mergeId, { $type: NSID.merge, ...data });
+  },
+  list() {
+    return listRecords(NSID.merge);
+  },
+  delete(mergeId: string) {
+    return deleteRecord(NSID.merge, mergeId);
   },
 };
 

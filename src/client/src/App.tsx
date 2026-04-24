@@ -16,25 +16,30 @@ import {
   saveFile,
 } from './api';
 import {
-  applyOperations,
   files as atprotoFilesColl,
   type Branch,
   type Commit,
   computeOperations,
   createBranch,
   createCommit,
+  createMergeRecord,
+  deleteBranchWithRecords,
   fetchBranchesForSheet,
+  fetchBranchSheetFromPds,
   fetchCommitsForBranch,
   fetchFileFromAtproto,
   fetchFilesFromAtproto,
   initCidCacheFromPds,
   login,
+  mergeBranchToTrunk,
   NSID,
   type RemoteChange,
   sheets,
   startPolling,
   stopPolling,
+  syncBranchSheetToAtproto,
   syncFileToAtproto,
+  updateBranchStatus,
 } from './atproto';
 import { CommitDialog } from './CommitDialog';
 import { ConflictPanel } from './ConflictPanel';
@@ -71,7 +76,6 @@ export default function App() {
   );
   const [newFileName, setNewFileName] = useState('');
   const [popupTarget, setPopupTarget] = useState<PopupTarget | null>(null);
-  // リモート変更検出: ポーリングで検出された他ユーザーの変更
   const [remoteChanges, setRemoteChanges] = useState<RemoteChange[]>([]);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -80,22 +84,24 @@ export default function App() {
   const [sheetBranches, setSheetBranches] = useState<Map<string, Branch[]>>(
     new Map(),
   );
-  const [branchCommits, setBranchCommits] = useState<Commit[]>([]);
+  const [_branchCommits, setBranchCommits] = useState<Commit[]>([]);
   const [commitDialogOpen, setCommitDialogOpen] = useState(false);
-  // branch mode の base state (commit のたびに更新)
-  const branchBaseSheet = useRef<Sheet | null>(null);
-  // branchBaseSheet の更新を useMemo に伝えるためのカウンタ (ref は deps に入れられないため)
-  const [branchBaseVersion, setBranchBaseVersion] = useState(0);
-  // branch 開始時の元 sheet (コミットをまたいでも変わらない: diff ハイライト用)
-  const branchOriginalBase = useRef<Sheet | null>(null);
-  // branch URI → 最初に入ったときの trunk Sheet (trunk↔branch を行き来しても diff 基点を保持)
+
+  // branch の "commit 前の状態" (pending ops 表示用)
+  const [lastCommitBase, setLastCommitBase] = useState<Sheet | null>(null);
+  // branch の "作成時点の状態" (diff ハイライト用)
+  const [branchOriginalBase, setBranchOriginalBase] = useState<Sheet | null>(
+    null,
+  );
+  // branch URI → 最初に入ったときの状態 (trunk↔branch を行き来しても diff 基点を保持)
   const branchOriginalBaseMap = useRef<Map<string, Sheet>>(new Map());
-  // branch 開始前の activeFile (branch 離脱時に復元するため)
+  // branch 開始前の activeFile (branch 離脱時に trunk 状態を復元するため)
   const preBranchFile = useRef<GraphFile | null>(null);
   // 最新 commit ref (parentCommit チェーン用)
   const latestCommitRef = useRef<{ uri: string; cid: string } | null>(null);
 
-  // 'update' のみをオレンジハイライト対象とする (新規追加 'add' はハイライト不要)
+  const isTrunk = !activeBranch || activeBranch.name === 'trunk';
+
   const remoteConflictedNodeIds = useMemo(
     () =>
       new Set(
@@ -128,32 +134,12 @@ export default function App() {
     [activeFile, activeSheetId],
   );
 
-  // branch が選択されている場合、originalBase + committedOps + pendingEdits で表示状態を構築
-  // (activeSheet をそのまま base にすると commit 後に ops が二重適用される)
-  // biome-ignore lint/correctness/useExhaustiveDependencies: branchBaseVersion は ref 更新を useMemo に伝えるためのカウンタ
-  const displaySheet = useMemo((): Sheet | null => {
-    if (!activeSheet) return null;
-    if (!activeBranch || activeBranch.name === 'main') return activeSheet;
-    const allCommittedOps = branchCommits.flatMap((c) => c.operations);
-    const originalBase = branchOriginalBase.current ?? activeSheet;
-    const committedState = applyOperations(originalBase, allCommittedOps);
-    const pending = branchBaseSheet.current
-      ? computeOperations(branchBaseSheet.current, activeSheet)
-      : [];
-    return applyOperations(committedState, pending);
-  }, [activeSheet, activeBranch, branchCommits, branchBaseVersion]);
-
-  // branch モード時: base sheet との差分ノード/エッジをハイライト
-  // biome-ignore lint/correctness/useExhaustiveDependencies: branchBaseVersion は ref 更新を useMemo に伝えるためのカウンタ
+  // branch モード時: 作成時点との差分ノード/エッジをハイライト
   const [branchDiffNodeIds, branchDiffEdgeIds] = useMemo(() => {
-    if (!activeBranch || activeBranch.name === 'main') {
+    if (isTrunk || !branchOriginalBase || !activeSheet) {
       return [new Set<string>(), new Set<string>()] as const;
     }
-    const base = branchOriginalBase.current;
-    if (!base || !displaySheet) {
-      return [new Set<string>(), new Set<string>()] as const;
-    }
-    const ops = computeOperations(base, displaySheet);
+    const ops = computeOperations(branchOriginalBase, activeSheet);
     const nodeIds = new Set<string>();
     const edgeIds = new Set<string>();
     for (const op of ops) {
@@ -161,36 +147,20 @@ export default function App() {
       else if ('edgeId' in op) edgeIds.add(op.edgeId);
     }
     return [nodeIds, edgeIds] as const;
-  }, [activeBranch, displaySheet, branchBaseVersion]);
+  }, [isTrunk, branchOriginalBase, activeSheet]);
 
-  const conflictedNodeIds =
-    activeBranch && activeBranch.name !== 'main'
-      ? branchDiffNodeIds
-      : remoteConflictedNodeIds;
-  const conflictedEdgeIds =
-    activeBranch && activeBranch.name !== 'main'
-      ? branchDiffEdgeIds
-      : remoteConflictedEdgeIds;
+  const conflictedNodeIds = isTrunk
+    ? remoteConflictedNodeIds
+    : branchDiffNodeIds;
+  const conflictedEdgeIds = isTrunk
+    ? remoteConflictedEdgeIds
+    : branchDiffEdgeIds;
 
-  // 現在の branch での pending operations (未コミットの変更)
-  // biome-ignore lint/correctness/useExhaustiveDependencies: branchBaseVersion は ref 更新を useMemo に伝えるためのカウンタ
+  // 現在の branch での pending operations (前回 commit 以降の未コミット変更)
   const pendingOps = useMemo(() => {
-    if (!branchBaseSheet.current || !activeSheet) return [];
-    if (!activeBranch || activeBranch.name === 'main') return [];
-    return computeOperations(branchBaseSheet.current, activeSheet);
-  }, [activeSheet, activeBranch, branchBaseVersion]);
-
-  // branch が選択されている場合、displaySheet を activeFile に反映した仮の file を GraphEditor に渡す
-  const displayFile = useMemo((): GraphFile | null => {
-    if (!activeFile || !displaySheet || !activeSheetId) return activeFile;
-    if (!activeBranch || activeBranch.name === 'main') return activeFile;
-    return {
-      ...activeFile,
-      sheets: activeFile.sheets.map((s) =>
-        s.id === activeSheetId ? displaySheet : s,
-      ),
-    };
-  }, [activeFile, displaySheet, activeSheetId, activeBranch]);
+    if (isTrunk || !lastCommitBase || !activeSheet) return [];
+    return computeOperations(lastCommitBase, activeSheet);
+  }, [isTrunk, lastCommitBase, activeSheet]);
 
   const handleDismissConflict = useCallback((change: RemoteChange) => {
     setRemoteChanges((prev) =>
@@ -207,10 +177,12 @@ export default function App() {
   const handleSelectBranch = useCallback(
     async (sheetId: SheetId, branch: Branch | null) => {
       latestCommitRef.current = null;
-      if (!branch || branch.name === 'main') {
+
+      if (!branch || branch.name === 'trunk') {
+        // trunk に戻る
         setActiveBranch(branch);
-        branchBaseSheet.current = null;
-        branchOriginalBase.current = null;
+        setLastCommitBase(null);
+        setBranchOriginalBase(null);
         setBranchCommits([]);
         if (preBranchFile.current) {
           setActiveFile(preBranchFile.current);
@@ -218,29 +190,46 @@ export default function App() {
         }
         return;
       }
+
       try {
+        // branch の状態を PDS から取得
+        const branchSheet = await fetchBranchSheetFromPds(branch.id, sheetId);
         const cs = await fetchCommitsForBranch(branch.uri);
-        // refs を先に確定させてから state を一括更新する。
-        // こうすることで setActiveBranch により key が変わり GraphEditor がリマウントされる時点で
-        // displaySheet が正しい branch 状態として計算される。
-        const sheet = activeFile?.sheets.find((s) => s.id === sheetId) ?? null;
-        branchBaseSheet.current = sheet;
-        // 初回のみ trunk state を記憶: trunk↔branch を行き来しても diff 基点を保持する
-        const storedBase = branchOriginalBaseMap.current.get(branch.uri);
-        branchOriginalBase.current = storedBase ?? sheet;
-        if (!storedBase && sheet) {
-          branchOriginalBaseMap.current.set(branch.uri, sheet);
-        }
+
+        // trunk 状態を保存 (branch 離脱時に復元)
         preBranchFile.current = activeFile ?? null;
+
+        // 初回のみ元の状態を記憶 (diff ハイライト基点)
+        const storedOriginal = branchOriginalBaseMap.current.get(branch.uri);
+        const originalBase = storedOriginal ?? branchSheet;
+        setBranchOriginalBase(originalBase);
+        if (!storedOriginal) {
+          branchOriginalBaseMap.current.set(branch.uri, originalBase);
+        }
+
+        // pending ops の基点を設定
+        setLastCommitBase(branchSheet);
+
+        // 最新 commit の ref を設定
         if (cs.length > 0) {
           const last = cs[cs.length - 1];
           latestCommitRef.current = { uri: last.uri, cid: last.cid };
         }
+
+        // activeFile を branch 状態に更新
+        if (activeFile) {
+          setActiveFile({
+            ...activeFile,
+            sheets: activeFile.sheets.map((s) =>
+              s.id === sheetId ? branchSheet : s,
+            ),
+          });
+        }
+
         setBranchCommits(cs);
-        setBranchBaseVersion((v) => v + 1);
-        setActiveBranch(branch); // 最後に呼ぶことで displaySheet 確定後に key が変わる
+        setActiveBranch(branch);
       } catch (err) {
-        console.warn('[branch] fetch commits failed:', err);
+        console.warn('[branch] select failed:', err);
       }
     },
     [activeFile],
@@ -249,10 +238,9 @@ export default function App() {
   const handleSelectSheet = useCallback((sheetId: SheetId) => {
     setActiveSheetId(sheetId);
     setActiveBranch(null);
-    branchBaseSheet.current = null;
-    branchOriginalBase.current = null;
+    setLastCommitBase(null);
+    setBranchOriginalBase(null);
     setBranchCommits([]);
-    // branch 開始前の activeFile を復元 (branch の編集内容は永続化されないため)
     if (preBranchFile.current) {
       setActiveFile(preBranchFile.current);
       preBranchFile.current = null;
@@ -264,12 +252,7 @@ export default function App() {
     if (!name?.trim()) return;
     try {
       const sheetRef = await sheets.ref(sheetId);
-      const branch = await createBranch(
-        name.trim(),
-        sheetId,
-        sheetRef,
-        latestCommitRef.current ?? undefined,
-      );
+      const branch = await createBranch(name.trim(), sheetId, sheetRef);
       setSheetBranches((prev) => {
         const next = new Map(prev);
         const existing = next.get(sheetId) ?? [];
@@ -284,11 +267,144 @@ export default function App() {
     }
   }, []);
 
+  const handleMergeBranch = useCallback(
+    async (branch: Branch) => {
+      if (!activeSheetId || !activeFile) return;
+      if (
+        !window.confirm(`branch "${branch.name}" を trunk に merge しますか？`)
+      )
+        return;
+      try {
+        const sheetRef = await sheets.ref(activeSheetId);
+        const branchRef = { uri: branch.uri, cid: branch.cid };
+        const latestCommit = latestCommitRef.current ?? undefined;
+
+        await mergeBranchToTrunk(branch, activeSheetId, sheetRef);
+        await createMergeRecord(branch, sheetRef, branchRef, latestCommit);
+        const mergedBranch = await updateBranchStatus(branch, 'merged');
+
+        // branch 一覧を更新
+        setSheetBranches((prev) => {
+          const next = new Map(prev);
+          const existing = next.get(activeSheetId) ?? [];
+          next.set(
+            activeSheetId,
+            existing.map((b) => (b.id === branch.id ? mergedBranch : b)),
+          );
+          return next;
+        });
+
+        // trunk 状態を reload して trunk に戻る
+        const mergedSheet = await fetchBranchSheetFromPds(
+          branch.id,
+          activeSheetId,
+        );
+        // NOTE: merged branch の PDS 状態が trunk に書き込まれているので trunk として扱う
+        if (activeFile) {
+          const updatedFile = {
+            ...activeFile,
+            sheets: activeFile.sheets.map((s) =>
+              s.id === activeSheetId
+                ? { ...mergedSheet, id: activeSheetId }
+                : s,
+            ),
+          };
+          preBranchFile.current = updatedFile;
+        }
+
+        setActiveBranch(null);
+        setLastCommitBase(null);
+        setBranchOriginalBase(null);
+        setBranchCommits([]);
+        if (preBranchFile.current) {
+          setActiveFile(preBranchFile.current);
+          preBranchFile.current = null;
+        }
+      } catch (err) {
+        console.warn('[branch] merge failed:', err);
+        alert('merge に失敗しました。');
+      }
+    },
+    [activeSheetId, activeFile],
+  );
+
+  const handleCloseBranch = useCallback(
+    async (branch: Branch) => {
+      if (!window.confirm(`branch "${branch.name}" を close しますか？`))
+        return;
+      try {
+        const closedBranch = await updateBranchStatus(branch, 'closed');
+        setSheetBranches((prev) => {
+          const next = new Map(prev);
+          const sheetId = branch.sheetId;
+          const existing = next.get(sheetId) ?? [];
+          next.set(
+            sheetId,
+            existing.map((b) => (b.id === branch.id ? closedBranch : b)),
+          );
+          return next;
+        });
+        // 現在このブランチにいる場合は trunk に戻る
+        if (activeBranch?.id === branch.id) {
+          setActiveBranch(null);
+          setLastCommitBase(null);
+          setBranchOriginalBase(null);
+          setBranchCommits([]);
+          if (preBranchFile.current) {
+            setActiveFile(preBranchFile.current);
+            preBranchFile.current = null;
+          }
+        }
+      } catch (err) {
+        console.warn('[branch] close failed:', err);
+        alert('close に失敗しました。');
+      }
+    },
+    [activeBranch],
+  );
+
+  const handleDeleteBranch = useCallback(
+    async (branch: Branch) => {
+      if (
+        !window.confirm(
+          `branch "${branch.name}" を削除しますか？\nこの操作は取り消せません。`,
+        )
+      )
+        return;
+      try {
+        await deleteBranchWithRecords(branch);
+        setSheetBranches((prev) => {
+          const next = new Map(prev);
+          const sheetId = branch.sheetId;
+          next.set(
+            sheetId,
+            (next.get(sheetId) ?? []).filter((b) => b.id !== branch.id),
+          );
+          return next;
+        });
+        // 現在このブランチにいる場合は trunk に戻る
+        if (activeBranch?.id === branch.id) {
+          setActiveBranch(null);
+          setLastCommitBase(null);
+          setBranchOriginalBase(null);
+          setBranchCommits([]);
+          if (preBranchFile.current) {
+            setActiveFile(preBranchFile.current);
+            preBranchFile.current = null;
+          }
+        }
+      } catch (err) {
+        console.warn('[branch] delete failed:', err);
+        alert('削除に失敗しました。');
+      }
+    },
+    [activeBranch],
+  );
+
   const handleCommit = useCallback(
     async (message: string) => {
-      if (!activeBranch || !activeSheetId || !activeFile) return;
-      const ops = pendingOps;
-      if (ops.length === 0) return;
+      if (!activeBranch || !activeSheetId || !activeSheet) return;
+      if (pendingOps.length === 0) return;
 
       try {
         const sheetRef = await sheets.ref(activeSheetId);
@@ -297,7 +413,7 @@ export default function App() {
 
         const commit = await createCommit(
           message,
-          ops,
+          pendingOps,
           sheetRef,
           branchRef,
           parentRef,
@@ -305,32 +421,27 @@ export default function App() {
         setBranchCommits((prev) => [...prev, commit]);
         latestCommitRef.current = { uri: commit.uri, cid: commit.cid };
 
-        // base state を更新 (次の commit の base)
-        branchBaseSheet.current =
-          activeFile.sheets.find((s) => s.id === activeSheetId) ?? null;
-        setBranchBaseVersion((v) => v + 1);
+        // pending ops の基点を現在の状態に更新
+        setLastCommitBase(activeSheet);
         setCommitDialogOpen(false);
       } catch (err) {
         console.warn('[commit] create failed:', err);
         alert('コミットに失敗しました。');
       }
     },
-    [activeBranch, activeSheetId, activeFile, pendingOps],
+    [activeBranch, activeSheetId, activeSheet, pendingOps],
   );
 
   useEffect(() => {
     fetchFiles().then(setFiles).catch(console.error);
-    // ATProto: ログイン後に CID キャッシュを初期化してポーリング開始
     tryAtprotoAutoLogin().then(async () => {
       try {
-        // ATProto のファイル一覧を取得してローカル一覧とマージ
         const atprotoFiles = await fetchFilesFromAtproto();
         setFiles((local) => {
           const localIds = new Set(local.map((f) => f.id));
           const newFromAtproto = atprotoFiles.filter(
             (f) => !localIds.has(f.id),
           );
-          // ATProto 側の情報で既存エントリを上書き (name/description が最新)
           const updated = local.map(
             (f) => atprotoFiles.find((a) => a.id === f.id) ?? f,
           );
@@ -339,7 +450,6 @@ export default function App() {
         await initCidCacheFromPds();
         startPolling((changes) => {
           console.info('[atproto] remote changes detected:', changes);
-          // 同一 collection/rkey は最新値で上書き (重複キー警告を防ぎ, 最新状態を保持)
           setRemoteChanges((prev) => {
             const merged = [...prev];
             for (const change of changes) {
@@ -389,12 +499,9 @@ export default function App() {
     try {
       let file: GraphFile;
       try {
-        // ATProto が primary
         file = await fetchFileFromAtproto(id);
-        // ローカルキャッシュを非同期で更新
         saveFile(file).catch(() => {});
       } catch {
-        // ATProto 未ログイン / オフライン時はローカルにフォールバック
         file = await fetchFile(id);
       }
       setActiveFile(file);
@@ -453,13 +560,11 @@ export default function App() {
           : f,
       ),
     );
-    // ATProto が primary: 先に書き込む (ログイン済みの場合)
     try {
       await syncFileToAtproto(updated);
     } catch (err) {
       console.warn('[atproto] sync failed (falling back to local):', err);
     }
-    // ローカル JSON はキャッシュ: 失敗してもサイレント
     saveFile(updated).catch((err) =>
       console.warn('[cache] local save failed:', err),
     );
@@ -468,15 +573,29 @@ export default function App() {
   const handleChange = useCallback(
     (updated: GraphFile) => {
       setActiveFile(updated);
-      // branch モード中は永続化しない (branch の編集は commit 時のみ ATProto に書き込む)
-      if (activeBranch && activeBranch.name !== 'main') return;
       if (saveTimer.current) clearTimeout(saveTimer.current);
-      saveTimer.current = setTimeout(
-        () => persistFile(updated),
-        AUTOSAVE_DELAY,
-      );
+
+      const branch = activeBranch;
+      const sheetId = activeSheetId;
+
+      saveTimer.current = setTimeout(async () => {
+        if (branch && branch.name !== 'trunk' && sheetId) {
+          // branch モード: branch prefix で PDS に即時保存
+          const sheet = updated.sheets.find((s) => s.id === sheetId);
+          if (!sheet) return;
+          try {
+            const sheetRef = await sheets.ref(sheetId);
+            await syncBranchSheetToAtproto(sheet, sheetRef, branch.id);
+          } catch (err) {
+            console.warn('[branch] auto-save failed:', err);
+          }
+        } else {
+          // trunk モード: 通常の永続化
+          await persistFile(updated);
+        }
+      }, AUTOSAVE_DELAY);
     },
-    [persistFile, activeBranch],
+    [persistFile, activeBranch, activeSheetId],
   );
 
   const handleSaveFileSettings = useCallback(
@@ -632,12 +751,15 @@ export default function App() {
         activeBranchId={activeBranch?.id ?? null}
         onSelectBranch={handleSelectBranch}
         onCreateBranch={handleCreateBranch}
+        onMergeBranch={handleMergeBranch}
+        onCloseBranch={handleCloseBranch}
+        onDeleteBranch={handleDeleteBranch}
       />
       <main style={{ flex: 1 }}>
         {activeFile && activeSheetId ? (
           <GraphEditor
             key={`${activeSheetId}/${activeBranch?.id ?? 'trunk'}`}
-            file={displayFile ?? activeFile}
+            file={activeFile}
             activeSheetId={activeSheetId}
             onChange={handleChange}
             conflictedNodeIds={conflictedNodeIds}
@@ -662,7 +784,7 @@ export default function App() {
         onDismiss={handleDismissConflict}
         onDismissAll={handleDismissAllConflicts}
       />
-      {activeBranch && activeBranch.name !== 'main' && (
+      {!isTrunk && (
         <div
           style={{
             position: 'fixed',
@@ -684,7 +806,7 @@ export default function App() {
               border: '1px solid #ddd',
             }}
           >
-            ⎇ {activeBranch.name}{' '}
+            ⎇ {activeBranch?.name}{' '}
             {pendingOps.length > 0 ? `(${pendingOps.length} 変更)` : ''}
           </span>
           <button

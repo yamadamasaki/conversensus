@@ -9,22 +9,20 @@
  *   5. edgeLayout (並列、edgeRef が必要)
  */
 
-import type {
-  EdgeId,
-  GraphFile,
-  GraphFileListItem,
-  NodeId,
-  Sheet,
-} from '@conversensus/shared';
+import type { GraphFile, GraphFileListItem, Sheet } from '@conversensus/shared';
 import { cacheResult, getCreatedAt } from './cidCache';
 import {
   edgeLayouts,
   edges,
   files,
+  idFromRkey,
+  makeRkey,
   nodeLayouts,
   nodes,
+  prefixFromRkey,
   rkeyFromUri,
   sheets,
+  TRUNK_PREFIX,
 } from './collections';
 import {
   edgeLayoutToRecord,
@@ -77,12 +75,14 @@ export async function syncSheetToAtproto(
   const sheetRef: StrongRef = { uri: sheetResult.uri, cid: sheetResult.cid };
 
   // 2. 全 node を put (並列) → nodeId → StrongRef マップを構築
+  // rkey = "trunk_{nodeId}" 形式 (branch node と区別するため)
   const nodeRefs = new Map<string, StrongRef>();
   await Promise.all(
     sheet.nodes.map(async (node) => {
-      const nodeCreatedAt = getCreatedAt(NSID.node, node.id) ?? now;
+      const rkey = makeRkey(TRUNK_PREFIX, node.id);
+      const nodeCreatedAt = getCreatedAt(NSID.node, rkey) ?? now;
       const result = await nodes.put(
-        node.id,
+        rkey,
         nodeToRecord(node, sheetRef, nodeCreatedAt),
       );
       cacheResult(result.uri, result.cid, nodeCreatedAt);
@@ -102,9 +102,10 @@ export async function syncSheetToAtproto(
         );
         return;
       }
-      const edgeCreatedAt = getCreatedAt(NSID.edge, edge.id) ?? now;
+      const rkey = makeRkey(TRUNK_PREFIX, edge.id);
+      const edgeCreatedAt = getCreatedAt(NSID.edge, rkey) ?? now;
       const result = await edges.put(
-        edge.id,
+        rkey,
         edgeToRecord(edge, sheetRef, sourceRef, targetRef, edgeCreatedAt),
       );
       cacheResult(result.uri, result.cid, edgeCreatedAt);
@@ -121,10 +122,10 @@ export async function syncSheetToAtproto(
         const parentRef = layout.parentId
           ? nodeRefs.get(layout.parentId)
           : undefined;
-        const layoutCreatedAt =
-          getCreatedAt(NSID.nodeLayout, layout.nodeId) ?? now;
+        const rkey = makeRkey(TRUNK_PREFIX, layout.nodeId);
+        const layoutCreatedAt = getCreatedAt(NSID.nodeLayout, rkey) ?? now;
         const r = await nodeLayouts.put(
-          layout.nodeId,
+          rkey,
           nodeLayoutToRecord(layout, nodeRef, parentRef, layoutCreatedAt),
         );
         cacheResult(r.uri, r.cid, layoutCreatedAt);
@@ -138,10 +139,10 @@ export async function syncSheetToAtproto(
       sheet.edgeLayouts.map(async (layout) => {
         const edgeRef = edgeRefs.get(layout.edgeId);
         if (!edgeRef) return;
-        const layoutCreatedAt =
-          getCreatedAt(NSID.edgeLayout, layout.edgeId) ?? now;
+        const rkey = makeRkey(TRUNK_PREFIX, layout.edgeId);
+        const layoutCreatedAt = getCreatedAt(NSID.edgeLayout, rkey) ?? now;
         const r = await edgeLayouts.put(
-          layout.edgeId,
+          rkey,
           edgeLayoutToRecord(layout, edgeRef, layoutCreatedAt),
         );
         cacheResult(r.uri, r.cid, layoutCreatedAt);
@@ -191,35 +192,54 @@ export async function fetchSheetsFromAtproto(): Promise<Sheet[]> {
     const sheetRecord = sheetEntry.value as SheetRecord;
     const sheetMeta = recordToSheetMeta(sheetRkey, sheetRecord);
 
-    // sheetId が一致するレコードだけ抽出
+    // trunk レコードのみ抽出 (branch レコードを除外)
     const sheetNodeEntries = nodeRecords.filter(
-      (r) => rkeyFromUri((r.value as NodeRecord).sheet.uri) === sheetRkey,
+      (r) =>
+        prefixFromRkey(rkeyFromUri(r.uri)) === TRUNK_PREFIX &&
+        rkeyFromUri((r.value as NodeRecord).sheet.uri) === sheetRkey,
     );
     const sheetEdgeEntries = edgeRecords.filter(
-      (r) => rkeyFromUri((r.value as EdgeRecord).sheet.uri) === sheetRkey,
+      (r) =>
+        prefixFromRkey(rkeyFromUri(r.uri)) === TRUNK_PREFIX &&
+        rkeyFromUri((r.value as EdgeRecord).sheet.uri) === sheetRkey,
     );
 
+    // rkey から nodeId/edgeId を抽出 (trunk_ プレフィックスを除去)
     const sheetNodes = sheetNodeEntries.map((r) =>
-      recordToNode(rkeyFromUri(r.uri), r.value as NodeRecord),
+      recordToNode(idFromRkey(rkeyFromUri(r.uri)), r.value as NodeRecord),
     );
     const sheetEdges = sheetEdgeEntries.map((r) =>
-      recordToEdge(rkeyFromUri(r.uri), r.value as EdgeRecord),
+      recordToEdge(idFromRkey(rkeyFromUri(r.uri)), r.value as EdgeRecord),
     );
 
-    // nodeLayout: rkey = nodeId なので sheetNodes のIDで照合
-    const sheetNodeIds = new Set(sheetNodes.map((n) => n.id));
+    // nodeLayout: trunk prefix + nodeId で照合
+    const sheetNodeUriSet = new Set(sheetNodeEntries.map((r) => r.uri));
     const sheetLayouts = nodeLayoutRecords
-      .filter((r) => sheetNodeIds.has(rkeyFromUri(r.uri) as NodeId))
+      .filter(
+        (r) =>
+          prefixFromRkey(rkeyFromUri(r.uri)) === TRUNK_PREFIX &&
+          sheetNodeUriSet.has((r.value as NodeLayoutRecord).node.uri),
+      )
       .map((r) =>
-        recordToNodeLayout(rkeyFromUri(r.uri), r.value as NodeLayoutRecord),
+        recordToNodeLayout(
+          idFromRkey(rkeyFromUri(r.uri)),
+          r.value as NodeLayoutRecord,
+        ),
       );
 
-    // edgeLayout: rkey = edgeId
-    const sheetEdgeIds = new Set(sheetEdges.map((e) => e.id));
+    // edgeLayout: trunk prefix + edgeId で照合
+    const sheetEdgeUriSet = new Set(sheetEdgeEntries.map((r) => r.uri));
     const sheetEdgeLayouts = edgeLayoutRecords
-      .filter((r) => sheetEdgeIds.has(rkeyFromUri(r.uri) as EdgeId))
+      .filter(
+        (r) =>
+          prefixFromRkey(rkeyFromUri(r.uri)) === TRUNK_PREFIX &&
+          sheetEdgeUriSet.has((r.value as EdgeLayoutRecord).edge.uri),
+      )
       .map((r) =>
-        recordToEdgeLayout(rkeyFromUri(r.uri), r.value as EdgeLayoutRecord),
+        recordToEdgeLayout(
+          idFromRkey(rkeyFromUri(r.uri)),
+          r.value as EdgeLayoutRecord,
+        ),
       );
 
     return {
@@ -274,32 +294,51 @@ export async function fetchFileFromAtproto(fileId: string): Promise<GraphFile> {
     const sheetRecord = sheetEntry.value as SheetRecord;
     const sheetMeta = recordToSheetMeta(sheetRkey, sheetRecord);
 
+    // trunk レコードのみ抽出 (branch レコードを除外)
     const sheetNodeEntries = nodeRecords.filter(
-      (r) => rkeyFromUri((r.value as NodeRecord).sheet.uri) === sheetRkey,
+      (r) =>
+        prefixFromRkey(rkeyFromUri(r.uri)) === TRUNK_PREFIX &&
+        rkeyFromUri((r.value as NodeRecord).sheet.uri) === sheetRkey,
     );
     const sheetEdgeEntries = edgeRecords.filter(
-      (r) => rkeyFromUri((r.value as EdgeRecord).sheet.uri) === sheetRkey,
+      (r) =>
+        prefixFromRkey(rkeyFromUri(r.uri)) === TRUNK_PREFIX &&
+        rkeyFromUri((r.value as EdgeRecord).sheet.uri) === sheetRkey,
     );
 
     const sheetNodes = sheetNodeEntries.map((r) =>
-      recordToNode(rkeyFromUri(r.uri), r.value as NodeRecord),
+      recordToNode(idFromRkey(rkeyFromUri(r.uri)), r.value as NodeRecord),
     );
     const sheetEdges = sheetEdgeEntries.map((r) =>
-      recordToEdge(rkeyFromUri(r.uri), r.value as EdgeRecord),
+      recordToEdge(idFromRkey(rkeyFromUri(r.uri)), r.value as EdgeRecord),
     );
 
-    const sheetNodeIds = new Set(sheetNodes.map((n) => n.id));
+    const sheetNodeUriSet = new Set(sheetNodeEntries.map((r) => r.uri));
     const sheetLayouts = nodeLayoutRecords
-      .filter((r) => sheetNodeIds.has(rkeyFromUri(r.uri) as NodeId))
+      .filter(
+        (r) =>
+          prefixFromRkey(rkeyFromUri(r.uri)) === TRUNK_PREFIX &&
+          sheetNodeUriSet.has((r.value as NodeLayoutRecord).node.uri),
+      )
       .map((r) =>
-        recordToNodeLayout(rkeyFromUri(r.uri), r.value as NodeLayoutRecord),
+        recordToNodeLayout(
+          idFromRkey(rkeyFromUri(r.uri)),
+          r.value as NodeLayoutRecord,
+        ),
       );
 
-    const sheetEdgeIds = new Set(sheetEdges.map((e) => e.id));
+    const sheetEdgeUriSet = new Set(sheetEdgeEntries.map((r) => r.uri));
     const sheetEdgeLayouts = edgeLayoutRecords
-      .filter((r) => sheetEdgeIds.has(rkeyFromUri(r.uri) as EdgeId))
+      .filter(
+        (r) =>
+          prefixFromRkey(rkeyFromUri(r.uri)) === TRUNK_PREFIX &&
+          sheetEdgeUriSet.has((r.value as EdgeLayoutRecord).edge.uri),
+      )
       .map((r) =>
-        recordToEdgeLayout(rkeyFromUri(r.uri), r.value as EdgeLayoutRecord),
+        recordToEdgeLayout(
+          idFromRkey(rkeyFromUri(r.uri)),
+          r.value as EdgeLayoutRecord,
+        ),
       );
 
     return {
