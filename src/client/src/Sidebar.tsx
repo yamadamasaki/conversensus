@@ -416,21 +416,17 @@ export function Sidebar({
                                             fontFamily: 'monospace',
                                             background: 'none',
                                             border: 'none',
-                                            cursor:
-                                              isMerged || isClosed
-                                                ? 'default'
-                                                : 'pointer',
+                                            cursor: 'pointer',
                                             textAlign: 'left',
                                             padding: 0,
                                             color: textColor,
                                           }}
-                                          onClick={() => {
-                                            if (isMerged || isClosed) return;
+                                          onClick={() =>
                                             onSelectBranch(
                                               s.id,
                                               isActiveBranch ? null : branch,
-                                            );
-                                          }}
+                                            )
+                                          }
                                         >
                                           ⎇ {branch.name}
                                           {isMerged ? ' (merged)' : ''}

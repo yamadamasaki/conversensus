@@ -29,20 +29,14 @@ import {
   fetchCommitsForBranch,
   fetchFileFromAtproto,
   fetchFilesFromAtproto,
-  initCidCacheFromPds,
   login,
   mergeBranchToTrunk,
-  NSID,
-  type RemoteChange,
   sheets,
-  startPolling,
-  stopPolling,
   syncBranchSheetToAtproto,
   syncFileToAtproto,
   updateBranchStatus,
 } from './atproto';
 import { CommitDialog } from './CommitDialog';
-import { ConflictPanel } from './ConflictPanel';
 import { GraphEditor } from './GraphEditor';
 import type { PopupTarget } from './SettingsPopup';
 import { Sidebar } from './Sidebar';
@@ -76,7 +70,6 @@ export default function App() {
   );
   const [newFileName, setNewFileName] = useState('');
   const [popupTarget, setPopupTarget] = useState<PopupTarget | null>(null);
-  const [remoteChanges, setRemoteChanges] = useState<RemoteChange[]>([]);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Branch / Commit state
@@ -102,33 +95,6 @@ export default function App() {
 
   const isTrunk = !activeBranch || activeBranch.name === 'trunk';
 
-  const remoteConflictedNodeIds = useMemo(
-    () =>
-      new Set(
-        remoteChanges
-          .filter(
-            (c) =>
-              c.changeType === 'update' &&
-              (c.collection === NSID.node || c.collection === NSID.nodeLayout),
-          )
-          .map((c) => c.rkey),
-      ),
-    [remoteChanges],
-  );
-  const remoteConflictedEdgeIds = useMemo(
-    () =>
-      new Set(
-        remoteChanges
-          .filter(
-            (c) =>
-              c.changeType === 'update' &&
-              (c.collection === NSID.edge || c.collection === NSID.edgeLayout),
-          )
-          .map((c) => c.rkey),
-      ),
-    [remoteChanges],
-  );
-
   const activeSheet = useMemo(
     () => activeFile?.sheets.find((s) => s.id === activeSheetId) ?? null,
     [activeFile, activeSheetId],
@@ -149,30 +115,14 @@ export default function App() {
     return [nodeIds, edgeIds] as const;
   }, [isTrunk, branchOriginalBase, activeSheet]);
 
-  const conflictedNodeIds = isTrunk
-    ? remoteConflictedNodeIds
-    : branchDiffNodeIds;
-  const conflictedEdgeIds = isTrunk
-    ? remoteConflictedEdgeIds
-    : branchDiffEdgeIds;
+  const conflictedNodeIds = branchDiffNodeIds;
+  const conflictedEdgeIds = branchDiffEdgeIds;
 
   // 現在の branch での pending operations (前回 commit 以降の未コミット変更)
   const pendingOps = useMemo(() => {
     if (isTrunk || !lastCommitBase || !activeSheet) return [];
     return computeOperations(lastCommitBase, activeSheet);
   }, [isTrunk, lastCommitBase, activeSheet]);
-
-  const handleDismissConflict = useCallback((change: RemoteChange) => {
-    setRemoteChanges((prev) =>
-      prev.filter(
-        (c) => !(c.collection === change.collection && c.rkey === change.rkey),
-      ),
-    );
-  }, []);
-
-  const handleDismissAllConflicts = useCallback(() => {
-    setRemoteChanges([]);
-  }, []);
 
   const handleSelectBranch = useCallback(
     async (sheetId: SheetId, branch: Branch | null) => {
@@ -447,30 +397,11 @@ export default function App() {
           );
           return [...updated, ...newFromAtproto];
         });
-        await initCidCacheFromPds();
-        startPolling((changes) => {
-          console.info('[atproto] remote changes detected:', changes);
-          setRemoteChanges((prev) => {
-            const merged = [...prev];
-            for (const change of changes) {
-              const idx = merged.findIndex(
-                (c) =>
-                  c.collection === change.collection && c.rkey === change.rkey,
-              );
-              if (idx >= 0) {
-                merged[idx] = change;
-              } else {
-                merged.push(change);
-              }
-            }
-            return merged;
-          });
-        });
       } catch {
         // ATProto 未設定時はサイレントにスキップ
       }
     });
-    return () => stopPolling();
+    return () => {};
   }, []);
 
   useEffect(() => {
@@ -779,11 +710,6 @@ export default function App() {
           </div>
         )}
       </main>
-      <ConflictPanel
-        changes={remoteChanges}
-        onDismiss={handleDismissConflict}
-        onDismissAll={handleDismissAllConflicts}
-      />
       {!isTrunk && activeBranch && (
         <div
           style={{
