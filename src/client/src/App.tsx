@@ -84,7 +84,7 @@ export default function App() {
   const [sheetBranches, setSheetBranches] = useState<Map<string, Branch[]>>(
     new Map(),
   );
-  const [_branchCommits, setBranchCommits] = useState<Commit[]>([]);
+  const [branchCommits, setBranchCommits] = useState<Commit[]>([]);
   const [commitDialogOpen, setCommitDialogOpen] = useState(false);
 
   // branch の "commit 前の状態" (pending ops 表示用)
@@ -784,7 +784,7 @@ export default function App() {
         onDismiss={handleDismissConflict}
         onDismissAll={handleDismissAllConflicts}
       />
-      {!isTrunk && (
+      {!isTrunk && activeBranch && (
         <div
           style={{
             position: 'fixed',
@@ -806,7 +806,7 @@ export default function App() {
               border: '1px solid #ddd',
             }}
           >
-            ⎇ {activeBranch?.name}{' '}
+            ⎇ {activeBranch.name}{' '}
             {pendingOps.length > 0 ? `(${pendingOps.length} 変更)` : ''}
           </span>
           <button
@@ -824,6 +824,36 @@ export default function App() {
             }}
           >
             コミット
+          </button>
+          <button
+            type="button"
+            onClick={() => handleMergeBranch(activeBranch)}
+            disabled={
+              pendingOps.length > 0 ||
+              branchCommits.length === 0 ||
+              activeBranch.status !== 'open'
+            }
+            style={{
+              padding: '6px 16px',
+              fontSize: 13,
+              background:
+                pendingOps.length === 0 &&
+                branchCommits.length > 0 &&
+                activeBranch.status === 'open'
+                  ? '#f97316'
+                  : '#ccc',
+              color: '#fff',
+              border: 'none',
+              borderRadius: 4,
+              cursor:
+                pendingOps.length === 0 &&
+                branchCommits.length > 0 &&
+                activeBranch.status === 'open'
+                  ? 'pointer'
+                  : 'not-allowed',
+            }}
+          >
+            merge ↑
           </button>
         </div>
       )}

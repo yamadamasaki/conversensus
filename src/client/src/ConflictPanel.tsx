@@ -147,7 +147,7 @@ export function ConflictPanel({ changes, onDismissAll, onDismiss }: Props) {
     <div
       style={{
         position: 'fixed',
-        bottom: 24,
+        top: 24,
         right: 24,
         width: 280,
         background: '#fff',
