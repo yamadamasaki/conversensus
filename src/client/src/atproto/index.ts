@@ -26,6 +26,7 @@ export {
   nodes,
   rkeyFromUri,
   sheets,
+  TRUNK_PREFIX,
 } from './collections';
 export {
   initCidCacheFromPds,

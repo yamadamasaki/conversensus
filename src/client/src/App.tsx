@@ -34,6 +34,7 @@ import {
   sheets,
   syncBranchSheetToAtproto,
   syncFileToAtproto,
+  TRUNK_PREFIX,
   updateBranchStatus,
 } from './atproto';
 import { CommitDialog } from './CommitDialog';
@@ -149,13 +150,20 @@ export default function App() {
         // trunk 状態を保存 (branch 離脱時に復元)
         preBranchFile.current = activeFile ?? null;
 
-        // 初回のみ元の状態を記憶 (diff ハイライト基点)
-        const storedOriginal = branchOriginalBaseMap.current.get(branch.uri);
-        const originalBase = storedOriginal ?? branchSheet;
-        setBranchOriginalBase(originalBase);
-        if (!storedOriginal) {
-          branchOriginalBaseMap.current.set(branch.uri, originalBase);
+        // diff baseline の設定:
+        // merged branch は trunk が変わっている可能性があるため現在の trunk を使用
+        // open branch は初回入場時の状態を記憶し trunk↔branch を行き来しても保持
+        let originalBase: typeof branchSheet;
+        if (branch.status === 'merged') {
+          originalBase = await fetchBranchSheetFromPds(TRUNK_PREFIX, sheetId);
+        } else {
+          const storedOriginal = branchOriginalBaseMap.current.get(branch.uri);
+          originalBase = storedOriginal ?? branchSheet;
+          if (!storedOriginal) {
+            branchOriginalBaseMap.current.set(branch.uri, originalBase);
+          }
         }
+        setBranchOriginalBase(originalBase);
 
         // pending ops の基点を設定
         setLastCommitBase(branchSheet);
