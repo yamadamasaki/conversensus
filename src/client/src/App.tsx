@@ -79,6 +79,7 @@ export default function App() {
     new Map(),
   );
   const [branchCommits, setBranchCommits] = useState<Commit[]>([]);
+  const [newCommitsSinceMerge, setNewCommitsSinceMerge] = useState(0);
   const [commitDialogOpen, setCommitDialogOpen] = useState(false);
 
   // branch の "commit 前の状態" (pending ops 表示用)
@@ -135,6 +136,7 @@ export default function App() {
         setLastCommitBase(null);
         setBranchOriginalBase(null);
         setBranchCommits([]);
+        setNewCommitsSinceMerge(0);
         if (preBranchFile.current) {
           setActiveFile(preBranchFile.current);
           preBranchFile.current = null;
@@ -185,6 +187,9 @@ export default function App() {
         }
 
         setBranchCommits(cs);
+        // merged branch に入ったとき: 新しいコミットはまだないので 0 に初期化
+        // open branch に入ったとき: 既存コミット数が「未 merge のコミット数」
+        setNewCommitsSinceMerge(branch.status === 'merged' ? 0 : cs.length);
         setActiveBranch(branch);
       } catch (err) {
         console.warn('[branch] select failed:', err);
@@ -199,6 +204,7 @@ export default function App() {
     setLastCommitBase(null);
     setBranchOriginalBase(null);
     setBranchCommits([]);
+    setNewCommitsSinceMerge(0);
     if (preBranchFile.current) {
       setActiveFile(preBranchFile.current);
       preBranchFile.current = null;
@@ -252,38 +258,27 @@ export default function App() {
           return next;
         });
 
-        // trunk 状態を reload して trunk に戻る
-        const mergedSheet = await fetchBranchSheetFromPds(
-          branch.id,
-          activeSheetId,
-        );
-        // NOTE: merged branch の PDS 状態が trunk に書き込まれているので trunk として扱う
-        if (activeFile) {
-          const updatedFile = {
+        // trunk を同期 (preBranchFile を merge 後の状態に更新)
+        if (activeFile && activeSheet) {
+          preBranchFile.current = {
             ...activeFile,
             sheets: activeFile.sheets.map((s) =>
-              s.id === activeSheetId
-                ? { ...mergedSheet, id: activeSheetId }
-                : s,
+              s.id === activeSheetId ? activeSheet : s,
             ),
           };
-          preBranchFile.current = updatedFile;
         }
 
-        setActiveBranch(null);
-        setLastCommitBase(null);
-        setBranchOriginalBase(null);
-        setBranchCommits([]);
-        if (preBranchFile.current) {
-          setActiveFile(preBranchFile.current);
-          preBranchFile.current = null;
-        }
+        // merge 後もブランチモードを維持: close するまで commit/merge を続けられる
+        setActiveBranch(mergedBranch);
+        setBranchOriginalBase(activeSheet ?? null);
+        setLastCommitBase(activeSheet ?? null);
+        setNewCommitsSinceMerge(0);
       } catch (err) {
         console.warn('[branch] merge failed:', err);
         alert('merge に失敗しました。');
       }
     },
-    [activeSheetId, activeFile],
+    [activeSheetId, activeFile, activeSheet],
   );
 
   const handleCloseBranch = useCallback(
@@ -381,6 +376,7 @@ export default function App() {
 
         // pending ops の基点を現在の状態に更新
         setLastCommitBase(activeSheet);
+        setNewCommitsSinceMerge((prev) => prev + 1);
         setCommitDialogOpen(false);
       } catch (err) {
         console.warn('[commit] create failed:', err);
@@ -661,8 +657,13 @@ export default function App() {
       sheets: [...activeFile.sheets, newSheet],
     };
     setActiveSheetId(newSheet.id);
+    if (!isTrunk) {
+      // ブランチモードで新シートを追加: 空シートを基点に設定し古いシートのベースが残るのを防ぐ
+      setBranchOriginalBase(newSheet);
+      setLastCommitBase(newSheet);
+    }
     await persistFile(updated);
-  }, [activeFile, persistFile]);
+  }, [activeFile, persistFile, isTrunk]);
 
   return (
     <div style={{ display: 'flex', height: '100vh', fontFamily: 'sans-serif' }}>
@@ -764,16 +765,16 @@ export default function App() {
             onClick={() => handleMergeBranch(activeBranch)}
             disabled={
               pendingOps.length > 0 ||
-              branchCommits.length === 0 ||
-              activeBranch.status !== 'open'
+              newCommitsSinceMerge === 0 ||
+              activeBranch.status === 'closed'
             }
             style={{
               padding: '6px 16px',
               fontSize: 13,
               background:
                 pendingOps.length === 0 &&
-                branchCommits.length > 0 &&
-                activeBranch.status === 'open'
+                newCommitsSinceMerge > 0 &&
+                activeBranch.status !== 'closed'
                   ? '#f97316'
                   : '#ccc',
               color: '#fff',
@@ -781,8 +782,8 @@ export default function App() {
               borderRadius: 4,
               cursor:
                 pendingOps.length === 0 &&
-                branchCommits.length > 0 &&
-                activeBranch.status === 'open'
+                newCommitsSinceMerge > 0 &&
+                activeBranch.status !== 'closed'
                   ? 'pointer'
                   : 'not-allowed',
             }}
