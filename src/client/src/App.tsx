@@ -78,7 +78,6 @@ export default function App() {
   const [sheetBranches, setSheetBranches] = useState<Map<string, Branch[]>>(
     new Map(),
   );
-  const [branchCommits, setBranchCommits] = useState<Commit[]>([]);
   const [newCommitsSinceMerge, setNewCommitsSinceMerge] = useState(0);
   const [commitDialogOpen, setCommitDialogOpen] = useState(false);
 
@@ -135,7 +134,6 @@ export default function App() {
         setActiveBranch(branch);
         setLastCommitBase(null);
         setBranchOriginalBase(null);
-        setBranchCommits([]);
         setNewCommitsSinceMerge(0);
         if (preBranchFile.current) {
           setActiveFile(preBranchFile.current);
@@ -186,7 +184,6 @@ export default function App() {
           });
         }
 
-        setBranchCommits(cs);
         // merged branch に入ったとき: 新しいコミットはまだないので 0 に初期化
         // open branch に入ったとき: 既存コミット数が「未 merge のコミット数」
         setNewCommitsSinceMerge(branch.status === 'merged' ? 0 : cs.length);
@@ -203,7 +200,6 @@ export default function App() {
     setActiveBranch(null);
     setLastCommitBase(null);
     setBranchOriginalBase(null);
-    setBranchCommits([]);
     setNewCommitsSinceMerge(0);
     if (preBranchFile.current) {
       setActiveFile(preBranchFile.current);
@@ -302,7 +298,6 @@ export default function App() {
           setActiveBranch(null);
           setLastCommitBase(null);
           setBranchOriginalBase(null);
-          setBranchCommits([]);
           if (preBranchFile.current) {
             setActiveFile(preBranchFile.current);
             preBranchFile.current = null;
@@ -340,7 +335,6 @@ export default function App() {
           setActiveBranch(null);
           setLastCommitBase(null);
           setBranchOriginalBase(null);
-          setBranchCommits([]);
           if (preBranchFile.current) {
             setActiveFile(preBranchFile.current);
             preBranchFile.current = null;
@@ -371,7 +365,6 @@ export default function App() {
           branchRef,
           parentRef,
         );
-        setBranchCommits((prev) => [...prev, commit]);
         latestCommitRef.current = { uri: commit.uri, cid: commit.cid };
 
         // pending ops の基点を現在の状態に更新
