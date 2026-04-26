@@ -36,6 +36,7 @@ import {
   sheets,
   TRUNK_PREFIX,
 } from './collections';
+import type { BranchStateDeps } from './collectionTypes';
 import {
   edgeLayoutToRecord,
   edgeToRecord,
@@ -170,13 +171,28 @@ export function computeOperations(
   return ops;
 }
 
+// --- DI defaults ---
+
+/** 実 PDS collection に接続されたデフォルトの依存 */
+const defaultDeps: BranchStateDeps = {
+  branches: branches as BranchStateDeps['branches'],
+  commits: commits as BranchStateDeps['commits'],
+  merges: merges as BranchStateDeps['merges'],
+  nodes: nodes as BranchStateDeps['nodes'],
+  edges: edges as BranchStateDeps['edges'],
+  nodeLayouts: nodeLayouts as BranchStateDeps['nodeLayouts'],
+  edgeLayouts: edgeLayouts as BranchStateDeps['edgeLayouts'],
+  sheets: sheets as BranchStateDeps['sheets'],
+};
+
 // --- ATProto helpers ---
 
 /** sheet に紐づく全 branch を取得 */
 export async function fetchBranchesForSheet(
   sheetId: SheetId,
+  deps: BranchStateDeps = defaultDeps,
 ): Promise<Branch[]> {
-  const all = await branches.list();
+  const all = await deps.branches.list();
   return all
     .filter((r) => {
       const rec = r.value as BranchRecord;
@@ -202,8 +218,9 @@ export async function fetchBranchesForSheet(
 /** branch に紐づく全 commit を parentCommit チェーンの順に返す */
 export async function fetchCommitsForBranch(
   branchUri: string,
+  deps: BranchStateDeps = defaultDeps,
 ): Promise<Commit[]> {
-  const all = await commits.list();
+  const all = await deps.commits.list();
   const forBranch = all
     .filter((r) => {
       const rec = r.value as CommitRecord;
@@ -246,11 +263,12 @@ function sortCommitChain(commitList: Commit[]): Commit[] {
 export async function createMainBranch(
   sheetId: SheetId,
   sheetRef: StrongRef,
+  deps: BranchStateDeps = defaultDeps,
 ): Promise<Branch> {
   const branchId = crypto.randomUUID();
   const now = new Date().toISOString();
   const authorDid = currentDid();
-  const result = await branches.put(branchId, {
+  const result = await deps.branches.put(branchId, {
     sheet: sheetRef,
     name: 'trunk',
     authorDid,
@@ -282,13 +300,16 @@ type TrunkSheetData = {
   edgeLayouts: Array<{ layout: EdgeLayout; edgeRef: StrongRef }>;
 };
 
-async function fetchTrunkSheetData(sheetId: SheetId): Promise<TrunkSheetData> {
+async function fetchTrunkSheetData(
+  sheetId: SheetId,
+  deps: BranchStateDeps,
+): Promise<TrunkSheetData> {
   const [allNodes, allEdges, allNodeLayouts, allEdgeLayouts] =
     await Promise.all([
-      nodes.listForPrefix(TRUNK_PREFIX),
-      edges.listForPrefix(TRUNK_PREFIX),
-      nodeLayouts.listForPrefix(TRUNK_PREFIX),
-      edgeLayouts.listForPrefix(TRUNK_PREFIX),
+      deps.nodes.listForPrefix(TRUNK_PREFIX),
+      deps.edges.listForPrefix(TRUNK_PREFIX),
+      deps.nodeLayouts.listForPrefix(TRUNK_PREFIX),
+      deps.edgeLayouts.listForPrefix(TRUNK_PREFIX),
     ]);
 
   const sheetNodes = allNodes.filter(
@@ -376,13 +397,14 @@ export async function createBranch(
   sheetId: SheetId,
   sheetRef: StrongRef,
   baseCommitRef?: StrongRef,
+  deps: BranchStateDeps = defaultDeps,
 ): Promise<Branch> {
   const branchId = crypto.randomUUID();
   const now = new Date().toISOString();
   const authorDid = currentDid();
 
   // Phase 1: BranchRecord を 'creating' で作成
-  await branches.put(branchId, {
+  await deps.branches.put(branchId, {
     sheet: sheetRef,
     name,
     authorDid,
@@ -392,13 +414,16 @@ export async function createBranch(
   });
 
   // Phase 2: trunk の records を branch prefix でコピー
-  const trunkData = await fetchTrunkSheetData(sheetId);
+  const trunkData = await fetchTrunkSheetData(sheetId, deps);
 
   const nodeIdToBranchRef = new Map<string, StrongRef>();
   await Promise.all(
     trunkData.nodes.map(async ({ node }) => {
       const rkey = makeRkey(branchId, node.id);
-      const result = await nodes.put(rkey, nodeToRecord(node, sheetRef, now));
+      const result = await deps.nodes.put(
+        rkey,
+        nodeToRecord(node, sheetRef, now),
+      );
       nodeIdToBranchRef.set(node.id, { uri: result.uri, cid: result.cid });
     }),
   );
@@ -410,7 +435,7 @@ export async function createBranch(
       const targetRef = nodeIdToBranchRef.get(edge.target);
       if (!sourceRef || !targetRef) return;
       const rkey = makeRkey(branchId, edge.id);
-      const result = await edges.put(
+      const result = await deps.edges.put(
         rkey,
         edgeToRecord(edge, sheetRef, sourceRef, targetRef, now),
       );
@@ -426,7 +451,7 @@ export async function createBranch(
         ? nodeIdToBranchRef.get(layout.parentId)
         : undefined;
       const rkey = makeRkey(branchId, layout.nodeId);
-      await nodeLayouts.put(
+      await deps.nodeLayouts.put(
         rkey,
         nodeLayoutToRecord(layout, nodeRef, parentRef, now),
       );
@@ -438,12 +463,15 @@ export async function createBranch(
       const edgeRef = edgeIdToBranchRef.get(layout.edgeId);
       if (!edgeRef) return;
       const rkey = makeRkey(branchId, layout.edgeId);
-      await edgeLayouts.put(rkey, edgeLayoutToRecord(layout, edgeRef, now));
+      await deps.edgeLayouts.put(
+        rkey,
+        edgeLayoutToRecord(layout, edgeRef, now),
+      );
     }),
   );
 
   // Phase 3: BranchRecord を 'open' に更新
-  const openResult = await branches.put(branchId, {
+  const openResult = await deps.branches.put(branchId, {
     sheet: sheetRef,
     name,
     authorDid,
@@ -469,10 +497,11 @@ export async function createBranch(
 export async function updateBranchStatus(
   branch: Branch,
   status: 'open' | 'merged' | 'closed',
+  deps: BranchStateDeps = defaultDeps,
 ): Promise<Branch> {
-  const current = await branches.get(branch.id);
+  const current = await deps.branches.get(branch.id);
   const { $type: _, ...rest } = current.value as BranchRecord;
-  const result = await branches.put(branch.id, { ...rest, status });
+  const result = await deps.branches.put(branch.id, { ...rest, status });
   return { ...branch, status, cid: result.cid };
 }
 
@@ -480,14 +509,15 @@ export async function updateBranchStatus(
 export async function fetchBranchSheetFromPds(
   branchId: string,
   sheetId: SheetId,
+  deps: BranchStateDeps = defaultDeps,
 ): Promise<Sheet> {
   const [sheetEntry, allNodes, allEdges, allNodeLayouts, allEdgeLayouts] =
     await Promise.all([
-      sheets.get(sheetId),
-      nodes.listForPrefix(branchId),
-      edges.listForPrefix(branchId),
-      nodeLayouts.listForPrefix(branchId),
-      edgeLayouts.listForPrefix(branchId),
+      deps.sheets.get(sheetId),
+      deps.nodes.listForPrefix(branchId),
+      deps.edges.listForPrefix(branchId),
+      deps.nodeLayouts.listForPrefix(branchId),
+      deps.edgeLayouts.listForPrefix(branchId),
     ]);
 
   const sheetNodeEntries = allNodes.filter(
@@ -542,6 +572,7 @@ export async function syncBranchSheetToAtproto(
   sheet: Sheet,
   sheetRef: StrongRef,
   branchId: string,
+  deps: BranchStateDeps = defaultDeps,
 ): Promise<void> {
   const now = new Date().toISOString();
   const sheetId = sheet.id;
@@ -551,7 +582,10 @@ export async function syncBranchSheetToAtproto(
   await Promise.all(
     sheet.nodes.map(async (node) => {
       const rkey = makeRkey(branchId, node.id);
-      const result = await nodes.put(rkey, nodeToRecord(node, sheetRef, now));
+      const result = await deps.nodes.put(
+        rkey,
+        nodeToRecord(node, sheetRef, now),
+      );
       nodeIdToRef.set(node.id, { uri: result.uri, cid: result.cid });
     }),
   );
@@ -569,7 +603,7 @@ export async function syncBranchSheetToAtproto(
         return;
       }
       const rkey = makeRkey(branchId, edge.id);
-      const result = await edges.put(
+      const result = await deps.edges.put(
         rkey,
         edgeToRecord(edge, sheetRef, sourceRef, targetRef, now),
       );
@@ -587,7 +621,7 @@ export async function syncBranchSheetToAtproto(
           ? nodeIdToRef.get(layout.parentId)
           : undefined;
         const rkey = makeRkey(branchId, layout.nodeId);
-        await nodeLayouts.put(
+        await deps.nodeLayouts.put(
           rkey,
           nodeLayoutToRecord(layout, nodeRef, parentRef, now),
         );
@@ -602,7 +636,10 @@ export async function syncBranchSheetToAtproto(
         const edgeRef = edgeIdToRef.get(layout.edgeId);
         if (!edgeRef) return;
         const rkey = makeRkey(branchId, layout.edgeId);
-        await edgeLayouts.put(rkey, edgeLayoutToRecord(layout, edgeRef, now));
+        await deps.edgeLayouts.put(
+          rkey,
+          edgeLayoutToRecord(layout, edgeRef, now),
+        );
       }),
     );
   }
@@ -613,6 +650,7 @@ export async function syncBranchSheetToAtproto(
     sheet.edges.map((e) => e.id as string),
     branchId,
     sheetId,
+    deps,
   );
 }
 
@@ -621,10 +659,11 @@ async function cleanupBranchDeletedRecords(
   currentEdgeIds: string[],
   branchId: string,
   sheetId: SheetId,
+  deps: BranchStateDeps,
 ): Promise<void> {
   const [existingNodes, existingEdges] = await Promise.all([
-    nodes.listForPrefix(branchId),
-    edges.listForPrefix(branchId),
+    deps.nodes.listForPrefix(branchId),
+    deps.edges.listForPrefix(branchId),
   ]);
 
   const currentNodeIdSet = new Set(currentNodeIds);
@@ -640,7 +679,7 @@ async function cleanupBranchDeletedRecords(
           !currentNodeIdSet.has(nodeId)
         );
       })
-      .map((r) => nodes.delete(rkeyFromUri(r.uri))),
+      .map((r) => deps.nodes.delete(rkeyFromUri(r.uri))),
     ...existingEdges
       .filter((r) => {
         const rec = r.value as EdgeRecord;
@@ -650,7 +689,7 @@ async function cleanupBranchDeletedRecords(
           !currentEdgeIdSet.has(edgeId)
         );
       })
-      .map((r) => edges.delete(rkeyFromUri(r.uri))),
+      .map((r) => deps.edges.delete(rkeyFromUri(r.uri))),
   ]);
 }
 
@@ -659,15 +698,16 @@ export async function mergeBranchToTrunk(
   branch: Branch,
   sheetId: SheetId,
   sheetRef: StrongRef,
+  deps: BranchStateDeps = defaultDeps,
 ): Promise<void> {
   const _now = new Date().toISOString();
 
   const [branchNodes, branchEdges, branchNodeLayouts, branchEdgeLayouts] =
     await Promise.all([
-      nodes.listForPrefix(branch.id),
-      edges.listForPrefix(branch.id),
-      nodeLayouts.listForPrefix(branch.id),
-      edgeLayouts.listForPrefix(branch.id),
+      deps.nodes.listForPrefix(branch.id),
+      deps.edges.listForPrefix(branch.id),
+      deps.nodeLayouts.listForPrefix(branch.id),
+      deps.edgeLayouts.listForPrefix(branch.id),
     ]);
 
   const sheetBranchNodes = branchNodes.filter(
@@ -687,7 +727,10 @@ export async function mergeBranchToTrunk(
       const rec = r.value as NodeRecord;
       const { $type: _, ...data } = rec;
       const trunkRkey = makeRkey(TRUNK_PREFIX, nodeId);
-      const result = await nodes.put(trunkRkey, { ...data, sheet: sheetRef });
+      const result = await deps.nodes.put(trunkRkey, {
+        ...data,
+        sheet: sheetRef,
+      });
       nodeIdToTrunkRef.set(nodeId, { uri: result.uri, cid: result.cid });
     }),
   );
@@ -705,7 +748,7 @@ export async function mergeBranchToTrunk(
       if (!sourceRef || !targetRef) return;
       const { $type: _, ...data } = rec;
       const trunkRkey = makeRkey(TRUNK_PREFIX, edgeId);
-      const result = await edges.put(trunkRkey, {
+      const result = await deps.edges.put(trunkRkey, {
         ...data,
         sheet: sheetRef,
         source: sourceRef,
@@ -717,8 +760,8 @@ export async function mergeBranchToTrunk(
 
   // 3. branch で削除されたノード/エッジを trunk からも削除
   const [trunkNodes, trunkEdges] = await Promise.all([
-    nodes.listForPrefix(TRUNK_PREFIX),
-    edges.listForPrefix(TRUNK_PREFIX),
+    deps.nodes.listForPrefix(TRUNK_PREFIX),
+    deps.edges.listForPrefix(TRUNK_PREFIX),
   ]);
   const branchNodeIds = new Set(
     sheetBranchNodes.map((r) => idFromRkey(rkeyFromUri(r.uri))),
@@ -736,7 +779,7 @@ export async function mergeBranchToTrunk(
           !branchNodeIds.has(idFromRkey(rkeyFromUri(r.uri)))
         );
       })
-      .map((r) => nodes.delete(rkeyFromUri(r.uri))),
+      .map((r) => deps.nodes.delete(rkeyFromUri(r.uri))),
     ...trunkEdges
       .filter((r) => {
         const rec = r.value as EdgeRecord;
@@ -745,7 +788,7 @@ export async function mergeBranchToTrunk(
           !branchEdgeIds.has(idFromRkey(rkeyFromUri(r.uri)))
         );
       })
-      .map((r) => edges.delete(rkeyFromUri(r.uri))),
+      .map((r) => deps.edges.delete(rkeyFromUri(r.uri))),
   ]);
 
   // 4. nodeLayouts / edgeLayouts → trunk rkey で PUT
@@ -765,7 +808,7 @@ export async function mergeBranchToTrunk(
         const parentRef = parentId ? nodeIdToTrunkRef.get(parentId) : undefined;
         const { $type: _, ...data } = rec;
         const trunkRkey = makeRkey(TRUNK_PREFIX, nodeId);
-        await nodeLayouts.put(trunkRkey, {
+        await deps.nodeLayouts.put(trunkRkey, {
           ...data,
           node: trunkNodeRef,
           ...(parentRef && { parent: parentRef }),
@@ -782,7 +825,10 @@ export async function mergeBranchToTrunk(
         if (!trunkEdgeRef) return;
         const { $type: _, ...data } = rec;
         const trunkRkey = makeRkey(TRUNK_PREFIX, edgeId);
-        await edgeLayouts.put(trunkRkey, { ...data, edge: trunkEdgeRef });
+        await deps.edgeLayouts.put(trunkRkey, {
+          ...data,
+          edge: trunkEdgeRef,
+        });
       }),
   ]);
 }
@@ -793,9 +839,10 @@ export async function createMergeRecord(
   sheetRef: StrongRef,
   branchRef: StrongRef,
   latestCommitRef?: StrongRef,
+  deps: BranchStateDeps = defaultDeps,
 ): Promise<void> {
   const mergeId = crypto.randomUUID();
-  await merges.put(mergeId, {
+  await deps.merges.put(mergeId, {
     sheet: sheetRef,
     branch: branchRef,
     message: `Merge branch '${branch.name}'`,
@@ -806,7 +853,10 @@ export async function createMergeRecord(
 }
 
 /** branch とその全 node/edge/layout/commit レコードを PDS から削除 */
-export async function deleteBranchWithRecords(branch: Branch): Promise<void> {
+export async function deleteBranchWithRecords(
+  branch: Branch,
+  deps: BranchStateDeps = defaultDeps,
+): Promise<void> {
   const [
     branchNodes,
     branchEdges,
@@ -814,20 +864,24 @@ export async function deleteBranchWithRecords(branch: Branch): Promise<void> {
     branchEdgeLayouts,
     branchCommits,
   ] = await Promise.all([
-    nodes.listForPrefix(branch.id),
-    edges.listForPrefix(branch.id),
-    nodeLayouts.listForPrefix(branch.id),
-    edgeLayouts.listForPrefix(branch.id),
-    fetchCommitsForBranch(branch.uri),
+    deps.nodes.listForPrefix(branch.id),
+    deps.edges.listForPrefix(branch.id),
+    deps.nodeLayouts.listForPrefix(branch.id),
+    deps.edgeLayouts.listForPrefix(branch.id),
+    fetchCommitsForBranch(branch.uri, deps),
   ]);
 
   await Promise.all([
-    ...branchNodes.map((r) => nodes.delete(rkeyFromUri(r.uri))),
-    ...branchEdges.map((r) => edges.delete(rkeyFromUri(r.uri))),
-    ...branchNodeLayouts.map((r) => nodeLayouts.delete(rkeyFromUri(r.uri))),
-    ...branchEdgeLayouts.map((r) => edgeLayouts.delete(rkeyFromUri(r.uri))),
-    ...branchCommits.map((c) => commits.delete(c.id)),
-    branches.delete(branch.id),
+    ...branchNodes.map((r) => deps.nodes.delete(rkeyFromUri(r.uri))),
+    ...branchEdges.map((r) => deps.edges.delete(rkeyFromUri(r.uri))),
+    ...branchNodeLayouts.map((r) =>
+      deps.nodeLayouts.delete(rkeyFromUri(r.uri)),
+    ),
+    ...branchEdgeLayouts.map((r) =>
+      deps.edgeLayouts.delete(rkeyFromUri(r.uri)),
+    ),
+    ...branchCommits.map((c) => deps.commits.delete(c.id)),
+    deps.branches.delete(branch.id),
   ]);
 }
 
@@ -839,11 +893,12 @@ export async function createCommit(
   branchRef: StrongRef,
   parentCommitRef?: StrongRef,
   treeRefs?: StrongRef[],
+  deps: BranchStateDeps = defaultDeps,
 ): Promise<Commit> {
   const commitId = crypto.randomUUID();
   const now = new Date().toISOString();
   const authorDid = currentDid();
-  const result = await commits.put(commitId, {
+  const result = await deps.commits.put(commitId, {
     sheet: sheetRef,
     branch: branchRef,
     message,
