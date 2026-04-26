@@ -1,13 +1,18 @@
 export {
-  applyOperations,
   type Branch,
   type Commit,
   computeOperations,
   createBranch,
   createCommit,
   createMainBranch,
+  createMergeRecord,
+  deleteBranchWithRecords,
   fetchBranchesForSheet,
+  fetchBranchSheetFromPds,
   fetchCommitsForBranch,
+  mergeBranchToTrunk,
+  syncBranchSheetToAtproto,
+  updateBranchStatus,
 } from './branchState';
 export { currentDid, getAgent, login } from './client';
 export {
@@ -21,6 +26,7 @@ export {
   nodes,
   rkeyFromUri,
   sheets,
+  TRUNK_PREFIX,
 } from './collections';
 export {
   initCidCacheFromPds,

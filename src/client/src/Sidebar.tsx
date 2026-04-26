@@ -38,6 +38,9 @@ type Props = {
   onDeleteSheet: (sheetId: string) => void;
   onSelectBranch: (sheetId: SheetId, branch: Branch | null) => void;
   onCreateBranch: (sheetId: SheetId) => void;
+  onMergeBranch: (branch: Branch) => void;
+  onCloseBranch: (branch: Branch) => void;
+  onDeleteBranch: (branch: Branch) => void;
 };
 
 const gearBtnStyle: React.CSSProperties = {
@@ -75,6 +78,9 @@ export function Sidebar({
   onDeleteSheet,
   onSelectBranch,
   onCreateBranch,
+  onMergeBranch,
+  onCloseBranch,
+  onDeleteBranch,
 }: Props) {
   const newFileComposingRef = useRef(false);
   const importInputRef = useRef<HTMLInputElement>(null);
@@ -361,7 +367,9 @@ export function Sidebar({
                         {/* Branch 一覧 (シート選択時に表示) */}
                         {isActiveSheet &&
                           (() => {
-                            const bs = sheetBranches.get(s.id) ?? [];
+                            const bs = (sheetBranches.get(s.id) ?? []).filter(
+                              (b) => b.name !== 'trunk',
+                            );
                             return (
                               <ul
                                 style={{
@@ -373,6 +381,18 @@ export function Sidebar({
                                 {bs.map((branch) => {
                                   const isActiveBranch =
                                     activeBranchId === branch.id;
+                                  const isMerged = branch.status === 'merged';
+                                  const isClosed = branch.status === 'closed';
+                                  const bgColor = isActiveBranch
+                                    ? '#dde8ff'
+                                    : isMerged
+                                      ? '#fff7ed'
+                                      : 'transparent';
+                                  const textColor = isMerged
+                                    ? '#9a3412'
+                                    : isClosed
+                                      ? '#999'
+                                      : '#333';
                                   return (
                                     <li key={branch.id}>
                                       <div
@@ -382,9 +402,7 @@ export function Sidebar({
                                           gap: 2,
                                           padding: '2px 4px 2px 36px',
                                           borderRadius: 4,
-                                          background: isActiveBranch
-                                            ? '#dde8ff'
-                                            : 'transparent',
+                                          background: bgColor,
                                         }}
                                       >
                                         <button
@@ -401,25 +419,107 @@ export function Sidebar({
                                             cursor: 'pointer',
                                             textAlign: 'left',
                                             padding: 0,
-                                            color:
-                                              branch.name === 'main'
-                                                ? '#888'
-                                                : '#333',
+                                            color: textColor,
                                           }}
                                           onClick={() =>
                                             onSelectBranch(
                                               s.id,
-                                              isActiveBranch &&
-                                                branch.name !== 'main'
-                                                ? null
-                                                : branch,
+                                              isActiveBranch ? null : branch,
                                             )
                                           }
                                         >
-                                          {branch.name === 'main'
-                                            ? '⎇ main'
-                                            : `⎇ ${branch.name}`}
+                                          ⎇ {branch.name}
+                                          {isMerged ? ' (merged)' : ''}
+                                          {isClosed ? ' (closed)' : ''}
                                         </button>
+                                        {/* open + active: merge ↑ / close ✕ */}
+                                        {isActiveBranch &&
+                                          !isMerged &&
+                                          !isClosed && (
+                                            <>
+                                              <button
+                                                type="button"
+                                                title="trunk に merge"
+                                                style={{
+                                                  ...gearBtnStyle,
+                                                  fontSize: 10,
+                                                }}
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  onMergeBranch(branch);
+                                                }}
+                                              >
+                                                ↑
+                                              </button>
+                                              <button
+                                                type="button"
+                                                title="close"
+                                                style={{
+                                                  ...gearBtnStyle,
+                                                  fontSize: 10,
+                                                }}
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  onCloseBranch(branch);
+                                                }}
+                                              >
+                                                ✕
+                                              </button>
+                                            </>
+                                          )}
+                                        {/* open + not active: delete 🗑 */}
+                                        {!isActiveBranch &&
+                                          !isMerged &&
+                                          !isClosed && (
+                                            <button
+                                              type="button"
+                                              title="削除"
+                                              style={{
+                                                ...gearBtnStyle,
+                                                fontSize: 10,
+                                              }}
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                onDeleteBranch(branch);
+                                              }}
+                                            >
+                                              🗑
+                                            </button>
+                                          )}
+                                        {/* merged: close ✕ */}
+                                        {isMerged && (
+                                          <button
+                                            type="button"
+                                            title="close"
+                                            style={{
+                                              ...gearBtnStyle,
+                                              fontSize: 10,
+                                            }}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              onCloseBranch(branch);
+                                            }}
+                                          >
+                                            ✕
+                                          </button>
+                                        )}
+                                        {/* closed: delete 🗑 */}
+                                        {isClosed && (
+                                          <button
+                                            type="button"
+                                            title="削除"
+                                            style={{
+                                              ...gearBtnStyle,
+                                              fontSize: 10,
+                                            }}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              onDeleteBranch(branch);
+                                            }}
+                                          >
+                                            🗑
+                                          </button>
+                                        )}
                                       </div>
                                     </li>
                                   );

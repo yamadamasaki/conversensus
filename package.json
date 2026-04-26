@@ -13,7 +13,8 @@
     "lint": "bun --bun biome check src/",
     "lint:fix": "bun --bun biome check --write src/",
     "setup": "cp scripts/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit && echo 'pre-commit hook installed'",
-    "test": "bun test src/"
+    "test": "bun test src/",
+    "clear-pds-data": "bun run --cwd src/client scripts/clear-pds-data.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.7",
