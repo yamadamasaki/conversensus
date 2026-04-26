@@ -18,7 +18,6 @@ import {
 import {
   files as atprotoFilesColl,
   type Branch,
-  type Commit,
   computeOperations,
   createBranch,
   createCommit,
