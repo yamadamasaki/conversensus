@@ -6,6 +6,7 @@ import type {
   SheetId,
 } from '@conversensus/shared';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AlertDialog } from './AlertDialog';
 import {
   createFile,
   exportFile,
@@ -37,9 +38,12 @@ import {
   updateBranchStatus,
 } from './atproto';
 import { CommitDialog } from './CommitDialog';
+import { ConfirmDialog } from './ConfirmDialog';
 import { GraphEditor } from './GraphEditor';
+import { InputDialog } from './InputDialog';
 import type { PopupTarget } from './SettingsPopup';
 import { Sidebar } from './Sidebar';
+import { generateId } from './uuid';
 
 const AUTOSAVE_DELAY = 1000; // ms
 
@@ -79,6 +83,20 @@ export default function App() {
   );
   const [newCommitsSinceMerge, setNewCommitsSinceMerge] = useState(0);
   const [commitDialogOpen, setCommitDialogOpen] = useState(false);
+
+  // ブラウザ API 代替ダイアログの state
+  const [confirmState, setConfirmState] = useState<{
+    message: string;
+    resolve: (ok: boolean) => void;
+  } | null>(null);
+  const [inputState, setInputState] = useState<{
+    message: string;
+    resolve: (value: string) => void;
+  } | null>(null);
+  const [alertState, setAlertState] = useState<{
+    message: string;
+    resolve: () => void;
+  } | null>(null);
 
   // branch の "commit 前の状態" (pending ops 表示用)
   const [lastCommitBase, setLastCommitBase] = useState<Sheet | null>(null);
@@ -207,7 +225,9 @@ export default function App() {
   }, []);
 
   const handleCreateBranch = useCallback(async (sheetId: SheetId) => {
-    const name = window.prompt('branch 名を入力してください:');
+    const name = await new Promise<string>((resolve) => {
+      setInputState({ message: 'branch 名を入力してください:', resolve });
+    });
     if (!name?.trim()) return;
     try {
       const sheetRef = await sheets.ref(sheetId);
@@ -220,19 +240,26 @@ export default function App() {
       });
     } catch (err) {
       console.warn('[branch] create failed:', err);
-      alert(
-        'branch の作成に失敗しました。ATProto にログインしているか確認してください。',
-      );
+      await new Promise<void>((resolve) => {
+        setAlertState({
+          message:
+            'branch の作成に失敗しました。ATProto にログインしているか確認してください。',
+          resolve,
+        });
+      });
     }
   }, []);
 
   const handleMergeBranch = useCallback(
     async (branch: Branch) => {
       if (!activeSheetId || !activeFile) return;
-      if (
-        !window.confirm(`branch "${branch.name}" を trunk に merge しますか？`)
-      )
-        return;
+      const ok = await new Promise<boolean>((resolve) => {
+        setConfirmState({
+          message: `branch "${branch.name}" を trunk に merge しますか？`,
+          resolve,
+        });
+      });
+      if (!ok) return;
       try {
         const sheetRef = await sheets.ref(activeSheetId);
         const branchRef = { uri: branch.uri, cid: branch.cid };
@@ -270,7 +297,9 @@ export default function App() {
         setNewCommitsSinceMerge(0);
       } catch (err) {
         console.warn('[branch] merge failed:', err);
-        alert('merge に失敗しました。');
+        await new Promise<void>((resolve) => {
+          setAlertState({ message: 'merge に失敗しました。', resolve });
+        });
       }
     },
     [activeSheetId, activeFile, activeSheet],
@@ -278,8 +307,13 @@ export default function App() {
 
   const handleCloseBranch = useCallback(
     async (branch: Branch) => {
-      if (!window.confirm(`branch "${branch.name}" を close しますか？`))
-        return;
+      const ok = await new Promise<boolean>((resolve) => {
+        setConfirmState({
+          message: `branch "${branch.name}" を close しますか？`,
+          resolve,
+        });
+      });
+      if (!ok) return;
       try {
         const closedBranch = await updateBranchStatus(branch, 'closed');
         setSheetBranches((prev) => {
@@ -304,7 +338,9 @@ export default function App() {
         }
       } catch (err) {
         console.warn('[branch] close failed:', err);
-        alert('close に失敗しました。');
+        await new Promise<void>((resolve) => {
+          setAlertState({ message: 'close に失敗しました。', resolve });
+        });
       }
     },
     [activeBranch],
@@ -312,12 +348,13 @@ export default function App() {
 
   const handleDeleteBranch = useCallback(
     async (branch: Branch) => {
-      if (
-        !window.confirm(
-          `branch "${branch.name}" を削除しますか？\nこの操作は取り消せません。`,
-        )
-      )
-        return;
+      const ok = await new Promise<boolean>((resolve) => {
+        setConfirmState({
+          message: `branch "${branch.name}" を削除しますか？\nこの操作は取り消せません。`,
+          resolve,
+        });
+      });
+      if (!ok) return;
       try {
         await deleteBranchWithRecords(branch);
         setSheetBranches((prev) => {
@@ -341,7 +378,9 @@ export default function App() {
         }
       } catch (err) {
         console.warn('[branch] delete failed:', err);
-        alert('削除に失敗しました。');
+        await new Promise<void>((resolve) => {
+          setAlertState({ message: '削除に失敗しました。', resolve });
+        });
       }
     },
     [activeBranch],
@@ -372,7 +411,9 @@ export default function App() {
         setCommitDialogOpen(false);
       } catch (err) {
         console.warn('[commit] create failed:', err);
-        alert('コミットに失敗しました。');
+        await new Promise<void>((resolve) => {
+          setAlertState({ message: 'コミットに失敗しました。', resolve });
+        });
       }
     },
     [activeBranch, activeSheetId, activeSheet, pendingOps],
@@ -540,13 +581,15 @@ export default function App() {
   const handleDeleteFile = useCallback(
     async (id: string) => {
       const target = files.find((f) => f.id === id);
-      if (
-        target &&
-        !window.confirm(
-          `「${target.name}」を削除しますか？\nシートも全て削除されます。`,
-        )
-      )
-        return;
+      if (target) {
+        const ok = await new Promise<boolean>((resolve) => {
+          setConfirmState({
+            message: `「${target.name}」を削除しますか？\nシートも全て削除されます。`,
+            resolve,
+          });
+        });
+        if (!ok) return;
+      }
       try {
         await removeFile(id);
         try {
@@ -591,7 +634,12 @@ export default function App() {
     async (sheetId: string) => {
       if (!activeFile) return;
       if (activeFile.sheets.length <= 1) {
-        alert('最後のシートは削除できません');
+        await new Promise<void>((resolve) => {
+          setAlertState({
+            message: '最後のシートは削除できません',
+            resolve,
+          });
+        });
         return;
       }
       const updated: GraphFile = {
@@ -619,7 +667,12 @@ export default function App() {
       setExpandedFileIds((prev) => new Set([...prev, file.id]));
     } catch (err) {
       console.error('Failed to import file:', err);
-      alert('インポートに失敗しました。ファイル形式を確認してください。');
+      await new Promise<void>((resolve) => {
+        setAlertState({
+          message: 'インポートに失敗しました。ファイル形式を確認してください。',
+          resolve,
+        });
+      });
     }
   }, []);
 
@@ -639,7 +692,7 @@ export default function App() {
   const handleAddSheet = useCallback(async () => {
     if (!activeFile) return;
     const newSheet: Sheet = {
-      id: crypto.randomUUID() as SheetId,
+      id: generateId() as SheetId,
       name: `Sheet ${activeFile.sheets.length + 1}`,
       nodes: [],
       edges: [],
@@ -789,6 +842,41 @@ export default function App() {
           operations={pendingOps}
           onCommit={handleCommit}
           onCancel={() => setCommitDialogOpen(false)}
+        />
+      )}
+      {confirmState && (
+        <ConfirmDialog
+          message={confirmState.message}
+          onConfirm={() => {
+            confirmState.resolve(true);
+            setConfirmState(null);
+          }}
+          onCancel={() => {
+            confirmState.resolve(false);
+            setConfirmState(null);
+          }}
+        />
+      )}
+      {inputState && (
+        <InputDialog
+          message={inputState.message}
+          onSubmit={(value) => {
+            inputState.resolve(value);
+            setInputState(null);
+          }}
+          onCancel={() => {
+            inputState.resolve('');
+            setInputState(null);
+          }}
+        />
+      )}
+      {alertState && (
+        <AlertDialog
+          message={alertState.message}
+          onClose={() => {
+            alertState.resolve();
+            setAlertState(null);
+          }}
         />
       )}
     </div>
