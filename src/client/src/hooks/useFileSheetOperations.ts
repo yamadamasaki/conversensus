@@ -74,7 +74,9 @@ export function useFileSheetOperations({
       let file: GraphFile;
       try {
         file = await fetchFileFromAtproto(id);
-        saveFile(file).catch(() => {});
+        saveFile(file).catch((err) =>
+          console.warn('[cache] save failed:', err),
+        );
       } catch {
         file = await fetchFile(id);
       }
