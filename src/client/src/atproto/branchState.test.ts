@@ -7,7 +7,13 @@ import type {
   Sheet,
   SheetId,
 } from '@conversensus/shared';
-import { computeOperations } from './branchState';
+import {
+  computeOperations,
+  fetchBranchesForSheet,
+  fetchCommitsForBranch,
+} from './branchState';
+import type { BranchStateDeps } from './collectionTypes';
+import { createInMemoryDeps } from './testing/inMemoryCollections';
 
 const sid = '00000000-0000-0000-0000-000000000001' as SheetId;
 
@@ -394,5 +400,166 @@ describe('computeOperations: エッジケース', () => {
     const nodeAddIndex = ops.findIndex((o) => o.op === 'node.add');
     const edgeAddIndex = ops.findIndex((o) => o.op === 'edge.add');
     expect(nodeAddIndex).toBeLessThan(edgeAddIndex);
+  });
+});
+
+// --- Async function tests (with in-memory DI) ---
+
+function setupDeps(): BranchStateDeps {
+  return createInMemoryDeps();
+}
+
+const DID = 'did:plc:test';
+
+describe('fetchBranchesForSheet (async)', () => {
+  it('空の collection からは空配列を返す', async () => {
+    const deps = setupDeps();
+    const result = await fetchBranchesForSheet(
+      '00000000-0000-0000-0000-000000000001' as SheetId,
+      deps,
+    );
+    expect(result).toEqual([]);
+  });
+
+  it('該当シートの branch のみを返す', async () => {
+    const deps = setupDeps();
+    const targetSheetId = '00000000-0000-0000-0000-000000000001' as SheetId;
+    const otherSheetId = '00000000-0000-0000-0000-000000000002' as SheetId;
+
+    await deps.branches.put('b1', {
+      sheet: {
+        uri: `at://${DID}/app.conversensus.graph.sheet/${targetSheetId}`,
+        cid: 'c1',
+      },
+      name: 'branch-1',
+      authorDid: DID,
+      status: 'open',
+      createdAt: '2026-01-01T00:00:00.000Z',
+    });
+    await deps.branches.put('b2', {
+      sheet: {
+        uri: `at://${DID}/app.conversensus.graph.sheet/${otherSheetId}`,
+        cid: 'c2',
+      },
+      name: 'branch-2',
+      authorDid: DID,
+      status: 'open',
+      createdAt: '2026-01-01T00:00:00.000Z',
+    });
+
+    const result = await fetchBranchesForSheet(targetSheetId, deps);
+    expect(result).toHaveLength(1);
+    expect(result[0].name).toBe('branch-1');
+  });
+
+  it('branch の全フィールドが正しくマッピングされる', async () => {
+    const deps = setupDeps();
+    const sheetId = '00000000-0000-0000-0000-000000000001';
+    const sheetRef = {
+      uri: `at://${DID}/app.conversensus.graph.sheet/${sheetId}`,
+      cid: 'c-sheet',
+    };
+
+    await deps.branches.put('branch-1', {
+      sheet: sheetRef,
+      name: 'feature-x',
+      description: 'test description',
+      authorDid: DID,
+      status: 'open',
+      baseCommit: {
+        uri: `at://${DID}/app.conversensus.graph.commit/commit-1`,
+        cid: 'c-commit',
+      },
+      createdAt: '2026-01-01T00:00:00.000Z',
+    });
+
+    const result = await fetchBranchesForSheet(sheetId as SheetId, deps);
+    expect(result).toHaveLength(1);
+    const b = result[0];
+    expect(b.id).toBe('branch-1');
+    expect(b.name).toBe('feature-x');
+    expect(b.description).toBe('test description');
+    expect(b.authorDid).toBe(DID);
+    expect(b.status).toBe('open');
+    expect(b.baseCommitUri).toBe(
+      `at://${DID}/app.conversensus.graph.commit/commit-1`,
+    );
+    expect(b.createdAt).toBe('2026-01-01T00:00:00.000Z');
+  });
+});
+
+describe('fetchCommitsForBranch (async)', () => {
+  it('空の collection からは空配列を返す', async () => {
+    const deps = setupDeps();
+    const result = await fetchCommitsForBranch(
+      `at://${DID}/app.conversensus.graph.branch/b1`,
+      deps,
+    );
+    expect(result).toEqual([]);
+  });
+
+  it('該当 branch の commit を parentCommit チェーン順に返す', async () => {
+    const deps = setupDeps();
+    const branchUri = `at://${DID}/app.conversensus.graph.branch/b1`;
+    const sheetUri = `at://${DID}/app.conversensus.graph.sheet/s1`;
+
+    // c2 → c1 (c2 has parent c1, c1 has no parent)
+    await deps.commits.put('c2', {
+      sheet: { uri: sheetUri, cid: 'cs' },
+      branch: { uri: branchUri, cid: 'cb' },
+      message: 'second',
+      authorDid: DID,
+      parentCommit: {
+        uri: `at://${DID}/app.conversensus.graph.commit/c1`,
+        cid: 'cc1',
+      },
+      operations: [],
+      createdAt: '2026-01-02T00:00:00.000Z',
+    });
+    await deps.commits.put('c1', {
+      sheet: { uri: sheetUri, cid: 'cs' },
+      branch: { uri: branchUri, cid: 'cb' },
+      message: 'first',
+      authorDid: DID,
+      operations: [],
+      createdAt: '2026-01-01T00:00:00.000Z',
+    });
+
+    const result = await fetchCommitsForBranch(branchUri, deps);
+    expect(result).toHaveLength(2);
+    expect(result[0].message).toBe('first');
+    expect(result[0].parentCommitUri).toBeUndefined();
+    expect(result[1].message).toBe('second');
+    expect(result[1].parentCommitUri).toBe(
+      `at://${DID}/app.conversensus.graph.commit/c1`,
+    );
+  });
+
+  it('別 branch の commit は返さない', async () => {
+    const deps = setupDeps();
+    const branch1Uri = `at://${DID}/app.conversensus.graph.branch/b1`;
+    const branch2Uri = `at://${DID}/app.conversensus.graph.branch/b2`;
+    const sheetUri = `at://${DID}/app.conversensus.graph.sheet/s1`;
+
+    await deps.commits.put('c1', {
+      sheet: { uri: sheetUri, cid: 'cs' },
+      branch: { uri: branch1Uri, cid: 'cb1' },
+      message: 'branch1-commit',
+      authorDid: DID,
+      operations: [],
+      createdAt: '2026-01-01T00:00:00.000Z',
+    });
+    await deps.commits.put('c2', {
+      sheet: { uri: sheetUri, cid: 'cs' },
+      branch: { uri: branch2Uri, cid: 'cb2' },
+      message: 'branch2-commit',
+      authorDid: DID,
+      operations: [],
+      createdAt: '2026-01-01T00:00:00.000Z',
+    });
+
+    const result = await fetchCommitsForBranch(branch1Uri, deps);
+    expect(result).toHaveLength(1);
+    expect(result[0].message).toBe('branch1-commit');
   });
 });
