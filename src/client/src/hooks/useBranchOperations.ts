@@ -31,6 +31,36 @@ type AlertState = {
   resolve: () => void;
 };
 
+export interface BranchOpsDeps {
+  computeOperations: typeof computeOperations;
+  createBranch: typeof createBranch;
+  createCommit: typeof createCommit;
+  createMergeRecord: typeof createMergeRecord;
+  deleteBranchWithRecords: typeof deleteBranchWithRecords;
+  fetchBranchesForSheet: typeof fetchBranchesForSheet;
+  fetchBranchSheetFromPds: typeof fetchBranchSheetFromPds;
+  fetchCommitsForBranch: typeof fetchCommitsForBranch;
+  mergeBranchToTrunk: typeof mergeBranchToTrunk;
+  sheetsRef: (sheetId: string) => Promise<{ uri: string; cid: string }>;
+  updateBranchStatus: typeof updateBranchStatus;
+  TRUNK_PREFIX: string;
+}
+
+export const defaultBranchOpsDeps: BranchOpsDeps = {
+  computeOperations,
+  createBranch,
+  createCommit,
+  createMergeRecord,
+  deleteBranchWithRecords,
+  fetchBranchesForSheet,
+  fetchBranchSheetFromPds,
+  fetchCommitsForBranch,
+  mergeBranchToTrunk,
+  sheetsRef: (sheetId) => sheets.ref(sheetId),
+  updateBranchStatus,
+  TRUNK_PREFIX,
+};
+
 interface UseBranchOperationsParams {
   activeFile: GraphFile | null;
   activeSheetId: SheetId | null;
@@ -39,6 +69,7 @@ interface UseBranchOperationsParams {
   setConfirmState: (s: ConfirmState | null) => void;
   setInputState: (s: InputState | null) => void;
   setAlertState: (s: AlertState | null) => void;
+  deps?: BranchOpsDeps;
 }
 
 export function useBranchOperations({
@@ -49,6 +80,7 @@ export function useBranchOperations({
   setConfirmState,
   setInputState,
   setAlertState,
+  deps = defaultBranchOpsDeps,
 }: UseBranchOperationsParams) {
   const [activeBranch, setActiveBranch] = useState<Branch | null>(null);
   const [sheetBranches, setSheetBranches] = useState<Map<string, Branch[]>>(
@@ -71,7 +103,7 @@ export function useBranchOperations({
     if (isTrunk || !branchOriginalBase || !activeSheet) {
       return [new Set<string>(), new Set<string>()] as const;
     }
-    const ops = computeOperations(branchOriginalBase, activeSheet);
+    const ops = deps.computeOperations(branchOriginalBase, activeSheet);
     const nodeIds = new Set<string>();
     const edgeIds = new Set<string>();
     for (const op of ops) {
@@ -79,12 +111,12 @@ export function useBranchOperations({
       else if ('edgeId' in op) edgeIds.add(op.edgeId);
     }
     return [nodeIds, edgeIds] as const;
-  }, [isTrunk, branchOriginalBase, activeSheet]);
+  }, [isTrunk, branchOriginalBase, activeSheet, deps]);
 
   const pendingOps = useMemo(() => {
     if (isTrunk || !lastCommitBase || !activeSheet) return [];
-    return computeOperations(lastCommitBase, activeSheet);
-  }, [isTrunk, lastCommitBase, activeSheet]);
+    return deps.computeOperations(lastCommitBase, activeSheet);
+  }, [isTrunk, lastCommitBase, activeSheet, deps]);
 
   const resetBranchState = useCallback(() => {
     setActiveBranch(null);
@@ -119,14 +151,20 @@ export function useBranchOperations({
       }
 
       try {
-        const branchSheet = await fetchBranchSheetFromPds(branch.id, sheetId);
-        const cs = await fetchCommitsForBranch(branch.uri);
+        const branchSheet = await deps.fetchBranchSheetFromPds(
+          branch.id,
+          sheetId,
+        );
+        const cs = await deps.fetchCommitsForBranch(branch.uri);
 
         preBranchFile.current = activeFile ?? null;
 
         let originalBase: typeof branchSheet;
         if (branch.status === 'merged') {
-          originalBase = await fetchBranchSheetFromPds(TRUNK_PREFIX, sheetId);
+          originalBase = await deps.fetchBranchSheetFromPds(
+            deps.TRUNK_PREFIX,
+            sheetId,
+          );
         } else {
           const storedOriginal = branchOriginalBaseMap.current.get(branch.uri);
           originalBase = storedOriginal ?? branchSheet;
@@ -157,7 +195,7 @@ export function useBranchOperations({
         console.warn('[branch] select failed:', err);
       }
     },
-    [activeFile, onSetActiveFile],
+    [activeFile, onSetActiveFile, deps],
   );
 
   const handleCreateBranch = useCallback(
@@ -167,8 +205,8 @@ export function useBranchOperations({
       });
       if (!name?.trim()) return;
       try {
-        const sheetRef = await sheets.ref(sheetId);
-        const branch = await createBranch(name.trim(), sheetId, sheetRef);
+        const sheetRef = await deps.sheetsRef(sheetId);
+        const branch = await deps.createBranch(name.trim(), sheetId, sheetRef);
         setSheetBranches((prev) => {
           const next = new Map(prev);
           const existing = next.get(sheetId) ?? [];
@@ -186,7 +224,7 @@ export function useBranchOperations({
         });
       }
     },
-    [setInputState, setAlertState],
+    [setInputState, setAlertState, deps],
   );
 
   const handleMergeBranch = useCallback(
@@ -200,13 +238,13 @@ export function useBranchOperations({
       });
       if (!ok) return;
       try {
-        const sheetRef = await sheets.ref(activeSheetId);
+        const sheetRef = await deps.sheetsRef(activeSheetId);
         const branchRef = { uri: branch.uri, cid: branch.cid };
         const latestCommit = latestCommitRef.current ?? undefined;
 
-        await mergeBranchToTrunk(branch, activeSheetId, sheetRef);
-        await createMergeRecord(branch, sheetRef, branchRef, latestCommit);
-        const mergedBranch = await updateBranchStatus(branch, 'merged');
+        await deps.mergeBranchToTrunk(branch, activeSheetId, sheetRef);
+        await deps.createMergeRecord(branch, sheetRef, branchRef, latestCommit);
+        const mergedBranch = await deps.updateBranchStatus(branch, 'merged');
 
         setSheetBranches((prev) => {
           const next = new Map(prev);
@@ -238,7 +276,14 @@ export function useBranchOperations({
         });
       }
     },
-    [activeSheetId, activeFile, activeSheet, setConfirmState, setAlertState],
+    [
+      activeSheetId,
+      activeFile,
+      activeSheet,
+      setConfirmState,
+      setAlertState,
+      deps,
+    ],
   );
 
   const handleCloseBranch = useCallback(
@@ -251,7 +296,7 @@ export function useBranchOperations({
       });
       if (!ok) return;
       try {
-        const closedBranch = await updateBranchStatus(branch, 'closed');
+        const closedBranch = await deps.updateBranchStatus(branch, 'closed');
         setSheetBranches((prev) => {
           const next = new Map(prev);
           const sheetId = branch.sheetId;
@@ -278,7 +323,7 @@ export function useBranchOperations({
         });
       }
     },
-    [activeBranch, onSetActiveFile, setConfirmState, setAlertState],
+    [activeBranch, onSetActiveFile, setConfirmState, setAlertState, deps],
   );
 
   const handleDeleteBranch = useCallback(
@@ -291,7 +336,7 @@ export function useBranchOperations({
       });
       if (!ok) return;
       try {
-        await deleteBranchWithRecords(branch);
+        await deps.deleteBranchWithRecords(branch);
         setSheetBranches((prev) => {
           const next = new Map(prev);
           const sheetId = branch.sheetId;
@@ -317,7 +362,7 @@ export function useBranchOperations({
         });
       }
     },
-    [activeBranch, onSetActiveFile, setConfirmState, setAlertState],
+    [activeBranch, onSetActiveFile, setConfirmState, setAlertState, deps],
   );
 
   const handleCommit = useCallback(
@@ -326,11 +371,11 @@ export function useBranchOperations({
       if (pendingOps.length === 0) return;
 
       try {
-        const sheetRef = await sheets.ref(activeSheetId);
+        const sheetRef = await deps.sheetsRef(activeSheetId);
         const branchRef = { uri: activeBranch.uri, cid: activeBranch.cid };
         const parentRef = latestCommitRef.current ?? undefined;
 
-        const commit = await createCommit(
+        const commit = await deps.createCommit(
           message,
           pendingOps,
           sheetRef,
@@ -349,13 +394,14 @@ export function useBranchOperations({
         });
       }
     },
-    [activeBranch, activeSheetId, activeSheet, pendingOps, setAlertState],
+    [activeBranch, activeSheetId, activeSheet, pendingOps, setAlertState, deps],
   );
 
   // activeSheetId が変わったら branches を fetch
   useEffect(() => {
     if (!activeSheetId) return;
-    fetchBranchesForSheet(activeSheetId)
+    deps
+      .fetchBranchesForSheet(activeSheetId)
       .then((bs) => {
         setSheetBranches((prev) => {
           const next = new Map(prev);
@@ -366,7 +412,7 @@ export function useBranchOperations({
       .catch(() => {
         // ATProto 未ログイン時はサイレントスキップ
       });
-  }, [activeSheetId]);
+  }, [activeSheetId, deps]);
 
   return {
     activeBranch,
