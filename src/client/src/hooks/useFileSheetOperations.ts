@@ -69,37 +69,50 @@ export function useFileSheetOperations({
     [activeFile, activeSheetId],
   );
 
-  const openFile = useCallback(async (id: string) => {
-    try {
-      let file: GraphFile;
+  const openFile = useCallback(
+    async (id: string) => {
       try {
-        file = await fetchFileFromAtproto(id);
-        saveFile(file).catch(() => {});
-      } catch {
-        file = await fetchFile(id);
+        let file: GraphFile;
+        try {
+          file = await fetchFileFromAtproto(id);
+          saveFile(file).catch((err) =>
+            console.warn('[cache] save failed:', err),
+          );
+        } catch {
+          file = await fetchFile(id);
+        }
+        setActiveFile(file);
+        setActiveSheetId((file.sheets[0]?.id ?? null) as SheetId | null);
+        setExpandedFileIds((prev) => new Set([...prev, id]));
+      } catch (err) {
+        console.error('Failed to open file:', err);
+        await new Promise<void>((resolve) => {
+          setAlertState({
+            message: 'ファイルを開けませんでした。',
+            resolve,
+          });
+        });
       }
-      setActiveFile(file);
-      setActiveSheetId((file.sheets[0]?.id ?? null) as SheetId | null);
-      setExpandedFileIds((prev) => new Set([...prev, id]));
-    } catch (err) {
-      console.error('Failed to open file:', err);
-    }
-  }, []);
+    },
+    [setAlertState],
+  );
 
   const toggleExpand = useCallback(
     (id: string) => {
+      let isExpanding = false;
       setExpandedFileIds((prev) => {
         const next = new Set(prev);
         if (next.has(id)) {
           next.delete(id);
         } else {
           next.add(id);
-          if (!activeFile || activeFile.id !== id) {
-            openFile(id);
-          }
+          isExpanding = true;
         }
         return next;
       });
+      if (isExpanding && (!activeFile || activeFile.id !== id)) {
+        openFile(id);
+      }
     },
     [activeFile, openFile],
   );
