@@ -88,18 +88,20 @@ export function useFileSheetOperations({
 
   const toggleExpand = useCallback(
     (id: string) => {
+      let isExpanding = false;
       setExpandedFileIds((prev) => {
         const next = new Set(prev);
         if (next.has(id)) {
           next.delete(id);
         } else {
           next.add(id);
-          if (!activeFile || activeFile.id !== id) {
-            openFile(id);
-          }
+          isExpanding = true;
         }
         return next;
       });
+      if (isExpanding && (!activeFile || activeFile.id !== id)) {
+        openFile(id);
+      }
     },
     [activeFile, openFile],
   );
