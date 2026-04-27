@@ -33,18 +33,49 @@ type AlertState = {
   resolve: () => void;
 };
 
+export interface FileSheetOpsDeps {
+  createFile: typeof createFile;
+  exportFile: typeof exportFile;
+  fetchFile: typeof fetchFile;
+  fetchFiles: typeof fetchFiles;
+  importFile: typeof importFile;
+  removeFile: typeof removeFile;
+  saveFile: typeof saveFile;
+  atprotoFilesDelete: (id: string) => Promise<void>;
+  fetchFileFromAtproto: typeof fetchFileFromAtproto;
+  fetchFilesFromAtproto: typeof fetchFilesFromAtproto;
+  login: typeof login;
+  syncFileToAtproto: typeof syncFileToAtproto;
+}
+
+export const defaultFileSheetOpsDeps: FileSheetOpsDeps = {
+  createFile,
+  exportFile,
+  fetchFile,
+  fetchFiles,
+  importFile,
+  removeFile,
+  saveFile,
+  atprotoFilesDelete: (id: string) => atprotoFilesColl.delete(id),
+  fetchFileFromAtproto,
+  fetchFilesFromAtproto,
+  login,
+  syncFileToAtproto,
+};
+
 interface UseFileSheetOperationsParams {
   setConfirmState: (s: ConfirmState | null) => void;
   setAlertState: (s: AlertState | null) => void;
+  deps?: FileSheetOpsDeps;
 }
 
-async function tryAtprotoAutoLogin(): Promise<void> {
+async function tryAtprotoAutoLogin(d: FileSheetOpsDeps): Promise<void> {
   if (!import.meta.env.DEV) return;
   const handle = import.meta.env.VITE_ATPROTO_HANDLE;
   const password = import.meta.env.VITE_ATPROTO_PASSWORD;
   if (!handle || !password) return;
   try {
-    await login(handle, password);
+    await d.login(handle, password);
     console.info('[atproto] auto-login:', handle);
   } catch (err) {
     console.warn('[atproto] auto-login failed (sync disabled):', err);
@@ -54,6 +85,7 @@ async function tryAtprotoAutoLogin(): Promise<void> {
 export function useFileSheetOperations({
   setConfirmState,
   setAlertState,
+  deps = defaultFileSheetOpsDeps,
 }: UseFileSheetOperationsParams) {
   const [files, setFiles] = useState<GraphFileListItem[]>([]);
   const [activeFile, setActiveFile] = useState<GraphFile | null>(null);
@@ -74,12 +106,12 @@ export function useFileSheetOperations({
       try {
         let file: GraphFile;
         try {
-          file = await fetchFileFromAtproto(id);
-          saveFile(file).catch((err) =>
-            console.warn('[cache] save failed:', err),
-          );
+          file = await deps.fetchFileFromAtproto(id);
+          deps
+            .saveFile(file)
+            .catch((err) => console.warn('[cache] save failed:', err));
         } catch {
-          file = await fetchFile(id);
+          file = await deps.fetchFile(id);
         }
         setActiveFile(file);
         setActiveSheetId((file.sheets[0]?.id ?? null) as SheetId | null);
@@ -94,7 +126,7 @@ export function useFileSheetOperations({
         });
       }
     },
-    [setAlertState],
+    [deps, setAlertState],
   );
 
   const toggleExpand = useCallback(
@@ -120,7 +152,7 @@ export function useFileSheetOperations({
   const handleCreate = useCallback(async () => {
     try {
       const name = newFileName.trim() || '無題';
-      const file = await createFile(name);
+      const file = await deps.createFile(name);
       setFiles((fs) => [
         ...fs,
         { id: file.id, name: file.name, description: file.description },
@@ -132,30 +164,33 @@ export function useFileSheetOperations({
     } catch (err) {
       console.error('Failed to create file:', err);
     }
-  }, [newFileName]);
+  }, [newFileName, deps]);
 
-  const persistFile = useCallback(async (updated: GraphFile) => {
-    setActiveFile(updated);
-    setFiles((fs) =>
-      fs.map((f) =>
-        f.id === updated.id
-          ? {
-              id: updated.id,
-              name: updated.name,
-              description: updated.description,
-            }
-          : f,
-      ),
-    );
-    try {
-      await syncFileToAtproto(updated);
-    } catch (err) {
-      console.warn('[atproto] sync failed (falling back to local):', err);
-    }
-    saveFile(updated).catch((err) =>
-      console.warn('[cache] local save failed:', err),
-    );
-  }, []);
+  const persistFile = useCallback(
+    async (updated: GraphFile) => {
+      setActiveFile(updated);
+      setFiles((fs) =>
+        fs.map((f) =>
+          f.id === updated.id
+            ? {
+                id: updated.id,
+                name: updated.name,
+                description: updated.description,
+              }
+            : f,
+        ),
+      );
+      try {
+        await deps.syncFileToAtproto(updated);
+      } catch (err) {
+        console.warn('[atproto] sync failed (falling back to local):', err);
+      }
+      deps
+        .saveFile(updated)
+        .catch((err) => console.warn('[cache] local save failed:', err));
+    },
+    [deps],
+  );
 
   const handleSaveFileSettings = useCallback(
     async (fileId: string, name: string, description: string) => {
@@ -182,9 +217,9 @@ export function useFileSheetOperations({
         if (!ok) return;
       }
       try {
-        await removeFile(id);
+        await deps.removeFile(id);
         try {
-          await atprotoFilesColl.delete(id);
+          await deps.atprotoFilesDelete(id);
         } catch (err) {
           console.warn('[atproto] file delete failed:', err);
         }
@@ -203,7 +238,7 @@ export function useFileSheetOperations({
         console.error('Failed to delete file:', err);
       }
     },
-    [activeFile, files, setConfirmState],
+    [activeFile, files, setConfirmState, deps],
   );
 
   const handleSaveSheetSettings = useCallback(
@@ -249,7 +284,7 @@ export function useFileSheetOperations({
   const handleImportFile = useCallback(
     async (data: ConversensusFile) => {
       try {
-        const file = await importFile(data);
+        const file = await deps.importFile(data);
         setFiles((fs) => [
           ...fs,
           { id: file.id, name: file.name, description: file.description },
@@ -268,28 +303,28 @@ export function useFileSheetOperations({
         });
       }
     },
-    [setAlertState],
+    [deps, setAlertState],
   );
 
   const handleExportFile = useCallback(
     async (fileId: string) => {
       try {
         const file =
-          activeFile?.id === fileId ? activeFile : await fetchFile(fileId);
-        exportFile(file);
+          activeFile?.id === fileId ? activeFile : await deps.fetchFile(fileId);
+        deps.exportFile(file);
       } catch (err) {
         console.error('Failed to export file:', err);
       }
     },
-    [activeFile],
+    [activeFile, deps],
   );
 
   // 初期ファイル読み込み + ATProto 同期
   useEffect(() => {
-    fetchFiles().then(setFiles).catch(console.error);
-    tryAtprotoAutoLogin().then(async () => {
+    deps.fetchFiles().then(setFiles).catch(console.error);
+    tryAtprotoAutoLogin(deps).then(async () => {
       try {
-        const atprotoFiles = await fetchFilesFromAtproto();
+        const atprotoFiles = await deps.fetchFilesFromAtproto();
         setFiles((local) => {
           const localIds = new Set(local.map((f) => f.id));
           const newFromAtproto = atprotoFiles.filter(
@@ -305,7 +340,7 @@ export function useFileSheetOperations({
       }
     });
     return () => {};
-  }, []);
+  }, [deps]);
 
   return {
     files,
