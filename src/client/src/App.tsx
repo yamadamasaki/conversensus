@@ -68,7 +68,12 @@ export default function App() {
         }
       }, AUTOSAVE_DELAY);
     },
-    [fileOps, branchOps.activeBranch],
+    [
+      fileOps.setActiveFile,
+      fileOps.persistFile,
+      fileOps.activeSheetId,
+      branchOps.activeBranch,
+    ],
   );
 
   const handleSelectSheet = useCallback(
