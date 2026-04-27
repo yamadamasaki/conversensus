@@ -9,7 +9,8 @@ import {
   migrateV2toV3,
   type SheetId,
 } from '@conversensus/shared';
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
+import { AlertDialog } from './AlertDialog';
 import type { Branch } from './atproto';
 import type { PopupTarget } from './SettingsPopup';
 import { SettingsPopup } from './SettingsPopup';
@@ -84,8 +85,15 @@ export function Sidebar({
 }: Props) {
   const newFileComposingRef = useRef(false);
   const importInputRef = useRef<HTMLInputElement>(null);
+  const [alertState, setAlertState] = useState<{
+    message: string;
+    resolve: () => void;
+  } | null>(null);
 
-  const handleImportChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const showAlert = (message: string) =>
+    new Promise<void>((resolve) => setAlertState({ message, resolve }));
+
+  const handleImportChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
@@ -112,13 +120,13 @@ export function Sidebar({
         const messages = parsed.error.errors
           .map((err) => `${err.path.join('.')}: ${err.message}`)
           .join('\n');
-        alert(`ファイル形式が不正です:\n${messages}`);
+        showAlert(`ファイル形式が不正です:\n${messages}`);
       } catch {
-        alert('ファイルの読み込みに失敗しました');
+        showAlert('ファイルの読み込みに失敗しました');
       }
     };
     reader.onerror = () => {
-      alert('ファイルの読み込みに失敗しました');
+      showAlert('ファイルの読み込みに失敗しました');
     };
     reader.readAsText(file);
     // 同じファイルを再選択できるようリセット
@@ -577,6 +585,15 @@ export function Sidebar({
           );
         })}
       </ul>
+      {alertState && (
+        <AlertDialog
+          message={alertState.message}
+          onClose={() => {
+            alertState.resolve();
+            setAlertState(null);
+          }}
+        />
+      )}
     </aside>
   );
 }
