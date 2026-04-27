@@ -43,7 +43,9 @@ export function AlertDialog({ message, onClose, closeLabel = 'OK' }: Props) {
           boxShadow: '0 4px 24px rgba(0,0,0,0.2)',
         }}
         onClick={(e) => e.stopPropagation()}
-        onKeyDown={(e) => e.stopPropagation()}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') onClose();
+        }}
       >
         <p
           style={{
