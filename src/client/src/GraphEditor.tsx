@@ -48,7 +48,7 @@ import {
 } from './graphTransform';
 import { useClipboard } from './hooks/useClipboard';
 import { useEdgeContextMenu } from './hooks/useEdgeContextMenu';
-import { useEventStore } from './hooks/useEventStore';
+import { type UndoState, useEventStore } from './hooks/useEventStore';
 import { useGroupNodes } from './hooks/useGroupNodes';
 import { usePaneDoubleClick } from './hooks/usePaneDoubleClick';
 
@@ -58,6 +58,8 @@ type Props = {
   onChange: (file: GraphFile) => void;
   conflictedNodeIds?: Set<string>;
   conflictedEdgeIds?: Set<string>;
+  graphKey?: string;
+  undoStateMap?: React.MutableRefObject<Map<string, UndoState>>;
 };
 
 function GraphEditorInner({
@@ -66,6 +68,8 @@ function GraphEditorInner({
   onChange,
   conflictedNodeIds,
   conflictedEdgeIds,
+  graphKey,
+  undoStateMap,
 }: Props) {
   const { screenToFlowPosition, getNodes, getEdges } = useReactFlow();
   const activeSheet = file.sheets.find((s) => s.id === activeSheetId);
@@ -180,12 +184,21 @@ function GraphEditorInner({
   const edgeTypes = useMemo(() => ({ editableLabel: EditableLabelEdge }), []);
 
   // --- Event store ---
-  const { dispatch, undo, redo, setDragging } = useEventStore(
-    nodes,
-    edges,
-    setNodes,
-    setEdges,
-  );
+  const { dispatch, undo, redo, setDragging, exportState, importState } =
+    useEventStore(nodes, edges, setNodes, setEdges);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: mount/unmount のみ (React key 変更による再マウント)
+  useEffect(() => {
+    if (!graphKey || !undoStateMap) return;
+    const key = graphKey;
+    const saved = undoStateMap.current.get(key);
+    if (saved) {
+      importState(saved);
+    }
+    return () => {
+      undoStateMap.current.set(key, exportState());
+    };
+  }, []);
 
   // --- Node drag tracking for NODE_MOVED ---
   const preDragPositionsRef = useRef<Map<string, { x: number; y: number }>>(

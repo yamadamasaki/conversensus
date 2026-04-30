@@ -7,6 +7,8 @@ import { invertEvent } from '../events/invertEvent';
 
 const MAX_UNDO_STACK = 50;
 
+export type UndoState = { undoStack: GraphEvent[]; redoStack: GraphEvent[] };
+
 export function useEventStore(
   nodes: Node[],
   edges: Edge[],
@@ -20,6 +22,8 @@ export function useEventStore(
   canRedo: boolean;
   eventLog: GraphEvent[];
   setDragging: (dragging: boolean) => void;
+  exportState: () => UndoState;
+  importState: (state: UndoState | undefined) => void;
 } {
   const eventLogRef = useRef<GraphEvent[]>([]);
   const undoStackRef = useRef<GraphEvent[]>([]);
@@ -94,6 +98,22 @@ export function useEventStore(
     setCanRedo(redoStackRef.current.length > 0);
   }, [setNodes, setEdges]);
 
+  const exportState = useCallback(
+    () => ({
+      undoStack: undoStackRef.current.slice(),
+      redoStack: redoStackRef.current.slice(),
+    }),
+    [],
+  );
+
+  const importState = useCallback((state: UndoState | undefined) => {
+    if (!state) return;
+    undoStackRef.current = state.undoStack.slice();
+    redoStackRef.current = state.redoStack.slice();
+    setCanUndo(state.undoStack.length > 0);
+    setCanRedo(state.redoStack.length > 0);
+  }, []);
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey)) return;
@@ -120,5 +140,7 @@ export function useEventStore(
     canRedo,
     eventLog: eventLogRef.current,
     setDragging,
+    exportState,
+    importState,
   };
 }
