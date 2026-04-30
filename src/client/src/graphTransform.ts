@@ -120,11 +120,13 @@ export function recalculateParentBounds(nodes: Node[]): Node[] {
     const parent = nodes.find((n) => n.id === parentId);
     if (!parent) continue;
 
-    const parentWidth = Number(
-      parent.style?.width ?? parent.measured?.width ?? 0,
+    const parentWidth = Math.max(
+      Number(parent.style?.width ?? 0),
+      Number(parent.measured?.width ?? 0),
     );
-    const parentHeight = Number(
-      parent.style?.height ?? parent.measured?.height ?? 0,
+    const parentHeight = Math.max(
+      Number(parent.style?.height ?? 0),
+      Number(parent.measured?.height ?? 0),
     );
 
     const minChildX = Math.min(...children.map((c) => c.position.x));

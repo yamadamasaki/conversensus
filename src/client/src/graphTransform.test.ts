@@ -421,6 +421,32 @@ describe('recalculateParentBounds', () => {
     expect(result.find((n) => n.id === 'g1')?.position.y).toBe(60);
     expect(result.find((n) => n.id === 'n1')?.position.y).toBe(50);
   });
+
+  it('style.width より measured.width が大きい場合も正しく拡大される', () => {
+    // 手動リサイズ後: style が固定値でも measured (実際のDOMサイズ) が大きければ反映される
+    const parent: Node = {
+      id: 'g1',
+      position: { x: 0, y: 0 },
+      data: {},
+      type: 'groupNode',
+      style: { width: 200, height: 200 }, // 手動リサイズ後の固定値
+      measured: { width: 400, height: 300 }, // ReactFlow の実測値
+    };
+    const child: Node = {
+      id: 'n1',
+      parentId: 'g1',
+      position: { x: 380, y: 50 }, // x=380 + width=160 = 540 > 400
+      data: {},
+      type: 'editableNode',
+      style: { width: 160, height: 80 },
+    };
+    const result = recalculateParentBounds([parent, child]);
+    const resultParent = result.find((n) => n.id === 'g1');
+    // child right = 380 + 160 = 540, newWidth = max(200,400, 540+20) = 560
+    expect(Number(resultParent?.style?.width)).toBe(560);
+    // height: child bottom = 50 + 80 = 130 < max(200,300) = 300 → no change
+    expect(Number(resultParent?.style?.height)).toBe(300);
+  });
 });
 
 describe('toFlowEdges → fromFlowEdges の対称性', () => {
