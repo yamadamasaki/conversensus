@@ -114,9 +114,15 @@ export function useBranchOperations({
   }, [isTrunk, branchOriginalBase, activeSheet, deps]);
 
   const pendingOps = useMemo(() => {
-    if (isTrunk || !lastCommitBase || !activeSheet) return [];
+    if (
+      isTrunk ||
+      !lastCommitBase ||
+      !activeSheet ||
+      activeBranch?.status !== 'open'
+    )
+      return [];
     return deps.computeOperations(lastCommitBase, activeSheet);
-  }, [isTrunk, lastCommitBase, activeSheet, deps]);
+  }, [isTrunk, lastCommitBase, activeSheet, activeBranch?.status, deps]);
 
   const resetBranchState = useCallback(() => {
     setActiveBranch(null);
