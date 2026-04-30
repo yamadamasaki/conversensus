@@ -107,6 +107,8 @@ export function computeOperations(
         nodeId: node.id,
         content: node.content,
         ...(node.properties && { properties: node.properties }),
+        ...(node.nodeType && { nodeType: node.nodeType }),
+        ...(node.parentId !== undefined && { parentId: node.parentId }),
       });
     }
   }
@@ -116,13 +118,17 @@ export function computeOperations(
     if (
       baseNode &&
       (baseNode.content !== node.content ||
-        JSON.stringify(baseNode.properties) !== JSON.stringify(node.properties))
+        JSON.stringify(baseNode.properties) !==
+          JSON.stringify(node.properties) ||
+        baseNode.nodeType !== node.nodeType ||
+        baseNode.parentId !== node.parentId)
     ) {
       ops.push({
         op: 'node.update',
         nodeId: node.id,
         content: node.content,
         ...(node.properties && { properties: node.properties }),
+        ...(node.parentId !== undefined && { parentId: node.parentId }),
       });
     }
   }
@@ -295,7 +301,6 @@ type TrunkSheetData = {
   nodeLayouts: Array<{
     layout: NodeLayout;
     nodeRef: StrongRef;
-    parentRef?: StrongRef;
   }>;
   edgeLayouts: Array<{ layout: EdgeLayout; edgeRef: StrongRef }>;
 };
@@ -359,16 +364,9 @@ async function fetchTrunkSheetData(
       const rec = r.value as NodeLayoutRecord;
       const nodeId =
         nodeUriToId.get(rec.node.uri) ?? idFromRkey(rkeyFromUri(rec.node.uri));
-      const parentId = rec.parent
-        ? (nodeUriToId.get(rec.parent.uri) ??
-          idFromRkey(rkeyFromUri(rec.parent.uri)))
-        : undefined;
       return {
         layout: recordToNodeLayout(nodeId, rec),
         nodeRef: nodeIdToRef.get(nodeId) ?? rec.node,
-        parentRef: parentId
-          ? (nodeIdToRef.get(parentId) ?? rec.parent)
-          : undefined,
       };
     });
 
@@ -444,16 +442,13 @@ export async function createBranch(
   );
 
   await Promise.all(
-    trunkData.nodeLayouts.map(async ({ layout, nodeRef: _, parentRef: __ }) => {
+    trunkData.nodeLayouts.map(async ({ layout, nodeRef: _ }) => {
       const nodeRef = nodeIdToBranchRef.get(layout.nodeId);
       if (!nodeRef) return;
-      const parentRef = layout.parentId
-        ? nodeIdToBranchRef.get(layout.parentId)
-        : undefined;
       const rkey = makeRkey(branchId, layout.nodeId);
       await deps.nodeLayouts.put(
         rkey,
-        nodeLayoutToRecord(layout, nodeRef, parentRef, now),
+        nodeLayoutToRecord(layout, nodeRef, now),
       );
     }),
   );
@@ -617,13 +612,10 @@ export async function syncBranchSheetToAtproto(
       sheet.layouts.map(async (layout) => {
         const nodeRef = nodeIdToRef.get(layout.nodeId);
         if (!nodeRef) return;
-        const parentRef = layout.parentId
-          ? nodeIdToRef.get(layout.parentId)
-          : undefined;
         const rkey = makeRkey(branchId, layout.nodeId);
         await deps.nodeLayouts.put(
           rkey,
-          nodeLayoutToRecord(layout, nodeRef, parentRef, now),
+          nodeLayoutToRecord(layout, nodeRef, now),
         );
       }),
     );
@@ -802,16 +794,11 @@ export async function mergeBranchToTrunk(
         const nodeId = idFromRkey(rkeyFromUri(rec.node.uri));
         const trunkNodeRef = nodeIdToTrunkRef.get(nodeId);
         if (!trunkNodeRef) return;
-        const parentId = rec.parent
-          ? idFromRkey(rkeyFromUri(rec.parent.uri))
-          : undefined;
-        const parentRef = parentId ? nodeIdToTrunkRef.get(parentId) : undefined;
         const { $type: _, ...data } = rec;
         const trunkRkey = makeRkey(TRUNK_PREFIX, nodeId);
         await deps.nodeLayouts.put(trunkRkey, {
           ...data,
           node: trunkNodeRef,
-          ...(parentRef && { parent: parentRef }),
         });
       }),
     ...branchEdgeLayouts

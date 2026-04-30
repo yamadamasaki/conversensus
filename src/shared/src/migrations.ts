@@ -2,8 +2,10 @@ import { z } from 'zod';
 import {
   type ConversensusFile,
   EdgeIdSchema,
+  EdgeLayoutSchema,
   EdgePathTypeSchema,
   FileIdSchema,
+  GraphEdgeSchema,
   GraphFileSchema,
   GraphNodeSchema,
   type NodeId,
@@ -89,6 +91,50 @@ export const ConversensusFileV2Schema = GraphFileV2Schema.extend({
 });
 export type ConversensusFileV2 = z.infer<typeof ConversensusFileV2Schema>;
 
+// --- v3 互換スキーマ (マイグレーション専用) ---
+
+// v3 ノード: nodeType と parentId なし (v4 で GraphNode に追加)
+const GraphNodeV3Schema = z.object({
+  id: NodeIdSchema,
+  content: z.string(),
+  properties: z.record(z.string(), z.unknown()).optional(),
+});
+
+// v3 レイアウト: nodeType と parentId を含む (v4 で NodeLayout から削除)
+const NodeLayoutV3Schema = z
+  .object({
+    nodeId: NodeIdSchema,
+    x: z.number().optional(),
+    y: z.number().optional(),
+    width: z.union([z.number(), z.string()]).optional(),
+    height: z.union([z.number(), z.string()]).optional(),
+    nodeType: z.literal('group').optional(),
+    parentId: NodeIdSchema.optional(),
+  })
+  .catchall(z.unknown());
+
+const SheetV3Schema = z.object({
+  id: SheetIdSchema,
+  name: z.string(),
+  description: z.string().optional(),
+  nodes: z.array(GraphNodeV3Schema),
+  edges: z.array(GraphEdgeSchema),
+  layouts: z.array(NodeLayoutV3Schema).optional(),
+  edgeLayouts: z.array(EdgeLayoutSchema).optional(),
+});
+
+const GraphFileV3Schema = z.object({
+  id: FileIdSchema,
+  name: z.string(),
+  description: z.string().optional(),
+  sheets: z.array(SheetV3Schema),
+});
+
+export const ConversensusFileV3Schema = GraphFileV3Schema.extend({
+  version: z.literal('3'),
+});
+export type ConversensusFileV3 = z.infer<typeof ConversensusFileV3Schema>;
+
 // --- マイグレーション関数 ---
 
 // v1 → v2: style/エッジレイアウトフィールドを NodeLayout/EdgeLayout に分離
@@ -151,6 +197,41 @@ export function migrateV1toV2(file: ConversensusFileV1): ConversensusFileV2 {
         })),
         layouts: layouts.length > 0 ? layouts : undefined,
         edgeLayouts: edgeLayouts.length > 0 ? edgeLayouts : undefined,
+      };
+    }),
+  };
+}
+
+// v3 → v4: nodeType/parentId をレイアウトからセマンティックノードに移動
+export function migrateV3toV4(file: ConversensusFileV3): ConversensusFile {
+  return {
+    ...file,
+    version: '4',
+    sheets: file.sheets.map((sheet) => {
+      // レイアウトから nodeType と parentId を収集
+      const nodeMetaMap = new Map<
+        string,
+        { nodeType?: 'group'; parentId?: NodeId }
+      >(
+        (sheet.layouts ?? [])
+          .filter((l) => l.nodeType !== undefined || l.parentId !== undefined)
+          .map((l) => [
+            l.nodeId as string,
+            {
+              ...(l.nodeType !== undefined ? { nodeType: l.nodeType } : {}),
+              ...(l.parentId !== undefined ? { parentId: l.parentId } : {}),
+            },
+          ]),
+      );
+      return {
+        ...sheet,
+        nodes: sheet.nodes.map((n) => ({
+          ...n,
+          ...(nodeMetaMap.get(n.id as string) ?? {}),
+        })),
+        layouts: (sheet.layouts ?? []).map(
+          ({ nodeType: _nt, parentId: _pid, ...rest }) => rest,
+        ),
       };
     }),
   };

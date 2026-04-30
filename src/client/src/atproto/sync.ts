@@ -119,14 +119,11 @@ export async function syncSheetToAtproto(
       sheet.layouts.map(async (layout) => {
         const nodeRef = nodeRefs.get(layout.nodeId);
         if (!nodeRef) return;
-        const parentRef = layout.parentId
-          ? nodeRefs.get(layout.parentId)
-          : undefined;
         const rkey = makeRkey(TRUNK_PREFIX, layout.nodeId);
         const layoutCreatedAt = getCreatedAt(NSID.nodeLayout, rkey) ?? now;
         const r = await nodeLayouts.put(
           rkey,
-          nodeLayoutToRecord(layout, nodeRef, parentRef, layoutCreatedAt),
+          nodeLayoutToRecord(layout, nodeRef, layoutCreatedAt),
         );
         cacheResult(r.uri, r.cid, layoutCreatedAt);
       }),

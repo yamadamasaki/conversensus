@@ -54,6 +54,8 @@ export function useGroupNodes(
     const parentData: GraphNode = {
       id: parentId,
       content: 'グループ',
+      nodeType: 'group',
+      ...(sharedParentId ? { parentId: sharedParentId as NodeId } : {}),
     };
 
     const parentLayout: NodeLayout = {
@@ -62,8 +64,6 @@ export function useGroupNodes(
       y: parentY,
       width: parentWidth,
       height: parentHeight,
-      nodeType: 'group',
-      ...(sharedParentId ? { parentId: sharedParentId as NodeId } : {}),
     };
 
     const children = selected.map((n) => ({

@@ -62,12 +62,15 @@ export function sheetToRecord(
 export function nodeToRecord(
   node: GraphNode,
   sheetRef: StrongRef,
+  parentRef?: StrongRef,
   createdAt = new Date().toISOString(),
 ): Omit<NodeRecord, '$type'> {
   return {
     sheet: sheetRef,
     content: node.content,
     ...(node.properties !== undefined && { properties: node.properties }),
+    ...(node.nodeType !== undefined && { nodeType: node.nodeType }),
+    ...(parentRef !== undefined && { parent: parentRef }),
     createdAt,
   };
 }
@@ -99,7 +102,6 @@ function toInt(value: number | string | undefined): number | undefined {
 export function nodeLayoutToRecord(
   layout: NodeLayout,
   nodeRef: StrongRef,
-  parentRef?: StrongRef,
   createdAt = new Date().toISOString(),
 ): Omit<NodeLayoutRecord, '$type'> {
   return {
@@ -108,8 +110,6 @@ export function nodeLayoutToRecord(
     ...(layout.y !== undefined && { y: Math.round(layout.y) }),
     ...(layout.width !== undefined && { width: toInt(layout.width) }),
     ...(layout.height !== undefined && { height: toInt(layout.height) }),
-    ...(layout.nodeType !== undefined && { nodeType: layout.nodeType }),
-    ...(parentRef !== undefined && { parent: parentRef }),
     createdAt,
   };
 }
@@ -152,6 +152,10 @@ export function recordToNode(rkey: string, record: NodeRecord): GraphNode {
     ...(record.properties !== undefined && {
       properties: record.properties as Record<string, unknown>,
     }),
+    ...(record.nodeType !== undefined && { nodeType: record.nodeType }),
+    ...(record.parent !== undefined && {
+      parentId: NodeIdSchema.parse(idFromRkey(rkeyFromUri(record.parent.uri))),
+    }),
   };
 }
 
@@ -177,10 +181,6 @@ export function recordToNodeLayout(
     ...(record.y !== undefined && { y: record.y }),
     ...(record.width !== undefined && { width: record.width }),
     ...(record.height !== undefined && { height: record.height }),
-    ...(record.nodeType !== undefined && { nodeType: record.nodeType }),
-    ...(record.parent !== undefined && {
-      parentId: NodeIdSchema.parse(idFromRkey(rkeyFromUri(record.parent.uri))),
-    }),
   };
 }
 

@@ -32,8 +32,6 @@ export const NodeLayoutSchema = z
     y: z.number().optional(),
     width: z.union([z.number(), z.string()]).optional(),
     height: z.union([z.number(), z.string()]).optional(),
-    nodeType: z.literal('group').optional(),
-    parentId: NodeIdSchema.optional(),
   })
   .catchall(z.unknown());
 export type NodeLayout = z.infer<typeof NodeLayoutSchema>;
@@ -43,6 +41,8 @@ export const GraphNodeSchema = z.object({
   id: NodeIdSchema,
   content: z.string(),
   properties: z.record(z.string(), z.unknown()).optional(),
+  nodeType: z.literal('group').optional(),
+  parentId: NodeIdSchema.optional(),
 });
 
 export const EdgePathTypeSchema = z.enum([
@@ -120,12 +120,15 @@ export const CommitOperationSchema = z.discriminatedUnion('op', [
     nodeId: z.string().uuid(),
     content: z.string(),
     properties: z.record(z.string(), z.unknown()).optional(),
+    nodeType: z.literal('group').optional(),
+    parentId: z.string().uuid().optional(),
   }),
   z.object({
     op: z.literal('node.update'),
     nodeId: z.string().uuid(),
     content: z.string().optional(),
     properties: z.record(z.string(), z.unknown()).optional(),
+    parentId: z.string().uuid().optional(),
   }),
   z.object({ op: z.literal('node.remove'), nodeId: z.string().uuid() }),
   z.object({
@@ -147,7 +150,7 @@ export const CommitOperationSchema = z.discriminatedUnion('op', [
 export type CommitOperation = z.infer<typeof CommitOperationSchema>;
 
 // --- Current file format ---
-export const CONVERSENSUS_FILE_VERSION = '3' as const;
+export const CONVERSENSUS_FILE_VERSION = '4' as const;
 
 // .conversensus ファイル形式: GraphFile に version ヘッダを付与
 export const ConversensusFileSchema = GraphFileSchema.extend({

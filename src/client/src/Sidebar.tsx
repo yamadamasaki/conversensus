@@ -3,10 +3,12 @@ import {
   ConversensusFileSchema,
   ConversensusFileV1Schema,
   ConversensusFileV2Schema,
+  ConversensusFileV3Schema,
   type GraphFile,
   type GraphFileListItem,
   migrateV1toV2,
   migrateV2toV3,
+  migrateV3toV4,
   type SheetId,
 } from '@conversensus/shared';
 import { useRef, useState } from 'react';
@@ -105,16 +107,24 @@ export function Sidebar({
           onImportFile(parsed.data);
           return;
         }
+        // v3 ファイルの場合はマイグレーションを試みる
+        const parsedV3 = ConversensusFileV3Schema.safeParse(json);
+        if (parsedV3.success) {
+          onImportFile(migrateV3toV4(parsedV3.data));
+          return;
+        }
         // v2 ファイルの場合はマイグレーションを試みる
         const parsedV2 = ConversensusFileV2Schema.safeParse(json);
         if (parsedV2.success) {
-          onImportFile(migrateV2toV3(parsedV2.data));
+          onImportFile(migrateV3toV4(migrateV2toV3(parsedV2.data)));
           return;
         }
         // v1 ファイルの場合はマイグレーションを試みる
         const parsedV1 = ConversensusFileV1Schema.safeParse(json);
         if (parsedV1.success) {
-          onImportFile(migrateV2toV3(migrateV1toV2(parsedV1.data)));
+          onImportFile(
+            migrateV3toV4(migrateV2toV3(migrateV1toV2(parsedV1.data))),
+          );
           return;
         }
         const messages = parsed.error.errors

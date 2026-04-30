@@ -3,12 +3,14 @@ import {
   ConversensusFileSchema,
   ConversensusFileV1Schema,
   ConversensusFileV2Schema,
+  ConversensusFileV3Schema,
   CreateFileRequestSchema,
   type EdgeId,
   type FileId,
   type GraphFile,
   migrateV1toV2,
   migrateV2toV3,
+  migrateV3toV4,
   type NodeId,
   type SheetId,
   UpdateFileRequestSchema,
@@ -95,25 +97,32 @@ app.put('/files/:id', async (c) => {
 app.post('/files/import', async (c) => {
   const raw = await c.req.json().catch(() => null);
 
-  // v3 を試み, 失敗したら v2→v3, さらに失敗したら v1→v2→v3 マイグレーション
+  // v4 を試み, 失敗したら v3→v4, v2→v3→v4, v1→v2→v3→v4 とマイグレーション
   let parsedFile: ReturnType<typeof ConversensusFileSchema.safeParse>;
-  const parsedV3 = ConversensusFileSchema.safeParse(raw);
-  if (parsedV3.success) {
-    parsedFile = parsedV3;
+  const parsedV4 = ConversensusFileSchema.safeParse(raw);
+  if (parsedV4.success) {
+    parsedFile = parsedV4;
   } else {
-    const parsedV2 = ConversensusFileV2Schema.safeParse(raw);
-    if (parsedV2.success) {
+    const parsedV3 = ConversensusFileV3Schema.safeParse(raw);
+    if (parsedV3.success) {
       parsedFile = ConversensusFileSchema.safeParse(
-        migrateV2toV3(parsedV2.data),
+        migrateV3toV4(parsedV3.data),
       );
     } else {
-      const parsedV1 = ConversensusFileV1Schema.safeParse(raw);
-      if (parsedV1.success) {
+      const parsedV2 = ConversensusFileV2Schema.safeParse(raw);
+      if (parsedV2.success) {
         parsedFile = ConversensusFileSchema.safeParse(
-          migrateV2toV3(migrateV1toV2(parsedV1.data)),
+          migrateV3toV4(migrateV2toV3(parsedV2.data)),
         );
       } else {
-        return c.json({ error: parsedV3.error.flatten() }, 400);
+        const parsedV1 = ConversensusFileV1Schema.safeParse(raw);
+        if (parsedV1.success) {
+          parsedFile = ConversensusFileSchema.safeParse(
+            migrateV3toV4(migrateV2toV3(migrateV1toV2(parsedV1.data))),
+          );
+        } else {
+          return c.json({ error: parsedV4.error.flatten() }, 400);
+        }
       }
     }
   }
@@ -141,6 +150,9 @@ app.post('/files/import', async (c) => {
           ...n,
           // biome-ignore lint/style/noNonNullAssertion: nodeIdMap は同じ nodes 配列から構築されるため必ず存在する
           id: nodeIdMap.get(n.id)!,
+          ...(n.parentId
+            ? { parentId: (nodeIdMap.get(n.parentId) ?? n.parentId) as NodeId }
+            : {}),
         })),
         edges: sheet.edges.map((e) => ({
           ...e,
@@ -152,9 +164,6 @@ app.post('/files/import', async (c) => {
         layouts: sheet.layouts?.map((l) => ({
           ...l,
           nodeId: (nodeIdMap.get(l.nodeId) ?? l.nodeId) as NodeId,
-          ...(l.parentId
-            ? { parentId: (nodeIdMap.get(l.parentId) ?? l.parentId) as NodeId }
-            : {}),
         })),
         edgeLayouts: sheet.edgeLayouts?.map((l) => ({
           ...l,

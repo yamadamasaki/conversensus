@@ -34,6 +34,8 @@ export type NodeRecord = {
   sheet: StrongRef;
   content: string;
   properties?: unknown;
+  nodeType?: 'group';
+  parent?: StrongRef;
   createdAt: string;
 };
 
@@ -54,8 +56,6 @@ export type NodeLayoutRecord = {
   y?: number;
   width?: number;
   height?: number;
-  nodeType?: 'group';
-  parent?: StrongRef;
   createdAt: string;
 };
 

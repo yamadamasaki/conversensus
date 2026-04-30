@@ -50,7 +50,6 @@ const graphEdge: GraphEdge = {
   source: 'n1' as NodeId,
   target: 'n2' as NodeId,
   label: 'ラベル',
-  pathType: 'straight',
 };
 
 // --- structure イベント ---
@@ -178,6 +177,7 @@ describe('NODES_GROUPED', () => {
     const parentData: GraphNode = {
       id: 'parent' as NodeId,
       content: 'グループ',
+      nodeType: 'group',
     };
     const parentLayout: NodeLayout = {
       nodeId: 'parent' as NodeId,
@@ -185,7 +185,6 @@ describe('NODES_GROUPED', () => {
       y: 0,
       width: 200,
       height: 200,
-      nodeType: 'group',
     };
     const event: GraphEvent = {
       ...base,
@@ -229,12 +228,12 @@ describe('NODES_UNGROUPED', () => {
     const parentData: GraphNode = {
       id: 'parent' as NodeId,
       content: 'グループ',
+      nodeType: 'group',
     };
     const parentLayout: NodeLayout = {
       nodeId: 'parent' as NodeId,
       x: 0,
       y: 0,
-      nodeType: 'group',
     };
     const event: GraphEvent = {
       ...base,
