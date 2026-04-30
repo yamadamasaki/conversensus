@@ -94,6 +94,7 @@ export function useBranchOperations({
     null,
   );
   const branchOriginalBaseMap = useRef<Map<string, Sheet>>(new Map());
+  const lastCommitBaseMap = useRef<Map<string, Sheet>>(new Map());
   const preBranchFile = useRef<GraphFile | null>(null);
   const latestCommitRef = useRef<{ uri: string; cid: string } | null>(null);
 
@@ -173,7 +174,17 @@ export function useBranchOperations({
           }
         }
         setBranchOriginalBase(originalBase);
-        setLastCommitBase(branchSheet);
+        if (branch.status === 'open') {
+          const storedLastBase = lastCommitBaseMap.current.get(branch.uri);
+          if (storedLastBase) {
+            setLastCommitBase(storedLastBase);
+          } else {
+            setLastCommitBase(originalBase);
+            lastCommitBaseMap.current.set(branch.uri, originalBase);
+          }
+        } else {
+          setLastCommitBase(null);
+        }
 
         if (cs.length > 0) {
           const last = cs[cs.length - 1];
@@ -268,6 +279,7 @@ export function useBranchOperations({
         setActiveBranch(mergedBranch);
         setBranchOriginalBase(activeSheet ?? null);
         setLastCommitBase(activeSheet ?? null);
+        lastCommitBaseMap.current.delete(branch.uri);
         setNewCommitsSinceMerge(0);
       } catch (err) {
         console.warn('[branch] merge failed:', err);
@@ -308,6 +320,7 @@ export function useBranchOperations({
           return next;
         });
         if (activeBranch?.id === branch.id) {
+          lastCommitBaseMap.current.delete(activeBranch.uri);
           setActiveBranch(null);
           setLastCommitBase(null);
           setBranchOriginalBase(null);
@@ -347,6 +360,7 @@ export function useBranchOperations({
           return next;
         });
         if (activeBranch?.id === branch.id) {
+          lastCommitBaseMap.current.delete(activeBranch.uri);
           setActiveBranch(null);
           setLastCommitBase(null);
           setBranchOriginalBase(null);
@@ -385,6 +399,7 @@ export function useBranchOperations({
         latestCommitRef.current = { uri: commit.uri, cid: commit.cid };
 
         setLastCommitBase(activeSheet);
+        lastCommitBaseMap.current.set(activeBranch.uri, activeSheet);
         setNewCommitsSinceMerge((prev) => prev + 1);
         setCommitDialogOpen(false);
       } catch (err) {
