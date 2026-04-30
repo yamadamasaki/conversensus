@@ -54,7 +54,12 @@ export default function App() {
       const sheetId = fileOps.activeSheetId;
 
       saveTimer.current = setTimeout(async () => {
-        if (branch && branch.name !== 'trunk' && sheetId) {
+        if (
+          branch &&
+          branch.name !== 'trunk' &&
+          sheetId &&
+          branch.status === 'open'
+        ) {
           const sheet = updated.sheets.find((s) => s.id === sheetId);
           if (!sheet) return;
           try {
@@ -170,7 +175,7 @@ export default function App() {
           </div>
         )}
       </main>
-      {!branchOps.isTrunk && branch && (
+      {!branchOps.isTrunk && branch && branch.status === 'open' && (
         <div
           style={{
             position: 'fixed',
