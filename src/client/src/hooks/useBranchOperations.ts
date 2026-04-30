@@ -12,6 +12,7 @@ import {
   fetchCommitsForBranch,
   mergeBranchToTrunk,
   sheets,
+  syncFileToAtproto,
   TRUNK_PREFIX,
   updateBranchStatus,
 } from '../atproto';
@@ -43,6 +44,7 @@ export interface BranchOpsDeps {
   mergeBranchToTrunk: typeof mergeBranchToTrunk;
   sheetsRef: (sheetId: string) => Promise<{ uri: string; cid: string }>;
   updateBranchStatus: typeof updateBranchStatus;
+  syncFileToAtproto: typeof syncFileToAtproto;
   TRUNK_PREFIX: string;
 }
 
@@ -58,6 +60,7 @@ export const defaultBranchOpsDeps: BranchOpsDeps = {
   mergeBranchToTrunk,
   sheetsRef: (sheetId) => sheets.ref(sheetId),
   updateBranchStatus,
+  syncFileToAtproto,
   TRUNK_PREFIX,
 };
 
@@ -205,7 +208,14 @@ export function useBranchOperations({
       });
       if (!name?.trim()) return;
       try {
-        const sheetRef = await deps.sheetsRef(sheetId);
+        let sheetRef: { uri: string; cid: string };
+        try {
+          sheetRef = await deps.sheetsRef(sheetId);
+        } catch {
+          if (!activeFile) throw new Error('アクティブなファイルがありません');
+          await deps.syncFileToAtproto(activeFile);
+          sheetRef = await deps.sheetsRef(sheetId);
+        }
         const branch = await deps.createBranch(name.trim(), sheetId, sheetRef);
         setSheetBranches((prev) => {
           const next = new Map(prev);
@@ -224,7 +234,7 @@ export function useBranchOperations({
         });
       }
     },
-    [setInputState, setAlertState, deps],
+    [activeFile, setInputState, setAlertState, deps],
   );
 
   const handleMergeBranch = useCallback(

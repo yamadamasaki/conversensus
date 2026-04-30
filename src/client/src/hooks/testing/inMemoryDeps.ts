@@ -132,6 +132,7 @@ export function createInMemoryBranchOpsDeps(): {
     parentRef?: AnySheet,
   ) => Promise<AnySheet>;
   sheetsRef: (sheetId: string) => Promise<{ uri: string; cid: string }>;
+  syncFileToAtproto: (file: AnySheet) => Promise<void>;
   computeOperations: (base: AnySheet, current: AnySheet) => AnySheet[];
   TRUNK_PREFIX: string;
   _branches: Map<string, AnySheet[]>;
@@ -217,6 +218,8 @@ export function createInMemoryBranchOpsDeps(): {
       uri: `at://sheet/${_sheetId}`,
       cid: 'cid-s',
     }),
+
+    syncFileToAtproto: async () => {},
 
     computeOperations: () => [],
 
