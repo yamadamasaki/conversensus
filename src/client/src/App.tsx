@@ -6,6 +6,7 @@ import { CommitDialog } from './CommitDialog';
 import { ConfirmDialog } from './ConfirmDialog';
 import { GraphEditor } from './GraphEditor';
 import { useBranchOperations } from './hooks/useBranchOperations';
+import type { UndoState } from './hooks/useEventStore';
 import { useFileSheetOperations } from './hooks/useFileSheetOperations';
 import { InputDialog } from './InputDialog';
 import { Sidebar } from './Sidebar';
@@ -29,6 +30,7 @@ export default function App() {
   } | null>(null);
 
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const undoStateMapRef = useRef<Map<string, UndoState>>(new Map());
 
   // File & sheet operations
   const fileOps = useFileSheetOperations({ setConfirmState, setAlertState });
@@ -150,6 +152,8 @@ export default function App() {
         {fileOps.activeFile && fileOps.activeSheetId ? (
           <GraphEditor
             key={`${fileOps.activeSheetId}/${branchOps.activeBranch?.id ?? 'trunk'}`}
+            graphKey={`${fileOps.activeSheetId}/${branchOps.activeBranch?.id ?? 'trunk'}`}
+            undoStateMap={undoStateMapRef}
             file={fileOps.activeFile}
             activeSheetId={fileOps.activeSheetId}
             onChange={handleChange}
