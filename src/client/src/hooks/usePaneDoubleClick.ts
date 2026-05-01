@@ -55,16 +55,21 @@ export function usePaneDoubleClick(
   const clearNodeTypeMenu = useCallback(() => setNodeTypeMenu(null), []);
 
   // メニュー外クリック / ESC で閉じる
+  // ReactFlow が pane 上のイベント伝播を止めるため capture フェーズで捕捉する
   useEffect(() => {
     if (!nodeTypeMenu) return;
-    const onMouseDown = () => setNodeTypeMenu(null);
+    const onMouseDown = (e: Event) => {
+      const target = e.target as HTMLElement | null;
+      if (target?.closest('[data-node-type-menu]')) return;
+      setNodeTypeMenu(null);
+    };
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setNodeTypeMenu(null);
     };
-    window.addEventListener('mousedown', onMouseDown);
+    window.addEventListener('mousedown', onMouseDown, true);
     window.addEventListener('keydown', onKeyDown);
     return () => {
-      window.removeEventListener('mousedown', onMouseDown);
+      window.removeEventListener('mousedown', onMouseDown, true);
       window.removeEventListener('keydown', onKeyDown);
     };
   }, [nodeTypeMenu]);

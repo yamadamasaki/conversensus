@@ -9,8 +9,8 @@ type Props = {
 
 export function NodeTypeMenu({ position, onSelect }: Props) {
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: menu uses mousedown to block propagation
     <div
+      data-node-type-menu
       style={{
         position: 'fixed',
         top: position.y,
@@ -23,7 +23,6 @@ export function NodeTypeMenu({ position, onSelect }: Props) {
         minWidth: 160,
         padding: '4px 0',
       }}
-      onMouseDown={(e) => e.stopPropagation()}
     >
       <div
         style={{
