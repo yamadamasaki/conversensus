@@ -121,6 +121,60 @@ export function ImageNode({ id, data, selected }: NodeProps) {
           overflow: 'hidden',
         }}
       >
+        {/* キャプションヘッダ */}
+        {/* biome-ignore lint/a11y/noStaticElementInteractions: double-click to edit caption */}
+        <div
+          style={{
+            padding: '3px 8px',
+            borderBottom: '1px solid #eee',
+            background: 'rgba(0,0,0,0.03)',
+            borderRadius: '5px 5px 0 0',
+            cursor: 'default',
+            fontSize: 10,
+            color: '#888',
+            minHeight: 20,
+            display: 'flex',
+            alignItems: 'center',
+          }}
+          onDoubleClick={
+            !caption.editing
+              ? (e) => {
+                  e.stopPropagation();
+                  caption.startEdit();
+                }
+              : undefined
+          }
+        >
+          {caption.editing ? (
+            <input
+              // biome-ignore lint/a11y/noAutofocus: needed for immediate caption entry
+              autoFocus
+              className="nodrag nopan"
+              value={caption.inputValue}
+              onChange={(e) => caption.setInputValue(e.target.value)}
+              onBlur={caption.confirm}
+              onCompositionStart={() => caption.setComposing(true)}
+              onCompositionEnd={() => caption.setComposing(false)}
+              onKeyDown={(e) => {
+                if (caption.composingRef.current) return;
+                if (e.key === 'Enter') caption.confirm();
+                if (e.key === 'Escape') caption.cancel();
+              }}
+              style={{
+                fontSize: 10,
+                padding: '1px 3px',
+                border: '1px solid #4f6ef7',
+                borderRadius: 3,
+                outline: 'none',
+                width: '100%',
+                boxSizing: 'border-box',
+                background: '#fff',
+              }}
+            />
+          ) : (
+            <span>{label || ''}</span>
+          )}
+        </div>
         {/* 画像エリア */}
         {/* biome-ignore lint/a11y/noStaticElementInteractions: double-click to edit URL */}
         <div
@@ -130,8 +184,6 @@ export function ImageNode({ id, data, selected }: NodeProps) {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            minHeight: 40,
-            position: 'relative',
           }}
           onDoubleClick={() => {
             setUrlInput(imageUrl);
@@ -139,7 +191,7 @@ export function ImageNode({ id, data, selected }: NodeProps) {
           }}
         >
           {showUrlInput ? (
-            <div style={{ padding: '8px', width: '100%' }}>
+            <div style={{ padding: '4px', width: '100%' }}>
               <input
                 // biome-ignore lint/a11y/noAutofocus: needed for immediate URL entry
                 autoFocus={editingUrl}
@@ -177,55 +229,12 @@ export function ImageNode({ id, data, selected }: NodeProps) {
               alt={label}
               onError={() => setImgError(true)}
               style={{
-                maxWidth: '100%',
-                maxHeight: '100%',
-                objectFit: 'contain',
+                width: '100%',
+                height: 'auto',
+                display: 'block',
               }}
               draggable={false}
             />
-          )}
-        </div>
-        {/* キャプション */}
-        {/* biome-ignore lint/a11y/noStaticElementInteractions: double-click to edit caption */}
-        <div
-          style={{
-            borderTop: '1px solid #eee',
-            padding: '4px 8px',
-            fontSize: 12,
-            minHeight: 24,
-            cursor: 'default',
-          }}
-          onDoubleClick={!caption.editing ? caption.startEdit : undefined}
-        >
-          {caption.editing ? (
-            <input
-              // biome-ignore lint/a11y/noAutofocus: needed for immediate caption entry
-              autoFocus
-              className="nodrag nopan"
-              value={caption.inputValue}
-              onChange={(e) => caption.setInputValue(e.target.value)}
-              onBlur={caption.confirm}
-              onCompositionStart={() => caption.setComposing(true)}
-              onCompositionEnd={() => caption.setComposing(false)}
-              onKeyDown={(e) => {
-                if (caption.composingRef.current) return;
-                if (e.key === 'Enter') caption.confirm();
-                if (e.key === 'Escape') caption.cancel();
-              }}
-              style={{
-                fontSize: 12,
-                padding: '2px 4px',
-                border: '1px solid #4f6ef7',
-                borderRadius: 3,
-                outline: 'none',
-                width: '100%',
-                boxSizing: 'border-box',
-              }}
-            />
-          ) : (
-            <span style={{ color: label ? undefined : '#aaa' }}>
-              {label || 'キャプション'}
-            </span>
           )}
         </div>
       </div>
