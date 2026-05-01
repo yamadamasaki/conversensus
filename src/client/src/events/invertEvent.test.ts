@@ -164,6 +164,31 @@ describe('NODES_GROUPED ↔ NODES_UNGROUPED', () => {
   });
 });
 
+describe('NODE_REPARENTED', () => {
+  it('逆は oldParentId ↔ newParentId, oldPosition ↔ newPosition を入れ替えた NODE_REPARENTED', () => {
+    const event: GraphEvent = {
+      ...base,
+      category: 'structure',
+      type: 'NODE_REPARENTED',
+      nodeId: 'n1' as NodeId,
+      oldParentId: undefined,
+      newParentId: 'group1' as NodeId,
+      oldPosition: { x: 10, y: 20 },
+      newPosition: { x: 15, y: 25 },
+    };
+    const inv = invertEvent(event) as Extract<
+      GraphEvent,
+      { type: 'NODE_REPARENTED' }
+    >;
+    expect(inv.type).toBe('NODE_REPARENTED');
+    expect(inv.nodeId).toBe('n1');
+    expect(inv.oldParentId).toBe('group1');
+    expect(inv.newParentId).toBeUndefined();
+    expect(inv.oldPosition).toEqual({ x: 15, y: 25 });
+    expect(inv.newPosition).toEqual({ x: 10, y: 20 });
+  });
+});
+
 describe('NODES_PASTED ↔ NODES_PASTED_UNDO', () => {
   it('NODES_PASTED の逆は NODES_PASTED_UNDO (nodeIds/edgeIds を収集)', () => {
     const event: GraphEvent = {

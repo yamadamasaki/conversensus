@@ -19,6 +19,7 @@ GraphEvent をその逆操作（undo用）に変換する。
 | EDGE_ADDED ↔ EDGE_DELETED | 相互変換・data 保持 |
 | EDGE_RECONNECTED | from/to 入れ替え |
 | NODES_GROUPED ↔ NODES_UNGROUPED | 相互変換・children 保持 |
+| NODE_REPARENTED | oldParentId ↔ newParentId / oldPosition ↔ newPosition の入れ替え |
 | NODES_PASTED ↔ NODES_PASTED_UNDO | 相互変換・nodeIds/edgeIds 収集・redo 用 data 保持 |
 | NODE_RELABELED / EDGE_RELABELED | from/to 入れ替え |
 | NODE_MOVED / NODE_RESIZED | from/to 入れ替え |

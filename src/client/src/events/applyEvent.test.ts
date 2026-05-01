@@ -259,6 +259,95 @@ describe('NODES_UNGROUPED', () => {
   });
 });
 
+describe('NODE_REPARENTED', () => {
+  const groupNode: Node = {
+    id: 'group1',
+    position: { x: 0, y: 0 },
+    data: { label: 'グループ' },
+    type: 'groupNode',
+  };
+
+  it('グループに入れる: parentId と position を更新し、親の後ろに並び替える', () => {
+    // n1 (index 0) がグループ (index 1) より前にある状態でグループに入れる
+    const event: GraphEvent = {
+      ...base,
+      category: 'structure',
+      type: 'NODE_REPARENTED',
+      nodeId: 'n1' as NodeId,
+      oldParentId: undefined,
+      newParentId: 'group1' as NodeId,
+      oldPosition: { x: 10, y: 20 },
+      // GROUP_PADDING=20, GROUP_TITLE_HEIGHT=30 のため x>=20, y>=50 の範囲で指定
+      newPosition: { x: 30, y: 60 },
+    };
+    const { nodes } = applyEvent(event, [n1, groupNode], []);
+    const updated = nodes.find((n) => n.id === 'n1');
+    expect(updated?.parentId).toBe('group1');
+    expect(updated?.position).toEqual({ x: 30, y: 60 });
+    // 親 (group1) の後ろに n1 が来ること
+    const groupIdx = nodes.findIndex((n) => n.id === 'group1');
+    const nodeIdx = nodes.findIndex((n) => n.id === 'n1');
+    expect(nodeIdx).toBeGreaterThan(groupIdx);
+  });
+
+  it('グループから出す: parentId を undefined に、position を絶対座標に更新する', () => {
+    const childNode: Node = {
+      ...n1,
+      parentId: 'group1',
+      position: { x: 15, y: 25 },
+    };
+    const event: GraphEvent = {
+      ...base,
+      category: 'structure',
+      type: 'NODE_REPARENTED',
+      nodeId: 'n1' as NodeId,
+      oldParentId: 'group1' as NodeId,
+      newParentId: undefined,
+      oldPosition: { x: 15, y: 25 },
+      newPosition: { x: 200, y: 300 },
+    };
+    const { nodes } = applyEvent(event, [groupNode, childNode], []);
+    const updated = nodes.find((n) => n.id === 'n1');
+    expect(updated?.parentId).toBeUndefined();
+    expect(updated?.position).toEqual({ x: 200, y: 300 });
+  });
+
+  it('既にグループ内の場合は順序を変えない', () => {
+    // groupNode (index 0) → n1 (index 1, parentId=group1) の順は正しい
+    const childNode: Node = {
+      ...n1,
+      parentId: 'group1',
+      position: { x: 5, y: 5 },
+    };
+    const anotherGroup: Node = {
+      id: 'group2',
+      position: { x: 200, y: 200 },
+      data: { label: 'グループ2' },
+      type: 'groupNode',
+    };
+    const event: GraphEvent = {
+      ...base,
+      category: 'structure',
+      type: 'NODE_REPARENTED',
+      nodeId: 'n1' as NodeId,
+      oldParentId: 'group1' as NodeId,
+      newParentId: 'group2' as NodeId,
+      oldPosition: { x: 5, y: 5 },
+      newPosition: { x: 10, y: 10 },
+    };
+    const { nodes } = applyEvent(
+      event,
+      [groupNode, childNode, anotherGroup],
+      [],
+    );
+    const updated = nodes.find((n) => n.id === 'n1');
+    expect(updated?.parentId).toBe('group2');
+    const group2Idx = nodes.findIndex((n) => n.id === 'group2');
+    const nodeIdx = nodes.findIndex((n) => n.id === 'n1');
+    expect(nodeIdx).toBeGreaterThan(group2Idx);
+  });
+});
+
 describe('NODES_PASTED', () => {
   it('既存ノードを非選択にして新規ノード/エッジを追加する', () => {
     const selectedN1: Node = { ...n1, selected: true };

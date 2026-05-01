@@ -12,7 +12,8 @@ import { type Edge, MarkerType, type Node } from '@xyflow/react';
 export const DEFAULT_NODE_STYLE = { width: 160, height: 80 };
 export const GROUP_PADDING = 20;
 export const GROUP_TITLE_HEIGHT = 30;
-export const GROUP_NODE_TYPE = 'group' as const;
+export const GROUP_NODE_TYPE = 'group' as const; // GraphNode.nodeType (データモデル)
+export const RF_GROUP_NODE_TYPE = 'groupNode' as const; // React Flow の node.type
 export const PNG_EXPORT_WIDTH = 1920;
 export const PNG_EXPORT_HEIGHT = 1080;
 export const PNG_EXPORT_MIN_ZOOM = 0.5;
@@ -42,7 +43,8 @@ export function toFlowNodes(
         label: n.content,
         conflicted: conflictedNodeIds?.has(n.id) ?? false,
       },
-      type: n.nodeType === GROUP_NODE_TYPE ? 'groupNode' : 'editableNode',
+      type:
+        n.nodeType === GROUP_NODE_TYPE ? RF_GROUP_NODE_TYPE : 'editableNode',
       parentId: n.parentId,
       style:
         layout.width !== undefined || layout.height !== undefined
@@ -118,7 +120,7 @@ export function fromFlowNodes(nodes: Node[]): {
   const graphNodes: GraphNode[] = nodes.map((n) => ({
     id: n.id as NodeId,
     content: String(n.data.label ?? ''),
-    ...(n.type === 'groupNode' ? { nodeType: GROUP_NODE_TYPE } : {}),
+    ...(n.type === RF_GROUP_NODE_TYPE ? { nodeType: GROUP_NODE_TYPE } : {}),
     ...(n.parentId ? { parentId: n.parentId as NodeId } : {}),
   }));
 
@@ -267,7 +269,7 @@ export function collectCopyData(
   };
 
   for (const node of selected) {
-    if (node.type === 'groupNode') {
+    if (node.type === RF_GROUP_NODE_TYPE) {
       addDescendants(node.id);
     }
   }

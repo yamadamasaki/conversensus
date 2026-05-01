@@ -68,6 +68,32 @@ export function applyEvent(
         ),
       };
 
+    case 'NODE_REPARENTED': {
+      const withUpdated = nodes.map((n) =>
+        n.id !== event.nodeId
+          ? n
+          : { ...n, parentId: event.newParentId, position: event.newPosition },
+      );
+      if (!event.newParentId) {
+        return { nodes: recalculateParentBounds(withUpdated), edges };
+      }
+      const parentIdx = withUpdated.findIndex(
+        (n) => n.id === event.newParentId,
+      );
+      const nodeIdx = withUpdated.findIndex((n) => n.id === event.nodeId);
+      if (nodeIdx > parentIdx) {
+        return { nodes: recalculateParentBounds(withUpdated), edges };
+      }
+      // ノードが親より前にある場合、親の直後に移動する
+      const node = withUpdated[nodeIdx];
+      const withoutNode = withUpdated.filter((n) => n.id !== event.nodeId);
+      const newParentIdx = withoutNode.findIndex(
+        (n) => n.id === event.newParentId,
+      );
+      withoutNode.splice(newParentIdx + 1, 0, node);
+      return { nodes: recalculateParentBounds(withoutNode), edges };
+    }
+
     case 'NODES_GROUPED': {
       const parentNode = toFlowNodes(
         [event.parentData],
@@ -154,10 +180,8 @@ export function applyEvent(
 
     case 'NODE_MOVED':
       return {
-        nodes: recalculateParentBounds(
-          nodes.map((n) =>
-            n.id === event.nodeId ? { ...n, position: event.to } : n,
-          ),
+        nodes: nodes.map((n) =>
+          n.id === event.nodeId ? { ...n, position: event.to } : n,
         ),
         edges,
       };
