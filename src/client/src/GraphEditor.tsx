@@ -44,6 +44,7 @@ import {
   fromFlowEdges,
   fromFlowNodes,
   GROUP_NODE_TYPE,
+  GROUP_PADDING,
   PNG_EXPORT_HEIGHT,
   PNG_EXPORT_MAX_ZOOM,
   PNG_EXPORT_MIN_ZOOM,
@@ -59,6 +60,50 @@ import { useGroupNodes } from './hooks/useGroupNodes';
 import { usePaneDoubleClick } from './hooks/usePaneDoubleClick';
 
 const RF_INIT_DELAY_MS = 150;
+// 子ノードがこの距離以上グループ外に出たときだけグループから離脱させる
+const GROUP_EXIT_BUFFER = GROUP_PADDING * 2;
+// ドロップターゲット表示用 DOM 属性
+const DROP_TARGET_ATTR = 'data-drop-target';
+
+function getGroupBounds(g: Node) {
+  return {
+    x: g.positionAbsolute?.x ?? g.position.x,
+    y: g.positionAbsolute?.y ?? g.position.y,
+    w:
+      g.measured?.width ??
+      (typeof g.style?.width === 'number' ? g.style.width : 300),
+    h:
+      g.measured?.height ??
+      (typeof g.style?.height === 'number' ? g.style.height : 200),
+  };
+}
+
+function pointInGroup(cx: number, cy: number, g: Node, buffer = 0): boolean {
+  const { x, y, w, h } = getGroupBounds(g);
+  return (
+    cx >= x - buffer &&
+    cx <= x + w + buffer &&
+    cy >= y - buffer &&
+    cy <= y + h + buffer
+  );
+}
+
+function isAncestorOf(
+  candidateId: string,
+  targetId: string,
+  nodes: Node[],
+): boolean {
+  const t = nodes.find((n) => n.id === targetId);
+  if (!t?.parentId) return false;
+  if (t.parentId === candidateId) return true;
+  return isAncestorOf(candidateId, t.parentId, nodes);
+}
+
+function clearDropTargetHighlight(): void {
+  for (const el of document.querySelectorAll(`[${DROP_TARGET_ATTR}="true"]`)) {
+    el.removeAttribute(DROP_TARGET_ATTR);
+  }
+}
 
 type Props = {
   file: GraphFile;
@@ -223,12 +268,10 @@ function GraphEditorInner({
     [getNodes],
   );
 
-  const onNodeDragStop = useCallback(
+  // ドラッグ中: ドロップ先グループをハイライト
+  const onNodeDrag = useCallback(
     (_: React.MouseEvent, node: Node) => {
-      const from = preDragPositionsRef.current.get(node.id);
       const allNodes = getNodes();
-
-      // ノードの絶対座標を取得
       const absX = node.positionAbsolute?.x ?? node.position.x;
       const absY = node.positionAbsolute?.y ?? node.position.y;
       const nodeW = Number(node.measured?.width ?? DEFAULT_NODE_STYLE.width);
@@ -236,42 +279,94 @@ function GraphEditorInner({
       const cx = absX + nodeW / 2;
       const cy = absY + nodeH / 2;
 
-      // ドラッグ中ノードが自分の祖先かどうかチェック (循環参照防止)
-      const isAncestorOf = (candidateId: string, targetId: string): boolean => {
-        const t = allNodes.find((n) => n.id === targetId);
-        if (!t?.parentId) return false;
-        if (t.parentId === candidateId) return true;
-        return isAncestorOf(candidateId, t.parentId);
-      };
-
-      // 自分以外のグループノードのうち、中心点を含むものを探す
-      const targetGroup = allNodes
+      const target = allNodes
         .filter((n) => n.type === GROUP_NODE_TYPE && n.id !== node.id)
         .find((g) => {
-          if (isAncestorOf(g.id, node.id)) return false;
-          const gx = g.positionAbsolute?.x ?? g.position.x;
-          const gy = g.positionAbsolute?.y ?? g.position.y;
-          const gw = Number(
-            g.measured?.width ?? (Number(g.style?.width) || 100),
-          );
-          const gh = Number(
-            g.measured?.height ?? (Number(g.style?.height) || 100),
-          );
-          return cx >= gx && cx <= gx + gw && cy >= gy && cy <= gy + gh;
+          if (isAncestorOf(g.id, node.id, allNodes)) return false;
+          return pointInGroup(cx, cy, g);
         });
 
-      const newParentId = targetGroup?.id as NodeId | undefined;
+      const targetId = target?.id ?? null;
+      const prevEl = document.querySelector(`[${DROP_TARGET_ATTR}="true"]`);
+      const prevId = prevEl?.getAttribute('data-id') ?? null;
+
+      if (targetId !== prevId) {
+        clearDropTargetHighlight();
+        if (targetId) {
+          document
+            .querySelector(`.react-flow__node[data-id="${targetId}"]`)
+            ?.setAttribute(DROP_TARGET_ATTR, 'true');
+        }
+      }
+    },
+    [getNodes],
+  );
+
+  const onNodeDragStop = useCallback(
+    (_: React.MouseEvent, node: Node) => {
+      clearDropTargetHighlight();
+
+      const from = preDragPositionsRef.current.get(node.id);
+      const allNodes = getNodes();
+
+      const absX = node.positionAbsolute?.x ?? node.position.x;
+      const absY = node.positionAbsolute?.y ?? node.position.y;
+      const nodeW = Number(node.measured?.width ?? DEFAULT_NODE_STYLE.width);
+      const nodeH = Number(node.measured?.height ?? DEFAULT_NODE_STYLE.height);
+      const cx = absX + nodeW / 2;
+      const cy = absY + nodeH / 2;
+
       const oldParentId = node.parentId as NodeId | undefined;
+      let newParentId: NodeId | undefined;
+
+      if (oldParentId) {
+        // 既にグループ内: バッファ込みで現在の親内なら留まる
+        const currentParent = allNodes.find((n) => n.id === oldParentId);
+        if (
+          currentParent &&
+          pointInGroup(cx, cy, currentParent, GROUP_EXIT_BUFFER)
+        ) {
+          newParentId = oldParentId;
+        } else {
+          // 明らかに親の外: 別グループへの移動か、完全離脱
+          const other = allNodes
+            .filter(
+              (n) =>
+                n.type === GROUP_NODE_TYPE &&
+                n.id !== node.id &&
+                n.id !== oldParentId,
+            )
+            .find((g) => {
+              if (isAncestorOf(g.id, node.id, allNodes)) return false;
+              return pointInGroup(cx, cy, g);
+            });
+          newParentId = other?.id as NodeId | undefined;
+        }
+      } else {
+        // トップレベル: グループへの追加を検出
+        const target = allNodes
+          .filter((n) => n.type === GROUP_NODE_TYPE && n.id !== node.id)
+          .find((g) => {
+            if (isAncestorOf(g.id, node.id, allNodes)) return false;
+            return pointInGroup(cx, cy, g);
+          });
+        newParentId = target?.id as NodeId | undefined;
+      }
 
       if (newParentId !== oldParentId) {
-        let newPosition: { x: number; y: number };
-        if (targetGroup) {
-          const gx = targetGroup.positionAbsolute?.x ?? targetGroup.position.x;
-          const gy = targetGroup.positionAbsolute?.y ?? targetGroup.position.y;
-          newPosition = { x: absX - gx, y: absY - gy };
-        } else {
-          newPosition = { x: absX, y: absY };
-        }
+        const targetGroup = newParentId
+          ? allNodes.find((n) => n.id === newParentId)
+          : undefined;
+        const newPosition = targetGroup
+          ? {
+              x:
+                absX -
+                (targetGroup.positionAbsolute?.x ?? targetGroup.position.x),
+              y:
+                absY -
+                (targetGroup.positionAbsolute?.y ?? targetGroup.position.y),
+            }
+          : { x: absX, y: absY };
         dispatch({
           ...makeEventBase('structure'),
           type: 'NODE_REPARENTED',
@@ -494,6 +589,7 @@ function GraphEditorInner({
           onConnect={onConnect}
           onReconnect={onReconnect}
           onNodeDragStart={onNodeDragStart}
+          onNodeDrag={onNodeDrag}
           onNodeDragStop={onNodeDragStop}
           edgesReconnectable
           onPaneClick={onPaneClick}

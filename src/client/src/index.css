@@ -16,3 +16,8 @@ body {
   min-width: 320px;
   min-height: 100vh;
 }
+
+/* グループノードにノードをドロップしようとしているときのハイライト */
+.react-flow__node[data-drop-target="true"] {
+  filter: drop-shadow(0 0 8px rgba(249, 115, 22, 0.75));
+}
