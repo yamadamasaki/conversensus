@@ -70,13 +70,13 @@ export function GroupNode({
       const graphNode: GraphNode = {
         id: nodeId,
         content: '',
+        parentId: id as NodeId,
       };
       const layout: NodeLayout = {
         nodeId,
         x: pos.x,
         y: pos.y,
         ...DEFAULT_NODE_STYLE,
-        parentId: id as NodeId,
       };
       dispatch({
         ...makeEventBase('structure'),

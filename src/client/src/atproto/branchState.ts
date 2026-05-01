@@ -107,6 +107,8 @@ export function computeOperations(
         nodeId: node.id,
         content: node.content,
         ...(node.properties && { properties: node.properties }),
+        ...(node.nodeType && { nodeType: node.nodeType }),
+        ...(node.parentId !== undefined && { parentId: node.parentId }),
       });
     }
   }
@@ -116,13 +118,17 @@ export function computeOperations(
     if (
       baseNode &&
       (baseNode.content !== node.content ||
-        JSON.stringify(baseNode.properties) !== JSON.stringify(node.properties))
+        JSON.stringify(baseNode.properties) !==
+          JSON.stringify(node.properties) ||
+        baseNode.nodeType !== node.nodeType ||
+        baseNode.parentId !== node.parentId)
     ) {
       ops.push({
         op: 'node.update',
         nodeId: node.id,
         content: node.content,
         ...(node.properties && { properties: node.properties }),
+        ...(node.parentId !== undefined && { parentId: node.parentId }),
       });
     }
   }
@@ -295,7 +301,6 @@ type TrunkSheetData = {
   nodeLayouts: Array<{
     layout: NodeLayout;
     nodeRef: StrongRef;
-    parentRef?: StrongRef;
   }>;
   edgeLayouts: Array<{ layout: EdgeLayout; edgeRef: StrongRef }>;
 };
@@ -359,16 +364,9 @@ async function fetchTrunkSheetData(
       const rec = r.value as NodeLayoutRecord;
       const nodeId =
         nodeUriToId.get(rec.node.uri) ?? idFromRkey(rkeyFromUri(rec.node.uri));
-      const parentId = rec.parent
-        ? (nodeUriToId.get(rec.parent.uri) ??
-          idFromRkey(rkeyFromUri(rec.parent.uri)))
-        : undefined;
       return {
         layout: recordToNodeLayout(nodeId, rec),
         nodeRef: nodeIdToRef.get(nodeId) ?? rec.node,
-        parentRef: parentId
-          ? (nodeIdToRef.get(parentId) ?? rec.parent)
-          : undefined,
       };
     });
 
@@ -422,7 +420,22 @@ export async function createBranch(
       const rkey = makeRkey(branchId, node.id);
       const result = await deps.nodes.put(
         rkey,
-        nodeToRecord(node, sheetRef, now),
+        nodeToRecord(node, sheetRef, undefined, now),
+      );
+      nodeIdToBranchRef.set(node.id, { uri: result.uri, cid: result.cid });
+    }),
+  );
+
+  // parentId → parentRef を解決して再書き込み (branch prefix 用に全 node の ref が揃ってから)
+  await Promise.all(
+    trunkData.nodes.map(async ({ node }) => {
+      if (!node.parentId) return;
+      const parentRef = nodeIdToBranchRef.get(node.parentId);
+      if (!parentRef) return;
+      const rkey = makeRkey(branchId, node.id);
+      const result = await deps.nodes.put(
+        rkey,
+        nodeToRecord(node, sheetRef, parentRef, now),
       );
       nodeIdToBranchRef.set(node.id, { uri: result.uri, cid: result.cid });
     }),
@@ -444,16 +457,13 @@ export async function createBranch(
   );
 
   await Promise.all(
-    trunkData.nodeLayouts.map(async ({ layout, nodeRef: _, parentRef: __ }) => {
+    trunkData.nodeLayouts.map(async ({ layout, nodeRef: _ }) => {
       const nodeRef = nodeIdToBranchRef.get(layout.nodeId);
       if (!nodeRef) return;
-      const parentRef = layout.parentId
-        ? nodeIdToBranchRef.get(layout.parentId)
-        : undefined;
       const rkey = makeRkey(branchId, layout.nodeId);
       await deps.nodeLayouts.put(
         rkey,
-        nodeLayoutToRecord(layout, nodeRef, parentRef, now),
+        nodeLayoutToRecord(layout, nodeRef, now),
       );
     }),
   );
@@ -584,7 +594,22 @@ export async function syncBranchSheetToAtproto(
       const rkey = makeRkey(branchId, node.id);
       const result = await deps.nodes.put(
         rkey,
-        nodeToRecord(node, sheetRef, now),
+        nodeToRecord(node, sheetRef, undefined, now),
+      );
+      nodeIdToRef.set(node.id, { uri: result.uri, cid: result.cid });
+    }),
+  );
+
+  // parentId → parentRef を解決して再書き込み
+  await Promise.all(
+    sheet.nodes.map(async (node) => {
+      if (!node.parentId) return;
+      const parentRef = nodeIdToRef.get(node.parentId);
+      if (!parentRef) return;
+      const rkey = makeRkey(branchId, node.id);
+      const result = await deps.nodes.put(
+        rkey,
+        nodeToRecord(node, sheetRef, parentRef, now),
       );
       nodeIdToRef.set(node.id, { uri: result.uri, cid: result.cid });
     }),
@@ -617,13 +642,10 @@ export async function syncBranchSheetToAtproto(
       sheet.layouts.map(async (layout) => {
         const nodeRef = nodeIdToRef.get(layout.nodeId);
         if (!nodeRef) return;
-        const parentRef = layout.parentId
-          ? nodeIdToRef.get(layout.parentId)
-          : undefined;
         const rkey = makeRkey(branchId, layout.nodeId);
         await deps.nodeLayouts.put(
           rkey,
-          nodeLayoutToRecord(layout, nodeRef, parentRef, now),
+          nodeLayoutToRecord(layout, nodeRef, now),
         );
       }),
     );
@@ -735,6 +757,25 @@ export async function mergeBranchToTrunk(
     }),
   );
 
+  // 1.5 parent の StrongRef を branch → trunk に付け替え
+  await Promise.all(
+    sheetBranchNodes.map(async (r) => {
+      const rec = r.value as NodeRecord;
+      if (!rec.parent) return;
+      const parentId = idFromRkey(rkeyFromUri(rec.parent.uri));
+      const trunkParentRef = nodeIdToTrunkRef.get(parentId);
+      if (!trunkParentRef) return;
+      const nodeId = idFromRkey(rkeyFromUri(r.uri));
+      const trunkRkey = makeRkey(TRUNK_PREFIX, nodeId);
+      const { $type: _, ...data } = rec;
+      await deps.nodes.put(trunkRkey, {
+        ...data,
+        sheet: sheetRef,
+        parent: trunkParentRef,
+      });
+    }),
+  );
+
   // 2. branch edges → trunk rkey で PUT
   const edgeIdToTrunkRef = new Map<string, StrongRef>();
   await Promise.all(
@@ -802,16 +843,11 @@ export async function mergeBranchToTrunk(
         const nodeId = idFromRkey(rkeyFromUri(rec.node.uri));
         const trunkNodeRef = nodeIdToTrunkRef.get(nodeId);
         if (!trunkNodeRef) return;
-        const parentId = rec.parent
-          ? idFromRkey(rkeyFromUri(rec.parent.uri))
-          : undefined;
-        const parentRef = parentId ? nodeIdToTrunkRef.get(parentId) : undefined;
         const { $type: _, ...data } = rec;
         const trunkRkey = makeRkey(TRUNK_PREFIX, nodeId);
         await deps.nodeLayouts.put(trunkRkey, {
           ...data,
           node: trunkNodeRef,
-          ...(parentRef && { parent: parentRef }),
         });
       }),
     ...branchEdgeLayouts

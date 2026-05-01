@@ -83,7 +83,24 @@ export async function syncSheetToAtproto(
       const nodeCreatedAt = getCreatedAt(NSID.node, rkey) ?? now;
       const result = await nodes.put(
         rkey,
-        nodeToRecord(node, sheetRef, nodeCreatedAt),
+        nodeToRecord(node, sheetRef, undefined, nodeCreatedAt),
+      );
+      cacheResult(result.uri, result.cid, nodeCreatedAt);
+      nodeRefs.set(node.id, { uri: result.uri, cid: result.cid });
+    }),
+  );
+
+  // 2.5 parentId → parentRef を解決して再書き込み (全 node の ref が揃ってから)
+  await Promise.all(
+    sheet.nodes.map(async (node) => {
+      if (!node.parentId) return;
+      const parentRef = nodeRefs.get(node.parentId);
+      if (!parentRef) return;
+      const rkey = makeRkey(TRUNK_PREFIX, node.id);
+      const nodeCreatedAt = getCreatedAt(NSID.node, rkey) ?? now;
+      const result = await nodes.put(
+        rkey,
+        nodeToRecord(node, sheetRef, parentRef, nodeCreatedAt),
       );
       cacheResult(result.uri, result.cid, nodeCreatedAt);
       nodeRefs.set(node.id, { uri: result.uri, cid: result.cid });
@@ -119,14 +136,11 @@ export async function syncSheetToAtproto(
       sheet.layouts.map(async (layout) => {
         const nodeRef = nodeRefs.get(layout.nodeId);
         if (!nodeRef) return;
-        const parentRef = layout.parentId
-          ? nodeRefs.get(layout.parentId)
-          : undefined;
         const rkey = makeRkey(TRUNK_PREFIX, layout.nodeId);
         const layoutCreatedAt = getCreatedAt(NSID.nodeLayout, rkey) ?? now;
         const r = await nodeLayouts.put(
           rkey,
-          nodeLayoutToRecord(layout, nodeRef, parentRef, layoutCreatedAt),
+          nodeLayoutToRecord(layout, nodeRef, layoutCreatedAt),
         );
         cacheResult(r.uri, r.cid, layoutCreatedAt);
       }),

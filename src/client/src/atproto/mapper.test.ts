@@ -70,7 +70,7 @@ describe('nodeToRecord → recordToNode 往復', () => {
   };
 
   it('往復後に同じ内容になる', () => {
-    const record = nodeToRecord(node, SHEET_REF, NOW);
+    const record = nodeToRecord(node, SHEET_REF, undefined, NOW);
     const restored = recordToNode(node.id, {
       $type: 'app.conversensus.graph.node',
       ...record,
@@ -82,7 +82,7 @@ describe('nodeToRecord → recordToNode 往復', () => {
 
   it('properties が省略された場合 undefined になる', () => {
     const noProps: GraphNode = { id: node.id, content: 'no props' };
-    const record = nodeToRecord(noProps, SHEET_REF, NOW);
+    const record = nodeToRecord(noProps, SHEET_REF, undefined, NOW);
     expect('properties' in record).toBe(false);
     const restored = recordToNode(noProps.id, {
       $type: 'app.conversensus.graph.node',
@@ -153,20 +153,22 @@ describe('nodeLayoutToRecord → recordToNodeLayout 往復', () => {
       nodeId: NODE_ID as NodeLayout['nodeId'],
       width: '120',
     };
-    const record = nodeLayoutToRecord(layout, NODE_REF, undefined, NOW);
+    const record = nodeLayoutToRecord(layout, NODE_REF, NOW);
     expect(record.width).toBe(120);
   });
 
-  it('parentId ↔ parent.uri が正しく変換される', () => {
-    const layout: NodeLayout = {
-      nodeId: NODE_ID as NodeLayout['nodeId'],
+  it('parentId / nodeType は nodeToRecord → recordToNode 往復で保持される', () => {
+    const groupedNode: GraphNode = {
+      id: NODE_ID as GraphNode['id'],
+      content: '子ノード',
       nodeType: 'group',
-      parentId: PARENT_ID as NodeLayout['parentId'],
+      parentId: PARENT_ID as GraphNode['parentId'],
     };
-    const record = nodeLayoutToRecord(layout, NODE_REF, PARENT_REF, NOW);
+    const record = nodeToRecord(groupedNode, SHEET_REF, PARENT_REF, NOW);
     expect(record.parent?.uri).toContain(PARENT_ID);
-    const restored = recordToNodeLayout(NODE_ID, {
-      $type: 'app.conversensus.graph.nodeLayout',
+    expect(record.nodeType).toBe('group');
+    const restored = recordToNode(NODE_ID, {
+      $type: 'app.conversensus.graph.node',
       ...record,
     });
     expect(restored.parentId).toBe(PARENT_ID);

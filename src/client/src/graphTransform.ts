@@ -19,7 +19,7 @@ export function toFlowNodes(
   conflictedNodeIds?: Set<string>,
 ): Node[] {
   const layoutMap = new Map(layouts.map((l) => [l.nodeId as string, l]));
-  return nodes.map((n) => {
+  const result = nodes.map((n) => {
     const layout = layoutMap.get(n.id) ?? {
       nodeId: n.id as NodeId,
       x: 0,
@@ -35,14 +35,43 @@ export function toFlowNodes(
         label: n.content,
         conflicted: conflictedNodeIds?.has(n.id) ?? false,
       },
-      type: layout.nodeType === 'group' ? 'groupNode' : 'editableNode',
-      parentId: layout.parentId,
+      type: n.nodeType === 'group' ? 'groupNode' : 'editableNode',
+      parentId: n.parentId,
       style:
         layout.width !== undefined || layout.height !== undefined
           ? { width: layout.width, height: layout.height }
           : DEFAULT_NODE_STYLE,
     };
   });
+
+  // ReactFlow は親ノードが子ノードより前方に並ぶことを要求するためトポロジカルソート
+  const sorted: Node[] = [];
+  const remaining = new Map(result.map((n) => [n.id, n]));
+  const placed = new Set<string>();
+
+  for (const n of result) {
+    if (!n.parentId) {
+      sorted.push(n);
+      placed.add(n.id);
+      remaining.delete(n.id);
+    }
+  }
+
+  let progress = true;
+  while (remaining.size > 0 && progress) {
+    progress = false;
+    for (const [id, n] of remaining) {
+      if (n.parentId && placed.has(n.parentId)) {
+        sorted.push(n);
+        placed.add(id);
+        remaining.delete(id);
+        progress = true;
+      }
+    }
+  }
+  sorted.push(...remaining.values()); // 循環参照などで残ったものを末尾に追加
+
+  return sorted;
 }
 
 export function toFlowEdges(
@@ -82,6 +111,8 @@ export function fromFlowNodes(nodes: Node[]): {
   const graphNodes: GraphNode[] = nodes.map((n) => ({
     id: n.id as NodeId,
     content: String(n.data.label ?? ''),
+    ...(n.type === 'groupNode' ? { nodeType: 'group' as const } : {}),
+    ...(n.parentId ? { parentId: n.parentId as NodeId } : {}),
   }));
 
   const layouts: NodeLayout[] = nodes.map((n) => ({
@@ -90,8 +121,6 @@ export function fromFlowNodes(nodes: Node[]): {
     y: n.position.y,
     width: n.style?.width as number | string | undefined,
     height: n.style?.height as number | string | undefined,
-    ...(n.type === 'groupNode' ? { nodeType: 'group' as const } : {}),
-    ...(n.parentId ? { parentId: n.parentId as NodeId } : {}),
   }));
 
   return { nodes: graphNodes, layouts };

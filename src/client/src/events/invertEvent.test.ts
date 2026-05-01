@@ -13,7 +13,6 @@ const base = { id: 'evt', timestamp: 0, userId: 'local' } as const;
 const graphNode: GraphNode = {
   id: 'n1' as NodeId,
   content: 'ノード1',
-  style: { x: 10, y: 20 },
 };
 const graphEdge: GraphEdge = {
   id: 'e1' as EdgeId,
@@ -132,7 +131,6 @@ describe('NODES_GROUPED ↔ NODES_UNGROUPED', () => {
   const parentData: GraphNode = {
     id: 'parent' as NodeId,
     content: 'グループ',
-    style: { x: 0, y: 0, nodeType: 'group' },
   };
 
   it('NODES_GROUPED の逆は NODES_UNGROUPED (同じ children を保持)', () => {

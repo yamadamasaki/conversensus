@@ -277,32 +277,27 @@ describe('toFlowNodes → fromFlowNodes の対称性', () => {
 });
 
 describe('toFlowNodes: グループノード (parentId / nodeType)', () => {
-  it('nodeType=group の NodeLayout は groupNode 型に変換される', () => {
-    const nodes: GraphNode[] = [{ id: 'g1' as NodeId, content: 'グループ' }];
+  it('nodeType=group の GraphNode は groupNode 型に変換される', () => {
+    const nodes: GraphNode[] = [
+      { id: 'g1' as NodeId, content: 'グループ', nodeType: 'group' },
+    ];
     const layouts: NodeLayout[] = [
-      {
-        nodeId: 'g1' as NodeId,
-        x: 0,
-        y: 0,
-        width: 200,
-        height: 150,
-        nodeType: 'group',
-      },
+      { nodeId: 'g1' as NodeId, x: 0, y: 0, width: 200, height: 150 },
     ];
     expect(toFlowNodes(nodes, layouts)[0].type).toBe('groupNode');
   });
 
-  it('parentId を持つ NodeLayout は parentId が引き継がれる', () => {
-    const nodes: GraphNode[] = [{ id: 'n1' as NodeId, content: 'child' }];
-    const layouts: NodeLayout[] = [
-      { nodeId: 'n1' as NodeId, x: 20, y: 50, parentId: 'g1' as NodeId },
+  it('parentId を持つ GraphNode は parentId が引き継がれる', () => {
+    const nodes: GraphNode[] = [
+      { id: 'n1' as NodeId, content: 'child', parentId: 'g1' as NodeId },
     ];
+    const layouts: NodeLayout[] = [{ nodeId: 'n1' as NodeId, x: 20, y: 50 }];
     expect(toFlowNodes(nodes, layouts)[0].parentId).toBe('g1');
   });
 });
 
 describe('fromFlowNodes: parentId / groupNode', () => {
-  it('parentId を持つ Node は layout.parentId として保存される', () => {
+  it('parentId を持つ Node は GraphNode.parentId として保存される', () => {
     const flowNodes: Node[] = [
       {
         id: 'n1',
@@ -313,11 +308,11 @@ describe('fromFlowNodes: parentId / groupNode', () => {
       },
     ];
     const result = fromFlowNodes(flowNodes);
-    expect(result.nodes[0]).not.toHaveProperty('parentId');
-    expect(result.layouts[0].parentId).toBe('g1');
+    expect(result.nodes[0].parentId).toBe('g1');
+    expect(result.layouts[0]).not.toHaveProperty('parentId');
   });
 
-  it('groupNode 型は layout.nodeType=group として保存される', () => {
+  it('groupNode 型は GraphNode.nodeType=group として保存される', () => {
     const flowNodes: Node[] = [
       {
         id: 'g1',
@@ -326,7 +321,8 @@ describe('fromFlowNodes: parentId / groupNode', () => {
         type: 'groupNode',
       },
     ];
-    expect(fromFlowNodes(flowNodes).layouts[0].nodeType).toBe('group');
+    expect(fromFlowNodes(flowNodes).nodes[0].nodeType).toBe('group');
+    expect(fromFlowNodes(flowNodes).layouts[0]).not.toHaveProperty('nodeType');
   });
 });
 
