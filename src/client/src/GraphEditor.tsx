@@ -60,6 +60,7 @@ import { useEdgeContextMenu } from './hooks/useEdgeContextMenu';
 import { type UndoState, useEventStore } from './hooks/useEventStore';
 import { useGroupNodes } from './hooks/useGroupNodes';
 import { usePaneDoubleClick } from './hooks/usePaneDoubleClick';
+import { ImageNode } from './ImageNode';
 import type { NodeTypeOption } from './NodeTypeMenu';
 import { NodeTypeMenu } from './NodeTypeMenu';
 
@@ -241,7 +242,7 @@ function GraphEditorInner({
     () => ({
       editableNode: EditableNode,
       [RF_GROUP_NODE_TYPE]: GroupNode,
-      [RF_IMAGE_NODE_TYPE]: EditableNode,
+      [RF_IMAGE_NODE_TYPE]: ImageNode,
     }),
     [],
   );

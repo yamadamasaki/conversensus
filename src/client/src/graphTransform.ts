@@ -44,6 +44,7 @@ export function toFlowNodes(
       data: {
         label: n.content,
         conflicted: conflictedNodeIds?.has(n.id) ?? false,
+        ...(n.properties ? { properties: n.properties } : {}),
       },
       type:
         n.nodeType === GROUP_NODE_TYPE
@@ -129,6 +130,9 @@ export function fromFlowNodes(nodes: Node[]): {
     ...(n.type === RF_GROUP_NODE_TYPE ? { nodeType: GROUP_NODE_TYPE } : {}),
     ...(n.type === RF_IMAGE_NODE_TYPE ? { nodeType: IMAGE_NODE_TYPE } : {}),
     ...(n.parentId ? { parentId: n.parentId as NodeId } : {}),
+    ...(n.data?.properties
+      ? { properties: n.data.properties as Record<string, unknown> }
+      : {}),
   }));
 
   const layouts: NodeLayout[] = nodes.map((n) => ({
