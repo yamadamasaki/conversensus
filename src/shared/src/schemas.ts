@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 export const GROUP_NODE_TYPE = 'group' as const;
+export const IMAGE_NODE_TYPE = 'image' as const;
 
 // --- Branded ID schemas (UUID enforced at API boundaries) ---
 export const NodeIdSchema = z.string().uuid().brand<'NodeId'>();
@@ -47,7 +48,7 @@ export const GraphNodeSchema = z.object({
   id: NodeIdSchema,
   content: z.string(),
   properties: z.record(z.string(), z.unknown()).optional(),
-  nodeType: z.literal(GROUP_NODE_TYPE).optional(),
+  nodeType: z.enum([GROUP_NODE_TYPE, IMAGE_NODE_TYPE]).optional(),
   parentId: NodeIdSchema.optional(),
 });
 
@@ -126,7 +127,7 @@ export const CommitOperationSchema = z.discriminatedUnion('op', [
     nodeId: z.string().uuid(),
     content: z.string(),
     properties: z.record(z.string(), z.unknown()).optional(),
-    nodeType: z.literal(GROUP_NODE_TYPE).optional(),
+    nodeType: z.enum([GROUP_NODE_TYPE, IMAGE_NODE_TYPE]).optional(),
     parentId: z.string().uuid().optional(),
   }),
   z.object({
