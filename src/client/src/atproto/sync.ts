@@ -83,7 +83,7 @@ export async function syncSheetToAtproto(
       const nodeCreatedAt = getCreatedAt(NSID.node, rkey) ?? now;
       const result = await nodes.put(
         rkey,
-        nodeToRecord(node, sheetRef, nodeCreatedAt),
+        nodeToRecord(node, sheetRef, undefined, nodeCreatedAt),
       );
       cacheResult(result.uri, result.cid, nodeCreatedAt);
       nodeRefs.set(node.id, { uri: result.uri, cid: result.cid });

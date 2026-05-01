@@ -420,7 +420,7 @@ export async function createBranch(
       const rkey = makeRkey(branchId, node.id);
       const result = await deps.nodes.put(
         rkey,
-        nodeToRecord(node, sheetRef, now),
+        nodeToRecord(node, sheetRef, undefined, now),
       );
       nodeIdToBranchRef.set(node.id, { uri: result.uri, cid: result.cid });
     }),
@@ -579,7 +579,7 @@ export async function syncBranchSheetToAtproto(
       const rkey = makeRkey(branchId, node.id);
       const result = await deps.nodes.put(
         rkey,
-        nodeToRecord(node, sheetRef, now),
+        nodeToRecord(node, sheetRef, undefined, now),
       );
       nodeIdToRef.set(node.id, { uri: result.uri, cid: result.cid });
     }),
