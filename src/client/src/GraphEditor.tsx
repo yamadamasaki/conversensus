@@ -60,31 +60,32 @@ import { useGroupNodes } from './hooks/useGroupNodes';
 import { usePaneDoubleClick } from './hooks/usePaneDoubleClick';
 
 const RF_INIT_DELAY_MS = 150;
-// 子ノードがこの距離以上グループ外に出たときだけグループから離脱させる
-const GROUP_EXIT_BUFFER = GROUP_PADDING * 2;
-// ドロップターゲット表示用 DOM 属性
-const DROP_TARGET_ATTR = 'data-drop-target';
+const DROP_TARGET_ATTR = 'data-drop-target'; // グループへ追加しようとしている
+const LEAVING_GROUP_ATTR = 'data-leaving-group'; // グループを出ようとしている
 
+// measured と style の大きい方を採用することで recalculateParentBounds 後の
+// 非同期 DOM 再計測とのズレに対して安定した境界値を返す
 function getGroupBounds(g: Node) {
+  const styleW = typeof g.style?.width === 'number' ? g.style.width : 0;
+  const styleH = typeof g.style?.height === 'number' ? g.style.height : 0;
   return {
     x: g.positionAbsolute?.x ?? g.position.x,
     y: g.positionAbsolute?.y ?? g.position.y,
-    w:
-      g.measured?.width ??
-      (typeof g.style?.width === 'number' ? g.style.width : 300),
-    h:
-      g.measured?.height ??
-      (typeof g.style?.height === 'number' ? g.style.height : 200),
+    w: Math.max(g.measured?.width ?? 0, styleW) || 300,
+    h: Math.max(g.measured?.height ?? 0, styleH) || 200,
   };
 }
 
-function pointInGroup(cx: number, cy: number, g: Node, buffer = 0): boolean {
+function pointInGroup(
+  cx: number,
+  cy: number,
+  g: Node,
+  bufX = 0,
+  bufY = bufX,
+): boolean {
   const { x, y, w, h } = getGroupBounds(g);
   return (
-    cx >= x - buffer &&
-    cx <= x + w + buffer &&
-    cy >= y - buffer &&
-    cy <= y + h + buffer
+    cx >= x - bufX && cx <= x + w + bufX && cy >= y - bufY && cy <= y + h + bufY
   );
 }
 
@@ -99,9 +100,11 @@ function isAncestorOf(
   return isAncestorOf(candidateId, t.parentId, nodes);
 }
 
-function clearDropTargetHighlight(): void {
-  for (const el of document.querySelectorAll(`[${DROP_TARGET_ATTR}="true"]`)) {
-    el.removeAttribute(DROP_TARGET_ATTR);
+function clearDragHighlights(): void {
+  for (const attr of [DROP_TARGET_ATTR, LEAVING_GROUP_ATTR]) {
+    for (const el of document.querySelectorAll(`[${attr}="true"]`)) {
+      el.removeAttribute(attr);
+    }
   }
 }
 
@@ -268,7 +271,7 @@ function GraphEditorInner({
     [getNodes],
   );
 
-  // ドラッグ中: ドロップ先グループをハイライト
+  // ドラッグ中: ビジュアルフィードバック
   const onNodeDrag = useCallback(
     (_: React.MouseEvent, node: Node) => {
       const allNodes = getNodes();
@@ -279,22 +282,28 @@ function GraphEditorInner({
       const cx = absX + nodeW / 2;
       const cy = absY + nodeH / 2;
 
-      const target = allNodes
-        .filter((n) => n.type === RF_GROUP_NODE_TYPE && n.id !== node.id)
-        .find((g) => {
-          if (isAncestorOf(g.id, node.id, allNodes)) return false;
-          return pointInGroup(cx, cy, g);
-        });
+      clearDragHighlights();
 
-      const targetId = target?.id ?? null;
-      const prevEl = document.querySelector(`[${DROP_TARGET_ATTR}="true"]`);
-      const prevId = prevEl?.getAttribute('data-id') ?? null;
-
-      if (targetId !== prevId) {
-        clearDropTargetHighlight();
-        if (targetId) {
+      const oldParentId = node.parentId;
+      if (oldParentId) {
+        // 子ノードのドラッグ: 親グループの外に出ているならオレンジ枠で "出る" 予告
+        const parent = allNodes.find((n) => n.id === oldParentId);
+        if (parent && !pointInGroup(cx, cy, parent)) {
           document
-            .querySelector(`.react-flow__node[data-id="${targetId}"]`)
+            .querySelector(`.react-flow__node[data-id="${oldParentId}"]`)
+            ?.setAttribute(LEAVING_GROUP_ATTR, 'true');
+        }
+      } else {
+        // トップレベルノードのドラッグ: 入ろうとしているグループをハイライト
+        const target = allNodes
+          .filter((n) => n.type === RF_GROUP_NODE_TYPE && n.id !== node.id)
+          .find((g) => {
+            if (isAncestorOf(g.id, node.id, allNodes)) return false;
+            return pointInGroup(cx, cy, g);
+          });
+        if (target) {
+          document
+            .querySelector(`.react-flow__node[data-id="${target.id}"]`)
             ?.setAttribute(DROP_TARGET_ATTR, 'true');
         }
       }
@@ -304,7 +313,7 @@ function GraphEditorInner({
 
   const onNodeDragStop = useCallback(
     (_: React.MouseEvent, node: Node) => {
-      clearDropTargetHighlight();
+      clearDragHighlights();
 
       const from = preDragPositionsRef.current.get(node.id);
       const allNodes = getNodes();
@@ -320,11 +329,12 @@ function GraphEditorInner({
       let newParentId: NodeId | undefined;
 
       if (oldParentId) {
-        // 既にグループ内: バッファ込みで現在の親内なら留まる
+        // 既にグループ内: ノード自身の幅/高さの半分をバッファとして使い
+        // 「ノードがグループをほぼ完全に出た」ときだけ離脱とみなす
         const currentParent = allNodes.find((n) => n.id === oldParentId);
         if (
           currentParent &&
-          pointInGroup(cx, cy, currentParent, GROUP_EXIT_BUFFER)
+          pointInGroup(cx, cy, currentParent, nodeW / 2, nodeH / 2)
         ) {
           newParentId = oldParentId;
         } else {
