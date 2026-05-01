@@ -32,5 +32,8 @@
 | label なし Edge | label が undefined になる |
 | label が string でない | undefined にフォールバックする |
 | label が undefined のノード | content が空文字になる |
+| nodeType=group のノード | groupNode 型に変換される |
+| nodeType=image のノード | imageNode 型に変換される |
 | toFlowNodes → fromFlowNodes の往復 | 対称性 (データロスなし) |
 | toFlowEdges → fromFlowEdges の往復 | 対称性 (label 保持) |
+| imageNode 型の逆変換 | fromFlowNodes で nodeType=image が復元される |
