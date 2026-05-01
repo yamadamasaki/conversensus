@@ -67,6 +67,15 @@ export type EdgeReconnectedEvent = EventBase & {
     targetHandle?: string;
   };
 };
+export type NodeReparentedEvent = EventBase & {
+  category: 'structure';
+  type: 'NODE_REPARENTED';
+  nodeId: NodeId;
+  oldParentId: NodeId | undefined;
+  newParentId: NodeId | undefined;
+  oldPosition: Position;
+  newPosition: Position;
+};
 export type NodesGroupedEvent = EventBase & {
   category: 'structure';
   type: 'NODES_GROUPED';
@@ -184,6 +193,7 @@ export type EdgeLabelMovedEvent = EventBase & {
 export type GraphEvent =
   | NodeAddedEvent
   | NodeDeletedEvent
+  | NodeReparentedEvent
   | EdgeAddedEvent
   | EdgeDeletedEvent
   | EdgeReconnectedEvent

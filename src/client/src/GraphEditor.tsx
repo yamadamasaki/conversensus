@@ -43,6 +43,7 @@ import {
   DEFAULT_NODE_STYLE,
   fromFlowEdges,
   fromFlowNodes,
+  GROUP_NODE_TYPE,
   PNG_EXPORT_HEIGHT,
   PNG_EXPORT_MAX_ZOOM,
   PNG_EXPORT_MIN_ZOOM,
@@ -225,20 +226,75 @@ function GraphEditorInner({
   const onNodeDragStop = useCallback(
     (_: React.MouseEvent, node: Node) => {
       const from = preDragPositionsRef.current.get(node.id);
-      if (from && (from.x !== node.position.x || from.y !== node.position.y)) {
+      const allNodes = getNodes();
+
+      // ノードの絶対座標を取得
+      const absX = node.positionAbsolute?.x ?? node.position.x;
+      const absY = node.positionAbsolute?.y ?? node.position.y;
+      const nodeW = Number(node.measured?.width ?? DEFAULT_NODE_STYLE.width);
+      const nodeH = Number(node.measured?.height ?? DEFAULT_NODE_STYLE.height);
+      const cx = absX + nodeW / 2;
+      const cy = absY + nodeH / 2;
+
+      // ドラッグ中ノードが自分の祖先かどうかチェック (循環参照防止)
+      const isAncestorOf = (candidateId: string, targetId: string): boolean => {
+        const t = allNodes.find((n) => n.id === targetId);
+        if (!t?.parentId) return false;
+        if (t.parentId === candidateId) return true;
+        return isAncestorOf(candidateId, t.parentId);
+      };
+
+      // 自分以外のグループノードのうち、中心点を含むものを探す
+      const targetGroup = allNodes
+        .filter((n) => n.type === GROUP_NODE_TYPE && n.id !== node.id)
+        .find((g) => {
+          if (isAncestorOf(g.id, node.id)) return false;
+          const gx = g.positionAbsolute?.x ?? g.position.x;
+          const gy = g.positionAbsolute?.y ?? g.position.y;
+          const gw = Number(
+            g.measured?.width ?? (Number(g.style?.width) || 100),
+          );
+          const gh = Number(
+            g.measured?.height ?? (Number(g.style?.height) || 100),
+          );
+          return cx >= gx && cx <= gx + gw && cy >= gy && cy <= gy + gh;
+        });
+
+      const newParentId = targetGroup?.id as NodeId | undefined;
+      const oldParentId = node.parentId as NodeId | undefined;
+
+      if (newParentId !== oldParentId) {
+        let newPosition: { x: number; y: number };
+        if (targetGroup) {
+          const gx = targetGroup.positionAbsolute?.x ?? targetGroup.position.x;
+          const gy = targetGroup.positionAbsolute?.y ?? targetGroup.position.y;
+          newPosition = { x: absX - gx, y: absY - gy };
+        } else {
+          newPosition = { x: absX, y: absY };
+        }
+        dispatch({
+          ...makeEventBase('structure'),
+          type: 'NODE_REPARENTED',
+          nodeId: node.id as NodeId,
+          oldParentId,
+          newParentId,
+          oldPosition: from ?? node.position,
+          newPosition,
+        });
+      } else if (
+        from &&
+        (from.x !== node.position.x || from.y !== node.position.y)
+      ) {
         dispatch({
           ...makeEventBase('layout'),
           type: 'NODE_MOVED',
           nodeId: node.id as NodeId,
           from,
-          to: {
-            x: node.position.x,
-            y: node.position.y,
-          },
+          to: { x: node.position.x, y: node.position.y },
         });
       }
     },
-    [dispatch],
+    [dispatch, getNodes],
   );
 
   // reconnectEdge は元の UUID を破棄して xy-edge__... 形式の ID を生成するため,

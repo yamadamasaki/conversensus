@@ -49,6 +49,17 @@ export function invertEvent(event: GraphEvent): GraphEvent {
         from: event.to,
         to: event.from,
       };
+    case 'NODE_REPARENTED':
+      return {
+        ...base,
+        type: 'NODE_REPARENTED',
+        category: 'structure',
+        nodeId: event.nodeId,
+        oldParentId: event.newParentId,
+        newParentId: event.oldParentId,
+        oldPosition: event.newPosition,
+        newPosition: event.oldPosition,
+      };
     case 'NODES_GROUPED':
       return {
         ...base,
