@@ -43,7 +43,6 @@ import {
   DEFAULT_NODE_STYLE,
   fromFlowEdges,
   fromFlowNodes,
-  GROUP_PADDING,
   PNG_EXPORT_HEIGHT,
   PNG_EXPORT_MAX_ZOOM,
   PNG_EXPORT_MIN_ZOOM,
