@@ -274,8 +274,19 @@ function GraphEditorInner({
   const onNodeDrag = useCallback(
     (_: React.MouseEvent, node: Node) => {
       const allNodes = getNodes();
-      const absX = node.positionAbsolute?.x ?? node.position.x;
-      const absY = node.positionAbsolute?.y ?? node.position.y;
+      // positionAbsolute は非同期更新のため stale の可能性がある。
+      // 子ノードは 親.positionAbsolute + node.position(相対) で正確な絶対座標を算出する。
+      const parentInStore = node.parentId
+        ? allNodes.find((n) => n.id === node.parentId)
+        : undefined;
+      const absX = parentInStore
+        ? (parentInStore.positionAbsolute?.x ?? parentInStore.position.x) +
+          node.position.x
+        : (node.positionAbsolute?.x ?? node.position.x);
+      const absY = parentInStore
+        ? (parentInStore.positionAbsolute?.y ?? parentInStore.position.y) +
+          node.position.y
+        : (node.positionAbsolute?.y ?? node.position.y);
       const nodeW = Number(node.measured?.width ?? DEFAULT_NODE_STYLE.width);
       const nodeH = Number(node.measured?.height ?? DEFAULT_NODE_STYLE.height);
       const cx = absX + nodeW / 2;
@@ -317,14 +328,25 @@ function GraphEditorInner({
       const from = preDragPositionsRef.current.get(node.id);
       const allNodes = getNodes();
 
-      const absX = node.positionAbsolute?.x ?? node.position.x;
-      const absY = node.positionAbsolute?.y ?? node.position.y;
+      const oldParentId = node.parentId as NodeId | undefined;
+
+      // positionAbsolute は非同期更新のため stale の可能性がある。
+      // 子ノードは 親.positionAbsolute + node.position(相対) で正確な絶対座標を算出する。
+      const parentInStore = oldParentId
+        ? allNodes.find((n) => n.id === oldParentId)
+        : undefined;
+      const absX = parentInStore
+        ? (parentInStore.positionAbsolute?.x ?? parentInStore.position.x) +
+          node.position.x
+        : (node.positionAbsolute?.x ?? node.position.x);
+      const absY = parentInStore
+        ? (parentInStore.positionAbsolute?.y ?? parentInStore.position.y) +
+          node.position.y
+        : (node.positionAbsolute?.y ?? node.position.y);
       const nodeW = Number(node.measured?.width ?? DEFAULT_NODE_STYLE.width);
       const nodeH = Number(node.measured?.height ?? DEFAULT_NODE_STYLE.height);
       const cx = absX + nodeW / 2;
       const cy = absY + nodeH / 2;
-
-      const oldParentId = node.parentId as NodeId | undefined;
       let newParentId: NodeId | undefined;
 
       if (oldParentId) {

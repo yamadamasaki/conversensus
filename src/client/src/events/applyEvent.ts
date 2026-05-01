@@ -180,10 +180,8 @@ export function applyEvent(
 
     case 'NODE_MOVED':
       return {
-        nodes: recalculateParentBounds(
-          nodes.map((n) =>
-            n.id === event.nodeId ? { ...n, position: event.to } : n,
-          ),
+        nodes: nodes.map((n) =>
+          n.id === event.nodeId ? { ...n, position: event.to } : n,
         ),
         edges,
       };
