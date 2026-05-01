@@ -43,13 +43,13 @@ import {
   DEFAULT_NODE_STYLE,
   fromFlowEdges,
   fromFlowNodes,
-  GROUP_NODE_TYPE,
   GROUP_PADDING,
   PNG_EXPORT_HEIGHT,
   PNG_EXPORT_MAX_ZOOM,
   PNG_EXPORT_MIN_ZOOM,
   PNG_EXPORT_PADDING,
   PNG_EXPORT_WIDTH,
+  RF_GROUP_NODE_TYPE,
   toFlowEdges,
   toFlowNodes,
 } from './graphTransform';
@@ -231,7 +231,7 @@ function GraphEditorInner({
   }, [nodes, edges]);
 
   const nodeTypes = useMemo(
-    () => ({ editableNode: EditableNode, groupNode: GroupNode }),
+    () => ({ editableNode: EditableNode, [RF_GROUP_NODE_TYPE]: GroupNode }),
     [],
   );
   const edgeTypes = useMemo(() => ({ editableLabel: EditableLabelEdge }), []);
@@ -280,7 +280,7 @@ function GraphEditorInner({
       const cy = absY + nodeH / 2;
 
       const target = allNodes
-        .filter((n) => n.type === GROUP_NODE_TYPE && n.id !== node.id)
+        .filter((n) => n.type === RF_GROUP_NODE_TYPE && n.id !== node.id)
         .find((g) => {
           if (isAncestorOf(g.id, node.id, allNodes)) return false;
           return pointInGroup(cx, cy, g);
@@ -332,7 +332,7 @@ function GraphEditorInner({
           const other = allNodes
             .filter(
               (n) =>
-                n.type === GROUP_NODE_TYPE &&
+                n.type === RF_GROUP_NODE_TYPE &&
                 n.id !== node.id &&
                 n.id !== oldParentId,
             )
@@ -345,7 +345,7 @@ function GraphEditorInner({
       } else {
         // トップレベル: グループへの追加を検出
         const target = allNodes
-          .filter((n) => n.type === GROUP_NODE_TYPE && n.id !== node.id)
+          .filter((n) => n.type === RF_GROUP_NODE_TYPE && n.id !== node.id)
           .find((g) => {
             if (isAncestorOf(g.id, node.id, allNodes)) return false;
             return pointInGroup(cx, cy, g);
