@@ -103,7 +103,6 @@ export function ImageNode({ id, data, selected }: NodeProps) {
         isVisible={selected}
         minWidth={120}
         minHeight={80}
-        keepAspectRatio={true}
         onResizeStart={onResizeStart}
         onResizeEnd={onResizeEnd}
       />
