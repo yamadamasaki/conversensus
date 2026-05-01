@@ -1,0 +1,59 @@
+{
+  "lexicon": 1,
+  "id": "app.conversensus.graph.commit",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "A commit on a branch. rkey = CommitId (UUID). Stores the operation list and optionally a snapshot of node/edge records at commit time.",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": ["sheet", "branch", "message", "authorDid", "operations", "createdAt"],
+        "properties": {
+          "sheet": {
+            "type": "ref",
+            "ref": "com.atproto.repo.strongRef",
+            "description": "The sheet this commit applies to."
+          },
+          "branch": {
+            "type": "ref",
+            "ref": "com.atproto.repo.strongRef",
+            "description": "The branch this commit belongs to."
+          },
+          "message": {
+            "type": "string",
+            "maxLength": 1000,
+            "description": "Commit message."
+          },
+          "authorDid": {
+            "type": "string",
+            "format": "did",
+            "description": "DID of the commit author."
+          },
+          "parentCommit": {
+            "type": "ref",
+            "ref": "com.atproto.repo.strongRef",
+            "description": "The preceding commit on this branch, if any."
+          },
+          "operations": {
+            "type": "unknown",
+            "description": "Serialized CommitOperation[] describing the graph changes in this commit."
+          },
+          "tree": {
+            "type": "array",
+            "items": {
+              "type": "ref",
+              "ref": "com.atproto.repo.strongRef"
+            },
+            "description": "Snapshot of node/edge record refs at commit time."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime",
+            "description": "Timestamp of record creation (ISO 8601)."
+          }
+        }
+      }
+    }
+  }
+}

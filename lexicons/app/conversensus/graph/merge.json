@@ -1,0 +1,47 @@
+{
+  "lexicon": 1,
+  "id": "app.conversensus.graph.merge",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "A merge record created when a branch is merged into trunk. rkey = MergeId (UUID).",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": ["sheet", "branch", "message", "authorDid", "createdAt"],
+        "properties": {
+          "sheet": {
+            "type": "ref",
+            "ref": "com.atproto.repo.strongRef",
+            "description": "The sheet that was merged into."
+          },
+          "branch": {
+            "type": "ref",
+            "ref": "com.atproto.repo.strongRef",
+            "description": "The branch that was merged."
+          },
+          "message": {
+            "type": "string",
+            "maxLength": 1000,
+            "description": "Merge message."
+          },
+          "authorDid": {
+            "type": "string",
+            "format": "did",
+            "description": "DID of the user who performed the merge."
+          },
+          "commit": {
+            "type": "ref",
+            "ref": "com.atproto.repo.strongRef",
+            "description": "The last branch commit included in this merge, if any."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime",
+            "description": "Timestamp of record creation (ISO 8601)."
+          }
+        }
+      }
+    }
+  }
+}

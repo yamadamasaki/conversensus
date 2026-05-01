@@ -1,0 +1,52 @@
+{
+  "lexicon": 1,
+  "id": "app.conversensus.graph.branch",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "A branch on a sheet. rkey = BranchId (UUID). Tracks open/merged/closed status and the base commit at branch creation.",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": ["sheet", "name", "authorDid", "status", "createdAt"],
+        "properties": {
+          "sheet": {
+            "type": "ref",
+            "ref": "com.atproto.repo.strongRef",
+            "description": "The sheet this branch belongs to."
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 256,
+            "description": "Display name of the branch."
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2048,
+            "description": "Optional description of the branch."
+          },
+          "authorDid": {
+            "type": "string",
+            "format": "did",
+            "description": "DID of the user who created the branch."
+          },
+          "status": {
+            "type": "string",
+            "knownValues": ["creating", "open", "merged", "closed"],
+            "description": "Lifecycle status of the branch."
+          },
+          "baseCommit": {
+            "type": "ref",
+            "ref": "com.atproto.repo.strongRef",
+            "description": "The trunk commit that was the base when this branch was created."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime",
+            "description": "Timestamp of record creation (ISO 8601)."
+          }
+        }
+      }
+    }
+  }
+}

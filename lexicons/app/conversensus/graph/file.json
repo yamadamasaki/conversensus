@@ -1,0 +1,32 @@
+{
+  "lexicon": 1,
+  "id": "app.conversensus.graph.file",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "A conversensus file that groups sheets. rkey = FileId (UUID).",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": ["name", "createdAt"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 256,
+            "description": "Display name of the file."
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2048,
+            "description": "Optional description of the file."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime",
+            "description": "Timestamp of record creation (ISO 8601)."
+          }
+        }
+      }
+    }
+  }
+}
