@@ -90,6 +90,23 @@ export async function syncSheetToAtproto(
     }),
   );
 
+  // 2.5 parentId → parentRef を解決して再書き込み (全 node の ref が揃ってから)
+  await Promise.all(
+    sheet.nodes.map(async (node) => {
+      if (!node.parentId) return;
+      const parentRef = nodeRefs.get(node.parentId);
+      if (!parentRef) return;
+      const rkey = makeRkey(TRUNK_PREFIX, node.id);
+      const nodeCreatedAt = getCreatedAt(NSID.node, rkey) ?? now;
+      const result = await nodes.put(
+        rkey,
+        nodeToRecord(node, sheetRef, parentRef, nodeCreatedAt),
+      );
+      cacheResult(result.uri, result.cid, nodeCreatedAt);
+      nodeRefs.set(node.id, { uri: result.uri, cid: result.cid });
+    }),
+  );
+
   // 3. 全 edge を put (並列、nodeRefs が確定してから)
   const edgeRefs = new Map<string, StrongRef>();
   await Promise.all(

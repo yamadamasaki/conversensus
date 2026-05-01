@@ -426,6 +426,21 @@ export async function createBranch(
     }),
   );
 
+  // parentId → parentRef を解決して再書き込み (branch prefix 用に全 node の ref が揃ってから)
+  await Promise.all(
+    trunkData.nodes.map(async ({ node }) => {
+      if (!node.parentId) return;
+      const parentRef = nodeIdToBranchRef.get(node.parentId);
+      if (!parentRef) return;
+      const rkey = makeRkey(branchId, node.id);
+      const result = await deps.nodes.put(
+        rkey,
+        nodeToRecord(node, sheetRef, parentRef, now),
+      );
+      nodeIdToBranchRef.set(node.id, { uri: result.uri, cid: result.cid });
+    }),
+  );
+
   const edgeIdToBranchRef = new Map<string, StrongRef>();
   await Promise.all(
     trunkData.edges.map(async ({ edge }) => {
@@ -585,6 +600,21 @@ export async function syncBranchSheetToAtproto(
     }),
   );
 
+  // parentId → parentRef を解決して再書き込み
+  await Promise.all(
+    sheet.nodes.map(async (node) => {
+      if (!node.parentId) return;
+      const parentRef = nodeIdToRef.get(node.parentId);
+      if (!parentRef) return;
+      const rkey = makeRkey(branchId, node.id);
+      const result = await deps.nodes.put(
+        rkey,
+        nodeToRecord(node, sheetRef, parentRef, now),
+      );
+      nodeIdToRef.set(node.id, { uri: result.uri, cid: result.cid });
+    }),
+  );
+
   // edges
   const edgeIdToRef = new Map<string, StrongRef>();
   await Promise.all(
@@ -724,6 +754,25 @@ export async function mergeBranchToTrunk(
         sheet: sheetRef,
       });
       nodeIdToTrunkRef.set(nodeId, { uri: result.uri, cid: result.cid });
+    }),
+  );
+
+  // 1.5 parent の StrongRef を branch → trunk に付け替え
+  await Promise.all(
+    sheetBranchNodes.map(async (r) => {
+      const rec = r.value as NodeRecord;
+      if (!rec.parent) return;
+      const parentId = idFromRkey(rkeyFromUri(rec.parent.uri));
+      const trunkParentRef = nodeIdToTrunkRef.get(parentId);
+      if (!trunkParentRef) return;
+      const nodeId = idFromRkey(rkeyFromUri(r.uri));
+      const trunkRkey = makeRkey(TRUNK_PREFIX, nodeId);
+      const { $type: _, ...data } = rec;
+      await deps.nodes.put(trunkRkey, {
+        ...data,
+        sheet: sheetRef,
+        parent: trunkParentRef,
+      });
     }),
   );
 
