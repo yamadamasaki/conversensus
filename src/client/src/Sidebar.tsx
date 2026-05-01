@@ -13,7 +13,7 @@ import {
 } from '@conversensus/shared';
 import { useRef, useState } from 'react';
 import { AlertDialog } from './AlertDialog';
-import type { Branch } from './atproto';
+import { BRANCH_STATUS, type Branch, TRUNK_PREFIX } from './atproto';
 import type { PopupTarget } from './SettingsPopup';
 import { SettingsPopup } from './SettingsPopup';
 
@@ -386,7 +386,7 @@ export function Sidebar({
                         {isActiveSheet &&
                           (() => {
                             const bs = (sheetBranches.get(s.id) ?? []).filter(
-                              (b) => b.name !== 'trunk',
+                              (b) => b.name !== TRUNK_PREFIX,
                             );
                             return (
                               <ul
@@ -399,8 +399,10 @@ export function Sidebar({
                                 {bs.map((branch) => {
                                   const isActiveBranch =
                                     activeBranchId === branch.id;
-                                  const isMerged = branch.status === 'merged';
-                                  const isClosed = branch.status === 'closed';
+                                  const isMerged =
+                                    branch.status === BRANCH_STATUS.MERGED;
+                                  const isClosed =
+                                    branch.status === BRANCH_STATUS.CLOSED;
                                   const bgColor = isActiveBranch
                                     ? '#dde8ff'
                                     : isMerged

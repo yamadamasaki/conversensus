@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+export const GROUP_NODE_TYPE = 'group' as const;
+
 // --- Branded ID schemas (UUID enforced at API boundaries) ---
 export const NodeIdSchema = z.string().uuid().brand<'NodeId'>();
 export const EdgeIdSchema = z.string().uuid().brand<'EdgeId'>();
@@ -18,6 +20,10 @@ export type EdgeLabel = string;
 export type FileName = string;
 export type FileDescription = string;
 export type SheetName = string;
+export type ISODateString = string;
+export type AtUri = string;
+export type Rkey = string;
+export type Did = string;
 
 // --- Compound type schemas ---
 export const StyleSchema = z.record(z.string(), z.unknown());
@@ -41,7 +47,7 @@ export const GraphNodeSchema = z.object({
   id: NodeIdSchema,
   content: z.string(),
   properties: z.record(z.string(), z.unknown()).optional(),
-  nodeType: z.literal('group').optional(),
+  nodeType: z.literal(GROUP_NODE_TYPE).optional(),
   parentId: NodeIdSchema.optional(),
 });
 
@@ -120,7 +126,7 @@ export const CommitOperationSchema = z.discriminatedUnion('op', [
     nodeId: z.string().uuid(),
     content: z.string(),
     properties: z.record(z.string(), z.unknown()).optional(),
-    nodeType: z.literal('group').optional(),
+    nodeType: z.literal(GROUP_NODE_TYPE).optional(),
     parentId: z.string().uuid().optional(),
   }),
   z.object({

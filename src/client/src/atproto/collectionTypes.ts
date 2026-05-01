@@ -1,18 +1,19 @@
+import type { AtUri, Rkey } from '@conversensus/shared';
 import type { RecordResult, StrongRef } from './types';
 
 /** PDS record with URI and CID */
 export type RecordEntry<T = unknown> = {
-  uri: string;
+  uri: AtUri;
   cid: string;
   value: T;
 };
 
 /** Minimal interface for repo-level record CRUD — what branchState needs from each collection */
 export interface CollectionCRUD<T = unknown> {
-  put(rkey: string, data: T): Promise<RecordResult>;
-  get(rkey: string): Promise<RecordEntry<T>>;
+  put(rkey: Rkey, data: T): Promise<RecordResult>;
+  get(rkey: Rkey): Promise<RecordEntry<T>>;
   list(): Promise<RecordEntry<T>[]>;
-  delete(rkey: string): Promise<void>;
+  delete(rkey: Rkey): Promise<void>;
 }
 
 /** Nodes / Edges / Layouts also support prefix listing */

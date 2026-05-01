@@ -1,7 +1,6 @@
 import type {
   EdgeId,
   EdgeLayout,
-  EdgePathType,
   GraphEdge,
   GraphNode,
   NodeId,
@@ -40,9 +39,15 @@ import { EventDispatchContext } from './EventDispatchContext';
 import { makeEventBase } from './events/GraphEvent';
 import { GroupNode } from './GroupNode';
 import {
+  DEFAULT_EDGE_PATH_TYPE,
   DEFAULT_NODE_STYLE,
   fromFlowEdges,
   fromFlowNodes,
+  PNG_EXPORT_HEIGHT,
+  PNG_EXPORT_MAX_ZOOM,
+  PNG_EXPORT_MIN_ZOOM,
+  PNG_EXPORT_PADDING,
+  PNG_EXPORT_WIDTH,
   toFlowEdges,
   toFlowNodes,
 } from './graphTransform';
@@ -51,6 +56,8 @@ import { useEdgeContextMenu } from './hooks/useEdgeContextMenu';
 import { type UndoState, useEventStore } from './hooks/useEventStore';
 import { useGroupNodes } from './hooks/useGroupNodes';
 import { usePaneDoubleClick } from './hooks/usePaneDoubleClick';
+
+const RF_INIT_DELAY_MS = 150;
 
 type Props = {
   file: GraphFile;
@@ -123,7 +130,7 @@ function GraphEditorInner({
     // ReactFlow の初期 dimensions 計測が完了するまで onChange を抑制 (150ms)
     const t = setTimeout(() => {
       readyForSave.current = true;
-    }, 150);
+    }, RF_INIT_DELAY_MS);
     return () => clearTimeout(t);
   }, [file.id, activeSheetId, setNodes, setEdges]);
 
@@ -271,7 +278,7 @@ function GraphEditorInner({
         edgeId,
         sourceHandle: connection.sourceHandle ?? undefined,
         targetHandle: connection.targetHandle ?? undefined,
-        pathType: 'bezier' satisfies EdgePathType,
+        pathType: DEFAULT_EDGE_PATH_TYPE,
       };
       dispatch({
         ...makeEventBase('structure'),
@@ -379,9 +386,16 @@ function GraphEditorInner({
   const handleExportPng = useCallback(() => {
     const nodes = getNodes();
     const bounds = getNodesBounds(nodes);
-    const width = 1920;
-    const height = 1080;
-    const viewport = getViewportForBounds(bounds, width, height, 0.5, 2, 0.1);
+    const width = PNG_EXPORT_WIDTH;
+    const height = PNG_EXPORT_HEIGHT;
+    const viewport = getViewportForBounds(
+      bounds,
+      width,
+      height,
+      PNG_EXPORT_MIN_ZOOM,
+      PNG_EXPORT_MAX_ZOOM,
+      PNG_EXPORT_PADDING,
+    );
     const viewportEl = document.querySelector(
       '.react-flow__viewport',
     ) as HTMLElement | null;

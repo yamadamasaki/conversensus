@@ -14,6 +14,7 @@ import type {
   GraphFile,
   GraphNode,
   NodeLayout,
+  Rkey,
   Sheet,
 } from '@conversensus/shared';
 import {
@@ -145,7 +146,7 @@ export function edgeLayoutToRecord(
 
 // --- ATProto レコード → ドメイン ---
 
-export function recordToNode(rkey: string, record: NodeRecord): GraphNode {
+export function recordToNode(rkey: Rkey, record: NodeRecord): GraphNode {
   return {
     id: NodeIdSchema.parse(idFromRkey(rkey)),
     content: record.content,
@@ -159,7 +160,7 @@ export function recordToNode(rkey: string, record: NodeRecord): GraphNode {
   };
 }
 
-export function recordToEdge(rkey: string, record: EdgeRecord): GraphEdge {
+export function recordToEdge(rkey: Rkey, record: EdgeRecord): GraphEdge {
   return {
     id: EdgeIdSchema.parse(idFromRkey(rkey)),
     source: NodeIdSchema.parse(idFromRkey(rkeyFromUri(record.source.uri))),
@@ -172,7 +173,7 @@ export function recordToEdge(rkey: string, record: EdgeRecord): GraphEdge {
 }
 
 export function recordToNodeLayout(
-  rkey: string,
+  rkey: Rkey,
   record: NodeLayoutRecord,
 ): NodeLayout {
   return {
@@ -185,7 +186,7 @@ export function recordToNodeLayout(
 }
 
 export function recordToEdgeLayout(
-  rkey: string,
+  rkey: Rkey,
   record: EdgeLayoutRecord,
 ): EdgeLayout {
   return {
@@ -207,7 +208,7 @@ export function recordToEdgeLayout(
 }
 
 export function recordToSheetMeta(
-  rkey: string,
+  rkey: Rkey,
   record: SheetRecord,
 ): Pick<Sheet, 'id' | 'name' | 'description'> {
   return {
@@ -220,7 +221,7 @@ export function recordToSheetMeta(
 }
 
 export function recordToFileMeta(
-  rkey: string,
+  rkey: Rkey,
   record: FileRecord,
 ): Pick<GraphFile, 'id' | 'name' | 'description'> & { id: FileId } {
   return {

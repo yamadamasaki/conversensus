@@ -4,6 +4,7 @@ import type { MouseEvent } from 'react';
 import { useCallback, useEffect, useState } from 'react';
 import type { GraphEvent } from '../events/GraphEvent';
 import { makeEventBase } from '../events/GraphEvent';
+import { DEFAULT_EDGE_PATH_TYPE } from '../graphTransform';
 
 const CONTEXT_MENU_WIDTH = 160;
 const CONTEXT_MENU_HEIGHT = 185; // header + 4 items の概算
@@ -36,7 +37,9 @@ export function useEdgeContextMenu(
       const targetEdgeIds = targets.map((ed) => ed.id);
 
       const types = targets.map(
-        (ed) => (ed.data?.pathType as EdgePathType | undefined) ?? 'bezier',
+        (ed) =>
+          (ed.data?.pathType as EdgePathType | undefined) ??
+          DEFAULT_EDGE_PATH_TYPE,
       );
       const currentPathType = types.every((t) => t === types[0])
         ? types[0]
@@ -58,7 +61,8 @@ export function useEdgeContextMenu(
       for (const edgeId of targetEdgeIds) {
         const edge = currentEdges.find((e) => e.id === edgeId);
         const fromPathType =
-          (edge?.data?.pathType as EdgePathType | undefined) ?? 'bezier';
+          (edge?.data?.pathType as EdgePathType | undefined) ??
+          DEFAULT_EDGE_PATH_TYPE;
         dispatch({
           ...makeEventBase('presentation'),
           type: 'EDGE_STYLE_CHANGED',

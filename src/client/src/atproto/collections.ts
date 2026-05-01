@@ -1,3 +1,4 @@
+import type { AtUri, Rkey } from '@conversensus/shared';
 import { currentDid, getAgent } from './client';
 import {
   type BranchRecord,
@@ -20,18 +21,18 @@ import {
 
 export const TRUNK_PREFIX = 'trunk';
 
-export function makeRkey(prefix: string, id: string): string {
+export function makeRkey(prefix: string, id: string): Rkey {
   return `${prefix}_${id}`;
 }
 
 // "trunk_uuid" → "uuid"、旧形式 "uuid" (プレフィックスなし) → "uuid" (後方互換)
-export function idFromRkey(rkey: string): string {
+export function idFromRkey(rkey: Rkey): string {
   const idx = rkey.indexOf('_');
   return idx >= 0 ? rkey.slice(idx + 1) : rkey;
 }
 
 // "trunk_uuid" → "trunk"、旧形式 "uuid" → TRUNK_PREFIX (後方互換)
-export function prefixFromRkey(rkey: string): string {
+export function prefixFromRkey(rkey: Rkey): string {
   const idx = rkey.indexOf('_');
   return idx >= 0 ? rkey.slice(0, idx) : TRUNK_PREFIX;
 }
@@ -40,7 +41,7 @@ export function prefixFromRkey(rkey: string): string {
 
 async function putRecord(
   collection: string,
-  rkey: string,
+  rkey: Rkey,
   record: Record<string, unknown>,
 ): Promise<RecordResult> {
   const res = await getAgent().api.com.atproto.repo.putRecord({
@@ -54,8 +55,8 @@ async function putRecord(
 
 async function getRecord(
   collection: string,
-  rkey: string,
-): Promise<{ uri: string; cid: string; value: unknown }> {
+  rkey: Rkey,
+): Promise<{ uri: AtUri; cid: string; value: unknown }> {
   const res = await getAgent().api.com.atproto.repo.getRecord({
     repo: currentDid(),
     collection,
@@ -66,8 +67,8 @@ async function getRecord(
 
 async function listRecords(
   collection: string,
-): Promise<Array<{ uri: string; cid: string; value: unknown }>> {
-  const all: Array<{ uri: string; cid: string; value: unknown }> = [];
+): Promise<Array<{ uri: AtUri; cid: string; value: unknown }>> {
+  const all: Array<{ uri: AtUri; cid: string; value: unknown }> = [];
   let cursor: string | undefined;
   do {
     const res = await getAgent().api.com.atproto.repo.listRecords({
@@ -82,7 +83,7 @@ async function listRecords(
   return all;
 }
 
-async function deleteRecord(collection: string, rkey: string): Promise<void> {
+async function deleteRecord(collection: string, rkey: Rkey): Promise<void> {
   await getAgent().api.com.atproto.repo.deleteRecord({
     repo: currentDid(),
     collection,
@@ -91,12 +92,12 @@ async function deleteRecord(collection: string, rkey: string): Promise<void> {
 }
 
 // rkey を AT-URI から取り出す: "at://did/collection/rkey" → "rkey"
-function rkeyFromUri(uri: string): string {
+function rkeyFromUri(uri: AtUri): string {
   return uri.split('/').at(-1) ?? uri;
 }
 
 // AT-URI を構築する
-function atUri(collection: string, rkey: string): string {
+function atUri(collection: string, rkey: Rkey): string {
   return `at://${currentDid()}/${collection}/${rkey}`;
 }
 
@@ -149,10 +150,10 @@ export const sheets = {
 // --- Node ---
 
 export const nodes = {
-  put(rkey: string, data: Omit<NodeRecord, '$type'>): Promise<RecordResult> {
+  put(rkey: Rkey, data: Omit<NodeRecord, '$type'>): Promise<RecordResult> {
     return putRecord(NSID.node, rkey, { $type: NSID.node, ...data });
   },
-  get(rkey: string) {
+  get(rkey: Rkey) {
     return getRecord(NSID.node, rkey);
   },
   list() {
@@ -162,14 +163,14 @@ export const nodes = {
     const all = await listRecords(NSID.node);
     return all.filter((r) => prefixFromRkey(rkeyFromUri(r.uri)) === prefix);
   },
-  delete(rkey: string) {
+  delete(rkey: Rkey) {
     return deleteRecord(NSID.node, rkey);
   },
-  async ref(rkey: string): Promise<StrongRef> {
+  async ref(rkey: Rkey): Promise<StrongRef> {
     const r = await getRecord(NSID.node, rkey);
     return { uri: r.uri, cid: r.cid };
   },
-  refFromResult(_rkey: string, result: RecordResult): StrongRef {
+  refFromResult(_rkey: Rkey, result: RecordResult): StrongRef {
     return { uri: result.uri, cid: result.cid };
   },
 };
@@ -177,10 +178,10 @@ export const nodes = {
 // --- Edge ---
 
 export const edges = {
-  put(rkey: string, data: Omit<EdgeRecord, '$type'>): Promise<RecordResult> {
+  put(rkey: Rkey, data: Omit<EdgeRecord, '$type'>): Promise<RecordResult> {
     return putRecord(NSID.edge, rkey, { $type: NSID.edge, ...data });
   },
-  get(rkey: string) {
+  get(rkey: Rkey) {
     return getRecord(NSID.edge, rkey);
   },
   list() {
@@ -190,7 +191,7 @@ export const edges = {
     const all = await listRecords(NSID.edge);
     return all.filter((r) => prefixFromRkey(rkeyFromUri(r.uri)) === prefix);
   },
-  delete(rkey: string) {
+  delete(rkey: Rkey) {
     return deleteRecord(NSID.edge, rkey);
   },
 };
@@ -199,7 +200,7 @@ export const edges = {
 
 export const nodeLayouts = {
   put(
-    rkey: string,
+    rkey: Rkey,
     data: Omit<NodeLayoutRecord, '$type'>,
   ): Promise<RecordResult> {
     return putRecord(NSID.nodeLayout, rkey, {
@@ -207,7 +208,7 @@ export const nodeLayouts = {
       ...data,
     });
   },
-  get(rkey: string) {
+  get(rkey: Rkey) {
     return getRecord(NSID.nodeLayout, rkey);
   },
   list() {
@@ -217,7 +218,7 @@ export const nodeLayouts = {
     const all = await listRecords(NSID.nodeLayout);
     return all.filter((r) => prefixFromRkey(rkeyFromUri(r.uri)) === prefix);
   },
-  delete(rkey: string) {
+  delete(rkey: Rkey) {
     return deleteRecord(NSID.nodeLayout, rkey);
   },
 };
@@ -226,7 +227,7 @@ export const nodeLayouts = {
 
 export const edgeLayouts = {
   put(
-    rkey: string,
+    rkey: Rkey,
     data: Omit<EdgeLayoutRecord, '$type'>,
   ): Promise<RecordResult> {
     return putRecord(NSID.edgeLayout, rkey, {
@@ -234,7 +235,7 @@ export const edgeLayouts = {
       ...data,
     });
   },
-  get(rkey: string) {
+  get(rkey: Rkey) {
     return getRecord(NSID.edgeLayout, rkey);
   },
   list() {
@@ -244,7 +245,7 @@ export const edgeLayouts = {
     const all = await listRecords(NSID.edgeLayout);
     return all.filter((r) => prefixFromRkey(rkeyFromUri(r.uri)) === prefix);
   },
-  delete(rkey: string) {
+  delete(rkey: Rkey) {
     return deleteRecord(NSID.edgeLayout, rkey);
   },
 };

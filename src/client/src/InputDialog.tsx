@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { DIALOG_WIDTH, DIALOG_Z_INDEX } from './ConfirmDialog';
 
 type Props = {
   message: string;
@@ -41,7 +42,7 @@ export function InputDialog({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        zIndex: 1000,
+        zIndex: DIALOG_Z_INDEX,
       }}
       onClick={onCancel}
       onKeyDown={(e) => {
@@ -56,7 +57,7 @@ export function InputDialog({
           background: '#fff',
           borderRadius: 8,
           padding: 24,
-          width: 380,
+          width: DIALOG_WIDTH,
           maxWidth: '90vw',
           boxShadow: '0 4px 24px rgba(0,0,0,0.2)',
         }}

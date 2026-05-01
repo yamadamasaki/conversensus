@@ -1,5 +1,6 @@
 import type { CommitOperation } from '@conversensus/shared';
 import { useEffect, useRef, useState } from 'react';
+import { DIALOG_Z_INDEX } from './ConfirmDialog';
 
 type Props = {
   operations: CommitOperation[];
@@ -39,7 +40,7 @@ export function CommitDialog({ operations, onCommit, onCancel }: Props) {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        zIndex: 1000,
+        zIndex: DIALOG_Z_INDEX,
       }}
       onClick={handleBackdropClick}
     >

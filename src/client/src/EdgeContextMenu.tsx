@@ -1,4 +1,6 @@
 import type { EdgePathType } from '@conversensus/shared';
+import { DIALOG_Z_INDEX } from './ConfirmDialog';
+import { DEFAULT_EDGE_PATH_TYPE } from './graphTransform';
 import type { EdgeContextMenuState } from './hooks/useEdgeContextMenu';
 
 type Props = {
@@ -18,7 +20,7 @@ export function EdgeContextMenu({ contextMenu, onSelect }: Props) {
         border: '1px solid #ddd',
         borderRadius: 6,
         boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-        zIndex: 1000,
+        zIndex: DIALOG_Z_INDEX,
         minWidth: 160,
         padding: '4px 0',
       }}
@@ -39,7 +41,7 @@ export function EdgeContextMenu({ contextMenu, onSelect }: Props) {
       </div>
       {(
         [
-          ['bezier', 'Bezier（曲線）'],
+          [DEFAULT_EDGE_PATH_TYPE, 'Bezier（曲線）'],
           ['straight', 'Straight（直線）'],
           ['step', 'Step（直角）'],
           ['smoothstep', 'Smooth Step（角丸）'],

@@ -12,6 +12,13 @@ import { type Edge, MarkerType, type Node } from '@xyflow/react';
 export const DEFAULT_NODE_STYLE = { width: 160, height: 80 };
 export const GROUP_PADDING = 20;
 export const GROUP_TITLE_HEIGHT = 30;
+export const GROUP_NODE_TYPE = 'group' as const;
+export const PNG_EXPORT_WIDTH = 1920;
+export const PNG_EXPORT_HEIGHT = 1080;
+export const PNG_EXPORT_MIN_ZOOM = 0.5;
+export const PNG_EXPORT_MAX_ZOOM = 2;
+export const PNG_EXPORT_PADDING = 0.1;
+export const DEFAULT_EDGE_PATH_TYPE = 'bezier' as const;
 
 export function toFlowNodes(
   nodes: GraphNode[],
@@ -35,7 +42,7 @@ export function toFlowNodes(
         label: n.content,
         conflicted: conflictedNodeIds?.has(n.id) ?? false,
       },
-      type: n.nodeType === 'group' ? 'groupNode' : 'editableNode',
+      type: n.nodeType === GROUP_NODE_TYPE ? 'groupNode' : 'editableNode',
       parentId: n.parentId,
       style:
         layout.width !== undefined || layout.height !== undefined
@@ -94,7 +101,7 @@ export function toFlowEdges(
       markerEnd: { type: MarkerType.ArrowClosed },
       style: conflicted ? { stroke: '#f97316', strokeWidth: 3 } : undefined,
       data: {
-        pathType: layout?.pathType ?? 'bezier',
+        pathType: layout?.pathType ?? DEFAULT_EDGE_PATH_TYPE,
         labelOffsetX: layout?.labelOffsetX ?? 0,
         labelOffsetY: layout?.labelOffsetY ?? 0,
         conflicted,
@@ -111,7 +118,7 @@ export function fromFlowNodes(nodes: Node[]): {
   const graphNodes: GraphNode[] = nodes.map((n) => ({
     id: n.id as NodeId,
     content: String(n.data.label ?? ''),
-    ...(n.type === 'groupNode' ? { nodeType: 'group' as const } : {}),
+    ...(n.type === 'groupNode' ? { nodeType: GROUP_NODE_TYPE } : {}),
     ...(n.parentId ? { parentId: n.parentId as NodeId } : {}),
   }));
 

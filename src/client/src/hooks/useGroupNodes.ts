@@ -5,6 +5,7 @@ import type { GraphEvent } from '../events/GraphEvent';
 import { makeEventBase } from '../events/GraphEvent';
 import {
   DEFAULT_NODE_STYLE,
+  GROUP_NODE_TYPE,
   GROUP_PADDING,
   GROUP_TITLE_HEIGHT,
 } from '../graphTransform';
@@ -54,7 +55,7 @@ export function useGroupNodes(
     const parentData: GraphNode = {
       id: parentId,
       content: 'グループ',
-      nodeType: 'group',
+      nodeType: GROUP_NODE_TYPE,
       ...(sharedParentId ? { parentId: sharedParentId as NodeId } : {}),
     };
 

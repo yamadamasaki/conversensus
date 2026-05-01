@@ -1,5 +1,7 @@
+import type { AtUri, Did, ISODateString, Rkey } from '@conversensus/shared';
+
 // ATProto strongRef: uri (AT-URI) + cid (content hash)
-export type StrongRef = { uri: string; cid: string };
+export type StrongRef = { uri: AtUri; cid: string };
 
 // Lexicon NSID 定数
 export const NSID = {
@@ -18,7 +20,7 @@ export type FileRecord = {
   $type: typeof NSID.file;
   name: string;
   description?: string;
-  createdAt: string;
+  createdAt: ISODateString;
 };
 
 export type SheetRecord = {
@@ -26,7 +28,7 @@ export type SheetRecord = {
   name: string;
   description?: string;
   file?: StrongRef; // 親ファイルへの参照 (後方互換のため optional)
-  createdAt: string;
+  createdAt: ISODateString;
 };
 
 export type NodeRecord = {
@@ -36,7 +38,7 @@ export type NodeRecord = {
   properties?: unknown;
   nodeType?: 'group';
   parent?: StrongRef;
-  createdAt: string;
+  createdAt: ISODateString;
 };
 
 export type EdgeRecord = {
@@ -46,7 +48,7 @@ export type EdgeRecord = {
   target: StrongRef;
   label?: string;
   properties?: unknown;
-  createdAt: string;
+  createdAt: ISODateString;
 };
 
 export type NodeLayoutRecord = {
@@ -56,7 +58,7 @@ export type NodeLayoutRecord = {
   y?: number;
   width?: number;
   height?: number;
-  createdAt: string;
+  createdAt: ISODateString;
 };
 
 export type EdgeLayoutRecord = {
@@ -67,15 +69,15 @@ export type EdgeLayoutRecord = {
   pathType?: 'bezier' | 'straight' | 'step' | 'smoothstep';
   labelOffsetX?: number;
   labelOffsetY?: number;
-  createdAt: string;
+  createdAt: ISODateString;
 };
 
-export type RecordResult = { uri: string; cid: string };
+export type RecordResult = { uri: AtUri; cid: string };
 
 /** ポーリングで検出されたリモート変更 */
 export type RemoteChange = {
   collection: string; // NSID (例: "app.conversensus.graph.node")
-  rkey: string; // レコードキー (例: nodeId)
+  rkey: Rkey; // レコードキー (例: nodeId)
   cid: string; // 新しい CID
   value: unknown; // PDS 上の最新レコード値
   changeType: 'add' | 'update'; // 新規追加 or 既存変更
@@ -86,10 +88,10 @@ export type BranchRecord = {
   sheet: StrongRef;
   name: string;
   description?: string;
-  authorDid: string;
+  authorDid: Did;
   status: 'creating' | 'open' | 'merged' | 'closed';
   baseCommit?: StrongRef;
-  createdAt: string;
+  createdAt: ISODateString;
 };
 
 export type CommitRecord = {
@@ -97,11 +99,11 @@ export type CommitRecord = {
   sheet: StrongRef;
   branch: StrongRef;
   message: string;
-  authorDid: string;
+  authorDid: Did;
   parentCommit?: StrongRef;
   operations: unknown[]; // CommitOperation[] を JSON として格納
   tree?: StrongRef[]; // commit 時点の Node/Edge レコードへの参照 (snapshot)
-  createdAt: string;
+  createdAt: ISODateString;
 };
 
 export type MergeRecord = {
@@ -109,7 +111,7 @@ export type MergeRecord = {
   sheet: StrongRef;
   branch: StrongRef;
   message: string;
-  authorDid: string;
+  authorDid: Did;
   commit?: StrongRef;
-  createdAt: string;
+  createdAt: ISODateString;
 };

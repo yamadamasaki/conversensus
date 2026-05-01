@@ -1,6 +1,7 @@
 import type { GraphFile, Sheet, SheetId } from '@conversensus/shared';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  BRANCH_STATUS,
   type Branch,
   computeOperations,
   createBranch,
@@ -101,7 +102,7 @@ export function useBranchOperations({
   const preBranchFile = useRef<GraphFile | null>(null);
   const latestCommitRef = useRef<{ uri: string; cid: string } | null>(null);
 
-  const isTrunk = !activeBranch || activeBranch.name === 'trunk';
+  const isTrunk = !activeBranch || activeBranch.name === TRUNK_PREFIX;
 
   const [branchDiffNodeIds, branchDiffEdgeIds] = useMemo(() => {
     if (isTrunk || !branchOriginalBase || !activeSheet) {
@@ -122,7 +123,7 @@ export function useBranchOperations({
       isTrunk ||
       !lastCommitBase ||
       !activeSheet ||
-      activeBranch?.status !== 'open'
+      activeBranch?.status !== BRANCH_STATUS.OPEN
     )
       return [];
     return deps.computeOperations(lastCommitBase, activeSheet);
@@ -148,7 +149,7 @@ export function useBranchOperations({
     async (sheetId: SheetId, branch: Branch | null) => {
       latestCommitRef.current = null;
 
-      if (!branch || branch.name === 'trunk') {
+      if (!branch || branch.name === TRUNK_PREFIX) {
         setActiveBranch(branch);
         setLastCommitBase(null);
         setBranchOriginalBase(null);
@@ -170,7 +171,7 @@ export function useBranchOperations({
         preBranchFile.current = activeFile ?? null;
 
         let originalBase: typeof branchSheet;
-        if (branch.status === 'merged') {
+        if (branch.status === BRANCH_STATUS.MERGED) {
           originalBase = await deps.fetchBranchSheetFromPds(
             deps.TRUNK_PREFIX,
             sheetId,
@@ -183,7 +184,7 @@ export function useBranchOperations({
           }
         }
         setBranchOriginalBase(originalBase);
-        if (branch.status === 'open') {
+        if (branch.status === BRANCH_STATUS.OPEN) {
           const storedLastBase = lastCommitBaseMap.current.get(branch.uri);
           if (storedLastBase) {
             setLastCommitBase(storedLastBase);
@@ -209,7 +210,9 @@ export function useBranchOperations({
           });
         }
 
-        setNewCommitsSinceMerge(branch.status === 'merged' ? 0 : cs.length);
+        setNewCommitsSinceMerge(
+          branch.status === BRANCH_STATUS.MERGED ? 0 : cs.length,
+        );
         setActiveBranch(branch);
       } catch (err) {
         console.warn('[branch] select failed:', err);
@@ -271,7 +274,10 @@ export function useBranchOperations({
 
         await deps.mergeBranchToTrunk(branch, activeSheetId, sheetRef);
         await deps.createMergeRecord(branch, sheetRef, branchRef, latestCommit);
-        const mergedBranch = await deps.updateBranchStatus(branch, 'merged');
+        const mergedBranch = await deps.updateBranchStatus(
+          branch,
+          BRANCH_STATUS.MERGED,
+        );
 
         setSheetBranches((prev) => {
           const next = new Map(prev);
@@ -324,7 +330,10 @@ export function useBranchOperations({
       });
       if (!ok) return;
       try {
-        const closedBranch = await deps.updateBranchStatus(branch, 'closed');
+        const closedBranch = await deps.updateBranchStatus(
+          branch,
+          BRANCH_STATUS.CLOSED,
+        );
         setSheetBranches((prev) => {
           const next = new Map(prev);
           const sheetId = branch.sheetId;

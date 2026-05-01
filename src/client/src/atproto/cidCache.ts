@@ -1,3 +1,5 @@
+import type { ISODateString, Rkey } from '@conversensus/shared';
+
 /**
  * CID キャッシュ: PDS 上の各レコードの最終確認済み CID を追跡する。
  * - 書き込み時 (syncSheetToAtproto) → setCid で更新
@@ -5,18 +7,18 @@
  * - ポーリング時 (poller.ts) → 新 CID と比較してリモート変更を検出
  */
 
-type CacheEntry = { cid: string; createdAt?: string };
+type CacheEntry = { cid: string; createdAt?: ISODateString };
 const _cache = new Map<string, CacheEntry>(); // `${collection}/${rkey}` → entry
 
-function key(collection: string, rkey: string): string {
+function key(collection: string, rkey: Rkey): string {
   return `${collection}/${rkey}`;
 }
 
 export function setCid(
   collection: string,
-  rkey: string,
+  rkey: Rkey,
   cid: string,
-  createdAt?: string,
+  createdAt?: ISODateString,
 ): void {
   const existing = _cache.get(key(collection, rkey));
   _cache.set(key(collection, rkey), {
@@ -26,15 +28,15 @@ export function setCid(
   });
 }
 
-export function getCid(collection: string, rkey: string): string | undefined {
+export function getCid(collection: string, rkey: Rkey): string | undefined {
   return _cache.get(key(collection, rkey))?.cid;
 }
 
 /** PDS から読んだ createdAt を返す。なければ undefined */
 export function getCreatedAt(
   collection: string,
-  rkey: string,
-): string | undefined {
+  rkey: Rkey,
+): ISODateString | undefined {
   return _cache.get(key(collection, rkey))?.createdAt;
 }
 
@@ -42,7 +44,7 @@ export function getCreatedAt(
 export function cacheResult(
   uri: string,
   cid: string,
-  createdAt?: string,
+  createdAt?: ISODateString,
 ): void {
   // AT-URI: "at://did/collection/rkey"
   const parts = uri.split('/');

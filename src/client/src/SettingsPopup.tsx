@@ -1,6 +1,8 @@
 import type { FileId, SheetId } from '@conversensus/shared';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+export const FLOATING_UI_Z_INDEX = 100;
+
 export type PopupTarget =
   | { type: 'file'; id: FileId }
   | { type: 'sheet'; fileId: FileId; sheetId: SheetId };
@@ -79,7 +81,7 @@ export function SettingsPopup({
         position: 'absolute',
         right: 8,
         top: 0,
-        zIndex: 100,
+        zIndex: FLOATING_UI_Z_INDEX,
         background: '#fff',
         border: '1px solid #ccc',
         borderRadius: 6,
