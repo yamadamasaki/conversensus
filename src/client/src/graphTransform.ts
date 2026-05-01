@@ -19,7 +19,7 @@ export function toFlowNodes(
   conflictedNodeIds?: Set<string>,
 ): Node[] {
   const layoutMap = new Map(layouts.map((l) => [l.nodeId as string, l]));
-  return nodes.map((n) => {
+  const result = nodes.map((n) => {
     const layout = layoutMap.get(n.id) ?? {
       nodeId: n.id as NodeId,
       x: 0,
@@ -43,6 +43,35 @@ export function toFlowNodes(
           : DEFAULT_NODE_STYLE,
     };
   });
+
+  // ReactFlow は親ノードが子ノードより前方に並ぶことを要求するためトポロジカルソート
+  const sorted: Node[] = [];
+  const remaining = new Map(result.map((n) => [n.id, n]));
+  const placed = new Set<string>();
+
+  for (const n of result) {
+    if (!n.parentId) {
+      sorted.push(n);
+      placed.add(n.id);
+      remaining.delete(n.id);
+    }
+  }
+
+  let progress = true;
+  while (remaining.size > 0 && progress) {
+    progress = false;
+    for (const [id, n] of remaining) {
+      if (n.parentId && placed.has(n.parentId)) {
+        sorted.push(n);
+        placed.add(id);
+        remaining.delete(id);
+        progress = true;
+      }
+    }
+  }
+  sorted.push(...remaining.values()); // 循環参照などで残ったものを末尾に追加
+
+  return sorted;
 }
 
 export function toFlowEdges(
