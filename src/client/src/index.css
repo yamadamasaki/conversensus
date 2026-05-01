@@ -17,12 +17,22 @@ body {
   min-height: 100vh;
 }
 
-/* グループノードにノードをドロップしようとしているとき (オレンジ) */
-.react-flow__node[data-drop-target="true"] {
-  filter: drop-shadow(0 0 8px rgba(249, 115, 22, 0.75));
+/* グループへ追加しようとしているとき: 枠をオレンジに */
+.react-flow__node[data-drop-target="true"] > div {
+  border-color: #f97316 !important;
+  background: rgba(249, 115, 22, 0.08) !important;
+}
+.react-flow__node[data-drop-target="true"] > div > div:first-child {
+  background: rgba(249, 115, 22, 0.2) !important;
+  border-bottom-color: rgba(249, 115, 22, 0.6) !important;
 }
 
-/* 子ノードをグループから出そうとしているとき (赤) */
-.react-flow__node[data-leaving-group="true"] {
-  filter: drop-shadow(0 0 8px rgba(239, 68, 68, 0.75));
+/* グループから出そうとしているとき: 枠を赤に */
+.react-flow__node[data-leaving-group="true"] > div {
+  border-color: #ef4444 !important;
+  background: rgba(239, 68, 68, 0.08) !important;
+}
+.react-flow__node[data-leaving-group="true"] > div > div:first-child {
+  background: rgba(239, 68, 68, 0.2) !important;
+  border-bottom-color: rgba(239, 68, 68, 0.6) !important;
 }

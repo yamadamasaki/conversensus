@@ -296,12 +296,29 @@ function GraphEditorInner({
 
       const oldParentId = node.parentId;
       if (oldParentId) {
-        // 子ノードのドラッグ: 親グループの外に出ているならオレンジ枠で "出る" 予告
+        // 子ノードのドラッグ: 親グループの外に出ているなら赤でハイライト
         const parent = allNodes.find((n) => n.id === oldParentId);
         if (parent && !pointInGroup(cx, cy, parent)) {
           document
             .querySelector(`.react-flow__node[data-id="${oldParentId}"]`)
             ?.setAttribute(LEAVING_GROUP_ATTR, 'true');
+          // 別グループへ移動しようとしているならそちらもオレンジでハイライト
+          const targetGroup = allNodes
+            .filter(
+              (n) =>
+                n.type === RF_GROUP_NODE_TYPE &&
+                n.id !== node.id &&
+                n.id !== oldParentId,
+            )
+            .find((g) => {
+              if (isAncestorOf(g.id, node.id, allNodes)) return false;
+              return pointInGroup(cx, cy, g);
+            });
+          if (targetGroup) {
+            document
+              .querySelector(`.react-flow__node[data-id="${targetGroup.id}"]`)
+              ?.setAttribute(DROP_TARGET_ATTR, 'true');
+          }
         }
       } else {
         // トップレベルノードのドラッグ: 入ろうとしているグループをハイライト
