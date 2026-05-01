@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { DIALOG_WIDTH, DIALOG_Z_INDEX } from './ConfirmDialog';
 
 type Props = {
   message: string;
@@ -23,7 +24,7 @@ export function AlertDialog({ message, onClose, closeLabel = 'OK' }: Props) {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        zIndex: 1000,
+        zIndex: DIALOG_Z_INDEX,
       }}
       onClick={onClose}
       onKeyDown={(e) => {
@@ -38,7 +39,7 @@ export function AlertDialog({ message, onClose, closeLabel = 'OK' }: Props) {
           background: '#fff',
           borderRadius: 8,
           padding: 24,
-          width: 380,
+          width: DIALOG_WIDTH,
           maxWidth: '90vw',
           boxShadow: '0 4px 24px rgba(0,0,0,0.2)',
         }}

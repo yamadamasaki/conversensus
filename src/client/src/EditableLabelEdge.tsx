@@ -11,6 +11,7 @@ import {
 import { useCallback, useRef } from 'react';
 import { useEventDispatch } from './EventDispatchContext';
 import { makeEventBase } from './events/GraphEvent';
+import { DEFAULT_EDGE_PATH_TYPE } from './graphTransform';
 import { useInlineEdit } from './hooks/useInlineEdit';
 
 function getEdgePath(
@@ -54,7 +55,8 @@ export function EditableLabelEdge({
   const { setEdges } = useReactFlow();
   const { dispatch, setDragging } = useEventDispatch();
 
-  const pathType = (data?.pathType as EdgePathType | undefined) ?? 'bezier';
+  const pathType =
+    (data?.pathType as EdgePathType | undefined) ?? DEFAULT_EDGE_PATH_TYPE;
   const [edgePath, labelX, labelY] = getEdgePath(pathType, {
     sourceX,
     sourceY,

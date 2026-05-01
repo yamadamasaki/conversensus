@@ -1,7 +1,12 @@
 import type { GraphFile, Sheet, SheetId } from '@conversensus/shared';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertDialog } from './AlertDialog';
-import { sheets, syncBranchSheetToAtproto } from './atproto';
+import {
+  BRANCH_STATUS,
+  sheets,
+  syncBranchSheetToAtproto,
+  TRUNK_PREFIX,
+} from './atproto';
 import { CommitDialog } from './CommitDialog';
 import { ConfirmDialog } from './ConfirmDialog';
 import { GraphEditor } from './GraphEditor';
@@ -9,6 +14,7 @@ import { useBranchOperations } from './hooks/useBranchOperations';
 import type { UndoState } from './hooks/useEventStore';
 import { useFileSheetOperations } from './hooks/useFileSheetOperations';
 import { InputDialog } from './InputDialog';
+import { FLOATING_UI_Z_INDEX } from './SettingsPopup';
 import { Sidebar } from './Sidebar';
 import { generateId } from './uuid';
 
@@ -58,9 +64,9 @@ export default function App() {
       saveTimer.current = setTimeout(async () => {
         if (
           branch &&
-          branch.name !== 'trunk' &&
+          branch.name !== TRUNK_PREFIX &&
           sheetId &&
-          branch.status === 'open'
+          branch.status === BRANCH_STATUS.OPEN
         ) {
           const sheet = updated.sheets.find((s) => s.id === sheetId);
           if (!sheet) return;
@@ -156,8 +162,8 @@ export default function App() {
       <main style={{ flex: 1 }}>
         {fileOps.activeFile && fileOps.activeSheetId ? (
           <GraphEditor
-            key={`${fileOps.activeSheetId}/${branchOps.activeBranch?.id ?? 'trunk'}`}
-            graphKey={`${fileOps.activeSheetId}/${branchOps.activeBranch?.id ?? 'trunk'}`}
+            key={`${fileOps.activeSheetId}/${branchOps.activeBranch?.id ?? TRUNK_PREFIX}`}
+            graphKey={`${fileOps.activeSheetId}/${branchOps.activeBranch?.id ?? TRUNK_PREFIX}`}
             undoStateMap={undoStateMapRef}
             file={fileOps.activeFile}
             activeSheetId={fileOps.activeSheetId}
@@ -179,13 +185,13 @@ export default function App() {
           </div>
         )}
       </main>
-      {!branchOps.isTrunk && branch && branch.status === 'open' && (
+      {!branchOps.isTrunk && branch && branch.status === BRANCH_STATUS.OPEN && (
         <div
           style={{
             position: 'fixed',
             bottom: 24,
             right: 24,
-            zIndex: 100,
+            zIndex: FLOATING_UI_Z_INDEX,
             display: 'flex',
             gap: 8,
             alignItems: 'center',
@@ -229,7 +235,7 @@ export default function App() {
             disabled={
               branchOps.pendingOps.length > 0 ||
               branchOps.newCommitsSinceMerge === 0 ||
-              branch.status === 'closed'
+              branch.status === BRANCH_STATUS.CLOSED
             }
             style={{
               padding: '6px 16px',
@@ -237,7 +243,7 @@ export default function App() {
               background:
                 branchOps.pendingOps.length === 0 &&
                 branchOps.newCommitsSinceMerge > 0 &&
-                branch.status !== 'closed'
+                branch.status !== BRANCH_STATUS.CLOSED
                   ? '#f97316'
                   : '#ccc',
               color: '#fff',
@@ -246,7 +252,7 @@ export default function App() {
               cursor:
                 branchOps.pendingOps.length === 0 &&
                 branchOps.newCommitsSinceMerge > 0 &&
-                branch.status !== 'closed'
+                branch.status !== BRANCH_STATUS.CLOSED
                   ? 'pointer'
                   : 'not-allowed',
             }}

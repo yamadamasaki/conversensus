@@ -8,6 +8,8 @@ import type {
   NodeLayout,
 } from '@conversensus/shared';
 
+export const LOCAL_USER_ID = 'local';
+
 type Position = { x: number; y: number };
 type Size = { width: number; height: number };
 type EdgeStyle = { pathType?: EdgePathType } & Record<string, unknown>;
@@ -205,7 +207,7 @@ export function makeEventBase<C extends GraphEvent['category']>(
   return {
     id: crypto.randomUUID(),
     timestamp: Date.now(),
-    userId: 'local',
+    userId: LOCAL_USER_ID,
     category,
   };
 }

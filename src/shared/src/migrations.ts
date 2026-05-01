@@ -1,10 +1,12 @@
 import { z } from 'zod';
 import {
+  CONVERSENSUS_FILE_VERSION,
   type ConversensusFile,
   EdgeIdSchema,
   EdgeLayoutSchema,
   EdgePathTypeSchema,
   FileIdSchema,
+  GROUP_NODE_TYPE,
   GraphEdgeSchema,
   GraphFileSchema,
   GraphNodeSchema,
@@ -16,6 +18,10 @@ import {
   StyleSchema,
 } from './schemas';
 
+const FILE_VERSION_V1 = '1' as const;
+const FILE_VERSION_V2 = '2' as const;
+const FILE_VERSION_V3 = '3' as const;
+
 // --- v1 互換スキーマ (マイグレーション専用) ---
 
 // v1 ノードスタイル: 座標・サイズ・グループ種別を直接持つ (v2 で NodeLayout に分離)
@@ -25,7 +31,7 @@ const NodeStyleSchema = z
     y: z.number().optional(),
     width: z.union([z.number(), z.string()]).optional(),
     height: z.union([z.number(), z.string()]).optional(),
-    nodeType: z.literal('group').optional(),
+    nodeType: z.literal(GROUP_NODE_TYPE).optional(),
   })
   .catchall(z.unknown());
 
@@ -67,7 +73,7 @@ const GraphFileV1Schema = z.object({
 });
 
 export const ConversensusFileV1Schema = GraphFileV1Schema.extend({
-  version: z.literal('1' as const),
+  version: z.literal(FILE_VERSION_V1),
 });
 export type ConversensusFileV1 = z.infer<typeof ConversensusFileV1Schema>;
 
@@ -87,7 +93,7 @@ const GraphFileV2Schema = GraphFileSchema.extend({
 });
 
 export const ConversensusFileV2Schema = GraphFileV2Schema.extend({
-  version: z.literal('2'),
+  version: z.literal(FILE_VERSION_V2),
 });
 export type ConversensusFileV2 = z.infer<typeof ConversensusFileV2Schema>;
 
@@ -108,7 +114,7 @@ const NodeLayoutV3Schema = z
     y: z.number().optional(),
     width: z.union([z.number(), z.string()]).optional(),
     height: z.union([z.number(), z.string()]).optional(),
-    nodeType: z.literal('group').optional(),
+    nodeType: z.literal(GROUP_NODE_TYPE).optional(),
     parentId: NodeIdSchema.optional(),
   })
   .catchall(z.unknown());
@@ -131,7 +137,7 @@ const GraphFileV3Schema = z.object({
 });
 
 export const ConversensusFileV3Schema = GraphFileV3Schema.extend({
-  version: z.literal('3'),
+  version: z.literal(FILE_VERSION_V3),
 });
 export type ConversensusFileV3 = z.infer<typeof ConversensusFileV3Schema>;
 
@@ -141,7 +147,7 @@ export type ConversensusFileV3 = z.infer<typeof ConversensusFileV3Schema>;
 export function migrateV1toV2(file: ConversensusFileV1): ConversensusFileV2 {
   return {
     ...file,
-    version: '2',
+    version: FILE_VERSION_V2,
     sheets: file.sheets.map((sheet) => {
       const layouts = sheet.nodes
         .filter((n) => n.style !== undefined)
@@ -206,7 +212,7 @@ export function migrateV1toV2(file: ConversensusFileV1): ConversensusFileV2 {
 export function migrateV3toV4(file: ConversensusFileV3): ConversensusFile {
   return {
     ...file,
-    version: '4',
+    version: CONVERSENSUS_FILE_VERSION,
     sheets: file.sheets.map((sheet) => {
       // レイアウトから nodeType と parentId を収集
       const nodeMetaMap = new Map<
@@ -241,7 +247,7 @@ export function migrateV3toV4(file: ConversensusFileV3): ConversensusFile {
 export function migrateV2toV3(file: ConversensusFileV2): ConversensusFile {
   return {
     ...file,
-    version: '3',
+    version: FILE_VERSION_V3,
     sheets: file.sheets.map((sheet) => {
       // ノードの parentId を nodeId → parentId のマップとして収集
       const nodeParentMap = new Map<string, NodeId>(

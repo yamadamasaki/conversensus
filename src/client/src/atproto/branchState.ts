@@ -13,15 +13,27 @@
  */
 
 import type {
+  AtUri,
   CommitOperation,
+  Did,
   EdgeLayout,
   GraphEdge,
   GraphNode,
+  ISODateString,
   NodeLayout,
   Sheet,
   SheetId,
 } from '@conversensus/shared';
 import { currentDid } from './client';
+
+export const BRANCH_STATUS = {
+  CREATING: 'creating',
+  OPEN: 'open',
+  MERGED: 'merged',
+  CLOSED: 'closed',
+} as const;
+export type BranchStatus = (typeof BRANCH_STATUS)[keyof typeof BRANCH_STATUS];
+
 import {
   branches,
   commits,
@@ -65,24 +77,24 @@ export type Branch = {
   sheetId: SheetId;
   name: string;
   description?: string;
-  authorDid: string;
+  authorDid: Did;
   status: 'creating' | 'open' | 'merged' | 'closed';
-  baseCommitUri?: string;
-  createdAt: string;
-  uri: string;
+  baseCommitUri?: AtUri;
+  createdAt: ISODateString;
+  uri: AtUri;
   cid: string;
 };
 
 export type Commit = {
   id: string; // UUID (rkey)
   sheetId: SheetId;
-  branchUri: string;
+  branchUri: AtUri;
   message: string;
-  authorDid: string;
-  parentCommitUri?: string;
+  authorDid: Did;
+  parentCommitUri?: AtUri;
   operations: CommitOperation[];
-  createdAt: string;
-  uri: string;
+  createdAt: ISODateString;
+  uri: AtUri;
   cid: string;
 };
 
@@ -276,17 +288,17 @@ export async function createMainBranch(
   const authorDid = currentDid();
   const result = await deps.branches.put(branchId, {
     sheet: sheetRef,
-    name: 'trunk',
+    name: TRUNK_PREFIX,
     authorDid,
-    status: 'open',
+    status: BRANCH_STATUS.OPEN,
     createdAt: now,
   });
   return {
     id: branchId,
     sheetId,
-    name: 'trunk',
+    name: TRUNK_PREFIX,
     authorDid,
-    status: 'open',
+    status: BRANCH_STATUS.OPEN,
     createdAt: now,
     uri: result.uri,
     cid: result.cid,
@@ -406,7 +418,7 @@ export async function createBranch(
     sheet: sheetRef,
     name,
     authorDid,
-    status: 'creating',
+    status: BRANCH_STATUS.CREATING,
     ...(baseCommitRef && { baseCommit: baseCommitRef }),
     createdAt: now,
   });
@@ -485,7 +497,7 @@ export async function createBranch(
     sheet: sheetRef,
     name,
     authorDid,
-    status: 'open',
+    status: BRANCH_STATUS.OPEN,
     ...(baseCommitRef && { baseCommit: baseCommitRef }),
     createdAt: now,
   });
@@ -495,7 +507,7 @@ export async function createBranch(
     sheetId,
     name,
     authorDid,
-    status: 'open',
+    status: BRANCH_STATUS.OPEN,
     baseCommitUri: baseCommitRef?.uri,
     createdAt: now,
     uri: openResult.uri,

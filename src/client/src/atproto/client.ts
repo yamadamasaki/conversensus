@@ -1,7 +1,8 @@
 import { AtpAgent } from '@atproto/api';
+import type { Did } from '@conversensus/shared';
 
 export type AtprotoSession = {
-  did: string;
+  did: Did;
   handle: string;
 };
 
@@ -38,7 +39,7 @@ export async function login(
   }
 }
 
-export function currentDid(): string {
+export function currentDid(): Did {
   const did = getAgent().session?.did;
   if (!did)
     throw new Error('ATProto session not initialized. Call login() first.');

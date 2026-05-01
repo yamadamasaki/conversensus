@@ -1,5 +1,7 @@
 export {
+  BRANCH_STATUS,
   type Branch,
+  type BranchStatus,
   type Commit,
   computeOperations,
   createBranch,

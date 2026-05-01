@@ -24,6 +24,13 @@ const LOCALHOST_ORIGIN_PREFIX = 'http://localhost:';
 const DEFAULT_FILE_NAME = '無題';
 const DEFAULT_SHEET_NAME = 'Sheet 1';
 
+const _HTTP_OK = 200;
+const HTTP_CREATED = 201;
+const HTTP_NO_CONTENT = 204;
+const HTTP_BAD_REQUEST = 400;
+const HTTP_NOT_FOUND = 404;
+const HTTP_INTERNAL_SERVER_ERROR = 500;
+
 const app = new Hono();
 
 app.use(
@@ -36,7 +43,7 @@ app.use(
 
 app.onError((err, c) => {
   console.error(err);
-  return c.json({ error: 'Internal server error' }, 500);
+  return c.json({ error: 'Internal server error' }, HTTP_INTERNAL_SERVER_ERROR);
 });
 
 // GET /files - ファイル一覧
@@ -50,7 +57,7 @@ app.post('/files', async (c) => {
   const raw = await c.req.json().catch(() => null);
   const parsed = CreateFileRequestSchema.safeParse(raw);
   if (!parsed.success) {
-    return c.json({ error: parsed.error.flatten() }, 400);
+    return c.json({ error: parsed.error.flatten() }, HTTP_BAD_REQUEST);
   }
   const body = parsed.data;
   const id = randomUUID() as FileId;
@@ -68,13 +75,13 @@ app.post('/files', async (c) => {
     ],
   };
   await writeFile(data);
-  return c.json(data, 201);
+  return c.json(data, HTTP_CREATED);
 });
 
 // GET /files/:id - ファイル取得
 app.get('/files/:id', async (c) => {
   const data = await readFile(c.req.param('id'));
-  if (!data) return c.json({ error: 'Not found' }, 404);
+  if (!data) return c.json({ error: 'Not found' }, HTTP_NOT_FOUND);
   return c.json(data);
 });
 
@@ -82,11 +89,11 @@ app.get('/files/:id', async (c) => {
 app.put('/files/:id', async (c) => {
   const id = c.req.param('id');
   const existing = await readFile(id);
-  if (!existing) return c.json({ error: 'Not found' }, 404);
+  if (!existing) return c.json({ error: 'Not found' }, HTTP_NOT_FOUND);
   const raw = await c.req.json().catch(() => null);
   const parsed = UpdateFileRequestSchema.safeParse(raw);
   if (!parsed.success) {
-    return c.json({ error: parsed.error.flatten() }, 400);
+    return c.json({ error: parsed.error.flatten() }, HTTP_BAD_REQUEST);
   }
   const data: GraphFile = { ...parsed.data, id: existing.id };
   await writeFile(data);
@@ -121,14 +128,14 @@ app.post('/files/import', async (c) => {
             migrateV3toV4(migrateV2toV3(migrateV1toV2(parsedV1.data))),
           );
         } else {
-          return c.json({ error: parsedV4.error.flatten() }, 400);
+          return c.json({ error: parsedV4.error.flatten() }, HTTP_BAD_REQUEST);
         }
       }
     }
   }
 
   if (!parsedFile.success) {
-    return c.json({ error: parsedFile.error.flatten() }, 400);
+    return c.json({ error: parsedFile.error.flatten() }, HTTP_BAD_REQUEST);
   }
 
   const { version: _, ...fileData } = parsedFile.data;
@@ -173,14 +180,14 @@ app.post('/files/import', async (c) => {
     }),
   };
   await writeFile(data);
-  return c.json(data, 201);
+  return c.json(data, HTTP_CREATED);
 });
 
 // DELETE /files/:id - ファイル削除
 app.delete('/files/:id', async (c) => {
   const ok = await deleteFile(c.req.param('id'));
-  if (!ok) return c.json({ error: 'Not found' }, 404);
-  return c.body(null, 204);
+  if (!ok) return c.json({ error: 'Not found' }, HTTP_NOT_FOUND);
+  return c.body(null, HTTP_NO_CONTENT);
 });
 
 export default {
