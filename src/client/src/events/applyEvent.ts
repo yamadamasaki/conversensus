@@ -252,6 +252,24 @@ export function applyEvent(
       };
 
     case 'NODE_PROPERTIES_CHANGED':
+      return {
+        nodes: nodes.map((n) =>
+          n.id === event.nodeId
+            ? {
+                ...n,
+                data: {
+                  ...n.data,
+                  properties: {
+                    ...(n.data.properties ?? {}),
+                    ...event.to,
+                  },
+                },
+              }
+            : n,
+        ),
+        edges,
+      };
+
     case 'EDGE_PROPERTIES_CHANGED':
       return { nodes, edges };
 

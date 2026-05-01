@@ -422,7 +422,7 @@ describe('EDGE_RELABELED', () => {
 });
 
 describe('NODE_PROPERTIES_CHANGED', () => {
-  it('ノード状態を変更しない (将来実装)', () => {
+  it('ノードの properties を更新する', () => {
     const event: GraphEvent = {
       ...base,
       category: 'content',
@@ -432,7 +432,25 @@ describe('NODE_PROPERTIES_CHANGED', () => {
       to: { key: 'value' },
     };
     const { nodes } = applyEvent(event, [n1], []);
-    expect(nodes).toEqual([n1]);
+    expect(nodes[0].data.properties).toEqual({ key: 'value' });
+    expect(nodes[0].data.label).toBe('ノード1'); // 他の data は保持
+  });
+
+  it('既存 properties にマージされる', () => {
+    const n: Node = {
+      ...n1,
+      data: { ...n1.data, properties: { existing: true } },
+    };
+    const event: GraphEvent = {
+      ...base,
+      category: 'content',
+      type: 'NODE_PROPERTIES_CHANGED',
+      nodeId: 'n1' as NodeId,
+      from: {},
+      to: { added: 'yes' },
+    };
+    const { nodes } = applyEvent(event, [n], []);
+    expect(nodes[0].data.properties).toEqual({ existing: true, added: 'yes' });
   });
 });
 
