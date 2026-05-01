@@ -43,12 +43,15 @@ import {
   DEFAULT_NODE_STYLE,
   fromFlowEdges,
   fromFlowNodes,
+  GROUP_NODE_TYPE,
+  IMAGE_NODE_TYPE,
   PNG_EXPORT_HEIGHT,
   PNG_EXPORT_MAX_ZOOM,
   PNG_EXPORT_MIN_ZOOM,
   PNG_EXPORT_PADDING,
   PNG_EXPORT_WIDTH,
   RF_GROUP_NODE_TYPE,
+  RF_IMAGE_NODE_TYPE,
   toFlowEdges,
   toFlowNodes,
 } from './graphTransform';
@@ -57,6 +60,8 @@ import { useEdgeContextMenu } from './hooks/useEdgeContextMenu';
 import { type UndoState, useEventStore } from './hooks/useEventStore';
 import { useGroupNodes } from './hooks/useGroupNodes';
 import { usePaneDoubleClick } from './hooks/usePaneDoubleClick';
+import type { NodeTypeOption } from './NodeTypeMenu';
+import { NodeTypeMenu } from './NodeTypeMenu';
 
 const RF_INIT_DELAY_MS = 150;
 const DROP_TARGET_ATTR = 'data-drop-target'; // グループへ追加しようとしている
@@ -233,7 +238,11 @@ function GraphEditorInner({
   }, [nodes, edges]);
 
   const nodeTypes = useMemo(
-    () => ({ editableNode: EditableNode, [RF_GROUP_NODE_TYPE]: GroupNode }),
+    () => ({
+      editableNode: EditableNode,
+      [RF_GROUP_NODE_TYPE]: GroupNode,
+      [RF_IMAGE_NODE_TYPE]: EditableNode,
+    }),
     [],
   );
   const edgeTypes = useMemo(() => ({ editableLabel: EditableLabelEdge }), []);
@@ -491,7 +500,7 @@ function GraphEditorInner({
   );
 
   const addNode = useCallback(
-    (position?: { x: number; y: number }) => {
+    (position?: { x: number; y: number }, nodeType?: NodeTypeOption) => {
       const nodeId = crypto.randomUUID() as NodeId;
       const pos = position ?? {
         x: 100 + Math.random() * 200,
@@ -500,6 +509,8 @@ function GraphEditorInner({
       const graphNode: GraphNode = {
         id: nodeId,
         content: '',
+        ...(nodeType === 'group' ? { nodeType: GROUP_NODE_TYPE } : {}),
+        ...(nodeType === 'image' ? { nodeType: IMAGE_NODE_TYPE } : {}),
       };
       const layout: NodeLayout = {
         nodeId,
@@ -579,7 +590,8 @@ function GraphEditorInner({
   useClipboard(getNodes, getEdges, dispatch);
   const { contextMenu, onEdgeContextMenu, setEdgePathType } =
     useEdgeContextMenu(getEdges, dispatch);
-  const { onPaneClick } = usePaneDoubleClick(screenToFlowPosition, addNode);
+  const { onPaneClick, nodeTypeMenu, clearNodeTypeMenu } =
+    usePaneDoubleClick(screenToFlowPosition);
 
   // --- PNG export ---
   const handleExportPng = useCallback(() => {
@@ -715,6 +727,15 @@ function GraphEditorInner({
             </button>
           </Panel>
         </ReactFlow>
+        {nodeTypeMenu && (
+          <NodeTypeMenu
+            position={nodeTypeMenu.screenPos}
+            onSelect={(nodeType) => {
+              addNode(nodeTypeMenu.flowPos, nodeType);
+              clearNodeTypeMenu();
+            }}
+          />
+        )}
         {contextMenu && (
           <EdgeContextMenu
             contextMenu={contextMenu}

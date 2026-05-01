@@ -287,6 +287,13 @@ describe('toFlowNodes: グループノード (parentId / nodeType)', () => {
     expect(toFlowNodes(nodes, layouts)[0].type).toBe('groupNode');
   });
 
+  it('nodeType=image の GraphNode は imageNode 型に変換される', () => {
+    const nodes: GraphNode[] = [
+      { id: 'i1' as NodeId, content: '', nodeType: 'image' },
+    ];
+    expect(toFlowNodes(nodes)[0].type).toBe('imageNode');
+  });
+
   it('parentId を持つ GraphNode は parentId が引き継がれる', () => {
     const nodes: GraphNode[] = [
       { id: 'n1' as NodeId, content: 'child', parentId: 'g1' as NodeId },
@@ -322,6 +329,19 @@ describe('fromFlowNodes: parentId / groupNode', () => {
       },
     ];
     expect(fromFlowNodes(flowNodes).nodes[0].nodeType).toBe('group');
+    expect(fromFlowNodes(flowNodes).layouts[0]).not.toHaveProperty('nodeType');
+  });
+
+  it('imageNode 型は GraphNode.nodeType=image として保存される', () => {
+    const flowNodes: Node[] = [
+      {
+        id: 'i1',
+        position: { x: 0, y: 0 },
+        data: { label: '画像' },
+        type: 'imageNode',
+      },
+    ];
+    expect(fromFlowNodes(flowNodes).nodes[0].nodeType).toBe('image');
     expect(fromFlowNodes(flowNodes).layouts[0]).not.toHaveProperty('nodeType');
   });
 });

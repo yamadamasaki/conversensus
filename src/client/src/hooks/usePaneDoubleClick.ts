@@ -1,18 +1,27 @@
 import type { MouseEvent } from 'react';
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 const DOUBLE_CLICK_INTERVAL_MS = 300;
 const DOUBLE_CLICK_THRESHOLD_PX = 5;
+
+export type NodeTypeMenuState = {
+  screenPos: { x: number; y: number };
+  flowPos: { x: number; y: number };
+} | null;
 
 export function usePaneDoubleClick(
   screenToFlowPosition: (pos: { x: number; y: number }) => {
     x: number;
     y: number;
   },
-  addNode: (position?: { x: number; y: number }) => void,
-): { onPaneClick: (e: MouseEvent) => void } {
+): {
+  onPaneClick: (e: MouseEvent) => void;
+  nodeTypeMenu: NodeTypeMenuState;
+  clearNodeTypeMenu: () => void;
+} {
   const lastPaneClickTime = useRef(0);
   const lastPaneClickPos = useRef({ x: 0, y: 0 });
+  const [nodeTypeMenu, setNodeTypeMenu] = useState<NodeTypeMenuState>(null);
 
   const onPaneClick = useCallback(
     (e: MouseEvent) => {
@@ -26,16 +35,44 @@ export function usePaneDoubleClick(
         now - lastPaneClickTime.current < DOUBLE_CLICK_INTERVAL_MS &&
         isSameSpot
       ) {
-        const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
-        addNode(pos);
+        const flowPos = screenToFlowPosition({
+          x: e.clientX,
+          y: e.clientY,
+        });
+        setNodeTypeMenu({
+          screenPos: { x: e.clientX, y: e.clientY },
+          flowPos,
+        });
         lastPaneClickTime.current = 0;
       } else {
         lastPaneClickTime.current = now;
         lastPaneClickPos.current = { x: e.clientX, y: e.clientY };
       }
     },
-    [screenToFlowPosition, addNode],
+    [screenToFlowPosition],
   );
 
-  return { onPaneClick };
+  const clearNodeTypeMenu = useCallback(() => setNodeTypeMenu(null), []);
+
+  // メニュー外クリック / ESC で閉じる
+  // ReactFlow が pane 上のイベント伝播を止めるため capture フェーズで捕捉する
+  useEffect(() => {
+    if (!nodeTypeMenu) return;
+    const onMouseDown = (e: Event) => {
+      const target = e.target as HTMLElement | null;
+      if (target?.closest('[data-node-type-menu]')) return;
+      setNodeTypeMenu(null);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setNodeTypeMenu(null);
+    };
+    window.addEventListener('mousedown', onMouseDown, true);
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('mousedown', onMouseDown, true);
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [nodeTypeMenu]);
+
+  return { onPaneClick, nodeTypeMenu, clearNodeTypeMenu };
 }
