@@ -51,6 +51,7 @@ export function EditableNode({ id, data, selected }: NodeProps) {
 
   const label = String(data.label ?? '');
   const conflicted = data.conflicted === true;
+  const ghost = data.ghost === true;
 
   const { editing, inputValue, setInputValue, startEdit, confirm, cancel } =
     useInlineEdit(label, (value) => {
@@ -64,6 +65,55 @@ export function EditableNode({ id, data, selected }: NodeProps) {
         });
       }
     });
+
+  if (ghost) {
+    return (
+      <>
+        <Handle type="source" position={Position.Top} id="source-top" />
+        <div
+          style={{
+            padding: '8px 12px',
+            borderRadius: 6,
+            border: '1px dashed #aaa',
+            background: 'rgba(0,0,0,0.02)',
+            width: '100%',
+            height: '100%',
+            boxSizing: 'border-box',
+            overflow: 'auto',
+            cursor: 'default',
+          }}
+        >
+          <div
+            style={{
+              fontSize: 10,
+              color: '#999',
+              marginBottom: 4,
+            }}
+          >
+            削除予定
+          </div>
+          <div
+            style={{
+              fontSize: 12,
+              lineHeight: 1.6,
+              textDecoration: 'line-through',
+              color: '#999',
+            }}
+            className="markdown-body"
+          >
+            {label ? (
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{label}</ReactMarkdown>
+            ) : (
+              <span style={{ color: '#aaa' }}>(空)</span>
+            )}
+          </div>
+        </div>
+        <Handle type="source" position={Position.Bottom} id="source-bottom" />
+        <Handle type="source" position={Position.Left} id="source-left" />
+        <Handle type="source" position={Position.Right} id="source-right" />
+      </>
+    );
+  }
 
   return (
     <>

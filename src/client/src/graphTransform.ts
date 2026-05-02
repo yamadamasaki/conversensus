@@ -365,3 +365,53 @@ export function fromFlowEdges(edges: Edge[]): {
 
   return { edges: graphEdges, edgeLayouts };
 }
+
+// --- ゴーストノード/エッジ変換（削除予定表示用） ---
+
+const GHOST_OPACITY = 0.35;
+
+export function toFlowAndGhostNodes(
+  nodes: GraphNode[],
+  layouts: NodeLayout[],
+  deletedNodes: GraphNode[],
+  deletedLayouts: NodeLayout[],
+  conflictedNodeIds?: Set<string>,
+): Node[] {
+  const active = toFlowNodes(nodes, layouts, conflictedNodeIds);
+  const ghosts = toFlowNodes(deletedNodes, deletedLayouts).map((n) => ({
+    ...n,
+    id: `ghost-${n.id}`,
+    data: { ...n.data, ghost: true },
+    style: { ...n.style, opacity: GHOST_OPACITY },
+    draggable: false,
+    selectable: false,
+  }));
+  return [...active, ...ghosts];
+}
+
+export function toFlowAndGhostEdges(
+  edges: GraphEdge[],
+  edgeLayouts: EdgeLayout[],
+  deletedEdges: GraphEdge[],
+  deletedLayouts: EdgeLayout[],
+  conflictedEdgeIds?: Set<string>,
+): Edge[] {
+  const active = toFlowEdges(edges, edgeLayouts, conflictedEdgeIds);
+  const ghosts = toFlowEdges(deletedEdges, deletedLayouts).map((e) => ({
+    ...e,
+    id: `ghost-${e.id}`,
+    data: { ...e.data, ghost: true },
+    style: {
+      ...e.style,
+      stroke: '#999',
+      strokeDasharray: '4 4',
+      opacity: GHOST_OPACITY,
+    },
+    markerEnd: undefined,
+    selectable: false,
+    focusable: false,
+    deletable: false,
+    reconnectable: false,
+  }));
+  return [...active, ...ghosts];
+}

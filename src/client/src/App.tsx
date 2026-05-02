@@ -170,6 +170,10 @@ export default function App() {
             onChange={handleChange}
             conflictedNodeIds={branchOps.conflictedNodeIds}
             conflictedEdgeIds={branchOps.conflictedEdgeIds}
+            deletedNodes={branchOps.deletedNodes}
+            deletedEdges={branchOps.deletedEdges}
+            deletedNodeLayouts={branchOps.deletedNodeLayouts}
+            deletedEdgeLayouts={branchOps.deletedEdgeLayouts}
           />
         ) : (
           <div

@@ -1,4 +1,12 @@
-import type { GraphFile, Sheet, SheetId } from '@conversensus/shared';
+import type {
+  EdgeLayout,
+  GraphEdge,
+  GraphFile,
+  GraphNode,
+  NodeLayout,
+  Sheet,
+  SheetId,
+} from '@conversensus/shared';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   BRANCH_STATUS,
@@ -112,11 +120,38 @@ export function useBranchOperations({
     const nodeIds = new Set<string>();
     const edgeIds = new Set<string>();
     for (const op of ops) {
+      // 削除は conflicted に含めない（ゴースト表示用に別途計算）
+      if (op.op === 'node.remove' || op.op === 'edge.remove') continue;
       if ('nodeId' in op) nodeIds.add(op.nodeId);
       else if ('edgeId' in op) edgeIds.add(op.edgeId);
     }
     return [nodeIds, edgeIds] as const;
   }, [isTrunk, branchOriginalBase, activeSheet, deps]);
+
+  // 削除予定のノード/エッジ（base に存在し current に存在しない）
+  const [deletedNodes, deletedEdges, deletedNodeLayouts, deletedEdgeLayouts] =
+    useMemo(() => {
+      if (isTrunk || !branchOriginalBase || !activeSheet) {
+        return [[], [], [], []] as const;
+      }
+      const ops = deps.computeOperations(branchOriginalBase, activeSheet);
+      const removedNodeIds = new Set<string>();
+      const removedEdgeIds = new Set<string>();
+      for (const op of ops) {
+        if (op.op === 'node.remove') removedNodeIds.add(op.nodeId);
+        if (op.op === 'edge.remove') removedEdgeIds.add(op.edgeId);
+      }
+      return [
+        branchOriginalBase.nodes.filter((n) => removedNodeIds.has(n.id)),
+        branchOriginalBase.edges.filter((e) => removedEdgeIds.has(e.id)),
+        (branchOriginalBase.layouts ?? []).filter((l) =>
+          removedNodeIds.has(l.nodeId),
+        ),
+        (branchOriginalBase.edgeLayouts ?? []).filter((l) =>
+          removedEdgeIds.has(l.edgeId),
+        ),
+      ] as const;
+    }, [isTrunk, branchOriginalBase, activeSheet, deps]);
 
   const pendingOps = useMemo(() => {
     if (
@@ -465,6 +500,10 @@ export function useBranchOperations({
     branchDiffEdgeIds,
     conflictedNodeIds: branchDiffNodeIds,
     conflictedEdgeIds: branchDiffEdgeIds,
+    deletedNodes: deletedNodes as GraphNode[],
+    deletedEdges: deletedEdges as GraphEdge[],
+    deletedNodeLayouts: deletedNodeLayouts as NodeLayout[],
+    deletedEdgeLayouts: deletedEdgeLayouts as EdgeLayout[],
     pendingOps,
     handleSelectBranch,
     handleCreateBranch,
