@@ -1,4 +1,12 @@
 export {
+  cacheBlobUrl,
+  createImageDataUrl,
+  getCachedBlobUrl,
+  isBlobUploadEnabled,
+  resolveBlobUrl,
+  uploadImageBlob,
+} from './blob';
+export {
   BRANCH_STATUS,
   type Branch,
   type BranchStatus,
