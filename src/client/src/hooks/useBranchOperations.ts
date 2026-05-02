@@ -222,18 +222,11 @@ export function useBranchOperations({
           preBranchFile.current = activeFile ?? null;
         }
 
-        let originalBase: typeof branchSheet;
-        if (branch.status === BRANCH_STATUS.MERGED) {
-          originalBase = await deps.fetchBranchSheetFromPds(
-            deps.TRUNK_PREFIX,
-            sheetId,
-          );
-        } else {
-          const storedOriginal = branchOriginalBaseMap.current.get(branch.uri);
-          originalBase = storedOriginal ?? branchSheet;
-          if (!storedOriginal) {
-            branchOriginalBaseMap.current.set(branch.uri, originalBase);
-          }
+        // branchOriginalBase: ブランチ作成時 (または前回マージ時) の trunk スナップショット
+        const storedOriginal = branchOriginalBaseMap.current.get(branch.uri);
+        const originalBase = storedOriginal ?? branchSheet;
+        if (!storedOriginal) {
+          branchOriginalBaseMap.current.set(branch.uri, originalBase);
         }
         setBranchOriginalBase(originalBase);
         if (branch.status === BRANCH_STATUS.OPEN) {
@@ -353,6 +346,8 @@ export function useBranchOperations({
         setActiveBranch(mergedBranch);
         setBranchOriginalBase(activeSheet ?? null);
         setLastCommitBase(activeSheet ?? null);
+        if (activeSheet)
+          branchOriginalBaseMap.current.set(branch.uri, activeSheet);
         lastCommitBaseMap.current.delete(branch.uri);
         setNewCommitsSinceMerge(0);
       } catch (err) {
