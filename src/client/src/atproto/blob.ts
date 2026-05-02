@@ -35,6 +35,19 @@ export function cacheBlobUrl(cid: string, bytes: Uint8Array, mimeType: string) {
   imageCache.set(cid, url);
 }
 
+export function createImageDataUrl(
+  bytes: Uint8Array,
+  mimeType: string,
+): string {
+  const copy = bytes.slice();
+  const base64 = btoa(
+    Array.from(copy)
+      .map((b) => String.fromCharCode(b))
+      .join(''),
+  );
+  return `data:${mimeType};base64,${base64}`;
+}
+
 export function getCachedBlobUrl(cid: string): string | undefined {
   return imageCache.get(cid);
 }

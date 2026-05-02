@@ -28,6 +28,7 @@ export function ImageNode({ id, data, selected }: NodeProps) {
   const imageBlobCid = (nodeData.properties?.imageBlobCid as string) ?? '';
   const imageBlobMimeType =
     (nodeData.properties?.imageBlobMimeType as string) ?? '';
+  const imageDataUrl = (nodeData.properties?.imageDataUrl as string) ?? '';
   const label = String(nodeData.label ?? '');
   const conflicted = nodeData.conflicted === true;
 
@@ -68,16 +69,28 @@ export function ImageNode({ id, data, selected }: NodeProps) {
   useEffect(() => {
     let cancelled = false;
     if (imageBlobCid && imageBlobMimeType) {
-      // アップロード直後はキャッシュから即時表示、なければ PDS から取得
+      // 1. アップロード直後のキャッシュ
       const cached = getCachedBlobUrl(imageBlobCid);
       if (cached) {
-        if (blobUrlRef.current && !blobUrlFromCache.current)
+        if (
+          blobUrlRef.current &&
+          !blobUrlFromCache.current &&
+          blobUrlRef.current.startsWith('blob:')
+        )
           URL.revokeObjectURL(blobUrlRef.current);
         blobUrlFromCache.current = true;
         blobUrlRef.current = cached;
         setBlobUrl(cached);
         return;
       }
+      // 2. data URL (再読込時のメイン表示手段)
+      if (imageDataUrl) {
+        blobUrlFromCache.current = false;
+        blobUrlRef.current = imageDataUrl;
+        setBlobUrl(imageDataUrl);
+        return;
+      }
+      // 3. PDS getBlob (フォールバック)
       const did = currentDid();
       resolveBlobUrl(did, imageBlobCid, imageBlobMimeType)
         .then((url) => {
@@ -85,7 +98,11 @@ export function ImageNode({ id, data, selected }: NodeProps) {
             URL.revokeObjectURL(url);
             return;
           }
-          if (blobUrlRef.current && !blobUrlFromCache.current)
+          if (
+            blobUrlRef.current &&
+            !blobUrlFromCache.current &&
+            blobUrlRef.current.startsWith('blob:')
+          )
             URL.revokeObjectURL(blobUrlRef.current);
           blobUrlFromCache.current = false;
           blobUrlRef.current = url;
@@ -99,12 +116,16 @@ export function ImageNode({ id, data, selected }: NodeProps) {
     return () => {
       cancelled = true;
     };
-  }, [imageBlobCid, imageBlobMimeType]);
+  }, [imageBlobCid, imageBlobMimeType, imageDataUrl]);
 
-  // アンマウント時に Object URL を解放（キャッシュ由来は除く）
+  // アンマウント時に Object URL を解放（キャッシュ由来・data URL は除く）
   useEffect(() => {
     return () => {
-      if (blobUrlRef.current && !blobUrlFromCache.current)
+      if (
+        blobUrlRef.current &&
+        !blobUrlFromCache.current &&
+        blobUrlRef.current.startsWith('blob:')
+      )
         URL.revokeObjectURL(blobUrlRef.current);
     };
   }, []);

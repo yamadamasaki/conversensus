@@ -32,7 +32,11 @@ import { toPng } from 'html-to-image';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import '@xyflow/react/dist/style.css';
 import type { GraphFile } from '@conversensus/shared';
-import { cacheBlobUrl, uploadImageBlob } from './atproto/blob';
+import {
+  cacheBlobUrl,
+  createImageDataUrl,
+  uploadImageBlob,
+} from './atproto/blob';
 import { EdgeContextMenu } from './EdgeContextMenu';
 import { EditableLabelEdge } from './EditableLabelEdge';
 import { EditableNode } from './EditableNode';
@@ -612,6 +616,7 @@ function GraphEditorInner({
           addNode(pos, 'image', {
             imageBlobCid: blobRef.cid,
             imageBlobMimeType: blobRef.mimeType,
+            imageDataUrl: createImageDataUrl(bytes, blobRef.mimeType),
           });
         } catch (err) {
           console.error('[GraphEditor] paste image upload failed:', err);
@@ -660,6 +665,7 @@ function GraphEditorInner({
             addNode(pos, 'image', {
               imageBlobCid: blobRef.cid,
               imageBlobMimeType: blobRef.mimeType,
+              imageDataUrl: createImageDataUrl(bytes, blobRef.mimeType),
             });
             e.preventDefault();
           }
@@ -705,6 +711,7 @@ function GraphEditorInner({
           addNode(pos, 'image', {
             imageBlobCid: blobRef.cid,
             imageBlobMimeType: blobRef.mimeType,
+            imageDataUrl: createImageDataUrl(bytes, blobRef.mimeType),
           });
         } catch (err) {
           console.error('[GraphEditor] drop image upload failed:', err);

@@ -1,5 +1,6 @@
 export {
   cacheBlobUrl,
+  createImageDataUrl,
   getCachedBlobUrl,
   isBlobUploadEnabled,
   resolveBlobUrl,
