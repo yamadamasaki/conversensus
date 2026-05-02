@@ -31,6 +31,13 @@ export type SheetRecord = {
   createdAt: ISODateString;
 };
 
+export type ImageBlobRef = {
+  $type: 'blob';
+  ref: { $link: string };
+  mimeType: string;
+  size: number;
+};
+
 export type NodeRecord = {
   $type: typeof NSID.node;
   sheet: StrongRef;
@@ -38,6 +45,8 @@ export type NodeRecord = {
   properties?: unknown;
   nodeType?: 'group';
   parent?: StrongRef;
+  /** blob 型フィールド。PDS が blob を保持するために必要 */
+  image?: ImageBlobRef;
   createdAt: ISODateString;
 };
 

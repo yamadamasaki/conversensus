@@ -4,6 +4,7 @@ import { currentDid, getAgent } from './client';
 type ImageBlobRef = {
   cid: string;
   mimeType: string;
+  size: number;
 };
 
 export async function uploadImageBlob(
@@ -22,6 +23,7 @@ export async function uploadImageBlob(
   return {
     cid,
     mimeType: blob.mimeType,
+    size: blob.size as number,
   };
 }
 
