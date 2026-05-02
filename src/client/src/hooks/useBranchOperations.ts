@@ -229,7 +229,10 @@ export function useBranchOperations({
           branchOriginalBaseMap.current.set(branch.uri, originalBase);
         }
         setBranchOriginalBase(originalBase);
-        if (branch.status === BRANCH_STATUS.OPEN) {
+        if (
+          branch.status === BRANCH_STATUS.OPEN ||
+          branch.status === BRANCH_STATUS.MERGED
+        ) {
           const storedLastBase = lastCommitBaseMap.current.get(branch.uri);
           if (storedLastBase) {
             setLastCommitBase(storedLastBase);
@@ -346,9 +349,10 @@ export function useBranchOperations({
         setActiveBranch(mergedBranch);
         setBranchOriginalBase(activeSheet ?? null);
         setLastCommitBase(activeSheet ?? null);
-        if (activeSheet)
+        if (activeSheet) {
           branchOriginalBaseMap.current.set(branch.uri, activeSheet);
-        lastCommitBaseMap.current.delete(branch.uri);
+          lastCommitBaseMap.current.set(branch.uri, activeSheet);
+        }
         setNewCommitsSinceMerge(0);
       } catch (err) {
         console.warn('[branch] merge failed:', err);
