@@ -32,7 +32,7 @@ import { toPng } from 'html-to-image';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import '@xyflow/react/dist/style.css';
 import type { GraphFile } from '@conversensus/shared';
-import { uploadImageBlob } from './atproto/blob';
+import { cacheBlobUrl, uploadImageBlob } from './atproto/blob';
 import { EdgeContextMenu } from './EdgeContextMenu';
 import { EditableLabelEdge } from './EditableLabelEdge';
 import { EditableNode } from './EditableNode';
@@ -596,6 +596,7 @@ function GraphEditorInner({
           const buf = await file.arrayBuffer();
           const bytes = new Uint8Array(buf);
           const blobRef = await uploadImageBlob(bytes, file.type);
+          cacheBlobUrl(blobRef.cid, bytes, blobRef.mimeType);
           const containerEl = document.querySelector('.react-flow');
           let pos = {
             x: 100 + Math.random() * 200,
@@ -647,6 +648,7 @@ function GraphEditorInner({
           const buf = await file.arrayBuffer();
           const bytes = new Uint8Array(buf);
           const blobRef = await uploadImageBlob(bytes, file.type);
+          cacheBlobUrl(blobRef.cid, bytes, blobRef.mimeType);
           const pos = screenToFlowPosition({
             x: e.clientX,
             y: e.clientY,

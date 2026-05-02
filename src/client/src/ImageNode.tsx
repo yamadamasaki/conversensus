@@ -7,7 +7,7 @@ import {
   useReactFlow,
 } from '@xyflow/react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { resolveBlobUrl } from './atproto/blob';
+import { getCachedBlobUrl, resolveBlobUrl } from './atproto/blob';
 import { currentDid } from './atproto/client';
 import { useEventDispatch } from './EventDispatchContext';
 import { makeEventBase } from './events/GraphEvent';
@@ -66,6 +66,14 @@ export function ImageNode({ id, data, selected }: NodeProps) {
   useEffect(() => {
     let cancelled = false;
     if (imageBlobCid && imageBlobMimeType) {
+      // アップロード直後はキャッシュから即時表示、なければ PDS から取得
+      const cached = getCachedBlobUrl(imageBlobCid);
+      if (cached) {
+        if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
+        blobUrlRef.current = cached;
+        setBlobUrl(cached);
+        return;
+      }
       const did = currentDid();
       resolveBlobUrl(did, imageBlobCid, imageBlobMimeType)
         .then((url) => {

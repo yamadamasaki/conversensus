@@ -1,4 +1,6 @@
 export {
+  cacheBlobUrl,
+  getCachedBlobUrl,
   isBlobUploadEnabled,
   resolveBlobUrl,
   uploadImageBlob,

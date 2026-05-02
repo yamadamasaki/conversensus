@@ -25,27 +25,29 @@ export async function uploadImageBlob(
   };
 }
 
+// アップロード直後の画像をキャッシュし、getBlob せずに即時表示できるようにする
+const imageCache = new Map<string, string>();
+
+export function cacheBlobUrl(cid: string, bytes: Uint8Array, mimeType: string) {
+  const url = URL.createObjectURL(new Blob([bytes], { type: mimeType }));
+  imageCache.set(cid, url);
+}
+
+export function getCachedBlobUrl(cid: string): string | undefined {
+  return imageCache.get(cid);
+}
+
 export async function resolveBlobUrl(
   did: Did,
   cid: string,
   mimeType: string,
 ): Promise<string> {
-  try {
-    const res = await getAgent().api.com.atproto.sync.getBlob({ did, cid });
-    if (!res.success) {
-      throw new Error(`Failed to resolve blob: ${cid}`);
-    }
-    const blob = new Blob([res.data], { type: mimeType });
-    return URL.createObjectURL(blob);
-  } catch (err) {
-    console.error('[blob] resolveBlobUrl failed:', {
-      did,
-      cid,
-      mimeType,
-      err,
-    });
-    throw err;
+  const res = await getAgent().api.com.atproto.sync.getBlob({ did, cid });
+  if (!res.success) {
+    throw new Error(`Failed to resolve blob: ${cid}`);
   }
+  const blob = new Blob([res.data], { type: mimeType });
+  return URL.createObjectURL(blob);
 }
 
 let _uploadEnabled: boolean | null = null;
