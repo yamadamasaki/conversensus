@@ -137,10 +137,12 @@ export function createInMemoryBranchOpsDeps(): {
   TRUNK_PREFIX: string;
   _branches: Map<string, AnySheet[]>;
   _commits: Map<string, AnySheet[]>;
+  _setComputeOps: (ops: AnySheet[]) => void;
 } {
   const branches = new Map<string, AnySheet[]>();
   const commits = new Map<string, AnySheet[]>();
   let branchCounter = 0;
+  let _computeOps: AnySheet[] = [];
 
   return {
     _branches: branches,
@@ -221,7 +223,11 @@ export function createInMemoryBranchOpsDeps(): {
 
     syncFileToAtproto: async () => {},
 
-    computeOperations: () => [],
+    computeOperations: () => _computeOps,
+
+    _setComputeOps: (ops: AnySheet[]) => {
+      _computeOps = ops;
+    },
 
     TRUNK_PREFIX: 'trunk',
   };

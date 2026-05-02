@@ -312,6 +312,196 @@ describe('useBranchOperations', () => {
     });
   });
 
+  describe('pendingOps (commit 可能な変更の検出)', () => {
+    it('OPEN branch で変更あり → pendingOps に含まれる', async () => {
+      const { result, deps } = await render();
+      deps._setComputeOps([{ op: 'node.add', nodeId: 'n1', content: 'hi' }]);
+
+      await act(async () => {
+        await result.current.handleSelectBranch('s1', {
+          id: 'b1',
+          name: 'feat',
+          uri: 'at://b/1',
+          cid: 'c1',
+          sheetId: 's1',
+          status: 'open' as const,
+        });
+      });
+
+      expect(result.current.pendingOps.length).toBe(1);
+    });
+
+    it('MERGED branch で変更あり → pendingOps に含まれる', async () => {
+      const { result, deps } = await render();
+      deps._setComputeOps([{ op: 'node.add', nodeId: 'n1', content: 'hi' }]);
+
+      await act(async () => {
+        await result.current.handleSelectBranch('s1', {
+          id: 'b1',
+          name: 'feat',
+          uri: 'at://b/1',
+          cid: 'c1',
+          sheetId: 's1',
+          status: 'merged' as const,
+        });
+      });
+
+      expect(result.current.pendingOps.length).toBe(1);
+    });
+
+    it('CLOSED branch → pendingOps 空', async () => {
+      const { result, deps } = await render();
+      deps._setComputeOps([{ op: 'node.add', nodeId: 'n1', content: 'hi' }]);
+
+      await act(async () => {
+        await result.current.handleSelectBranch('s1', {
+          id: 'b1',
+          name: 'feat',
+          uri: 'at://b/1',
+          cid: 'c1',
+          sheetId: 's1',
+          status: 'closed' as const,
+        });
+      });
+
+      expect(result.current.pendingOps).toEqual([]);
+    });
+
+    it('isTrunk 時は pendingOps 空', async () => {
+      const { result, deps } = await render();
+      deps._setComputeOps([{ op: 'node.add', nodeId: 'n1', content: 'hi' }]);
+      expect(result.current.pendingOps).toEqual([]);
+    });
+  });
+
+  describe('deletedNodes / deletedEdges (ゴースト表示用)', () => {
+    it('node.remove op → deletedNodes に含まれ、branchDiffNodeIds に含まれない', async () => {
+      const { result, deps } = await render();
+      deps._setComputeOps([{ op: 'node.remove', nodeId: 'n1' }]);
+
+      await act(async () => {
+        await result.current.handleSelectBranch('s1', {
+          id: 'b1',
+          name: 'feat',
+          uri: 'at://b/1',
+          cid: 'c1',
+          sheetId: 's1',
+          status: 'open' as const,
+        });
+      });
+
+      expect(result.current.deletedNodes).toEqual([]); // base に n1 が存在しない
+      expect(result.current.branchDiffNodeIds.size).toBe(0); // remove は conflicted に入らない
+    });
+
+    it('edge.remove op → branchDiffEdgeIds に含まれない', async () => {
+      const { result, deps } = await render();
+      deps._setComputeOps([{ op: 'edge.remove', edgeId: 'e1' }]);
+
+      await act(async () => {
+        await result.current.handleSelectBranch('s1', {
+          id: 'b1',
+          name: 'feat',
+          uri: 'at://b/1',
+          cid: 'c1',
+          sheetId: 's1',
+          status: 'open' as const,
+        });
+      });
+
+      expect(result.current.branchDiffEdgeIds.has('e1')).toBe(false);
+    });
+
+    it('node.add op → branchDiffNodeIds に含まれる', async () => {
+      const { result, deps } = await render();
+      deps._setComputeOps([{ op: 'node.add', nodeId: 'n1', content: 'hi' }]);
+
+      await act(async () => {
+        await result.current.handleSelectBranch('s1', {
+          id: 'b1',
+          name: 'feat',
+          uri: 'at://b/1',
+          cid: 'c1',
+          sheetId: 's1',
+          status: 'open' as const,
+        });
+      });
+
+      expect(result.current.branchDiffNodeIds.has('n1')).toBe(true);
+    });
+  });
+
+  describe('handleSelectBranch 状態遷移', () => {
+    it('trunk → branch: onSetActiveFile で preBranchFile が復元されない', async () => {
+      const { result } = await render();
+      // trunk → branch
+      await act(async () => {
+        await result.current.handleSelectBranch('s1', {
+          id: 'b1',
+          name: 'feat',
+          uri: 'at://b/1',
+          cid: 'c1',
+          sheetId: 's1',
+          status: 'open' as const,
+        });
+      });
+      // trunk に戻る → preBranchFile が復元される
+      await act(async () => {
+        await result.current.handleSelectBranch('s1', null);
+      });
+      expect(mockOnSetActiveFile).toHaveBeenCalled();
+    });
+
+    it('MERGED branch 選択時に lastCommitBase が設定される', async () => {
+      const { result } = await render();
+
+      await act(async () => {
+        await result.current.handleSelectBranch('s1', {
+          id: 'b1',
+          name: 'feat',
+          uri: 'at://b/1',
+          cid: 'c1',
+          sheetId: 's1',
+          status: 'merged' as const,
+        });
+      });
+
+      // pendingOps が空配列（lastCommitBase === originalBase なので変更なし）
+      expect(result.current.pendingOps).toEqual([]);
+      expect(result.current.activeBranch?.status).toBe('merged');
+    });
+  });
+
+  describe('File 切り替え時のリセット', () => {
+    it('activeFile.id 変更 → activeBranch が null にリセット', async () => {
+      const { result, rerender } = await render();
+      // まず branch に入る
+      await act(async () => {
+        await result.current.handleSelectBranch('s1', {
+          id: 'b1',
+          name: 'feat',
+          uri: 'at://b/1',
+          cid: 'c1',
+          sheetId: 's1',
+          status: 'open' as const,
+        });
+      });
+      expect(result.current.activeBranch).not.toBeNull();
+
+      // File を切り替え
+      await act(async () => {
+        rerender({
+          activeFile: { ...mockActiveFile, id: 'f2' },
+          activeSheetId: 's1',
+          activeSheet: mockActiveSheet,
+        });
+        await new Promise((r) => setTimeout(r, 10));
+      });
+
+      expect(result.current.activeBranch).toBeNull();
+    });
+  });
+
   describe('setCommitDialogOpen', () => {
     it('commitDialogOpen を切り替えられる', async () => {
       const { result } = await render();
