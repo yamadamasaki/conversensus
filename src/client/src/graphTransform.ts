@@ -416,5 +416,18 @@ export function toFlowAndGhostEdges(
     deletable: false,
     reconnectable: false,
   }));
-  return [...active, ...ghosts];
+  const result = [...active, ...ghosts];
+  if (ghosts.length > 0) {
+    console.log(
+      '[toFlowAndGhostEdges] ghosts:',
+      ghosts.map((e) => `${e.id} (src=${e.source}→tgt=${e.target})`),
+    );
+    console.log(
+      '[toFlowAndGhostEdges] active edge count:',
+      active.length,
+      'ghost edge count:',
+      ghosts.length,
+    );
+  }
+  return result;
 }
