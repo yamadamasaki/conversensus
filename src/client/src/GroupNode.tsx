@@ -89,6 +89,7 @@ export function GroupNode({
     [id, screenToFlowPosition, dispatch],
   );
   const label = String(data.label ?? '');
+  const ghost = data.ghost === true;
 
   const {
     editing,
@@ -110,6 +111,44 @@ export function GroupNode({
       });
     }
   });
+
+  if (ghost) {
+    return (
+      <div
+        style={{
+          width: '100%',
+          height: '100%',
+          borderRadius: 8,
+          border: '2px dashed #aaa',
+          background: 'rgba(0,0,0,0.02)',
+          boxSizing: 'border-box',
+          display: 'flex',
+          flexDirection: 'column',
+        }}
+      >
+        <div
+          style={{
+            padding: '4px 10px',
+            borderBottom: '1px solid #ddd',
+            background: 'rgba(0,0,0,0.04)',
+            borderRadius: '6px 6px 0 0',
+            fontSize: 12,
+            fontWeight: 600,
+            color: '#999',
+            minHeight: 26,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+          }}
+        >
+          <span style={{ textDecoration: 'line-through' }}>
+            {label || 'グループ'}
+          </span>
+        </div>
+        <div style={{ flex: 1 }} />
+      </div>
+    );
+  }
 
   return (
     <>

@@ -365,3 +365,56 @@ export function fromFlowEdges(edges: Edge[]): {
 
   return { edges: graphEdges, edgeLayouts };
 }
+
+// --- ゴーストノード/エッジ変換（削除予定表示用） ---
+
+const GHOST_OPACITY = 0.55;
+
+export function toFlowAndGhostNodes(
+  nodes: GraphNode[],
+  layouts: NodeLayout[],
+  deletedNodes: GraphNode[],
+  deletedLayouts: NodeLayout[],
+  conflictedNodeIds?: Set<string>,
+): Node[] {
+  const active = toFlowNodes(nodes, layouts, conflictedNodeIds);
+  const ghosts = toFlowNodes(deletedNodes, deletedLayouts).map((n) => ({
+    ...n,
+    id: `ghost-${n.id}`,
+    data: { ...n.data, ghost: true },
+    style: { ...n.style, opacity: GHOST_OPACITY },
+    draggable: false,
+    selectable: false,
+  }));
+  return [...active, ...ghosts];
+}
+
+export function toFlowAndGhostEdges(
+  edges: GraphEdge[],
+  edgeLayouts: EdgeLayout[],
+  deletedEdges: GraphEdge[],
+  deletedLayouts: EdgeLayout[],
+  deletedNodeIds: Set<string>,
+  conflictedEdgeIds?: Set<string>,
+): Edge[] {
+  const active = toFlowEdges(edges, edgeLayouts, conflictedEdgeIds);
+  const ghosts = toFlowEdges(deletedEdges, deletedLayouts).map((e) => ({
+    ...e,
+    id: `ghost-${e.id}`,
+    source: deletedNodeIds.has(e.source) ? `ghost-${e.source}` : e.source,
+    target: deletedNodeIds.has(e.target) ? `ghost-${e.target}` : e.target,
+    data: { ...e.data, ghost: true },
+    style: {
+      ...e.style,
+      stroke: '#aaa',
+      strokeDasharray: '5 5',
+      opacity: GHOST_OPACITY,
+    },
+    markerEnd: undefined,
+    selectable: false,
+    focusable: false,
+    deletable: false,
+    reconnectable: false,
+  }));
+  return [...active, ...ghosts];
+}

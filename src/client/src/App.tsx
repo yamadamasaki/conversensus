@@ -66,7 +66,8 @@ export default function App() {
           branch &&
           branch.name !== TRUNK_PREFIX &&
           sheetId &&
-          branch.status === BRANCH_STATUS.OPEN
+          (branch.status === BRANCH_STATUS.OPEN ||
+            branch.status === BRANCH_STATUS.MERGED)
         ) {
           const sheet = updated.sheets.find((s) => s.id === sheetId);
           if (!sheet) return;
@@ -170,6 +171,10 @@ export default function App() {
             onChange={handleChange}
             conflictedNodeIds={branchOps.conflictedNodeIds}
             conflictedEdgeIds={branchOps.conflictedEdgeIds}
+            deletedNodes={branchOps.deletedNodes}
+            deletedEdges={branchOps.deletedEdges}
+            deletedNodeLayouts={branchOps.deletedNodeLayouts}
+            deletedEdgeLayouts={branchOps.deletedEdgeLayouts}
           />
         ) : (
           <div
@@ -185,82 +190,87 @@ export default function App() {
           </div>
         )}
       </main>
-      {!branchOps.isTrunk && branch && branch.status === BRANCH_STATUS.OPEN && (
-        <div
-          style={{
-            position: 'fixed',
-            bottom: 24,
-            right: 24,
-            zIndex: FLOATING_UI_Z_INDEX,
-            display: 'flex',
-            gap: 8,
-            alignItems: 'center',
-          }}
-        >
-          <span
+      {!branchOps.isTrunk &&
+        branch &&
+        (branch.status === BRANCH_STATUS.OPEN ||
+          branch.status === BRANCH_STATUS.MERGED) && (
+          <div
             style={{
-              fontSize: 12,
-              color: '#555',
-              background: '#fff',
-              padding: '4px 8px',
-              borderRadius: 4,
-              border: '1px solid #ddd',
+              position: 'fixed',
+              bottom: 24,
+              right: 24,
+              zIndex: FLOATING_UI_Z_INDEX,
+              display: 'flex',
+              gap: 8,
+              alignItems: 'center',
             }}
           >
-            ⎇ {branch.name}{' '}
-            {branchOps.pendingOps.length > 0
-              ? `(${branchOps.pendingOps.length} 変更)`
-              : ''}
-          </span>
-          <button
-            type="button"
-            onClick={() => branchOps.setCommitDialogOpen(true)}
-            disabled={branchOps.pendingOps.length === 0}
-            style={{
-              padding: '6px 16px',
-              fontSize: 13,
-              background: branchOps.pendingOps.length > 0 ? '#4f6ef7' : '#ccc',
-              color: '#fff',
-              border: 'none',
-              borderRadius: 4,
-              cursor:
-                branchOps.pendingOps.length > 0 ? 'pointer' : 'not-allowed',
-            }}
-          >
-            コミット
-          </button>
-          <button
-            type="button"
-            onClick={() => branchOps.handleMergeBranch(branch)}
-            disabled={
-              branchOps.pendingOps.length > 0 ||
-              branchOps.newCommitsSinceMerge === 0 ||
-              branch.status === BRANCH_STATUS.CLOSED
-            }
-            style={{
-              padding: '6px 16px',
-              fontSize: 13,
-              background:
-                branchOps.pendingOps.length === 0 &&
-                branchOps.newCommitsSinceMerge > 0 &&
-                branch.status !== BRANCH_STATUS.CLOSED
-                  ? '#f97316'
-                  : '#ccc',
-              color: '#fff',
-              border: 'none',
-              borderRadius: 4,
-              cursor:
-                branchOps.pendingOps.length === 0 &&
-                branchOps.newCommitsSinceMerge > 0 &&
-                branch.status !== BRANCH_STATUS.CLOSED
-                  ? 'pointer'
-                  : 'not-allowed',
-            }}
-          >
-            merge ↑
-          </button>
-        </div>
-      )}
+            <span
+              style={{
+                fontSize: 12,
+                color: '#555',
+                background: '#fff',
+                padding: '4px 8px',
+                borderRadius: 4,
+                border: '1px solid #ddd',
+              }}
+            >
+              ⎇ {branch.name}
+              {branch.status === BRANCH_STATUS.MERGED && ' (merged)'}
+              {branchOps.pendingOps.length > 0
+                ? ` (${branchOps.pendingOps.length} 変更)`
+                : ''}
+            </span>
+            <button
+              type="button"
+              onClick={() => branchOps.setCommitDialogOpen(true)}
+              disabled={branchOps.pendingOps.length === 0}
+              style={{
+                padding: '6px 16px',
+                fontSize: 13,
+                background:
+                  branchOps.pendingOps.length > 0 ? '#4f6ef7' : '#ccc',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 4,
+                cursor:
+                  branchOps.pendingOps.length > 0 ? 'pointer' : 'not-allowed',
+              }}
+            >
+              コミット
+            </button>
+            <button
+              type="button"
+              onClick={() => branchOps.handleMergeBranch(branch)}
+              disabled={
+                branchOps.pendingOps.length > 0 ||
+                branchOps.newCommitsSinceMerge === 0 ||
+                branch.status !== BRANCH_STATUS.OPEN
+              }
+              style={{
+                padding: '6px 16px',
+                fontSize: 13,
+                background:
+                  branchOps.pendingOps.length === 0 &&
+                  branchOps.newCommitsSinceMerge > 0 &&
+                  branch.status === BRANCH_STATUS.OPEN
+                    ? '#f97316'
+                    : '#ccc',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 4,
+                cursor:
+                  branchOps.pendingOps.length === 0 &&
+                  branchOps.newCommitsSinceMerge > 0 &&
+                  branch.status === BRANCH_STATUS.OPEN
+                    ? 'pointer'
+                    : 'not-allowed',
+              }}
+            >
+              merge ↑
+            </button>
+          </div>
+        )}
       {branchOps.commitDialogOpen && (
         <CommitDialog
           operations={branchOps.pendingOps}

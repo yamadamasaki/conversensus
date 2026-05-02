@@ -1,4 +1,12 @@
-import type { GraphFile, Sheet, SheetId } from '@conversensus/shared';
+import type {
+  EdgeLayout,
+  GraphEdge,
+  GraphFile,
+  GraphNode,
+  NodeLayout,
+  Sheet,
+  SheetId,
+} from '@conversensus/shared';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   BRANCH_STATUS,
@@ -104,6 +112,19 @@ export function useBranchOperations({
 
   const isTrunk = !activeBranch || activeBranch.name === TRUNK_PREFIX;
 
+  // File が切り替わったらブランチ状態をリセット
+  // biome-ignore lint/correctness/useExhaustiveDependencies: activeFile?.id の変化をトリガーにする意図的な設計
+  useEffect(() => {
+    setActiveBranch(null);
+    setLastCommitBase(null);
+    setBranchOriginalBase(null);
+    setNewCommitsSinceMerge(0);
+    branchOriginalBaseMap.current.clear();
+    lastCommitBaseMap.current.clear();
+    preBranchFile.current = null;
+    latestCommitRef.current = null;
+  }, [activeFile?.id]);
+
   const [branchDiffNodeIds, branchDiffEdgeIds] = useMemo(() => {
     if (isTrunk || !branchOriginalBase || !activeSheet) {
       return [new Set<string>(), new Set<string>()] as const;
@@ -112,18 +133,46 @@ export function useBranchOperations({
     const nodeIds = new Set<string>();
     const edgeIds = new Set<string>();
     for (const op of ops) {
+      // 削除は conflicted に含めない（ゴースト表示用に別途計算）
+      if (op.op === 'node.remove' || op.op === 'edge.remove') continue;
       if ('nodeId' in op) nodeIds.add(op.nodeId);
       else if ('edgeId' in op) edgeIds.add(op.edgeId);
     }
     return [nodeIds, edgeIds] as const;
   }, [isTrunk, branchOriginalBase, activeSheet, deps]);
 
+  // 削除予定のノード/エッジ（base に存在し current に存在しない）
+  const [deletedNodes, deletedEdges, deletedNodeLayouts, deletedEdgeLayouts] =
+    useMemo(() => {
+      if (isTrunk || !branchOriginalBase || !activeSheet) {
+        return [[], [], [], []] as const;
+      }
+      const ops = deps.computeOperations(branchOriginalBase, activeSheet);
+      const removedNodeIds = new Set<string>();
+      const removedEdgeIds = new Set<string>();
+      for (const op of ops) {
+        if (op.op === 'node.remove') removedNodeIds.add(op.nodeId);
+        if (op.op === 'edge.remove') removedEdgeIds.add(op.edgeId);
+      }
+      return [
+        branchOriginalBase.nodes.filter((n) => removedNodeIds.has(n.id)),
+        branchOriginalBase.edges.filter((e) => removedEdgeIds.has(e.id)),
+        (branchOriginalBase.layouts ?? []).filter((l) =>
+          removedNodeIds.has(l.nodeId),
+        ),
+        (branchOriginalBase.edgeLayouts ?? []).filter((l) =>
+          removedEdgeIds.has(l.edgeId),
+        ),
+      ] as const;
+    }, [isTrunk, branchOriginalBase, activeSheet, deps]);
+
   const pendingOps = useMemo(() => {
     if (
       isTrunk ||
       !lastCommitBase ||
       !activeSheet ||
-      activeBranch?.status !== BRANCH_STATUS.OPEN
+      (activeBranch?.status !== BRANCH_STATUS.OPEN &&
+        activeBranch?.status !== BRANCH_STATUS.MERGED)
     )
       return [];
     return deps.computeOperations(lastCommitBase, activeSheet);
@@ -168,23 +217,22 @@ export function useBranchOperations({
         );
         const cs = await deps.fetchCommitsForBranch(branch.uri);
 
-        preBranchFile.current = activeFile ?? null;
+        // trunk からブランチに入る時のみ trunk の状態を保存
+        if (!activeBranch || activeBranch.name === TRUNK_PREFIX) {
+          preBranchFile.current = activeFile ?? null;
+        }
 
-        let originalBase: typeof branchSheet;
-        if (branch.status === BRANCH_STATUS.MERGED) {
-          originalBase = await deps.fetchBranchSheetFromPds(
-            deps.TRUNK_PREFIX,
-            sheetId,
-          );
-        } else {
-          const storedOriginal = branchOriginalBaseMap.current.get(branch.uri);
-          originalBase = storedOriginal ?? branchSheet;
-          if (!storedOriginal) {
-            branchOriginalBaseMap.current.set(branch.uri, originalBase);
-          }
+        // branchOriginalBase: ブランチ作成時 (または前回マージ時) の trunk スナップショット
+        const storedOriginal = branchOriginalBaseMap.current.get(branch.uri);
+        const originalBase = storedOriginal ?? branchSheet;
+        if (!storedOriginal) {
+          branchOriginalBaseMap.current.set(branch.uri, originalBase);
         }
         setBranchOriginalBase(originalBase);
-        if (branch.status === BRANCH_STATUS.OPEN) {
+        if (
+          branch.status === BRANCH_STATUS.OPEN ||
+          branch.status === BRANCH_STATUS.MERGED
+        ) {
           const storedLastBase = lastCommitBaseMap.current.get(branch.uri);
           if (storedLastBase) {
             setLastCommitBase(storedLastBase);
@@ -218,7 +266,7 @@ export function useBranchOperations({
         console.warn('[branch] select failed:', err);
       }
     },
-    [activeFile, onSetActiveFile, deps],
+    [activeFile, onSetActiveFile, deps, activeBranch],
   );
 
   const handleCreateBranch = useCallback(
@@ -301,7 +349,10 @@ export function useBranchOperations({
         setActiveBranch(mergedBranch);
         setBranchOriginalBase(activeSheet ?? null);
         setLastCommitBase(activeSheet ?? null);
-        lastCommitBaseMap.current.delete(branch.uri);
+        if (activeSheet) {
+          branchOriginalBaseMap.current.set(branch.uri, activeSheet);
+          lastCommitBaseMap.current.set(branch.uri, activeSheet);
+        }
         setNewCommitsSinceMerge(0);
       } catch (err) {
         console.warn('[branch] merge failed:', err);
@@ -465,6 +516,10 @@ export function useBranchOperations({
     branchDiffEdgeIds,
     conflictedNodeIds: branchDiffNodeIds,
     conflictedEdgeIds: branchDiffEdgeIds,
+    deletedNodes: deletedNodes as GraphNode[],
+    deletedEdges: deletedEdges as GraphEdge[],
+    deletedNodeLayouts: deletedNodeLayouts as NodeLayout[],
+    deletedEdgeLayouts: deletedEdgeLayouts as EdgeLayout[],
     pendingOps,
     handleSelectBranch,
     handleCreateBranch,

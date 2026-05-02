@@ -31,6 +31,7 @@ export function ImageNode({ id, data, selected }: NodeProps) {
   const imageDataUrl = (nodeData.properties?.imageDataUrl as string) ?? '';
   const label = String(nodeData.label ?? '');
   const conflicted = nodeData.conflicted === true;
+  const ghost = nodeData.ghost === true;
 
   const preSizeRef = useRef({ width: 0, height: 0 });
 
@@ -175,6 +176,60 @@ export function ImageNode({ id, data, selected }: NodeProps) {
   useEffect(() => {
     setImgError(false);
   }, [displayUrl]);
+
+  if (ghost) {
+    return (
+      <>
+        <Handle type="source" position={Position.Top} id="source-top" />
+        <div
+          style={{
+            width: '100%',
+            height: '100%',
+            borderRadius: 6,
+            border: '1px dashed #aaa',
+            background: 'rgba(0,0,0,0.02)',
+            boxSizing: 'border-box',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+          }}
+        >
+          <div
+            style={{
+              padding: '3px 8px',
+              borderBottom: '1px solid #eee',
+              background: 'rgba(0,0,0,0.03)',
+              borderRadius: '5px 5px 0 0',
+              fontSize: 10,
+              color: '#999',
+              minHeight: 20,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+            }}
+          >
+            <span style={{ textDecoration: 'line-through' }}>
+              {label || ''}
+            </span>
+          </div>
+          <div
+            style={{
+              flex: 1,
+              background: '#f5f5f5',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <span style={{ fontSize: 11, color: '#aaa' }}>画像</span>
+          </div>
+        </div>
+        <Handle type="source" position={Position.Bottom} id="source-bottom" />
+        <Handle type="source" position={Position.Left} id="source-left" />
+        <Handle type="source" position={Position.Right} id="source-right" />
+      </>
+    );
+  }
 
   return (
     <>

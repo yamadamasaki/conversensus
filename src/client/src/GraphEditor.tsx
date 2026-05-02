@@ -57,8 +57,8 @@ import {
   PNG_EXPORT_WIDTH,
   RF_GROUP_NODE_TYPE,
   RF_IMAGE_NODE_TYPE,
-  toFlowEdges,
-  toFlowNodes,
+  toFlowAndGhostEdges,
+  toFlowAndGhostNodes,
 } from './graphTransform';
 import { useClipboard } from './hooks/useClipboard';
 import { useEdgeContextMenu } from './hooks/useEdgeContextMenu';
@@ -124,6 +124,10 @@ type Props = {
   onChange: (file: GraphFile) => void;
   conflictedNodeIds?: Set<string>;
   conflictedEdgeIds?: Set<string>;
+  deletedNodes?: GraphNode[];
+  deletedEdges?: GraphEdge[];
+  deletedNodeLayouts?: NodeLayout[];
+  deletedEdgeLayouts?: EdgeLayout[];
   graphKey?: string;
   undoStateMap?: React.MutableRefObject<Map<string, UndoState>>;
 };
@@ -134,33 +138,56 @@ function GraphEditorInner({
   onChange,
   conflictedNodeIds,
   conflictedEdgeIds,
+  deletedNodes,
+  deletedEdges,
+  deletedNodeLayouts,
+  deletedEdgeLayouts,
   graphKey,
   undoStateMap,
 }: Props) {
   const { screenToFlowPosition, getNodes, getEdges } = useReactFlow();
   const activeSheet = file.sheets.find((s) => s.id === activeSheetId);
+
+  const ghostDeletedNodeIds = useMemo(
+    () => new Set((deletedNodes ?? []).map((n) => n.id)),
+    [deletedNodes],
+  );
+
   const [nodes, setNodes, onNodesChange] = useNodesState(
-    toFlowNodes(
+    toFlowAndGhostNodes(
       activeSheet?.nodes ?? [],
       activeSheet?.layouts ?? [],
+      deletedNodes ?? [],
+      deletedNodeLayouts ?? [],
       conflictedNodeIds,
     ),
   );
   const [edges, setEdges, onEdgesChange] = useEdgesState(
-    toFlowEdges(
+    toFlowAndGhostEdges(
       activeSheet?.edges ?? [],
       activeSheet?.edgeLayouts ?? [],
+      deletedEdges ?? [],
+      deletedEdgeLayouts ?? [],
+      ghostDeletedNodeIds,
       conflictedEdgeIds,
     ),
   );
 
-  // 常に最新の file / activeSheetId / onChange を参照するための ref
+  // 常に最新の file / activeSheetId / onChange / deleted items を参照するための ref
   const fileRef = useRef(file);
   fileRef.current = file;
   const activeSheetIdRef = useRef(activeSheetId);
   activeSheetIdRef.current = activeSheetId;
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  const deletedNodesRef = useRef(deletedNodes);
+  deletedNodesRef.current = deletedNodes;
+  const deletedEdgesRef = useRef(deletedEdges);
+  deletedEdgesRef.current = deletedEdges;
+  const deletedNodeLayoutsRef = useRef(deletedNodeLayouts);
+  deletedNodeLayoutsRef.current = deletedNodeLayouts;
+  const deletedEdgeLayoutsRef = useRef(deletedEdgeLayouts);
+  deletedEdgeLayoutsRef.current = deletedEdgeLayouts;
 
   // sheet/file 切り替え後、ReactFlow の初期化 (dimensions 計測) が完了するまで
   // onChange を抑制するフラグ。ReactFlow はノード数分だけ dimensions 変更を発火するため
@@ -177,12 +204,21 @@ function GraphEditorInner({
       (s) => s.id === activeSheetIdRef.current,
     );
     setNodes(
-      toFlowNodes(sheet?.nodes ?? [], sheet?.layouts ?? [], conflictedNodeIds),
+      toFlowAndGhostNodes(
+        sheet?.nodes ?? [],
+        sheet?.layouts ?? [],
+        deletedNodesRef.current ?? [],
+        deletedNodeLayoutsRef.current ?? [],
+        conflictedNodeIds,
+      ),
     );
     setEdges(
-      toFlowEdges(
+      toFlowAndGhostEdges(
         sheet?.edges ?? [],
         sheet?.edgeLayouts ?? [],
+        deletedEdgesRef.current ?? [],
+        deletedEdgeLayoutsRef.current ?? [],
+        new Set((deletedNodesRef.current ?? []).map((n) => n.id)),
         conflictedEdgeIds,
       ),
     );
@@ -220,6 +256,37 @@ function GraphEditorInner({
     );
   }, [conflictedEdgeIds, setEdges]);
 
+  // 削除ノード/エッジが変わったらゴーストを同期
+  useEffect(() => {
+    conflictUpdatePendingRef.current = true;
+    setNodes((current) => {
+      const active = current.filter((n) => !n.data?.ghost);
+      const ghosts = toFlowAndGhostNodes(
+        [],
+        [],
+        deletedNodes ?? [],
+        deletedNodeLayouts ?? [],
+      );
+      return [...active, ...ghosts];
+    });
+  }, [deletedNodes, deletedNodeLayouts, setNodes]);
+
+  useEffect(() => {
+    conflictUpdatePendingRef.current = true;
+    const dnIds = new Set((deletedNodes ?? []).map((n) => n.id));
+    setEdges((current) => {
+      const active = current.filter((e) => !e.data?.ghost);
+      const ghosts = toFlowAndGhostEdges(
+        [],
+        [],
+        deletedEdges ?? [],
+        deletedEdgeLayouts ?? [],
+        dnIds,
+      );
+      return [...active, ...ghosts];
+    });
+  }, [deletedNodes, deletedEdges, deletedEdgeLayouts, setEdges]);
+
   // nodes/edges が変わったら親に通知
   useEffect(() => {
     // コンフリクトスタイル更新 (見た目のみ) の場合は onChange を呼ばない
@@ -231,8 +298,11 @@ function GraphEditorInner({
     // 初期化フェーズ (ReactFlow dimension 計測中) は onChange を呼ばない
     if (!readyForSave.current) return;
     const currentSheetId = activeSheetIdRef.current;
-    const { nodes: graphNodes, layouts } = fromFlowNodes(nodes);
-    const { edges: graphEdges, edgeLayouts } = fromFlowEdges(edges);
+    // ゴーストノード/エッジを除外（保存対象外）
+    const activeNodes = nodes.filter((n) => !n.data?.ghost);
+    const activeEdges = edges.filter((e) => !e.data?.ghost);
+    const { nodes: graphNodes, layouts } = fromFlowNodes(activeNodes);
+    const { edges: graphEdges, edgeLayouts } = fromFlowEdges(activeEdges);
     onChangeRef.current({
       ...fileRef.current,
       sheets: fileRef.current.sheets.map((s) =>
