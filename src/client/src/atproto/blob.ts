@@ -44,11 +44,30 @@ export async function resolveBlobUrl(
   cid: string,
   mimeType: string,
 ): Promise<string> {
-  const res = await getAgent().api.com.atproto.sync.getBlob({ did, cid });
-  if (!res.success) {
-    throw new Error(`Failed to resolve blob: ${cid}`);
+  // com.atproto.sync.getBlob を試す
+  try {
+    const res = await getAgent().api.com.atproto.sync.getBlob({ did, cid });
+    if (res.success) {
+      const blob = new Blob([res.data], { type: mimeType });
+      return URL.createObjectURL(blob);
+    }
+    console.warn('[blob] sync.getBlob returned success=false');
+  } catch (err) {
+    console.warn('[blob] sync.getBlob failed:', err);
   }
-  const blob = new Blob([res.data], { type: mimeType });
+
+  // フォールバック: PDS の raw blob URL
+  const pdsUrl = getAgent().service.toString();
+  const rawUrl = `${pdsUrl}/blob/${did}/${cid}`;
+  const res = await fetch(rawUrl);
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(
+      `Failed to resolve blob ${cid} (HTTP ${res.status}): ${body}`,
+    );
+  }
+  const data = await res.arrayBuffer();
+  const blob = new Blob([data], { type: mimeType });
   return URL.createObjectURL(blob);
 }
 
