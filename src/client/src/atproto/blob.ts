@@ -30,12 +30,22 @@ export async function resolveBlobUrl(
   cid: string,
   mimeType: string,
 ): Promise<string> {
-  const res = await getAgent().api.com.atproto.sync.getBlob({ did, cid });
-  if (!res.success) {
-    throw new Error(`Failed to resolve blob: ${cid}`);
+  try {
+    const res = await getAgent().api.com.atproto.sync.getBlob({ did, cid });
+    if (!res.success) {
+      throw new Error(`Failed to resolve blob: ${cid}`);
+    }
+    const blob = new Blob([res.data], { type: mimeType });
+    return URL.createObjectURL(blob);
+  } catch (err) {
+    console.error('[blob] resolveBlobUrl failed:', {
+      did,
+      cid,
+      mimeType,
+      err,
+    });
+    throw err;
   }
-  const blob = new Blob([res.data], { type: mimeType });
-  return URL.createObjectURL(blob);
 }
 
 let _uploadEnabled: boolean | null = null;
