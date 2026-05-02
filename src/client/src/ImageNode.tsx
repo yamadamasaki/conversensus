@@ -97,6 +97,7 @@ export function ImageNode({ id, data, selected }: NodeProps) {
   const [editingUrl, setEditingUrl] = useState(false);
   const [urlInput, setUrlInput] = useState(imageUrl);
   const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const showUrlInput = editingUrl || (!imageUrl && !imageBlobCid);
 
   const commitUrl = useCallback(async () => {
@@ -110,9 +111,17 @@ export function ImageNode({ id, data, selected }: NodeProps) {
 
     if (trimmed && isBlobUploadEnabled()) {
       setUploading(true);
+      setUploadError(null);
       try {
         const resp = await fetch(trimmed);
-        if (resp.ok) {
+        if (!resp.ok) {
+          setUploadError(
+            `画像の取得に失敗しました (HTTP ${resp.status})。URLを直接保存します。`,
+          );
+          console.warn(
+            `[ImageNode] fetch failed: HTTP ${resp.status} for ${trimmed}`,
+          );
+        } else {
           const buf = await resp.arrayBuffer();
           const bytes = new Uint8Array(buf);
           const mimeType =
@@ -124,8 +133,11 @@ export function ImageNode({ id, data, selected }: NodeProps) {
           from.imageBlobCid = imageBlobCid;
           from.imageBlobMimeType = imageBlobMimeType;
         }
-      } catch {
-        // アップロード失敗時は URL だけ保存して継続
+      } catch (err) {
+        setUploadError(
+          `blob アップロードに失敗しました。URLを直接保存します。`,
+        );
+        console.error('[ImageNode] blob upload failed:', err);
       } finally {
         setUploading(false);
       }
@@ -252,9 +264,11 @@ export function ImageNode({ id, data, selected }: NodeProps) {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
+            position: 'relative',
           }}
           onDoubleClick={() => {
             setUrlInput(imageUrl);
+            setUploadError(null);
             setEditingUrl(true);
           }}
         >
@@ -264,6 +278,18 @@ export function ImageNode({ id, data, selected }: NodeProps) {
             </span>
           ) : showUrlInput ? (
             <div style={{ padding: '4px', width: '100%' }}>
+              {uploadError && (
+                <div
+                  style={{
+                    fontSize: 10,
+                    color: '#b91c1c',
+                    marginBottom: 4,
+                    wordBreak: 'break-all',
+                  }}
+                >
+                  {uploadError}
+                </div>
+              )}
               <input
                 // biome-ignore lint/a11y/noAutofocus: needed for immediate URL entry
                 autoFocus={editingUrl}
@@ -298,17 +324,38 @@ export function ImageNode({ id, data, selected }: NodeProps) {
               画像を読み込めません
             </span>
           ) : (
-            <img
-              src={displayUrl}
-              alt={label}
-              onError={() => setImgError(true)}
-              style={{
-                width: '100%',
-                height: 'auto',
-                display: 'block',
-              }}
-              draggable={false}
-            />
+            <>
+              {uploadError && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    bottom: 2,
+                    left: 4,
+                    right: 4,
+                    fontSize: 9,
+                    color: '#b91c1c',
+                    background: 'rgba(255,255,255,0.85)',
+                    padding: '2px 4px',
+                    borderRadius: 2,
+                    wordBreak: 'break-all',
+                    lineHeight: 1.3,
+                  }}
+                >
+                  {uploadError}
+                </div>
+              )}
+              <img
+                src={displayUrl}
+                alt={label}
+                onError={() => setImgError(true)}
+                style={{
+                  width: '100%',
+                  height: 'auto',
+                  display: 'block',
+                }}
+                draggable={false}
+              />
+            </>
           )}
         </div>
       </div>
