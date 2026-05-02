@@ -147,6 +147,12 @@ function GraphEditorInner({
 }: Props) {
   const { screenToFlowPosition, getNodes, getEdges } = useReactFlow();
   const activeSheet = file.sheets.find((s) => s.id === activeSheetId);
+
+  const ghostDeletedNodeIds = useMemo(
+    () => new Set((deletedNodes ?? []).map((n) => n.id)),
+    [deletedNodes],
+  );
+
   const [nodes, setNodes, onNodesChange] = useNodesState(
     toFlowAndGhostNodes(
       activeSheet?.nodes ?? [],
@@ -162,6 +168,7 @@ function GraphEditorInner({
       activeSheet?.edgeLayouts ?? [],
       deletedEdges ?? [],
       deletedEdgeLayouts ?? [],
+      ghostDeletedNodeIds,
       conflictedEdgeIds,
     ),
   );
@@ -211,6 +218,7 @@ function GraphEditorInner({
         sheet?.edgeLayouts ?? [],
         deletedEdgesRef.current ?? [],
         deletedEdgeLayoutsRef.current ?? [],
+        new Set((deletedNodesRef.current ?? []).map((n) => n.id)),
         conflictedEdgeIds,
       ),
     );

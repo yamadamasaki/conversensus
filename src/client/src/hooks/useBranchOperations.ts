@@ -112,6 +112,19 @@ export function useBranchOperations({
 
   const isTrunk = !activeBranch || activeBranch.name === TRUNK_PREFIX;
 
+  // File が切り替わったらブランチ状態をリセット
+  // biome-ignore lint/correctness/useExhaustiveDependencies: activeFile?.id の変化をトリガーにする意図的な設計
+  useEffect(() => {
+    setActiveBranch(null);
+    setLastCommitBase(null);
+    setBranchOriginalBase(null);
+    setNewCommitsSinceMerge(0);
+    branchOriginalBaseMap.current.clear();
+    lastCommitBaseMap.current.clear();
+    preBranchFile.current = null;
+    latestCommitRef.current = null;
+  }, [activeFile?.id]);
+
   const [branchDiffNodeIds, branchDiffEdgeIds] = useMemo(() => {
     if (isTrunk || !branchOriginalBase || !activeSheet) {
       return [new Set<string>(), new Set<string>()] as const;

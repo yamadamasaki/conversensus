@@ -368,7 +368,7 @@ export function fromFlowEdges(edges: Edge[]): {
 
 // --- ゴーストノード/エッジ変換（削除予定表示用） ---
 
-const GHOST_OPACITY = 0.35;
+const GHOST_OPACITY = 0.55;
 
 export function toFlowAndGhostNodes(
   nodes: GraphNode[],
@@ -394,12 +394,15 @@ export function toFlowAndGhostEdges(
   edgeLayouts: EdgeLayout[],
   deletedEdges: GraphEdge[],
   deletedLayouts: EdgeLayout[],
+  deletedNodeIds: Set<string>,
   conflictedEdgeIds?: Set<string>,
 ): Edge[] {
   const active = toFlowEdges(edges, edgeLayouts, conflictedEdgeIds);
   const ghosts = toFlowEdges(deletedEdges, deletedLayouts).map((e) => ({
     ...e,
     id: `ghost-${e.id}`,
+    source: deletedNodeIds.has(e.source) ? `ghost-${e.source}` : e.source,
+    target: deletedNodeIds.has(e.target) ? `ghost-${e.target}` : e.target,
     data: { ...e.data, ghost: true },
     style: {
       ...e.style,
