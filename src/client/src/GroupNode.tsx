@@ -89,6 +89,7 @@ export function GroupNode({
     [id, screenToFlowPosition, dispatch],
   );
   const label = String(data.label ?? '');
+  const diffType = data.diffType as 'add' | 'update' | undefined;
   const ghost = data.ghost === true;
 
   const {
@@ -164,8 +165,16 @@ export function GroupNode({
           width: '100%',
           height: '100%',
           borderRadius: 8,
-          border: '2px solid #7c9ef8',
-          background: 'rgba(79, 110, 247, 0.06)',
+          border: diffType
+            ? diffType === 'add'
+              ? '2px solid #16a34a'
+              : '2px solid #f97316'
+            : '2px solid #7c9ef8',
+          background: diffType
+            ? diffType === 'add'
+              ? 'rgba(22, 163, 74, 0.06)'
+              : 'rgba(249, 115, 22, 0.06)'
+            : 'rgba(79, 110, 247, 0.06)',
           boxSizing: 'border-box',
           display: 'flex',
           flexDirection: 'column',

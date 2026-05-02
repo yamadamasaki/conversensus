@@ -26,7 +26,8 @@ export const DEFAULT_EDGE_PATH_TYPE = 'bezier' as const;
 export function toFlowNodes(
   nodes: GraphNode[],
   layouts: NodeLayout[] = [],
-  conflictedNodeIds?: Set<string>,
+  addedNodeIds?: Set<string>,
+  updatedNodeIds?: Set<string>,
 ): Node[] {
   const layoutMap = new Map(layouts.map((l) => [l.nodeId as string, l]));
   const result = nodes.map((n) => {
@@ -35,6 +36,11 @@ export function toFlowNodes(
       x: 0,
       y: 0,
     };
+    const diffType: 'add' | 'update' | undefined = addedNodeIds?.has(n.id)
+      ? 'add'
+      : updatedNodeIds?.has(n.id)
+        ? 'update'
+        : undefined;
     return {
       id: n.id,
       position: {
@@ -43,7 +49,7 @@ export function toFlowNodes(
       },
       data: {
         label: n.content,
-        conflicted: conflictedNodeIds?.has(n.id) ?? false,
+        diffType,
         ...(n.properties ? { properties: n.properties } : {}),
       },
       type:
@@ -93,12 +99,19 @@ export function toFlowNodes(
 export function toFlowEdges(
   edges: GraphEdge[],
   edgeLayouts: EdgeLayout[] = [],
-  conflictedEdgeIds?: Set<string>,
+  addedEdgeIds?: Set<string>,
+  updatedEdgeIds?: Set<string>,
 ): Edge[] {
   const layoutMap = new Map(edgeLayouts.map((l) => [l.edgeId as string, l]));
   return edges.map((e) => {
     const layout = layoutMap.get(e.id);
-    const conflicted = conflictedEdgeIds?.has(e.id) ?? false;
+    const added = addedEdgeIds?.has(e.id) ?? false;
+    const updated = updatedEdgeIds?.has(e.id) ?? false;
+    const diffType: 'add' | 'update' | undefined = added
+      ? 'add'
+      : updated
+        ? 'update'
+        : undefined;
     return {
       id: e.id,
       source: e.source,
@@ -108,12 +121,17 @@ export function toFlowEdges(
       label: e.label,
       type: 'editableLabel',
       markerEnd: { type: MarkerType.ArrowClosed },
-      style: conflicted ? { stroke: '#f97316', strokeWidth: 3 } : undefined,
+      style: diffType
+        ? {
+            stroke: diffType === 'add' ? '#16a34a' : '#f97316',
+            strokeWidth: 3,
+          }
+        : undefined,
       data: {
         pathType: layout?.pathType ?? DEFAULT_EDGE_PATH_TYPE,
         labelOffsetX: layout?.labelOffsetX ?? 0,
         labelOffsetY: layout?.labelOffsetY ?? 0,
-        conflicted,
+        diffType,
       },
     };
   });
@@ -375,9 +393,10 @@ export function toFlowAndGhostNodes(
   layouts: NodeLayout[],
   deletedNodes: GraphNode[],
   deletedLayouts: NodeLayout[],
-  conflictedNodeIds?: Set<string>,
+  addedNodeIds?: Set<string>,
+  updatedNodeIds?: Set<string>,
 ): Node[] {
-  const active = toFlowNodes(nodes, layouts, conflictedNodeIds);
+  const active = toFlowNodes(nodes, layouts, addedNodeIds, updatedNodeIds);
   const ghosts = toFlowNodes(deletedNodes, deletedLayouts).map((n) => ({
     ...n,
     id: `ghost-${n.id}`,
@@ -395,9 +414,10 @@ export function toFlowAndGhostEdges(
   deletedEdges: GraphEdge[],
   deletedLayouts: EdgeLayout[],
   deletedNodeIds: Set<string>,
-  conflictedEdgeIds?: Set<string>,
+  addedEdgeIds?: Set<string>,
+  updatedEdgeIds?: Set<string>,
 ): Edge[] {
-  const active = toFlowEdges(edges, edgeLayouts, conflictedEdgeIds);
+  const active = toFlowEdges(edges, edgeLayouts, addedEdgeIds, updatedEdgeIds);
   const ghosts = toFlowEdges(deletedEdges, deletedLayouts).map((e) => ({
     ...e,
     id: `ghost-${e.id}`,
