@@ -29,7 +29,9 @@ export async function uploadImageBlob(
 const imageCache = new Map<string, string>();
 
 export function cacheBlobUrl(cid: string, bytes: Uint8Array, mimeType: string) {
-  const url = URL.createObjectURL(new Blob([bytes], { type: mimeType }));
+  // bytes のコピーを作成（元の ArrayBuffer が uploadBlob で消費される可能性があるため）
+  const copy = bytes.slice();
+  const url = URL.createObjectURL(new Blob([copy], { type: mimeType }));
   imageCache.set(cid, url);
 }
 

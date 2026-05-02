@@ -62,6 +62,8 @@ export function ImageNode({ id, data, selected }: NodeProps) {
   // Blob URL 解決
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const blobUrlRef = useRef<string | null>(null);
+  // キャッシュ由来の URL はアンマウント時に revoke しない
+  const blobUrlFromCache = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -69,7 +71,9 @@ export function ImageNode({ id, data, selected }: NodeProps) {
       // アップロード直後はキャッシュから即時表示、なければ PDS から取得
       const cached = getCachedBlobUrl(imageBlobCid);
       if (cached) {
-        if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
+        if (blobUrlRef.current && !blobUrlFromCache.current)
+          URL.revokeObjectURL(blobUrlRef.current);
+        blobUrlFromCache.current = true;
         blobUrlRef.current = cached;
         setBlobUrl(cached);
         return;
@@ -81,7 +85,9 @@ export function ImageNode({ id, data, selected }: NodeProps) {
             URL.revokeObjectURL(url);
             return;
           }
-          if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
+          if (blobUrlRef.current && !blobUrlFromCache.current)
+            URL.revokeObjectURL(blobUrlRef.current);
+          blobUrlFromCache.current = false;
           blobUrlRef.current = url;
           setBlobUrl(url);
         })
@@ -95,10 +101,11 @@ export function ImageNode({ id, data, selected }: NodeProps) {
     };
   }, [imageBlobCid, imageBlobMimeType]);
 
-  // アンマウント時に Object URL を解放
+  // アンマウント時に Object URL を解放（キャッシュ由来は除く）
   useEffect(() => {
     return () => {
-      if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
+      if (blobUrlRef.current && !blobUrlFromCache.current)
+        URL.revokeObjectURL(blobUrlRef.current);
     };
   }, []);
 

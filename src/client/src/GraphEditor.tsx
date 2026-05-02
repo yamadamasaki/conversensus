@@ -595,7 +595,7 @@ function GraphEditorInner({
         try {
           const buf = await file.arrayBuffer();
           const bytes = new Uint8Array(buf);
-          const blobRef = await uploadImageBlob(bytes, file.type);
+          const blobRef = await uploadImageBlob(bytes.slice(), file.type);
           cacheBlobUrl(blobRef.cid, bytes, blobRef.mimeType);
           const containerEl = document.querySelector('.react-flow');
           let pos = {
@@ -647,7 +647,7 @@ function GraphEditorInner({
         try {
           const buf = await file.arrayBuffer();
           const bytes = new Uint8Array(buf);
-          const blobRef = await uploadImageBlob(bytes, file.type);
+          const blobRef = await uploadImageBlob(bytes.slice(), file.type);
           cacheBlobUrl(blobRef.cid, bytes, blobRef.mimeType);
           const pos = screenToFlowPosition({
             x: e.clientX,
