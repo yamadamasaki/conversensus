@@ -7,6 +7,12 @@ import {
   useReactFlow,
 } from '@xyflow/react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  isBlobUploadEnabled,
+  resolveBlobUrl,
+  uploadImageBlob,
+} from './atproto/blob';
+import { currentDid } from './atproto/client';
 import { useEventDispatch } from './EventDispatchContext';
 import { makeEventBase } from './events/GraphEvent';
 import { useInlineEdit } from './hooks/useInlineEdit';
@@ -23,6 +29,9 @@ export function ImageNode({ id, data, selected }: NodeProps) {
   const { dispatch } = useEventDispatch();
 
   const imageUrl = (nodeData.properties?.imageUrl as string) ?? '';
+  const imageBlobCid = (nodeData.properties?.imageBlobCid as string) ?? '';
+  const imageBlobMimeType =
+    (nodeData.properties?.imageBlobMimeType as string) ?? '';
   const label = String(nodeData.label ?? '');
   const conflicted = nodeData.conflicted === true;
 
@@ -54,24 +63,83 @@ export function ImageNode({ id, data, selected }: NodeProps) {
     [dispatch, id],
   );
 
+  // Blob URL 解決
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const blobUrlRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (imageBlobCid && imageBlobMimeType) {
+      const did = currentDid();
+      resolveBlobUrl(did, imageBlobCid, imageBlobMimeType).then((url) => {
+        if (cancelled) {
+          URL.revokeObjectURL(url);
+          return;
+        }
+        if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
+        blobUrlRef.current = url;
+        setBlobUrl(url);
+      });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [imageBlobCid, imageBlobMimeType]);
+
+  // アンマウント時に Object URL を解放
+  useEffect(() => {
+    return () => {
+      if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
+    };
+  }, []);
+
   // URL 入力
   const [editingUrl, setEditingUrl] = useState(false);
   const [urlInput, setUrlInput] = useState(imageUrl);
-  const showUrlInput = editingUrl || !imageUrl;
+  const [uploading, setUploading] = useState(false);
+  const showUrlInput = editingUrl || (!imageUrl && !imageBlobCid);
 
-  const commitUrl = useCallback(() => {
+  const commitUrl = useCallback(async () => {
     const trimmed = urlInput.trim();
-    if (trimmed !== imageUrl) {
-      dispatch({
-        ...makeEventBase('content'),
-        type: 'NODE_PROPERTIES_CHANGED',
-        nodeId: id as NodeId,
-        from: { imageUrl: imageUrl },
-        to: { imageUrl: trimmed },
-      });
+    if (trimmed === imageUrl) {
+      setEditingUrl(false);
+      return;
     }
+    const from: Record<string, unknown> = { imageUrl };
+    const to: Record<string, unknown> = { imageUrl: trimmed };
+
+    if (trimmed && isBlobUploadEnabled()) {
+      setUploading(true);
+      try {
+        const resp = await fetch(trimmed);
+        if (resp.ok) {
+          const buf = await resp.arrayBuffer();
+          const bytes = new Uint8Array(buf);
+          const mimeType =
+            resp.headers.get('content-type')?.split(';')[0]?.trim() ??
+            'image/png';
+          const blobRef = await uploadImageBlob(bytes, mimeType);
+          to.imageBlobCid = blobRef.cid;
+          to.imageBlobMimeType = blobRef.mimeType;
+          from.imageBlobCid = imageBlobCid;
+          from.imageBlobMimeType = imageBlobMimeType;
+        }
+      } catch {
+        // アップロード失敗時は URL だけ保存して継続
+      } finally {
+        setUploading(false);
+      }
+    }
+
+    dispatch({
+      ...makeEventBase('content'),
+      type: 'NODE_PROPERTIES_CHANGED',
+      nodeId: id as NodeId,
+      from,
+      to,
+    });
     setEditingUrl(false);
-  }, [urlInput, imageUrl, dispatch, id]);
+  }, [urlInput, imageUrl, imageBlobCid, imageBlobMimeType, dispatch, id]);
 
   // キャプション編集
   const caption = useInlineEdit(label, (value) => {
@@ -92,10 +160,11 @@ export function ImageNode({ id, data, selected }: NodeProps) {
 
   // 画像の読み込みエラー処理
   const [imgError, setImgError] = useState(false);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: URL 変更時にエラー状態をリセット
+  const displayUrl = blobUrl ?? imageUrl;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 表示 URL 変更時にエラー状態をリセット
   useEffect(() => {
     setImgError(false);
-  }, [imageUrl]);
+  }, [displayUrl]);
 
   return (
     <>
@@ -189,7 +258,11 @@ export function ImageNode({ id, data, selected }: NodeProps) {
             setEditingUrl(true);
           }}
         >
-          {showUrlInput ? (
+          {uploading ? (
+            <span style={{ fontSize: 11, color: '#999' }}>
+              画像をアップロード中...
+            </span>
+          ) : showUrlInput ? (
             <div style={{ padding: '4px', width: '100%' }}>
               <input
                 // biome-ignore lint/a11y/noAutofocus: needed for immediate URL entry
@@ -198,7 +271,9 @@ export function ImageNode({ id, data, selected }: NodeProps) {
                 placeholder="画像URLを入力"
                 value={urlInput}
                 onChange={(e) => setUrlInput(e.target.value)}
-                onBlur={commitUrl}
+                onBlur={() => {
+                  commitUrl();
+                }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') commitUrl();
                   if (e.key === 'Escape') {
@@ -224,7 +299,7 @@ export function ImageNode({ id, data, selected }: NodeProps) {
             </span>
           ) : (
             <img
-              src={imageUrl}
+              src={displayUrl}
               alt={label}
               onError={() => setImgError(true)}
               style={{
