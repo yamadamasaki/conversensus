@@ -633,6 +633,56 @@ function GraphEditorInner({
     return () => window.removeEventListener('paste', handlePaste);
   }, [handlePaste]);
 
+  // Ctrl/Cmd+V で navigator.clipboard.read() を使う代替パス
+  // (非編集可能要素では paste イベントが発火しないブラウザがあるため)
+  const handlePasteKeydown = useCallback(
+    async (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.key !== 'v') return;
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+
+      try {
+        const clipboardItems = await navigator.clipboard.read();
+        for (const item of clipboardItems) {
+          for (const type of item.types) {
+            if (!type.startsWith('image/')) continue;
+            const imageBlob = await item.getType(type);
+            const buf = await imageBlob.arrayBuffer();
+            const bytes = new Uint8Array(buf);
+            const blobRef = await uploadImageBlob(bytes.slice(), type);
+            cacheBlobUrl(blobRef.cid, bytes, blobRef.mimeType);
+            const containerEl = document.querySelector('.react-flow');
+            let pos = {
+              x: 100 + Math.random() * 200,
+              y: 100 + Math.random() * 200,
+            };
+            if (containerEl) {
+              const rect = containerEl.getBoundingClientRect();
+              pos = screenToFlowPosition({
+                x: rect.left + rect.width / 2,
+                y: rect.top + rect.height / 2,
+              });
+            }
+            addNode(pos, 'image', {
+              imageBlobCid: blobRef.cid,
+              imageBlobMimeType: blobRef.mimeType,
+            });
+            e.preventDefault();
+          }
+        }
+      } catch (err) {
+        // clipboard read 失敗（許可がない場合など）は paste イベントに任せる
+        console.warn('[GraphEditor] clipboard.read() failed:', err);
+      }
+    },
+    [screenToFlowPosition, addNode],
+  );
+
+  useEffect(() => {
+    window.addEventListener('keydown', handlePasteKeydown);
+    return () => window.removeEventListener('keydown', handlePasteKeydown);
+  }, [handlePasteKeydown]);
+
   // ファイルドロップ → ImageNode 作成
   const handleDragOver = useCallback((e: React.DragEvent) => {
     if (e.dataTransfer.types.includes('Files')) {
