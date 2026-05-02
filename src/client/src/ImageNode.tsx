@@ -261,6 +261,10 @@ export function ImageNode({ id, data, selected }: NodeProps) {
             <span style={{ fontSize: 11, color: '#999' }}>
               画像を読み込めません
             </span>
+          ) : imageBlobCid && !blobUrl ? (
+            <span style={{ fontSize: 11, color: '#999' }}>
+              画像を読み込み中...
+            </span>
           ) : (
             <img
               src={displayUrl}
