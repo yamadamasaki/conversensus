@@ -66,7 +66,8 @@ export default function App() {
           branch &&
           branch.name !== TRUNK_PREFIX &&
           sheetId &&
-          branch.status === BRANCH_STATUS.OPEN
+          (branch.status === BRANCH_STATUS.OPEN ||
+            branch.status === BRANCH_STATUS.MERGED)
         ) {
           const sheet = updated.sheets.find((s) => s.id === sheetId);
           if (!sheet) return;

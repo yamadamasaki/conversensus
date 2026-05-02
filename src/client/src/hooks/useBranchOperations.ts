@@ -171,7 +171,8 @@ export function useBranchOperations({
       isTrunk ||
       !lastCommitBase ||
       !activeSheet ||
-      activeBranch?.status !== BRANCH_STATUS.OPEN
+      (activeBranch?.status !== BRANCH_STATUS.OPEN &&
+        activeBranch?.status !== BRANCH_STATUS.MERGED)
     )
       return [];
     return deps.computeOperations(lastCommitBase, activeSheet);
@@ -216,7 +217,10 @@ export function useBranchOperations({
         );
         const cs = await deps.fetchCommitsForBranch(branch.uri);
 
-        preBranchFile.current = activeFile ?? null;
+        // trunk からブランチに入る時のみ trunk の状態を保存
+        if (!activeBranch || activeBranch.name === TRUNK_PREFIX) {
+          preBranchFile.current = activeFile ?? null;
+        }
 
         let originalBase: typeof branchSheet;
         if (branch.status === BRANCH_STATUS.MERGED) {
@@ -266,7 +270,7 @@ export function useBranchOperations({
         console.warn('[branch] select failed:', err);
       }
     },
-    [activeFile, onSetActiveFile, deps],
+    [activeFile, onSetActiveFile, deps, activeBranch],
   );
 
   const handleCreateBranch = useCallback(
