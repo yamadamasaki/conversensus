@@ -110,6 +110,9 @@ export function useBranchOperations({
   const lastCommitBaseMap = useRef<Map<string, Sheet>>(new Map());
   const preBranchFile = useRef<GraphFile | null>(null);
   const latestCommitRef = useRef<{ uri: string; cid: string } | null>(null);
+  // merge 時にその時点の newCommitsSinceMerge を累積保存し、
+  // 再エントリ時に cs.length - 累積値 で真の新規コミット数を計算する
+  const mergedCommitCounts = useRef<Map<string, number>>(new Map());
 
   const isTrunk = !activeBranch || activeBranch.name === TRUNK_PREFIX;
 
@@ -122,6 +125,7 @@ export function useBranchOperations({
     setNewCommitsSinceMerge(0);
     branchOriginalBaseMap.current.clear();
     lastCommitBaseMap.current.clear();
+    mergedCommitCounts.current.clear();
     preBranchFile.current = null;
     latestCommitRef.current = null;
   }, [activeFile?.id]);
@@ -285,9 +289,12 @@ export function useBranchOperations({
           });
         }
 
-        setNewCommitsSinceMerge(
-          branch.status === BRANCH_STATUS.MERGED ? 0 : cs.length,
-        );
+        if (branch.status === BRANCH_STATUS.MERGED) {
+          const mergedCount = mergedCommitCounts.current.get(branch.uri) ?? 0;
+          setNewCommitsSinceMerge(Math.max(0, cs.length - mergedCount));
+        } else {
+          setNewCommitsSinceMerge(cs.length);
+        }
         setActiveBranch(branch);
       } catch (err) {
         console.warn('[branch] select failed:', err);
@@ -376,6 +383,12 @@ export function useBranchOperations({
         setActiveBranch(mergedBranch);
         setBranchOriginalBase(activeSheet ?? null);
         setLastCommitBase(activeSheet ?? null);
+        // 今回 merge したコミット数を累積
+        mergedCommitCounts.current.set(
+          branch.uri,
+          (mergedCommitCounts.current.get(branch.uri) ?? 0) +
+            newCommitsSinceMerge,
+        );
         if (activeSheet) {
           branchOriginalBaseMap.current.set(branch.uri, activeSheet);
           lastCommitBaseMap.current.set(branch.uri, activeSheet);
@@ -395,6 +408,7 @@ export function useBranchOperations({
       setConfirmState,
       setAlertState,
       deps,
+      newCommitsSinceMerge,
     ],
   );
 
