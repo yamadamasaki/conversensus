@@ -519,6 +519,9 @@ function GraphEditorInner({
         ...(nodeType === 'image' ? { nodeType: IMAGE_NODE_TYPE } : {}),
         ...(properties ? { properties } : {}),
       };
+      if (properties) {
+        console.log('[GraphEditor] addNode with properties:', properties);
+      }
       const layout: NodeLayout = {
         nodeId,
         x: pos.x,
@@ -579,53 +582,50 @@ function GraphEditorInner({
 
   // クリップボードからの画像貼り付け → ImageNode 作成
   const handlePaste = useCallback(
-    async (e: ClipboardEvent) => {
+    async (e: React.ClipboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
 
       const items = e.clipboardData?.items;
-      if (!items) return;
+      if (!items || items.length === 0) return;
 
       for (let i = 0; i < items.length; i++) {
         const item = items[i];
-        if (item.type.startsWith('image/')) {
-          e.preventDefault();
-          const file = item.getAsFile();
-          if (!file) continue;
-          try {
-            const buf = await file.arrayBuffer();
-            const bytes = new Uint8Array(buf);
-            const blobRef = await uploadImageBlob(bytes, file.type);
-            const containerEl = document.querySelector('.react-flow');
-            let pos = {
-              x: 100 + Math.random() * 200,
-              y: 100 + Math.random() * 200,
-            };
-            if (containerEl) {
-              const rect = containerEl.getBoundingClientRect();
-              pos = screenToFlowPosition({
-                x: rect.left + rect.width / 2,
-                y: rect.top + rect.height / 2,
-              });
-            }
-            addNode(pos, 'image', {
-              imageBlobCid: blobRef.cid,
-              imageBlobMimeType: blobRef.mimeType,
+        if (!item.type.startsWith('image/')) continue;
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (!file) continue;
+        try {
+          console.log('[GraphEditor] paste: uploading image...', file.type);
+          const buf = await file.arrayBuffer();
+          const bytes = new Uint8Array(buf);
+          const blobRef = await uploadImageBlob(bytes, file.type);
+          console.log('[GraphEditor] paste: blob uploaded, cid=', blobRef.cid);
+          const containerEl = document.querySelector('.react-flow');
+          let pos = {
+            x: 100 + Math.random() * 200,
+            y: 100 + Math.random() * 200,
+          };
+          if (containerEl) {
+            const rect = containerEl.getBoundingClientRect();
+            pos = screenToFlowPosition({
+              x: rect.left + rect.width / 2,
+              y: rect.top + rect.height / 2,
             });
-          } catch (err) {
-            console.error('[GraphEditor] paste image upload failed:', err);
           }
-          break;
+          addNode(pos, 'image', {
+            imageBlobCid: blobRef.cid,
+            imageBlobMimeType: blobRef.mimeType,
+          });
+          console.log('[GraphEditor] paste: ImageNode created');
+        } catch (err) {
+          console.error('[GraphEditor] paste image upload failed:', err);
         }
+        break;
       }
     },
     [screenToFlowPosition, addNode],
   );
-
-  useEffect(() => {
-    window.addEventListener('paste', handlePaste);
-    return () => window.removeEventListener('paste', handlePaste);
-  }, [handlePaste]);
 
   // ファイルドロップ → ImageNode 作成
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -645,9 +645,11 @@ function GraphEditorInner({
         if (!file.type.startsWith('image/')) continue;
         e.preventDefault();
         try {
+          console.log('[GraphEditor] drop: uploading image...', file.type);
           const buf = await file.arrayBuffer();
           const bytes = new Uint8Array(buf);
           const blobRef = await uploadImageBlob(bytes, file.type);
+          console.log('[GraphEditor] drop: blob uploaded, cid=', blobRef.cid);
           const pos = screenToFlowPosition({
             x: e.clientX,
             y: e.clientY,
@@ -656,6 +658,7 @@ function GraphEditorInner({
             imageBlobCid: blobRef.cid,
             imageBlobMimeType: blobRef.mimeType,
           });
+          console.log('[GraphEditor] drop: ImageNode created at', pos);
         } catch (err) {
           console.error('[GraphEditor] drop image upload failed:', err);
         }
@@ -732,11 +735,12 @@ function GraphEditorInner({
 
   return (
     <EventDispatchContext.Provider value={{ dispatch, setDragging }}>
-      {/* biome-ignore lint/a11y/noStaticElementInteractions: drop target wrapper */}
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: drop/paste target wrapper */}
       <div
         style={{ width: '100%', height: '100%' }}
         onDragOver={handleDragOver}
         onDrop={handleDrop}
+        onPaste={handlePaste}
       >
         <ReactFlow
           nodes={nodes}
