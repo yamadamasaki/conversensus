@@ -233,7 +233,10 @@ export function Sidebar({
                 {/* 展開トグル */}
                 <button
                   type="button"
-                  onClick={() => onToggleExpand(f.id)}
+                  onClick={() => {
+                    if (!isActiveFile) onOpenFile(f.id);
+                    onToggleExpand(f.id);
+                  }}
                   style={{
                     background: 'none',
                     border: 'none',
@@ -264,7 +267,10 @@ export function Sidebar({
                     textAlign: 'left',
                     padding: 0,
                   }}
-                  onClick={() => onToggleExpand(f.id)}
+                  onClick={() => {
+                    if (!isActiveFile) onOpenFile(f.id);
+                    onToggleExpand(f.id);
+                  }}
                 >
                   {f.name}
                 </button>
