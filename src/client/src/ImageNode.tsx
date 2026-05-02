@@ -7,11 +7,7 @@ import {
   useReactFlow,
 } from '@xyflow/react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  isBlobUploadEnabled,
-  resolveBlobUrl,
-  uploadImageBlob,
-} from './atproto/blob';
+import { resolveBlobUrl } from './atproto/blob';
 import { currentDid } from './atproto/client';
 import { useEventDispatch } from './EventDispatchContext';
 import { makeEventBase } from './events/GraphEvent';
@@ -96,62 +92,23 @@ export function ImageNode({ id, data, selected }: NodeProps) {
   // URL 入力
   const [editingUrl, setEditingUrl] = useState(false);
   const [urlInput, setUrlInput] = useState(imageUrl);
-  const [uploading, setUploading] = useState(false);
-  const [uploadError, setUploadError] = useState<string | null>(null);
   const showUrlInput = editingUrl || (!imageUrl && !imageBlobCid);
 
-  const commitUrl = useCallback(async () => {
+  const commitUrl = useCallback(() => {
     const trimmed = urlInput.trim();
     if (trimmed === imageUrl) {
       setEditingUrl(false);
       return;
     }
-    const from: Record<string, unknown> = { imageUrl };
-    const to: Record<string, unknown> = { imageUrl: trimmed };
-
-    if (trimmed && isBlobUploadEnabled()) {
-      setUploading(true);
-      setUploadError(null);
-      try {
-        const resp = await fetch(trimmed);
-        if (!resp.ok) {
-          setUploadError(
-            `画像の取得に失敗しました (HTTP ${resp.status})。URLを直接保存します。`,
-          );
-          console.warn(
-            `[ImageNode] fetch failed: HTTP ${resp.status} for ${trimmed}`,
-          );
-        } else {
-          const buf = await resp.arrayBuffer();
-          const bytes = new Uint8Array(buf);
-          const mimeType =
-            resp.headers.get('content-type')?.split(';')[0]?.trim() ??
-            'image/png';
-          const blobRef = await uploadImageBlob(bytes, mimeType);
-          to.imageBlobCid = blobRef.cid;
-          to.imageBlobMimeType = blobRef.mimeType;
-          from.imageBlobCid = imageBlobCid;
-          from.imageBlobMimeType = imageBlobMimeType;
-        }
-      } catch (err) {
-        setUploadError(
-          `blob アップロードに失敗しました。URLを直接保存します。`,
-        );
-        console.error('[ImageNode] blob upload failed:', err);
-      } finally {
-        setUploading(false);
-      }
-    }
-
     dispatch({
       ...makeEventBase('content'),
       type: 'NODE_PROPERTIES_CHANGED',
       nodeId: id as NodeId,
-      from,
-      to,
+      from: { imageUrl },
+      to: { imageUrl: trimmed },
     });
     setEditingUrl(false);
-  }, [urlInput, imageUrl, imageBlobCid, imageBlobMimeType, dispatch, id]);
+  }, [urlInput, imageUrl, dispatch, id]);
 
   // キャプション編集
   const caption = useInlineEdit(label, (value) => {
@@ -268,28 +225,11 @@ export function ImageNode({ id, data, selected }: NodeProps) {
           }}
           onDoubleClick={() => {
             setUrlInput(imageUrl);
-            setUploadError(null);
             setEditingUrl(true);
           }}
         >
-          {uploading ? (
-            <span style={{ fontSize: 11, color: '#999' }}>
-              画像をアップロード中...
-            </span>
-          ) : showUrlInput ? (
+          {showUrlInput ? (
             <div style={{ padding: '4px', width: '100%' }}>
-              {uploadError && (
-                <div
-                  style={{
-                    fontSize: 10,
-                    color: '#b91c1c',
-                    marginBottom: 4,
-                    wordBreak: 'break-all',
-                  }}
-                >
-                  {uploadError}
-                </div>
-              )}
               <input
                 // biome-ignore lint/a11y/noAutofocus: needed for immediate URL entry
                 autoFocus={editingUrl}
@@ -297,9 +237,7 @@ export function ImageNode({ id, data, selected }: NodeProps) {
                 placeholder="画像URLを入力"
                 value={urlInput}
                 onChange={(e) => setUrlInput(e.target.value)}
-                onBlur={() => {
-                  commitUrl();
-                }}
+                onBlur={commitUrl}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') commitUrl();
                   if (e.key === 'Escape') {
@@ -324,38 +262,17 @@ export function ImageNode({ id, data, selected }: NodeProps) {
               画像を読み込めません
             </span>
           ) : (
-            <>
-              {uploadError && (
-                <div
-                  style={{
-                    position: 'absolute',
-                    bottom: 2,
-                    left: 4,
-                    right: 4,
-                    fontSize: 9,
-                    color: '#b91c1c',
-                    background: 'rgba(255,255,255,0.85)',
-                    padding: '2px 4px',
-                    borderRadius: 2,
-                    wordBreak: 'break-all',
-                    lineHeight: 1.3,
-                  }}
-                >
-                  {uploadError}
-                </div>
-              )}
-              <img
-                src={displayUrl}
-                alt={label}
-                onError={() => setImgError(true)}
-                style={{
-                  width: '100%',
-                  height: 'auto',
-                  display: 'block',
-                }}
-                draggable={false}
-              />
-            </>
+            <img
+              src={displayUrl}
+              alt={label}
+              onError={() => setImgError(true)}
+              style={{
+                width: '100%',
+                height: 'auto',
+                display: 'block',
+              }}
+              draggable={false}
+            />
           )}
         </div>
       </div>
