@@ -21,6 +21,7 @@ import {
   fetchCommitsForBranch,
   mergeBranchToTrunk,
   sheets,
+  syncBranchSheetToAtproto,
   syncFileToAtproto,
   TRUNK_PREFIX,
   updateBranchStatus,
@@ -199,6 +200,23 @@ export function useBranchOperations({
       latestCommitRef.current = null;
 
       if (!branch || branch.name === TRUNK_PREFIX) {
+        // ブランチから trunk に戻る前に、現在の編集内容を branch に保存
+        if (
+          activeBranch &&
+          activeBranch.name !== TRUNK_PREFIX &&
+          activeSheetId &&
+          activeFile
+        ) {
+          const sheet = activeFile.sheets.find((s) => s.id === activeSheetId);
+          if (sheet) {
+            try {
+              const sheetRef = await sheets.ref(activeSheetId);
+              await syncBranchSheetToAtproto(sheet, sheetRef, activeBranch.id);
+            } catch (err) {
+              console.warn('[branch] pre-switch save failed:', err);
+            }
+          }
+        }
         setActiveBranch(branch);
         setLastCommitBase(null);
         setBranchOriginalBase(null);
@@ -266,7 +284,7 @@ export function useBranchOperations({
         console.warn('[branch] select failed:', err);
       }
     },
-    [activeFile, onSetActiveFile, deps, activeBranch],
+    [activeFile, activeSheetId, onSetActiveFile, deps, activeBranch],
   );
 
   const handleCreateBranch = useCallback(
