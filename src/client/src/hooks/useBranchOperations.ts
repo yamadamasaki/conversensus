@@ -126,21 +126,30 @@ export function useBranchOperations({
     latestCommitRef.current = null;
   }, [activeFile?.id]);
 
-  const [branchDiffNodeIds, branchDiffEdgeIds] = useMemo(() => {
-    if (isTrunk || !branchOriginalBase || !activeSheet) {
-      return [new Set<string>(), new Set<string>()] as const;
-    }
-    const ops = deps.computeOperations(branchOriginalBase, activeSheet);
-    const nodeIds = new Set<string>();
-    const edgeIds = new Set<string>();
-    for (const op of ops) {
-      // 削除は conflicted に含めない（ゴースト表示用に別途計算）
-      if (op.op === 'node.remove' || op.op === 'edge.remove') continue;
-      if ('nodeId' in op) nodeIds.add(op.nodeId);
-      else if ('edgeId' in op) edgeIds.add(op.edgeId);
-    }
-    return [nodeIds, edgeIds] as const;
-  }, [isTrunk, branchOriginalBase, activeSheet, deps]);
+  const [addedNodeIds, updatedNodeIds, addedEdgeIds, updatedEdgeIds] =
+    useMemo(() => {
+      if (isTrunk || !branchOriginalBase || !activeSheet) {
+        return [
+          new Set<string>(),
+          new Set<string>(),
+          new Set<string>(),
+          new Set<string>(),
+        ] as const;
+      }
+      const ops = deps.computeOperations(branchOriginalBase, activeSheet);
+      const addN = new Set<string>();
+      const updN = new Set<string>();
+      const addE = new Set<string>();
+      const updE = new Set<string>();
+      for (const op of ops) {
+        if (op.op === 'node.add') addN.add(op.nodeId);
+        else if (op.op === 'node.update') updN.add(op.nodeId);
+        else if (op.op === 'edge.add') addE.add(op.edgeId);
+        else if (op.op === 'edge.update') updE.add(op.edgeId);
+        // remove は conflicted に含めない（ゴースト表示用に別途計算）
+      }
+      return [addN, updN, addE, updE] as const;
+    }, [isTrunk, branchOriginalBase, activeSheet, deps]);
 
   // 削除予定のノード/エッジ（base に存在し current に存在しない）
   const [deletedNodes, deletedEdges, deletedNodeLayouts, deletedEdgeLayouts] =
@@ -530,10 +539,12 @@ export function useBranchOperations({
     commitDialogOpen,
     setCommitDialogOpen,
     isTrunk,
-    branchDiffNodeIds,
-    branchDiffEdgeIds,
-    conflictedNodeIds: branchDiffNodeIds,
-    conflictedEdgeIds: branchDiffEdgeIds,
+    addedNodeIds,
+    updatedNodeIds,
+    addedEdgeIds,
+    updatedEdgeIds,
+    conflictedNodeIds: new Set([...addedNodeIds, ...updatedNodeIds]),
+    conflictedEdgeIds: new Set([...addedEdgeIds, ...updatedEdgeIds]),
     deletedNodes: deletedNodes as GraphNode[],
     deletedEdges: deletedEdges as GraphEdge[],
     deletedNodeLayouts: deletedNodeLayouts as NodeLayout[],

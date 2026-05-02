@@ -122,8 +122,10 @@ type Props = {
   file: GraphFile;
   activeSheetId: SheetId;
   onChange: (file: GraphFile) => void;
-  conflictedNodeIds?: Set<string>;
-  conflictedEdgeIds?: Set<string>;
+  addedNodeIds?: Set<string>;
+  updatedNodeIds?: Set<string>;
+  addedEdgeIds?: Set<string>;
+  updatedEdgeIds?: Set<string>;
   deletedNodes?: GraphNode[];
   deletedEdges?: GraphEdge[];
   deletedNodeLayouts?: NodeLayout[];
@@ -136,8 +138,10 @@ function GraphEditorInner({
   file,
   activeSheetId,
   onChange,
-  conflictedNodeIds,
-  conflictedEdgeIds,
+  addedNodeIds,
+  updatedNodeIds,
+  addedEdgeIds,
+  updatedEdgeIds,
   deletedNodes,
   deletedEdges,
   deletedNodeLayouts,
@@ -159,7 +163,8 @@ function GraphEditorInner({
       activeSheet?.layouts ?? [],
       deletedNodes ?? [],
       deletedNodeLayouts ?? [],
-      conflictedNodeIds,
+      addedNodeIds,
+      updatedNodeIds,
     ),
   );
   const [edges, setEdges, onEdgesChange] = useEdgesState(
@@ -169,7 +174,8 @@ function GraphEditorInner({
       deletedEdges ?? [],
       deletedEdgeLayouts ?? [],
       ghostDeletedNodeIds,
-      conflictedEdgeIds,
+      addedEdgeIds,
+      updatedEdgeIds,
     ),
   );
 
@@ -209,7 +215,8 @@ function GraphEditorInner({
         sheet?.layouts ?? [],
         deletedNodesRef.current ?? [],
         deletedNodeLayoutsRef.current ?? [],
-        conflictedNodeIds,
+        addedNodeIds,
+        updatedNodeIds,
       ),
     );
     setEdges(
@@ -219,7 +226,8 @@ function GraphEditorInner({
         deletedEdgesRef.current ?? [],
         deletedEdgeLayoutsRef.current ?? [],
         new Set((deletedNodesRef.current ?? []).map((n) => n.id)),
-        conflictedEdgeIds,
+        addedEdgeIds,
+        updatedEdgeIds,
       ),
     );
     // ReactFlow の初期 dimensions 計測が完了するまで onChange を抑制 (150ms)
@@ -235,26 +243,44 @@ function GraphEditorInner({
   useEffect(() => {
     conflictUpdatePendingRef.current = true;
     setNodes((current) =>
-      current.map((n) => ({
-        ...n,
-        data: { ...n.data, conflicted: conflictedNodeIds?.has(n.id) ?? false },
-      })),
+      current.map((n) => {
+        const dt: 'add' | 'update' | undefined = addedNodeIds?.has(n.id)
+          ? 'add'
+          : updatedNodeIds?.has(n.id)
+            ? 'update'
+            : undefined;
+        return {
+          ...n,
+          data: { ...n.data, diffType: dt },
+        };
+      }),
     );
-  }, [conflictedNodeIds, setNodes]);
+  }, [addedNodeIds, updatedNodeIds, setNodes]);
 
   useEffect(() => {
     conflictUpdatePendingRef.current = true;
     setEdges((current) =>
       current.map((e) => {
-        const conflicted = conflictedEdgeIds?.has(e.id) ?? false;
+        const added = addedEdgeIds?.has(e.id) ?? false;
+        const updated = updatedEdgeIds?.has(e.id) ?? false;
+        const dt: 'add' | 'update' | undefined = added
+          ? 'add'
+          : updated
+            ? 'update'
+            : undefined;
         return {
           ...e,
-          style: conflicted ? { stroke: '#f97316', strokeWidth: 3 } : undefined,
-          data: { ...e.data, conflicted },
+          style: dt
+            ? {
+                stroke: dt === 'add' ? '#16a34a' : '#f97316',
+                strokeWidth: 3,
+              }
+            : undefined,
+          data: { ...e.data, diffType: dt },
         };
       }),
     );
-  }, [conflictedEdgeIds, setEdges]);
+  }, [addedEdgeIds, updatedEdgeIds, setEdges]);
 
   // 削除ノード/エッジが変わったらゴーストを同期
   useEffect(() => {

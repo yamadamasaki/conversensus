@@ -83,8 +83,8 @@ describe('useBranchOperations', () => {
 
     it('diff 関連の Set が空', async () => {
       const { result } = await render();
-      expect(result.current.branchDiffNodeIds.size).toBe(0);
-      expect(result.current.branchDiffEdgeIds.size).toBe(0);
+      expect(result.current.addedNodeIds.size).toBe(0);
+      expect(result.current.addedEdgeIds.size).toBe(0);
     });
 
     it('sheetBranches の active sheet に対応する branches は空', async () => {
@@ -375,7 +375,7 @@ describe('useBranchOperations', () => {
   });
 
   describe('deletedNodes / deletedEdges (ゴースト表示用)', () => {
-    it('node.remove op → deletedNodes に含まれ、branchDiffNodeIds に含まれない', async () => {
+    it('node.remove op → deletedNodes に含まれ、addedNodeIds に含まれない', async () => {
       const { result, deps } = await render();
       deps._setComputeOps([{ op: 'node.remove', nodeId: 'n1' }]);
 
@@ -391,10 +391,10 @@ describe('useBranchOperations', () => {
       });
 
       expect(result.current.deletedNodes).toEqual([]); // base に n1 が存在しない
-      expect(result.current.branchDiffNodeIds.size).toBe(0); // remove は conflicted に入らない
+      expect(result.current.addedNodeIds.size).toBe(0); // remove は conflicted に入らない
     });
 
-    it('edge.remove op → branchDiffEdgeIds に含まれない', async () => {
+    it('edge.remove op → addedEdgeIds に含まれない', async () => {
       const { result, deps } = await render();
       deps._setComputeOps([{ op: 'edge.remove', edgeId: 'e1' }]);
 
@@ -409,10 +409,10 @@ describe('useBranchOperations', () => {
         });
       });
 
-      expect(result.current.branchDiffEdgeIds.has('e1')).toBe(false);
+      expect(result.current.addedEdgeIds.has('e1')).toBe(false);
     });
 
-    it('node.add op → branchDiffNodeIds に含まれる', async () => {
+    it('node.add op → addedNodeIds に含まれる', async () => {
       const { result, deps } = await render();
       deps._setComputeOps([{ op: 'node.add', nodeId: 'n1', content: 'hi' }]);
 
@@ -427,7 +427,7 @@ describe('useBranchOperations', () => {
         });
       });
 
-      expect(result.current.branchDiffNodeIds.has('n1')).toBe(true);
+      expect(result.current.addedNodeIds.has('n1')).toBe(true);
     });
   });
 

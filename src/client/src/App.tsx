@@ -169,8 +169,10 @@ export default function App() {
             file={fileOps.activeFile}
             activeSheetId={fileOps.activeSheetId}
             onChange={handleChange}
-            conflictedNodeIds={branchOps.conflictedNodeIds}
-            conflictedEdgeIds={branchOps.conflictedEdgeIds}
+            addedNodeIds={branchOps.addedNodeIds}
+            updatedNodeIds={branchOps.updatedNodeIds}
+            addedEdgeIds={branchOps.addedEdgeIds}
+            updatedEdgeIds={branchOps.updatedEdgeIds}
             deletedNodes={branchOps.deletedNodes}
             deletedEdges={branchOps.deletedEdges}
             deletedNodeLayouts={branchOps.deletedNodeLayouts}

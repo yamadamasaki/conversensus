@@ -15,8 +15,9 @@ import { useInlineEdit } from './hooks/useInlineEdit';
 
 type ImageNodeData = {
   label: string;
-  conflicted: boolean;
+  diffType?: 'add' | 'update';
   properties?: Record<string, unknown>;
+  ghost?: boolean;
 };
 
 export function ImageNode({ id, data, selected }: NodeProps) {
@@ -30,7 +31,7 @@ export function ImageNode({ id, data, selected }: NodeProps) {
     (nodeData.properties?.imageBlobMimeType as string) ?? '';
   const imageDataUrl = (nodeData.properties?.imageDataUrl as string) ?? '';
   const label = String(nodeData.label ?? '');
-  const conflicted = nodeData.conflicted === true;
+  const diffType = nodeData.diffType as 'add' | 'update' | undefined;
   const ghost = nodeData.ghost === true;
 
   const preSizeRef = useRef({ width: 0, height: 0 });
@@ -246,8 +247,16 @@ export function ImageNode({ id, data, selected }: NodeProps) {
           width: '100%',
           height: '100%',
           borderRadius: 6,
-          border: conflicted ? '2px solid #f97316' : '1px solid #ccc',
-          background: conflicted ? '#fff7ed' : '#fff',
+          border: diffType
+            ? diffType === 'add'
+              ? '2px solid #16a34a'
+              : '2px solid #f97316'
+            : '1px solid #ccc',
+          background: diffType
+            ? diffType === 'add'
+              ? '#f0fdf4'
+              : '#fff7ed'
+            : '#fff',
           boxSizing: 'border-box',
           display: 'flex',
           flexDirection: 'column',
