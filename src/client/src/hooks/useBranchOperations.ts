@@ -154,21 +154,9 @@ export function useBranchOperations({
         if (op.op === 'node.remove') removedNodeIds.add(op.nodeId);
         if (op.op === 'edge.remove') removedEdgeIds.add(op.edgeId);
       }
-      const deletedN = branchOriginalBase.nodes.filter((n) =>
-        removedNodeIds.has(n.id),
-      );
-      const deletedE = branchOriginalBase.edges.filter((e) =>
-        removedEdgeIds.has(e.id),
-      );
-      console.log(
-        '[useBranchOps] deleted:',
-        `${deletedN.length} nodes,`,
-        `${deletedE.length} edges`,
-        deletedE.map((e) => `${e.id} (${e.source}→${e.target})`),
-      );
       return [
-        deletedN,
-        deletedE,
+        branchOriginalBase.nodes.filter((n) => removedNodeIds.has(n.id)),
+        branchOriginalBase.edges.filter((e) => removedEdgeIds.has(e.id)),
         (branchOriginalBase.layouts ?? []).filter((l) =>
           removedNodeIds.has(l.nodeId),
         ),

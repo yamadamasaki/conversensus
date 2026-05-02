@@ -256,6 +256,37 @@ function GraphEditorInner({
     );
   }, [conflictedEdgeIds, setEdges]);
 
+  // 削除ノード/エッジが変わったらゴーストを同期
+  useEffect(() => {
+    conflictUpdatePendingRef.current = true;
+    setNodes((current) => {
+      const active = current.filter((n) => !n.data?.ghost);
+      const ghosts = toFlowAndGhostNodes(
+        [],
+        [],
+        deletedNodes ?? [],
+        deletedNodeLayouts ?? [],
+      );
+      return [...active, ...ghosts];
+    });
+  }, [deletedNodes, deletedNodeLayouts, setNodes]);
+
+  useEffect(() => {
+    conflictUpdatePendingRef.current = true;
+    const dnIds = new Set((deletedNodes ?? []).map((n) => n.id));
+    setEdges((current) => {
+      const active = current.filter((e) => !e.data?.ghost);
+      const ghosts = toFlowAndGhostEdges(
+        [],
+        [],
+        deletedEdges ?? [],
+        deletedEdgeLayouts ?? [],
+        dnIds,
+      );
+      return [...active, ...ghosts];
+    });
+  }, [deletedNodes, deletedEdges, deletedEdgeLayouts, setEdges]);
+
   // nodes/edges が変わったら親に通知
   useEffect(() => {
     // コンフリクトスタイル更新 (見た目のみ) の場合は onChange を呼ばない

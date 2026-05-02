@@ -406,27 +406,15 @@ export function toFlowAndGhostEdges(
     data: { ...e.data, ghost: true },
     style: {
       ...e.style,
-      stroke: '#ff0000',
-      strokeWidth: 3,
-      strokeDasharray: '6 3',
+      stroke: '#aaa',
+      strokeDasharray: '5 5',
+      opacity: GHOST_OPACITY,
     },
+    markerEnd: undefined,
     selectable: false,
     focusable: false,
     deletable: false,
     reconnectable: false,
   }));
-  const result = [...active, ...ghosts];
-  if (ghosts.length > 0) {
-    console.log(
-      '[toFlowAndGhostEdges] ghosts:',
-      ghosts.map((e) => `${e.id} (src=${e.source}→tgt=${e.target})`),
-    );
-    console.log(
-      '[toFlowAndGhostEdges] active edge count:',
-      active.length,
-      'ghost edge count:',
-      ghosts.length,
-    );
-  }
-  return result;
+  return [...active, ...ghosts];
 }
