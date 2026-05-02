@@ -66,11 +66,6 @@ export function ImageNode({ id, data, selected }: NodeProps) {
   useEffect(() => {
     let cancelled = false;
     if (imageBlobCid && imageBlobMimeType) {
-      console.log(
-        '[ImageNode] resolving blob:',
-        imageBlobCid,
-        imageBlobMimeType,
-      );
       const did = currentDid();
       resolveBlobUrl(did, imageBlobCid, imageBlobMimeType)
         .then((url) => {
@@ -81,7 +76,6 @@ export function ImageNode({ id, data, selected }: NodeProps) {
           if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
           blobUrlRef.current = url;
           setBlobUrl(url);
-          console.log('[ImageNode] blob resolved to:', url);
         })
         .catch((err) => {
           if (!cancelled)

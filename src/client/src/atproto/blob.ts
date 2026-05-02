@@ -13,27 +13,15 @@ export async function uploadImageBlob(
   const res = await getAgent().api.com.atproto.repo.uploadBlob(bytes, {
     encoding: mimeType,
   });
-  const raw = res.data as unknown as Record<string, unknown>;
-  console.log('[blob] raw keys:', Object.keys(raw));
-  const blob = raw.blob as Record<string, unknown>;
-  console.log('[blob] blob keys:', Object.keys(blob));
-  console.log('[blob] blob.ref:', blob.ref);
-  console.log('[blob] blob.ref type:', typeof blob.ref);
-  if (blob.ref && typeof blob.ref === 'object') {
-    const ref = blob.ref as Record<string, unknown>;
-    console.log('[blob] ref keys:', Object.keys(ref));
-    console.log('[blob] ref.$link:', ref.$link);
-    console.log('[blob] ref["$link"]:', ref.$link);
-  }
   if (!res.success) {
     throw new Error('Blob upload failed');
   }
-  const cid =
-    ((blob.ref as Record<string, unknown> | undefined)?.$link as string) ??
-    (blob.cid as string);
+  const blob = res.data.blob;
+  // ref は multiformats CID オブジェクト。toString() で文字列表現を取得する
+  const cid = (blob.ref as { toString?: () => string }).toString?.() ?? '';
   return {
     cid,
-    mimeType: blob.mimeType as string,
+    mimeType: blob.mimeType,
   };
 }
 

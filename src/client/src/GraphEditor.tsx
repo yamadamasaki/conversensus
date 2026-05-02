@@ -519,9 +519,6 @@ function GraphEditorInner({
         ...(nodeType === 'image' ? { nodeType: IMAGE_NODE_TYPE } : {}),
         ...(properties ? { properties } : {}),
       };
-      if (properties) {
-        console.log('[GraphEditor] addNode with properties:', properties);
-      }
       const layout: NodeLayout = {
         nodeId,
         x: pos.x,
@@ -583,29 +580,22 @@ function GraphEditorInner({
   // クリップボードからの画像貼り付け → ImageNode 作成
   const handlePaste = useCallback(
     async (e: ClipboardEvent) => {
-      console.log('[GraphEditor] paste event:', e.type);
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
 
       const items = e.clipboardData?.items;
-      if (!items || items.length === 0) {
-        console.log('[GraphEditor] paste: no items in clipboard');
-        return;
-      }
+      if (!items || items.length === 0) return;
 
       for (let i = 0; i < items.length; i++) {
         const item = items[i];
-        console.log('[GraphEditor] paste item:', item.type);
         if (!item.type.startsWith('image/')) continue;
         e.preventDefault();
         const file = item.getAsFile();
         if (!file) continue;
         try {
-          console.log('[GraphEditor] paste: uploading image...', file.type);
           const buf = await file.arrayBuffer();
           const bytes = new Uint8Array(buf);
           const blobRef = await uploadImageBlob(bytes, file.type);
-          console.log('[GraphEditor] paste: blob uploaded, cid=', blobRef.cid);
           const containerEl = document.querySelector('.react-flow');
           let pos = {
             x: 100 + Math.random() * 200,
@@ -622,7 +612,6 @@ function GraphEditorInner({
             imageBlobCid: blobRef.cid,
             imageBlobMimeType: blobRef.mimeType,
           });
-          console.log('[GraphEditor] paste: ImageNode created');
         } catch (err) {
           console.error('[GraphEditor] paste image upload failed:', err);
         }
@@ -655,11 +644,9 @@ function GraphEditorInner({
         if (!file.type.startsWith('image/')) continue;
         e.preventDefault();
         try {
-          console.log('[GraphEditor] drop: uploading image...', file.type);
           const buf = await file.arrayBuffer();
           const bytes = new Uint8Array(buf);
           const blobRef = await uploadImageBlob(bytes, file.type);
-          console.log('[GraphEditor] drop: blob uploaded, cid=', blobRef.cid);
           const pos = screenToFlowPosition({
             x: e.clientX,
             y: e.clientY,
@@ -668,7 +655,6 @@ function GraphEditorInner({
             imageBlobCid: blobRef.cid,
             imageBlobMimeType: blobRef.mimeType,
           });
-          console.log('[GraphEditor] drop: ImageNode created at', pos);
         } catch (err) {
           console.error('[GraphEditor] drop image upload failed:', err);
         }
