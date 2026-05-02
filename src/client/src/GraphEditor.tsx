@@ -581,6 +581,11 @@ function GraphEditorInner({
   const handlePaste = useCallback(
     async (e: ClipboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
+      console.log(
+        '[GraphEditor] paste event:',
+        `target=${tag}`,
+        `items=${e.clipboardData?.items?.length ?? 0}`,
+      );
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
 
       const items = e.clipboardData?.items;
@@ -588,6 +593,7 @@ function GraphEditorInner({
 
       for (let i = 0; i < items.length; i++) {
         const item = items[i];
+        console.log('[GraphEditor] paste item:', item.type);
         if (!item.type.startsWith('image/')) continue;
         e.preventDefault();
         const file = item.getAsFile();
