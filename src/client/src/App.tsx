@@ -247,7 +247,7 @@ export default function App() {
               disabled={
                 branchOps.pendingOps.length > 0 ||
                 branchOps.newCommitsSinceMerge === 0 ||
-                branch.status !== BRANCH_STATUS.OPEN
+                branch.status === BRANCH_STATUS.CLOSED
               }
               style={{
                 padding: '6px 16px',
@@ -255,7 +255,7 @@ export default function App() {
                 background:
                   branchOps.pendingOps.length === 0 &&
                   branchOps.newCommitsSinceMerge > 0 &&
-                  branch.status === BRANCH_STATUS.OPEN
+                  branch.status !== BRANCH_STATUS.CLOSED
                     ? '#f97316'
                     : '#ccc',
                 color: '#fff',
@@ -264,7 +264,7 @@ export default function App() {
                 cursor:
                   branchOps.pendingOps.length === 0 &&
                   branchOps.newCommitsSinceMerge > 0 &&
-                  branch.status === BRANCH_STATUS.OPEN
+                  branch.status !== BRANCH_STATUS.CLOSED
                     ? 'pointer'
                     : 'not-allowed',
               }}
