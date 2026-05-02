@@ -141,7 +141,6 @@ export function GroupNode({
             gap: 6,
           }}
         >
-          <span style={{ fontSize: 10 }}>削除予定</span>
           <span style={{ textDecoration: 'line-through' }}>
             {label || 'グループ'}
           </span>

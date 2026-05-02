@@ -85,15 +85,6 @@ export function EditableNode({ id, data, selected }: NodeProps) {
         >
           <div
             style={{
-              fontSize: 10,
-              color: '#999',
-              marginBottom: 4,
-            }}
-          >
-            削除予定
-          </div>
-          <div
-            style={{
               fontSize: 12,
               lineHeight: 1.6,
               textDecoration: 'line-through',

@@ -208,7 +208,6 @@ export function ImageNode({ id, data, selected }: NodeProps) {
               gap: 6,
             }}
           >
-            <span>削除予定</span>
             <span style={{ textDecoration: 'line-through' }}>
               {label || ''}
             </span>
@@ -222,7 +221,7 @@ export function ImageNode({ id, data, selected }: NodeProps) {
               justifyContent: 'center',
             }}
           >
-            <span style={{ fontSize: 11, color: '#aaa' }}>画像 (削除予定)</span>
+            <span style={{ fontSize: 11, color: '#aaa' }}>画像</span>
           </div>
         </div>
         <Handle type="source" position={Position.Bottom} id="source-bottom" />

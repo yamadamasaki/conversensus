@@ -223,26 +223,17 @@ export default function App() {
             <button
               type="button"
               onClick={() => branchOps.setCommitDialogOpen(true)}
-              disabled={
-                branchOps.pendingOps.length === 0 ||
-                branch.status === BRANCH_STATUS.MERGED
-              }
+              disabled={branchOps.pendingOps.length === 0}
               style={{
                 padding: '6px 16px',
                 fontSize: 13,
                 background:
-                  branchOps.pendingOps.length > 0 &&
-                  branch.status !== BRANCH_STATUS.MERGED
-                    ? '#4f6ef7'
-                    : '#ccc',
+                  branchOps.pendingOps.length > 0 ? '#4f6ef7' : '#ccc',
                 color: '#fff',
                 border: 'none',
                 borderRadius: 4,
                 cursor:
-                  branchOps.pendingOps.length > 0 &&
-                  branch.status !== BRANCH_STATUS.MERGED
-                    ? 'pointer'
-                    : 'not-allowed',
+                  branchOps.pendingOps.length > 0 ? 'pointer' : 'not-allowed',
               }}
             >
               コミット
