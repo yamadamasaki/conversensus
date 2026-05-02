@@ -13,12 +13,17 @@ export async function uploadImageBlob(
   const res = await getAgent().api.com.atproto.repo.uploadBlob(bytes, {
     encoding: mimeType,
   });
+  console.log('[blob] uploadBlob response:', JSON.stringify(res.data, null, 2));
   if (!res.success) {
     throw new Error('Blob upload failed');
   }
+  const blob = res.data.blob;
+  const cid =
+    blob.ref?.$link ??
+    ((blob as unknown as Record<string, unknown>).cid as string);
   return {
-    cid: res.data.blob.ref.$link,
-    mimeType: res.data.blob.mimeType,
+    cid,
+    mimeType: blob.mimeType,
   };
 }
 

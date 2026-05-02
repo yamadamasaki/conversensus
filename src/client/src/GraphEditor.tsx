@@ -582,15 +582,20 @@ function GraphEditorInner({
 
   // クリップボードからの画像貼り付け → ImageNode 作成
   const handlePaste = useCallback(
-    async (e: React.ClipboardEvent) => {
+    async (e: ClipboardEvent) => {
+      console.log('[GraphEditor] paste event:', e.type);
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
 
       const items = e.clipboardData?.items;
-      if (!items || items.length === 0) return;
+      if (!items || items.length === 0) {
+        console.log('[GraphEditor] paste: no items in clipboard');
+        return;
+      }
 
       for (let i = 0; i < items.length; i++) {
         const item = items[i];
+        console.log('[GraphEditor] paste item:', item.type);
         if (!item.type.startsWith('image/')) continue;
         e.preventDefault();
         const file = item.getAsFile();
@@ -626,6 +631,11 @@ function GraphEditorInner({
     },
     [screenToFlowPosition, addNode],
   );
+
+  useEffect(() => {
+    window.addEventListener('paste', handlePaste);
+    return () => window.removeEventListener('paste', handlePaste);
+  }, [handlePaste]);
 
   // ファイルドロップ → ImageNode 作成
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -735,12 +745,11 @@ function GraphEditorInner({
 
   return (
     <EventDispatchContext.Provider value={{ dispatch, setDragging }}>
-      {/* biome-ignore lint/a11y/noStaticElementInteractions: drop/paste target wrapper */}
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: drop target wrapper */}
       <div
         style={{ width: '100%', height: '100%' }}
         onDragOver={handleDragOver}
         onDrop={handleDrop}
-        onPaste={handlePaste}
       >
         <ReactFlow
           nodes={nodes}
