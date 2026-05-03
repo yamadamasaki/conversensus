@@ -33,6 +33,15 @@ export function ImageNode({ id, data, selected }: NodeProps) {
   const label = String(nodeData.label ?? '');
   const diffType = nodeData.diffType as 'add' | 'update' | undefined;
   const ghost = nodeData.ghost === true;
+  console.log('[ImageNode] props:', {
+    id,
+    imageUrl: !!imageUrl,
+    imageBlobCid: !!imageBlobCid,
+    imageBlobMimeType: !!imageBlobMimeType,
+    imageDataUrlLen: imageDataUrl.length,
+    ghost,
+    diffType,
+  });
 
   const preSizeRef = useRef({ width: 0, height: 0 });
 
