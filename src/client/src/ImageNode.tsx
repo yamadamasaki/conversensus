@@ -33,15 +33,6 @@ export function ImageNode({ id, data, selected }: NodeProps) {
   const label = String(nodeData.label ?? '');
   const diffType = nodeData.diffType as 'add' | 'update' | undefined;
   const ghost = nodeData.ghost === true;
-  console.log('[ImageNode] props:', {
-    id,
-    imageUrl: !!imageUrl,
-    imageBlobCid: !!imageBlobCid,
-    imageBlobMimeType: !!imageBlobMimeType,
-    imageDataUrlLen: imageDataUrl.length,
-    ghost,
-    diffType,
-  });
 
   const preSizeRef = useRef({ width: 0, height: 0 });
 
@@ -378,7 +369,7 @@ export function ImageNode({ id, data, selected }: NodeProps) {
             <span style={{ fontSize: 11, color: '#999' }}>
               画像を読み込み中...
             </span>
-          ) : (
+          ) : displayUrl ? (
             <img
               src={displayUrl}
               alt={label}
@@ -390,7 +381,7 @@ export function ImageNode({ id, data, selected }: NodeProps) {
               }}
               draggable={false}
             />
-          )}
+          ) : null}
         </div>
       </div>
       <Handle type="source" position={Position.Bottom} id="source-bottom" />
