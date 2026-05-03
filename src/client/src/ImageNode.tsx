@@ -85,14 +85,7 @@ export function ImageNode({ id, data, selected }: NodeProps) {
         setBlobUrl(cached);
         return;
       }
-      // 2. data URL (再読込時のメイン表示手段)
-      if (imageDataUrl) {
-        blobUrlFromCache.current = false;
-        blobUrlRef.current = imageDataUrl;
-        setBlobUrl(imageDataUrl);
-        return;
-      }
-      // 3. PDS getBlob (フォールバック)
+      // 3. PDS getBlob
       const did = currentDid();
       resolveBlobUrl(did, imageBlobCid, imageBlobMimeType)
         .then((url) => {
@@ -115,6 +108,11 @@ export function ImageNode({ id, data, selected }: NodeProps) {
             console.error('[ImageNode] blob resolve failed:', err);
         });
     }
+    // 2. data URL (blob CID の有無に関わらず常時フォールバック)
+    if (imageDataUrl && blobUrlRef.current !== imageDataUrl) {
+      blobUrlRef.current = imageDataUrl;
+      setBlobUrl(imageDataUrl);
+    }
     return () => {
       cancelled = true;
     };
@@ -135,7 +133,8 @@ export function ImageNode({ id, data, selected }: NodeProps) {
   // URL 入力
   const [editingUrl, setEditingUrl] = useState(false);
   const [urlInput, setUrlInput] = useState(imageUrl);
-  const showUrlInput = editingUrl || (!imageUrl && !imageBlobCid);
+  const showUrlInput =
+    editingUrl || (!imageUrl && !imageBlobCid && !imageDataUrl);
 
   const commitUrl = useCallback(() => {
     const trimmed = urlInput.trim();
@@ -370,7 +369,7 @@ export function ImageNode({ id, data, selected }: NodeProps) {
             <span style={{ fontSize: 11, color: '#999' }}>
               画像を読み込み中...
             </span>
-          ) : (
+          ) : displayUrl ? (
             <img
               src={displayUrl}
               alt={label}
@@ -382,7 +381,7 @@ export function ImageNode({ id, data, selected }: NodeProps) {
               }}
               draggable={false}
             />
-          )}
+          ) : null}
         </div>
       </div>
       <Handle type="source" position={Position.Bottom} id="source-bottom" />

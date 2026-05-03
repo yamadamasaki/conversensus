@@ -712,6 +712,7 @@ function GraphEditorInner({
           addNode(pos, 'image', {
             imageBlobCid: blobRef.cid,
             imageBlobMimeType: blobRef.mimeType,
+            imageBlobSize: blobRef.size,
             imageDataUrl: createImageDataUrl(bytes, blobRef.mimeType),
           });
         } catch (err) {
@@ -807,6 +808,7 @@ function GraphEditorInner({
           addNode(pos, 'image', {
             imageBlobCid: blobRef.cid,
             imageBlobMimeType: blobRef.mimeType,
+            imageBlobSize: blobRef.size,
             imageDataUrl: createImageDataUrl(bytes, blobRef.mimeType),
           });
         } catch (err) {

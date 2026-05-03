@@ -66,10 +66,21 @@ export function nodeToRecord(
   parentRef?: StrongRef,
   createdAt = new Date().toISOString(),
 ): Omit<NodeRecord, '$type'> {
+  const props = node.properties as Record<string, unknown> | undefined;
+  // blob 参照を抽出（PDS が blob を保持するために $type: 'blob' のフィールドが必要）
+  const imageBlob = props?.imageBlobCid
+    ? {
+        $type: 'blob' as const,
+        ref: { $link: props.imageBlobCid as string },
+        mimeType: (props.imageBlobMimeType as string) ?? 'image/png',
+        size: (props.imageBlobSize as number) ?? 0,
+      }
+    : undefined;
   return {
     sheet: sheetRef,
     content: node.content,
     ...(node.properties !== undefined && { properties: node.properties }),
+    ...(imageBlob !== undefined && { image: imageBlob }),
     ...(node.nodeType !== undefined && { nodeType: node.nodeType }),
     ...(parentRef !== undefined && { parent: parentRef }),
     createdAt,
@@ -147,12 +158,17 @@ export function edgeLayoutToRecord(
 // --- ATProto レコード → ドメイン ---
 
 export function recordToNode(rkey: Rkey, record: NodeRecord): GraphNode {
+  const props = (record.properties as Record<string, unknown>) ?? {};
+  // blob 参照から CID/mimeType/size を抽出して properties に設定
+  if (record.image) {
+    props.imageBlobCid = record.image.ref.$link;
+    props.imageBlobMimeType = record.image.mimeType;
+    props.imageBlobSize = record.image.size;
+  }
   return {
     id: NodeIdSchema.parse(idFromRkey(rkey)),
     content: record.content,
-    ...(record.properties !== undefined && {
-      properties: record.properties as Record<string, unknown>,
-    }),
+    ...(Object.keys(props).length > 0 ? { properties: props } : {}),
     ...(record.nodeType !== undefined && { nodeType: record.nodeType }),
     ...(record.parent !== undefined && {
       parentId: NodeIdSchema.parse(idFromRkey(rkeyFromUri(record.parent.uri))),
