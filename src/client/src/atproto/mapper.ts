@@ -76,6 +76,15 @@ export function nodeToRecord(
         size: (props.imageBlobSize as number) ?? 0,
       }
     : undefined;
+  if (imageBlob) {
+    console.log('[mapper] nodeToRecord image blob:', imageBlob.ref.$link);
+  }
+  if (props?.imageDataUrl) {
+    console.log(
+      '[mapper] nodeToRecord imageDataUrl length:',
+      (props.imageDataUrl as string).length,
+    );
+  }
   return {
     sheet: sheetRef,
     content: node.content,
@@ -161,9 +170,16 @@ export function recordToNode(rkey: Rkey, record: NodeRecord): GraphNode {
   const props = (record.properties as Record<string, unknown>) ?? {};
   // blob 参照から CID/mimeType/size を抽出して properties に設定
   if (record.image) {
+    console.log('[mapper] recordToNode image blob:', record.image.ref.$link);
     props.imageBlobCid = record.image.ref.$link;
     props.imageBlobMimeType = record.image.mimeType;
     props.imageBlobSize = record.image.size;
+  }
+  if (props.imageDataUrl) {
+    console.log(
+      '[mapper] recordToNode imageDataUrl length:',
+      (props.imageDataUrl as string).length,
+    );
   }
   return {
     id: NodeIdSchema.parse(idFromRkey(rkey)),
