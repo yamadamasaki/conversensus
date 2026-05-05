@@ -1,0 +1,13 @@
+app.conversensus.site {
+    root * /var/www/conversensus
+    file_server
+    try_files {path} /index.html
+}
+
+api.conversensus.site {
+    reverse_proxy 127.0.0.1:3000
+}
+
+pds.conversensus.site {
+    reverse_proxy 127.0.0.1:2583
+}

@@ -21,6 +21,7 @@ import { deleteFile, listFiles, readFile, writeFile } from './storage';
 
 const SERVER_PORT = 3000;
 const LOCALHOST_ORIGIN_PREFIX = 'http://localhost:';
+const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN ?? null;
 const DEFAULT_FILE_NAME = '無題';
 const DEFAULT_SHEET_NAME = 'Sheet 1';
 
@@ -36,8 +37,11 @@ const app = new Hono();
 app.use(
   '*',
   cors({
-    origin: (origin) =>
-      origin?.startsWith(LOCALHOST_ORIGIN_PREFIX) ? origin : null,
+    origin: (origin) => {
+      if (origin?.startsWith(LOCALHOST_ORIGIN_PREFIX)) return origin;
+      if (ALLOWED_ORIGIN && origin === ALLOWED_ORIGIN) return ALLOWED_ORIGIN;
+      return null;
+    },
   }),
 );
 

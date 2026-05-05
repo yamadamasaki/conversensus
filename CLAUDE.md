@@ -93,7 +93,7 @@ const DEFAULT_SHEET_NAME = 'Sheet 1';
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **conversensus** (1499 symbols, 2194 relationships, 60 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **conversensus** (1510 symbols, 2204 relationships, 60 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
