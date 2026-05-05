@@ -734,8 +734,6 @@ export async function mergeBranchToTrunk(
   sheetRef: StrongRef,
   deps: BranchStateDeps = defaultDeps,
 ): Promise<void> {
-  const _now = new Date().toISOString();
-
   const [branchNodes, branchEdges, branchNodeLayouts, branchEdgeLayouts] =
     await Promise.all([
       deps.nodes.listForPrefix(branch.id),

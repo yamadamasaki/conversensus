@@ -244,7 +244,7 @@ export function migrateV3toV4(file: ConversensusFileV3): ConversensusFile {
 }
 
 // v2 → v3: parentId をセマンティックノードからレイアウトに移動
-export function migrateV2toV3(file: ConversensusFileV2): ConversensusFile {
+export function migrateV2toV3(file: ConversensusFileV2): ConversensusFileV3 {
   return {
     ...file,
     version: FILE_VERSION_V3,

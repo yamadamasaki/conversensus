@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test';
-import type { ConversensusFile, SheetId } from '@conversensus/shared';
+import type { ConversensusFile, FileId, SheetId } from '@conversensus/shared';
 
 // Mock zod before module imports (imported transitively via ../api and atproto packages)
 const zodProxy: Record<string, unknown> = new Proxy(() => zodProxy, {
@@ -168,7 +168,10 @@ describe('useFileSheetOperations', () => {
       await act(async () => {
         await result.current.handleCreate();
       });
-      const fileId = result.current.activeFile?.id;
+      const activeFile1 = result.current.activeFile;
+      if (!activeFile1)
+        throw new Error('activeFile should be set after handleCreate');
+      const fileId = activeFile1.id;
 
       await act(async () => {
         await result.current.handleSaveFileSettings(
@@ -195,7 +198,10 @@ describe('useFileSheetOperations', () => {
       await act(async () => {
         await result.current.handleCreate();
       });
-      const fileId = result.current.activeFile?.id;
+      const activeFile2 = result.current.activeFile;
+      if (!activeFile2)
+        throw new Error('activeFile should be set after handleCreate');
+      const fileId = activeFile2.id;
 
       await act(async () => {
         await result.current.handleDeleteFile(fileId);
@@ -217,7 +223,10 @@ describe('useFileSheetOperations', () => {
       await act(async () => {
         await result.current.handleCreate();
       });
-      const fileId = result.current.activeFile?.id;
+      const activeFile3 = result.current.activeFile;
+      if (!activeFile3)
+        throw new Error('activeFile should be set after handleCreate');
+      const fileId = activeFile3.id;
 
       await act(async () => {
         await result.current.handleDeleteFile(fileId);
@@ -241,7 +250,7 @@ describe('useFileSheetOperations', () => {
           sheets: [
             { id: 'imported-s1', name: 'Sheet 1', nodes: [], edges: [] },
           ],
-        } as ConversensusFile);
+        } as unknown as ConversensusFile);
       });
 
       expect(result.current.activeFile?.id).toBe('imported-f1');
@@ -255,7 +264,10 @@ describe('useFileSheetOperations', () => {
       await act(async () => {
         await result.current.handleCreate();
       });
-      const fileId = result.current.activeFile?.id;
+      const activeFile4 = result.current.activeFile;
+      if (!activeFile4)
+        throw new Error('activeFile should be set after handleCreate');
+      const fileId = activeFile4.id;
 
       // エクスポートは例外なく完了すること
       await act(async () => {
@@ -314,7 +326,7 @@ describe('useFileSheetOperations', () => {
     it('setActiveFile で activeFile を更新できる', async () => {
       const { result } = await render();
       const file = {
-        id: 'f1',
+        id: 'f1' as FileId,
         name: 'test',
         description: '',
         sheets: [{ id: SID1, name: 'Sheet 1', nodes: [], edges: [] }],
@@ -347,7 +359,7 @@ describe('useFileSheetOperations', () => {
       const { result } = await render();
       act(() => {
         result.current.setActiveFile({
-          id: 'f1',
+          id: 'f1' as FileId,
           name: 'test',
           description: '',
           sheets: [

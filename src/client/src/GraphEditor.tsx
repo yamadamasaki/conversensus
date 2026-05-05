@@ -73,14 +73,22 @@ const RF_INIT_DELAY_MS = 150;
 const DROP_TARGET_ATTR = 'data-drop-target'; // グループへ追加しようとしている
 const LEAVING_GROUP_ATTR = 'data-leaving-group'; // グループを出ようとしている
 
+// React Flow v12 では positionAbsolute が Node 型から除外されたため型キャストで取得する
+function getAbsPos(node: Node): { x: number; y: number } {
+  return (
+    (node as Node & { positionAbsolute?: { x: number; y: number } })
+      .positionAbsolute ?? node.position
+  );
+}
+
 // measured と style の大きい方を採用することで recalculateParentBounds 後の
 // 非同期 DOM 再計測とのズレに対して安定した境界値を返す
 function getGroupBounds(g: Node) {
   const styleW = typeof g.style?.width === 'number' ? g.style.width : 0;
   const styleH = typeof g.style?.height === 'number' ? g.style.height : 0;
   return {
-    x: g.positionAbsolute?.x ?? g.position.x,
-    y: g.positionAbsolute?.y ?? g.position.y,
+    x: getAbsPos(g).x,
+    y: getAbsPos(g).y,
     w: Math.max(g.measured?.width ?? 0, styleW) || 300,
     h: Math.max(g.measured?.height ?? 0, styleH) || 200,
   };
@@ -391,13 +399,11 @@ function GraphEditorInner({
         ? allNodes.find((n) => n.id === node.parentId)
         : undefined;
       const absX = parentInStore
-        ? (parentInStore.positionAbsolute?.x ?? parentInStore.position.x) +
-          node.position.x
-        : (node.positionAbsolute?.x ?? node.position.x);
+        ? getAbsPos(parentInStore).x + node.position.x
+        : getAbsPos(node).x;
       const absY = parentInStore
-        ? (parentInStore.positionAbsolute?.y ?? parentInStore.position.y) +
-          node.position.y
-        : (node.positionAbsolute?.y ?? node.position.y);
+        ? getAbsPos(parentInStore).y + node.position.y
+        : getAbsPos(node).y;
       const nodeW = Number(node.measured?.width ?? DEFAULT_NODE_STYLE.width);
       const nodeH = Number(node.measured?.height ?? DEFAULT_NODE_STYLE.height);
       const cx = absX + nodeW / 2;
@@ -464,13 +470,11 @@ function GraphEditorInner({
         ? allNodes.find((n) => n.id === oldParentId)
         : undefined;
       const absX = parentInStore
-        ? (parentInStore.positionAbsolute?.x ?? parentInStore.position.x) +
-          node.position.x
-        : (node.positionAbsolute?.x ?? node.position.x);
+        ? getAbsPos(parentInStore).x + node.position.x
+        : getAbsPos(node).x;
       const absY = parentInStore
-        ? (parentInStore.positionAbsolute?.y ?? parentInStore.position.y) +
-          node.position.y
-        : (node.positionAbsolute?.y ?? node.position.y);
+        ? getAbsPos(parentInStore).y + node.position.y
+        : getAbsPos(node).y;
       const nodeW = Number(node.measured?.width ?? DEFAULT_NODE_STYLE.width);
       const nodeH = Number(node.measured?.height ?? DEFAULT_NODE_STYLE.height);
       const cx = absX + nodeW / 2;
@@ -518,12 +522,8 @@ function GraphEditorInner({
           : undefined;
         const newPosition = targetGroup
           ? {
-              x:
-                absX -
-                (targetGroup.positionAbsolute?.x ?? targetGroup.position.x),
-              y:
-                absY -
-                (targetGroup.positionAbsolute?.y ?? targetGroup.position.y),
+              x: absX - getAbsPos(targetGroup).x,
+              y: absY - getAbsPos(targetGroup).y,
             }
           : { x: absX, y: absY };
         dispatch({

@@ -43,7 +43,7 @@ export type NodeRecord = {
   sheet: StrongRef;
   content: string;
   properties?: unknown;
-  nodeType?: 'group';
+  nodeType?: 'group' | 'image';
   parent?: StrongRef;
   /** blob 型フィールド。PDS が blob を保持するために必要 */
   image?: ImageBlobRef;

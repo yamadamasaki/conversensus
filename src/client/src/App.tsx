@@ -246,16 +246,14 @@ export default function App() {
               onClick={() => branchOps.handleMergeBranch(branch)}
               disabled={
                 branchOps.pendingOps.length > 0 ||
-                branchOps.newCommitsSinceMerge === 0 ||
-                branch.status === BRANCH_STATUS.CLOSED
+                branchOps.newCommitsSinceMerge === 0
               }
               style={{
                 padding: '6px 16px',
                 fontSize: 13,
                 background:
                   branchOps.pendingOps.length === 0 &&
-                  branchOps.newCommitsSinceMerge > 0 &&
-                  branch.status !== BRANCH_STATUS.CLOSED
+                  branchOps.newCommitsSinceMerge > 0
                     ? '#f97316'
                     : '#ccc',
                 color: '#fff',
@@ -263,8 +261,7 @@ export default function App() {
                 borderRadius: 4,
                 cursor:
                   branchOps.pendingOps.length === 0 &&
-                  branchOps.newCommitsSinceMerge > 0 &&
-                  branch.status !== BRANCH_STATUS.CLOSED
+                  branchOps.newCommitsSinceMerge > 0
                     ? 'pointer'
                     : 'not-allowed',
               }}
