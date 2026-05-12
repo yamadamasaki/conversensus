@@ -1,0 +1,31 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches:
+      - release
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script_stop: true
+          script: |
+            set -e
+            cd /opt/conversensus
+            git fetch origin
+            git checkout -B release origin/release
+            bun install --frozen-lockfile
+            bun run --cwd src/client build
+            cp -r src/client/dist/* /var/www/conversensus/
+            systemctl restart conversensus
+            echo "Deploy complete: $(date)"
