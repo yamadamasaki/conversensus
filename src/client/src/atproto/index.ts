@@ -24,7 +24,8 @@ export {
   syncBranchSheetToAtproto,
   updateBranchStatus,
 } from './branchState';
-export { currentDid, getAgent, login } from './client';
+export type { AtprotoSession } from './client';
+export { currentDid, getAgent, login, logout, resumeSession } from './client';
 export {
   atUri,
   branches,

@@ -18,7 +18,6 @@ import {
   files as atprotoFilesColl,
   fetchFileFromAtproto,
   fetchFilesFromAtproto,
-  login,
   syncFileToAtproto,
 } from '../atproto';
 import type { PopupTarget } from '../SettingsPopup';
@@ -44,7 +43,6 @@ export interface FileSheetOpsDeps {
   atprotoFilesDelete: (id: string) => Promise<void>;
   fetchFileFromAtproto: typeof fetchFileFromAtproto;
   fetchFilesFromAtproto: typeof fetchFilesFromAtproto;
-  login: typeof login;
   syncFileToAtproto: typeof syncFileToAtproto;
 }
 
@@ -59,7 +57,6 @@ export const defaultFileSheetOpsDeps: FileSheetOpsDeps = {
   atprotoFilesDelete: (id: string) => atprotoFilesColl.delete(id),
   fetchFileFromAtproto,
   fetchFilesFromAtproto,
-  login,
   syncFileToAtproto,
 };
 
@@ -67,19 +64,6 @@ interface UseFileSheetOperationsParams {
   setConfirmState: (s: ConfirmState | null) => void;
   setAlertState: (s: AlertState | null) => void;
   deps?: FileSheetOpsDeps;
-}
-
-async function tryAtprotoAutoLogin(d: FileSheetOpsDeps): Promise<void> {
-  if (!import.meta.env.DEV) return;
-  const handle = import.meta.env.VITE_ATPROTO_HANDLE;
-  const password = import.meta.env.VITE_ATPROTO_PASSWORD;
-  if (!handle || !password) return;
-  try {
-    await d.login(handle, password);
-    console.info('[atproto] auto-login:', handle);
-  } catch (err) {
-    console.warn('[atproto] auto-login failed (sync disabled):', err);
-  }
 }
 
 export function useFileSheetOperations({
@@ -319,27 +303,25 @@ export function useFileSheetOperations({
     [activeFile, deps],
   );
 
-  // 初期ファイル読み込み + ATProto 同期
+  const loadAtprotoFiles = useCallback(async () => {
+    try {
+      const atprotoFiles = await deps.fetchFilesFromAtproto();
+      setFiles((local) => {
+        const localIds = new Set(local.map((f) => f.id));
+        const newFromAtproto = atprotoFiles.filter((f) => !localIds.has(f.id));
+        const updated = local.map(
+          (f) => atprotoFiles.find((a) => a.id === f.id) ?? f,
+        );
+        return [...updated, ...newFromAtproto];
+      });
+    } catch {
+      // ATProto 未設定時はサイレントにスキップ
+    }
+  }, [deps]);
+
+  // 初期ファイル読み込み
   useEffect(() => {
     deps.fetchFiles().then(setFiles).catch(console.error);
-    tryAtprotoAutoLogin(deps).then(async () => {
-      try {
-        const atprotoFiles = await deps.fetchFilesFromAtproto();
-        setFiles((local) => {
-          const localIds = new Set(local.map((f) => f.id));
-          const newFromAtproto = atprotoFiles.filter(
-            (f) => !localIds.has(f.id),
-          );
-          const updated = local.map(
-            (f) => atprotoFiles.find((a) => a.id === f.id) ?? f,
-          );
-          return [...updated, ...newFromAtproto];
-        });
-      } catch {
-        // ATProto 未設定時はサイレントにスキップ
-      }
-    });
-    return () => {};
   }, [deps]);
 
   return {
@@ -364,5 +346,6 @@ export function useFileSheetOperations({
     handleDeleteSheet,
     handleImportFile,
     handleExportFile,
+    loadAtprotoFiles,
   };
 }

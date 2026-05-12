@@ -1,6 +1,7 @@
 import type { GraphFile, Sheet, SheetId } from '@conversensus/shared';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertDialog } from './AlertDialog';
+import { AtprotoLoginDialog } from './AtprotoLoginDialog';
 import {
   BRANCH_STATUS,
   sheets,
@@ -10,6 +11,7 @@ import {
 import { CommitDialog } from './CommitDialog';
 import { ConfirmDialog } from './ConfirmDialog';
 import { GraphEditor } from './GraphEditor';
+import { useAtprotoSession } from './hooks/useAtprotoSession';
 import { useBranchOperations } from './hooks/useBranchOperations';
 import type { UndoState } from './hooks/useEventStore';
 import { useFileSheetOperations } from './hooks/useFileSheetOperations';
@@ -37,6 +39,14 @@ export default function App() {
 
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const undoStateMapRef = useRef<Map<string, UndoState>>(new Map());
+
+  // ATProto セッション
+  const {
+    session: atprotoSession,
+    login: atprotoLogin,
+    logout: atprotoLogout,
+  } = useAtprotoSession();
+  const [loginDialogOpen, setLoginDialogOpen] = useState(false);
 
   // File & sheet operations
   const fileOps = useFileSheetOperations({ setConfirmState, setAlertState });
@@ -121,6 +131,14 @@ export default function App() {
     branchOps.setBranchBases,
   ]);
 
+  // ATProto セッション確立後にファイル一覧を同期
+  const { loadAtprotoFiles } = fileOps;
+  useEffect(() => {
+    if (atprotoSession) {
+      loadAtprotoFiles();
+    }
+  }, [atprotoSession, loadAtprotoFiles]);
+
   // Save timer cleanup
   useEffect(() => {
     return () => {
@@ -159,6 +177,9 @@ export default function App() {
         onMergeBranch={branchOps.handleMergeBranch}
         onCloseBranch={branchOps.handleCloseBranch}
         onDeleteBranch={branchOps.handleDeleteBranch}
+        atprotoSession={atprotoSession}
+        onAtprotoLogin={() => setLoginDialogOpen(true)}
+        onAtprotoLogout={atprotoLogout}
       />
       <main style={{ flex: 1 }}>
         {fileOps.activeFile && fileOps.activeSheetId ? (
@@ -310,6 +331,15 @@ export default function App() {
             alertState.resolve();
             setAlertState(null);
           }}
+        />
+      )}
+      {loginDialogOpen && (
+        <AtprotoLoginDialog
+          onLogin={async (handle, password) => {
+            await atprotoLogin(handle, password);
+            setLoginDialogOpen(false);
+          }}
+          onCancel={() => setLoginDialogOpen(false)}
         />
       )}
     </div>
