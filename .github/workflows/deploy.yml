@@ -21,6 +21,7 @@ jobs:
           script_stop: true
           script: |
             set -e
+            export PATH="$HOME/.bun/bin:$PATH"
             cd /opt/conversensus
             git fetch origin
             git checkout -B release origin/release
