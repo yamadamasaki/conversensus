@@ -44,6 +44,9 @@ type Props = {
   onMergeBranch: (branch: Branch) => void;
   onCloseBranch: (branch: Branch) => void;
   onDeleteBranch: (branch: Branch) => void;
+  atprotoSession: { handle: string } | null;
+  onAtprotoLogin: () => void;
+  onAtprotoLogout: () => void;
 };
 
 const gearBtnStyle: React.CSSProperties = {
@@ -84,6 +87,9 @@ export function Sidebar({
   onMergeBranch,
   onCloseBranch,
   onDeleteBranch,
+  atprotoSession,
+  onAtprotoLogin,
+  onAtprotoLogout,
 }: Props) {
   const newFileComposingRef = useRef(false);
   const importInputRef = useRef<HTMLInputElement>(null);
@@ -603,6 +609,62 @@ export function Sidebar({
           );
         })}
       </ul>
+      {/* ATProto セッション */}
+      <div style={{ borderTop: '1px solid #eee', paddingTop: 8, fontSize: 12 }}>
+        {atprotoSession ? (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 4,
+            }}
+          >
+            <span
+              style={{
+                color: '#555',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              @{atprotoSession.handle}
+            </span>
+            <button
+              type="button"
+              onClick={onAtprotoLogout}
+              style={{
+                flexShrink: 0,
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                color: '#999',
+                fontSize: 11,
+                padding: '2px 4px',
+              }}
+            >
+              ログアウト
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={onAtprotoLogin}
+            style={{
+              width: '100%',
+              textAlign: 'left',
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              color: '#4f6ef7',
+              fontSize: 12,
+              padding: '2px 0',
+            }}
+          >
+            ATProto ログイン
+          </button>
+        )}
+      </div>
       {alertState && (
         <AlertDialog
           message={alertState.message}
