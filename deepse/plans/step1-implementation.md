@@ -90,6 +90,21 @@ branch: "{branchId}_{uuid}"
 
 | ID | 未決 | 決定タイミング |
 |---|---|---|
-| 論理時刻の実体 | Lamport / wall-clock / hybrid。LWW の順序付けに使用 | Phase 1 冒頭 (Lamport 推奨) |
+| ~~論理時刻の実体~~ | **確定: Lamport** (`LamportClock`, observe=max+1)。Phase 1 で実装 | ✅ Phase 1 |
 | O1 ストレージ実体 | JSON / SQLite / IndexedDB | Phase 3 冒頭。O2 (配布形態) と連動 |
-| 複合イベントの正規化 | grouping/paste を基本 ops に分解するか複合で運ぶか | Phase 0 の結論次第 |
+| ~~複合イベントの正規化~~ | **確定: バッチ** (1 操作 = 基本 op のバッチ, undo 単位 = バッチ, 解決単位 = op) | ✅ Phase 1 |
+
+## 5. Phase 1 完了メモ (2026-07-12)
+
+- **成果物** (`src/shared/src/events/`, `src/client/src/events/toUnified.ts`):
+  - `unified.ts`: 統一語彙 (Op 15 種 / Batch / OP_CATEGORY / isSyncable / LamportClock)。
+  - `project.ts`: `projectBatches` (fold) + `toSheet`。LWW・カスケード削除・layout 部分更新・presentation 分離。
+  - `fromCommitOperation.ts`: `CommitOperation` (6 種) → Op[] 。同期語彙の部分集合性を証明。
+  - `toUnified.ts`: `GraphEvent` (19 種) → Batch。client 語彙の部分集合性を証明。複合イベントをバッチ分解。
+- **layout を語彙に内包** (D7): `node.setLayout` / `edge.setLayout` を同期対象 op として定義。
+- **テスト**: 20 追加 (全 326 pass)。各 `.test.md` あり。
+- **Phase 2 へ引き継ぐ既知の制約**:
+  1. `NODE_PROPERTIES_CHANGED.to` は差分 → 統一 op は置換意味論。capture 時に full properties を持たせる配線が必要。
+  2. `NODE_STYLE_CHANGED` を layout へ正規化した。旧イベント発行箇所の整理は Phase 2。
+  3. 本 Phase は**追加のみ (非破壊)**。既存 `GraphEvent`/`CommitOperation` の呼び出し箇所の実置換は Phase 2 以降。
+  4. add-wins OR-Set の厳密化 (concurrent add/remove) は未実装 (現 projection は clock-LWW)。
