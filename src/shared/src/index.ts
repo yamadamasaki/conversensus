@@ -1,7 +1,9 @@
 import { z } from 'zod';
 import { GraphFileSchema } from './schemas';
 
+export * from './events/branchLog';
 export * from './events/fromCommitOperation';
+export * from './events/merge';
 export * from './events/project';
 export * from './events/unified';
 export * from './migrations';

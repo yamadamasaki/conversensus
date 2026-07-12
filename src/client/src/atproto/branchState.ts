@@ -1,4 +1,16 @@
 /**
+ * @deprecated step1 Phase 2 で置換予定。
+ *
+ * このモジュールは Branch/Commit を Node/Edge レコードの rkey 複製 (trunk_/branchId_)
+ * として実体化する旧方式。統一イベントログ方式への載せ替え先は:
+ *   - ドメイン: `@conversensus/shared` の `events/branchLog.ts` (ブランチ=base+追記, コミット=ラベル付きオフセット)
+ *   - マージ:   `events/merge.ts` (レコード複製マージ → ログマージ)
+ * PDS I/O (fetch/update/createMergeRecord 等) は Phase 4 で sync-provider へ退避する。
+ * 既存 PDS データは破棄前提のため、本モジュールは App 配線が切り替わり次第削除する。
+ * 詳細: deepse/spikes/o3-report.md の解体マップ。
+ */
+
+/**
  * Branch / Commit のドメイン型とロジック
  *
  * - Branch: sheet の子として存在するバージョン (trunk も含む)
