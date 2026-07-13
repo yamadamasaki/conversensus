@@ -1,6 +1,7 @@
 import type { AtUri, Rkey } from '@conversensus/shared';
 import { currentDid, getAgent } from './client';
 import {
+  type BatchRecord,
   type BranchRecord,
   type CommitRecord,
   type EdgeLayoutRecord,
@@ -308,6 +309,26 @@ export const merges = {
   },
   delete(mergeId: string) {
     return deleteRecord(NSID.merge, mergeId);
+  },
+};
+
+// --- Batch (op-log, step1 Phase 4c) ---
+
+export const batches = {
+  put(
+    batchId: string,
+    data: Omit<BatchRecord, '$type'>,
+  ): Promise<RecordResult> {
+    return putRecord(NSID.batch, batchId, { $type: NSID.batch, ...data });
+  },
+  get(batchId: string) {
+    return getRecord(NSID.batch, batchId);
+  },
+  list() {
+    return listRecords(NSID.batch);
+  },
+  delete(batchId: string) {
+    return deleteRecord(NSID.batch, batchId);
   },
 };
 

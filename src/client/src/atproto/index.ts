@@ -1,4 +1,16 @@
 export {
+  AtprotoSyncProvider,
+  type AtprotoSyncProviderDeps,
+  type BatchCollection,
+  type IntervalScheduler,
+  SUBSCRIBE_INTERVAL_MS,
+} from './atprotoSyncProvider';
+export {
+  batchToRecord,
+  isBatchRecordValue,
+  recordToBatch,
+} from './batchMapper';
+export {
   cacheBlobUrl,
   createImageDataUrl,
   getCachedBlobUrl,
@@ -28,6 +40,7 @@ export type { AtprotoSession } from './client';
 export { currentDid, getAgent, login, logout, resumeSession } from './client';
 export {
   atUri,
+  batches,
   branches,
   commits,
   edgeLayouts,
@@ -53,6 +66,7 @@ export {
   syncSheetToAtproto,
 } from './sync';
 export type {
+  BatchRecord,
   BranchRecord,
   CommitRecord,
   EdgeLayoutRecord,

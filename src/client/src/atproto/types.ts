@@ -14,6 +14,8 @@ export const NSID = {
   branch: 'app.conversensus.graph.branch',
   commit: 'app.conversensus.graph.commit',
   merge: 'app.conversensus.graph.merge',
+  /** 操作ログ (統一語彙の Batch) を PDS 上の op-log レコードとして持つ (step1 Phase 4c) */
+  batch: 'app.conversensus.graph.batch',
 } as const;
 
 export type FileRecord = {
@@ -122,5 +124,19 @@ export type MergeRecord = {
   message: string;
   authorDid: Did;
   commit?: StrongRef;
+  createdAt: ISODateString;
+};
+
+/**
+ * 統一語彙 Batch の PDS 表現 (step1 Phase 4c, op-log コレクション)。
+ * rkey = batchId。id は rkey として持つのでボディには含めない。
+ * clock/timestamp/ops を非可逆なしで保持し、正典モデル (操作ログ) と同形にする。
+ */
+export type BatchRecord = {
+  $type: typeof NSID.batch;
+  actor: string;
+  clock: number;
+  timestamp: number;
+  ops: unknown[]; // Op[] を JSON として格納 (records は任意 JSON を許容)
   createdAt: ISODateString;
 };
