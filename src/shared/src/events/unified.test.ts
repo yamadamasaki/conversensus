@@ -51,6 +51,18 @@ describe('LamportClock', () => {
     expect(c.tick()).toBe(12);
     expect(c.observe(5)).toBe(13); // 自身の方が大きい場合も +1
   });
+
+  test('seed は下限を取り込むが +1 しない (次の tick が floor+1)', () => {
+    const c = new LamportClock();
+    expect(c.seed(7)).toBe(7); // observe と違い +1 しない
+    expect(c.tick()).toBe(8);
+  });
+
+  test('seed は現在値より小さい floor を無視する (単調性を保つ)', () => {
+    const c = new LamportClock(10);
+    expect(c.seed(4)).toBe(10);
+    expect(c.tick()).toBe(11);
+  });
 });
 
 describe('BatchSchema', () => {

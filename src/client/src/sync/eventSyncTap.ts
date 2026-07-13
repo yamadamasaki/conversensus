@@ -8,14 +8,16 @@
  * - 同期対象の op を生じない event (空 ops) はスキップする。
  * - flush はチェーンで直列化し、Outbox の多重起動を避ける。オフライン時は保留を維持し、
  *   次の record で再試行する (Outbox のオフライン分岐)。
- * - clock は Lamport。再起動後の復元 (server の max clock 観測) は後続で配線する。
+ * - clock は Lamport。再起動後は初回 drain で永続ログ (provider.pull) の max clock を
+ *   観測して `seed` し、発番を max+1 から再開する (W3)。復元前は event を保留し、
+ *   restore 成功後に FIFO 順で tick を割り当てる (再起動をまたいだ単調性の保証)。
  */
 
 import { type Batch, LamportClock } from '@conversensus/shared';
 import type { GraphEvent } from '../events/GraphEvent';
 import { graphEventToBatch, graphEventToOps } from '../events/toUnified';
 import { type FlushResult, Outbox } from './outbox';
-import type { SyncProvider } from './syncProvider';
+import { INITIAL_CURSOR, type SyncProvider } from './syncProvider';
 
 export type EventSyncTapDeps = {
   provider: SyncProvider;
@@ -32,6 +34,10 @@ export class EventSyncTap {
   private readonly onError?: (error: unknown) => void;
   /** flush を直列化するチェーン */
   private flushChain: Promise<void> = Promise.resolve();
+  /** restore (clock の seed) の一度きり実行を保持する。失敗時は undefined に戻し再試行 */
+  private restored?: Promise<void>;
+  /** restore 完了前に届いた event の保留 (FIFO)。tick は drain 時に割り当てる */
+  private pendingEvents: GraphEvent[] = [];
 
   constructor(deps: EventSyncTapDeps) {
     this.provider = deps.provider;
@@ -42,19 +48,19 @@ export class EventSyncTap {
 
   /**
    * dispatch された GraphEvent を記録する。
-   * ops を生じる event だけを Batch 化して積み、flush をスケジュールする。
+   * ops を生じる event だけを保留し、flush (restore→tick→push) をスケジュールする。
    */
   record(event: GraphEvent): void {
     // 同期対象の op を生じない event (空 ops) は clock も消費せずスキップ
     if (graphEventToOps(event).length === 0) return;
-    const batch = graphEventToBatch(event, this.clock.tick());
-    this.outbox.enqueue([batch]);
+    // clock は restore 後に割り当てるため、ここでは event のまま保留する
+    this.pendingEvents.push(event);
     this.scheduleFlush();
   }
 
-  /** 現在保留中の (未 push) batch 数 */
+  /** 現在保留中の (未 push) 件数: restore 待ちの event + outbox の batch */
   get pending(): number {
-    return this.outbox.size;
+    return this.pendingEvents.length + this.outbox.size;
   }
 
   /** これまでにスケジュールされた flush の完了を待つ (テスト・保存前フラッシュ用) */
@@ -62,12 +68,52 @@ export class EventSyncTap {
     await this.flushChain;
   }
 
+  /**
+   * 永続ログの max clock を観測して clock を seed する (一度きり)。
+   * provider-agnostic にするため cursor ではなく batch.clock の最大値を使う。
+   * 失敗時は seed せず restored を落とし、次の drain で再試行する。
+   */
+  private ensureRestored(): Promise<void> {
+    if (!this.restored) {
+      this.restored = this.provider
+        .pull(INITIAL_CURSOR)
+        .then((result) => {
+          const maxClock = result.batches.reduce(
+            (m, b) => Math.max(m, b.clock),
+            0,
+          );
+          this.clock.seed(maxClock);
+        })
+        .catch((error) => {
+          this.restored = undefined;
+          this.onError?.(error);
+          throw error;
+        });
+    }
+    return this.restored;
+  }
+
   private scheduleFlush(): void {
     this.flushChain = this.flushChain.then(() => this.drain());
   }
 
-  /** 保留がなくなるまで flush する。失敗 (オフライン) 時は保留を残して打ち切る */
+  /**
+   * restore→保留 event の Batch 化 (tick 割当)→flush を行う。
+   * restore 失敗時は event を保留したまま打ち切り、次の record で再試行する。
+   * flush 失敗 (オフライン) 時も Outbox が保留を維持し次回再送する。
+   */
   private async drain(): Promise<void> {
+    try {
+      await this.ensureRestored();
+    } catch {
+      return; // restore 未了: event は pendingEvents に残し次回再試行 (onError 済み)
+    }
+    // restore 済み: 保留 event を FIFO 順に tick して Batch 化し Outbox へ移す
+    while (this.pendingEvents.length > 0) {
+      const event = this.pendingEvents.shift() as GraphEvent;
+      const batch = graphEventToBatch(event, this.clock.tick());
+      this.outbox.enqueue([batch]);
+    }
     while (!this.outbox.isEmpty) {
       const result: FlushResult = await this.outbox.flush(this.provider);
       if (!result.ok) {

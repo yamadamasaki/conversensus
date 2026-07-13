@@ -6,6 +6,7 @@ import type {
   NodeRelabeledEvent,
   NodeStyleChangedEvent,
 } from '../events/GraphEvent';
+import { graphEventToBatch } from '../events/toUnified';
 import { EventSyncTap } from './eventSyncTap';
 import type {
   Cursor,
@@ -50,17 +51,26 @@ const emptyStyle = (): NodeStyleChangedEvent => {
 class RecordingProvider implements SyncProvider {
   pushed: Batch[] = [];
   online = true;
+  /** restore で観測される既存ログ (pull が返す) */
+  existing: Batch[] = [];
+  /** pull を失敗させて restore 失敗を再現する */
+  pullFails = false;
   async push(batches: Batch[]): Promise<void> {
     if (!this.online) throw new Error('offline');
     this.pushed.push(...batches);
   }
   async pull(_since: Cursor): Promise<PullResult> {
-    return { batches: [], cursor: '' };
+    if (this.pullFails) throw new Error('pull failed');
+    return { batches: this.existing, cursor: '' };
   }
   subscribe(_onRemote: OnRemote) {
     return () => {};
   }
 }
+
+/** 指定 clock を持つ有効な既存 batch (restore テストの永続ログ用) */
+const existingBatch = (clock: number): Batch =>
+  graphEventToBatch(relabel(), clock);
 
 describe('EventSyncTap', () => {
   it('ops を生じる event を Batch 化して provider へ push する', async () => {
@@ -90,6 +100,43 @@ describe('EventSyncTap', () => {
     tap.record(relabel());
     await tap.settled();
     expect(provider.pushed.map((b) => b.clock)).toEqual([1, 2, 3]);
+  });
+
+  it('再起動後は永続ログの max clock を観測し max+1 から発番する', async () => {
+    const provider = new RecordingProvider();
+    provider.existing = [existingBatch(5), existingBatch(7), existingBatch(6)];
+    const clock = new LamportClock(); // 0 起点 (再起動直後を模す)
+    const tap = new EventSyncTap({ provider, clock });
+    tap.record(relabel());
+    tap.record(relabel());
+    await tap.settled();
+    // max(5,7,6)=7 を seed → 次の tick は 8, 9
+    expect(provider.pushed.map((b) => b.clock)).toEqual([8, 9]);
+  });
+
+  it('restore (pull) 失敗時は保留し発番せず、次の record で再試行する', async () => {
+    const provider = new RecordingProvider();
+    provider.pullFails = true;
+    const clock = new LamportClock();
+    const errors: unknown[] = [];
+    const tap = new EventSyncTap({
+      provider,
+      clock,
+      onError: (e) => errors.push(e),
+    });
+    tap.record(relabel());
+    await tap.settled();
+    expect(provider.pushed).toHaveLength(0);
+    expect(tap.pending).toBe(1); // event は保留
+    expect(clock.current()).toBe(0); // tick されていない
+    expect(errors).toHaveLength(1);
+
+    provider.pullFails = false;
+    provider.existing = [existingBatch(3)];
+    tap.record(relabel()); // restore 再試行 → seed(3) → tick 4,5
+    await tap.settled();
+    expect(provider.pushed.map((b) => b.clock)).toEqual([4, 5]);
+    expect(tap.pending).toBe(0);
   });
 
   it('オフライン時は保留し、復帰後の record で再送する', async () => {
