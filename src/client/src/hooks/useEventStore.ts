@@ -14,6 +14,9 @@ export function useEventStore(
   edges: Edge[],
   setNodes: Dispatch<SetStateAction<Node[]>>,
   setEdges: Dispatch<SetStateAction<Edge[]>>,
+  // 操作ログへ流す tap (step1 Phase 4 実配線 W2)。undefined なら従来動作。
+  // dispatch/undo/redo で eventLog に積まれた event ごとに呼ばれる。
+  onEvent?: (event: GraphEvent) => void,
 ): {
   dispatch: (event: GraphEvent) => void;
   undo: () => void;
@@ -33,6 +36,9 @@ export function useEventStore(
 
   const stateRef = useRef({ nodes, edges });
   stateRef.current = { nodes, edges };
+  // onEvent を ref 経由で呼び、dispatch/undo/redo の identity を安定させる
+  const onEventRef = useRef(onEvent);
+  onEventRef.current = onEvent;
   const isDraggingRef = useRef(false);
   const setDragging = useCallback((dragging: boolean) => {
     isDraggingRef.current = dragging;
@@ -51,6 +57,7 @@ export function useEventStore(
       setNodes(newNodes);
       setEdges(newEdges);
       eventLogRef.current = [...eventLogRef.current, event];
+      onEventRef.current?.(event);
       undoStackRef.current = [
         ...undoStackRef.current.slice(-(MAX_UNDO_STACK - 1)),
         inverse,
@@ -76,6 +83,7 @@ export function useEventStore(
     setNodes(newNodes);
     setEdges(newEdges);
     eventLogRef.current = [...eventLogRef.current, inverseEvent];
+    onEventRef.current?.(inverseEvent);
     setCanUndo(undoStackRef.current.length > 0);
     setCanRedo(true);
   }, [setNodes, setEdges]);
@@ -94,6 +102,7 @@ export function useEventStore(
     setNodes(newNodes);
     setEdges(newEdges);
     eventLogRef.current = [...eventLogRef.current, redoEvent];
+    onEventRef.current?.(redoEvent);
     setCanUndo(true);
     setCanRedo(redoStackRef.current.length > 0);
   }, [setNodes, setEdges]);

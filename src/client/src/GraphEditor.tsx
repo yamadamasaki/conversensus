@@ -63,6 +63,7 @@ import {
 import { useClipboard } from './hooks/useClipboard';
 import { useEdgeContextMenu } from './hooks/useEdgeContextMenu';
 import { type UndoState, useEventStore } from './hooks/useEventStore';
+import { useEventSyncTap } from './hooks/useEventSyncTap';
 import { useGroupNodes } from './hooks/useGroupNodes';
 import { usePaneDoubleClick } from './hooks/usePaneDoubleClick';
 import { ImageNode } from './ImageNode';
@@ -358,8 +359,10 @@ function GraphEditorInner({
   const edgeTypes = useMemo(() => ({ editableLabel: EditableLabelEdge }), []);
 
   // --- Event store ---
+  // dispatch された event を操作ログへ流す tap (step1 Phase 4 実配線 W2)
+  const syncTap = useEventSyncTap(file.id);
   const { dispatch, undo, redo, setDragging, exportState, importState } =
-    useEventStore(nodes, edges, setNodes, setEdges);
+    useEventStore(nodes, edges, setNodes, setEdges, syncTap);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: mount/unmount のみ (React key 変更による再マウント)
   useEffect(() => {
