@@ -135,3 +135,25 @@ branch: "{branchId}_{uuid}"
   1. HTTP API (`index.ts`) の `/files` 系を EventStore へ載せ替え (現状は `storage.ts` の全体スナップショット保存)。載せ替え後に `storage.ts` を廃棄。
   2. Branch (base コミット + 分岐) の永続化。現状 EventStore は batches / commits まで。branches テーブルは sync-provider の分岐管理と併せて設計する。
   3. Lamport clock の永続化・復元 (再起動後に max(clock)+1 から再開する配線)。
+
+## 8. Phase 4 (sync-provider) のサブフェーズ分割
+
+Phase 4 (§9-3 / architecture §6) は atproto 配下 ~3458 行の再編 + 外部 I/O を伴い 1 PR に大きすぎるため、非破壊・追加優先で以下に分割する:
+
+| スライス | 内容 | 状態 |
+|---|---|---|
+| **4a** | `SyncProvider` 境界 (push/pull/subscribe) + `NullSyncProvider` (完全ローカル) | ✅ 実装済 (下記メモ) |
+| **4b** | outbox + オフライン分岐 (オフライン時 ops を積み復帰時 flush) | 未着手 |
+| **4c** | ATProto を provider 実装へ整理 (collections/sync/mapper/branchState/poller を `AtprotoSyncProvider` 内部へ封じ込め) | 未着手 |
+| **4d** | 構造改修: 全件 list の解消 (rkey/コレクション範囲取得, R3) / polling → Jetstream / cidCache 永続化 | 未着手 |
+| (併走) | Phase 3 引き継ぎ: HTTP API の EventStore 載せ替え / storage.ts 廃棄 / Lamport clock 永続化 | 未着手 |
+
+### Phase 4a 完了メモ (2026-07-13)
+
+- **成果物** (`src/client/src/sync/`):
+  - `syncProvider.ts`: `SyncProvider` インターフェース (`push(batches)` / `pull(since)` / `subscribe(onRemote)`) + `Cursor` (不透明・provider 定義) / `INITIAL_CURSOR` / `PullResult` (cursor-pagination) / `Unsubscribe` / `OnRemote` 型。
+  - `nullSyncProvider.ts`: `NullSyncProvider` — 完全ローカル (未ログイン・オフライン運用) の既定 provider。push=no-op / pull=空+初期カーソル / subscribe=非配信。外の層が「provider は常に存在する」前提で書けるようにし、ATProto 有無の分岐を消す。
+  - `index.ts`: バレル。
+- **運搬単位は `Batch`** (統一語彙、Phase 1)。architecture §6 の擬似コードは旧 `GraphEvent[]` だが正典一本化に伴い `Batch[]` へ更新。
+- **テスト**: 4 追加 (全 351 pass)。`.test.md` あり。境界の型定義はロジック無しのためテスト対象外、振る舞いを持つ `NullSyncProvider` を固定。
+- **非破壊**: 既存 atproto コードは未変更。provider への封じ込め (4c) と外の層の配線切替は後続スライス。
