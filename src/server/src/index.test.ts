@@ -27,7 +27,88 @@ async function createFile(name?: string) {
   );
 }
 
+// 有効な UUID を持つ最小 Batch (node.add 1 件) を作る
+const uuid = (seed: number) =>
+  `${seed.toString(16).padStart(8, '0')}-0000-4000-8000-000000000000`;
+const sampleBatch = (clock: number) => ({
+  id: uuid(clock),
+  actor: 'local',
+  clock,
+  timestamp: clock,
+  ops: [{ kind: 'node.add', target: uuid(1000 + clock), content: `n${clock}` }],
+});
+
+async function postBatches(fileId: string, batches: unknown[]) {
+  return fetch(
+    new Request(`http://localhost/files/${fileId}/batches`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(batches),
+    }),
+  );
+}
+
 describe('API routes', () => {
+  describe('POST /files/:id/batches', () => {
+    it('batches を追記して 201 と件数を返す', async () => {
+      const created = await (await createFile('ログ')).json();
+      const res = await postBatches(created.id, [
+        sampleBatch(1),
+        sampleBatch(2),
+      ]);
+      expect(res.status).toBe(201);
+      expect(await res.json()).toEqual({ appended: 2 });
+    });
+
+    it('同一 batch の再送はべき等 (appended=0)', async () => {
+      const created = await (await createFile('ログ')).json();
+      await postBatches(created.id, [sampleBatch(1)]);
+      const res = await postBatches(created.id, [sampleBatch(1)]);
+      expect(await res.json()).toEqual({ appended: 0 });
+    });
+
+    it('不正な Batch は 400 を返す', async () => {
+      const created = await (await createFile('ログ')).json();
+      const res = await postBatches(created.id, [{ id: 'not-a-uuid' }]);
+      expect(res.status).toBe(400);
+    });
+  });
+
+  describe('GET /files/:id/batches', () => {
+    it('追記した batches を clock 昇順で返す', async () => {
+      const created = await (await createFile('ログ')).json();
+      await postBatches(created.id, [sampleBatch(2), sampleBatch(1)]);
+      const res = await fetch(
+        new Request(`http://localhost/files/${created.id}/batches`),
+      );
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.map((b: { clock: number }) => b.clock)).toEqual([1, 2]);
+    });
+
+    it('since を渡すと clock > since のみ返す', async () => {
+      const created = await (await createFile('ログ')).json();
+      await postBatches(created.id, [
+        sampleBatch(1),
+        sampleBatch(2),
+        sampleBatch(3),
+      ]);
+      const res = await fetch(
+        new Request(`http://localhost/files/${created.id}/batches?since=1`),
+      );
+      const body = await res.json();
+      expect(body.map((b: { clock: number }) => b.clock)).toEqual([2, 3]);
+    });
+
+    it('ログが無いファイルは空配列を返す', async () => {
+      const created = await (await createFile('空')).json();
+      const res = await fetch(
+        new Request(`http://localhost/files/${created.id}/batches`),
+      );
+      expect(await res.json()).toEqual([]);
+    });
+  });
+
   describe('GET /files', () => {
     it('初期状態では空配列を返す', async () => {
       const res = await fetch(new Request('http://localhost/files'));
