@@ -108,3 +108,15 @@ branch: "{branchId}_{uuid}"
   2. `NODE_STYLE_CHANGED` を layout へ正規化した。旧イベント発行箇所の整理は Phase 2。
   3. 本 Phase は**追加のみ (非破壊)**。既存 `GraphEvent`/`CommitOperation` の呼び出し箇所の実置換は Phase 2 以降。
   4. add-wins OR-Set の厳密化 (concurrent add/remove) は未実装 (現 projection は clock-LWW)。
+
+## 6. Phase 2 完了メモ (2026-07-12)
+
+- **成果物** (`src/shared/src/events/`):
+  - `merge.ts`: `mergeBranches` — ブランチ batches を trunk へ追記するログマージ。content 対立検出 + layout 静かな LWW + structure 保持。`mergeBranchToTrunk` (レコード複製) の置換。
+  - `branchLog.ts`: `Branch`/`Commit` をログオフセットとして再定義。`tipClock`/`makeCommit`/`batchesUpTo`/`branchSheet`。rkey 複製方式のドメイン概念 (createBranch/createMainBranch/fetchBranchSheetFromPds) の置換。
+- **テスト**: 9 追加 (全 335 pass)。各 `.test.md` あり。
+- **非破壊**: 旧 `branchState.ts` は `@deprecated` バナーを付けて温存。App 配線・PDS I/O の実置換は Phase 3 (永続層) / Phase 4 (sync-provider) で行い、切り替わり次第削除する。
+- **Phase 3/4 へ引き継ぐ作業**:
+  1. `branchState.ts` の PDS I/O 4 関数 (fetchBranches/fetchCommits/updateBranchStatus/createMergeRecord) を sync-provider へ退避。
+  2. App.tsx / useEventStore の branchState 依存を `branchLog`/`merge` へ切り替え。
+  3. `computeOperations` (state diff) は UI diff 用途が残る場合のみ layout 対応で存続、不要なら廃棄。
