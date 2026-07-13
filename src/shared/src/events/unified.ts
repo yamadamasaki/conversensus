@@ -203,6 +203,16 @@ export class LamportClock {
     return this.value;
   }
 
+  /**
+   * 復元用: これまで割り当て済みの最大論理時刻を下限として取り込む。
+   * `observe` と違い +1 しないので、次の `tick()` は `floor + 1` になる。
+   * 再起動後に永続ログの max(clock) を渡して発番を再開するために使う。
+   */
+  seed(floor: Lamport): Lamport {
+    this.value = Math.max(this.value, floor);
+    return this.value;
+  }
+
   current(): Lamport {
     return this.value;
   }
