@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
+  type Batch,
+  BatchSchema,
   ConversensusFileSchema,
   ConversensusFileV1Schema,
   ConversensusFileV2Schema,
@@ -17,6 +19,7 @@ import {
 } from '@conversensus/shared';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { getEventStore } from './eventStoreServer';
 import { deleteFile, listFiles, readFile, writeFile } from './storage';
 
 const SERVER_PORT = 3000;
@@ -185,6 +188,42 @@ app.post('/files/import', async (c) => {
   };
   await writeFile(data);
   return c.json(data, HTTP_CREATED);
+});
+
+// --- 操作ログ (batches) エンドポイント (step1 Phase 4 実配線) ---
+// 保存モデルは「操作ログ (append) + projection」。集約 (Sheet) の導出は
+// projectBatches を持つクライアント側で行うため、サーバは batches の保存・配信に徹する。
+
+// POST /files/:id/batches - 操作ログへ batches を追記 (べき等)
+app.post('/files/:id/batches', async (c) => {
+  const raw = await c.req.json().catch(() => null);
+  if (!Array.isArray(raw)) {
+    return c.json({ error: 'Expected an array of batches' }, HTTP_BAD_REQUEST);
+  }
+  // 各要素を Batch として検証する (zod を server 直接依存にせず shared の schema を使う)
+  const batches: Batch[] = [];
+  for (const item of raw) {
+    const parsed = BatchSchema.safeParse(item);
+    if (!parsed.success) {
+      return c.json({ error: parsed.error.flatten() }, HTTP_BAD_REQUEST);
+    }
+    batches.push(parsed.data);
+  }
+  const fileId = c.req.param('id') as FileId;
+  const appended = getEventStore().appendBatches(fileId, batches);
+  return c.json({ appended }, HTTP_CREATED);
+});
+
+// GET /files/:id/batches?since=<clock> - 操作ログを取得 (since より後の clock のみ)
+app.get('/files/:id/batches', (c) => {
+  const fileId = c.req.param('id') as FileId;
+  const batches = getEventStore().getBatches(fileId);
+  const since = c.req.query('since');
+  const result: Batch[] =
+    since === undefined
+      ? batches
+      : batches.filter((b) => b.clock > Number(since));
+  return c.json(result);
 });
 
 // DELETE /files/:id - ファイル削除
