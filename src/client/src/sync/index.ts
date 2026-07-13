@@ -1,4 +1,5 @@
 export { NullSyncProvider } from './nullSyncProvider';
+export { type FlushResult, Outbox } from './outbox';
 export {
   type Cursor,
   INITIAL_CURSOR,
