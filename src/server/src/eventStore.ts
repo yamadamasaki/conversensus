@@ -1,0 +1,201 @@
+/**
+ * ローカル永続層: 操作ログ (batches) + projection (step1 Phase 3)
+ *
+ * O1 の確定 (SQLite / `bun:sqlite`) に基づく永続層。
+ * 保存モデルは「append-only な操作ログ + projection」:
+ *   - batches テーブルへ Batch を追記するのみ (更新・削除しない)。
+ *   - グラフ状態 (Sheet) は保存せず、batches の projection で導出する。
+ *   - commits はログ上の**ラベル付きオフセット** (branchLog の `Commit`) を保持する。
+ *
+ * 現行 `storage.ts` (GraphFile を JSON スナップショットで丸ごと保存) の置換候補。
+ * 非破壊: 本 Phase では EventStore を追加するのみで、HTTP API の載せ替えは Phase 4 以降。
+ */
+
+import { Database } from 'bun:sqlite';
+import {
+  type Batch,
+  type Commit,
+  type FileId,
+  projectBatches,
+  type Sheet,
+  type SheetId,
+  toSheet,
+} from '@conversensus/shared';
+
+/** インメモリ DB のパス指定 (テスト用) */
+export const IN_MEMORY = ':memory:';
+
+/** batches の 1 行 (ops は JSON 文字列で保持する) */
+type BatchRow = {
+  batch_id: string;
+  actor: string;
+  clock: number;
+  timestamp: number;
+  ops_json: string;
+};
+
+/** commits の 1 行 */
+type CommitRow = {
+  id: string;
+  message: string;
+  at: number;
+  author_actor: string;
+};
+
+const SCHEMA = `
+CREATE TABLE IF NOT EXISTS batches (
+  seq        INTEGER PRIMARY KEY AUTOINCREMENT,
+  file_id    TEXT    NOT NULL,
+  batch_id   TEXT    NOT NULL,
+  actor      TEXT    NOT NULL,
+  clock      INTEGER NOT NULL,
+  timestamp  INTEGER NOT NULL,
+  ops_json   TEXT    NOT NULL,
+  UNIQUE(file_id, batch_id)
+);
+CREATE INDEX IF NOT EXISTS idx_batches_file_order
+  ON batches (file_id, clock, timestamp, batch_id);
+
+CREATE TABLE IF NOT EXISTS commits (
+  id           TEXT    PRIMARY KEY,
+  file_id      TEXT    NOT NULL,
+  message      TEXT    NOT NULL,
+  at           INTEGER NOT NULL,
+  author_actor TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_commits_file ON commits (file_id);
+`;
+
+/**
+ * 操作ログの永続ストア。1 インスタンス = 1 データベース。
+ * ファイル (グラフ) ごとに file_id で batches / commits を仕切る。
+ */
+export class EventStore {
+  private readonly db: Database;
+
+  /** @param path DB ファイルパス。テストでは `IN_MEMORY` を渡す */
+  constructor(path: string) {
+    this.db = new Database(path);
+    // WAL: デーモン常駐からの並行アクセスで読み書きの競合を緩和する
+    this.db.exec('PRAGMA journal_mode = WAL');
+    this.db.exec('PRAGMA foreign_keys = ON');
+    this.db.run(SCHEMA);
+  }
+
+  /**
+   * Batch を操作ログへ追記する。
+   * (file_id, batch_id) が既存なら何もしない (べき等: 同一 Batch の重複適用を無視)。
+   * @returns 新規に追記されたら true、重複で無視されたら false
+   */
+  appendBatch(fileId: FileId, batch: Batch): boolean {
+    // 永続化の最小不変条件: 空 ops の Batch (no-op 行) をログに残さない。
+    // UUID フォーマット等の検証は外部 API 境界 (HTTP) の責務 (CLAUDE.md)。
+    if (batch.ops.length === 0) {
+      throw new Error('Cannot append a batch with empty ops');
+    }
+    const result = this.db
+      .query(
+        `INSERT OR IGNORE INTO batches
+           (file_id, batch_id, actor, clock, timestamp, ops_json)
+         VALUES ($file, $id, $actor, $clock, $ts, $ops)`,
+      )
+      .run({
+        $file: fileId,
+        $id: batch.id,
+        $actor: batch.actor,
+        $clock: batch.clock,
+        $ts: batch.timestamp,
+        $ops: JSON.stringify(batch.ops),
+      });
+    return result.changes > 0;
+  }
+
+  /** 複数 Batch を 1 トランザクションで追記する。@returns 新規追記された件数 */
+  appendBatches(fileId: FileId, batches: Batch[]): number {
+    const tx = this.db.transaction((items: Batch[]) => {
+      let inserted = 0;
+      for (const batch of items) {
+        if (this.appendBatch(fileId, batch)) inserted += 1;
+      }
+      return inserted;
+    });
+    return tx(batches);
+  }
+
+  /**
+   * ファイルの全 Batch を取得する。
+   * 追記順を安定させるため (clock, timestamp, batch_id) 昇順で返すが、
+   * projection は決定論のため内部で再整列する (projectBatches)。
+   */
+  getBatches(fileId: FileId): Batch[] {
+    const rows = this.db
+      .query<BatchRow, string>(
+        `SELECT batch_id, actor, clock, timestamp, ops_json
+           FROM batches
+          WHERE file_id = ?
+          ORDER BY clock, timestamp, batch_id`,
+      )
+      .all(fileId);
+    return rows.map((row) => rowToBatch(row));
+  }
+
+  /** ファイルの操作ログを projection し、Sheet として導出する */
+  projectSheet(
+    fileId: FileId,
+    meta: { id: SheetId; name: string; description?: string },
+  ): Sheet {
+    return toSheet(projectBatches(this.getBatches(fileId)), meta);
+  }
+
+  /** コミット (ラベル付きオフセット) を保存する。同一 id は上書きする */
+  saveCommit(fileId: FileId, commit: Commit): void {
+    this.db
+      .query(
+        `INSERT OR REPLACE INTO commits (id, file_id, message, at, author_actor)
+         VALUES ($id, $file, $msg, $at, $author)`,
+      )
+      .run({
+        $id: commit.id,
+        $file: fileId,
+        $msg: commit.message,
+        $at: commit.at,
+        $author: commit.authorActor,
+      });
+  }
+
+  /** ファイルのコミット一覧を、指すオフセット (at) 昇順で取得する */
+  getCommits(fileId: FileId): Commit[] {
+    const rows = this.db
+      .query<CommitRow, string>(
+        `SELECT id, message, at, author_actor
+           FROM commits
+          WHERE file_id = ?
+          ORDER BY at, id`,
+      )
+      .all(fileId);
+    return rows.map((row) => rowToCommit(row));
+  }
+
+  close(): void {
+    this.db.close();
+  }
+}
+
+function rowToBatch(row: BatchRow): Batch {
+  return {
+    id: row.batch_id as Batch['id'],
+    actor: row.actor,
+    clock: row.clock,
+    timestamp: row.timestamp,
+    ops: JSON.parse(row.ops_json) as Batch['ops'],
+  };
+}
+
+function rowToCommit(row: CommitRow): Commit {
+  return {
+    id: row.id as Commit['id'],
+    message: row.message,
+    at: row.at,
+    authorActor: row.author_actor,
+  };
+}

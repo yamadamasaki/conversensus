@@ -91,7 +91,7 @@ branch: "{branchId}_{uuid}"
 | ID | 未決 | 決定タイミング |
 |---|---|---|
 | ~~論理時刻の実体~~ | **確定: Lamport** (`LamportClock`, observe=max+1)。Phase 1 で実装 | ✅ Phase 1 |
-| O1 ストレージ実体 | JSON / SQLite / IndexedDB | Phase 3 冒頭。O2 (配布形態) と連動 |
+| ~~O1 ストレージ実体~~ | **確定: SQLite (`bun:sqlite`)**。append-only な batches テーブルへ追記し、projection で導出。B2 (ローカル Hono デーモン) 常駐からの並行アクセス・トランザクション・耐久性で採択。組み込みのため依存追加なし | ✅ Phase 3 |
 | ~~複合イベントの正規化~~ | **確定: バッチ** (1 操作 = 基本 op のバッチ, undo 単位 = バッチ, 解決単位 = op) | ✅ Phase 1 |
 
 ## 5. Phase 1 完了メモ (2026-07-12)
@@ -120,3 +120,18 @@ branch: "{branchId}_{uuid}"
   1. `branchState.ts` の PDS I/O 4 関数 (fetchBranches/fetchCommits/updateBranchStatus/createMergeRecord) を sync-provider へ退避。
   2. App.tsx / useEventStore の branchState 依存を `branchLog`/`merge` へ切り替え。
   3. `computeOperations` (state diff) は UI diff 用途が残る場合のみ layout 対応で存続、不要なら廃棄。
+
+## 7. Phase 3 完了メモ (2026-07-13)
+
+- **O1 確定: SQLite (`bun:sqlite`)**。§4 の表を参照。append-only な batches テーブルへ追記し projection で導出する。組み込みのため依存追加なし。
+- **成果物** (`src/server/src/eventStore.ts`):
+  - `EventStore` — 操作ログ永続ストア。1 インスタンス = 1 DB、ファイルごとに `file_id` で仕切る。
+  - スキーマ: `batches`(seq PK / file_id / batch_id / actor / clock / timestamp / ops_json、`UNIQUE(file_id, batch_id)`) + `commits`(ラベル付きオフセット)。読み出し順のため `(file_id, clock, timestamp, batch_id)` にインデックス。WAL 有効。
+  - API: `appendBatch` (INSERT OR IGNORE でべき等) / `appendBatches` (トランザクション) / `getBatches` (clock 昇順) / `projectSheet` (projectBatches → toSheet) / `saveCommit` / `getCommits` / `close`。
+  - 永続化境界の不変条件は「空 ops の Batch を弾く」の最小限。UUID フォーマット検証は外部 API 境界 (HTTP) の責務 (CLAUDE.md)。
+- **テスト**: 12 追加 (全 347 pass)。`.test.md` あり。インメモリ (`:memory:`) で DB を分離。
+- **非破壊**: 旧 `storage.ts` (GraphFile を JSON スナップショット保存) は温存。HTTP API を EventStore へ載せ替える配線は Phase 4 (sync-provider) と併せて行う。
+- **Phase 4 へ引き継ぐ作業**:
+  1. HTTP API (`index.ts`) の `/files` 系を EventStore へ載せ替え (現状は `storage.ts` の全体スナップショット保存)。載せ替え後に `storage.ts` を廃棄。
+  2. Branch (base コミット + 分岐) の永続化。現状 EventStore は batches / commits まで。branches テーブルは sync-provider の分岐管理と併せて設計する。
+  3. Lamport clock の永続化・復元 (再起動後に max(clock)+1 から再開する配線)。
