@@ -1,3 +1,5 @@
+export { EventSyncTap, type EventSyncTapDeps } from './eventSyncTap';
+export { LocalServerSyncProvider } from './localServerSyncProvider';
 export { NullSyncProvider } from './nullSyncProvider';
 export { type FlushResult, Outbox } from './outbox';
 export {
