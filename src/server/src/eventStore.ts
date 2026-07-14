@@ -32,6 +32,8 @@ type BatchRow = {
   clock: number;
   timestamp: number;
   ops_json: string;
+  // content batch の所属シート。structure (file-level) batch は NULL (W3c2)
+  sheet_id: string | null;
 };
 
 /** commits の 1 行 */
@@ -51,6 +53,7 @@ CREATE TABLE IF NOT EXISTS batches (
   clock      INTEGER NOT NULL,
   timestamp  INTEGER NOT NULL,
   ops_json   TEXT    NOT NULL,
+  sheet_id   TEXT,
   UNIQUE(file_id, batch_id)
 );
 CREATE INDEX IF NOT EXISTS idx_batches_file_order
@@ -80,6 +83,21 @@ export class EventStore {
     this.db.exec('PRAGMA journal_mode = WAL');
     this.db.exec('PRAGMA foreign_keys = ON');
     this.db.run(SCHEMA);
+    this.migrateSheetIdColumn();
+  }
+
+  /**
+   * W3c2 マイグレーション: 既存 DB の batches に sheet_id 列を追加する。
+   * `CREATE TABLE IF NOT EXISTS` は既存テーブルへ列を足さないため、
+   * table_info で列の有無を検査し無ければ一度だけ ALTER する (べき等)。
+   */
+  private migrateSheetIdColumn(): void {
+    const cols = this.db
+      .query<{ name: string }, []>('PRAGMA table_info(batches)')
+      .all();
+    if (!cols.some((c) => c.name === 'sheet_id')) {
+      this.db.run('ALTER TABLE batches ADD COLUMN sheet_id TEXT');
+    }
   }
 
   /**
@@ -96,8 +114,8 @@ export class EventStore {
     const result = this.db
       .query(
         `INSERT OR IGNORE INTO batches
-           (file_id, batch_id, actor, clock, timestamp, ops_json)
-         VALUES ($file, $id, $actor, $clock, $ts, $ops)`,
+           (file_id, batch_id, actor, clock, timestamp, ops_json, sheet_id)
+         VALUES ($file, $id, $actor, $clock, $ts, $ops, $sheet)`,
       )
       .run({
         $file: fileId,
@@ -106,6 +124,8 @@ export class EventStore {
         $clock: batch.clock,
         $ts: batch.timestamp,
         $ops: JSON.stringify(batch.ops),
+        // content batch は sheetId を持つ。structure batch は NULL (W3c2)
+        $sheet: batch.sheetId ?? null,
       });
     return result.changes > 0;
   }
@@ -130,7 +150,7 @@ export class EventStore {
   getBatches(fileId: FileId): Batch[] {
     const rows = this.db
       .query<BatchRow, string>(
-        `SELECT batch_id, actor, clock, timestamp, ops_json
+        `SELECT batch_id, actor, clock, timestamp, ops_json, sheet_id
            FROM batches
           WHERE file_id = ?
           ORDER BY clock, timestamp, batch_id`,
@@ -188,6 +208,8 @@ function rowToBatch(row: BatchRow): Batch {
     clock: row.clock,
     timestamp: row.timestamp,
     ops: JSON.parse(row.ops_json) as Batch['ops'],
+    // content batch のみ sheet_id を持つ (structure batch は NULL) (W3c2)
+    ...(row.sheet_id !== null && { sheetId: row.sheet_id as SheetId }),
   };
 }
 

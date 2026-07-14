@@ -7,7 +7,7 @@
  * 宛先はローカル永続デーモン (`LocalServerSyncProvider`)。
  */
 
-import type { FileId } from '@conversensus/shared';
+import type { FileId, SheetId } from '@conversensus/shared';
 import { useCallback, useMemo } from 'react';
 import type { GraphEvent } from '../events/GraphEvent';
 import { EventSyncTap } from '../sync/eventSyncTap';
@@ -15,7 +15,7 @@ import { LocalServerSyncProvider } from '../sync/localServerSyncProvider';
 
 export function useEventSyncTap(
   fileId: FileId | null,
-): (event: GraphEvent) => void {
+): (event: GraphEvent, sheetId?: SheetId) => void {
   // fileId が変われば新しい tap (clock/outbox を分離)。未オープン時は no-op。
   const tap = useMemo(
     () =>
@@ -28,5 +28,9 @@ export function useEventSyncTap(
         : null,
     [fileId],
   );
-  return useCallback((event: GraphEvent) => tap?.record(event), [tap]);
+  // content 経路は sheetId を渡す (W3c2)。structure 経路は省略 → file-level batch。
+  return useCallback(
+    (event: GraphEvent, sheetId?: SheetId) => tap?.record(event, sheetId),
+    [tap],
+  );
 }

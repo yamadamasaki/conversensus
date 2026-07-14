@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
-import type { Batch, NodeId } from '@conversensus/shared';
-import { LamportClock } from '@conversensus/shared';
+import type { Batch, NodeId, SheetId } from '@conversensus/shared';
+import { LamportClock, SheetIdSchema } from '@conversensus/shared';
 import type {
   NodeLayout,
   NodeRelabeledEvent,
@@ -137,6 +137,23 @@ describe('EventSyncTap', () => {
     await tap.settled();
     expect(provider.pushed.map((b) => b.clock)).toEqual([4, 5]);
     expect(tap.pending).toBe(0);
+  });
+
+  it('record の sheetId が push された content batch に載る (W3c2)', async () => {
+    const provider = new RecordingProvider();
+    const tap = new EventSyncTap({ provider });
+    const sheetId = SheetIdSchema.parse(crypto.randomUUID()) as SheetId;
+    tap.record(relabel(), sheetId);
+    await tap.settled();
+    expect(provider.pushed[0]?.sheetId).toBe(sheetId);
+  });
+
+  it('sheetId 無しの record は sheetId を持たない batch になる (structure 経路)', async () => {
+    const provider = new RecordingProvider();
+    const tap = new EventSyncTap({ provider });
+    tap.record(relabel());
+    await tap.settled();
+    expect(provider.pushed[0]?.sheetId).toBeUndefined();
   });
 
   it('オフライン時は保留し、復帰後の record で再送する', async () => {

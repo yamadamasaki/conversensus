@@ -339,3 +339,28 @@ describe('graphEventToOps: file 構造イベント (W3c1)', () => {
     expect(batch.ops).toEqual([{ kind: 'file.setName', name: 'F' }]);
   });
 });
+
+describe('graphEventToBatch: content の sheet-aware 化 (W3c2)', () => {
+  const sid = (): SheetId => SheetIdSchema.parse(crypto.randomUUID());
+  const relabel = (): GraphEvent => {
+    const nodeId = nid();
+    return {
+      ...makeEventBase('content'),
+      type: 'NODE_RELABELED',
+      nodeId,
+      from: 'a',
+      to: 'b',
+    };
+  };
+
+  test('sheetId 引数を渡すと content batch に載る', () => {
+    const sheetId = sid();
+    const batch = graphEventToBatch(relabel(), 5, sheetId);
+    expect(batch.sheetId).toBe(sheetId);
+  });
+
+  test('sheetId 引数を省略すると batch は sheetId を持たない', () => {
+    const batch = graphEventToBatch(relabel(), 5);
+    expect(batch.sheetId).toBeUndefined();
+  });
+});

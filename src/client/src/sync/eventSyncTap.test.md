@@ -43,4 +43,8 @@ tap のロジックを framework 非依存に固定する。
   clock [4,5] が push され pending 0 (保留分ごと再試行)。
 - **オフライン**: `online=false` で record → push 0・pending 1・onError 1 回。その後
   `online=true` にして別 record → 保留分 + 新規の 2 件が push され pending 0。
+- **sheetId の付与 (W3c2)**: `record(event, sheetId)` で渡した sheetId が push された
+  content batch に載ること、`record(event)` (sheetId 省略) では batch が sheetId を
+  持たない (structure 経路) ことを固定する。sheetId は event と対で保留され、drain 時の
+  `graphEventToBatch(event, tick, sheetId)` で載るため、clock 採番タイミングと独立に正しく紐づく。
 - `settled()` で直列化された flush チェーンの完了を待つ。

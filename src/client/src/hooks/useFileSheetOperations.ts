@@ -67,8 +67,11 @@ interface UseFileSheetOperationsParams {
   setConfirmState: (s: ConfirmState | null) => void;
   setAlertState: (s: AlertState | null) => void;
   deps?: FileSheetOpsDeps;
-  /** テスト用: op-log tap の record を差し替える。未指定なら内部 tap (LocalServerSyncProvider) */
-  syncRecord?: (event: GraphEvent) => void;
+  /**
+   * テスト用: op-log tap の record を差し替える。未指定なら内部 tap (LocalServerSyncProvider)。
+   * content 経路 (GraphEditor) は sheetId を渡し、structure 経路 (以下のハンドラ) は渡さない (W3c2)。
+   */
+  syncRecord?: (event: GraphEvent, sheetId?: SheetId) => void;
 }
 
 export function useFileSheetOperations({

@@ -18,6 +18,7 @@ import type {
   Lamport,
   NodeId,
   NodeLayout,
+  SheetId,
 } from '@conversensus/shared';
 import { type Batch, BatchIdSchema, type Op } from '@conversensus/shared';
 import type { GraphEvent } from './GraphEvent';
@@ -317,13 +318,22 @@ export function graphEventToOps(event: GraphEvent): Op[] {
   }
 }
 
-/** GraphEvent を 1 つの Batch へ変換する (1 ユーザー操作 = 1 Batch) */
-export function graphEventToBatch(event: GraphEvent, clock: Lamport): Batch {
+/**
+ * GraphEvent を 1 つの Batch へ変換する (1 ユーザー操作 = 1 Batch)。
+ * content 経路は `sheetId` (発生元シート) を渡し、structure (file) 経路は渡さない。
+ * → file-level batch は sheetId を持たない (W3c2 §2.1)。
+ */
+export function graphEventToBatch(
+  event: GraphEvent,
+  clock: Lamport,
+  sheetId?: SheetId,
+): Batch {
   return {
     id: BatchIdSchema.parse(event.id),
     actor: event.userId,
     clock,
     timestamp: event.timestamp,
     ops: graphEventToOps(event),
+    ...(sheetId !== undefined && { sheetId }),
   };
 }
