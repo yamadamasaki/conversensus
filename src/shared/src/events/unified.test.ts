@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import {
   BatchSchema,
+  FILE_OP_KINDS,
+  isFileOp,
   isSyncable,
   LamportClock,
   OP_CATEGORY,
@@ -35,6 +37,30 @@ describe('OP_CATEGORY', () => {
     expect(opCategory({ kind: 'node.setLayout', target: 'x' as never })).toBe(
       'layout',
     );
+  });
+
+  test('file カテゴリ op は同期対象 (§3.2)', () => {
+    expect(opCategory({ kind: 'file.setName', name: 'F' })).toBe('file');
+    expect(isSyncable({ kind: 'file.setName', name: 'F' })).toBe(true);
+    expect(
+      isSyncable({ kind: 'sheet.create', target: 'x' as never, name: 'S' }),
+    ).toBe(true);
+  });
+});
+
+describe('isFileOp', () => {
+  test('FILE_OP_KINDS の op のみ file と判定する', () => {
+    expect(isFileOp({ kind: 'file.setName', name: 'F' })).toBe(true);
+    expect(isFileOp({ kind: 'sheet.remove', target: 'x' as never })).toBe(true);
+    expect(
+      isFileOp({ kind: 'node.add', target: 'x' as never, content: 'A' }),
+    ).toBe(false);
+  });
+
+  test('FILE_OP_KINDS は OP_CATEGORY で file に揃っている', () => {
+    for (const kind of FILE_OP_KINDS) {
+      expect(OP_CATEGORY[kind]).toBe('file');
+    }
   });
 });
 
@@ -83,6 +109,18 @@ describe('BatchSchema', () => {
       actor: 'local',
       clock: 1,
       timestamp: Date.now(),
+      ops: [{ kind: 'node.add', target: crypto.randomUUID(), content: 'A' }],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test('sheetId は optional で、指定すれば受理する (§3.1)', () => {
+    const result = BatchSchema.safeParse({
+      id: crypto.randomUUID(),
+      actor: 'local',
+      clock: 1,
+      timestamp: Date.now(),
+      sheetId: crypto.randomUUID(),
       ops: [{ kind: 'node.add', target: crypto.randomUUID(), content: 'A' }],
     });
     expect(result.success).toBe(true);

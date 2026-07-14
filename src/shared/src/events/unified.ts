@@ -19,6 +19,7 @@ import {
   EdgeIdSchema,
   EdgePathTypeSchema,
   NodeIdSchema,
+  SheetIdSchema,
   StyleSchema,
 } from '../schemas';
 
@@ -40,6 +41,7 @@ export const EVENT_CATEGORIES = [
   'content',
   'layout',
   'presentation',
+  'file',
 ] as const;
 export type Category = (typeof EVENT_CATEGORIES)[number];
 
@@ -134,9 +136,53 @@ export const OpSchema = z.discriminatedUnion('kind', [
     offsetX: z.number(),
     offsetY: z.number(),
   }),
+  // file (シート/ファイル構造)。グラフ内容 op と別カテゴリで routing する
+  z.object({
+    kind: z.literal('sheet.create'),
+    target: SheetIdSchema,
+    name: z.string(),
+    description: z.string().optional(),
+  }),
+  z.object({ kind: z.literal('sheet.remove'), target: SheetIdSchema }),
+  z.object({
+    kind: z.literal('sheet.setName'),
+    target: SheetIdSchema,
+    name: z.string(),
+  }),
+  z.object({
+    kind: z.literal('sheet.setDescription'),
+    target: SheetIdSchema,
+    description: z.string().optional(),
+  }),
+  z.object({
+    kind: z.literal('sheet.reorder'),
+    order: z.array(SheetIdSchema),
+  }),
+  z.object({ kind: z.literal('file.setName'), name: z.string() }),
+  z.object({
+    kind: z.literal('file.setDescription'),
+    description: z.string().optional(),
+  }),
 ]);
 export type Op = z.infer<typeof OpSchema>;
 export type OpKind = Op['kind'];
+
+/** file カテゴリ (シート/ファイル構造) の op kind。content/structure の判別に使う */
+export const FILE_OP_KINDS = [
+  'sheet.create',
+  'sheet.remove',
+  'sheet.setName',
+  'sheet.setDescription',
+  'sheet.reorder',
+  'file.setName',
+  'file.setDescription',
+] as const;
+export type FileOpKind = (typeof FILE_OP_KINDS)[number];
+
+/** シート/ファイル構造を畳み込む op (projectFile が処理) */
+export type FileOp = Extract<Op, { kind: FileOpKind }>;
+/** グラフ内容を畳み込む op (projectBatches / applyOp が処理) */
+export type GraphOp = Exclude<Op, FileOp>;
 
 /** op の種別 → カテゴリ。同期対象の振り分け (structure/content/layout=同期, presentation=ローカル) に使う */
 export const OP_CATEGORY: Record<OpKind, Category> = {
@@ -155,15 +201,27 @@ export const OP_CATEGORY: Record<OpKind, Category> = {
   'node.setStyle': 'presentation',
   'edge.setStyle': 'presentation',
   'edge.setLabelOffset': 'presentation',
+  'sheet.create': 'file',
+  'sheet.remove': 'file',
+  'sheet.setName': 'file',
+  'sheet.setDescription': 'file',
+  'sheet.reorder': 'file',
+  'file.setName': 'file',
+  'file.setDescription': 'file',
 };
 
 export function opCategory(op: Op): Category {
   return OP_CATEGORY[op.kind];
 }
 
-/** presentation はローカル限定。structure/content/layout は同期対象 (D7) */
+/** presentation はローカル限定。structure/content/layout/file は同期対象 (D7) */
 export function isSyncable(op: Op): boolean {
   return opCategory(op) !== 'presentation';
+}
+
+/** file カテゴリ (シート/ファイル構造) の op か。projection の routing に使う */
+export function isFileOp(op: Op): op is FileOp {
+  return opCategory(op) === 'file';
 }
 
 // --- Batch: undo/redo と同期の運搬単位 ---
@@ -173,9 +231,33 @@ export const BatchSchema = z.object({
   actor: z.string(),
   clock: z.number().int().nonnegative(),
   timestamp: z.number().int().nonnegative(), // wall clock (表示・tiebreak 用)
+  // content batch のシート scope。1 ユーザー操作は単一シート内で完結する。
+  // file 構造 batch (sheet.*/file.* のみ) は sheetId を持たない (§3.1)。
+  sheetId: SheetIdSchema.optional(),
   ops: z.array(OpSchema).min(1),
 });
 export type Batch = z.infer<typeof BatchSchema>;
+
+// --- genesis (snapshot → 初期 batch) の予約値 (§3.4) ---
+
+/**
+ * genesis batch の予約アクター。端末に依存しない固定値。
+ * projection は actor を参照しない (`project.ts`) ため識別のみに使う。
+ */
+export const GENESIS_ACTOR = 'genesis' as const;
+
+/**
+ * genesis batch の clock 開始値。genesis は batch ごとに一意連番を割り当て、
+ * `orderBatches` の tiebreak が timestamp (端末間で異なる) に昇格しないようにする。
+ * ユーザー操作は復元時に `seed(max(clock))` でこの後続から採番する。
+ */
+export const GENESIS_CLOCK_START = 1 as const;
+
+/**
+ * genesis batch の timestamp。決定論のため固定。
+ * genesis 間の順序は一意 clock で決まるため timestamp は tiebreak に使われない。
+ */
+export const GENESIS_TIMESTAMP = 0 as const;
 
 // --- Lamport clock ---
 
