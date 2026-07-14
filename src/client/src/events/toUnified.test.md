@@ -15,6 +15,7 @@
   - `NODE_REPARENTED` → setParent (structure) + setLayout (layout) の 2 op に分かれることを確認する (親変更と位置変更は別カテゴリ)。
 - **19 型の網羅**: 全 19 イベント型の最小インスタンスを用意し、(a) 型集合が 19 であること、(b) 各イベントが 1 つ以上の op に分解されることを確認する。新しいイベント型を追加してエンコーダ対応を忘れると気づける「番人」。
 - **メタの写像**: `graphEventToBatch` が event.id → BatchId、userId → actor、指定 clock を Batch に写すことを確認する。
+- **file 構造イベント (W3c1)**: シート/ファイル構造イベント (`SHEET_CREATED`/`SHEET_REMOVED`/`SHEET_RENAMED`/`SHEET_DESCRIBED`/`FILE_RENAMED`/`FILE_DESCRIBED`) が対応する file op (`sheet.create`/`sheet.remove`/`sheet.setName`/`sheet.setDescription`/`file.setName`/`file.setDescription`) に変換されることを確認する。description 未指定 (クリア) は description フィールドを持たない op になること、および構造イベントの batch は `sheetId` を持たない (file 構造 batch は sheet scope 無し, §3.1) ことを固定する。
 
 ## 既知の制約 (テスト対象外・Phase 2 で解消)
 

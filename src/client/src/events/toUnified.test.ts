@@ -5,6 +5,8 @@ import {
   type NodeId,
   NodeIdSchema,
   projectBatches,
+  type SheetId,
+  SheetIdSchema,
 } from '@conversensus/shared';
 import type { GraphEvent } from './GraphEvent';
 import { makeEventBase } from './GraphEvent';
@@ -255,5 +257,85 @@ describe('graphEventToOps: 全 19 イベント型を網羅する', () => {
     expect(batch.id).toBe(event.id);
     expect(batch.actor).toBe(event.userId);
     expect(batch.clock).toBe(7);
+  });
+});
+
+describe('graphEventToOps: file 構造イベント (W3c1)', () => {
+  const sid = (): SheetId => SheetIdSchema.parse(crypto.randomUUID());
+
+  test('SHEET_CREATED → sheet.create (description 付き)', () => {
+    const sheetId = sid();
+    const ops = graphEventToOps({
+      ...makeEventBase('file'),
+      type: 'SHEET_CREATED',
+      sheetId,
+      name: 'S1',
+      description: 'desc',
+    });
+    expect(ops).toEqual([
+      {
+        kind: 'sheet.create',
+        target: sheetId,
+        name: 'S1',
+        description: 'desc',
+      },
+    ]);
+  });
+
+  test('SHEET_REMOVED → sheet.remove', () => {
+    const sheetId = sid();
+    expect(
+      graphEventToOps({
+        ...makeEventBase('file'),
+        type: 'SHEET_REMOVED',
+        sheetId,
+      }),
+    ).toEqual([{ kind: 'sheet.remove', target: sheetId }]);
+  });
+
+  test('SHEET_RENAMED / SHEET_DESCRIBED → sheet.setName / sheet.setDescription', () => {
+    const sheetId = sid();
+    expect(
+      graphEventToOps({
+        ...makeEventBase('file'),
+        type: 'SHEET_RENAMED',
+        sheetId,
+        name: 'new',
+      }),
+    ).toEqual([{ kind: 'sheet.setName', target: sheetId, name: 'new' }]);
+    // description 未指定 (クリア) は description フィールドを持たない op
+    expect(
+      graphEventToOps({
+        ...makeEventBase('file'),
+        type: 'SHEET_DESCRIBED',
+        sheetId,
+      }),
+    ).toEqual([{ kind: 'sheet.setDescription', target: sheetId }]);
+  });
+
+  test('FILE_RENAMED / FILE_DESCRIBED → file.setName / file.setDescription', () => {
+    expect(
+      graphEventToOps({
+        ...makeEventBase('file'),
+        type: 'FILE_RENAMED',
+        name: 'F',
+      }),
+    ).toEqual([{ kind: 'file.setName', name: 'F' }]);
+    expect(
+      graphEventToOps({
+        ...makeEventBase('file'),
+        type: 'FILE_DESCRIBED',
+        description: 'd',
+      }),
+    ).toEqual([{ kind: 'file.setDescription', description: 'd' }]);
+  });
+
+  test('構造イベントは file 構造 batch (sheetId 無し) になる', () => {
+    const batch = graphEventToBatch(
+      { ...makeEventBase('file'), type: 'FILE_RENAMED', name: 'F' },
+      3,
+    );
+    expect(batch.sheetId).toBeUndefined();
+    expect(batch.ops).toEqual([{ kind: 'file.setName', name: 'F' }]);
   });
 });

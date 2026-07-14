@@ -6,6 +6,7 @@ import type {
   GraphNode,
   NodeId,
   NodeLayout,
+  SheetId,
 } from '@conversensus/shared';
 
 export const LOCAL_USER_ID = 'local';
@@ -18,7 +19,7 @@ type EventBase = {
   id: string; // crypto.randomUUID()
   timestamp: number; // Date.now()
   userId: string; // 'local' for now
-  category: 'structure' | 'content' | 'layout' | 'presentation';
+  category: 'structure' | 'content' | 'layout' | 'presentation' | 'file';
 };
 
 // --- Structure ---
@@ -190,6 +191,44 @@ export type EdgeLabelMovedEvent = EventBase & {
   to: { offsetX: number; offsetY: number };
 };
 
+// --- File / Sheet structure (op-log 化, W3c1) ---
+// これらは undo を通さず syncRecord (tap.record) で直接 op-log へ流す。
+// dispatch (useEventStore) を経由しないため applyEvent/invertEvent は関与しない。
+export type SheetCreatedEvent = EventBase & {
+  category: 'file';
+  type: 'SHEET_CREATED';
+  sheetId: SheetId;
+  name: string;
+  description?: string;
+};
+export type SheetRemovedEvent = EventBase & {
+  category: 'file';
+  type: 'SHEET_REMOVED';
+  sheetId: SheetId;
+};
+export type SheetRenamedEvent = EventBase & {
+  category: 'file';
+  type: 'SHEET_RENAMED';
+  sheetId: SheetId;
+  name: string;
+};
+export type SheetDescribedEvent = EventBase & {
+  category: 'file';
+  type: 'SHEET_DESCRIBED';
+  sheetId: SheetId;
+  description?: string;
+};
+export type FileRenamedEvent = EventBase & {
+  category: 'file';
+  type: 'FILE_RENAMED';
+  name: string;
+};
+export type FileDescribedEvent = EventBase & {
+  category: 'file';
+  type: 'FILE_DESCRIBED';
+  description?: string;
+};
+
 export type GraphEvent =
   | NodeAddedEvent
   | NodeDeletedEvent
@@ -209,7 +248,13 @@ export type GraphEvent =
   | NodeResizedEvent
   | EdgeStyleChangedEvent
   | NodeStyleChangedEvent
-  | EdgeLabelMovedEvent;
+  | EdgeLabelMovedEvent
+  | SheetCreatedEvent
+  | SheetRemovedEvent
+  | SheetRenamedEvent
+  | SheetDescribedEvent
+  | FileRenamedEvent
+  | FileDescribedEvent;
 
 export function makeEventBase<C extends GraphEvent['category']>(
   category: C,

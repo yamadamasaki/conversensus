@@ -20,7 +20,10 @@ import {
   fetchFilesFromAtproto,
   syncFileToAtproto,
 } from '../atproto';
+import type { GraphEvent } from '../events/GraphEvent';
+import { makeEventBase } from '../events/GraphEvent';
 import type { PopupTarget } from '../SettingsPopup';
+import { useEventSyncTap } from './useEventSyncTap';
 
 type ConfirmState = {
   message: string;
@@ -64,12 +67,15 @@ interface UseFileSheetOperationsParams {
   setConfirmState: (s: ConfirmState | null) => void;
   setAlertState: (s: AlertState | null) => void;
   deps?: FileSheetOpsDeps;
+  /** テスト用: op-log tap の record を差し替える。未指定なら内部 tap (LocalServerSyncProvider) */
+  syncRecord?: (event: GraphEvent) => void;
 }
 
 export function useFileSheetOperations({
   setConfirmState,
   setAlertState,
   deps = defaultFileSheetOpsDeps,
+  syncRecord: syncRecordOverride,
 }: UseFileSheetOperationsParams) {
   const [files, setFiles] = useState<GraphFileListItem[]>([]);
   const [activeFile, setActiveFile] = useState<GraphFile | null>(null);
@@ -84,6 +90,11 @@ export function useFileSheetOperations({
     () => activeFile?.sheets.find((s) => s.id === activeSheetId) ?? null,
     [activeFile, activeSheetId],
   );
+
+  // 操作ログ tap をファイル単位で保持する (W3c1)。content (GraphEditor) と
+  // structure (以下の構造ハンドラ) の両方が単一の tap = 単一 Lamport 発番源を共有する。
+  const internalSyncRecord = useEventSyncTap(activeFile?.id ?? null);
+  const syncRecord = syncRecordOverride ?? internalSyncRecord;
 
   const openFile = useCallback(
     async (id: string) => {
@@ -179,13 +190,25 @@ export function useFileSheetOperations({
   const handleSaveFileSettings = useCallback(
     async (fileId: string, name: string, description: string) => {
       if (!activeFile || activeFile.id !== fileId) return;
+      // op-log へ変化した項目のみ emit する (dual-write, 空 batch 回避)
+      if (name !== activeFile.name) {
+        syncRecord({ ...makeEventBase('file'), type: 'FILE_RENAMED', name });
+      }
+      const newDesc = description || undefined;
+      if (newDesc !== activeFile.description) {
+        syncRecord({
+          ...makeEventBase('file'),
+          type: 'FILE_DESCRIBED',
+          ...(newDesc !== undefined && { description: newDesc }),
+        });
+      }
       await persistFile({
         ...activeFile,
         name,
-        description: description || undefined,
+        description: newDesc,
       });
     },
-    [activeFile, persistFile],
+    [activeFile, persistFile, syncRecord],
   );
 
   const handleDeleteFile = useCallback(
@@ -228,16 +251,33 @@ export function useFileSheetOperations({
   const handleSaveSheetSettings = useCallback(
     async (sheetId: string, name: string, description: string) => {
       if (!activeFile) return;
+      const sheet = activeFile.sheets.find((s) => s.id === sheetId);
+      // op-log へ変化した項目のみ emit する (dual-write, 空 batch 回避)
+      if (sheet && name !== sheet.name) {
+        syncRecord({
+          ...makeEventBase('file'),
+          type: 'SHEET_RENAMED',
+          sheetId: sheetId as SheetId,
+          name,
+        });
+      }
+      const newDesc = description || undefined;
+      if (sheet && newDesc !== sheet.description) {
+        syncRecord({
+          ...makeEventBase('file'),
+          type: 'SHEET_DESCRIBED',
+          sheetId: sheetId as SheetId,
+          ...(newDesc !== undefined && { description: newDesc }),
+        });
+      }
       await persistFile({
         ...activeFile,
         sheets: activeFile.sheets.map((s) =>
-          s.id === sheetId
-            ? { ...s, name, description: description || undefined }
-            : s,
+          s.id === sheetId ? { ...s, name, description: newDesc } : s,
         ),
       });
     },
-    [activeFile, persistFile],
+    [activeFile, persistFile, syncRecord],
   );
 
   const handleDeleteSheet = useCallback(
@@ -256,13 +296,19 @@ export function useFileSheetOperations({
         ...activeFile,
         sheets: activeFile.sheets.filter((s) => s.id !== sheetId),
       };
+      // op-log へ sheet.remove を emit する (dual-write)
+      syncRecord({
+        ...makeEventBase('file'),
+        type: 'SHEET_REMOVED',
+        sheetId: sheetId as SheetId,
+      });
       if (activeSheetId === sheetId) {
         setActiveSheetId((updated.sheets[0]?.id ?? null) as SheetId | null);
       }
       setPopupTarget(null);
       await persistFile(updated);
     },
-    [activeFile, activeSheetId, persistFile, setAlertState],
+    [activeFile, activeSheetId, persistFile, setAlertState, syncRecord],
   );
 
   const handleImportFile = useCallback(
@@ -347,5 +393,6 @@ export function useFileSheetOperations({
     handleImportFile,
     handleExportFile,
     loadAtprotoFiles,
+    syncRecord,
   };
 }
