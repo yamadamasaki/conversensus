@@ -32,18 +32,29 @@ afterEach(() => {
 
 async function render() {
   const deps = createInMemoryFileSheetOpsDeps();
+  // op-log tap を差し替え、実ネットワーク (LocalServerSyncProvider) を避けつつ
+  // 構造操作の dual-write emit を検証する
+  const syncRecord = mock((_event: { type: string }) => {});
   const result = renderHook(() =>
     useFileSheetOperations({
       setConfirmState: mockSetConfirmState,
       setAlertState: mockSetAlertState,
       deps,
+      syncRecord: syncRecord as unknown as (event: never) => void,
     }),
   );
   // Flush async effects (fetchFiles + ATProto sync)
   await act(async () => {
     await new Promise((r) => setTimeout(r, 10));
   });
-  return { ...result, deps };
+  return { ...result, deps, syncRecord };
+}
+
+/** syncRecord に渡された event の type 一覧 */
+function emittedTypes(syncRecord: { mock: { calls: unknown[][] } }): string[] {
+  return syncRecord.mock.calls.map(
+    (call) => (call[0] as { type: string }).type,
+  );
 }
 
 describe('useFileSheetOperations', () => {
@@ -163,8 +174,8 @@ describe('useFileSheetOperations', () => {
   });
 
   describe('handleSaveFileSettings', () => {
-    it('ファイル名と説明を更新する', async () => {
-      const { result } = await render();
+    it('ファイル名と説明を更新し、変化した項目を op-log へ emit する', async () => {
+      const { result, syncRecord } = await render();
       await act(async () => {
         await result.current.handleCreate();
       });
@@ -181,8 +192,14 @@ describe('useFileSheetOperations', () => {
         );
       });
 
+      // snapshot (dual-write の一方) は従来通り更新される
       expect(result.current.activeFile?.name).toBe('新しい名前');
       expect(result.current.activeFile?.description).toBe('説明文');
+      // op-log (dual-write のもう一方) へ変化項目のみ emit
+      expect(emittedTypes(syncRecord)).toEqual([
+        'FILE_RENAMED',
+        'FILE_DESCRIBED',
+      ]);
     });
   });
 
@@ -297,11 +314,38 @@ describe('useFileSheetOperations', () => {
       expect(mockSetAlertState).toHaveBeenCalledTimes(1);
       expect(result.current.activeSheetId).toBe(sheetId);
     });
+
+    it('シートを削除し op-log へ sheet.remove を emit する (dual-write)', async () => {
+      const { result, syncRecord } = await render();
+      // 2 シートのファイルを直接セット (handleAddSheet は App 側)
+      act(() => {
+        result.current.setActiveFile({
+          id: 'f1' as FileId,
+          name: 'test',
+          description: '',
+          sheets: [
+            { id: SID1, name: 'Sheet 1', nodes: [], edges: [] },
+            { id: SID2, name: 'Sheet 2', nodes: [], edges: [] },
+          ],
+        });
+        result.current.setActiveSheetId(SID1);
+      });
+
+      await act(async () => {
+        await result.current.handleDeleteSheet(SID2);
+      });
+
+      // snapshot からシートが消え、op-log へ SHEET_REMOVED
+      expect(result.current.activeFile?.sheets.map((s) => s.id)).toEqual([
+        SID1,
+      ]);
+      expect(emittedTypes(syncRecord)).toEqual(['SHEET_REMOVED']);
+    });
   });
 
   describe('handleSaveSheetSettings', () => {
-    it('シート名と説明を更新する', async () => {
-      const { result } = await render();
+    it('シート名と説明を更新し、変化した項目を op-log へ emit する', async () => {
+      const { result, syncRecord } = await render();
       await act(async () => {
         await result.current.handleCreate();
       });
@@ -319,6 +363,27 @@ describe('useFileSheetOperations', () => {
       const sheet = result.current.activeFile?.sheets[0];
       expect(sheet?.name).toBe('新しいシート名');
       expect(sheet?.description).toBe('シートの説明');
+      expect(emittedTypes(syncRecord)).toEqual([
+        'SHEET_RENAMED',
+        'SHEET_DESCRIBED',
+      ]);
+    });
+
+    it('変化が無ければ何も emit しない (空 batch 回避)', async () => {
+      const { result, syncRecord } = await render();
+      await act(async () => {
+        await result.current.handleCreate();
+      });
+      const sheetId = result.current.activeSheetId;
+      const currentName = result.current.activeFile?.sheets[0]?.name ?? '';
+      if (!sheetId) throw new Error('activeSheetId should be set');
+
+      await act(async () => {
+        // 同じ名前・説明無しで保存 (無変化)
+        await result.current.handleSaveSheetSettings(sheetId, currentName, '');
+      });
+
+      expect(emittedTypes(syncRecord)).toEqual([]);
     });
   });
 

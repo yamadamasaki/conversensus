@@ -273,6 +273,45 @@ export function graphEventToOps(event: GraphEvent): Op[] {
           offsetY: event.to.offsetY,
         },
       ];
+    // file 構造 (W3c1): シート/ファイル構造イベント → file op
+    case 'SHEET_CREATED':
+      return [
+        {
+          kind: 'sheet.create',
+          target: event.sheetId,
+          name: event.name,
+          ...(event.description !== undefined && {
+            description: event.description,
+          }),
+        },
+      ];
+    case 'SHEET_REMOVED':
+      return [{ kind: 'sheet.remove', target: event.sheetId }];
+    case 'SHEET_RENAMED':
+      return [
+        { kind: 'sheet.setName', target: event.sheetId, name: event.name },
+      ];
+    case 'SHEET_DESCRIBED':
+      return [
+        {
+          kind: 'sheet.setDescription',
+          target: event.sheetId,
+          ...(event.description !== undefined && {
+            description: event.description,
+          }),
+        },
+      ];
+    case 'FILE_RENAMED':
+      return [{ kind: 'file.setName', name: event.name }];
+    case 'FILE_DESCRIBED':
+      return [
+        {
+          kind: 'file.setDescription',
+          ...(event.description !== undefined && {
+            description: event.description,
+          }),
+        },
+      ];
     default:
       return [];
   }

@@ -10,6 +10,7 @@ import {
 } from './atproto';
 import { CommitDialog } from './CommitDialog';
 import { ConfirmDialog } from './ConfirmDialog';
+import { makeEventBase } from './events/GraphEvent';
 import { GraphEditor } from './GraphEditor';
 import { useAtprotoSession } from './hooks/useAtprotoSession';
 import { useBranchOperations } from './hooks/useBranchOperations';
@@ -120,6 +121,13 @@ export default function App() {
       ...fileOps.activeFile,
       sheets: [...fileOps.activeFile.sheets, newSheet],
     };
+    // op-log へ sheet.create を emit する (dual-write, W3c1)
+    fileOps.syncRecord({
+      ...makeEventBase('file'),
+      type: 'SHEET_CREATED',
+      sheetId: newSheet.id,
+      name: newSheet.name,
+    });
     fileOps.setActiveSheetId(newSheet.id);
     if (!branchOps.isTrunk) branchOps.setBranchBases(newSheet);
     await fileOps.persistFile(updated);
@@ -127,6 +135,7 @@ export default function App() {
     fileOps.activeFile,
     fileOps.setActiveSheetId,
     fileOps.persistFile,
+    fileOps.syncRecord,
     branchOps.isTrunk,
     branchOps.setBranchBases,
   ]);
@@ -190,6 +199,7 @@ export default function App() {
             file={fileOps.activeFile}
             activeSheetId={fileOps.activeSheetId}
             onChange={handleChange}
+            syncRecord={fileOps.syncRecord}
             addedNodeIds={branchOps.addedNodeIds}
             updatedNodeIds={branchOps.updatedNodeIds}
             addedEdgeIds={branchOps.addedEdgeIds}

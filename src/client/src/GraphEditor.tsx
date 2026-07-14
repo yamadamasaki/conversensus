@@ -41,7 +41,7 @@ import { EdgeContextMenu } from './EdgeContextMenu';
 import { EditableLabelEdge } from './EditableLabelEdge';
 import { EditableNode } from './EditableNode';
 import { EventDispatchContext } from './EventDispatchContext';
-import { makeEventBase } from './events/GraphEvent';
+import { type GraphEvent, makeEventBase } from './events/GraphEvent';
 import { GroupNode } from './GroupNode';
 import {
   DEFAULT_EDGE_PATH_TYPE,
@@ -63,7 +63,6 @@ import {
 import { useClipboard } from './hooks/useClipboard';
 import { useEdgeContextMenu } from './hooks/useEdgeContextMenu';
 import { type UndoState, useEventStore } from './hooks/useEventStore';
-import { useEventSyncTap } from './hooks/useEventSyncTap';
 import { useGroupNodes } from './hooks/useGroupNodes';
 import { usePaneDoubleClick } from './hooks/usePaneDoubleClick';
 import { ImageNode } from './ImageNode';
@@ -131,6 +130,8 @@ type Props = {
   file: GraphFile;
   activeSheetId: SheetId;
   onChange: (file: GraphFile) => void;
+  // ファイル単位の操作ログ tap (W3c1)。App から渡され content 編集を op-log へ流す。
+  syncRecord: (event: GraphEvent) => void;
   addedNodeIds?: Set<string>;
   updatedNodeIds?: Set<string>;
   addedEdgeIds?: Set<string>;
@@ -147,6 +148,7 @@ function GraphEditorInner({
   file,
   activeSheetId,
   onChange,
+  syncRecord,
   addedNodeIds,
   updatedNodeIds,
   addedEdgeIds,
@@ -359,10 +361,10 @@ function GraphEditorInner({
   const edgeTypes = useMemo(() => ({ editableLabel: EditableLabelEdge }), []);
 
   // --- Event store ---
-  // dispatch された event を操作ログへ流す tap (step1 Phase 4 実配線 W2)
-  const syncTap = useEventSyncTap(file.id);
+  // dispatch された event を操作ログへ流す tap (W2)。tap はファイル単位で App が保持し
+  // syncRecord として渡される (W3c1: content と structure が単一 tap を共有)。
   const { dispatch, undo, redo, setDragging, exportState, importState } =
-    useEventStore(nodes, edges, setNodes, setEdges, syncTap);
+    useEventStore(nodes, edges, setNodes, setEdges, syncRecord);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: mount/unmount のみ (React key 変更による再マウント)
   useEffect(() => {

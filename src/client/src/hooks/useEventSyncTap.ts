@@ -13,15 +13,20 @@ import type { GraphEvent } from '../events/GraphEvent';
 import { EventSyncTap } from '../sync/eventSyncTap';
 import { LocalServerSyncProvider } from '../sync/localServerSyncProvider';
 
-export function useEventSyncTap(fileId: FileId): (event: GraphEvent) => void {
-  // fileId が変われば新しい tap (clock/outbox を分離)
+export function useEventSyncTap(
+  fileId: FileId | null,
+): (event: GraphEvent) => void {
+  // fileId が変われば新しい tap (clock/outbox を分離)。未オープン時は no-op。
   const tap = useMemo(
     () =>
-      new EventSyncTap({
-        provider: new LocalServerSyncProvider(fileId),
-        onError: (error) => console.warn('[sync] batch flush failed:', error),
-      }),
+      fileId
+        ? new EventSyncTap({
+            provider: new LocalServerSyncProvider(fileId),
+            onError: (error) =>
+              console.warn('[sync] batch flush failed:', error),
+          })
+        : null,
     [fileId],
   );
-  return useCallback((event: GraphEvent) => tap.record(event), [tap]);
+  return useCallback((event: GraphEvent) => tap?.record(event), [tap]);
 }

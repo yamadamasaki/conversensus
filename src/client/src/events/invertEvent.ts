@@ -183,5 +183,16 @@ export function invertEvent(event: GraphEvent): GraphEvent {
         from: event.to,
         to: event.from,
       };
+    // file 構造イベント (W3c1) は dispatch/undo を通さず syncRecord で直接 op-log へ流す。
+    // ここへ来るのは配線ミス。step1 では構造操作は undo 対象外 (反転不可)。
+    case 'SHEET_CREATED':
+    case 'SHEET_REMOVED':
+    case 'SHEET_RENAMED':
+    case 'SHEET_DESCRIBED':
+    case 'FILE_RENAMED':
+    case 'FILE_DESCRIBED':
+      throw new Error(
+        `invertEvent: 構造イベントは反転不可 (undo 対象外): ${event.type}`,
+      );
   }
 }
