@@ -13,7 +13,7 @@
  *   restore 成功後に FIFO 順で tick を割り当てる (再起動をまたいだ単調性の保証)。
  */
 
-import { type Batch, LamportClock } from '@conversensus/shared';
+import { type Batch, LamportClock, type SheetId } from '@conversensus/shared';
 import type { GraphEvent } from '../events/GraphEvent';
 import { graphEventToBatch, graphEventToOps } from '../events/toUnified';
 import { type FlushResult, Outbox } from './outbox';
@@ -36,8 +36,11 @@ export class EventSyncTap {
   private flushChain: Promise<void> = Promise.resolve();
   /** restore (clock の seed) の一度きり実行を保持する。失敗時は undefined に戻し再試行 */
   private restored?: Promise<void>;
-  /** restore 完了前に届いた event の保留 (FIFO)。tick は drain 時に割り当てる */
-  private pendingEvents: GraphEvent[] = [];
+  /**
+   * restore 完了前に届いた event の保留 (FIFO)。tick は drain 時に割り当てる。
+   * sheetId は content 経路の発生元シート (structure 経路は undefined)。
+   */
+  private pendingEvents: Array<{ event: GraphEvent; sheetId?: SheetId }> = [];
 
   constructor(deps: EventSyncTapDeps) {
     this.provider = deps.provider;
@@ -49,12 +52,13 @@ export class EventSyncTap {
   /**
    * dispatch された GraphEvent を記録する。
    * ops を生じる event だけを保留し、flush (restore→tick→push) をスケジュールする。
+   * content 経路は発生元シートの `sheetId` を渡し、structure 経路は省略する (W3c2)。
    */
-  record(event: GraphEvent): void {
+  record(event: GraphEvent, sheetId?: SheetId): void {
     // 同期対象の op を生じない event (空 ops) は clock も消費せずスキップ
     if (graphEventToOps(event).length === 0) return;
-    // clock は restore 後に割り当てるため、ここでは event のまま保留する
-    this.pendingEvents.push(event);
+    // clock は restore 後に割り当てるため、ここでは event と sheetId を対で保留する
+    this.pendingEvents.push({ event, sheetId });
     this.scheduleFlush();
   }
 
@@ -110,8 +114,11 @@ export class EventSyncTap {
     }
     // restore 済み: 保留 event を FIFO 順に tick して Batch 化し Outbox へ移す
     while (this.pendingEvents.length > 0) {
-      const event = this.pendingEvents.shift() as GraphEvent;
-      const batch = graphEventToBatch(event, this.clock.tick());
+      const { event, sheetId } = this.pendingEvents.shift() as {
+        event: GraphEvent;
+        sheetId?: SheetId;
+      };
+      const batch = graphEventToBatch(event, this.clock.tick(), sheetId);
       this.outbox.enqueue([batch]);
     }
     while (!this.outbox.isEmpty) {

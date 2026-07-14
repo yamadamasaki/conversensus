@@ -131,7 +131,8 @@ type Props = {
   activeSheetId: SheetId;
   onChange: (file: GraphFile) => void;
   // ファイル単位の操作ログ tap (W3c1)。App から渡され content 編集を op-log へ流す。
-  syncRecord: (event: GraphEvent) => void;
+  // sheetId は content batch へ付与される (W3c2)。
+  syncRecord: (event: GraphEvent, sheetId?: SheetId) => void;
   addedNodeIds?: Set<string>;
   updatedNodeIds?: Set<string>;
   addedEdgeIds?: Set<string>;
@@ -363,8 +364,13 @@ function GraphEditorInner({
   // --- Event store ---
   // dispatch された event を操作ログへ流す tap (W2)。tap はファイル単位で App が保持し
   // syncRecord として渡される (W3c1: content と structure が単一 tap を共有)。
+  // content 編集はこの GraphEditor が表示する単一シートに属すため activeSheetId を付与する (W3c2)。
+  const recordContent = useCallback(
+    (event: GraphEvent) => syncRecord(event, activeSheetId),
+    [syncRecord, activeSheetId],
+  );
   const { dispatch, undo, redo, setDragging, exportState, importState } =
-    useEventStore(nodes, edges, setNodes, setEdges, syncRecord);
+    useEventStore(nodes, edges, setNodes, setEdges, recordContent);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: mount/unmount のみ (React key 変更による再マウント)
   useEffect(() => {

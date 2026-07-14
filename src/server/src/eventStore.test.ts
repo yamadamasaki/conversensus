@@ -1,4 +1,8 @@
+import { Database } from 'bun:sqlite';
 import { beforeEach, describe, expect, it } from 'bun:test';
+import { rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type {
   Batch,
   Commit,
@@ -87,6 +91,78 @@ describe('EventStore', () => {
       ]);
       expect(inserted).toBe(1);
       expect(store.getBatches(FILE)).toHaveLength(2);
+    });
+  });
+
+  describe('sheetId の永続化 (W3c2)', () => {
+    const SHEET = 'sheet-9' as SheetId;
+    const addNodeInSheet = (
+      id: string,
+      node: string,
+      content: string,
+      clock: number,
+      sheetId: SheetId,
+    ): Batch => ({ ...addNode(id, node, content, clock), sheetId });
+
+    it('content batch の sheetId を round-trip する', () => {
+      store.appendBatch(FILE, addNodeInSheet('b1', 'n1', 'A', 1, SHEET));
+      expect(store.getBatches(FILE)[0]?.sheetId).toBe(SHEET);
+    });
+
+    it('sheetId 無し (structure) batch は sheetId 無しで返る', () => {
+      store.appendBatch(FILE, addNode('b1', 'n1', 'A', 1));
+      expect(store.getBatches(FILE)[0]?.sheetId).toBeUndefined();
+    });
+
+    it('sheet_id 列が無い旧 DB を開くと ALTER で追加され sheetId を扱える (べき等)', () => {
+      const path = join(
+        tmpdir(),
+        `evstore-w3c2-${Date.now()}-${Math.random().toString(16).slice(2)}.db`,
+      );
+      try {
+        // W3c2 以前の旧スキーマ (sheet_id 列なし) を素の bun:sqlite で作る
+        const legacy = new Database(path);
+        legacy.run(
+          `CREATE TABLE batches (
+             seq INTEGER PRIMARY KEY AUTOINCREMENT,
+             file_id TEXT NOT NULL, batch_id TEXT NOT NULL,
+             actor TEXT NOT NULL, clock INTEGER NOT NULL,
+             timestamp INTEGER NOT NULL, ops_json TEXT NOT NULL,
+             UNIQUE(file_id, batch_id))`,
+        );
+        legacy
+          .query(
+            `INSERT INTO batches (file_id, batch_id, actor, clock, timestamp, ops_json)
+             VALUES ($file, 'old', 'local', 1, 1, $ops)`,
+          )
+          .run({
+            $file: FILE,
+            $ops: JSON.stringify([
+              { kind: 'node.add', target: 'n1', content: 'A' },
+            ]),
+          });
+        legacy.close();
+
+        // EventStore がマイグレーションを実行 → sheet_id 列が追加される
+        const migrated = new EventStore(path);
+        // 旧 batch は sheetId 無しで読める
+        expect(migrated.getBatches(FILE)[0]?.sheetId).toBeUndefined();
+        // 新規 content batch の sheetId を保存・読み戻せる
+        migrated.appendBatch(FILE, addNodeInSheet('b2', 'n2', 'B', 2, SHEET));
+        expect(
+          migrated.getBatches(FILE).find((b) => b.id === 'b2')?.sheetId,
+        ).toBe(SHEET);
+        migrated.close();
+
+        // 再オープン: マイグレーションは二度目でもべき等 (列は既存なので ALTER しない)
+        const reopened = new EventStore(path);
+        expect(reopened.getBatches(FILE)).toHaveLength(2);
+        reopened.close();
+      } finally {
+        rmSync(path, { force: true });
+        rmSync(`${path}-wal`, { force: true });
+        rmSync(`${path}-shm`, { force: true });
+      }
     });
   });
 
