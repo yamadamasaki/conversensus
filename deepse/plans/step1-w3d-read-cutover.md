@@ -156,6 +156,25 @@ W3d 自体を小さく分割し、各段でテスト・検証を挟む。
 
 ## 8. 未解決点 (W3d 実装中に確定)
 
-- レイテンシ実測の結果次第で §3.6 cache を W3d に含めるか W3e 前送りか (§3.5 の予算判定)。
+- ~~レイテンシ実測の結果次第で §3.6 cache を W3d に含めるか W3e 前送りか (§3.5 の予算判定)。~~ → **W3d-3 で確定 (§9)。cache 不要**。
 - 破棄前 snapshot バックアップの要否・運用形 (§6)。単一ユーザー・ローカルなので storage.ts の JSON が残るが、明示バックアップ手順を W3d-4 で判断。
-- `handleCreate` 直後の read 経路統一の具体 (作成レスポンスをそのまま使うか、必ず fetchBatches で読み直すか) — W3d-2 で確定。
+- ~~`handleCreate` 直後の read 経路統一の具体 (作成レスポンスをそのまま使うか、必ず fetchBatches で読み直すか) — W3d-2 で確定。~~ → W3d-2 で fetchBatches 読み直しに統一済。
+
+## 9. W3d-3 レイテンシ実測結果 (2026-07-16)
+
+**結論: projection cache (§3.6) は不要。W3d-2 の op-log 読取 cutover を予算内で受け入れる。**
+
+- **計測**: `projectFile(batches, fileId)` 単体。合成 batch (genesis + 1 op/batch の増分編集) を N 段階で生成し、warmup 5 回後に 50 回計測の median。実行環境 macOS arm64 / Bun v1.3.8。ベンチは `src/shared/src/events/projectFile.bench.ts` (投棄可・CI 非搭載)。
+- **予算 (§3.5)**: 典型ファイル (数百 batch) で projectFile < 50ms。
+
+| N (batch) | 1 sheet (200 nodes base) | 5 sheets (100 nodes/sheet base) |
+|-----------|--------------------------|----------------------------------|
+| 100       | 0.15ms                   | 0.23ms                           |
+| 500       | 0.22ms                   | 0.28ms                           |
+| 1,000     | 0.27ms                   | 0.36ms                           |
+| 5,000     | 0.77ms                   | 0.93ms                           |
+
+- **予算比**: 数百 batch (典型) で **0.2ms 前後 = 予算の 1/200 以下**。最悪の N=5,000 でも 1ms 未満。
+- **ヘッドルーム確認 (単一シート・極端規模)**: N=10,000 → 1.5ms、N=20,000 → 2.5ms、N=50,000 → 5.9ms。batch 数に**線形** (約 0.12ms/1,000 batch) で、50,000 batch でも予算の 1/8。
+- **判定**: 全ケースで予算内、かつ実運用が到達しうる規模では圧倒的余裕。§3.6 の projection cache は W3d でも W3e 前でも**導入不要**。将来 op-log が数万 batch/ファイルに達し、かつ openFile の体感が問題化した時点で再検討する (線形なので予測可能)。
+- **openFile end-to-end の扱い**: fetch (HTTP + SQLite) は I/O 律速で projection の CPU コストとは別軸。projection が支配項でないことが本計測で確定したため、体感悪化が出た場合の一次被疑は fetch/転送側であり projection cache ではない。end-to-end 体感の合否は実機で W3d-4 に委ねる。
