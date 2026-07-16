@@ -178,3 +178,33 @@ W3d 自体を小さく分割し、各段でテスト・検証を挟む。
 - **ヘッドルーム確認 (単一シート・極端規模)**: N=10,000 → 1.5ms、N=20,000 → 2.5ms、N=50,000 → 5.9ms。batch 数に**線形** (約 0.12ms/1,000 batch) で、50,000 batch でも予算の 1/8。
 - **判定**: 全ケースで予算内、かつ実運用が到達しうる規模では圧倒的余裕。§3.6 の projection cache は W3d でも W3e 前でも**導入不要**。将来 op-log が数万 batch/ファイルに達し、かつ openFile の体感が問題化した時点で再検討する (線形なので予測可能)。
 - **openFile end-to-end の扱い**: fetch (HTTP + SQLite) は I/O 律速で projection の CPU コストとは別軸。projection が支配項でないことが本計測で確定したため、体感悪化が出た場合の一次被疑は fetch/転送側であり projection cache ではない。end-to-end 体感の合否は実機で W3d-4 に委ねる。
+
+## 10. W3d-4 end-to-end 検証 (2026-07-16)
+
+W3d-1/2 は各層のユニット/結合テストで固めた。W3d-4 は**層をまたいだ実物の結線**を確認する。
+
+### 10.1 自動 e2e (デーモンレベル) — `src/server/src/readCutover.e2e.test.ts`
+
+実 HTTP ハンドラ (`server.fetch`) + 実 SQLite (`events.db`) + 実 snapshot (`storage.ts`) +
+クライアント読取関数 `projectFile` を一気通貫で通す。HTTP 転送より内側を全部実物で駆動する。
+
+| # | 検証 | 結果 |
+|---|------|------|
+| 1 | 既存 snapshot を開く → lazy migration → `projectFile` が snapshot の構造を再現 (シート順・nodes・edges・layouts) | ✅ |
+| 2 | migration べき等: 再オープンで projection 完全一致 (marker で再 genesis しない) | ✅ |
+| 3 | 編集 (batch 追記) → 再オープンで projection に反映 | ✅ |
+| 4 | flag off (snapshot 直読 `GET /files/:id`) が migration 後も元 snapshot を返す (dual-read 安全弁健在) | ✅ |
+
+- **範囲の線引き**: edge の style / labelOffset は projection では presentation 経路 (GraphFile 非搭載) のため equality から除外。過剰主張を避ける。
+- 全 436 テスト green。lint / typecheck パス。
+
+### 10.2 ブラウザ目視パス (手動チェックリスト)
+
+自動 e2e が HTTP 内側を保証するので、残りは React Flow 描画と GUI トグルの目視。
+`bun run dev:server` + `bun run dev:client` で以下を確認し screenshot を記録する。
+
+- [ ] 既存ファイルを開くと projection が正しく描画される (ノード配置・エッジ・シートタブ)
+- [ ] 編集して再オープン → 編集が残る
+- [ ] trunk↔branch トグル (`App.tsx` の `graphKey`) が従来通り動く (§3.3: branch コードに変更なし)
+- [ ] `VITE_READ_FROM_OPLOG=false` で起動 → snapshot 表示に復帰 (安全弁の画面確認)
+- [ ] 破棄前 snapshot バックアップ (§6/§8): 単一ユーザー・ローカルで storage.ts の JSON が残るため明示手順は不要と判断 (migration は snapshot を破壊しない = ケース 4 で機械的に確認済)。
