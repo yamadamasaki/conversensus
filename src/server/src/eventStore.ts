@@ -44,6 +44,11 @@ type CommitRow = {
   author_actor: string;
 };
 
+/** file_migrations の 1 行 (op-log 読み取り正典化のスキーマ marker, W3d) */
+type MigrationRow = {
+  schema_version: number;
+};
+
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS batches (
   seq        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -67,6 +72,13 @@ CREATE TABLE IF NOT EXISTS commits (
   author_actor TEXT    NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_commits_file ON commits (file_id);
+
+-- op-log 読み取り正典化 (W3d) の per-file スキーマ marker。
+-- 「破棄→genesis→marker 更新」を一度だけ実行するためのゲート。
+CREATE TABLE IF NOT EXISTS file_migrations (
+  file_id        TEXT    PRIMARY KEY,
+  schema_version INTEGER NOT NULL
+);
 `;
 
 /**
@@ -181,6 +193,54 @@ export class EventStore {
         $at: commit.at,
         $author: commit.authorActor,
       });
+  }
+
+  /**
+   * ファイルの op-log スキーマ marker を返す (W3d)。未 migration なら null。
+   * marker >= W3_SCHEMA_VERSION なら op-log は既に正典 (genesis 済)。
+   */
+  getSchemaVersion(fileId: FileId): number | null {
+    const row = this.db
+      .query<MigrationRow, string>(
+        'SELECT schema_version FROM file_migrations WHERE file_id = ?',
+      )
+      .get(fileId);
+    return row ? row.schema_version : null;
+  }
+
+  /**
+   * op-log 読み取り正典化 (W3d): pre-W3 ログを破棄し、snapshot 由来の genesis batch で
+   * 作り直して marker を立てる。**「破棄→genesis→marker 更新」を 1 トランザクションで**
+   * 原子的に実行する (途中失敗はロールバックし marker 未更新 = 次回再試行)。
+   *
+   * 再入べき等: tx 内で marker を再検査し、既に `>= schemaVersion` なら何もしない。
+   * genesis batch は呼び出し側が snapshot から生成して渡す (本層は DB 操作に徹する)。
+   *
+   * @returns migration を実行したら true、既に済で no-op なら false
+   */
+  migrateToOplog(
+    fileId: FileId,
+    genesisBatches: Batch[],
+    schemaVersion: number,
+  ): boolean {
+    const tx = this.db.transaction(() => {
+      // tx 内 re-check: 並行要求や再試行での二重 migration を防ぐ (再入べき等)
+      const current = this.getSchemaVersion(fileId);
+      if (current !== null && current >= schemaVersion) return false;
+      // 破棄 → genesis → marker の順序を tx で構造的に保証する
+      this.db
+        .query('DELETE FROM batches WHERE file_id = $file')
+        .run({ $file: fileId });
+      for (const batch of genesisBatches) this.appendBatch(fileId, batch);
+      this.db
+        .query(
+          `INSERT OR REPLACE INTO file_migrations (file_id, schema_version)
+           VALUES ($file, $ver)`,
+        )
+        .run({ $file: fileId, $ver: schemaVersion });
+      return true;
+    });
+    return tx();
   }
 
   /** ファイルのコミット一覧を、指すオフセット (at) 昇順で取得する */

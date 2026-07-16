@@ -166,6 +166,50 @@ describe('EventStore', () => {
     });
   });
 
+  describe('op-log 正典化 marker / migrateToOplog (W3d)', () => {
+    const W3 = 1;
+
+    it('marker 不在のファイルは getSchemaVersion が null', () => {
+      expect(store.getSchemaVersion(FILE)).toBeNull();
+    });
+
+    it('migrateToOplog が genesis を append し marker を立てて true を返す', () => {
+      const genesis = [
+        addNode('g1', 'n1', 'A', 1),
+        addNode('g2', 'n2', 'B', 2),
+      ];
+      expect(store.migrateToOplog(FILE, genesis, W3)).toBe(true);
+      expect(store.getSchemaVersion(FILE)).toBe(W3);
+      expect(store.getBatches(FILE).map((b) => b.id)).toEqual(['g1', 'g2']);
+    });
+
+    it('既存 (pre-W3) ログを破棄してから genesis で作り直す', () => {
+      // migration 前に増分ログが存在する状態を作る
+      store.appendBatch(FILE, addNode('old', 'n9', '旧', 5));
+      const genesis = [addNode('g1', 'n1', 'A', 1)];
+      store.migrateToOplog(FILE, genesis, W3);
+      // 旧 batch は消え、genesis のみが残る (破棄→genesis)
+      expect(store.getBatches(FILE).map((b) => b.id)).toEqual(['g1']);
+    });
+
+    it('marker 済のファイルへの再 migration は no-op で false を返す', () => {
+      store.migrateToOplog(FILE, [addNode('g1', 'n1', 'A', 1)], W3);
+      // 二度目は別の genesis を渡しても実行されない (marker ゲート)
+      expect(
+        store.migrateToOplog(FILE, [addNode('g2', 'n2', 'B', 2)], W3),
+      ).toBe(false);
+      // ログは初回 genesis のまま (再破棄・再 append されない)
+      expect(store.getBatches(FILE).map((b) => b.id)).toEqual(['g1']);
+    });
+
+    it('marker はファイル境界で分離する', () => {
+      const other = 'file-2' as FileId;
+      store.migrateToOplog(FILE, [addNode('g1', 'n1', 'A', 1)], W3);
+      expect(store.getSchemaVersion(FILE)).toBe(W3);
+      expect(store.getSchemaVersion(other)).toBeNull();
+    });
+  });
+
   describe('projectSheet', () => {
     it('操作ログを projection して Sheet を導出する', () => {
       store.appendBatch(FILE, addNode('b1', 'n1', 'ノード1', 1));

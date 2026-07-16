@@ -12,7 +12,7 @@
 | `PUT /files/:id` | 指定 ID のファイルを更新する |
 | `DELETE /files/:id` | 指定 ID のファイルを削除する |
 | `POST /files/:id/batches` | 操作ログへ batches を追記する (step1 Phase 4 実配線) |
-| `GET /files/:id/batches` | 操作ログを取得する (`?since=<clock>` で範囲) |
+| `GET /files/:id/batches` | 操作ログを取得する (`?since=<clock>` で範囲)。読み取り前に未 migration なら snapshot から genesis で正典化する (W3d) |
 
 ## なぜテストするか
 
@@ -41,6 +41,20 @@ Hono アプリの `fetch` 関数を直接呼び出すことで、実際の HTTP 
 - **境界バリデーション**: 不正な Batch は 400。server は zod を直接依存に持たず shared の
   `BatchSchema` で各要素を検証する。
 
+### W3d lazy migration (読み取り正典化)
+
+`GET /files/:id/batches` は読み取り前に `migrateFileToOplog` を呼び、未 migration の
+ファイルを snapshot から genesis で op-log 正典化する。この副作用を固定する:
+
+- **append/retrieve の素の観点は snapshot 無しの生 file_id で検証する**。`createFile` は
+  snapshot を書くため、そのファイルへの GET は migration を発火させてしまう。生 file_id
+  なら snapshot が無く migration は skip されるので、追記した batch がそのまま読み返せる。
+- **新規作成ファイルの初回 GET は genesis を返す**。空 snapshot でも `file.setName` /
+  `sheet.create` の genesis batch が生成される (新規/既存を分岐せず同一経路で吸収)。
+- **migration はべき等**: 二度目の GET も同じ genesis を返す (marker ゲート)。
+- **初回 read 前に積まれた pre-W3 増分は破棄される**: openFile より前に post した増分
+  batch は、初回 GET の migration で破棄され genesis に置き換わる (破棄→genesis)。
+
 ### ケース設計
 
 | エンドポイント | ケース | 観点 |
@@ -48,9 +62,12 @@ Hono アプリの `fetch` 関数を直接呼び出すことで、実際の HTTP 
 | POST /files/:id/batches | 追記 → 201 + {appended:2} | 正常系 |
 | POST /files/:id/batches | 同一 batch 再送 → appended:0 | べき等 |
 | POST /files/:id/batches | 不正 Batch → 400 | 境界検証 |
-| GET /files/:id/batches | clock 昇順で返す | 決定論的順序 |
-| GET /files/:id/batches | ?since=1 → clock>1 のみ | 範囲取得 |
-| GET /files/:id/batches | ログ無し → [] | 空ログ |
+| GET /files/:id/batches | clock 昇順で返す (生 file_id) | 決定論的順序 |
+| GET /files/:id/batches | ?since=1 → clock>1 のみ (生 file_id) | 範囲取得 |
+| GET /files/:id/batches | ログも snapshot も無い → [] | 空ログ (migration skip) |
+| GET /files/:id/batches | 新規作成の初回 GET → genesis | W3d lazy migration |
+| GET /files/:id/batches | 二度目の GET も同じ genesis | migration べき等 |
+| GET /files/:id/batches | pre-W3 増分は破棄される | 破棄→genesis |
 | GET /files | 初期状態は [] | 空一覧 |
 | POST /files | 名前付きで作成 → 201 | 正常系 |
 | POST /files | name 省略 → "無題" | デフォルト値 |
