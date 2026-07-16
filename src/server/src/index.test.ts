@@ -75,11 +75,14 @@ describe('API routes', () => {
   });
 
   describe('GET /files/:id/batches', () => {
+    // snapshot を持たない生 file_id を使い、W3d の lazy migration を発火させずに
+    // append/retrieve のみを検証する (createFile は snapshot を書くため migration が走る)。
+    const rawId = 'raw-log';
+
     it('追記した batches を clock 昇順で返す', async () => {
-      const created = await (await createFile('ログ')).json();
-      await postBatches(created.id, [sampleBatch(2), sampleBatch(1)]);
+      await postBatches(rawId, [sampleBatch(2), sampleBatch(1)]);
       const res = await fetch(
-        new Request(`http://localhost/files/${created.id}/batches`),
+        new Request(`http://localhost/files/${rawId}/batches`),
       );
       expect(res.status).toBe(200);
       const body = await res.json();
@@ -87,25 +90,66 @@ describe('API routes', () => {
     });
 
     it('since を渡すと clock > since のみ返す', async () => {
-      const created = await (await createFile('ログ')).json();
-      await postBatches(created.id, [
+      await postBatches(rawId, [
         sampleBatch(1),
         sampleBatch(2),
         sampleBatch(3),
       ]);
       const res = await fetch(
-        new Request(`http://localhost/files/${created.id}/batches?since=1`),
+        new Request(`http://localhost/files/${rawId}/batches?since=1`),
       );
       const body = await res.json();
       expect(body.map((b: { clock: number }) => b.clock)).toEqual([2, 3]);
     });
 
-    it('ログが無いファイルは空配列を返す', async () => {
+    it('ログも snapshot も無いファイルは空配列を返す', async () => {
+      const res = await fetch(
+        new Request(`http://localhost/files/${rawId}/batches`),
+      );
+      expect(await res.json()).toEqual([]);
+    });
+  });
+
+  // W3d-1: GET が読み取り前に lazy migration (snapshot→genesis) を実行する
+  describe('GET /files/:id/batches — W3d lazy migration', () => {
+    it('新規作成ファイル (snapshot のみ) の初回 GET が genesis を返す', async () => {
       const created = await (await createFile('空')).json();
       const res = await fetch(
         new Request(`http://localhost/files/${created.id}/batches`),
       );
-      expect(await res.json()).toEqual([]);
+      const body = await res.json();
+      // 空 snapshot でも file.setName / sheet.create の genesis batch が生成される
+      expect(body.length).toBeGreaterThan(0);
+      const kinds = body.flatMap((b: { ops: { kind: string }[] }) =>
+        b.ops.map((o) => o.kind),
+      );
+      expect(kinds).toContain('file.setName');
+    });
+
+    it('migration はべき等: 二度目の GET も同じ genesis を返す', async () => {
+      const created = await (await createFile('反復')).json();
+      const first = await (
+        await fetch(new Request(`http://localhost/files/${created.id}/batches`))
+      ).json();
+      const second = await (
+        await fetch(new Request(`http://localhost/files/${created.id}/batches`))
+      ).json();
+      expect(second).toEqual(first);
+    });
+
+    it('初回 read 前に積まれた pre-W3 増分は migration で破棄される', async () => {
+      const created = await (await createFile('破棄')).json();
+      // openFile より前に増分 batch が積まれた状態を模す
+      await postBatches(created.id, [sampleBatch(1)]);
+      const res = await fetch(
+        new Request(`http://localhost/files/${created.id}/batches`),
+      );
+      const body = await res.json();
+      // 増分の node.add 'n1' は消え、genesis (空 snapshot 由来) だけが残る
+      const contents = body.flatMap((b: { ops: { content?: string }[] }) =>
+        b.ops.map((o) => o.content),
+      );
+      expect(contents).not.toContain('n1');
     });
   });
 

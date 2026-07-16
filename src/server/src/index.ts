@@ -20,6 +20,7 @@ import {
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { getEventStore } from './eventStoreServer';
+import { migrateFileToOplog } from './migrateFileToOplog';
 import { deleteFile, listFiles, readFile, writeFile } from './storage';
 
 const SERVER_PORT = 3000;
@@ -215,9 +216,12 @@ app.post('/files/:id/batches', async (c) => {
 });
 
 // GET /files/:id/batches?since=<clock> - 操作ログを取得 (since より後の clock のみ)
-app.get('/files/:id/batches', (c) => {
+app.get('/files/:id/batches', async (c) => {
   const fileId = c.req.param('id') as FileId;
-  const batches = getEventStore().getBatches(fileId);
+  const store = getEventStore();
+  // W3d lazy cutover: 未 migration なら snapshot から genesis で op-log を正典化してから読む
+  await migrateFileToOplog(store, fileId);
+  const batches = store.getBatches(fileId);
   const since = c.req.query('since');
   const result: Batch[] =
     since === undefined
