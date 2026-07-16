@@ -1,4 +1,9 @@
-import type { GraphFile, GraphFileListItem } from '@conversensus/shared';
+import {
+  type Batch,
+  type GraphFile,
+  type GraphFileListItem,
+  graphFileToBatches,
+} from '@conversensus/shared';
 import type { FileSheetOpsDeps } from '../useFileSheetOperations';
 
 // biome-ignore lint/suspicious/noExplicitAny: fetchBranchSheetFromPds の戻り値は any で十分
@@ -45,6 +50,17 @@ export function createInMemoryFileSheetOpsDeps(): FileSheetOpsDeps & {
       const file = fileStore.get(id);
       if (!file) throw new Error(`File not found: ${id}`);
       return file;
+    },
+
+    // サーバの lazy migration (snapshot→genesis) を模す。snapshot が無ければ空 op-log。
+    // zod mock 下で genesis の batch id が実 UUID にならないため、決定論的な plain id に
+    // 振り直して projection の tiebreak を安定させる。
+    fetchBatches: async (id: string) => {
+      const file = fileStore.get(id);
+      if (!file) return [];
+      return graphFileToBatches(file).map(
+        (b, i) => ({ ...b, id: `genesis-${i}` }) as Batch,
+      );
     },
 
     fetchFiles: async () => [...fileList],
