@@ -1,13 +1,16 @@
-import type {
-  ConversensusFile,
-  GraphFile,
-  GraphFileListItem,
-  SheetId,
+import {
+  type ConversensusFile,
+  type FileId,
+  type GraphFile,
+  type GraphFileListItem,
+  projectFile,
+  type SheetId,
 } from '@conversensus/shared';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   createFile,
   exportFile,
+  fetchBatches,
   fetchFile,
   fetchFiles,
   importFile,
@@ -20,6 +23,7 @@ import {
   fetchFilesFromAtproto,
   syncFileToAtproto,
 } from '../atproto';
+import { READ_FROM_OPLOG } from '../config';
 import type { GraphEvent } from '../events/GraphEvent';
 import { makeEventBase } from '../events/GraphEvent';
 import type { PopupTarget } from '../SettingsPopup';
@@ -38,6 +42,7 @@ type AlertState = {
 export interface FileSheetOpsDeps {
   createFile: typeof createFile;
   exportFile: typeof exportFile;
+  fetchBatches: typeof fetchBatches;
   fetchFile: typeof fetchFile;
   fetchFiles: typeof fetchFiles;
   importFile: typeof importFile;
@@ -52,6 +57,7 @@ export interface FileSheetOpsDeps {
 export const defaultFileSheetOpsDeps: FileSheetOpsDeps = {
   createFile,
   exportFile,
+  fetchBatches,
   fetchFile,
   fetchFiles,
   importFile,
@@ -72,6 +78,11 @@ interface UseFileSheetOperationsParams {
    * content 経路 (GraphEditor) は sheetId を渡し、structure 経路 (以下のハンドラ) は渡さない (W3c2)。
    */
   syncRecord?: (event: GraphEvent, sheetId?: SheetId) => void;
+  /**
+   * W3d dual-read 安全弁: trunk 読取を op-log 正典から行うか (§3.4)。
+   * 未指定なら `READ_FROM_OPLOG` 定数 (env)。テストは明示指定で on/off を固定する。
+   */
+  readFromOplog?: boolean;
 }
 
 export function useFileSheetOperations({
@@ -79,6 +90,7 @@ export function useFileSheetOperations({
   setAlertState,
   deps = defaultFileSheetOpsDeps,
   syncRecord: syncRecordOverride,
+  readFromOplog = READ_FROM_OPLOG,
 }: UseFileSheetOperationsParams) {
   const [files, setFiles] = useState<GraphFileListItem[]>([]);
   const [activeFile, setActiveFile] = useState<GraphFile | null>(null);
@@ -99,18 +111,52 @@ export function useFileSheetOperations({
   const internalSyncRecord = useEventSyncTap(activeFile?.id ?? null);
   const syncRecord = syncRecordOverride ?? internalSyncRecord;
 
+  // 従来の snapshot 読取 (ATProto → ローカルキャッシュ)。dual-read のフォールバック側。
+  const loadSnapshot = useCallback(
+    async (id: string): Promise<GraphFile> => {
+      try {
+        const file = await deps.fetchFileFromAtproto(id);
+        deps
+          .saveFile(file)
+          .catch((err) => console.warn('[cache] save failed:', err));
+        return file;
+      } catch {
+        return deps.fetchFile(id);
+      }
+    },
+    [deps],
+  );
+
+  // W3d trunk 読取: op-log 正典 (fetchBatches→projectFile) を優先し、失敗時は snapshot へ
+  // フォールバックする (§3.4)。GET /files/:id/batches はサーバ側で lazy migration
+  // (snapshot→genesis) を起動する (W3d-1) ため、既存ファイルも op-log projection で開ける。
+  const loadFile = useCallback(
+    async (id: string): Promise<GraphFile> => {
+      if (readFromOplog) {
+        try {
+          const batches = await deps.fetchBatches(id as FileId);
+          const file = projectFile(batches, id as FileId);
+          // 有効な GraphFile は必ず 1 枚以上のシートを持つ。0 枚 = op-log 未生成
+          // (snapshot 欠損 / 未 migration / 欠損 file) とみなし snapshot へ委ねる。
+          // 「読取失敗」と同様にフォールバックし、真の欠損は snapshot 側で 404 → alert に至る。
+          if (file.sheets.length === 0) {
+            throw new Error('op-log projection has no sheets');
+          }
+          return file;
+        } catch (err) {
+          // dual-read 安全弁: op-log 読取が失敗したときのみ snapshot に退避する
+          console.warn('[oplog] read failed; falling back to snapshot:', err);
+        }
+      }
+      return loadSnapshot(id);
+    },
+    [deps, readFromOplog, loadSnapshot],
+  );
+
   const openFile = useCallback(
     async (id: string) => {
       try {
-        let file: GraphFile;
-        try {
-          file = await deps.fetchFileFromAtproto(id);
-          deps
-            .saveFile(file)
-            .catch((err) => console.warn('[cache] save failed:', err));
-        } catch {
-          file = await deps.fetchFile(id);
-        }
+        const file = await loadFile(id);
         setActiveFile(file);
         setActiveSheetId((file.sheets[0]?.id ?? null) as SheetId | null);
         setExpandedFileIds((prev) => new Set([...prev, id]));
@@ -124,7 +170,7 @@ export function useFileSheetOperations({
         });
       }
     },
-    [deps, setAlertState],
+    [loadFile, setAlertState],
   );
 
   const toggleExpand = useCallback(
@@ -150,19 +196,26 @@ export function useFileSheetOperations({
   const handleCreate = useCallback(async () => {
     try {
       const name = newFileName.trim() || '無題';
-      const file = await deps.createFile(name);
+      const created = await deps.createFile(name);
       setFiles((fs) => [
         ...fs,
-        { id: file.id, name: file.name, description: file.description },
+        {
+          id: created.id,
+          name: created.name,
+          description: created.description,
+        },
       ]);
+      // 作成直後も同じ op-log 経路で読み直し、genesis を起動して projection を表示する
+      // (open との一貫性)。失敗時は loadFile が snapshot(=作成レスポンス相当)へ退避する。
+      const file = await loadFile(created.id);
       setActiveFile(file);
       setActiveSheetId((file.sheets[0]?.id ?? null) as SheetId | null);
-      setExpandedFileIds((prev) => new Set([...prev, file.id]));
+      setExpandedFileIds((prev) => new Set([...prev, created.id]));
       setNewFileName('');
     } catch (err) {
       console.error('Failed to create file:', err);
     }
-  }, [newFileName, deps]);
+  }, [newFileName, deps, loadFile]);
 
   const persistFile = useCallback(
     async (updated: GraphFile) => {

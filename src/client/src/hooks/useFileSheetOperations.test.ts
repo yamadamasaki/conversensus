@@ -30,8 +30,13 @@ afterEach(() => {
   mockSetAlertState.mockClear();
 });
 
-async function render() {
-  const deps = createInMemoryFileSheetOpsDeps();
+type RenderOpts = {
+  deps?: ReturnType<typeof createInMemoryFileSheetOpsDeps>;
+  readFromOplog?: boolean;
+};
+
+async function renderWith(opts: RenderOpts = {}) {
+  const deps = opts.deps ?? createInMemoryFileSheetOpsDeps();
   // op-log tap を差し替え、実ネットワーク (LocalServerSyncProvider) を避けつつ
   // 構造操作の dual-write emit を検証する
   const syncRecord = mock((_event: { type: string }) => {});
@@ -41,6 +46,9 @@ async function render() {
       setAlertState: mockSetAlertState,
       deps,
       syncRecord: syncRecord as unknown as (event: never) => void,
+      ...(opts.readFromOplog !== undefined && {
+        readFromOplog: opts.readFromOplog,
+      }),
     }),
   );
   // Flush async effects (fetchFiles + ATProto sync)
@@ -48,6 +56,10 @@ async function render() {
     await new Promise((r) => setTimeout(r, 10));
   });
   return { ...result, deps, syncRecord };
+}
+
+async function render() {
+  return renderWith();
 }
 
 /** syncRecord に渡された event の type 一覧 */
@@ -152,6 +164,121 @@ describe('useFileSheetOperations', () => {
       });
 
       expect(mockSetAlertState).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('openFile — W3d dual-read (READ_FROM_OPLOG)', () => {
+    it('flag ON: op-log (fetchBatches→projectFile) から読み、snapshot は読まない', async () => {
+      const deps = createInMemoryFileSheetOpsDeps();
+      deps.fetchBatches = mock(deps.fetchBatches);
+      deps.fetchFile = mock(deps.fetchFile);
+      const { result } = await renderWith({ deps, readFromOplog: true });
+
+      await act(async () => {
+        await result.current.handleCreate();
+      });
+      const fileId = result.current.activeFile?.id;
+      if (!fileId) throw new Error('activeFile should be set');
+
+      act(() => {
+        result.current.setActiveFile(null);
+      });
+      (deps.fetchBatches as ReturnType<typeof mock>).mockClear();
+      (deps.fetchFile as ReturnType<typeof mock>).mockClear();
+
+      await act(async () => {
+        await result.current.openFile(fileId);
+      });
+
+      // op-log 経路で開けており、snapshot 経路 (fetchFile) は触れていない
+      expect(deps.fetchBatches).toHaveBeenCalled();
+      expect(deps.fetchFile).not.toHaveBeenCalled();
+      expect(result.current.activeFile?.id).toBe(fileId);
+      expect(result.current.activeSheetId).toBeTruthy();
+    });
+
+    it('flag ON + op-log 読取失敗: snapshot にフォールバックして開ける', async () => {
+      const deps = createInMemoryFileSheetOpsDeps();
+      // op-log 読取は常に失敗させる → snapshot (fetchFile) へフォールバック
+      deps.fetchBatches = mock(async () => {
+        throw new Error('boom');
+      });
+      deps.fetchFile = mock(deps.fetchFile);
+      const { result } = await renderWith({ deps, readFromOplog: true });
+
+      await act(async () => {
+        await result.current.handleCreate();
+      });
+      const fileId = result.current.activeFile?.id;
+      if (!fileId) throw new Error('activeFile should be set via fallback');
+
+      act(() => {
+        result.current.setActiveFile(null);
+      });
+      (deps.fetchFile as ReturnType<typeof mock>).mockClear();
+
+      await act(async () => {
+        await result.current.openFile(fileId);
+      });
+
+      expect(deps.fetchFile).toHaveBeenCalled();
+      expect(result.current.activeFile?.id).toBe(fileId);
+    });
+
+    it('flag ON + op-log が空 (0 シート): snapshot にフォールバックする', async () => {
+      const deps = createInMemoryFileSheetOpsDeps();
+      deps.fetchFile = mock(deps.fetchFile);
+      const { result } = await renderWith({ deps, readFromOplog: true });
+
+      // snapshot は残しつつ op-log を空にする → 0 シート projection でフォールバック
+      await act(async () => {
+        await result.current.handleCreate();
+      });
+      const fileId = result.current.activeFile?.id;
+      if (!fileId) throw new Error('activeFile should be set');
+
+      act(() => {
+        result.current.setActiveFile(null);
+      });
+      deps.fetchBatches = mock(async () => []);
+      (deps.fetchFile as ReturnType<typeof mock>).mockClear();
+
+      await act(async () => {
+        await result.current.openFile(fileId);
+      });
+
+      // 空 op-log は「読取失敗」扱いで snapshot に退避し、正常に開ける
+      expect(deps.fetchFile).toHaveBeenCalled();
+      expect(result.current.activeFile?.id).toBe(fileId);
+      expect(result.current.activeSheetId).toBeTruthy();
+    });
+
+    it('flag OFF: snapshot から読み、op-log (fetchBatches) は読まない', async () => {
+      const deps = createInMemoryFileSheetOpsDeps();
+      deps.fetchBatches = mock(deps.fetchBatches);
+      deps.fetchFile = mock(deps.fetchFile);
+      const { result } = await renderWith({ deps, readFromOplog: false });
+
+      await act(async () => {
+        await result.current.handleCreate();
+      });
+      const fileId = result.current.activeFile?.id;
+      if (!fileId) throw new Error('activeFile should be set');
+
+      act(() => {
+        result.current.setActiveFile(null);
+      });
+      (deps.fetchBatches as ReturnType<typeof mock>).mockClear();
+      (deps.fetchFile as ReturnType<typeof mock>).mockClear();
+
+      await act(async () => {
+        await result.current.openFile(fileId);
+      });
+
+      // 従来経路: snapshot を読み、op-log には一切触れない (即時退行の担保)
+      expect(deps.fetchBatches).not.toHaveBeenCalled();
+      expect(deps.fetchFile).toHaveBeenCalled();
+      expect(result.current.activeFile?.id).toBe(fileId);
     });
   });
 

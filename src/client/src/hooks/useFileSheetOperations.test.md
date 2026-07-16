@@ -34,6 +34,26 @@ tap は `syncRecord` として注入し、実ネットワーク (LocalServerSync
 - handleSaveSheetSettings: シート名と説明を更新し、変化した項目のみ op-log へ emit すること (`SHEET_RENAMED` / `SHEET_DESCRIBED`)
 - handleSaveSheetSettings: 変化が無ければ何も emit しないこと (空 batch 回避)
 
+### 読み取り経路の cutover — W3d dual-read (`READ_FROM_OPLOG`)
+
+`openFile` (trunk 読取) は W3d で snapshot から **op-log 正典** (`fetchBatches`→`projectFile`)
+へ切替わる。`GET /files/:id/batches` はサーバ側で lazy migration (snapshot→genesis, W3d-1)
+を起動するため、既存ファイルも op-log projection で開ける。安全弁として `READ_FROM_OPLOG`
+フラグ (テストは hook 引数 `readFromOplog` で明示) と snapshot フォールバックを持つ。
+
+- **flag ON**: op-log (`fetchBatches`) から読み、snapshot (`fetchFile`) には触れないこと。
+  in-memory deps は snapshot から genesis を合成 (`graphFileToBatches`) して op-log を模す。
+- **flag ON + op-log 読取失敗**: `fetchBatches` が throw したら snapshot にフォールバックし、
+  正常に開けること (dual-read 安全弁)。
+- **flag ON + op-log が空 (0 シート)**: 有効な `GraphFile` は 1 枚以上シートを持つため、
+  0 シート projection は「読取失敗」扱いで snapshot に退避すること。真の欠損は snapshot 側で
+  404 → alert に至る (既存の「見つからない場合はエラー通知」ケースが空 op-log→フォールバックを兼ねる)。
+- **flag OFF**: 従来通り snapshot (`fetchFile`) から読み、op-log (`fetchBatches`) には
+  一切触れないこと (即時退行の担保)。
+
+`handleCreate` も作成直後に同じ `loadFile` (op-log 経路) で読み直し、genesis を起動して
+projection を表示する (open との一貫性)。作成レスポンス由来の snapshot がフォールバック先。
+
 ### dual-write の設計意図
 構造操作は W3d の読み取り cutover まで snapshot が正典。op-log への emit は
 「op-log を書き込み経路の正典にする (D4)」ための前進で、変化項目のみ emit することで
