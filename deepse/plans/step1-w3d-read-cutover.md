@@ -198,6 +198,12 @@ W3d-1/2 は各層のユニット/結合テストで固めた。W3d-4 は**層を
 - **範囲の線引き**: edge の style / labelOffset は projection では presentation 経路 (GraphFile 非搭載) のため equality から除外。過剰主張を避ける。
 - 全 436 テスト green。lint / typecheck パス。
 
+**実デーモン HTTP 確認 (in-process `server.fetch` の外側)**: `bun run src/server/src/index.ts` を
+一時 `DATA_DIR` で起動し、実ポート :3000 越しに curl で検証。`POST /files` → `PUT` (2 node/1 edge/layout)
+→ `GET /files/:id/batches` で lazy migration が発火し 3 batch (`file.setName`/`file.setDescription`/
+`sheet.create`/`node.add`×2/`node.setLayout`/`edge.add`) を返す。`projectFile` round-trip で
+名前・シート・node/edge/layout・content・label が再現。再 GET も同 3 batch (べき等)。実プロセス+実 HTTP でも契約が成立。
+
 ### 10.2 ブラウザ目視パス (手動チェックリスト)
 
 自動 e2e が HTTP 内側を保証するので、残りは React Flow 描画と GUI トグルの目視。
