@@ -209,8 +209,15 @@ W3d-1/2 は各層のユニット/結合テストで固めた。W3d-4 は**層を
 自動 e2e が HTTP 内側を保証するので、残りは React Flow 描画と GUI トグルの目視。
 `bun run dev:server` + `bun run dev:client` で以下を確認し screenshot を記録する。
 
-- [ ] 既存ファイルを開くと projection が正しく描画される (ノード配置・エッジ・シートタブ)
-- [ ] 編集して再オープン → 編集が残る
-- [ ] trunk↔branch トグル (`App.tsx` の `graphKey`) が従来通り動く (§3.3: branch コードに変更なし)
-- [ ] `VITE_READ_FROM_OPLOG=false` で起動 → snapshot 表示に復帰 (安全弁の画面確認)
-- [ ] 破棄前 snapshot バックアップ (§6/§8): 単一ユーザー・ローカルで storage.ts の JSON が残るため明示手順は不要と判断 (migration は snapshot を破壊しない = ケース 4 で機械的に確認済)。
+- [x] 既存ファイルを開くと projection が正しく描画される (ノード配置・エッジ・シートタブ)
+- [x] 編集して再オープン → 編集が残る
+- [x] trunk↔branch トグル (`App.tsx` の `graphKey`) が従来通り動く (§3.3: branch コードに変更なし)
+- [x] `VITE_READ_FROM_OPLOG=false` で起動 → snapshot 表示に復帰 (安全弁の画面確認)
+- [x] 破棄前 snapshot バックアップ (§6/§8): 単一ユーザー・ローカルで storage.ts の JSON が残るため明示手順は不要と判断 (migration は snapshot を破壊しない = ケース 4 で機械的に確認済)。
+
+**目視結果 (2026-07-18, Chrome MCP で実機確認)**: 実行中の dev サーバ (:3000 デーモン / :5173 クライアント) に対し、snapshot だけの pre-W3 相当ファイルを curl で seed して確認した。
+
+1. **projection 描画**: seed をブラウザで開くと、こちらが一切触っていないファイルに genesis 3 batch (`file.setName` / `sheet.create` / `node.add`×2+`node.setLayout`×2+`edge.add`) が生成された。**ブラウザ自身の read が lazy migration を発火**させた証拠。ノード配置・ラベル付きエッジ・シートタブすべて正常描画。
+2. **編集の永続**: ペーンのダブルクリックから Markdown ノードを追加・テキスト入力すると op-log に actor `local` の追記 batch (clock4 `node.add`+`node.setLayout` / clock5 `node.setContent`)。別ページを新規ロードして開き直すと編集ノードが残存。**再オープンは batch 数を増やさない (= 読取専用)** ことも確認。
+3. **branch トグル**: 「+ branch」で **アプリ内 React モーダル**「branch 名を入力してください」が従来通り起動 (ネイティブ `prompt()` ではないのでセッションはフリーズしない)。キャンセルで trunk 描画に復帰。branch 作成自体は PDS 依存で step2 スコープ。
+4. **安全弁 (flag off)**: 読取経路を画面で判別するため snapshot の node0 content だけを curl PUT で `[SNAPSHOT経路]…` に書き換え (op-log は marker 済で不変)。既存 :5173 (flag on) は触らず、別ポートで `VITE_READ_FROM_OPLOG=false bunx vite --port 5174` を起動。**同一ファイルで flag on=マーカー無し (op-log 読取) / flag off=マーカー有り (snapshot 直読)** を対比でき、読取ソースがフラグで実際に切り替わり安全弁が生きていることを確認。検証後 snapshot を復元。
