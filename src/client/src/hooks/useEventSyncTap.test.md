@@ -1,0 +1,45 @@
+# useEventSyncTap テスト仕様
+
+## 何を
+
+`useEventSyncTap` の **remote 配線 (step1 W3d5-5)** をテストする。ATProto ログインの有無で
+tap の provider 構成が切り替わること (local 単体 / `FanoutSyncProvider`)、編集が両系統へ流れる
+こと、presentation が remote へ漏れないこと、起動時 catch-up が走ることを検証する。
+
+## なぜ
+
+このフックは W3d5-1〜4 で作った部品 (sheetId 往復・フィルタ・キュー・fanout) が**実際に配線
+される唯一の場所**で、ここが間違うと部品が全部正しくても remote 同期は動かない/壊れる:
+
+- **未ログイン時の退行なし (§3.4 確定事項)**: `remoteQueue=null` で W3d と完全に同じ local-only
+  動作でなければ、ログインしていないユーザに remote 統合の影響が漏れる。「remote キューが無ければ
+  fanout を作らない」を固定する。
+- **編集が remote に載る (§2 の目標)**: ログイン中は 1 回の編集がローカル正典と remote の両方へ
+  同じ batch id で届くこと。これが本スライスの存在理由そのもの。
+- **presentation 漏洩 (D7)**: フィルタは `RemoteSyncQueue` 内にあるが、tap 経由の実配線で本当に
+  効くかは別問題。**`NODE_STYLE_CHANGED` は実体が width/height なので `node.setLayout` に
+  正規化され同期対象**であり (toUnified の D7 整理)、presentation の検証には `edge.setStyle`
+  を使う必要がある — この取り違えは「フィルタが効いていない」と誤読しやすいので、テストで
+  意図を明示しておく。
+- **起動時 catch-up (§3.6)**: best-effort push がオフライン中に落とした分は、ファイルを開いた
+  ときに回収されなければ永久に remote に載らない。remote に既にある分を二重投入しないこと、
+  catch-up 経由でも genesis を送らないこと (C1) を固定する。
+- **ファイル未オープン**: `fileId=null` で provider を作らない (別ファイルへ push しない・
+  無駄な catch-up を起こさない)。
+
+## どのように
+
+`@testing-library/react` の `renderHook` でフックを張り、`createLocalProvider` オプションで
+ローカル正典 provider を `RecordingProvider` (push を記録、pull で既存ログを返す) に差し替える
+= 実ネットワーク・実 PDS 非依存。remote 側は実物の `RemoteSyncQueue` に別の `RecordingProvider`
+を包んで注入する (フィルタとキューの実挙動を通す)。tap も fanout も flush が非同期なので、
+記録後に `act` + マクロタスク 1 拍で落ち着かせてから検証する。
+
+- **remoteQueue なし**: 編集 1 回 → local に 1 batch、remote は登場しない。
+- **remoteQueue あり**: 編集 1 回 → local と remote の両方に 1 batch、かつ **batch id が一致**
+  (同じ batch が両系統へ渡っている)。
+- **presentation**: `EDGE_STYLE_CHANGED` → local には載る (W3e 保全)、remote には 0 件。
+- **起動時 catch-up**: local の既存ログ ['1','2'] / remote に '1' → mount だけで '2' が remote へ
+  push される。local に genesis actor の batch があっても remote へは送らない (C1)。
+  remoteQueue が無ければ catch-up 自体が起きない。
+- **fileId=null**: record を呼んでも local/remote とも push 0 件。

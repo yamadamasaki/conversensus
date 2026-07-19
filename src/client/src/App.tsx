@@ -16,6 +16,7 @@ import { useAtprotoSession } from './hooks/useAtprotoSession';
 import { useBranchOperations } from './hooks/useBranchOperations';
 import type { UndoState } from './hooks/useEventStore';
 import { useFileSheetOperations } from './hooks/useFileSheetOperations';
+import { useRemoteSyncQueue } from './hooks/useRemoteSyncQueue';
 import { InputDialog } from './InputDialog';
 import { FLOATING_UI_Z_INDEX } from './SettingsPopup';
 import { Sidebar } from './Sidebar';
@@ -49,8 +50,15 @@ export default function App() {
   } = useAtprotoSession();
   const [loginDialogOpen, setLoginDialogOpen] = useState(false);
 
+  // remote (ATProto) 送信キュー。未ログイン時は null → tap は local-only (W3d5-5)
+  const remoteQueue = useRemoteSyncQueue(atprotoSession);
+
   // File & sheet operations
-  const fileOps = useFileSheetOperations({ setConfirmState, setAlertState });
+  const fileOps = useFileSheetOperations({
+    setConfirmState,
+    setAlertState,
+    remoteQueue,
+  });
 
   // Branch operations
   const branchOps = useBranchOperations({

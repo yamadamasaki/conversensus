@@ -16,12 +16,13 @@
  */
 
 import type { Batch } from '@conversensus/shared';
-import type {
-  Cursor,
-  OnRemote,
-  PullResult,
-  SyncProvider,
-  Unsubscribe,
+import {
+  type Cursor,
+  INITIAL_CURSOR,
+  type OnRemote,
+  type PullResult,
+  type SyncProvider,
+  type Unsubscribe,
 } from '../sync/syncProvider';
 import type { RemoteSyncQueue } from './remoteSyncQueue';
 
@@ -66,6 +67,22 @@ export class FanoutSyncProvider implements SyncProvider {
   /** remote 受信の常時購読は Phase 4d。本スライスでは local へ委譲する (§3.1) */
   subscribe(onRemote: OnRemote): Unsubscribe {
     return this.local.subscribe(onRemote);
+  }
+
+  /**
+   * 取りこぼし回収 (§3.6)。ローカル正典の全 batch を remote と突き合わせ、remote に無い分を
+   * 積み直して flush する。best-effort push がオフライン中に落とした分をここで回収する。
+   * 起動時 (tap 生成時) に呼ぶ。コスト: local 全件 pull 1 回 + remote 全件 pull 1 回 (D2)。
+   *
+   * push の flush と同じ鎖に載せて直列化する (`Outbox.flush` の多重起動を避ける)。
+   * 失敗は握り潰す — 未送信はキューに残り、次の push か手動同期で再送される。
+   */
+  async catchUpRemote(): Promise<void> {
+    const { batches } = await this.local.pull(INITIAL_CURSOR);
+    this.remoteFlush = this.remoteFlush.then(async () => {
+      await this.remoteQueue.catchUp(batches).catch(() => undefined);
+    });
+    return this.remoteFlush;
   }
 
   /**
