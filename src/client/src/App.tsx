@@ -197,6 +197,7 @@ export default function App() {
         atprotoSession={atprotoSession}
         onAtprotoLogin={() => setLoginDialogOpen(true)}
         onAtprotoLogout={atprotoLogout}
+        remoteQueue={remoteQueue}
       />
       <main style={{ flex: 1 }}>
         {fileOps.activeFile && fileOps.activeSheetId ? (
