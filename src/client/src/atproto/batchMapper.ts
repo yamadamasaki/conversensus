@@ -16,6 +16,8 @@ export function batchToRecord(batch: Batch): Omit<BatchRecord, '$type'> {
     clock: batch.clock,
     timestamp: batch.timestamp,
     ops: batch.ops,
+    // content batch のみ sheetId を持つ。undefined なら省略し、往復で無 → 無を保つ。
+    ...(batch.sheetId !== undefined && { sheetId: batch.sheetId }),
     createdAt: new Date(batch.timestamp).toISOString() as ISODateString,
   };
 }
@@ -29,7 +31,10 @@ export function isBatchRecordValue(value: unknown): value is BatchRecord {
     typeof v.clock === 'number' &&
     Number.isFinite(v.clock) &&
     typeof v.timestamp === 'number' &&
-    Array.isArray(v.ops)
+    Array.isArray(v.ops) &&
+    // sheetId は optional。無いレコード (file 構造 batch / 旧データ) も通すが、
+    // 有るなら string でなければ壊れたレコードとして弾く。
+    (v.sheetId === undefined || typeof v.sheetId === 'string')
   );
 }
 
@@ -45,5 +50,9 @@ export function recordToBatch(rkey: string, value: BatchRecord): Batch {
     clock: value.clock,
     timestamp: value.timestamp,
     ops: value.ops as Batch['ops'],
+    // sheetId 無しレコードは Batch にも sheetId を付けない (undefined を保つ)。
+    ...(value.sheetId !== undefined && {
+      sheetId: value.sheetId as Batch['sheetId'],
+    }),
   };
 }

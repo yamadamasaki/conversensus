@@ -1,0 +1,42 @@
+{
+  "lexicon": 1,
+  "id": "app.conversensus.graph.batch",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "An operation-log batch (unified vocabulary Batch). rkey = BatchId (UUID). A batch is one user operation = the undo/redo unit; its ops are the sync/merge resolution units. clock/timestamp/ops are stored losslessly so the record mirrors the canonical operation-log model (step1 Phase 4c / W3d5).",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": ["actor", "clock", "timestamp", "ops", "createdAt"],
+        "properties": {
+          "actor": {
+            "type": "string",
+            "description": "Lamport actor. Either the author DID or the reserved 'genesis' actor. NOTE: genesis-actor batches are never pushed to remote (W3d5 §3.5)."
+          },
+          "clock": {
+            "type": "integer",
+            "description": "Lamport logical clock of this batch."
+          },
+          "timestamp": {
+            "type": "integer",
+            "description": "Wall-clock milliseconds since epoch (tiebreak / createdAt source)."
+          },
+          "ops": {
+            "type": "unknown",
+            "description": "Serialized Op[] describing the atomic operations in this batch. Presentation ops (node.setStyle / edge.setStyle / edge.setLabelOffset) are filtered out before remote push (W3d5 §3.2)."
+          },
+          "sheetId": {
+            "type": "string",
+            "description": "Optional. The originating sheet of a content batch (mirrors Batch.sheetId). Absent for file-structure batches (sheet.*/file.*) and for legacy records predating W3d5."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime",
+            "description": "Timestamp of record creation (ISO 8601)."
+          }
+        }
+      }
+    }
+  }
+}
