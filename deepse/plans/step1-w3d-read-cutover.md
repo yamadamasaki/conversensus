@@ -156,6 +156,68 @@ W3d 自体を小さく分割し、各段でテスト・検証を挟む。
 
 ## 8. 未解決点 (W3d 実装中に確定)
 
-- レイテンシ実測の結果次第で §3.6 cache を W3d に含めるか W3e 前送りか (§3.5 の予算判定)。
+- ~~レイテンシ実測の結果次第で §3.6 cache を W3d に含めるか W3e 前送りか (§3.5 の予算判定)。~~ → **W3d-3 で確定 (§9)。cache 不要**。
 - 破棄前 snapshot バックアップの要否・運用形 (§6)。単一ユーザー・ローカルなので storage.ts の JSON が残るが、明示バックアップ手順を W3d-4 で判断。
-- `handleCreate` 直後の read 経路統一の具体 (作成レスポンスをそのまま使うか、必ず fetchBatches で読み直すか) — W3d-2 で確定。
+- ~~`handleCreate` 直後の read 経路統一の具体 (作成レスポンスをそのまま使うか、必ず fetchBatches で読み直すか) — W3d-2 で確定。~~ → W3d-2 で fetchBatches 読み直しに統一済。
+
+## 9. W3d-3 レイテンシ実測結果 (2026-07-16)
+
+**結論: projection cache (§3.6) は不要。W3d-2 の op-log 読取 cutover を予算内で受け入れる。**
+
+- **計測**: `projectFile(batches, fileId)` 単体。合成 batch (genesis + 1 op/batch の増分編集) を N 段階で生成し、warmup 5 回後に 50 回計測の median。実行環境 macOS arm64 / Bun v1.3.8。ベンチは `src/shared/src/events/projectFile.bench.ts` (投棄可・CI 非搭載)。
+- **予算 (§3.5)**: 典型ファイル (数百 batch) で projectFile < 50ms。
+
+| N (batch) | 1 sheet (200 nodes base) | 5 sheets (100 nodes/sheet base) |
+|-----------|--------------------------|----------------------------------|
+| 100       | 0.15ms                   | 0.23ms                           |
+| 500       | 0.22ms                   | 0.28ms                           |
+| 1,000     | 0.27ms                   | 0.36ms                           |
+| 5,000     | 0.77ms                   | 0.93ms                           |
+
+- **予算比**: 数百 batch (典型) で **0.2ms 前後 = 予算の 1/200 以下**。最悪の N=5,000 でも 1ms 未満。
+- **ヘッドルーム確認 (単一シート・極端規模)**: N=10,000 → 1.5ms、N=20,000 → 2.5ms、N=50,000 → 5.9ms。batch 数に**線形** (約 0.12ms/1,000 batch) で、50,000 batch でも予算の 1/8。
+- **判定**: 全ケースで予算内、かつ実運用が到達しうる規模では圧倒的余裕。§3.6 の projection cache は W3d でも W3e 前でも**導入不要**。将来 op-log が数万 batch/ファイルに達し、かつ openFile の体感が問題化した時点で再検討する (線形なので予測可能)。
+- **openFile end-to-end の扱い**: fetch (HTTP + SQLite) は I/O 律速で projection の CPU コストとは別軸。projection が支配項でないことが本計測で確定したため、体感悪化が出た場合の一次被疑は fetch/転送側であり projection cache ではない。end-to-end 体感の合否は実機で W3d-4 に委ねる。
+
+## 10. W3d-4 end-to-end 検証 (2026-07-16)
+
+W3d-1/2 は各層のユニット/結合テストで固めた。W3d-4 は**層をまたいだ実物の結線**を確認する。
+
+### 10.1 自動 e2e (デーモンレベル) — `src/server/src/readCutover.e2e.test.ts`
+
+実 HTTP ハンドラ (`server.fetch`) + 実 SQLite (`events.db`) + 実 snapshot (`storage.ts`) +
+クライアント読取関数 `projectFile` を一気通貫で通す。HTTP 転送より内側を全部実物で駆動する。
+
+| # | 検証 | 結果 |
+|---|------|------|
+| 1 | 既存 snapshot を開く → lazy migration → `projectFile` が snapshot の構造を再現 (シート順・nodes・edges・layouts) | ✅ |
+| 2 | migration べき等: 再オープンで projection 完全一致 (marker で再 genesis しない) | ✅ |
+| 3 | 編集 (batch 追記) → 再オープンで projection に反映 | ✅ |
+| 4 | flag off (snapshot 直読 `GET /files/:id`) が migration 後も元 snapshot を返す (dual-read 安全弁健在) | ✅ |
+
+- **範囲の線引き**: edge の style / labelOffset は projection では presentation 経路 (GraphFile 非搭載) のため equality から除外。過剰主張を避ける。
+- 全 436 テスト green。lint / typecheck パス。
+
+**実デーモン HTTP 確認 (in-process `server.fetch` の外側)**: `bun run src/server/src/index.ts` を
+一時 `DATA_DIR` で起動し、実ポート :3000 越しに curl で検証。`POST /files` → `PUT` (2 node/1 edge/layout)
+→ `GET /files/:id/batches` で lazy migration が発火し 3 batch (`file.setName`/`file.setDescription`/
+`sheet.create`/`node.add`×2/`node.setLayout`/`edge.add`) を返す。`projectFile` round-trip で
+名前・シート・node/edge/layout・content・label が再現。再 GET も同 3 batch (べき等)。実プロセス+実 HTTP でも契約が成立。
+
+### 10.2 ブラウザ目視パス (手動チェックリスト)
+
+自動 e2e が HTTP 内側を保証するので、残りは React Flow 描画と GUI トグルの目視。
+`bun run dev:server` + `bun run dev:client` で以下を確認し screenshot を記録する。
+
+- [x] 既存ファイルを開くと projection が正しく描画される (ノード配置・エッジ・シートタブ)
+- [x] 編集して再オープン → 編集が残る
+- [x] trunk↔branch トグル (`App.tsx` の `graphKey`) が従来通り動く (§3.3: branch コードに変更なし)
+- [x] `VITE_READ_FROM_OPLOG=false` で起動 → snapshot 表示に復帰 (安全弁の画面確認)
+- [x] 破棄前 snapshot バックアップ (§6/§8): 単一ユーザー・ローカルで storage.ts の JSON が残るため明示手順は不要と判断 (migration は snapshot を破壊しない = ケース 4 で機械的に確認済)。
+
+**目視結果 (2026-07-18, Chrome MCP で実機確認)**: 実行中の dev サーバ (:3000 デーモン / :5173 クライアント) に対し、snapshot だけの pre-W3 相当ファイルを curl で seed して確認した。
+
+1. **projection 描画**: seed をブラウザで開くと、こちらが一切触っていないファイルに genesis 3 batch (`file.setName` / `sheet.create` / `node.add`×2+`node.setLayout`×2+`edge.add`) が生成された。**ブラウザ自身の read が lazy migration を発火**させた証拠。ノード配置・ラベル付きエッジ・シートタブすべて正常描画。
+2. **編集の永続**: ペーンのダブルクリックから Markdown ノードを追加・テキスト入力すると op-log に actor `local` の追記 batch (clock4 `node.add`+`node.setLayout` / clock5 `node.setContent`)。別ページを新規ロードして開き直すと編集ノードが残存。**再オープンは batch 数を増やさない (= 読取専用)** ことも確認。
+3. **branch トグル**: 「+ branch」で **アプリ内 React モーダル**「branch 名を入力してください」が従来通り起動 (ネイティブ `prompt()` ではないのでセッションはフリーズしない)。キャンセルで trunk 描画に復帰。branch 作成自体は PDS 依存で step2 スコープ。
+4. **安全弁 (flag off)**: 読取経路を画面で判別するため snapshot の node0 content だけを curl PUT で `[SNAPSHOT経路]…` に書き換え (op-log は marker 済で不変)。既存 :5173 (flag on) は触らず、別ポートで `VITE_READ_FROM_OPLOG=false bunx vite --port 5174` を起動。**同一ファイルで flag on=マーカー無し (op-log 読取) / flag off=マーカー有り (snapshot 直読)** を対比でき、読取ソースがフラグで実際に切り替わり安全弁が生きていることを確認。検証後 snapshot を復元。
