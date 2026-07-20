@@ -168,7 +168,7 @@ W3d5-1〜4 は PDS 非依存で単体テストのみ。W3d5-5 でフックへ、
 
 - **batch.json レキシコン新設の要否** (§3.3): 機能上不要だが一貫性のため。W3d5-1 で判断。
 - **`SYNC_TO_REMOTE` フラグの要否** (§3.4): ログイン=remote で足りるか、明示 off を持つか。W3d5-5 で判断。
-- **catch-up の範囲** (§3.6): 起動時/再接続時 + 手動に留める (確定)。定期の常時同期は Phase 4d の subscribe 化へ。「再接続検知」の実装手段 (online/offline イベント or flush 失敗後のリトライ) は W3d5-7 で確定。
+- **catch-up の範囲** (§3.6): 起動時/再接続時 + 手動に留める (確定)。定期の常時同期は Phase 4d の subscribe 化へ。**「再接続検知」は `window` の `online` イベントで `catchUpRemote()` を呼ぶ方式に確定 (2026-07-20 / W3d5-7)** — `useEventSyncTap` の起動時 catch-up と同じ effect でリスナを張り、provider の作り直しに合わせて解除する。理由: 起動時と同じ入口を再利用でき追加状態を持たない、最頻の断 (端末のネットワーク断) をゼロコストで拾える。**flush 失敗後の定期バックオフ再送は採らない** — catch-up 1 回 = 全件 pull (D2) のコストを常時払うことになるため。`online` が発火しない障害 (PDS だけ落ちている等) は手動「今すぐ同期」(§3.7) と次回起動時 catch-up で回収し、未同期件数 UI でユーザが気づける。恒久的な解は Phase 4d の subscribe/cursor 化。
 - **remote push の粒度**: putRecord を batch ごとに逐次 (現 `AtprotoSyncProvider.push`) で足りるか、レート制限を考慮するか。実機検証で観察。
 - **同期ステータスの粒度** (§3.7): 「未同期 N 件」だけで足りるか、最終同期時刻やエラー詳細まで出すか。W3d5-6 で最小から始め実機で調整。
 
@@ -179,4 +179,5 @@ W3d5-1〜4 は PDS 非依存で単体テストのみ。W3d5-5 でフックへ、
 - 2026-07-19 (critic レビュー REVISE 反映): **本スライスは送信 (片方向 push) のみに絞り、受信 (batch op-log → ローカル正典への import) と常時同期は Phase 4d / 後続へ**。理由: `.subscribe(` の消費箇所が存在せず (grep 0 件)、依拠すべき既存受信が無い (A1)。現状の跨端末伝播は legacy snapshot 経路が肩代わりしており batch op-log とは別系統 (A2)。
 - 2026-07-19 (critic C1): **`GENESIS_ACTOR` の batch は remote へ push しない**不変条件を確定 (§3.2/§3.5)。受信経路が無い状態で各端末が独立生成する genesis を remote に載せると clock 衝突する 2 系統の genesis が生じデータ汚染するため。
 - 2026-07-19 (critic A3): W3d5-7 の受入基準を「画面に載る」から「**PDS の batch コレクションを直接検査**して sheetId 往復・presentation 除外・genesis 非 push・clock 単調を確認 + device B が手動 pull で取得できる」へ書換 (§4.1)。画面反映は legacy snapshot が肩代わりし偽の確証になるため。
+- 2026-07-20 (W3d5-7): **再接続検知は `online` イベント方式に確定** (§7)。`useEventSyncTap` の起動時 catch-up と同じ effect でリスナを張り、provider 作り直しに合わせて解除する。flush 失敗後の定期バックオフ再送は不採用 — catch-up 1 回 = 全件 pull (D2) のコストを常時払うため。`online` が発火しない障害 (PDS のみ停止等) は手動「今すぐ同期」+ 次回起動時 catch-up + 未同期件数 UI で回収・可視化する。
 - 2026-07-19 (critic D1/D2): `RemoteSyncQueue` にセッション内保持上限を設ける (超過分は catch-up 全件 pull で回収、ローカル正典が source of truth なのでデータ喪失なし)。catch-up 1 回 = remote 全件 pull 1 回のコストを明記し、起動時/再接続時/手動に限定 (§3.6)。

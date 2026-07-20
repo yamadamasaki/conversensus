@@ -148,6 +148,41 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
     });
   });
 
+  describe('再接続時 catch-up (§3.6 / W3d5-7)', () => {
+    it('online イベントで取りこぼしを回収する', async () => {
+      const local = new RecordingProvider();
+      const remote = new RecordingProvider();
+      remote.existing = []; // 起動時は remote 空 = 取りこぼし無し
+      const remoteQueue = new RemoteSyncQueue({ provider: remote });
+
+      await renderTap({ local, remoteQueue });
+      await settle();
+      expect(remote.pushed).toHaveLength(0);
+
+      // オフライン中に積まれたローカル正典の batch を、復帰後に拾えること
+      local.existing = [batch('1')];
+      window.dispatchEvent(new Event('online'));
+      await settle();
+
+      expect(remote.pushed.map((b) => b.id)).toEqual(['1']);
+    });
+
+    it('unmount 後の online では catch-up しない (リスナ解除)', async () => {
+      const local = new RecordingProvider();
+      const remote = new RecordingProvider();
+      const remoteQueue = new RemoteSyncQueue({ provider: remote });
+
+      const { unmount } = await renderTap({ local, remoteQueue });
+      unmount();
+
+      local.existing = [batch('1')];
+      window.dispatchEvent(new Event('online'));
+      await settle();
+
+      expect(remote.pushed).toHaveLength(0);
+    });
+  });
+
   describe('起動時 catch-up (§3.6)', () => {
     it('ローカル正典にあって remote に無い batch を mount 時に送る', async () => {
       const local = new RecordingProvider();

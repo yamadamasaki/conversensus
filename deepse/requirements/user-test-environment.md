@@ -37,7 +37,7 @@ bun run dev:client   # web クライアント (vite) を :5173 で起動
 | `GET` | `/files/:id` | snapshot 取得 |
 | `PUT` | `/files/:id` | ファイル全体を上書き保存 (snapshot). body は `GraphFile` 全体 |
 | `DELETE` | `/files/:id` | snapshot 削除 (op-log は残る — §4 参照) |
-| `GET` | `/files/:id/batches` | op-log (batch 列) 取得. **副作用注意, §5** |
+| `GET` | `/files/:id/batches` | op-log (batch 列) 取得. **副作用注意, §6** |
 
 **ID はすべて UUID でなければならない** (`fileId` / `sheetId` / `nodeId` / `edgeId` は Zod の branded UUID 型で検証される). ノードの座標・大きさは `sheets[].layouts[]` に `{nodeId, x, y, width?, height?}` として持たせる.
 
@@ -124,7 +124,49 @@ rm -f data/*.json data/events.db*
 
 `data/` は gitignore 済みなので, 消してもリポジトリには影響しない. 次回 `dev:server` 起動時に `events.db` は自動的に再作成される.
 
-## 5. 注意点 (ハマりどころ)
+## 5. 2 台目 (device B) を同じマシンで動かす
+
+remote 同期 (step1 W3d5) の検証では, 「別端末が PDS 経由で受け取れるか」を見たいことがある.
+`PORT` と `DATA_DIR` を分ければ, 同じマシン上に **完全に独立した 2 組目のデーモン + クライアント**
+を立てられる. PDS は 1 つを共有する (それが検証したい経路である).
+
+```shell
+# device B のデーモン (:3001, データは data-b/)
+PORT=3001 DATA_DIR=data-b bun run dev:server
+
+# device B のクライアント (:5175). 宛先デーモンを :3001 に向ける
+cd src/client && VITE_API_BASE=http://localhost:3001 bunx vite --port 5175 --strictPort
+```
+
+`data-b/` は `.gitignore` の `data-*/` パターンに含まれるので, 消してもリポジトリに影響しない.
+事前の `mkdir` は要らない — ディレクトリが無ければ `GET /files` は空一覧を返し, 最初の書込で
+`Bun.write` が親ごと作る (`storage.ts`).
+
+> **⚠️ 2 台を「同じファイルへ両方から書き込む」構成で常用してはならない**
+> (`deepse/plans/step1-w3d5-remote.md` §2 / critic C1). 現時点の remote 経路は **送信 (push) のみ**
+> で受信 (import) が無い. そのため device B のデーモンは自前の genesis batch を独立生成し,
+> **clock が衝突する 2 系統の genesis** が remote に載ってデータを汚染しうる. これを避けるため
+> 実装側で **genesis actor の batch は remote へ push しない** 不変条件を敷いている. 検証も
+> **「A が送ったものを B が取得できるか」に限定** し, B から同じファイルを編集して押し戻さないこと.
+
+### 5.1 PDS 上のレコードを直接検査する
+
+**「画面に載ったか」では remote 送信を検証できない**. 現状の跨端末伝播は legacy snapshot 経路が
+肩代わりしており, batch op-log が載っていなくても「載ったように見える」偽の確証が起きる
+(同 §4.1 / critic A2). PDS の batch コレクションそのものを見ること.
+
+```shell
+bun run scripts/inspect-remote-batches.ts                      # 受入基準を機械判定
+bun run scripts/inspect-remote-batches.ts --dump               # 全 batch を clock 順に一覧
+PDS_URL=http://localhost:2583 REPO=alice.test \
+  bun run scripts/inspect-remote-batches.ts                    # 宛先を明示する場合
+```
+
+検査項目は genesis 非 push (C1) / presentation 非搭載 (D7) / sheetId 往復 / clock 衝突なし の 4 つ.
+`listRecords` は公開エンドポイントなのでログインは要らない. このスクリプトはクライアントの pull と
+同じ mapper (`recordToBatch`) を通すので, **別端末が Batch に戻せること** の確認も兼ねる.
+
+## 6. 注意点 (ハマりどころ)
 
 - **`GET /files/:id/batches` は副作用を持つ**. このエンドポイントは読取前に lazy migration を発火させる (snapshot → op-log 生成). 「まだ migration させたくない pre-W3 状態」のファイルを curl で観察する目的でこれを叩くと, その瞬間に migration が走ってしまう. 素の状態を保ちたいファイルには触れないこと. ブラウザに migration を起こさせて挙動を見たい場合は, クライアントで開く方を先にする.
 - **`PUT /files/:id` は op-log を更新しない**. op-log への追記はクライアントの編集経路 (dispatch tap) 経由でのみ起きる. curl の `PUT` は snapshot だけを書き換えるので, op-log と snapshot に意図的な差を作ってフラグ切替の検証に使える (§3).
