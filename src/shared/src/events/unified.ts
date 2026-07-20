@@ -29,8 +29,11 @@ import {
 export const BatchIdSchema = z.string().uuid().brand<'BatchId'>();
 export type BatchId = z.infer<typeof BatchIdSchema>;
 
-/** 操作の主体。DID または未接続時の 'local' */
-export const LOCAL_ACTOR = 'local' as const;
+/**
+ * 操作の主体。`<did>#<deviceId>` の複合 (未ログインは `local#<deviceId>`)。
+ * 組み立ては client の `sync/actor.ts` が行う (Phase 4d-2)。
+ * Lamport の因果順序と重複排除の単位を端末まで一意に識別するための識別子。
+ */
 export type Actor = string;
 
 /** 論理時刻 (Lamport)。LWW の順序付けに使用 */

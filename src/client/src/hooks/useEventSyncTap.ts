@@ -11,7 +11,7 @@
  * (成功条件・保留・Lamport 復元) は local-only のときと変わらない。
  */
 
-import type { FileId, SheetId } from '@conversensus/shared';
+import type { Actor, FileId, SheetId } from '@conversensus/shared';
 import { useCallback, useEffect, useMemo } from 'react';
 import { FanoutSyncProvider } from '../atproto/fanoutSyncProvider';
 import type { RemoteSyncQueue } from '../atproto/remoteSyncQueue';
@@ -23,13 +23,15 @@ import type { SyncProvider } from '../sync/syncProvider';
 export type UseEventSyncTapOptions = {
   /** remote 送信キュー。null/未指定なら local-only (未ログイン時と同じ挙動) */
   remoteQueue?: RemoteSyncQueue | null;
+  /** この端末の操作主体 `<did>#<deviceId>` (Phase 4d-2)。batch の actor になる */
+  actor: Actor;
   /** テスト用: ローカル正典 provider の差し替え (既定 `LocalServerSyncProvider`) */
   createLocalProvider?: (fileId: FileId) => SyncProvider;
 };
 
 export function useEventSyncTap(
   fileId: FileId | null,
-  { remoteQueue = null, createLocalProvider }: UseEventSyncTapOptions = {},
+  { remoteQueue = null, actor, createLocalProvider }: UseEventSyncTapOptions,
 ): (event: GraphEvent, sheetId?: SheetId) => void {
   // remote キューがあるときだけ fanout で包む。ローカル正典への経路は両者で同一。
   // (createLocalProvider を渡す場合は安定参照であること — 毎レンダー再生成すると tap が作り直される)
@@ -49,11 +51,12 @@ export function useEventSyncTap(
       provider
         ? new EventSyncTap({
             provider,
+            actor,
             onError: (error) =>
               console.warn('[sync] batch flush failed:', error),
           })
         : null,
-    [provider],
+    [provider, actor],
   );
 
   // catch-up (§3.6): ローカル正典にあって remote に無い batch を回収する。オフライン中に

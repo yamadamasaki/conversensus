@@ -48,3 +48,19 @@ tap のロジックを framework 非依存に固定する。
   持たない (structure 経路) ことを固定する。sheetId は event と対で保留され、drain 時の
   `graphEventToBatch(event, tick, sheetId)` で載るため、clock 採番タイミングと独立に正しく紐づく。
 - `settled()` で直列化された flush チェーンの完了を待つ。
+
+## actor の注入 (Phase 4d-2)
+
+`EventSyncTap` は `actor` を必須の dep として受け取り、生成する全 batch に載せる。
+
+**actor は UI の `GraphEvent` ではなく同期層が与える。** 以前は `GraphEvent.userId`
+(常に `'local'`) を actor にしていたが、actor は「誰が編集したか」という UI 上の属性ではなく、
+**Lamport の因果順序と重複排除の単位を識別する同期層の識別子**だからである
+(設計 `step1-phase4d-receive.md` §1.1 / §3.1)。値の組み立ては `sync/actor.ts` が担う
+(`<did>#<deviceId>`)。
+
+この移動に伴い `GraphEvent.userId` は消費者が無くなったので削除した (`makeEventBase` は
+セッションに触れない純関数なので、そこで `did#deviceId` を組み立てるにはモジュール
+レベルの可変状態が要り、テストしづらくなる)。
+
+- tap に渡した actor が push される batch に載ること。

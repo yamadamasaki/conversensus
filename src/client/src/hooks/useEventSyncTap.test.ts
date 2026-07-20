@@ -37,7 +37,6 @@ const uuid = () => {
 const relabel = () => ({
   id: uuid(),
   timestamp: Date.now(),
-  userId: 'local',
   category: 'content' as const,
   type: 'NODE_RELABELED' as const,
   nodeId: uuid() as NodeId,
@@ -53,7 +52,6 @@ const relabel = () => ({
 const restyle = () => ({
   id: uuid(),
   timestamp: Date.now(),
-  userId: 'local',
   category: 'presentation' as const,
   type: 'EDGE_STYLE_CHANGED' as const,
   edgeId: uuid() as EdgeId,

@@ -12,6 +12,7 @@ import { CommitDialog } from './CommitDialog';
 import { ConfirmDialog } from './ConfirmDialog';
 import { makeEventBase } from './events/GraphEvent';
 import { GraphEditor } from './GraphEditor';
+import { useActor } from './hooks/useActor';
 import { useAtprotoSession } from './hooks/useAtprotoSession';
 import { useBranchOperations } from './hooks/useBranchOperations';
 import type { UndoState } from './hooks/useEventStore';
@@ -53,11 +54,16 @@ export default function App() {
   // remote (ATProto) 送信キュー。未ログイン時は null → tap は local-only (W3d5-5)
   const remoteQueue = useRemoteSyncQueue(atprotoSession);
 
+  // batch の操作主体 `<did>#<deviceId>`。端末まで一意にすることで、受信時に因果順序と
+  // 重複排除の単位を識別できる (Phase 4d-2)
+  const actor = useActor(atprotoSession);
+
   // File & sheet operations
   const fileOps = useFileSheetOperations({
     setConfirmState,
     setAlertState,
     remoteQueue,
+    actor,
   });
 
   // Branch operations

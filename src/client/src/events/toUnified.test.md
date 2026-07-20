@@ -24,3 +24,12 @@
 
 - `NODE_PROPERTIES_CHANGED.to` は差分だが統一 op は置換意味論。忠実変換には capture 時の full properties が必要。
 - `NODE_STYLE_CHANGED` は width/height 変更の実体を持つため layout に正規化している。
+
+## graphEventToBatch の actor (Phase 4d-2)
+
+シグネチャが `graphEventToBatch(event, { clock, actor, sheetId? })` になった。
+以前は `event.userId` を actor にしていたが、actor は同期層 (`EventSyncTap`) が与える
+識別子に変わったため、呼び出し側から明示的に渡す (理由は `eventSyncTap.test.md` の
+actor 節と `step1-phase4d-receive.md` §3.1)。
+
+- 渡した actor がそのまま batch に載ること (以前の「userId を actor にする」を置き換え)。

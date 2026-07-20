@@ -15,6 +15,8 @@ import { graphEventToBatch, graphEventToOps } from './toUnified';
 const nid = (): NodeId => NodeIdSchema.parse(crypto.randomUUID());
 const eid = (): EdgeId => EdgeIdSchema.parse(crypto.randomUUID());
 
+const ACTOR = 'did:plc:alice#device-1';
+
 describe('graphEventToOps: 複合イベントの分解', () => {
   test('NODES_GROUPED → group 追加 + layout + 子ごとの setParent/setLayout', () => {
     const parentId = nid();
@@ -61,8 +63,8 @@ describe('graphEventToOps: 複合イベントの分解', () => {
       edgeLayouts: [],
     };
     const g = projectBatches([
-      graphEventToBatch(seed, 1),
-      graphEventToBatch(event, 2),
+      graphEventToBatch(seed, { clock: 1, actor: ACTOR }),
+      graphEventToBatch(event, { clock: 2, actor: ACTOR }),
     ]);
     expect(g.nodes.get(parentId)?.nodeType).toBe('group');
     expect(g.nodes.get(childA)?.parentId).toBe(parentId);
@@ -251,11 +253,11 @@ describe('graphEventToOps: 全 19 イベント型を網羅する', () => {
     }
   });
 
-  test('graphEventToBatch は event.id を BatchId に、userId を actor にする', () => {
+  test('graphEventToBatch は event.id を BatchId に、渡された actor を載せる', () => {
     const event = events[0];
-    const batch = graphEventToBatch(event, 7);
+    const batch = graphEventToBatch(event, { clock: 7, actor: ACTOR });
     expect(batch.id).toBe(event.id);
-    expect(batch.actor).toBe(event.userId);
+    expect(batch.actor).toBe(ACTOR);
     expect(batch.clock).toBe(7);
   });
 });
@@ -355,12 +357,16 @@ describe('graphEventToBatch: content の sheet-aware 化 (W3c2)', () => {
 
   test('sheetId 引数を渡すと content batch に載る', () => {
     const sheetId = sid();
-    const batch = graphEventToBatch(relabel(), 5, sheetId);
+    const batch = graphEventToBatch(relabel(), {
+      clock: 5,
+      actor: ACTOR,
+      sheetId,
+    });
     expect(batch.sheetId).toBe(sheetId);
   });
 
   test('sheetId 引数を省略すると batch は sheetId を持たない', () => {
-    const batch = graphEventToBatch(relabel(), 5);
+    const batch = graphEventToBatch(relabel(), { clock: 5, actor: ACTOR });
     expect(batch.sheetId).toBeUndefined();
   });
 });

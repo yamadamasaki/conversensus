@@ -25,7 +25,6 @@ const uuid = () => {
 const relabel = (): NodeRelabeledEvent => ({
   id: uuid(),
   timestamp: Date.now(),
-  userId: 'local',
   category: 'content',
   type: 'NODE_RELABELED',
   nodeId: uuid() as NodeId,
@@ -39,7 +38,6 @@ const emptyStyle = (): NodeStyleChangedEvent => {
   return {
     id: uuid(),
     timestamp: Date.now(),
-    userId: 'local',
     category: 'presentation',
     type: 'NODE_STYLE_CHANGED',
     nodeId,
@@ -68,24 +66,36 @@ class RecordingProvider implements SyncProvider {
   }
 }
 
+const ACTOR = 'did:plc:alice#device-1';
+
 /** 指定 clock を持つ有効な既存 batch (restore テストの永続ログ用) */
 const existingBatch = (clock: number): Batch =>
-  graphEventToBatch(relabel(), clock);
+  graphEventToBatch(relabel(), { clock, actor: ACTOR });
 
 describe('EventSyncTap', () => {
   it('ops を生じる event を Batch 化して provider へ push する', async () => {
     const provider = new RecordingProvider();
-    const tap = new EventSyncTap({ provider });
+    const tap = new EventSyncTap({ provider, actor: ACTOR });
     tap.record(relabel());
     await tap.settled();
     expect(provider.pushed).toHaveLength(1);
     expect(provider.pushed[0]?.ops[0]?.kind).toBe('node.setContent');
   });
 
+  it('tap に渡した actor が batch に載る (Phase 4d-2)', async () => {
+    // actor は UI の event ではなく同期層が与える。端末まで一意な値なので、
+    // 受信側が因果順序と重複排除の単位を識別できる
+    const provider = new RecordingProvider();
+    const tap = new EventSyncTap({ provider, actor: 'did:plc:bob#device-9' });
+    tap.record(relabel());
+    await tap.settled();
+    expect(provider.pushed[0]?.actor).toBe('did:plc:bob#device-9');
+  });
+
   it('空 ops の event はスキップし clock も消費しない', async () => {
     const provider = new RecordingProvider();
     const clock = new LamportClock();
-    const tap = new EventSyncTap({ provider, clock });
+    const tap = new EventSyncTap({ provider, clock, actor: ACTOR });
     tap.record(emptyStyle());
     await tap.settled();
     expect(provider.pushed).toHaveLength(0);
@@ -94,7 +104,7 @@ describe('EventSyncTap', () => {
 
   it('連続 record で clock が単調増加する', async () => {
     const provider = new RecordingProvider();
-    const tap = new EventSyncTap({ provider });
+    const tap = new EventSyncTap({ provider, actor: ACTOR });
     tap.record(relabel());
     tap.record(relabel());
     tap.record(relabel());
@@ -106,7 +116,7 @@ describe('EventSyncTap', () => {
     const provider = new RecordingProvider();
     provider.existing = [existingBatch(5), existingBatch(7), existingBatch(6)];
     const clock = new LamportClock(); // 0 起点 (再起動直後を模す)
-    const tap = new EventSyncTap({ provider, clock });
+    const tap = new EventSyncTap({ provider, clock, actor: ACTOR });
     tap.record(relabel());
     tap.record(relabel());
     await tap.settled();
@@ -121,6 +131,7 @@ describe('EventSyncTap', () => {
     const errors: unknown[] = [];
     const tap = new EventSyncTap({
       provider,
+      actor: ACTOR,
       clock,
       onError: (e) => errors.push(e),
     });
@@ -141,7 +152,7 @@ describe('EventSyncTap', () => {
 
   it('record の sheetId が push された content batch に載る (W3c2)', async () => {
     const provider = new RecordingProvider();
-    const tap = new EventSyncTap({ provider });
+    const tap = new EventSyncTap({ provider, actor: ACTOR });
     const sheetId = SheetIdSchema.parse(crypto.randomUUID()) as SheetId;
     tap.record(relabel(), sheetId);
     await tap.settled();
@@ -150,7 +161,7 @@ describe('EventSyncTap', () => {
 
   it('sheetId 無しの record は sheetId を持たない batch になる (structure 経路)', async () => {
     const provider = new RecordingProvider();
-    const tap = new EventSyncTap({ provider });
+    const tap = new EventSyncTap({ provider, actor: ACTOR });
     tap.record(relabel());
     await tap.settled();
     expect(provider.pushed[0]?.sheetId).toBeUndefined();
@@ -162,6 +173,7 @@ describe('EventSyncTap', () => {
     const errors: unknown[] = [];
     const tap = new EventSyncTap({
       provider,
+      actor: ACTOR,
       onError: (e) => errors.push(e),
     });
     tap.record(relabel());

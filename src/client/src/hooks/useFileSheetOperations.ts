@@ -89,6 +89,8 @@ interface UseFileSheetOperationsParams {
    * null なら tap は local-only = W3d と完全に同じ挙動 (退行なし)。
    */
   remoteQueue?: RemoteSyncQueue | null;
+  /** この端末の操作主体 `<did>#<deviceId>` (Phase 4d-2)。tap が batch の actor に使う */
+  actor: Actor;
 }
 
 export function useFileSheetOperations({
@@ -98,6 +100,7 @@ export function useFileSheetOperations({
   syncRecord: syncRecordOverride,
   readFromOplog = READ_FROM_OPLOG,
   remoteQueue = null,
+  actor,
 }: UseFileSheetOperationsParams) {
   const [files, setFiles] = useState<GraphFileListItem[]>([]);
   const [activeFile, setActiveFile] = useState<GraphFile | null>(null);
@@ -118,6 +121,7 @@ export function useFileSheetOperations({
   // remote キューがあれば tap は fanout (ローカル正典 + remote) になる (W3d5-5)。
   const internalSyncRecord = useEventSyncTap(activeFile?.id ?? null, {
     remoteQueue,
+    actor,
   });
   const syncRecord = syncRecordOverride ?? internalSyncRecord;
 

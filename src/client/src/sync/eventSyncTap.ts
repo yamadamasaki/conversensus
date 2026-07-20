@@ -13,7 +13,12 @@
  *   restore 成功後に FIFO 順で tick を割り当てる (再起動をまたいだ単調性の保証)。
  */
 
-import { type Batch, LamportClock, type SheetId } from '@conversensus/shared';
+import {
+  type Actor,
+  type Batch,
+  LamportClock,
+  type SheetId,
+} from '@conversensus/shared';
 import type { GraphEvent } from '../events/GraphEvent';
 import { graphEventToBatch, graphEventToOps } from '../events/toUnified';
 import { type FlushResult, Outbox } from './outbox';
@@ -23,6 +28,11 @@ export type EventSyncTapDeps = {
   provider: SyncProvider;
   clock?: LamportClock;
   outbox?: Outbox<Batch>;
+  /**
+   * この端末の操作主体 (Phase 4d-2)。`<did>#<deviceId>` (未ログインは `local#<deviceId>`)。
+   * batch に載って remote へ渡り、受信側で因果順序と重複排除の単位を識別するのに使う。
+   */
+  actor: Actor;
   /** flush がオフライン等で失敗したときの通知 (保留は維持される) */
   onError?: (error: unknown) => void;
 };
@@ -31,6 +41,7 @@ export class EventSyncTap {
   private readonly provider: SyncProvider;
   private readonly clock: LamportClock;
   private readonly outbox: Outbox<Batch>;
+  private readonly actor: Actor;
   private readonly onError?: (error: unknown) => void;
   /** flush を直列化するチェーン */
   private flushChain: Promise<void> = Promise.resolve();
@@ -46,6 +57,7 @@ export class EventSyncTap {
     this.provider = deps.provider;
     this.clock = deps.clock ?? new LamportClock();
     this.outbox = deps.outbox ?? new Outbox<Batch>((b) => b.id);
+    this.actor = deps.actor;
     this.onError = deps.onError;
   }
 
@@ -118,7 +130,11 @@ export class EventSyncTap {
         event: GraphEvent;
         sheetId?: SheetId;
       };
-      const batch = graphEventToBatch(event, this.clock.tick(), sheetId);
+      const batch = graphEventToBatch(event, {
+        clock: this.clock.tick(),
+        actor: this.actor,
+        sheetId,
+      });
       this.outbox.enqueue([batch]);
     }
     while (!this.outbox.isEmpty) {
