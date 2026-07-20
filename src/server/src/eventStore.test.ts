@@ -210,6 +210,53 @@ describe('EventStore', () => {
     });
   });
 
+  describe('appendReceivedBatches (Phase 4d-0)', () => {
+    const W3 = 1;
+
+    it('受信 batch を追記し、同時に正典 marker を立てる', () => {
+      const received = [addNode('r1', 'n1', '受信', 7)];
+      expect(store.appendReceivedBatches(FILE, received, W3)).toBe(1);
+      expect(store.getBatches(FILE).map((b) => b.id)).toEqual(['r1']);
+      expect(store.getSchemaVersion(FILE)).toBe(W3);
+    });
+
+    it('受信後の lazy migration は no-op になり、受信 batch が破棄されない', () => {
+      // これが 4d-0 の本体: marker が無いと migrateToOplog が DELETE で受信内容を消す
+      store.appendReceivedBatches(FILE, [addNode('r1', 'n1', '受信', 7)], W3);
+      expect(
+        store.migrateToOplog(FILE, [addNode('g1', 'n1', 'A', 1)], W3),
+      ).toBe(false);
+      expect(store.getBatches(FILE).map((b) => b.id)).toEqual(['r1']);
+    });
+
+    it('受信していないファイルの lazy migration は従来どおり破棄→genesis する', () => {
+      // W3d-1 の仕様 (pre-W3 増分ログの破棄) を壊していないことの回帰
+      store.appendBatch(FILE, addNode('old', 'n9', '旧', 5));
+      expect(
+        store.migrateToOplog(FILE, [addNode('g1', 'n1', 'A', 1)], W3),
+      ).toBe(true);
+      expect(store.getBatches(FILE).map((b) => b.id)).toEqual(['g1']);
+    });
+
+    it('受信 0 件では marker を立てない (migration の機会を奪わない)', () => {
+      expect(store.appendReceivedBatches(FILE, [], W3)).toBe(0);
+      expect(store.getSchemaVersion(FILE)).toBeNull();
+    });
+
+    it('同一 batch_id の再受信はべき等 (件数 0・ログ不変)', () => {
+      const received = [addNode('r1', 'n1', '受信', 7)];
+      store.appendReceivedBatches(FILE, received, W3);
+      expect(store.appendReceivedBatches(FILE, received, W3)).toBe(0);
+      expect(store.getBatches(FILE).map((b) => b.id)).toEqual(['r1']);
+    });
+
+    it('marker は下げない (より新しい版で正典化済ならそのまま)', () => {
+      store.appendReceivedBatches(FILE, [addNode('r1', 'n1', '受信', 7)], 2);
+      store.appendReceivedBatches(FILE, [addNode('r2', 'n2', '受信2', 8)], W3);
+      expect(store.getSchemaVersion(FILE)).toBe(2);
+    });
+  });
+
   describe('projectSheet', () => {
     it('操作ログを projection して Sheet を導出する', () => {
       store.appendBatch(FILE, addNode('b1', 'n1', 'ノード1', 1));
