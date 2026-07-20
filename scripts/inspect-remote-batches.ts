@@ -144,23 +144,55 @@ function checkSheetIdRoundTrip(batches: Batch[]): Check {
   };
 }
 
-/** 4. clock が衝突していないこと (Lamport の単調性) */
+/**
+ * 4. clock の衝突検査。
+ *
+ * **Lamport clock は全体一意を保証しない** — 保証するのは因果順序で、同値の tiebreak は
+ * 慣習的に `(clock, actor)` で行う。受信 (import) 経路が無い現状、各端末は自分のローカル
+ * 正典からしか seed できないので、別ファイル・別端末の clock は独立に 1 から進む。
+ * したがって**別 sheet 間の衝突は multi-device では正常**であり、FAIL にすると
+ * device B 検証 (W3d5-7) が常に赤くなる。
+ *
+ * 一方、**同一 sheet 内の衝突は真の異常**: 同じ編集文脈で採番が重複しており、順序が
+ * 決められない。こちらは FAIL のままにする。
+ *
+ * 注意 (Phase 4d への申し送り): 現状 `actor` は両端末とも `'local'` で端末を識別せず、
+ * batch レコードは `fileId` も持たない。よって別 sheet 間の衝突を「別ファイルだから正常」と
+ * 判定できるのは sheetId を持つ content batch だけで、file 構造 batch (sheetId 無し) は
+ * 区別できない。受信を実装するには actor の端末識別子化と fileId の付与が要る。
+ */
 function checkClockUnique(batches: Batch[]): Check {
-  const byClock = new Map<number, Batch[]>();
+  // 同一 sheet 内の衝突のみを異常とする。sheetId 無し (file 構造 batch) は
+  // 宛先を区別する手掛かりが無いので、まとめて 1 つのグループとして扱う。
+  const scopeOf = (b: Batch) => `${b.sheetId ?? '(sheet なし)'}#${b.clock}`;
+  const byScope = new Map<string, Batch[]>();
   for (const b of batches) {
-    const same = byClock.get(b.clock) ?? [];
+    const same = byScope.get(scopeOf(b)) ?? [];
     same.push(b);
-    byClock.set(b.clock, same);
+    byScope.set(scopeOf(b), same);
   }
-  const collisions = [...byClock.entries()].filter(([, bs]) => bs.length > 1);
+  const collisions = [...byScope.entries()].filter(([, bs]) => bs.length > 1);
+
+  // 別 sheet 間の衝突は正常だが、起きている事実は表示する (multi-device の証跡)
+  const clockCounts = new Map<number, number>();
+  for (const b of batches)
+    clockCounts.set(b.clock, (clockCounts.get(b.clock) ?? 0) + 1);
+  const crossSheet = [...clockCounts.entries()].filter(([, n]) => n > 1);
+  const note =
+    crossSheet.length > 0
+      ? ` (別 sheet 間で clock 重複あり: ${crossSheet
+          .map(([clock, n]) => `clock=${clock} に ${n} 件`)
+          .join(', ')} — 受信経路が無い現状では正常)`
+      : '';
+
   return {
-    name: 'clock 単調・衝突なし',
+    name: 'clock 衝突なし (同一 sheet 内)',
     ok: collisions.length === 0,
     detail:
       collisions.length === 0
-        ? `clock は ${batches.length} 件すべて一意`
-        : `clock が衝突している: ${collisions
-            .map(([clock, bs]) => `clock=${clock} に ${bs.length} 件`)
+        ? `同一 sheet 内での clock 重複は無い${note}`
+        : `同一 sheet 内で clock が衝突している: ${collisions
+            .map(([scope, bs]) => `${scope} に ${bs.length} 件`)
             .join(', ')}`,
   };
 }
