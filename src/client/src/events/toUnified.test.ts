@@ -364,3 +364,67 @@ describe('graphEventToBatch: content の sheet-aware 化 (W3c2)', () => {
     expect(batch.sheetId).toBeUndefined();
   });
 });
+
+describe('layout 値の整数化 (W3d5-7)', () => {
+  // ATProto (DAG-CBOR) は float を持てず、小数を含む op は PDS の putRecord が 400 で弾く。
+  // 丸めはローカル正典に載る値そのものに掛ける (local と remote を一致させる)。
+  const layoutOf = (event: GraphEvent) => {
+    const op = graphEventToOps(event).find((o) => o.kind === 'node.setLayout');
+    if (!op || op.kind !== 'node.setLayout')
+      throw new Error('layout op が無い');
+    return op;
+  };
+
+  test('NODE_MOVED の小数座標は整数へ丸められる', () => {
+    const nodeId = nid();
+    const op = layoutOf({
+      ...makeEventBase('layout'),
+      type: 'NODE_MOVED',
+      nodeId,
+      from: { x: 0, y: 0 },
+      to: { x: 661.9999847412109, y: 450.4 },
+    });
+    expect(op.x).toBe(662);
+    expect(op.y).toBe(450);
+  });
+
+  test('NODE_RESIZED の小数寸法も整数へ丸められる', () => {
+    const nodeId = nid();
+    const op = layoutOf({
+      ...makeEventBase('layout'),
+      type: 'NODE_RESIZED',
+      nodeId,
+      from: { width: 1, height: 1 },
+      to: { width: 160.5, height: 80.2 },
+    });
+    expect(op.width).toBe(161);
+    expect(op.height).toBe(80);
+  });
+
+  test('width/height の文字列 (CSS 値) はそのまま通す', () => {
+    const nodeId = nid();
+    const op = layoutOf({
+      ...makeEventBase('presentation'),
+      type: 'NODE_STYLE_CHANGED',
+      nodeId,
+      from: {},
+      to: { width: '100%', height: 80.6 },
+    });
+    expect(op.width).toBe('100%');
+    expect(op.height).toBe(81);
+  });
+
+  test('丸めた op はすべて整数 = ATProto へ載せられる', () => {
+    const nodeId = nid();
+    const op = layoutOf({
+      ...makeEventBase('layout'),
+      type: 'NODE_MOVED',
+      nodeId,
+      from: { x: 0, y: 0 },
+      to: { x: 12.34, y: 56.78 },
+    });
+    for (const v of [op.x, op.y]) {
+      expect(Number.isInteger(v)).toBe(true);
+    }
+  });
+});

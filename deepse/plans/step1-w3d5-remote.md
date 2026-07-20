@@ -164,11 +164,22 @@ W3d5-1〜4 は PDS 非依存で単体テストのみ。W3d5-5 でフックへ、
 - **W3e (snapshot 退役)** の前提に「dual-read フラグ撤去可能なだけの実機実績」があるが、remote 同期が入ると 2 台目の実績も要件に含まれる。W3d5-7 の結果を W3e 着手判断に反映する。
 - **step2 (branch op-log 化)**: branch も op-log 化されると remote 経路を branch batch も通る。本スライスの fanout / フィルタ / catch-up は branch へ横展開できる設計にしておく (branch 固有ロジックは持ち込まない)。
 
+### 6.1 Phase 4d (受信) の前提条件 — W3d5-7 device B 検証で判明 (2026-07-20)
+
+送信のみの本スライスでは表面化しないが、**受信 (import) を実装する前に必ず解く必要がある**レコード形式の不足が 2 つある。device B (2 組目) を実際に動かして判明した。
+
+- **`actor` が端末を識別していない**: A・B とも `actor` に `'local'` を書く。**Lamport clock は全体一意を保証しない** — 保証するのは因果順序であり、同値の tiebreak は慣習的に `(clock, actor)` で行う。actor が端末間で同一だと **`(clock, actor)` で順序も重複排除も決まらない**。受信時に「同じ clock の 2 つの batch」をどう並べるかが決定不能になる。→ actor を DID か端末ごとの一意 id にする必要がある。
+- **batch レコードが `fileId` を持たない**: レコードは `actor`/`clock`/`timestamp`/`ops`/`sheetId`/`createdAt` のみ。ATProto の batch コレクションは repo 全体で 1 つなので、受信側は **その batch をどのファイルへ適用すべきか復元できない**。content batch は `sheetId` が間接的な手掛かりになるが、**file 構造 batch は `sheetId` を持たない**ため手掛かりが皆無。→ `fileId` の付与が要る。
+
+**実測 (W3d5-7)**: A の content batch と B の content batch がともに `clock=3` で PDS に載った (各端末が自分のローカル正典からしか seed できないため独立に 1 から進む)。今回は sheetId が異なるため人間には別ファイルと判別できたが、上記のとおりこれは content batch でしか成立しない。検査スクリプトの clock 判定はこの実態に合わせ、**同一 sheet 内の衝突のみ FAIL / 別 sheet 間は正常** に改めた。
+
+> **legacy 経路との別系統性も実物で確認 (critic A2 の裏取り)**: device B のサイドバーには A のファイルが見えたが、B のデーモン (:3001) は空のままだった。B が読んでいたのは ATProto の **file レコード** (`app.conversensus.graph.file`, legacy snapshot 経路) であり、batch op-log ではない。**「画面に他端末の編集が見える」ことは batch op-log が届いた証拠にならない** という §4.1 の前提が、そのまま観測された。
+
 ## 7. 未解決点 (実装中に確定)
 
 - **batch.json レキシコン新設の要否** (§3.3): 機能上不要だが一貫性のため。W3d5-1 で判断。
 - **`SYNC_TO_REMOTE` フラグの要否** (§3.4): ログイン=remote で足りるか、明示 off を持つか。W3d5-5 で判断。
-- **catch-up の範囲** (§3.6): 起動時/再接続時 + 手動に留める (確定)。定期の常時同期は Phase 4d の subscribe 化へ。「再接続検知」の実装手段 (online/offline イベント or flush 失敗後のリトライ) は W3d5-7 で確定。
+- **catch-up の範囲** (§3.6): 起動時/再接続時 + 手動に留める (確定)。定期の常時同期は Phase 4d の subscribe 化へ。**「再接続検知」は `window` の `online` イベントで `catchUpRemote()` を呼ぶ方式に確定 (2026-07-20 / W3d5-7)** — `useEventSyncTap` の起動時 catch-up と同じ effect でリスナを張り、provider の作り直しに合わせて解除する。理由: 起動時と同じ入口を再利用でき追加状態を持たない、最頻の断 (端末のネットワーク断) をゼロコストで拾える。**flush 失敗後の定期バックオフ再送は採らない** — catch-up 1 回 = 全件 pull (D2) のコストを常時払うことになるため。`online` が発火しない障害 (PDS だけ落ちている等) は手動「今すぐ同期」(§3.7) と次回起動時 catch-up で回収し、未同期件数 UI でユーザが気づける。恒久的な解は Phase 4d の subscribe/cursor 化。
 - **remote push の粒度**: putRecord を batch ごとに逐次 (現 `AtprotoSyncProvider.push`) で足りるか、レート制限を考慮するか。実機検証で観察。
 - **同期ステータスの粒度** (§3.7): 「未同期 N 件」だけで足りるか、最終同期時刻やエラー詳細まで出すか。W3d5-6 で最小から始め実機で調整。
 
@@ -179,4 +190,8 @@ W3d5-1〜4 は PDS 非依存で単体テストのみ。W3d5-5 でフックへ、
 - 2026-07-19 (critic レビュー REVISE 反映): **本スライスは送信 (片方向 push) のみに絞り、受信 (batch op-log → ローカル正典への import) と常時同期は Phase 4d / 後続へ**。理由: `.subscribe(` の消費箇所が存在せず (grep 0 件)、依拠すべき既存受信が無い (A1)。現状の跨端末伝播は legacy snapshot 経路が肩代わりしており batch op-log とは別系統 (A2)。
 - 2026-07-19 (critic C1): **`GENESIS_ACTOR` の batch は remote へ push しない**不変条件を確定 (§3.2/§3.5)。受信経路が無い状態で各端末が独立生成する genesis を remote に載せると clock 衝突する 2 系統の genesis が生じデータ汚染するため。
 - 2026-07-19 (critic A3): W3d5-7 の受入基準を「画面に載る」から「**PDS の batch コレクションを直接検査**して sheetId 往復・presentation 除外・genesis 非 push・clock 単調を確認 + device B が手動 pull で取得できる」へ書換 (§4.1)。画面反映は legacy snapshot が肩代わりし偽の確証になるため。
+- 2026-07-20 (W3d5-7 完了): **§4.1 受入基準 4 項目すべて PASS**。genesis 非 push (C1) は device B を実際に動かして確認 — B のデーモンは独自 genesis (clock 1,2) を生成したが **PDS には 1 件も載らなかった**。C1 の不変条件が実システムで機能している。副次的に、cross-device の clock 衝突と `actor`/`fileId` の不足が判明 (§6.1 に受信の前提条件として記録)。
+- 2026-07-20 (W3d5-7 実機検証): **ATProto のデータモデル (DAG-CBOR) には float 型が無い**ため、小数を含む op を載せた batch は PDS の `putRecord` が 400 (`Expected one of null, boolean, integer, … got 661.99…`) で弾く。React Flow はドラッグ結果をサブピクセルの小数で返すので、**`node.setLayout` を含む batch が remote へ一切載っていなかった**。対策として layout 値を **op 生成時に整数へ丸める** (`toUnified.ts` の `nodeSetLayoutOp` に集約)。remote mapper 側で丸めると local と remote の値が食い違い `recordToBatch` の往復が非可逆になるため、丸めはローカル正典に載る値そのものに掛ける。**新しい op に数値フィールドを足すときは整数であることを確認すること** — この制約は remote 経路全体に効く。
+- 2026-07-20 (W3d5-7 実機検証): remote 送信の失敗を `console.warn` で必ず残すようにした (`fanoutSyncProvider`)。上記の 400 は `flush().catch(() => undefined)` と `Outbox.flush` の FlushResult 返しの二重の握り潰しで**完全に無言**であり、原因特定にネットワーク層の観察を要した。ユーザ向けの回復手段は §3.7 の UI が担い、`warn` は開発者向け診断に徹する。
+- 2026-07-20 (W3d5-7): **再接続検知は `online` イベント方式に確定** (§7)。`useEventSyncTap` の起動時 catch-up と同じ effect でリスナを張り、provider 作り直しに合わせて解除する。flush 失敗後の定期バックオフ再送は不採用 — catch-up 1 回 = 全件 pull (D2) のコストを常時払うため。`online` が発火しない障害 (PDS のみ停止等) は手動「今すぐ同期」+ 次回起動時 catch-up + 未同期件数 UI で回収・可視化する。
 - 2026-07-19 (critic D1/D2): `RemoteSyncQueue` にセッション内保持上限を設ける (超過分は catch-up 全件 pull で回収、ローカル正典が source of truth なのでデータ喪失なし)。catch-up 1 回 = remote 全件 pull 1 回のコストを明記し、起動時/再接続時/手動に限定 (§3.6)。

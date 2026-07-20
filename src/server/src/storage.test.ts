@@ -67,6 +67,12 @@ describe('storage', () => {
       expect(result).toEqual([]);
     });
 
+    it('DATA_DIR が存在しなくても空配列を返す (初回起動・2 組目のデーモン)', async () => {
+      process.env.DATA_DIR = join(tmpDir, 'not-created-yet');
+      const result = await listFiles();
+      expect(result).toEqual([]);
+    });
+
     it('書き込んだファイルが一覧に現れる', async () => {
       const data = sampleFile();
       await writeFile(data);

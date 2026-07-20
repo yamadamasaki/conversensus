@@ -18,6 +18,8 @@
 - **file 構造イベント (W3c1)**: シート/ファイル構造イベント (`SHEET_CREATED`/`SHEET_REMOVED`/`SHEET_RENAMED`/`SHEET_DESCRIBED`/`FILE_RENAMED`/`FILE_DESCRIBED`) が対応する file op (`sheet.create`/`sheet.remove`/`sheet.setName`/`sheet.setDescription`/`file.setName`/`file.setDescription`) に変換されることを確認する。description 未指定 (クリア) は description フィールドを持たない op になること、および構造イベントの batch は `sheetId` を持たない (file 構造 batch は sheet scope 無し, §3.1) ことを固定する。
 - **content の sheet-aware 化 (W3c2)**: `graphEventToBatch(event, clock, sheetId?)` の第 3 引数に `sheetId` を渡すと content batch に `sheetId` が載ること、省略すると batch が `sheetId` を持たないことを固定する。content 経路 (GraphEditor) は発生元シートを渡し、structure 経路は渡さないという非対称を write 時点で保証する。
 
+- **layout 値の整数化 (W3d5-7)**: `node.setLayout` の `x`/`y`/`width`/`height` が整数へ丸められることを固定する。**ATProto のデータモデル (DAG-CBOR) には float 型が無く**、小数を含む op を載せた batch は PDS の `putRecord` が 400 (`Expected one of null, boolean, integer, … got 661.99…`) で弾く。React Flow はドラッグ結果をサブピクセルの小数で返すため、丸めが無いと **layout op を含む batch が remote へ一切載らない** — W3d5-7 の実機検証で実際にこれが起きた。丸めは op 生成時 (= ローカル正典に載る値) に掛ける: remote 側だけで丸めると local と remote で値が食い違い `recordToBatch` の往復が非可逆になるため。`width`/`height` は `number | string` の union なので、CSS 値 (`'100%'`) はそのまま通ることも合わせて固定する。
+
 ## 既知の制約 (テスト対象外・Phase 2 で解消)
 
 - `NODE_PROPERTIES_CHANGED.to` は差分だが統一 op は置換意味論。忠実変換には capture 時の full properties が必要。

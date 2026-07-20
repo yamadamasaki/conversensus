@@ -49,9 +49,9 @@ curl -X POST http://localhost:2583/xrpc/com.atproto.server.createAccount \
     }'
 ```
 
-いったん, アカウントを作成したら, web クライアントは `/client/src/.env.local` (dev 環境時) の `VITE_ATPROTO_{HANDLE,PASSWORD}` を参照して自動的にログインする.
+アカウントを作成したら, サイドバー下部の「ATProto ログイン」からハンドルとパスワードを入力してログインする. セッションは `localStorage` の `atproto_session` に保存されるので, 次回以降は自動的に復元される. ログアウトはサイドバー下部の「ログアウト」から行う.
 
-[未実装] ログアウト機能は今はまだないので, そのためには cookie を削除する必要がある.
+> **注意**: `src/client/.env.local` に `VITE_ATPROTO_{HANDLE,PASSWORD}` を置いても**自動ログインはしない** — これらの env はコード中のどこからも参照されていない (2026-07-20 時点). 参照されるのは `VITE_ATPROTO_PDS_URL` のみ.
 
 [未実装] どのアカウントで入っているのか, handle を表示した方が良い
 

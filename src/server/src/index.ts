@@ -23,7 +23,13 @@ import { getEventStore } from './eventStoreServer';
 import { migrateFileToOplog } from './migrateFileToOplog';
 import { deleteFile, listFiles, readFile, writeFile } from './storage';
 
-const SERVER_PORT = 3000;
+const DEFAULT_SERVER_PORT = 3000;
+/**
+ * 待受ポート。`PORT` で上書きできる (既定 3000)。
+ * 2 台目の端末を模して 2 組目のデーモンをローカルに立てる検証 (W3d5-7) で使う。
+ * データの隔離は `DATA_DIR` (storage.ts) と対で行う。
+ */
+const SERVER_PORT = Number(process.env.PORT ?? DEFAULT_SERVER_PORT);
 const LOCALHOST_ORIGIN_PREFIX = 'http://localhost:';
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN ?? null;
 const DEFAULT_FILE_NAME = '無題';

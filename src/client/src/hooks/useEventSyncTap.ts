@@ -54,14 +54,24 @@ export function useEventSyncTap(
     [provider],
   );
 
-  // 起動時 catch-up (§3.6): ファイルを開いた時点で、ローカル正典にあって remote に無い
-  // batch を回収する。オフライン中に best-effort push が落とした分をここで拾う。
-  // 再接続検知による catch-up は W3d5-7 で判断する。
+  // catch-up (§3.6): ローカル正典にあって remote に無い batch を回収する。オフライン中に
+  // best-effort push が落とした分をここで拾う。発火は 2 つ:
+  //   - 起動時 (ファイルを開いた時点)
+  //   - 再接続時 (`online` イベント / W3d5-7 確定)
+  // `online` が発火しない障害 (PDS だけ落ちている等) は手動「今すぐ同期」(§3.7) と
+  // 次回起動時 catch-up で回収する。定期リトライは catch-up 1 回 = 全件 pull (D2) の
+  // コストを常時払うことになるため採らず、Phase 4d の subscribe/cursor 化へ委ねる。
   useEffect(() => {
     if (!(provider instanceof FanoutSyncProvider)) return;
-    provider
-      .catchUpRemote()
-      .catch((error) => console.warn('[sync] remote catch-up failed:', error));
+    const catchUp = () =>
+      provider
+        .catchUpRemote()
+        .catch((error) =>
+          console.warn('[sync] remote catch-up failed:', error),
+        );
+    catchUp();
+    window.addEventListener('online', catchUp);
+    return () => window.removeEventListener('online', catchUp);
   }, [provider]);
 
   // content 経路は sheetId を渡す (W3c2)。structure 経路は省略 → file-level batch。
