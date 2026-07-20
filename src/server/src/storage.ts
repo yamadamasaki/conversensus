@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import type { GraphFile, GraphFileListItem } from '@conversensus/shared';
 
@@ -16,6 +17,9 @@ function filePath(id: string) {
 }
 
 export async function listFiles(): Promise<GraphFileListItem[]> {
+  // DATA_DIR 未作成 (初回起動・data/ を消した直後・2 組目のデーモン) では scan が throw する。
+  // 「データが無い」は正常なので空一覧を返す。書込側は Bun.write が親ディレクトリを作る。
+  if (!existsSync(dataDir())) return [];
   const glob = new Bun.Glob('*.json');
   const items: GraphFileListItem[] = [];
   for await (const name of glob.scan(dataDir())) {
