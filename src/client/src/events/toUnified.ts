@@ -23,6 +23,24 @@ import type {
 import { type Batch, BatchIdSchema, type Op } from '@conversensus/shared';
 import type { GraphEvent } from './GraphEvent';
 
+/**
+ * 座標・寸法を整数へ丸める (W3d5-7)。
+ *
+ * **ATProto のデータモデル (DAG-CBOR) には float 型が無い** — 小数を含む op を載せた batch は
+ * PDS の putRecord が 400 (`Expected one of null, boolean, integer, ... got 661.99…`) で弾く。
+ * React Flow はドラッグ結果をサブピクセルの小数で返すため、丸めないと **layout op を含む
+ * batch が remote へ一切載らない**。
+ *
+ * 丸めは op 生成時 = ローカル正典に載る値そのものに適用する。remote 側だけで丸めると
+ * local と remote で値が食い違い、`recordToBatch` の往復が非可逆になるため (設計 §3.3)。
+ * サブピクセル精度は表示上の意味を持たないので、丸めによる情報の損失は無い。
+ *
+ * width/height は `number | string` (CSS 値) の union。文字列はそのまま通す。
+ */
+function roundLayoutValue<T extends number | string | undefined>(value: T): T {
+  return (typeof value === 'number' ? Math.round(value) : value) as T;
+}
+
 function nodeLayoutOp(nodeId: NodeId, layout: NodeLayout | undefined): Op[] {
   if (!layout) return [];
   const { x, y, width, height } = layout;
@@ -33,16 +51,26 @@ function nodeLayoutOp(nodeId: NodeId, layout: NodeLayout | undefined): Op[] {
     height === undefined
   )
     return [];
-  return [
-    {
-      kind: 'node.setLayout',
-      target: nodeId,
-      ...(x !== undefined && { x }),
-      ...(y !== undefined && { y }),
-      ...(width !== undefined && { width }),
-      ...(height !== undefined && { height }),
-    },
-  ];
+  return [nodeSetLayoutOp(nodeId, { x, y, width, height })];
+}
+
+/**
+ * `node.setLayout` op の唯一の生成口。整数化 (`roundLayoutValue`) をここに集約し、
+ * 呼び出し側が個別に丸め忘れることを防ぐ。undefined のフィールドは省略する。
+ */
+function nodeSetLayoutOp(
+  nodeId: NodeId,
+  layout: Pick<NodeLayout, 'x' | 'y' | 'width' | 'height'>,
+): Op {
+  const { x, y, width, height } = layout;
+  return {
+    kind: 'node.setLayout',
+    target: nodeId,
+    ...(x !== undefined && { x: roundLayoutValue(x) }),
+    ...(y !== undefined && { y: roundLayoutValue(y) }),
+    ...(width !== undefined && { width: roundLayoutValue(width) }),
+    ...(height !== undefined && { height: roundLayoutValue(height) }),
+  };
 }
 
 function edgeLayoutOp(edgeId: EdgeId, layout: EdgeLayout | undefined): Op[] {
@@ -122,12 +150,10 @@ export function graphEventToOps(event: GraphEvent): Op[] {
             parentId: event.newParentId,
           }),
         },
-        {
-          kind: 'node.setLayout',
-          target: event.nodeId,
+        nodeSetLayoutOp(event.nodeId, {
           x: event.newPosition.x,
           y: event.newPosition.y,
-        },
+        }),
       ];
     case 'NODES_GROUPED': {
       const ops: Op[] = [
@@ -147,12 +173,12 @@ export function graphEventToOps(event: GraphEvent): Op[] {
           target: child.nodeId,
           parentId: event.parentId,
         });
-        ops.push({
-          kind: 'node.setLayout',
-          target: child.nodeId,
-          x: child.newPosition.x,
-          y: child.newPosition.y,
-        });
+        ops.push(
+          nodeSetLayoutOp(child.nodeId, {
+            x: child.newPosition.x,
+            y: child.newPosition.y,
+          }),
+        );
       }
       return ops;
     }
@@ -166,12 +192,12 @@ export function graphEventToOps(event: GraphEvent): Op[] {
             parentId: child.originalParentId,
           }),
         });
-        ops.push({
-          kind: 'node.setLayout',
-          target: child.nodeId,
-          x: child.originalPosition.x,
-          y: child.originalPosition.y,
-        });
+        ops.push(
+          nodeSetLayoutOp(child.nodeId, {
+            x: child.originalPosition.x,
+            y: child.originalPosition.y,
+          }),
+        );
       }
       ops.push({ kind: 'node.remove', target: event.parentId });
       return ops;
@@ -233,34 +259,20 @@ export function graphEventToOps(event: GraphEvent): Op[] {
         },
       ];
     case 'NODE_MOVED':
-      return [
-        {
-          kind: 'node.setLayout',
-          target: event.nodeId,
-          x: event.to.x,
-          y: event.to.y,
-        },
-      ];
+      return [nodeSetLayoutOp(event.nodeId, { x: event.to.x, y: event.to.y })];
     case 'NODE_RESIZED':
       return [
-        {
-          kind: 'node.setLayout',
-          target: event.nodeId,
+        nodeSetLayoutOp(event.nodeId, {
           width: event.to.width,
           height: event.to.height,
-        },
+        }),
       ];
     case 'NODE_STYLE_CHANGED': {
       // 実体は width/height の変更 → layout に正規化する
       const ops: Op[] = [];
       const { width, height } = event.to;
       if (width !== undefined || height !== undefined)
-        ops.push({
-          kind: 'node.setLayout',
-          target: event.nodeId,
-          ...(width !== undefined && { width }),
-          ...(height !== undefined && { height }),
-        });
+        ops.push(nodeSetLayoutOp(event.nodeId, { width, height }));
       return ops;
     }
     case 'EDGE_STYLE_CHANGED':

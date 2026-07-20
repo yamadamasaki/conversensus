@@ -16,6 +16,7 @@
  */
 
 import type { Batch } from '@conversensus/shared';
+import type { FlushResult } from '../sync/outbox';
 import {
   type Cursor,
   INITIAL_CURSOR,
@@ -80,7 +81,9 @@ export class FanoutSyncProvider implements SyncProvider {
   async catchUpRemote(): Promise<void> {
     const { batches } = await this.local.pull(INITIAL_CURSOR);
     this.remoteFlush = this.remoteFlush.then(async () => {
-      await this.remoteQueue.catchUp(batches).catch(() => undefined);
+      await this.remoteQueue
+        .catchUp(batches)
+        .then(warnIfNotFlushed, warnRemoteFailure);
     });
     return this.remoteFlush;
   }
@@ -99,7 +102,25 @@ export class FanoutSyncProvider implements SyncProvider {
    */
   private scheduleRemoteFlush(): void {
     this.remoteFlush = this.remoteFlush.then(async () => {
-      await this.remoteQueue.flush().catch(() => undefined);
+      await this.remoteQueue.flush().then(warnIfNotFlushed, warnRemoteFailure);
     });
   }
+}
+
+/**
+ * remote 送信の失敗を必ずログに残す (W3d5-7)。
+ *
+ * remote leg は編集フローを止めない設計上、失敗は握り潰して未送信キューに残す。しかし
+ * **完全に無言だと障害に気づく手がかりが「未同期 N 件が減らない」だけになる** — 実際
+ * W3d5-7 の実機検証で、PDS が float を拒否して全 push が 400 で失敗していたにもかかわらず
+ * コンソールには何も出ず、原因特定にネットワーク層の観察が必要だった。
+ * ユーザ向けの回復手段は §3.7 の UI が担うので、ここは開発者向けの診断に徹する。
+ */
+function warnRemoteFailure(error: unknown): void {
+  console.warn('[sync] remote push failed:', error);
+}
+
+/** `flush` は失敗を throw せず FlushResult で返すので、そちらも拾う */
+function warnIfNotFlushed(result: FlushResult): void {
+  if (!result.ok) warnRemoteFailure(result.error);
 }

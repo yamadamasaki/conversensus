@@ -23,13 +23,16 @@
  * listRecords は認証不要 (public) なのでログインは要らない。
  */
 
+// `@conversensus/shared` のワークスペース link は src/*/node_modules にしか無く、
+// リポジトリ直下の scripts/ からは解決できないため相対パスで読む。
+// (batchMapper 側の同名 import は自身の位置 src/client/ から解決されるので手を入れない)
 import {
   type Batch,
   GENESIS_ACTOR,
   isFileOp,
   isSyncable,
   type Op,
-} from '@conversensus/shared';
+} from '../src/shared/src/index';
 import {
   isBatchRecordValue,
   recordToBatch,
