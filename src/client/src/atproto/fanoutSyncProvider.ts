@@ -15,7 +15,7 @@
  * remote 受信は非目標 (Phase 4d)。
  */
 
-import type { Batch } from '@conversensus/shared';
+import type { Batch, FileId } from '@conversensus/shared';
 import type { FlushResult } from '../sync/outbox';
 import {
   type Cursor,
@@ -32,11 +32,18 @@ export type FanoutSyncProviderDeps = {
   local: SyncProvider;
   /** remote (ATProto) 側の再送キュー。push では待たずに積むだけ */
   remoteQueue: RemoteSyncQueue;
+  /**
+   * この provider が担当するファイル (Phase 4d-1)。
+   * remote レコードは fileId を持つ必要があるが、`RemoteSyncQueue` はセッション単位
+   * (batch コレクションが repo 全体で 1 つ) なので、ファイル単位のここが供給する。
+   */
+  fileId: FileId;
 };
 
 export class FanoutSyncProvider implements SyncProvider {
   private readonly local: SyncProvider;
   private readonly remoteQueue: RemoteSyncQueue;
+  private readonly fileId: FileId;
   /**
    * remote flush の直列化チェーン。`Outbox.flush` は多重起動を弾く (in-flight は即 ok=false) ため、
    * push 連打で送信が取りこぼされないよう前の flush の完了後に次を繋ぐ。
@@ -47,6 +54,7 @@ export class FanoutSyncProvider implements SyncProvider {
   constructor(deps: FanoutSyncProviderDeps) {
     this.local = deps.local;
     this.remoteQueue = deps.remoteQueue;
+    this.fileId = deps.fileId;
   }
 
   /**
@@ -56,7 +64,7 @@ export class FanoutSyncProvider implements SyncProvider {
    */
   async push(batches: Batch[]): Promise<void> {
     await this.local.push(batches);
-    this.remoteQueue.enqueue(batches);
+    this.remoteQueue.enqueue(batches, this.fileId);
     this.scheduleRemoteFlush();
   }
 
@@ -82,7 +90,7 @@ export class FanoutSyncProvider implements SyncProvider {
     const { batches } = await this.local.pull(INITIAL_CURSOR);
     this.remoteFlush = this.remoteFlush.then(async () => {
       await this.remoteQueue
-        .catchUp(batches)
+        .catchUp(batches, this.fileId)
         .then(warnIfNotFlushed, warnRemoteFailure);
     });
     return this.remoteFlush;

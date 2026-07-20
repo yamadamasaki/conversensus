@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'bun:test';
-import type { Batch, NodeId } from '@conversensus/shared';
+import type { Batch, FileId, NodeId } from '@conversensus/shared';
+
+const FILE = '22222222-2222-4222-8222-222222222222' as FileId;
+
 import {
   AtprotoSyncProvider,
   type BatchCollection,
@@ -44,7 +47,7 @@ function inMemoryBatches() {
       records.set(b.id, {
         uri: `at://did:plc:test/${NSID.batch}/${b.id}`,
         cid: `seed-${b.id}`,
-        value: { $type: NSID.batch, ...batchToRecord(b) },
+        value: { $type: NSID.batch, ...batchToRecord(b, FILE) },
       });
     },
     _size: () => records.size,
@@ -77,19 +80,28 @@ function manualScheduler() {
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
 describe('AtprotoSyncProvider', () => {
-  describe('push', () => {
+  describe('pushRemote', () => {
     it('batch を rkey=batchId で op-log へ書く', async () => {
       const batches = inMemoryBatches();
       const provider = new AtprotoSyncProvider({ batches });
-      await provider.push([batch('1', 1), batch('2', 2)]);
+      await provider.pushRemote(
+        [batch('1', 1), batch('2', 2)].map((batch) => ({
+          fileId: FILE,
+          batch,
+        })),
+      );
       expect(batches._size()).toBe(2);
     });
 
     it('同一 batchId の push は上書き (べき等、重複しない)', async () => {
       const batches = inMemoryBatches();
       const provider = new AtprotoSyncProvider({ batches });
-      await provider.push([batch('1', 1)]);
-      await provider.push([batch('1', 1)]);
+      await provider.pushRemote(
+        [batch('1', 1)].map((batch) => ({ fileId: FILE, batch })),
+      );
+      await provider.pushRemote(
+        [batch('1', 1)].map((batch) => ({ fileId: FILE, batch })),
+      );
       expect(batches._size()).toBe(1);
     });
   });

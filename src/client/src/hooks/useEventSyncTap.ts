@@ -38,7 +38,9 @@ export function useEventSyncTap(
     const local = createLocalProvider
       ? createLocalProvider(fileId)
       : new LocalServerSyncProvider(fileId);
-    return remoteQueue ? new FanoutSyncProvider({ local, remoteQueue }) : local;
+    return remoteQueue
+      ? new FanoutSyncProvider({ local, remoteQueue, fileId })
+      : local;
   }, [fileId, remoteQueue, createLocalProvider]);
 
   // fileId / provider が変われば新しい tap (clock/outbox を分離)。未オープン時は no-op。

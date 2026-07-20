@@ -1,10 +1,14 @@
 /**
- * AtprotoSyncProvider: ATProto を裏に隠す `SyncProvider` 実装 (step1 Phase 4c)
+ * AtprotoSyncProvider: ATProto の op-log コレクションを裏に隠す remote 実装 (step1 Phase 4c)
  *
- * architecture §6 / D3。外の層は `SyncProvider` だけに依存し、この実装が ATProto の
+ * architecture §6 / D3。外の層は境界インターフェースだけに依存し、この実装が ATProto の
  * op-log コレクション (`app.conversensus.graph.batch`) への読み書きに翻訳する。
  *
- * - push  : batch を putRecord (rkey = batchId)。batch は不変なのでべき等。
+ * **実装するのは `SyncProvider` ではなく `RemoteBatchTarget`** (Phase 4d-1)。`SyncProvider` は
+ * ファイル単位の境界だが、ATProto の batch コレクションは **repo 全体で 1 つ**なので、
+ * 送信単位は fileId を伴う `RemoteBatch` になる。この非対称を型に出している。
+ *
+ * - pushRemote: batch を putRecord (rkey = batchId)。batch は不変なのでべき等。
  * - pull  : clock > cursor の batch レコードを取得。cursor は clock を符号化した不透明値。
  * - subscribe: 定期 poll で新規 batch を配信 (baseline 確立後の差分のみ)。
  *   手動 polling は 4d で Jetstream 購読へ置き換える。
@@ -18,7 +22,6 @@ import {
   INITIAL_CURSOR,
   type OnRemote,
   type PullResult,
-  type SyncProvider,
   type Unsubscribe,
 } from '../sync';
 import {
@@ -26,7 +29,8 @@ import {
   isBatchRecordValue,
   recordToBatch,
 } from './batchMapper';
-import type { BatchRecord, RecordResult } from './types';
+import type { RemoteBatchTarget } from './remoteSyncQueue';
+import type { BatchRecord, RecordResult, RemoteBatch } from './types';
 
 /** op-log コレクションの最小インターフェース (実体は collections.batches) */
 export interface BatchCollection {
@@ -65,7 +69,7 @@ function cursorToClock(cursor: Cursor): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-export class AtprotoSyncProvider implements SyncProvider {
+export class AtprotoSyncProvider implements RemoteBatchTarget {
   private readonly batches: BatchCollection;
   private readonly scheduler: IntervalScheduler;
   private readonly intervalMs: number;
@@ -76,10 +80,16 @@ export class AtprotoSyncProvider implements SyncProvider {
     this.intervalMs = deps.intervalMs ?? SUBSCRIBE_INTERVAL_MS;
   }
 
-  /** ローカルの batches を op-log レコードとして PDS へ書く (rkey=batchId, べき等) */
-  async push(batches: Batch[]): Promise<void> {
-    for (const batch of batches) {
-      await this.batches.put(batch.id, batchToRecord(batch));
+  /**
+   * batch を op-log レコードとして PDS へ書く (rkey=batchId, べき等)。
+   *
+   * 運搬単位が `Batch` ではなく `RemoteBatch` (Batch + fileId) なのは、ATProto の batch
+   * コレクションが **repo 全体で 1 つ**で、レコード自身が適用先ファイルを持たないと
+   * 受信側が復元できないため (Phase 4d-1, 設計 §3.1)。
+   */
+  async pushRemote(entries: readonly RemoteBatch[]): Promise<void> {
+    for (const { batch, fileId } of entries) {
+      await this.batches.put(batch.id, batchToRecord(batch, fileId));
     }
   }
 
@@ -92,9 +102,17 @@ export class AtprotoSyncProvider implements SyncProvider {
     const records = await this.batches.list();
 
     let maxClock = sinceClock;
+    let skipped = 0;
     const batches: Batch[] = [];
     for (const r of records) {
-      if (!isBatchRecordValue(r.value)) continue; // 壊れた/他種レコードを飛ばす
+      if (!isBatchRecordValue(r.value)) {
+        // 壊れた/他種/旧形式 (fileId 無し) レコードを飛ばす。
+        // **数えて警告する** — silent skip にしない (§3.1)。W3d5-7 で「PDS が float を
+        // 拒否して全 push が 400、しかしコンソールは無言」という事故があったため、
+        // 静かに捨てる経路を新たに作らない。
+        skipped += 1;
+        continue;
+      }
       const batch = recordToBatch(rkeyFromUri(r.uri), r.value);
       if (batch.clock > maxClock) maxClock = batch.clock;
       if (batch.clock > sinceClock) batches.push(batch);
@@ -107,6 +125,13 @@ export class AtprotoSyncProvider implements SyncProvider {
         a.timestamp - b.timestamp ||
         a.id.localeCompare(b.id),
     );
+
+    if (skipped > 0) {
+      console.warn(
+        `[atproto] skipped ${skipped} batch record(s): not a valid BatchRecord ` +
+          '(missing fileId, or a foreign/corrupt record)',
+      );
+    }
 
     return { batches, cursor: String(maxClock) };
   }

@@ -14,6 +14,10 @@ mock.module('zod', () => ({
 
 const { renderHook, act, cleanup } = await import('@testing-library/react');
 const { useEventSyncTap } = await import('./useEventSyncTap');
+
+import type { RemoteBatchTarget } from '../atproto/remoteSyncQueue';
+import type { RemoteBatch } from '../atproto/types';
+
 const { RemoteSyncQueue } = await import('../atproto/remoteSyncQueue');
 const { GENESIS_ACTOR } = await import('@conversensus/shared');
 type SyncProvider = import('../sync/syncProvider').SyncProvider;
@@ -57,10 +61,13 @@ const restyle = () => ({
   to: { stroke: '#f00' },
 });
 
-class RecordingProvider implements SyncProvider {
+class RecordingProvider implements SyncProvider, RemoteBatchTarget {
   pushed: Batch[] = [];
   /** pull が返す既存ログ (local では Lamport 復元と catch-up の元ネタになる) */
   existing: Batch[] = [];
+  async pushRemote(entries: readonly RemoteBatch[]): Promise<void> {
+    return this.push(entries.map((e) => e.batch));
+  }
   async push(batches: Batch[]): Promise<void> {
     this.pushed.push(...batches);
   }

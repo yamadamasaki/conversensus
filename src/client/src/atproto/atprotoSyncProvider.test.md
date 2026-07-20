@@ -29,3 +29,15 @@
   新規ゼロでも cursor が tip まで前進 / 壊れたレコードを飛ばす。
 - **subscribe**: 初回 tick は非配信 (baseline) / baseline 後に seed した新規のみ配信 /
   unsubscribe でスケジューラが停止する。
+
+## pushRemote と counted skip (Phase 4d-1)
+
+`push(batches)` は `pushRemote(entries)` になった。運搬単位が `Batch` ではなく `RemoteBatch`
+(Batch + fileId) なのは、ATProto の batch コレクションが repo 全体で 1 つで、レコード自身が
+適用先ファイルを持たないと受信側が復元できないため。あわせてこのクラスは `SyncProvider` ではなく
+`RemoteBatchTarget` を実装する — `SyncProvider` はファイル単位の境界であり、remote の
+repo 全体という粒度と噛み合わないため。
+
+`pull` は `isBatchRecordValue` を通らないレコード (壊れた / 他種 / **fileId 無しの旧形式**) を
+飛ばすが、**飛ばした件数を数えて `console.warn` に出す**。既存の「壊れた / 他種レコードは飛ばす」
+テストがこの警告経路も通る。silent skip にしない理由は `batchMapper.test.md` の fileId 節と同じ。

@@ -1,4 +1,11 @@
-import type { AtUri, Did, ISODateString, Rkey } from '@conversensus/shared';
+import type {
+  AtUri,
+  Batch,
+  Did,
+  FileId,
+  ISODateString,
+  Rkey,
+} from '@conversensus/shared';
 
 // ATProto strongRef: uri (AT-URI) + cid (content hash)
 export type StrongRef = { uri: AtUri; cid: string };
@@ -134,6 +141,15 @@ export type MergeRecord = {
  */
 export type BatchRecord = {
   $type: typeof NSID.batch;
+  /**
+   * この batch が属するファイル (Phase 4d-1, 必須)。
+   *
+   * ローカル正典では op-log が既にファイル単位に仕切られている (`batches.file_id` 列) ので
+   * fileId は文脈から復元できるが、**ATProto の batch コレクションは repo 全体で 1 つ**なので
+   * レコード自身が持たないと受信側が適用先を復元できない。特に file 構造 batch は
+   * `sheetId` すら持たないため手掛かりが皆無になる (設計 `step1-phase4d-receive.md` §3.1)。
+   */
+  fileId: string;
   actor: string;
   clock: number;
   timestamp: number;
@@ -145,4 +161,19 @@ export type BatchRecord = {
    */
   sheetId?: string;
   createdAt: ISODateString;
+};
+
+/**
+ * remote 経路の運搬単位 (Phase 4d-1)。
+ *
+ * 統一語彙の `Batch` に `fileId` を**外から添えた**エンベロープ。`Batch` 自身には
+ * `fileId` を持たせない — ローカルでは op-log がファイル単位に仕切られており
+ * (`batches.file_id` 列)、埋め込むと列と二重持ちになって食い違う余地が生まれるため。
+ * 「ローカルでは文脈、remote では埋め込み」という非対称を、この境界の型で表現する。
+ *
+ * (対比: `sheetId` は 1 ファイルに複数シートがあり文脈から復元できないので `Batch` に載る)
+ */
+export type RemoteBatch = {
+  fileId: FileId;
+  batch: Batch;
 };

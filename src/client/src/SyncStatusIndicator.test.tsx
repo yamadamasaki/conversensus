@@ -16,6 +16,10 @@ const { render, screen, fireEvent, act, cleanup } = await import(
   '@testing-library/react'
 );
 const { SyncStatusIndicator } = await import('./SyncStatusIndicator');
+
+import type { RemoteBatchTarget } from './atproto/remoteSyncQueue';
+import type { RemoteBatch } from './atproto/types';
+
 const { RemoteSyncQueue } = await import('./atproto/remoteSyncQueue');
 type SyncProvider = import('./sync/syncProvider').SyncProvider;
 type Cursor = import('./sync/syncProvider').Cursor;
@@ -23,9 +27,12 @@ type OnRemote = import('./sync/syncProvider').OnRemote;
 type PullResult = import('./sync/syncProvider').PullResult;
 
 /** online を切り替えて push の成否を作るテスト用 provider */
-class FakeProvider implements SyncProvider {
+class FakeProvider implements SyncProvider, RemoteBatchTarget {
   online = true;
   pushed: Batch[] = [];
+  async pushRemote(entries: readonly RemoteBatch[]): Promise<void> {
+    return this.push(entries.map((e) => e.batch));
+  }
   async push(batches: Batch[]): Promise<void> {
     if (!this.online) throw new Error('offline');
     this.pushed.push(...batches);

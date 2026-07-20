@@ -1,17 +1,20 @@
 import { describe, expect, it } from 'bun:test';
 import {
   type Batch,
+  type FileId,
   GENESIS_ACTOR,
   type NodeId,
   type Op,
 } from '@conversensus/shared';
-import type {
-  Cursor,
-  OnRemote,
-  PullResult,
-  SyncProvider,
-} from '../sync/syncProvider';
-import { REMOTE_QUEUE_MAX, RemoteSyncQueue } from './remoteSyncQueue';
+import type { Cursor, PullResult } from '../sync/syncProvider';
+import {
+  REMOTE_QUEUE_MAX,
+  type RemoteBatchTarget,
+  RemoteSyncQueue,
+} from './remoteSyncQueue';
+import type { RemoteBatch } from './types';
+
+const FILE = '22222222-2222-4222-8222-222222222222' as FileId;
 
 const addNode = (id: string): Op => ({
   kind: 'node.add',
@@ -33,47 +36,74 @@ const batch = (id: string, over: Partial<Batch> = {}): Batch => ({
   ...over,
 });
 
-/** push/pull を記録し成否・pull 応答を切り替えられるテスト用 provider */
-class FakeProvider implements SyncProvider {
-  pushed: Batch[][] = [];
+/** pushRemote/pull を記録し成否・pull 応答を切り替えられるテスト用 remote */
+class FakeProvider implements RemoteBatchTarget {
+  pushed: RemoteBatch[][] = [];
   online = true;
   pullBatches: Batch[] = [];
 
-  async push(batches: Batch[]): Promise<void> {
+  async pushRemote(entries: readonly RemoteBatch[]): Promise<void> {
     if (!this.online) throw new Error('offline');
-    this.pushed.push(batches);
+    this.pushed.push([...entries]);
   }
   async pull(_since: Cursor): Promise<PullResult> {
     return { batches: this.pullBatches, cursor: '' };
   }
-  subscribe(_onRemote: OnRemote) {
-    return () => {};
-  }
   /** これまでに push された batch を平坦化 */
   get flatPushed(): Batch[] {
+    return this.pushed.flat().map((e) => e.batch);
+  }
+  /** これまでに push されたエンベロープを平坦化 (fileId の検証用) */
+  get flatEntries(): RemoteBatch[] {
     return this.pushed.flat();
   }
 }
 
 describe('RemoteSyncQueue', () => {
+  describe('fileId の運搬 (Phase 4d-1)', () => {
+    it('enqueue で渡した fileId を送信エンベロープに添える', async () => {
+      // remote の batch コレクションは repo 全体で 1 つなので、送信単位は fileId を伴う
+      const provider = new FakeProvider();
+      const q = new RemoteSyncQueue({ provider });
+      q.enqueue([batch('1')], FILE);
+      await q.flush();
+      expect(provider.flatEntries).toEqual([
+        { fileId: FILE, batch: batch('1') },
+      ]);
+    });
+
+    it('別ファイルの batch はそれぞれの fileId で積まれる', async () => {
+      const other = '33333333-3333-4333-8333-333333333333' as FileId;
+      const provider = new FakeProvider();
+      const q = new RemoteSyncQueue({ provider });
+      q.enqueue([batch('1')], FILE);
+      q.enqueue([batch('2')], other);
+      await q.flush();
+      expect(provider.flatEntries.map((e) => [e.batch.id, e.fileId])).toEqual([
+        ['1', FILE],
+        ['2', other],
+      ]);
+    });
+  });
+
   describe('enqueue (フィルタ適用)', () => {
     it('genesis actor の batch は積まない (C1)', () => {
       const q = new RemoteSyncQueue({ provider: new FakeProvider() });
-      q.enqueue([batch('1', { actor: GENESIS_ACTOR })]);
+      q.enqueue([batch('1', { actor: GENESIS_ACTOR })], FILE);
       expect(q.pendingCount).toBe(0);
     });
 
     it('全 op が presentation の batch は積まない', () => {
       const q = new RemoteSyncQueue({ provider: new FakeProvider() });
-      q.enqueue([batch('1', { ops: [setStyle('n1')] })]);
+      q.enqueue([batch('1', { ops: [setStyle('n1')] })], FILE);
       expect(q.pendingCount).toBe(0);
     });
 
     it('mixed batch は presentation を除いて積む', () => {
       const q = new RemoteSyncQueue({ provider: new FakeProvider() });
-      q.enqueue([batch('1', { ops: [addNode('n1'), setStyle('n1')] })]);
+      q.enqueue([batch('1', { ops: [addNode('n1'), setStyle('n1')] })], FILE);
       expect(q.pendingCount).toBe(1);
-      expect(q.pending()[0].ops).toEqual([addNode('n1')]);
+      expect(q.pending()[0].batch.ops).toEqual([addNode('n1')]);
     });
   });
 
@@ -81,7 +111,7 @@ describe('RemoteSyncQueue', () => {
     it('成功したらキューから除去する', async () => {
       const provider = new FakeProvider();
       const q = new RemoteSyncQueue({ provider });
-      q.enqueue([batch('1'), batch('2')]);
+      q.enqueue([batch('1'), batch('2')], FILE);
       const result = await q.flush();
       expect(result.ok).toBe(true);
       expect(q.pendingCount).toBe(0);
@@ -92,7 +122,7 @@ describe('RemoteSyncQueue', () => {
       const provider = new FakeProvider();
       provider.online = false;
       const q = new RemoteSyncQueue({ provider });
-      q.enqueue([batch('1')]);
+      q.enqueue([batch('1')], FILE);
       const result = await q.flush();
       expect(result.ok).toBe(false);
       expect(q.pendingCount).toBe(1); // 破棄しない
@@ -102,7 +132,7 @@ describe('RemoteSyncQueue', () => {
       const provider = new FakeProvider();
       provider.online = false;
       const q = new RemoteSyncQueue({ provider });
-      q.enqueue([batch('1')]);
+      q.enqueue([batch('1')], FILE);
       await q.flush(); // 失敗・保持
       provider.online = true;
       const result = await q.flush(); // 再送
@@ -119,13 +149,13 @@ describe('RemoteSyncQueue', () => {
       const unsub = q.subscribe((n) => seen.push(n));
       expect(seen).toEqual([0]); // 登録直後
 
-      q.enqueue([batch('1')]);
+      q.enqueue([batch('1')], FILE);
       await q.flush();
       expect(seen[seen.length - 1]).toBe(0); // flush 後は 0
       expect(seen).toContain(1); // enqueue 直後に 1 を観測
 
       unsub();
-      q.enqueue([batch('2')]);
+      q.enqueue([batch('2')], FILE);
       expect(seen[seen.length - 1]).toBe(0); // 解除後は通知されない
     });
   });
@@ -136,9 +166,9 @@ describe('RemoteSyncQueue', () => {
         provider: new FakeProvider(),
         capacity: 2,
       });
-      q.enqueue([batch('1'), batch('2'), batch('3')]);
+      q.enqueue([batch('1'), batch('2'), batch('3')], FILE);
       expect(q.pendingCount).toBe(2);
-      expect(q.pending().map((b) => b.id)).toEqual(['2', '3']);
+      expect(q.pending().map((e) => e.batch.id)).toEqual(['2', '3']);
       expect(q.overflowed).toBe(true);
     });
 
@@ -154,7 +184,10 @@ describe('RemoteSyncQueue', () => {
       // remote には '1' が既にある。'2','3' が取りこぼし
       provider.pullBatches = [batch('1')];
       const q = new RemoteSyncQueue({ provider });
-      const result = await q.catchUp([batch('1'), batch('2'), batch('3')]);
+      const result = await q.catchUp(
+        [batch('1'), batch('2'), batch('3')],
+        FILE,
+      );
       expect(result.ok).toBe(true);
       expect(provider.flatPushed.map((b) => b.id)).toEqual(['2', '3']);
       expect(q.pendingCount).toBe(0);
@@ -164,7 +197,7 @@ describe('RemoteSyncQueue', () => {
       const provider = new FakeProvider();
       provider.pullBatches = [];
       const q = new RemoteSyncQueue({ provider });
-      await q.catchUp([batch('1', { actor: GENESIS_ACTOR }), batch('2')]);
+      await q.catchUp([batch('1', { actor: GENESIS_ACTOR }), batch('2')], FILE);
       // genesis の '1' は除外され、'2' だけ push される
       expect(provider.flatPushed.map((b) => b.id)).toEqual(['2']);
     });

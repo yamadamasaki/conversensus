@@ -40,3 +40,17 @@
   既定 `REMOTE_QUEUE_MAX` が正の有限値であること。
 - **catchUp**: remote に既にある id を除いた取りこぼしのみ push する / catch-up 経由でも
   genesis batch は積まない。
+
+## fileId の運搬 (Phase 4d-1)
+
+`RemoteSyncQueue` は**セッション単位** (ATProto の batch コレクションが repo 全体で 1 つ) だが、
+remote レコードは fileId を必要とする。そこで `enqueue(batches, fileId)` で受け取り、内部の
+`Outbox<RemoteBatch>` に `{ fileId, batch }` として積む。fileId を供給するのはファイル単位の
+`FanoutSyncProvider` 側。
+
+- enqueue で渡した fileId が送信エンベロープに添えられること。
+- **別ファイルの batch がそれぞれの fileId で積まれること** — 1 つのキューが複数ファイルの
+  batch を同時に抱えうる (セッション単位なので) ため、取り違えないことを固定する。
+
+重複排除キーは `batch.id` のまま (fileId は運搬のために添えるだけ)。`catchUp` も適用先の
+fileId を受け取る。

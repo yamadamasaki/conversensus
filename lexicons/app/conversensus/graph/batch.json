@@ -8,8 +8,12 @@
       "key": "any",
       "record": {
         "type": "object",
-        "required": ["actor", "clock", "timestamp", "ops", "createdAt"],
+        "required": ["fileId", "actor", "clock", "timestamp", "ops", "createdAt"],
         "properties": {
+          "fileId": {
+            "type": "string",
+            "description": "The file this batch belongs to (UUID). Required: the batch collection is repo-wide, so a receiving device cannot otherwise recover which file to apply the batch to — file-structure batches carry no sheetId either (Phase 4d §3.1)."
+          },
           "actor": {
             "type": "string",
             "description": "Lamport actor. Either the author DID or the reserved 'genesis' actor. NOTE: genesis-actor batches are never pushed to remote (W3d5 §3.5)."

@@ -22,7 +22,7 @@ import { INITIAL_CURSOR, type SyncProvider } from './syncProvider';
 export type EventSyncTapDeps = {
   provider: SyncProvider;
   clock?: LamportClock;
-  outbox?: Outbox;
+  outbox?: Outbox<Batch>;
   /** flush がオフライン等で失敗したときの通知 (保留は維持される) */
   onError?: (error: unknown) => void;
 };
@@ -30,7 +30,7 @@ export type EventSyncTapDeps = {
 export class EventSyncTap {
   private readonly provider: SyncProvider;
   private readonly clock: LamportClock;
-  private readonly outbox: Outbox;
+  private readonly outbox: Outbox<Batch>;
   private readonly onError?: (error: unknown) => void;
   /** flush を直列化するチェーン */
   private flushChain: Promise<void> = Promise.resolve();
@@ -45,7 +45,7 @@ export class EventSyncTap {
   constructor(deps: EventSyncTapDeps) {
     this.provider = deps.provider;
     this.clock = deps.clock ?? new LamportClock();
-    this.outbox = deps.outbox ?? new Outbox();
+    this.outbox = deps.outbox ?? new Outbox<Batch>((b) => b.id);
     this.onError = deps.onError;
   }
 
@@ -122,7 +122,9 @@ export class EventSyncTap {
       this.outbox.enqueue([batch]);
     }
     while (!this.outbox.isEmpty) {
-      const result: FlushResult = await this.outbox.flush(this.provider);
+      const result: FlushResult = await this.outbox.flush((batches) =>
+        this.provider.push(batches),
+      );
       if (!result.ok) {
         if (result.error) this.onError?.(result.error);
         return; // 保留は次の record で再試行
