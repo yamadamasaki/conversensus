@@ -14,8 +14,10 @@ import {
 import { useRef, useState } from 'react';
 import { AlertDialog } from './AlertDialog';
 import { BRANCH_STATUS, type Branch, TRUNK_PREFIX } from './atproto';
+import type { RemoteSyncQueue } from './atproto/remoteSyncQueue';
 import type { PopupTarget } from './SettingsPopup';
 import { SettingsPopup } from './SettingsPopup';
+import { SyncStatusIndicator } from './SyncStatusIndicator';
 
 type Props = {
   files: GraphFileListItem[];
@@ -47,6 +49,8 @@ type Props = {
   atprotoSession: { handle: string } | null;
   onAtprotoLogin: () => void;
   onAtprotoLogout: () => void;
+  /** remote 送信キュー (W3d5-6)。null なら同期ステータスは表示しない */
+  remoteQueue: RemoteSyncQueue | null;
 };
 
 const gearBtnStyle: React.CSSProperties = {
@@ -90,6 +94,7 @@ export function Sidebar({
   atprotoSession,
   onAtprotoLogin,
   onAtprotoLogout,
+  remoteQueue,
 }: Props) {
   const newFileComposingRef = useRef(false);
   const importInputRef = useRef<HTMLInputElement>(null);
@@ -612,40 +617,44 @@ export function Sidebar({
       {/* ATProto セッション */}
       <div style={{ borderTop: '1px solid #eee', paddingTop: 8, fontSize: 12 }}>
         {atprotoSession ? (
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: 4,
-            }}
-          >
-            <span
+          <>
+            <div
               style={{
-                color: '#555',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 4,
               }}
             >
-              @{atprotoSession.handle}
-            </span>
-            <button
-              type="button"
-              onClick={onAtprotoLogout}
-              style={{
-                flexShrink: 0,
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                color: '#999',
-                fontSize: 11,
-                padding: '2px 4px',
-              }}
-            >
-              ログアウト
-            </button>
-          </div>
+              <span
+                style={{
+                  color: '#555',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                @{atprotoSession.handle}
+              </span>
+              <button
+                type="button"
+                onClick={onAtprotoLogout}
+                style={{
+                  flexShrink: 0,
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: '#999',
+                  fontSize: 11,
+                  padding: '2px 4px',
+                }}
+              >
+                ログアウト
+              </button>
+            </div>
+            {/* remote 同期ステータス (§3.7)。ログイン時のみ意味を持つ */}
+            <SyncStatusIndicator remoteQueue={remoteQueue} />
+          </>
         ) : (
           <button
             type="button"

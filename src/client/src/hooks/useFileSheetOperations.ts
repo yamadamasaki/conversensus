@@ -23,6 +23,7 @@ import {
   fetchFilesFromAtproto,
   syncFileToAtproto,
 } from '../atproto';
+import type { RemoteSyncQueue } from '../atproto/remoteSyncQueue';
 import { READ_FROM_OPLOG } from '../config';
 import type { GraphEvent } from '../events/GraphEvent';
 import { makeEventBase } from '../events/GraphEvent';
@@ -83,6 +84,11 @@ interface UseFileSheetOperationsParams {
    * 未指定なら `READ_FROM_OPLOG` 定数 (env)。テストは明示指定で on/off を固定する。
    */
   readFromOplog?: boolean;
+  /**
+   * W3d5 remote 送信キュー (§3.4)。ATProto ログイン中のみ非 null (`useRemoteSyncQueue`)。
+   * null なら tap は local-only = W3d と完全に同じ挙動 (退行なし)。
+   */
+  remoteQueue?: RemoteSyncQueue | null;
 }
 
 export function useFileSheetOperations({
@@ -91,6 +97,7 @@ export function useFileSheetOperations({
   deps = defaultFileSheetOpsDeps,
   syncRecord: syncRecordOverride,
   readFromOplog = READ_FROM_OPLOG,
+  remoteQueue = null,
 }: UseFileSheetOperationsParams) {
   const [files, setFiles] = useState<GraphFileListItem[]>([]);
   const [activeFile, setActiveFile] = useState<GraphFile | null>(null);
@@ -108,7 +115,10 @@ export function useFileSheetOperations({
 
   // 操作ログ tap をファイル単位で保持する (W3c1)。content (GraphEditor) と
   // structure (以下の構造ハンドラ) の両方が単一の tap = 単一 Lamport 発番源を共有する。
-  const internalSyncRecord = useEventSyncTap(activeFile?.id ?? null);
+  // remote キューがあれば tap は fanout (ローカル正典 + remote) になる (W3d5-5)。
+  const internalSyncRecord = useEventSyncTap(activeFile?.id ?? null, {
+    remoteQueue,
+  });
   const syncRecord = syncRecordOverride ?? internalSyncRecord;
 
   // 従来の snapshot 読取 (ATProto → ローカルキャッシュ)。dual-read のフォールバック側。

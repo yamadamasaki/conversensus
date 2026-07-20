@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import type { Batch, NodeId } from '@conversensus/shared';
+import type { Batch, NodeId, SheetId } from '@conversensus/shared';
 import {
   batchToRecord,
   isBatchRecordValue,
@@ -14,6 +14,12 @@ const sampleBatch = (): Batch => ({
   ops: [{ kind: 'node.add', target: 'n1' as NodeId, content: 'ノード1' }],
 });
 
+/** content batch: 発生元シートの sheetId を持つ (W3d5-1) */
+const sampleContentBatch = (): Batch => ({
+  ...sampleBatch(),
+  sheetId: '11111111-1111-4111-8111-111111111111' as SheetId,
+});
+
 describe('batchMapper', () => {
   describe('batchToRecord', () => {
     it('id を除いた clock/timestamp/ops/actor を載せ、createdAt を timestamp から導出する', () => {
@@ -24,6 +30,16 @@ describe('batchMapper', () => {
       expect(record.ops).toHaveLength(1);
       expect(record.createdAt).toBe(new Date(1_700_000_000_000).toISOString());
       expect('id' in record).toBe(false);
+    });
+
+    it('sheetId 無しの batch は record に sheetId フィールドを付けない', () => {
+      const record = batchToRecord(sampleBatch());
+      expect('sheetId' in record).toBe(false);
+    });
+
+    it('content batch の sheetId を record に載せる', () => {
+      const record = batchToRecord(sampleContentBatch());
+      expect(record.sheetId).toBe('11111111-1111-4111-8111-111111111111');
     });
   });
 
@@ -36,6 +52,31 @@ describe('batchMapper', () => {
       };
       const restored = recordToBatch(batch.id, record);
       expect(restored).toEqual(batch);
+    });
+
+    it('content batch を往復させても sheetId が保たれる', () => {
+      const batch = sampleContentBatch();
+      const record = {
+        $type: 'app.conversensus.graph.batch' as const,
+        ...batchToRecord(batch),
+      };
+      const restored = recordToBatch(batch.id, record);
+      expect(restored).toEqual(batch);
+      expect(restored.sheetId).toBe('11111111-1111-4111-8111-111111111111');
+    });
+
+    it('旧データ (sheetId 無しレコード) は sheetId undefined で復元する', () => {
+      const record = {
+        $type: 'app.conversensus.graph.batch' as const,
+        actor: 'did:plc:alice',
+        clock: 3,
+        timestamp: 1_700_000_000_000,
+        ops: [],
+        createdAt: new Date(1_700_000_000_000).toISOString(),
+      };
+      const restored = recordToBatch('batch-1', record);
+      expect('sheetId' in restored).toBe(false);
+      expect(restored.sheetId).toBeUndefined();
     });
   });
 
@@ -64,6 +105,36 @@ describe('batchMapper', () => {
       ).toBe(false);
       expect(
         isBatchRecordValue({ actor: 'a', clock: 1, timestamp: 1, ops: 'no' }),
+      ).toBe(false);
+    });
+
+    it('sheetId 無しレコード (file 構造 batch / 旧データ) を通す', () => {
+      expect(
+        isBatchRecordValue({ actor: 'a', clock: 1, timestamp: 1, ops: [] }),
+      ).toBe(true);
+    });
+
+    it('sheetId が string のレコードを通す', () => {
+      expect(
+        isBatchRecordValue({
+          actor: 'a',
+          clock: 1,
+          timestamp: 1,
+          ops: [],
+          sheetId: '11111111-1111-4111-8111-111111111111',
+        }),
+      ).toBe(true);
+    });
+
+    it('sheetId が string 以外のレコードは弾く', () => {
+      expect(
+        isBatchRecordValue({
+          actor: 'a',
+          clock: 1,
+          timestamp: 1,
+          ops: [],
+          sheetId: 42,
+        }),
       ).toBe(false);
     });
   });

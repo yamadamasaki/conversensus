@@ -34,6 +34,17 @@ export class Outbox {
   private readonly ids = new Set<string>();
   /** flush 多重起動の防止 */
   private flushing = false;
+  /**
+   * 保持件数の上限 (bounded FIFO)。既定は無制限 (Infinity) で従来挙動。
+   * remote 用途 (RemoteSyncQueue, W3d5-3) では有限値を渡し、無制限成長を防ぐ (D1)。
+   */
+  private readonly capacity: number;
+  /** 上限超過で eviction が一度でも起きたか (latching)。UI の「N 件以上」表示用 */
+  private overflowedFlag = false;
+
+  constructor(capacity: number = Number.POSITIVE_INFINITY) {
+    this.capacity = capacity;
+  }
 
   /** batches をキュー末尾へ積む。既に保留中の id は無視する (べき等) */
   enqueue(batches: Batch[]): void {
@@ -42,6 +53,22 @@ export class Outbox {
       this.queue.push(batch);
       this.ids.add(batch.id);
     }
+    this.evictToCapacity();
+  }
+
+  /** 上限を超えた分だけ最古 (FIFO の先頭) から落とす。溢れた batch はローカル正典に
+   *  残るので catch-up で回収でき、データは失われない (D1)。 */
+  private evictToCapacity(): void {
+    while (this.queue.length > this.capacity) {
+      const evicted = this.queue.shift();
+      if (evicted) this.ids.delete(evicted.id);
+      this.overflowedFlag = true;
+    }
+  }
+
+  /** 上限超過で eviction が起きたか (このインスタンスの生存期間で一度でも) */
+  get overflowed(): boolean {
+    return this.overflowedFlag;
   }
 
   /** 現在の保留 batches (FIFO のコピー) */

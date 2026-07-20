@@ -138,5 +138,11 @@ export type BatchRecord = {
   clock: number;
   timestamp: number;
   ops: unknown[]; // Op[] を JSON として格納 (records は任意 JSON を許容)
+  /**
+   * content batch の発生元シート (統一語彙 Batch.sheetId と対等)。
+   * file 構造 batch (sheet./file. 系の op) は sheetId を持たないため optional。
+   * 旧データ (sheetId 無しレコード) との後方互換のためにも optional (W3d5-1)。
+   */
+  sheetId?: string;
   createdAt: ISODateString;
 };

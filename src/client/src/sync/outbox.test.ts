@@ -52,6 +52,38 @@ describe('Outbox', () => {
       outbox.enqueue([batch('1', 1), batch('2', 2)]);
       expect(outbox.pending().map((b) => b.id)).toEqual(['1', '2']);
     });
+
+    it('既定は無制限 (eviction なし・overflowed=false)', () => {
+      const outbox = new Outbox();
+      outbox.enqueue([batch('1', 1), batch('2', 2), batch('3', 3)]);
+      expect(outbox.size).toBe(3);
+      expect(outbox.overflowed).toBe(false);
+    });
+  });
+
+  describe('capacity (bounded FIFO, D1)', () => {
+    it('上限を超えると最古から落とし直近 N 件を保持する', () => {
+      const outbox = new Outbox(2);
+      outbox.enqueue([batch('1', 1), batch('2', 2), batch('3', 3)]);
+      // 最古 '1' が落ち、直近 2 件が残る
+      expect(outbox.pending().map((b) => b.id)).toEqual(['2', '3']);
+      expect(outbox.size).toBe(2);
+      expect(outbox.overflowed).toBe(true);
+    });
+
+    it('eviction された id は再 enqueue できる (ids 集合から除去済み)', () => {
+      const outbox = new Outbox(2);
+      outbox.enqueue([batch('1', 1), batch('2', 2), batch('3', 3)]); // '1' が落ちる
+      outbox.enqueue([batch('1', 1)]); // 落ちた '1' を積み直せる
+      expect(outbox.pending().map((b) => b.id)).toEqual(['3', '1']);
+    });
+
+    it('上限内なら overflowed は false のまま', () => {
+      const outbox = new Outbox(3);
+      outbox.enqueue([batch('1', 1), batch('2', 2)]);
+      expect(outbox.overflowed).toBe(false);
+      expect(outbox.size).toBe(2);
+    });
   });
 
   describe('flush (オンライン)', () => {
