@@ -77,6 +77,28 @@ export async function pushBatches(
   return z.object({ appended: z.number() }).parse(await res.json()).appended;
 }
 
+/**
+ * **remote から受信した** batches を操作ログへ追記する (Phase 4d-5)。
+ *
+ * `pushBatches` とは別のエンドポイントを叩く。受信の書き込みは追記に加えて
+ * op-log 正典 marker を立てる必要があり (設計 §3.3b)、marker が無いと次の読取で
+ * lazy migration が受信内容を破棄する (§1.8)。取り違えないよう経路ごと分けている。
+ *
+ * @returns 新規に追記された件数 (既知の batch は server 側のべき等性で 0 件扱い)
+ */
+export async function pushReceivedBatches(
+  fileId: FileId,
+  batches: Batch[],
+): Promise<number> {
+  const res = await fetch(`${BASE}/files/${fileId}/batches/received`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(batches),
+  });
+  if (!res.ok) throw new Error('Failed to push received batches');
+  return z.object({ appended: z.number() }).parse(await res.json()).appended;
+}
+
 /** 操作ログを取得する。since を渡すと clock > since のみ返す */
 export async function fetchBatches(
   fileId: FileId,

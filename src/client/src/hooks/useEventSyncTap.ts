@@ -11,13 +11,15 @@
  * (成功条件・保留・Lamport 復元) は local-only のときと変わらない。
  */
 
-import type { Actor, FileId, SheetId } from '@conversensus/shared';
+import type { Actor, Batch, FileId, SheetId } from '@conversensus/shared';
 import { useCallback, useEffect, useMemo } from 'react';
+import { pushReceivedBatches } from '../api';
 import { FanoutSyncProvider } from '../atproto/fanoutSyncProvider';
 import type { RemoteSyncQueue } from '../atproto/remoteSyncQueue';
 import type { GraphEvent } from '../events/GraphEvent';
 import { EventSyncTap } from '../sync/eventSyncTap';
 import { LocalServerSyncProvider } from '../sync/localServerSyncProvider';
+import { receiveRemoteBatches } from '../sync/receiveRemoteBatches';
 import type { SyncProvider } from '../sync/syncProvider';
 
 export type UseEventSyncTapOptions = {
@@ -27,11 +29,21 @@ export type UseEventSyncTapOptions = {
   actor: Actor;
   /** テスト用: ローカル正典 provider の差し替え (既定 `LocalServerSyncProvider`) */
   createLocalProvider?: (fileId: FileId) => SyncProvider;
+  /**
+   * テスト用: 受信の書き込み口の差し替え (既定 `pushReceivedBatches`)。
+   * **安定参照であること** — 毎レンダー再生成すると受信 effect が張り直される。
+   */
+  appendReceived?: (fileId: FileId, batches: Batch[]) => Promise<number>;
 };
 
 export function useEventSyncTap(
   fileId: FileId | null,
-  { remoteQueue = null, actor, createLocalProvider }: UseEventSyncTapOptions,
+  {
+    remoteQueue = null,
+    actor,
+    createLocalProvider,
+    appendReceived = pushReceivedBatches,
+  }: UseEventSyncTapOptions,
 ): (event: GraphEvent, sheetId?: SheetId) => void {
   // remote キューがあるときだけ fanout で包む。ローカル正典への経路は両者で同一。
   // (createLocalProvider を渡す場合は安定参照であること — 毎レンダー再生成すると tap が作り直される)
@@ -66,18 +78,41 @@ export function useEventSyncTap(
   // `online` が発火しない障害 (PDS だけ落ちている等) は手動「今すぐ同期」(§3.7) と
   // 次回起動時 catch-up で回収する。定期リトライは catch-up 1 回 = 全件 pull (D2) の
   // コストを常時払うことになるため採らず、Phase 4d の subscribe/cursor 化へ委ねる。
+  //
+  // **受信 (Phase 4d-5) も同じ契機に相乗りする** (§3.4)。送信 catch-up と受信は
+  // 「remote と突き合わせて差分を埋める」同じ性質の操作なので、発火経路を分けない。
+  // 送信の失敗が受信を止めないよう、両者は独立に catch する。
   useEffect(() => {
     if (!(provider instanceof FanoutSyncProvider)) return;
-    const catchUp = () =>
+    if (!fileId || !remoteQueue || !tap) return;
+
+    const syncBoth = () => {
       provider
         .catchUpRemote()
         .catch((error) =>
           console.warn('[sync] remote catch-up failed:', error),
         );
-    catchUp();
-    window.addEventListener('online', catchUp);
-    return () => window.removeEventListener('online', catchUp);
-  }, [provider]);
+      // 受信は fanout を通さない (echo ループ回避, §3.3a)。ローカル正典への直書き。
+      receiveRemoteBatches(fileId, {
+        pullRemote: () => remoteQueue.pullRemote(),
+        appendReceived,
+        observeRemote: (clock) => tap.observeRemote(clock),
+      })
+        .then((result) => {
+          if (result.appended > 0) {
+            console.info(
+              `[sync] received ${result.received} remote batch(es), ` +
+                `${result.appended} new`,
+            );
+          }
+        })
+        .catch((error) => console.warn('[sync] remote receive failed:', error));
+    };
+
+    syncBoth();
+    window.addEventListener('online', syncBoth);
+    return () => window.removeEventListener('online', syncBoth);
+  }, [provider, fileId, remoteQueue, tap, appendReceived]);
 
   // content 経路は sheetId を渡す (W3c2)。structure 経路は省略 → file-level batch。
   return useCallback(

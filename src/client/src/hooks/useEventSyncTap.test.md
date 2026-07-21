@@ -50,3 +50,26 @@ tap の provider 構成が切り替わること (local 単体 / `FanoutSyncProvi
   batch が増えた状態で `window.dispatchEvent(new Event('online'))` → その batch が remote へ
   push される。`unmount()` 後に同じイベントを投げた場合は push 0 件 (リスナが外れている)。
 - **fileId=null**: record を呼んでも local/remote とも push 0 件。
+
+## 受信の配線 (Phase 4d-5)
+
+送信 catch-up と**同じ契機** (起動時 + `online`) に受信を相乗りさせる (設計 §3.4)。
+両者は「remote と突き合わせて差分を埋める」同じ性質の操作なので発火経路を分けない。
+
+**フックは受信失敗を `.catch` で握る**ため、書き込み口を注入して観測できるようにしないと
+「何も起きていない」と「静かに失敗した」を区別できない。W3d5-7 で「PDS が float を拒否して
+全 push が 400、しかしコンソールは無言」という事故があったので、ここは必ず観測可能にする。
+
+> **`mock.module('../api', ...)` は使わない。** bun のモジュールモックはグローバルに効くため、
+> 他のテストファイルから `../api` の別の export が見えなくなる (実際に `createFile` not found で
+> 別ファイルが落ちた)。既存の `createLocalProvider` と同じ**注入の型**に揃え、
+> `appendReceived` オプションで差し替える。
+
+- **mount 時に取り込む**: remote の batch が正典宣言つきの書き込み口へ、正しい fileId と
+  ともに届くこと。受信が実際に発火した証拠になる。
+- **受信は fanout を通さない (§3.3a)**: 受信した batch が remote へ push され直して
+  いないこと。echo ループが起きていないことの直接の証拠。
+- **`online` でも受信する (§3.4)**: 再接続イベントで受信が再度走ること。
+- **受信失敗が送信を止めない**: 受信が throw しても、ローカルにあって remote に無い batch は
+  送信 catch-up で送られること。両者を独立に catch している設計の確認。
+- **未ログイン時は受信も起きない**: `remoteQueue` が無ければ local-only の挙動を保つこと。

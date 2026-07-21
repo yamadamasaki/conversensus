@@ -123,6 +123,17 @@ export class RemoteSyncQueue {
     return this.flush();
   }
 
+  /**
+   * remote の batch を全件取得する (Phase 4d-5 の受信経路用)。
+   *
+   * キューの責務は送信だが、remote provider を保持しているのがここなので取得も委譲する。
+   * **受信の書き込みには使わない** — 受信は `receiveRemoteBatches` がローカル正典へ
+   * 直書きする (fanout / enqueue を通すと echo ループになる, 設計 §3.3a)。
+   */
+  pullRemote(): Promise<RemoteBatch[]> {
+    return this.provider.pullRemote();
+  }
+
   /** 現在の未送信件数 */
   get pendingCount(): number {
     return this.outbox.size;

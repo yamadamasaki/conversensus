@@ -20,7 +20,7 @@ import {
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { getEventStore } from './eventStoreServer';
-import { migrateFileToOplog } from './migrateFileToOplog';
+import { migrateFileToOplog, W3_SCHEMA_VERSION } from './migrateFileToOplog';
 import { deleteFile, listFiles, readFile, writeFile } from './storage';
 
 const DEFAULT_SERVER_PORT = 3000;
@@ -218,6 +218,38 @@ app.post('/files/:id/batches', async (c) => {
   }
   const fileId = c.req.param('id') as FileId;
   const appended = getEventStore().appendBatches(fileId, batches);
+  return c.json({ appended }, HTTP_CREATED);
+});
+
+// POST /files/:id/batches/received - remote から受信した batches を追記 (べき等)
+//
+// **通常の POST /files/:id/batches とは別口にする** (Phase 4d-5)。受信は追記に加えて
+// **op-log 正典 marker を同じ tx で立てる**必要があるため (`appendReceivedBatches`)。
+// marker が無いと次の `GET /files/:id/batches` が lazy migration を起動し、
+// `DELETE FROM batches` で受信内容を丸ごと破棄する (設計 §1.8 / §3.3b)。
+//
+// ローカル編集の書き込み経路 (上の POST) は marker を立てない — 受信していない
+// ファイルの lazy migration は W3d-1 どおり動く必要があるため。両者を分けるのが
+// marker の役割なので、エンドポイントも分けて取り違えを型と経路で防ぐ。
+app.post('/files/:id/batches/received', async (c) => {
+  const raw = await c.req.json().catch(() => null);
+  if (!Array.isArray(raw)) {
+    return c.json({ error: 'Expected an array of batches' }, HTTP_BAD_REQUEST);
+  }
+  const batches: Batch[] = [];
+  for (const item of raw) {
+    const parsed = BatchSchema.safeParse(item);
+    if (!parsed.success) {
+      return c.json({ error: parsed.error.flatten() }, HTTP_BAD_REQUEST);
+    }
+    batches.push(parsed.data);
+  }
+  const fileId = c.req.param('id') as FileId;
+  const appended = getEventStore().appendReceivedBatches(
+    fileId,
+    batches,
+    W3_SCHEMA_VERSION,
+  );
   return c.json({ appended }, HTTP_CREATED);
 });
 

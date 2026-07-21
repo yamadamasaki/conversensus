@@ -153,6 +153,87 @@ describe('API routes', () => {
     });
   });
 
+  describe('POST /files/:id/batches/received (Phase 4d-5)', () => {
+    async function postReceived(fileId: string, batches: unknown[]) {
+      return fetch(
+        new Request(`http://localhost/files/${fileId}/batches/received`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(batches),
+        }),
+      );
+    }
+
+    it('受信 batches を追記して 201 と件数を返す', async () => {
+      const created = await (await createFile('受信')).json();
+      const res = await postReceived(created.id, [
+        sampleBatch(1),
+        sampleBatch(2),
+      ]);
+      expect(res.status).toBe(201);
+      expect(await res.json()).toEqual({ appended: 2 });
+    });
+
+    it('同一 batch の再受信はべき等 (appended=0)', async () => {
+      const created = await (await createFile('受信')).json();
+      await postReceived(created.id, [sampleBatch(1)]);
+      const res = await postReceived(created.id, [sampleBatch(1)]);
+      expect(await res.json()).toEqual({ appended: 0 });
+    });
+
+    it('不正な Batch は 400 を返す', async () => {
+      const created = await (await createFile('受信')).json();
+      const res = await postReceived(created.id, [{ id: 'not-a-uuid' }]);
+      expect(res.status).toBe(400);
+    });
+
+    it('🔴 受信 batch は lazy migration に破棄されない (§1.8 / 4d-0 の要)', async () => {
+      // 上の「初回 read 前に積まれた pre-W3 増分は migration で破棄される」と
+      // **同じ手順**で、書き込み口だけを受信用に替えたもの。marker が「正典宣言」
+      // として働き、同じ状況で結果が逆になることを固定する。
+      const created = await (await createFile('受信保護')).json();
+      // openFile より前に受信 batch が着地した状態を模す (device B の未オープンファイル)
+      await postReceived(created.id, [sampleBatch(1)]);
+      const res = await fetch(
+        new Request(`http://localhost/files/${created.id}/batches`),
+      );
+      const body = await res.json();
+      const contents = body.flatMap((b: { ops: { content?: string }[] }) =>
+        b.ops.map((o) => o.content),
+      );
+      // 通常 POST なら消える 'n1' が、受信経路なら残る
+      expect(contents).toContain('n1');
+    });
+
+    it('通常 POST は marker を立てない (W3d-1 の破棄挙動を壊していない)', async () => {
+      // 上の 4d-0 保護が「全ファイルで migration を無効化した」わけではないことの対照。
+      const created = await (await createFile('破棄据置')).json();
+      await postBatches(created.id, [sampleBatch(1)]);
+      const body = await (
+        await fetch(new Request(`http://localhost/files/${created.id}/batches`))
+      ).json();
+      const contents = body.flatMap((b: { ops: { content?: string }[] }) =>
+        b.ops.map((o) => o.content),
+      );
+      expect(contents).not.toContain('n1');
+    });
+
+    it('受信 0 件では marker を立てない (lazy migration の機会を奪わない)', async () => {
+      const created = await (await createFile('空受信')).json();
+      const res = await postReceived(created.id, []);
+      expect(await res.json()).toEqual({ appended: 0 });
+      // marker が立っていないので、その後の通常 POST + GET は従来どおり破棄される
+      await postBatches(created.id, [sampleBatch(1)]);
+      const body = await (
+        await fetch(new Request(`http://localhost/files/${created.id}/batches`))
+      ).json();
+      const contents = body.flatMap((b: { ops: { content?: string }[] }) =>
+        b.ops.map((o) => o.content),
+      );
+      expect(contents).not.toContain('n1');
+    });
+  });
+
   describe('GET /files', () => {
     it('初期状態では空配列を返す', async () => {
       const res = await fetch(new Request('http://localhost/files'));

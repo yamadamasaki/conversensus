@@ -12,6 +12,23 @@ mock.module('zod', () => ({
   default: zodProxy,
 }));
 
+/**
+ * 受信の書き込み先を記録する (Phase 4d-5)。フックの `appendReceived` オプションへ
+ * 注入するので実 fetch は走らない。**受信が実際に発火したか**を観測できるようにする —
+ * フック側は受信失敗を `.catch` で握るため、これが無いと「何も起きていない」と
+ * 「静かに失敗した」を区別できない (W3d5-7 の「400 が無言」の教訓)。
+ *
+ * `mock.module('../api', ...)` は使わない — bun のモジュールモックはグローバルなので、
+ * 他のテストファイルから `../api` の別の export が見えなくなる。
+ */
+const receivedWrites: Array<{ fileId: FileId; batches: Batch[] }> = [];
+let receiveFails: Error | null = null;
+const appendReceived = async (fileId: FileId, batches: Batch[]) => {
+  if (receiveFails) throw receiveFails;
+  receivedWrites.push({ fileId, batches });
+  return batches.length;
+};
+
 const { renderHook, act, cleanup } = await import('@testing-library/react');
 const { useEventSyncTap } = await import('./useEventSyncTap');
 
@@ -90,7 +107,12 @@ const batch = (id: string, over: Partial<Batch> = {}): Batch => ({
   ...over,
 });
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  // 受信モックの記録・失敗設定をテスト間で持ち越さない
+  receivedWrites.length = 0;
+  receiveFails = null;
+});
 
 /** local provider を差し替えた tap を張る。remoteQueue を渡すと fanout 構成になる */
 async function renderTap(opts: {
@@ -103,6 +125,7 @@ async function renderTap(opts: {
     useEventSyncTap(opts.fileId === undefined ? FID : opts.fileId, {
       remoteQueue: opts.remoteQueue ?? null,
       createLocalProvider,
+      appendReceived,
     }),
   );
   await act(async () => {
@@ -225,6 +248,77 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
       await settle();
       // local への push は catch-up 由来では発生しない (読取のみ)
       expect(local.pushed).toHaveLength(0);
+    });
+  });
+
+  describe('受信の配線 (Phase 4d-5)', () => {
+    it('mount 時に remote の batch をローカル正典へ取り込む', async () => {
+      const local = new RecordingProvider();
+      const remote = new RecordingProvider();
+      remote.existing = [batch('r1'), batch('r2')];
+      const remoteQueue = new RemoteSyncQueue({ provider: remote });
+
+      await renderTap({ local, remoteQueue });
+      await settle();
+
+      // 受信が実際に発火し、正典宣言つきの書き込み口へ届いていること
+      expect(receivedWrites).toHaveLength(1);
+      expect(receivedWrites[0]?.fileId).toBe(FID);
+      expect(receivedWrites[0]?.batches.map((b) => b.id)).toEqual(['r1', 'r2']);
+    });
+
+    it('受信は fanout を通さない — remote へ送り返さない (echo ループ回避, §3.3a)', async () => {
+      const local = new RecordingProvider();
+      const remote = new RecordingProvider();
+      remote.existing = [batch('r1')];
+      const remoteQueue = new RemoteSyncQueue({ provider: remote });
+
+      await renderTap({ local, remoteQueue });
+      await settle();
+
+      // 受信した 'r1' が remote へ push され直していないこと。
+      // (catch-up は local.existing が空なので何も送らない)
+      expect(remote.pushed.map((b) => b.id)).not.toContain('r1');
+    });
+
+    it('online イベントでも受信する (送信 catch-up と同じ契機, §3.4)', async () => {
+      const local = new RecordingProvider();
+      const remote = new RecordingProvider();
+      const remoteQueue = new RemoteSyncQueue({ provider: remote });
+
+      await renderTap({ local, remoteQueue });
+      await settle();
+      const afterMount = receivedWrites.length;
+
+      remote.existing = [batch('r9')];
+      window.dispatchEvent(new Event('online'));
+      await settle();
+
+      expect(receivedWrites.length).toBe(afterMount + 1);
+      expect(receivedWrites.at(-1)?.batches.map((b) => b.id)).toEqual(['r9']);
+    });
+
+    it('受信が失敗しても送信 catch-up は動く (両者は独立)', async () => {
+      const local = new RecordingProvider();
+      local.existing = [batch('1')];
+      const remote = new RecordingProvider();
+      remote.existing = [batch('r1')];
+      const remoteQueue = new RemoteSyncQueue({ provider: remote });
+      receiveFails = new Error('daemon down');
+
+      await renderTap({ local, remoteQueue });
+      await settle();
+
+      // 受信は失敗したが、ローカルにあって remote に無い '1' は送られている
+      expect(remote.pushed.map((b) => b.id)).toContain('1');
+      expect(receivedWrites).toHaveLength(0);
+    });
+
+    it('remoteQueue が無ければ受信も起きない (未ログイン時は local-only)', async () => {
+      const local = new RecordingProvider();
+      await renderTap({ local });
+      await settle();
+      expect(receivedWrites).toHaveLength(0);
     });
   });
 
