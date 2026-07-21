@@ -50,7 +50,7 @@ function emptyGraph(): ProjectedGraph {
  * 単一 actor では退行しない: `LamportClock.tick()` は単調増加なので同一 actor 内で
  * clock は必ず一意であり、第 2 キーは発動しない (回帰テストで固定)。
  */
-function orderBatches(batches: Batch[]): Batch[] {
+export function orderBatches(batches: Batch[]): Batch[] {
   return [...batches].sort(
     (a, b) =>
       a.clock - b.clock ||
