@@ -6,7 +6,6 @@ import {
   type NodeId,
   type Op,
 } from '@conversensus/shared';
-import type { Cursor, PullResult } from '../sync/syncProvider';
 import {
   REMOTE_QUEUE_MAX,
   type RemoteBatchTarget,
@@ -36,18 +35,23 @@ const batch = (id: string, over: Partial<Batch> = {}): Batch => ({
   ...over,
 });
 
-/** pushRemote/pull を記録し成否・pull 応答を切り替えられるテスト用 remote */
+/** pushRemote/pullRemote を記録し成否・pull 応答を切り替えられるテスト用 remote */
 class FakeProvider implements RemoteBatchTarget {
   pushed: RemoteBatch[][] = [];
   online = true;
-  pullBatches: Batch[] = [];
+  /** pullRemote が返すエンベロープ (repo 全体なので他ファイル分も混ざりうる) */
+  pullEntries: RemoteBatch[] = [];
 
   async pushRemote(entries: readonly RemoteBatch[]): Promise<void> {
     if (!this.online) throw new Error('offline');
     this.pushed.push([...entries]);
   }
-  async pull(_since: Cursor): Promise<PullResult> {
-    return { batches: this.pullBatches, cursor: '' };
+  async pullRemote(): Promise<RemoteBatch[]> {
+    return this.pullEntries;
+  }
+  /** `pullEntries` を「全部 FILE のもの」として簡便に設定するヘルパ */
+  setPullBatches(batches: Batch[], fileId: FileId = FILE): void {
+    this.pullEntries = batches.map((batch) => ({ fileId, batch }));
   }
   /** これまでに push された batch を平坦化 */
   get flatPushed(): Batch[] {
@@ -182,7 +186,7 @@ describe('RemoteSyncQueue', () => {
     it('remote に無いローカル batch のみ積み直して flush する', async () => {
       const provider = new FakeProvider();
       // remote には '1' が既にある。'2','3' が取りこぼし
-      provider.pullBatches = [batch('1')];
+      provider.setPullBatches([batch('1')]);
       const q = new RemoteSyncQueue({ provider });
       const result = await q.catchUp(
         [batch('1'), batch('2'), batch('3')],
@@ -195,11 +199,41 @@ describe('RemoteSyncQueue', () => {
 
     it('catch-up も genesis batch は積まない (C1)', async () => {
       const provider = new FakeProvider();
-      provider.pullBatches = [];
+      provider.setPullBatches([]);
       const q = new RemoteSyncQueue({ provider });
       await q.catchUp([batch('1', { actor: GENESIS_ACTOR }), batch('2')], FILE);
       // genesis の '1' は除外され、'2' だけ push される
       expect(provider.flatPushed.map((b) => b.id)).toEqual(['2']);
+    });
+
+    it('突合は fileId で絞ってから行う (Phase 4d-4, D-6)', async () => {
+      const provider = new FakeProvider();
+      const OTHER = '33333333-3333-4333-8333-333333333333' as FileId;
+      // remote は repo 全体なので他ファイルの batch も返ってくる。
+      // 別ファイルの '2' は FILE の突合対象に入ってはならない。
+      provider.pullEntries = [
+        { fileId: FILE, batch: batch('1') },
+        { fileId: OTHER, batch: batch('2') },
+      ];
+      const q = new RemoteSyncQueue({ provider });
+      await q.catchUp([batch('1'), batch('2')], FILE);
+      // '1' は FILE に既にあるので送らない。'2' は OTHER のものなので
+      // FILE としては未送信 → 積み直す。
+      expect(provider.flatPushed.map((b) => b.id)).toEqual(['2']);
+    });
+
+    it('他ファイルの batch しか remote に無ければローカル全件を積み直す', async () => {
+      const provider = new FakeProvider();
+      const OTHER = '33333333-3333-4333-8333-333333333333' as FileId;
+      provider.pullEntries = [
+        { fileId: OTHER, batch: batch('1') },
+        { fileId: OTHER, batch: batch('2') },
+      ];
+      const q = new RemoteSyncQueue({ provider });
+      await q.catchUp([batch('1'), batch('2')], FILE);
+      expect(provider.flatPushed.map((b) => b.id)).toEqual(['1', '2']);
+      // 積み直したエンベロープは FILE 宛であること
+      expect(provider.flatEntries.every((e) => e.fileId === FILE)).toBe(true);
     });
   });
 });

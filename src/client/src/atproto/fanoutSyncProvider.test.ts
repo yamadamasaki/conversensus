@@ -51,6 +51,9 @@ class FakeProvider implements SyncProvider, RemoteBatchTarget {
   pullBatches: Batch[] = [];
   pullCursor = 'local-cursor';
   pulledSince: Cursor[] = [];
+  /** pullRemote の応答と呼び出し回数 (Phase 4d-4) */
+  pullRemoteEntries: RemoteBatch[] = [];
+  pulledRemote = 0;
   subscribed: OnRemote[] = [];
   unsubscribed = 0;
 
@@ -66,6 +69,11 @@ class FakeProvider implements SyncProvider, RemoteBatchTarget {
   async pull(since: Cursor): Promise<PullResult> {
     this.pulledSince.push(since);
     return { batches: this.pullBatches, cursor: this.pullCursor };
+  }
+  /** remote 側の取得 (Phase 4d-4: cursor を取らず全件返す) */
+  async pullRemote(): Promise<RemoteBatch[]> {
+    this.pulledRemote += 1;
+    return this.pullRemoteEntries;
   }
   subscribe(onRemote: OnRemote): Unsubscribe {
     this.subscribed.push(onRemote);

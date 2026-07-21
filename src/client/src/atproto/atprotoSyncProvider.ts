@@ -9,28 +9,26 @@
  * 送信単位は fileId を伴う `RemoteBatch` になる。この非対称を型に出している。
  *
  * - pushRemote: batch を putRecord (rkey = batchId)。batch は不変なのでべき等。
- * - pull  : clock > cursor の batch レコードを取得。cursor は clock を符号化した不透明値。
- * - subscribe: 定期 poll で新規 batch を配信 (baseline 確立後の差分のみ)。
- *   手動 polling は 4d で Jetstream 購読へ置き換える。
+ * - pullRemote: batch レコードを**全件**取得。**既読位置 (cursor) を持たない** (Phase 4d-4) —
+ *   rkey が UUID で時系列順にならず、ATProto 側に既読位置へ使える値が無いため。
+ *   取りこぼしゼロを構造で保証し、二重取り込みは受信側のべき等性が無害化する。
+ * - subscribe: 定期 poll で新規 batch を配信 (観測済み id 集合との差分のみ)。
+ *   消費箇所は 0 件。Jetstream 購読への置き換えは別 Phase (§3.4)。
  *
  * 依存 (batch collection / scheduler) は注入可能にし、PDS・タイマー非依存にテストする。
  */
 
-import type { Batch } from '@conversensus/shared';
-import {
-  type Cursor,
-  INITIAL_CURSOR,
-  type OnRemote,
-  type PullResult,
-  type Unsubscribe,
-} from '../sync';
+import type { Unsubscribe } from '../sync';
 import {
   batchToRecord,
   isBatchRecordValue,
-  recordToBatch,
+  recordToRemoteBatch,
 } from './batchMapper';
 import type { RemoteBatchTarget } from './remoteSyncQueue';
 import type { BatchRecord, RecordResult, RemoteBatch } from './types';
+
+/** 新着 remote batch の配信先。fileId が要るので `Batch[]` ではなく `RemoteBatch[]` */
+export type OnRemoteBatches = (entries: readonly RemoteBatch[]) => void;
 
 /** op-log コレクションの最小インターフェース (実体は collections.batches) */
 export interface BatchCollection {
@@ -62,13 +60,6 @@ function rkeyFromUri(uri: string): string {
   return uri.split('/').at(-1) ?? uri;
 }
 
-/** cursor (不透明) → clock 値。空・不正は 0 (最初から) とみなす */
-function cursorToClock(cursor: Cursor): number {
-  if (cursor === INITIAL_CURSOR) return 0;
-  const n = Number(cursor);
-  return Number.isFinite(n) ? n : 0;
-}
-
 export class AtprotoSyncProvider implements RemoteBatchTarget {
   private readonly batches: BatchCollection;
   private readonly scheduler: IntervalScheduler;
@@ -94,16 +85,32 @@ export class AtprotoSyncProvider implements RemoteBatchTarget {
   }
 
   /**
-   * since (cursor) より後 (clock 大) の batch レコードを取得する。
-   * cursor は取得済みの最大 clock を符号化して前進させる (空でも進みうる)。
+   * remote の batch レコードを**全件**取得する (Phase 4d-4)。
+   *
+   * **既読位置 (cursor) を持たない**。4d-3 までは clock を符号化した cursor を返して
+   * いたが、clock は端末をまたぐと単調でないため取りこぼす (設計 §1.3)。かといって
+   * ATProto 側にも既読位置に使える値が無い:
+   *
+   * - `listRecords` の cursor は **rkey 位置**。本実装の rkey は batchId (ランダム UUID)
+   *   なので順序が時系列にならず、後から書いた batch の UUID が保存済み cursor より
+   *   小さいと永久に取りこぼす。**clock cursor と同じバグの構造**。
+   * - `indexedAt` は repo の `listRecords` 出力に存在しない (appview 側の概念)。
+   * - `rev` はレコード単位では露出しない (`com.atproto.sync.*` が要る)。
+   *
+   * → **既読位置を持たない契約にした**。取りこぼしゼロを構造的に保証し、二重取り込みは
+   * 受信側 (`EventStore.appendReceivedBatches`, 4d-0) のべき等性が無害化する。
+   * 代償は毎回 O(全履歴) の list だが、起動契機は起動時 + `online` + 手動に限られる
+   * (§3.4 で subscribe を不採用としたため) ので受容できる。
+   * rkey を時系列ソート可能なキーへ変える案は Jetstream 化と同じ Phase で扱う。
+   *
+   * 返すのは `Batch` ではなく `RemoteBatch` (Batch + fileId)。remote の batch
+   * コレクションは repo 全体で 1 つなので、適用先ファイルは受信側で復元できない (§3.1)。
    */
-  async pull(since: Cursor): Promise<PullResult> {
-    const sinceClock = cursorToClock(since);
+  async pullRemote(): Promise<RemoteBatch[]> {
     const records = await this.batches.list();
 
-    let maxClock = sinceClock;
     let skipped = 0;
-    const batches: Batch[] = [];
+    const entries: RemoteBatch[] = [];
     for (const r of records) {
       if (!isBatchRecordValue(r.value)) {
         // 壊れた/他種/旧形式 (fileId 無し) レコードを飛ばす。
@@ -113,17 +120,15 @@ export class AtprotoSyncProvider implements RemoteBatchTarget {
         skipped += 1;
         continue;
       }
-      const batch = recordToBatch(rkeyFromUri(r.uri), r.value);
-      if (batch.clock > maxClock) maxClock = batch.clock;
-      if (batch.clock > sinceClock) batches.push(batch);
+      entries.push(recordToRemoteBatch(rkeyFromUri(r.uri), r.value));
     }
 
-    // 決定論的な順序で返す: clock → timestamp → id
-    batches.sort(
-      (a, b) =>
-        a.clock - b.clock ||
-        a.timestamp - b.timestamp ||
-        a.id.localeCompare(b.id),
+    // 決定論的な順序で返す: clock → actor → id (`orderBatches` と同じ規則, 4d-3)
+    entries.sort(
+      (x, y) =>
+        x.batch.clock - y.batch.clock ||
+        x.batch.actor.localeCompare(y.batch.actor) ||
+        x.batch.id.localeCompare(y.batch.id),
     );
 
     if (skipped > 0) {
@@ -133,26 +138,35 @@ export class AtprotoSyncProvider implements RemoteBatchTarget {
       );
     }
 
-    return { batches, cursor: String(maxClock) };
+    return entries;
   }
 
   /**
    * remote の新規 batch を購読する。
-   * 初回 poll は現在の tip までカーソルを進める baseline 確立のみ (再配信を避ける)。
-   * 以降の poll で現れた batch だけを onRemote へ渡す。
+   * 初回 poll は既知集合を埋める baseline 確立のみ (再配信を避ける)。
+   * 以降の poll で**初めて見た id** の batch だけを onRemote へ渡す。
+   *
+   * **既読管理を cursor から「観測済み id 集合」へ変えた (Phase 4d-4)**。cursor 版には
+   * baseline 確立が失敗すると次の成功 poll が baseline になり、その間の batch を
+   * **恒久的に落とす**欠陥があった (設計 §1.5)。id 集合なら poll が失敗しても集合は
+   * 前進しないので、次の成功 poll で取りこぼし分がそのまま現れる。
+   *
+   * 消費箇所は現在 0 件 — §3.4 のとおり subscribe は採用せず、起動時 + `online` + 手動で
+   * 駆動する。Jetstream 化と `list()` のページングを併せて別 Phase で作り直す。
    */
-  subscribe(onRemote: OnRemote): Unsubscribe {
-    let cursor = INITIAL_CURSOR;
+  subscribe(onRemote: OnRemoteBatches): Unsubscribe {
+    const seen = new Set<string>();
     let baselined = false;
 
     const tick = async () => {
-      const { batches, cursor: next } = await this.pull(cursor);
-      cursor = next;
+      const entries = await this.pullRemote();
+      const fresh = entries.filter((e) => !seen.has(e.batch.id));
+      for (const e of entries) seen.add(e.batch.id);
       if (!baselined) {
         baselined = true; // 初回は基準確立のみ、配信しない
         return;
       }
-      if (batches.length > 0) onRemote(batches);
+      if (fresh.length > 0) onRemote(fresh);
     };
 
     const handle = this.scheduler.set(() => {

@@ -72,6 +72,10 @@ class RecordingProvider implements SyncProvider, RemoteBatchTarget {
   async pull(_since: Cursor): Promise<PullResult> {
     return { batches: this.existing, cursor: '' };
   }
+  /** remote 側の取得 (Phase 4d-4: cursor を取らず全件返す) */
+  async pullRemote(): Promise<RemoteBatch[]> {
+    return this.existing.map((batch) => ({ fileId: FID, batch }));
+  }
   subscribe(_onRemote: OnRemote) {
     return () => {};
   }
