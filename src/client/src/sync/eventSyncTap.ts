@@ -16,6 +16,7 @@
 import {
   type Actor,
   type Batch,
+  type Lamport,
   LamportClock,
   type SheetId,
 } from '@conversensus/shared';
@@ -107,6 +108,23 @@ export class EventSyncTap {
         });
     }
     return this.restored;
+  }
+
+  /**
+   * 受信 batch の論理時刻を観測し、自端末 clock を追随させる
+   * (Lamport 受信規則, Phase 4d-3 / 設計 §3.2a)。
+   *
+   * これ以降に発番する clock が受信分より必ず大きくなるため、
+   * `orderBatches` の `a.clock < b.clock` が端末をまたいで
+   * 「因果的に後」を表現できるようになる。
+   *
+   * `seed` (復元用, +1 しない) と違い `observe` は max+1 する。同じ clock を
+   * 別端末と重複して発番しないために受信側では必ずこちらを使う。
+   *
+   * 受信経路からの呼び出しは 4d-5 で配線する。
+   */
+  observeRemote(remoteClock: Lamport): void {
+    this.clock.observe(remoteClock);
   }
 
   private scheduleFlush(): void {

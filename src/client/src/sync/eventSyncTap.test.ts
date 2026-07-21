@@ -150,6 +150,33 @@ describe('EventSyncTap', () => {
     expect(tap.pending).toBe(0);
   });
 
+  it('observeRemote で受信 clock を観測し、以降の発番が受信分を必ず追い越す (4d-3)', async () => {
+    const provider = new RecordingProvider();
+    const clock = new LamportClock();
+    const tap = new EventSyncTap({ provider, clock, actor: ACTOR });
+    // まずローカルで 1 発番 (clock = 1)
+    tap.record(relabel());
+    await tap.settled();
+    expect(provider.pushed.map((b) => b.clock)).toEqual([1]);
+
+    // 他端末の clock=10 を受信 → observe は max(1,10)+1 = 11
+    tap.observeRemote(10);
+    tap.record(relabel());
+    await tap.settled();
+    // 受信分 (10) より必ず大きい値から発番される = 因果的に「後」を表現できる
+    expect(provider.pushed.map((b) => b.clock)).toEqual([1, 12]);
+  });
+
+  it('observeRemote は自身の方が大きくても前進する (seed と違い +1 する)', async () => {
+    const provider = new RecordingProvider();
+    const clock = new LamportClock(20);
+    const tap = new EventSyncTap({ provider, clock, actor: ACTOR });
+    // 遅れて届いた古い受信でも clock は前進する (Lamport 受信規則 max+1)。
+    // seed (復元用) は +1 しないので、受信では必ず observe を使う。
+    tap.observeRemote(5);
+    expect(clock.current()).toBe(21);
+  });
+
   it('record の sheetId が push された content batch に載る (W3c2)', async () => {
     const provider = new RecordingProvider();
     const tap = new EventSyncTap({ provider, actor: ACTOR });

@@ -64,3 +64,26 @@ tap のロジックを framework 非依存に固定する。
 レベルの可変状態が要り、テストしづらくなる)。
 
 - tap に渡した actor が push される batch に載ること。
+
+## Lamport 受信規則の入口 (Phase 4d-3)
+
+`observeRemote(remoteClock)` は受信 batch の論理時刻を観測し、自端末 clock を
+`max(local, remote) + 1` へ前進させる (`LamportClock.observe`)。
+
+**なぜ必要か**: これが無いと、端末をまたいだ `a.clock < b.clock` の比較が
+「因果的に後」を表現しない。設計 `step1-phase4d-receive.md` §1.6 のとおり
+`LamportClock.observe` はプリミティブとして存在しながら本番コードから一度も
+呼ばれていなかった (受信規則が未実装だった)。順序規則 (§3.2b) をどう作っても、
+この配線が無ければ因果は表現できない。
+
+**なぜ `seed` ではないか**: `seed` は復元用で `+1` しない。受信で `seed` を使うと
+受信分と同じ clock を自端末が再発番しうる。受信では必ず `observe` を使う。
+
+**呼び出し元は 4d-5 で配線する** — 4d-3 時点では受信経路そのものが存在しないため、
+入口とその挙動だけを固定する。
+
+- **受信後の発番が受信分を追い越す**: ローカルで clock 1 を発番 → `observeRemote(10)`
+  → 次の record が clock 12 で push されること (observe が 11 にし、tick が 12)。
+  受信分 (10) より必ず大きい値から発番されることを固定する。
+- **自身の方が大きくても前進する**: clock 20 の状態で `observeRemote(5)` → 21 になること。
+  遅れて届いた古い受信でも `+1` する (`seed` との差を固定する)。

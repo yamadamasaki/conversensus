@@ -233,7 +233,7 @@ export const BatchSchema = z.object({
   id: BatchIdSchema,
   actor: z.string(),
   clock: z.number().int().nonnegative(),
-  timestamp: z.number().int().nonnegative(), // wall clock (表示・tiebreak 用)
+  timestamp: z.number().int().nonnegative(), // wall clock (表示用。順序付けには使わない — 4d-3)
   // content batch のシート scope。1 ユーザー操作は単一シート内で完結する。
   // file 構造 batch (sheet.*/file.* のみ) は sheetId を持たない (§3.1)。
   sheetId: SheetIdSchema.optional(),
@@ -251,14 +251,16 @@ export const GENESIS_ACTOR = 'genesis' as const;
 
 /**
  * genesis batch の clock 開始値。genesis は batch ごとに一意連番を割り当て、
- * `orderBatches` の tiebreak が timestamp (端末間で異なる) に昇格しないようにする。
+ * `orderBatches` の tiebreak (Phase 4d-3 以降は actor → id) に頼らず順序を確定させる。
+ * genesis は全 batch が `GENESIS_ACTOR` を共有するため、clock が一意でないと
+ * 順序が id (ランダム UUID) で決まってしまう。
  * ユーザー操作は復元時に `seed(max(clock))` でこの後続から採番する。
  */
 export const GENESIS_CLOCK_START = 1 as const;
 
 /**
  * genesis batch の timestamp。決定論のため固定。
- * genesis 間の順序は一意 clock で決まるため timestamp は tiebreak に使われない。
+ * timestamp は表示用であり順序付けには使わない (Phase 4d-3 で tiebreak から外した)。
  */
 export const GENESIS_TIMESTAMP = 0 as const;
 
