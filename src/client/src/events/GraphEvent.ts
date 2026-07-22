@@ -9,8 +9,6 @@ import type {
   SheetId,
 } from '@conversensus/shared';
 
-export const LOCAL_USER_ID = 'local';
-
 type Position = { x: number; y: number };
 type Size = { width: number; height: number };
 type EdgeStyle = { pathType?: EdgePathType } & Record<string, unknown>;
@@ -18,7 +16,6 @@ type EdgeStyle = { pathType?: EdgePathType } & Record<string, unknown>;
 type EventBase = {
   id: string; // crypto.randomUUID()
   timestamp: number; // Date.now()
-  userId: string; // 'local' for now
   category: 'structure' | 'content' | 'layout' | 'presentation' | 'file';
 };
 
@@ -262,7 +259,6 @@ export function makeEventBase<C extends GraphEvent['category']>(
   return {
     id: crypto.randomUUID(),
     timestamp: Date.now(),
-    userId: LOCAL_USER_ID,
     category,
   };
 }

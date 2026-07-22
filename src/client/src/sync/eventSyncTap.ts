@@ -13,7 +13,13 @@
  *   restore 成功後に FIFO 順で tick を割り当てる (再起動をまたいだ単調性の保証)。
  */
 
-import { type Batch, LamportClock, type SheetId } from '@conversensus/shared';
+import {
+  type Actor,
+  type Batch,
+  type Lamport,
+  LamportClock,
+  type SheetId,
+} from '@conversensus/shared';
 import type { GraphEvent } from '../events/GraphEvent';
 import { graphEventToBatch, graphEventToOps } from '../events/toUnified';
 import { type FlushResult, Outbox } from './outbox';
@@ -22,7 +28,12 @@ import { INITIAL_CURSOR, type SyncProvider } from './syncProvider';
 export type EventSyncTapDeps = {
   provider: SyncProvider;
   clock?: LamportClock;
-  outbox?: Outbox;
+  outbox?: Outbox<Batch>;
+  /**
+   * この端末の操作主体 (Phase 4d-2)。`<did>#<deviceId>` (未ログインは `local#<deviceId>`)。
+   * batch に載って remote へ渡り、受信側で因果順序と重複排除の単位を識別するのに使う。
+   */
+  actor: Actor;
   /** flush がオフライン等で失敗したときの通知 (保留は維持される) */
   onError?: (error: unknown) => void;
 };
@@ -30,7 +41,8 @@ export type EventSyncTapDeps = {
 export class EventSyncTap {
   private readonly provider: SyncProvider;
   private readonly clock: LamportClock;
-  private readonly outbox: Outbox;
+  private readonly outbox: Outbox<Batch>;
+  private readonly actor: Actor;
   private readonly onError?: (error: unknown) => void;
   /** flush を直列化するチェーン */
   private flushChain: Promise<void> = Promise.resolve();
@@ -45,7 +57,8 @@ export class EventSyncTap {
   constructor(deps: EventSyncTapDeps) {
     this.provider = deps.provider;
     this.clock = deps.clock ?? new LamportClock();
-    this.outbox = deps.outbox ?? new Outbox();
+    this.outbox = deps.outbox ?? new Outbox<Batch>((b) => b.id);
+    this.actor = deps.actor;
     this.onError = deps.onError;
   }
 
@@ -97,6 +110,23 @@ export class EventSyncTap {
     return this.restored;
   }
 
+  /**
+   * 受信 batch の論理時刻を観測し、自端末 clock を追随させる
+   * (Lamport 受信規則, Phase 4d-3 / 設計 §3.2a)。
+   *
+   * これ以降に発番する clock が受信分より必ず大きくなるため、
+   * `orderBatches` の `a.clock < b.clock` が端末をまたいで
+   * 「因果的に後」を表現できるようになる。
+   *
+   * `seed` (復元用, +1 しない) と違い `observe` は max+1 する。同じ clock を
+   * 別端末と重複して発番しないために受信側では必ずこちらを使う。
+   *
+   * 受信経路からの呼び出しは 4d-5 で配線する。
+   */
+  observeRemote(remoteClock: Lamport): void {
+    this.clock.observe(remoteClock);
+  }
+
   private scheduleFlush(): void {
     this.flushChain = this.flushChain.then(() => this.drain());
   }
@@ -118,11 +148,17 @@ export class EventSyncTap {
         event: GraphEvent;
         sheetId?: SheetId;
       };
-      const batch = graphEventToBatch(event, this.clock.tick(), sheetId);
+      const batch = graphEventToBatch(event, {
+        clock: this.clock.tick(),
+        actor: this.actor,
+        sheetId,
+      });
       this.outbox.enqueue([batch]);
     }
     while (!this.outbox.isEmpty) {
-      const result: FlushResult = await this.outbox.flush(this.provider);
+      const result: FlushResult = await this.outbox.flush((batches) =>
+        this.provider.push(batches),
+      );
       if (!result.ok) {
         if (result.error) this.onError?.(result.error);
         return; // 保留は次の record で再試行

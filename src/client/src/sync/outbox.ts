@@ -1,37 +1,41 @@
 /**
- * Outbox: remote へ未 push の batches を保持する送信キュー (step1 Phase 4b)
+ * Outbox: remote へ未 push の項目を保持する送信キュー (step1 Phase 4b)
  *
  * architecture §6 の「オフライン時: provider 呼び出しをスキップし操作を outbox に積む。
  * 復帰時に flush」を担う。UI は常にローカル正典を読むので編集は途切れない。
  *
  * **オフライン分岐**は Outbox 内に online フラグを持たず、`flush` の結果で表現する:
- *   - `provider.push` が resolve → 該当 batches を除去 (送信完了)
- *   - `provider.push` が reject (オフライン等) → 保留を維持 (次回 flush で再送)
+ *   - push が resolve → 該当項目を除去 (送信完了)
+ *   - push が reject (オフライン等) → 保留を維持 (次回 flush で再送)
  * 呼び出し側 (再接続検知・定期 flush) が flush の起動タイミングを決める。
+ *
+ * **保持する項目の型は呼び出し側が決める** (Phase 4d-1 で一般化)。ローカル正典向けは
+ * `Batch`、remote 向けは `RemoteBatch` (Batch + fileId) を積む — remote の batch コレクションは
+ * repo 全体で 1 つなので fileId を添えて運ぶ必要がある。重複排除に使う id の取り出し方だけ
+ * `getId` で受け取り、キューの論理 (FIFO・べき等・上限) は型に依らず共通にする。
  *
  * 永続化 (リロードをまたぐ保留の生存) は、ローカル正典ログ (EventStore) 上の
  * watermark として持たせる配線で後続 (Phase 3 引き継ぎ) に委ねる。本スライスは
  * インメモリのデータ構造と flush 契約に集中する。
  */
 
-import type { Batch } from '@conversensus/shared';
-import type { SyncProvider } from './syncProvider';
-
 /** `flush` の結果 */
 export type FlushResult = {
   /** push が成功したか。false = オフライン等で保留継続、または flush 実行中 */
   ok: boolean;
-  /** 送信・除去できた batch 数 */
+  /** 送信・除去できた項目数 */
   flushed: number;
   /** ok=false のときの原因 (push の reject 理由 / 実行中エラー) */
   error?: unknown;
 };
 
-export class Outbox {
-  /** 未 push の batches (FIFO)。enqueue 順を保つ */
-  private queue: Batch[] = [];
-  /** 重複 enqueue 防止用の batch id 集合 (queue と同期) */
+export class Outbox<T> {
+  /** 未 push の項目 (FIFO)。enqueue 順を保つ */
+  private queue: T[] = [];
+  /** 重複 enqueue 防止用の id 集合 (queue と同期) */
   private readonly ids = new Set<string>();
+  /** 項目から重複排除キーを取り出す */
+  private readonly getId: (item: T) => string;
   /** flush 多重起動の防止 */
   private flushing = false;
   /**
@@ -42,26 +46,31 @@ export class Outbox {
   /** 上限超過で eviction が一度でも起きたか (latching)。UI の「N 件以上」表示用 */
   private overflowedFlag = false;
 
-  constructor(capacity: number = Number.POSITIVE_INFINITY) {
+  constructor(
+    getId: (item: T) => string,
+    capacity: number = Number.POSITIVE_INFINITY,
+  ) {
+    this.getId = getId;
     this.capacity = capacity;
   }
 
-  /** batches をキュー末尾へ積む。既に保留中の id は無視する (べき等) */
-  enqueue(batches: Batch[]): void {
-    for (const batch of batches) {
-      if (this.ids.has(batch.id)) continue;
-      this.queue.push(batch);
-      this.ids.add(batch.id);
+  /** 項目をキュー末尾へ積む。既に保留中の id は無視する (べき等) */
+  enqueue(items: readonly T[]): void {
+    for (const item of items) {
+      const id = this.getId(item);
+      if (this.ids.has(id)) continue;
+      this.queue.push(item);
+      this.ids.add(id);
     }
     this.evictToCapacity();
   }
 
-  /** 上限を超えた分だけ最古 (FIFO の先頭) から落とす。溢れた batch はローカル正典に
+  /** 上限を超えた分だけ最古 (FIFO の先頭) から落とす。溢れた項目はローカル正典に
    *  残るので catch-up で回収でき、データは失われない (D1)。 */
   private evictToCapacity(): void {
     while (this.queue.length > this.capacity) {
       const evicted = this.queue.shift();
-      if (evicted) this.ids.delete(evicted.id);
+      if (evicted !== undefined) this.ids.delete(this.getId(evicted));
       this.overflowedFlag = true;
     }
   }
@@ -71,8 +80,8 @@ export class Outbox {
     return this.overflowedFlag;
   }
 
-  /** 現在の保留 batches (FIFO のコピー) */
-  pending(): Batch[] {
+  /** 現在の保留項目 (FIFO のコピー) */
+  pending(): T[] {
     return [...this.queue];
   }
 
@@ -85,12 +94,12 @@ export class Outbox {
   }
 
   /**
-   * 保留 batches を provider へ送る。
-   * push 成功時は「送信に出したスナップショット分だけ」を id 指定で除去する
+   * 保留項目を `push` へ送る。
+   * 成功時は「送信に出したスナップショット分だけ」を id 指定で除去する
    * (in-flight 中に enqueue された新規分は失わない)。
-   * push 失敗 (オフライン) 時は保留を維持し、次回 flush で再送できる。
+   * 失敗 (オフライン) 時は保留を維持し、次回 flush で再送できる。
    */
-  async flush(provider: SyncProvider): Promise<FlushResult> {
+  async flush(push: (items: T[]) => Promise<void>): Promise<FlushResult> {
     if (this.flushing) {
       return {
         ok: false,
@@ -103,7 +112,7 @@ export class Outbox {
 
     this.flushing = true;
     try {
-      await provider.push(snapshot);
+      await push(snapshot);
       this.remove(snapshot);
       return { ok: true, flushed: snapshot.length };
     } catch (error) {
@@ -114,10 +123,10 @@ export class Outbox {
     }
   }
 
-  /** スナップショットに含まれる batch を id 一致で queue から除く */
-  private remove(sent: Batch[]): void {
-    const sentIds = new Set(sent.map((b) => b.id));
-    this.queue = this.queue.filter((b) => !sentIds.has(b.id));
+  /** スナップショットに含まれる項目を id 一致で queue から除く */
+  private remove(sent: T[]): void {
+    const sentIds = new Set(sent.map((item) => this.getId(item)));
+    this.queue = this.queue.filter((item) => !sentIds.has(this.getId(item)));
     for (const id of sentIds) this.ids.delete(id);
   }
 }

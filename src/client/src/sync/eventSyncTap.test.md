@@ -48,3 +48,42 @@ tap のロジックを framework 非依存に固定する。
   持たない (structure 経路) ことを固定する。sheetId は event と対で保留され、drain 時の
   `graphEventToBatch(event, tick, sheetId)` で載るため、clock 採番タイミングと独立に正しく紐づく。
 - `settled()` で直列化された flush チェーンの完了を待つ。
+
+## actor の注入 (Phase 4d-2)
+
+`EventSyncTap` は `actor` を必須の dep として受け取り、生成する全 batch に載せる。
+
+**actor は UI の `GraphEvent` ではなく同期層が与える。** 以前は `GraphEvent.userId`
+(常に `'local'`) を actor にしていたが、actor は「誰が編集したか」という UI 上の属性ではなく、
+**Lamport の因果順序と重複排除の単位を識別する同期層の識別子**だからである
+(設計 `step1-phase4d-receive.md` §1.1 / §3.1)。値の組み立ては `sync/actor.ts` が担う
+(`<did>#<deviceId>`)。
+
+この移動に伴い `GraphEvent.userId` は消費者が無くなったので削除した (`makeEventBase` は
+セッションに触れない純関数なので、そこで `did#deviceId` を組み立てるにはモジュール
+レベルの可変状態が要り、テストしづらくなる)。
+
+- tap に渡した actor が push される batch に載ること。
+
+## Lamport 受信規則の入口 (Phase 4d-3)
+
+`observeRemote(remoteClock)` は受信 batch の論理時刻を観測し、自端末 clock を
+`max(local, remote) + 1` へ前進させる (`LamportClock.observe`)。
+
+**なぜ必要か**: これが無いと、端末をまたいだ `a.clock < b.clock` の比較が
+「因果的に後」を表現しない。設計 `step1-phase4d-receive.md` §1.6 のとおり
+`LamportClock.observe` はプリミティブとして存在しながら本番コードから一度も
+呼ばれていなかった (受信規則が未実装だった)。順序規則 (§3.2b) をどう作っても、
+この配線が無ければ因果は表現できない。
+
+**なぜ `seed` ではないか**: `seed` は復元用で `+1` しない。受信で `seed` を使うと
+受信分と同じ clock を自端末が再発番しうる。受信では必ず `observe` を使う。
+
+**呼び出し元は 4d-5 で配線する** — 4d-3 時点では受信経路そのものが存在しないため、
+入口とその挙動だけを固定する。
+
+- **受信後の発番が受信分を追い越す**: ローカルで clock 1 を発番 → `observeRemote(10)`
+  → 次の record が clock 12 で push されること (observe が 11 にし、tick が 12)。
+  受信分 (10) より必ず大きい値から発番されることを固定する。
+- **自身の方が大きくても前進する**: clock 20 の状態で `observeRemote(5)` → 21 になること。
+  遅れて届いた古い受信でも `+1` する (`seed` との差を固定する)。

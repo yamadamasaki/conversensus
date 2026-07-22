@@ -13,6 +13,7 @@
  */
 
 import type {
+  Actor,
   EdgeId,
   EdgeLayout,
   Lamport,
@@ -334,15 +335,22 @@ export function graphEventToOps(event: GraphEvent): Op[] {
  * GraphEvent を 1 つの Batch へ変換する (1 ユーザー操作 = 1 Batch)。
  * content 経路は `sheetId` (発生元シート) を渡し、structure (file) 経路は渡さない。
  * → file-level batch は sheetId を持たない (W3c2 §2.1)。
+ *
+ * `actor` は同期層 (`EventSyncTap`) が与える (Phase 4d-2)。actor は「誰が編集したか」の
+ * UI 上の属性ではなく、**Lamport の因果順序と重複排除の単位を識別する同期層の識別子**
+ * だからである (設計 §1.1 / §3.1)。
  */
 export function graphEventToBatch(
   event: GraphEvent,
-  clock: Lamport,
-  sheetId?: SheetId,
+  {
+    clock,
+    actor,
+    sheetId,
+  }: { clock: Lamport; actor: Actor; sheetId?: SheetId },
 ): Batch {
   return {
     id: BatchIdSchema.parse(event.id),
-    actor: event.userId,
+    actor,
     clock,
     timestamp: event.timestamp,
     ops: graphEventToOps(event),

@@ -243,6 +243,50 @@ export class EventStore {
     return tx();
   }
 
+  /**
+   * remote から受信した Batch を追記し、**同じ tx で op-log 正典 marker を立てる** (Phase 4d-0)。
+   *
+   * marker は W3d-1 では「snapshot からの lazy migration 済」を表したが、ここでは
+   * **「この op-log は正典であり snapshot から作り直してはならない」宣言**として使う。
+   * marker を立てずに受信 batch を書くと、次の `GET /files/:id/batches` が
+   * `migrateToOplog` を起動し `DELETE FROM batches` で**受信内容を丸ごと破棄する**
+   * (設計 `step1-phase4d-receive.md` §1.8)。受信 batch は remote にしか無いので、
+   * 受信側 cursor が前進していれば二度と取り直せない。
+   *
+   * `migrateToOplog` 側に「op-log が空でなければ migration しない」ガードを置く案は採らない。
+   * W3d-1 が仕様化した「pre-W3 の増分ログを破棄して genesis で作り直す」挙動
+   * (`migrateFileToOplog.test.md`) を壊すため。**受信していないファイルの lazy migration は
+   * 従来どおり動く** — 両者を分けるのが marker の役割になる。
+   *
+   * @returns 新規に追記された件数 (既存 batch_id は appendBatch のべき等性で無視される)
+   */
+  appendReceivedBatches(
+    fileId: FileId,
+    batches: Batch[],
+    schemaVersion: number,
+  ): number {
+    // 受信 0 件で正典宣言だけ立てない (lazy migration の機会を無意味に奪わない)
+    if (batches.length === 0) return 0;
+    const tx = this.db.transaction((items: Batch[]) => {
+      let inserted = 0;
+      for (const batch of items) {
+        if (this.appendBatch(fileId, batch)) inserted += 1;
+      }
+      // marker は下げない: 既により新しい版で正典化済ならそのまま残す
+      const current = this.getSchemaVersion(fileId);
+      if (current === null || current < schemaVersion) {
+        this.db
+          .query(
+            `INSERT OR REPLACE INTO file_migrations (file_id, schema_version)
+             VALUES ($file, $ver)`,
+          )
+          .run({ $file: fileId, $ver: schemaVersion });
+      }
+      return inserted;
+    });
+    return tx(batches);
+  }
+
   /** ファイルのコミット一覧を、指すオフセット (at) 昇順で取得する */
   getCommits(fileId: FileId): Commit[] {
     const rows = this.db

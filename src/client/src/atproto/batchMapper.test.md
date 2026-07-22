@@ -35,3 +35,23 @@ optional なので、無いレコードは通し (後方互換)、有るなら s
 - **isBatchRecordValue**: 正しい BatchRecord を受理 / null・非オブジェクト・型不一致
   (actor 非文字列 / clock=NaN / ops 非配列) を拒否。sheetId 無しレコードを通す (後方互換) /
   sheetId が string のレコードを通す / sheetId が string 以外は弾く、の 3 ケース。
+
+## fileId (Phase 4d-1)
+
+`BatchRecord.fileId` を**必須**にした。ATProto の batch コレクションは repo 全体で 1 つなので、
+レコード自身が適用先ファイルを持たないと受信側が復元できない。特に file 構造 batch は
+`sheetId` すら持たないため手掛かりが皆無になる (設計 `step1-phase4d-receive.md` §3.1)。
+
+**`fileId` は `Batch` には持たせず、`batchToRecord(batch, fileId)` のように外から与える。**
+ローカルでは op-log がファイル単位に仕切られていて (`batches.file_id` 列) 文脈から復元できるので、
+`Batch` に埋め込むと列と二重持ちになって食い違う余地が生まれる。「ローカルでは文脈、remote では
+埋め込み」という非対称を `RemoteBatch` エンベロープで表現する。
+(対比: `sheetId` は 1 ファイルに複数シートがあり文脈から復元できないので `Batch` に載る)
+
+- `batchToRecord` が外から渡した fileId を record に載せ、`Batch` 自身は fileId を持たないこと。
+- **`fileId` 無しレコード (W3d5 以前に書かれたもの) を `isBatchRecordValue` が弾くこと**。
+  受信側は適用先を復元できないので取り込まない。`fileId` が string 以外も弾く。
+  **弾いた件数は呼び出し側 (`pull`) が数えて警告に出す** — silent skip にしない。W3d5-7 で
+  「PDS が float を拒否して全 push が 400、しかしコンソールは無言」という事故があったため、
+  静かに捨てる経路を新たに作らない。
+- `recordToRemoteBatch` が適用先 fileId と Batch の対を復元すること (受信経路 4d-5 で使う)。

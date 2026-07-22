@@ -40,12 +40,21 @@ function emptyGraph(): ProjectedGraph {
   };
 }
 
-/** Batch を決定論的な順序に整列する: clock → timestamp → id */
-function orderBatches(batches: Batch[]): Batch[] {
+/**
+ * Batch を決定論的な順序に整列する: clock → actor → id (Phase 4d-3, 設計 §3.2b)
+ *
+ * 第 2 キーが `timestamp` (端末のウォールクロック) だと、端末をまたぐ受信では
+ * ずれ・巻き戻り・タイムゾーン設定ミスが順序を左右する。`actor` は端末一意の
+ * 識別子 (4d-2, `did#deviceId`) なので、端末間でも安定した全順序になる。
+ *
+ * 単一 actor では退行しない: `LamportClock.tick()` は単調増加なので同一 actor 内で
+ * clock は必ず一意であり、第 2 キーは発動しない (回帰テストで固定)。
+ */
+export function orderBatches(batches: Batch[]): Batch[] {
   return [...batches].sort(
     (a, b) =>
       a.clock - b.clock ||
-      a.timestamp - b.timestamp ||
+      a.actor.localeCompare(b.actor) ||
       a.id.localeCompare(b.id),
   );
 }

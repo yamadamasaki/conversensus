@@ -8,7 +8,7 @@ import type {
 import type { GraphEvent } from './GraphEvent';
 import { invertEvent } from './invertEvent';
 
-const base = { id: 'evt', timestamp: 0, userId: 'local' } as const;
+const base = { id: 'evt', timestamp: 0 } as const;
 
 const graphNode: GraphNode = {
   id: 'n1' as NodeId,

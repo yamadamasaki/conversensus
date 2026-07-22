@@ -40,3 +40,36 @@
   既定 `REMOTE_QUEUE_MAX` が正の有限値であること。
 - **catchUp**: remote に既にある id を除いた取りこぼしのみ push する / catch-up 経由でも
   genesis batch は積まない。
+
+## fileId の運搬 (Phase 4d-1)
+
+`RemoteSyncQueue` は**セッション単位** (ATProto の batch コレクションが repo 全体で 1 つ) だが、
+remote レコードは fileId を必要とする。そこで `enqueue(batches, fileId)` で受け取り、内部の
+`Outbox<RemoteBatch>` に `{ fileId, batch }` として積む。fileId を供給するのはファイル単位の
+`FanoutSyncProvider` 側。
+
+- enqueue で渡した fileId が送信エンベロープに添えられること。
+- **別ファイルの batch がそれぞれの fileId で積まれること** — 1 つのキューが複数ファイルの
+  batch を同時に抱えうる (セッション単位なので) ため、取り違えないことを固定する。
+
+重複排除キーは `batch.id` のまま (fileId は運搬のために添えるだけ)。`catchUp` も適用先の
+fileId を受け取る。
+
+## catchUp の fileId フィルタ (Phase 4d-4, 設計 §1.11 D-6)
+
+4d-1 から繰延していた対応。前提条件だった「`pull` が fileId を返せること」が
+`pullRemote(): Promise<RemoteBatch[]>` で揃ったため実装した。
+
+remote の batch コレクションは **repo 全体で 1 つ**なので `pullRemote` は他ファイルの
+batch も返す。`localBatches` は 1 ファイル分なので、他ファイル分と突合しても一致しよう
+がなく、**無関係な全件を毎回舐めるコストだけが残っていた**。
+
+**直していたのは正しさではなくコストである** — batch id は UUID なのでファイルを跨いで
+衝突せず、誤マッチは起きなかった。ただし fileId で絞る方が意図が明示的になり、
+将来 id 生成方式が変わったときの安全余裕にもなる。
+
+- **fileId で絞ってから突合する**: remote に `FILE` の '1' と別ファイル `OTHER` の '2' が
+  ある状態で `catchUp([1,2], FILE)` → '1' は送らず '2' を積み直すこと。別ファイルの '2' が
+  「FILE として送信済み」と誤判定されないことを固定する。
+- **他ファイルの batch しか無ければローカル全件を積み直す**: 積み直したエンベロープが
+  すべて `FILE` 宛であることも確認する (fileId の取り違えが起きない)。

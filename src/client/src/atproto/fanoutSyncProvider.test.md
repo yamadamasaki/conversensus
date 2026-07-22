@@ -45,3 +45,12 @@ local / remote それぞれに `FakeProvider` (push/pull/subscribe を記録、`
 - **pull / subscribe の local 委譲**: `pull` が local の batches と cursor をそのまま返し、
   since が local にだけ渡り remote の pull は呼ばれない / `subscribe` のコールバックが local に
   登録され、解除ハンドルが local の解除を呼ぶ。
+
+## fileId の供給 (Phase 4d-1)
+
+`FanoutSyncProvider` は**ファイル単位**なので、セッション単位の `RemoteSyncQueue` に対して
+fileId を供給する側になる (`deps.fileId`)。`push` / `catchUpRemote` はこの fileId を添えて
+enqueue / catchUp する。
+
+テスト用 provider は local (`SyncProvider`) と remote (`RemoteBatchTarget`) の両方に使うため、
+`push` と `pushRemote` の両方を持たせている。

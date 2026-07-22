@@ -168,6 +168,21 @@ W3d5-1〜4 は PDS 非依存で単体テストのみ。W3d5-5 でフックへ、
 
 送信のみの本スライスでは表面化しないが、**受信 (import) を実装する前に必ず解く必要がある**レコード形式の不足が 2 つある。device B (2 組目) を実際に動かして判明した。
 
+> ⚠️ **本節は 2026-07-20 の Phase 4d 設計 (critic レビュー込み) で訂正・大幅に拡張された。**
+> **`deepse/plans/step1-phase4d-receive.md` §1 を参照すること。本節だけを読んで受信を実装しないこと。**
+>
+> - **訂正**: 下記の「`(clock, actor)` で順序も重複排除も決まらない」は実装と食い違う。`orderBatches` の
+>   tiebreak は実際には `clock → timestamp → id` (`project.ts:44`) で、actor が同一でも順序は決定論的に
+>   決まる。真の問題は「順序が決まらない」ことではなく、**端末をまたぐ clock 比較が因果的に無意味**な
+>   ことと、**第 2 キーの `timestamp` が端末間で信頼できない**ことの 2 点。
+> - **下記の実測「A と B がともに clock=3」は偶然ではない**。genesis の連番 clock + `seed` が +1 しない
+>   ため、同一 snapshot から出発した端末は**構造的に同じ clock を発番する**。
+> - **前提条件は 2 つでは足りず、計 7 つあった** (うち Critical 3)。特に:
+>   **(a) lazy migration が受信 batch を DELETE する** (`eventStore.ts:231`、ゲートが marker のみ)、
+>   **(b) 受信しても画面に出ない** (読取は `openFile` の 1 回きり)、
+>   **(c) bootstrap ギャップ** (未知 sheetId 宛の content batch は着地しても無言で projection から落ちる)。
+> - **Lamport の受信規則は未実装**だった (`LamportClock.observe` は本番未使用)。
+
 - **`actor` が端末を識別していない**: A・B とも `actor` に `'local'` を書く。**Lamport clock は全体一意を保証しない** — 保証するのは因果順序であり、同値の tiebreak は慣習的に `(clock, actor)` で行う。actor が端末間で同一だと **`(clock, actor)` で順序も重複排除も決まらない**。受信時に「同じ clock の 2 つの batch」をどう並べるかが決定不能になる。→ actor を DID か端末ごとの一意 id にする必要がある。
 - **batch レコードが `fileId` を持たない**: レコードは `actor`/`clock`/`timestamp`/`ops`/`sheetId`/`createdAt` のみ。ATProto の batch コレクションは repo 全体で 1 つなので、受信側は **その batch をどのファイルへ適用すべきか復元できない**。content batch は `sheetId` が間接的な手掛かりになるが、**file 構造 batch は `sheetId` を持たない**ため手掛かりが皆無。→ `fileId` の付与が要る。
 

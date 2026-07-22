@@ -142,12 +142,17 @@ cd src/client && VITE_API_BASE=http://localhost:3001 bunx vite --port 5175 --str
 事前の `mkdir` は要らない — ディレクトリが無ければ `GET /files` は空一覧を返し, 最初の書込で
 `Bun.write` が親ごと作る (`storage.ts`).
 
-> **⚠️ 2 台を「同じファイルへ両方から書き込む」構成で常用してはならない**
-> (`deepse/plans/step1-w3d5-remote.md` §2 / critic C1). 現時点の remote 経路は **送信 (push) のみ**
-> で受信 (import) が無い. そのため device B のデーモンは自前の genesis batch を独立生成し,
-> **clock が衝突する 2 系統の genesis** が remote に載ってデータを汚染しうる. これを避けるため
-> 実装側で **genesis actor の batch は remote へ push しない** 不変条件を敷いている. 検証も
-> **「A が送ったものを B が取得できるか」に限定** し, B から同じファイルを編集して押し戻さないこと.
+> **⚠️ 「同じファイルへ両方から書き込む」構成は step1 Phase 4d 以降で解禁**
+> (`deepse/plans/step1-phase4d-receive.md`). W3d5 時点では remote 経路が **送信 (push) のみ**で
+> 受信 (import) が無く, device B のデーモンが自前の genesis batch を独立生成して
+> **clock が衝突する 2 系統の genesis** が remote に載る恐れがあったため, 検証を
+> 「A が送ったものを B が取得できるか」に限定していた. Phase 4d で受信経路が入り,
+> 端末一意の actor (`did#deviceId`) と `clock → actor → id` の全順序が入ったので,
+> **双方向の編集を前提に検証してよい** (それが 4d-6 の検証内容である).
+> なお **genesis actor の batch は remote へ push しない** 不変条件は現在も有効.
+>
+> ただし **画面反映は Phase 4e** なので, 受信内容は開き直すまで画面に出ない
+> (設計 §1.9). 検証は下の §5.2 のスクリプトで行うこと.
 
 ### 5.1 PDS 上のレコードを直接検査する
 
@@ -165,6 +170,34 @@ PDS_URL=http://localhost:2583 REPO=alice.test \
 検査項目は genesis 非 push (C1) / presentation 非搭載 (D7) / sheetId 往復 / clock 衝突なし の 4 つ.
 `listRecords` は公開エンドポイントなのでログインは要らない. このスクリプトはクライアントの pull と
 同じ mapper (`recordToBatch`) を通すので, **別端末が Batch に戻せること** の確認も兼ねる.
+
+### 5.2 ローカル正典 (受信結果) を検査する
+
+§5.1 が PDS 側 = **送信**結果を見るのに対し, こちらは端末のローカル op-log = **受信**結果を見る.
+受信の検証はこちらが主役になる (step1 Phase 4d).
+
+**「op-log に行が増えた」も証拠にならない**ことに注意する. シート作成 batch を受け取っていない
+状態で content batch だけ届くと, 着地はするが projection から無言で落ちる (設計 §1.10).
+基準 6 がこの穴を塞ぐ.
+
+```shell
+# device B を検査 (自端末のみの検査)
+DAEMON_URL=http://localhost:3001 FILE_ID=<uuid> bun run scripts/inspect-local-oplog.ts
+
+# 全基準を検査する (収束・marker・取りこぼしを含む)
+DAEMON_URL=http://localhost:3001 PEER_URL=http://localhost:3000 DATA_DIR=data-b \
+  PDS_URL=http://localhost:2583 REPO=alice.test \
+  bun run scripts/inspect-local-oplog.ts --snapshot /tmp/deviceB.json
+
+bun run scripts/inspect-local-oplog.ts --dump    # 全 batch を clock 順に一覧
+```
+
+- `FILE_ID` はファイルが 1 つだけなら省略できる. 複数あると候補を出して止まる.
+- 環境変数を渡さなかった検査は **未実施として一覧に出る** (黙って PASS にはしない).
+- **基準 2 (べき等) は 2 回実行して比較する**: 1 回目で `--snapshot` に記録 → 再受信させる →
+  同じコマンドを再実行. 1 回目は必ず PASS (記録するだけ) なので, 2 回目まで回して初めて判定になる.
+- `DATA_DIR` を渡すと `events.db` の migration marker を直接読む. marker が無いまま受信 batch が
+  あると, 次の読み取りで lazy migration が受信内容を破棄する (設計 §1.8) ため FAIL にする.
 
 ## 6. 注意点 (ハマりどころ)
 

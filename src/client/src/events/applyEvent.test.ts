@@ -12,7 +12,7 @@ import type { GraphEvent } from './GraphEvent';
 import { invertEvent } from './invertEvent';
 
 // テスト用イベントベース (id/timestamp は固定値)
-const base = { id: 'evt', timestamp: 0, userId: 'local' } as const;
+const base = { id: 'evt', timestamp: 0 } as const;
 
 // --- フィクスチャ ---
 

@@ -18,12 +18,32 @@
  * - **pending 公開**: 未送信件数を購読可能にし (§3.7 UI 用)、tap の pending に合流させる。
  */
 
-import type { Batch } from '@conversensus/shared';
+import type { Batch, FileId } from '@conversensus/shared';
 import type { FlushResult } from '../sync/outbox';
 import { Outbox } from '../sync/outbox';
-import type { SyncProvider, Unsubscribe } from '../sync/syncProvider';
-import { INITIAL_CURSOR } from '../sync/syncProvider';
+import type { Unsubscribe } from '../sync/syncProvider';
 import { filterBatchesForRemote } from './remoteFilter';
+import type { RemoteBatch } from './types';
+
+/**
+ * remote op-log の送信先 (Phase 4d-1)。
+ *
+ * `SyncProvider` ではなく専用の型にする — `SyncProvider` はファイル単位の境界だが、
+ * ATProto の batch コレクションは **repo 全体で 1 つ**なので、送信単位は fileId を
+ * 添えた `RemoteBatch` になる。この非対称が型に現れるようにしている。
+ */
+export interface RemoteBatchTarget {
+  pushRemote(entries: readonly RemoteBatch[]): Promise<void>;
+  /**
+   * remote の batch を**全件**取得する (Phase 4d-4)。
+   *
+   * `since` を取らないのは意図的である。ATProto の `listRecords` は rkey 順で、
+   * 本実装の rkey は batchId (ランダム UUID) なので**レコード順が時系列にならない**。
+   * 既読位置を表せる値が存在しないため、既読位置を持たない契約にした (設計 §1.3 の再検討)。
+   * 取りこぼしゼロを構造的に保証し、二重取り込みは受信側のべき等性が無害化する。
+   */
+  pullRemote(): Promise<RemoteBatch[]>;
+}
 
 /** remote キューのセッション内保持上限 (直近 N 件)。溢れは catch-up で回収 (D1) */
 export const REMOTE_QUEUE_MAX = 500;
@@ -32,30 +52,35 @@ export const REMOTE_QUEUE_MAX = 500;
 export type PendingListener = (count: number) => void;
 
 export type RemoteSyncQueueDeps = {
-  /** remote provider (AtprotoSyncProvider 等)。flush / catch-up の送信先・取得元 */
-  provider: SyncProvider;
+  /** remote op-log (AtprotoSyncProvider 等)。flush / catch-up の送信先・取得元 */
+  provider: RemoteBatchTarget;
   /** 保持上限 (直近 N 件)。既定 REMOTE_QUEUE_MAX */
   capacity?: number;
 };
 
 export class RemoteSyncQueue {
-  private readonly outbox: Outbox;
-  private readonly provider: SyncProvider;
+  private readonly outbox: Outbox<RemoteBatch>;
+  private readonly provider: RemoteBatchTarget;
   private readonly listeners = new Set<PendingListener>();
 
   constructor(deps: RemoteSyncQueueDeps) {
     this.provider = deps.provider;
-    this.outbox = new Outbox(deps.capacity ?? REMOTE_QUEUE_MAX);
+    // 重複排除は batch id で行う (fileId は運搬のために添えるだけ)
+    this.outbox = new Outbox<RemoteBatch>(
+      (entry) => entry.batch.id,
+      deps.capacity ?? REMOTE_QUEUE_MAX,
+    );
   }
 
   /**
    * remote へ送る batch を積む。genesis actor 除外・presentation 除外は enqueue 内で適用する
    * ので、呼び出し側は生の batch 列を渡してよい。フィルタ後に何も残らなければ何もしない。
    */
-  enqueue(batches: readonly Batch[]): void {
+  enqueue(batches: readonly Batch[], fileId: FileId): void {
     const filtered = filterBatchesForRemote(batches);
     if (filtered.length === 0) return;
-    this.outbox.enqueue(filtered);
+    // fileId は remote レコードに埋め込む必要があるのでここで添える (§3.1)
+    this.outbox.enqueue(filtered.map((batch) => ({ fileId, batch })));
     this.notify();
   }
 
@@ -64,7 +89,9 @@ export class RemoteSyncQueue {
    * 失敗は呼び出し側 (§3.7 の手動再送・catch-up) に FlushResult で通知される。
    */
   async flush(): Promise<FlushResult> {
-    const result = await this.outbox.flush(this.provider);
+    const result = await this.outbox.flush((entries) =>
+      this.provider.pushRemote(entries),
+    );
     this.notify();
     return result;
   }
@@ -74,15 +101,37 @@ export class RemoteSyncQueue {
    * `localBatches` はローカル正典の全 batch (呼び出し側が渡す)。genesis 除外は enqueue 内で
    * 適用されるので remote に genesis を積むことはない (C1)。
    *
-   * 本スライスではメソッドのみ。起動時/再接続時の自動呼び出しは W3d5-5 で配線する。
-   * コスト: pull は clock>cursor の全件 list なので catch-up 1 回 = 全件 pull 1 回 (D2)。
+   * **fileId で絞ってから突合する (Phase 4d-4, 設計 §1.11 D-6)**。remote の batch
+   * コレクションは repo 全体で 1 つなので、pull は他ファイルの batch も返す。
+   * `localBatches` は 1 ファイル分なので、他ファイル分と突合しても一致しようがなく、
+   * 無関係な全件を毎回舐めるコストだけが残っていた。
+   * (誤マッチはしない — batch id は UUID なのでファイルを跨いで衝突しない。
+   * 直していたのは正しさではなくコスト。)
+   *
+   * コスト: pull は remote 全件 list なので catch-up 1 回 = 全件 pull 1 回 (D2)。
    */
-  async catchUp(localBatches: readonly Batch[]): Promise<FlushResult> {
-    const { batches: remoteBatches } = await this.provider.pull(INITIAL_CURSOR);
-    const remoteIds = new Set(remoteBatches.map((b) => b.id));
+  async catchUp(
+    localBatches: readonly Batch[],
+    fileId: FileId,
+  ): Promise<FlushResult> {
+    const remote = await this.provider.pullRemote();
+    const remoteIds = new Set(
+      remote.filter((e) => e.fileId === fileId).map((e) => e.batch.id),
+    );
     const missing = localBatches.filter((b) => !remoteIds.has(b.id));
-    this.enqueue(missing);
+    this.enqueue(missing, fileId);
     return this.flush();
+  }
+
+  /**
+   * remote の batch を全件取得する (Phase 4d-5 の受信経路用)。
+   *
+   * キューの責務は送信だが、remote provider を保持しているのがここなので取得も委譲する。
+   * **受信の書き込みには使わない** — 受信は `receiveRemoteBatches` がローカル正典へ
+   * 直書きする (fanout / enqueue を通すと echo ループになる, 設計 §3.3a)。
+   */
+  pullRemote(): Promise<RemoteBatch[]> {
+    return this.provider.pullRemote();
   }
 
   /** 現在の未送信件数 */
@@ -90,8 +139,8 @@ export class RemoteSyncQueue {
     return this.outbox.size;
   }
 
-  /** 現在の未送信 batches (FIFO のコピー) */
-  pending(): Batch[] {
+  /** 現在の未送信項目 (FIFO のコピー) */
+  pending(): RemoteBatch[] {
     return this.outbox.pending();
   }
 

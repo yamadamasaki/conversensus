@@ -78,3 +78,33 @@ Hono アプリの `fetch` 関数を直接呼び出すことで、実際の HTTP 
 | DELETE /files/:id | 削除 → 204 | 正常系 |
 | DELETE /files/:id | 削除後に GET → 404 | 削除の完全性 |
 | DELETE /files/:id | 存在しない ID → 404 | エラー系 |
+
+## POST /files/:id/batches/received (Phase 4d-5)
+
+remote から受信した batches を追記する**専用エンドポイント**。通常の
+`POST /files/:id/batches` とは別口にしてある。
+
+**なぜ別口か**: 受信は追記に加えて **op-log 正典 marker を同じ tx で立てる**必要が
+ある (`EventStore.appendReceivedBatches`, Phase 4d-0)。marker が無いと次の
+`GET /files/:id/batches` が lazy migration を起動し、`DELETE FROM batches` で受信内容を
+丸ごと破棄する (設計 `step1-phase4d-receive.md` §1.8 / §3.3b)。受信 batch は remote に
+しか無いので、失うと取り直せない。
+
+**ローカル編集の書き込み経路 (通常 POST) は marker を立ててはならない** — 受信して
+いないファイルの lazy migration は W3d-1 どおり動く必要がある。両者を分けるのが
+marker の役割なので、エンドポイントも分けて取り違えを経路で防ぐ。
+
+> 設計 §3.3 は「受信は `POST /files/:id/batches` へ書く」と書いていたが、その
+> エンドポイントは `appendBatches` (marker 無し) を呼ぶので、**そのまま従うと §3.3b の
+> 不変条件を破る**。4d-0 は `appendReceivedBatches` を作ったが HTTP へ露出していなかった。
+
+- **追記と件数**: 201 と `{ appended: N }` を返すこと。
+- **べき等**: 同一 batch の再受信で `appended: 0` になること (受入基準 2)。
+- **不正な Batch は 400**: 通常 POST と同じ検証を通ること。
+- **🔴 受信 batch は lazy migration に破棄されない**: 「初回 read 前に積まれた pre-W3 増分は
+  migration で破棄される」テストと**同じ手順**で、書き込み口だけを受信用に替える。
+  marker が「正典宣言」として働き、同じ状況で結果が逆になることを固定する。4d-0 の要。
+- **通常 POST は marker を立てない**: 上の保護が「全ファイルで migration を無効化した」
+  わけではないことの対照。W3d-1 の破棄挙動を壊していないことの証拠。
+- **受信 0 件では marker を立てない**: 空配列を受けても正典宣言をせず、その後の
+  lazy migration が従来どおり働くこと。機会を無意味に奪わないため。

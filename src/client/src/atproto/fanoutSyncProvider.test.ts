@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import {
   type Batch,
+  type FileId,
   GENESIS_ACTOR,
   type NodeId,
   type Op,
@@ -13,7 +14,10 @@ import type {
   Unsubscribe,
 } from '../sync/syncProvider';
 import { FanoutSyncProvider } from './fanoutSyncProvider';
-import { RemoteSyncQueue } from './remoteSyncQueue';
+import { type RemoteBatchTarget, RemoteSyncQueue } from './remoteSyncQueue';
+import type { RemoteBatch } from './types';
+
+const FILE = '22222222-2222-4222-8222-222222222222' as FileId;
 
 const addNode = (id: string): Op => ({
   kind: 'node.add',
@@ -35,13 +39,21 @@ const batch = (id: string, over: Partial<Batch> = {}): Batch => ({
   ...over,
 });
 
-/** push/pull/subscribe を記録し、成否を切り替えられるテスト用 provider */
-class FakeProvider implements SyncProvider {
+/**
+ * push/pull/subscribe を記録し、成否を切り替えられるテスト用 provider。
+ * local (SyncProvider) と remote (RemoteBatchTarget) の両方に使えるよう
+ * `push` と `pushRemote` の両方を持たせる (Phase 4d-1)。
+ */
+class FakeProvider implements SyncProvider, RemoteBatchTarget {
   pushed: Batch[][] = [];
+  pushedRemote: RemoteBatch[][] = [];
   online = true;
   pullBatches: Batch[] = [];
   pullCursor = 'local-cursor';
   pulledSince: Cursor[] = [];
+  /** pullRemote の応答と呼び出し回数 (Phase 4d-4) */
+  pullRemoteEntries: RemoteBatch[] = [];
+  pulledRemote = 0;
   subscribed: OnRemote[] = [];
   unsubscribed = 0;
 
@@ -49,9 +61,19 @@ class FakeProvider implements SyncProvider {
     if (!this.online) throw new Error('offline');
     this.pushed.push(batches);
   }
+  async pushRemote(entries: readonly RemoteBatch[]): Promise<void> {
+    if (!this.online) throw new Error('offline');
+    this.pushedRemote.push([...entries]);
+    this.pushed.push(entries.map((e) => e.batch));
+  }
   async pull(since: Cursor): Promise<PullResult> {
     this.pulledSince.push(since);
     return { batches: this.pullBatches, cursor: this.pullCursor };
+  }
+  /** remote 側の取得 (Phase 4d-4: cursor を取らず全件返す) */
+  async pullRemote(): Promise<RemoteBatch[]> {
+    this.pulledRemote += 1;
+    return this.pullRemoteEntries;
   }
   subscribe(onRemote: OnRemote): Unsubscribe {
     this.subscribed.push(onRemote);
@@ -69,7 +91,7 @@ const setup = () => {
   const local = new FakeProvider();
   const remote = new FakeProvider();
   const remoteQueue = new RemoteSyncQueue({ provider: remote });
-  const fanout = new FanoutSyncProvider({ local, remoteQueue });
+  const fanout = new FanoutSyncProvider({ local, remoteQueue, fileId: FILE });
   return { local, remote, remoteQueue, fanout };
 };
 
