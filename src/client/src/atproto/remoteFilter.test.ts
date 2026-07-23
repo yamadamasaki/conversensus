@@ -77,12 +77,32 @@ describe('filterBatchesForRemote', () => {
     expect(filterBatchesForRemote([b])).toEqual([]);
   });
 
-  it('genesis actor の batch は syncable op を持っていても丸ごと除外する (C1)', () => {
+  it('genesis actor の batch も remote へ通す (Phase 4e-0・C1 見直し)', () => {
     const b = batch({ actor: GENESIS_ACTOR, ops: [addNode('n1')] });
-    expect(filterBatchesForRemote([b])).toEqual([]);
+    const out = filterBatchesForRemote([b]);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toBe(b); // 全 op syncable なので同一参照
   });
 
-  it('複数 batch: genesis 除外・presentation skip・content 通過を順序保存で行う', () => {
+  it('genesis batch でも presentation op は除外し、空になれば送らない', () => {
+    const mixed = batch({
+      actor: GENESIS_ACTOR,
+      ops: [addNode('g1'), setStyle('g1')],
+    });
+    const presOnly = batch({
+      id: 'b2' as Batch['id'],
+      actor: GENESIS_ACTOR,
+      clock: 2,
+      ops: [setStyle('g1')],
+    });
+    const out = filterBatchesForRemote([mixed, presOnly]);
+    // mixed は presentation を絞った複製が通り、presOnly は skip
+    expect(out).toHaveLength(1);
+    expect(out[0].ops).toEqual([addNode('g1')]);
+    expect(out[0].actor).toBe(GENESIS_ACTOR);
+  });
+
+  it('複数 batch: genesis 通過・presentation skip・content 通過を順序保存で行う', () => {
     const genesis = batch({
       id: 'b0' as Batch['id'],
       actor: GENESIS_ACTOR,
@@ -105,12 +125,13 @@ describe('filterBatchesForRemote', () => {
       ops: [setStyle('n1'), addNode('n2')],
     });
     const out = filterBatchesForRemote([genesis, content, presOnly, mixed]);
-    // genesis と presOnly は落ち、content と mixed(絞り済) が順序保存で残る
+    // presOnly のみ落ち、genesis・content・mixed(絞り済) が順序保存で残る
     expect(out.map((b) => b.id)).toEqual([
+      'b0' as Batch['id'],
       'b1' as Batch['id'],
       'b3' as Batch['id'],
     ]);
-    expect(out[1].ops).toEqual([addNode('n2')]);
+    expect(out[2].ops).toEqual([addNode('n2')]);
   });
 
   it('入力 batch を破壊的に変更しない (元 ops はそのまま)', () => {

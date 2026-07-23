@@ -6,8 +6,9 @@
  * このキューに残って UI に「クラウド未同期: N 件」として現れ、自動/手動再送で回復する。
  * 純 fire-and-forget (サイレント消失) を採らないための中核。
  *
- * - **enqueue**: remote leg のフィルタ (`filterBatchesForRemote`: genesis actor 除外 +
- *   presentation 除外, §3.2/§3.5) を内部で適用してから積む。フィルタで空になれば積まない。
+ * - **enqueue**: remote leg のフィルタ (`filterBatchesForRemote`: presentation 除外,
+ *   §3.2。genesis は Phase 4e-0 の C1 見直しで remote へ通す) を内部で適用してから
+ *   積む。フィルタで空になれば積まない。
  * - **flush (best-effort)**: 内包 `Outbox` 経由で remote provider へ push。成功→除去、
  *   失敗→保持 (破棄しない)。失敗は編集フローに波及しない。
  * - **catch-up**: remote を全件 pull し、remote に無いローカル batch を積み直して flush する

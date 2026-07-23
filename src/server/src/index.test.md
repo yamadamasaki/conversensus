@@ -6,7 +6,7 @@
 
 | エンドポイント | 責務 |
 |---|---|
-| `GET /files` | ファイル一覧を返す |
+| `GET /files` | ファイル一覧を返す (snapshot storage と op-log の和集合, Phase 4e-2a) |
 | `POST /files` | ファイルを新規作成する |
 | `GET /files/:id` | 指定 ID のファイルを返す |
 | `PUT /files/:id` | 指定 ID のファイルを更新する |
@@ -69,6 +69,9 @@ Hono アプリの `fetch` 関数を直接呼び出すことで、実際の HTTP 
 | GET /files/:id/batches | 二度目の GET も同じ genesis | migration べき等 |
 | GET /files/:id/batches | pre-W3 増分は破棄される | 破棄→genesis |
 | GET /files | 初期状態は [] | 空一覧 |
+| GET /files | op-log にしか無いファイルも載る (受信 materialize) | 和集合 (Phase 4e-2a) |
+| GET /files | 両方に在る → snapshot の name を正とし重複しない | fileId distinct |
+| GET /files | 孤児 batch だけの file_id は出ない (D-4) | 0 シート除外 |
 | POST /files | 名前付きで作成 → 201 | 正常系 |
 | POST /files | name 省略 → "無題" | デフォルト値 |
 | GET /files/:id | 作成後に取得できる | 正常系 |

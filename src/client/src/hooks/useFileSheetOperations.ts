@@ -6,7 +6,7 @@ import {
   projectFile,
   type SheetId,
 } from '@conversensus/shared';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   createFile,
   exportFile,
@@ -14,6 +14,7 @@ import {
   fetchFile,
   fetchFiles,
   importFile,
+  pushReceivedBatches,
   removeFile,
   saveFile,
 } from '../api';
@@ -28,7 +29,10 @@ import { READ_FROM_OPLOG } from '../config';
 import type { GraphEvent } from '../events/GraphEvent';
 import { makeEventBase } from '../events/GraphEvent';
 import type { PopupTarget } from '../SettingsPopup';
-import { useEventSyncTap } from './useEventSyncTap';
+import { discoverRemoteFiles } from '../sync/discoverRemoteFiles';
+import type { ReceiveRemoteResult } from '../sync/receiveRemoteBatches';
+import { reprojectAfterReceive } from '../sync/reprojectAfterReceive';
+import { type TapHandle, useEventSyncTap } from './useEventSyncTap';
 
 type ConfirmState = {
   message: string;
@@ -47,6 +51,8 @@ export interface FileSheetOpsDeps {
   fetchFile: typeof fetchFile;
   fetchFiles: typeof fetchFiles;
   importFile: typeof importFile;
+  /** 受信 batch の書き込み口 (marker 経路, Phase 4e-2b の materialize 用) */
+  pushReceivedBatches: typeof pushReceivedBatches;
   removeFile: typeof removeFile;
   saveFile: typeof saveFile;
   atprotoFilesDelete: (id: string) => Promise<void>;
@@ -62,6 +68,7 @@ export const defaultFileSheetOpsDeps: FileSheetOpsDeps = {
   fetchFile,
   fetchFiles,
   importFile,
+  pushReceivedBatches,
   removeFile,
   saveFile,
   atprotoFilesDelete: (id: string) => atprotoFilesColl.delete(id),
@@ -91,6 +98,12 @@ interface UseFileSheetOperationsParams {
   remoteQueue?: RemoteSyncQueue | null;
   /** この端末の操作主体 `<did>#<deviceId>` (Phase 4d-2)。tap が batch の actor に使う */
   actor: Actor;
+  /**
+   * 編集中 (ノードの inline editor / ドラッグ中) なら true を返す (Phase 4e-3, §3.3)。
+   * 編集中の受信は activeFile 差し替えを保留し、次の受信契機で反映する。
+   * **安定参照であること** (ref 経由を推奨)。未指定 = 常に編集中でない扱い。
+   */
+  isEditingActive?: () => boolean;
 }
 
 export function useFileSheetOperations({
@@ -101,6 +114,7 @@ export function useFileSheetOperations({
   readFromOplog = READ_FROM_OPLOG,
   remoteQueue = null,
   actor,
+  isEditingActive,
 }: UseFileSheetOperationsParams) {
   const [files, setFiles] = useState<GraphFileListItem[]>([]);
   const [activeFile, setActiveFile] = useState<GraphFile | null>(null);
@@ -116,12 +130,67 @@ export function useFileSheetOperations({
     [activeFile, activeSheetId],
   );
 
+  // handleReceived (安定参照) から最新の activeFile を読むための ref。
+  // state を直接 dep に取ると受信 effect が activeFile 変化のたびに張り直される。
+  const activeFileRef = useRef<GraphFile | null>(null);
+  useEffect(() => {
+    activeFileRef.current = activeFile;
+  }, [activeFile]);
+
+  // 受信 swap の世代番号 (Phase 4e-4 実機で発見)。GraphEditor は React Flow の内部
+  // state を file.id / activeSheetId の変化でしかリセットしないため、同一ファイルの
+  // activeFile 差し替え (受信 swap) は画面に反映されない。swap のたびに増える本値を
+  // GraphEditor の reset effect の依存に加えて再 seed を発火させる。
+  const [receiveEpoch, setReceiveEpoch] = useState(0);
+
+  // 受信着地後の画面反映 (Phase 4e-3, 4e 設計 §3.3)。tap のローカル drain を待ち、
+  // pending が空のときだけ再 projection で activeFile を差し替える (未 flush 編集を
+  // 失わない)。見送り (defer) は次の受信契機が拾う。
+  const handleReceived = useCallback(
+    (fileId: FileId, _result: ReceiveRemoteResult, tap: TapHandle) => {
+      reprojectAfterReceive({
+        settled: tap.settled,
+        pendingCount: tap.pending,
+        loadProjection: async () =>
+          projectFile(await deps.fetchBatches(fileId), fileId),
+        ...(isEditingActive && { isEditing: isEditingActive }),
+      })
+        .then((result) => {
+          if (result.kind !== 'swap') {
+            console.info(`[sync] reprojection deferred: ${result.reason}`);
+            return;
+          }
+          // 受信対象のファイルを開いたままのときだけ差し替える (再 projection 中に
+          // ファイルを切り替えていたら何もしない)
+          if (activeFileRef.current?.id !== fileId) return;
+          setActiveFile(result.file);
+          // GraphEditor に React Flow の再 seed を伝える (同一 file.id の差し替えは
+          // これが無いと画面に出ない — 4e-4 実機で発見)
+          setReceiveEpoch((epoch) => epoch + 1);
+          // 開いていたシートが受信で消えていたら先頭シートへ退避する
+          setActiveSheetId((prev) =>
+            prev !== null && result.file.sheets.some((s) => s.id === prev)
+              ? prev
+              : ((result.file.sheets[0]?.id ?? null) as SheetId | null),
+          );
+        })
+        .catch((error) =>
+          console.warn('[sync] reprojection after receive failed:', error),
+        );
+    },
+    [deps, isEditingActive],
+  );
+
   // 操作ログ tap をファイル単位で保持する (W3c1)。content (GraphEditor) と
   // structure (以下の構造ハンドラ) の両方が単一の tap = 単一 Lamport 発番源を共有する。
   // remote キューがあれば tap は fanout (ローカル正典 + remote) になる (W3d5-5)。
   const internalSyncRecord = useEventSyncTap(activeFile?.id ?? null, {
     remoteQueue,
     actor,
+    // 受信 (a) の書き込み口も discovery (4e-2b) と同じ deps 抽象を通す。
+    // 既定は api の pushReceivedBatches なので挙動は変わらない (deps は安定参照)。
+    appendReceived: deps.pushReceivedBatches,
+    onReceived: handleReceived,
   });
   const syncRecord = syncRecordOverride ?? internalSyncRecord;
 
@@ -440,6 +509,37 @@ export function useFileSheetOperations({
     deps.fetchFiles().then(setFiles).catch(console.error);
   }, [deps]);
 
+  // 未知ファイルの発見と materialize (Phase 4e-2b, 4e 設計 §3.2b)。
+  // remote (repo 全体) を走査し、ローカル正典に無いファイルの batch 群を marker 経路へ
+  // 書く。契機は受信 (a) と同じ「起動時 + online + 手動は今すぐ同期に相乗り予定」(§3.4)。
+  // 発見したら一覧を読み直す — GET /files が op-log との和集合 (4e-2a) なので、
+  // materialize されたファイルはこれだけで Sidebar に現れる。
+  useEffect(() => {
+    if (!remoteQueue) return;
+    const discover = () => {
+      discoverRemoteFiles({
+        pullRemote: () => remoteQueue.pullRemote(),
+        listLocalFileIds: async () =>
+          (await deps.fetchFiles()).map((f) => f.id),
+        appendReceived: deps.pushReceivedBatches,
+      })
+        .then((result) => {
+          if (result.discovered.length === 0) return;
+          console.info(
+            `[sync] discovered ${result.discovered.length} remote file(s), ` +
+              `${result.appended} batch(es)`,
+          );
+          deps.fetchFiles().then(setFiles).catch(console.error);
+        })
+        .catch((error) =>
+          console.warn('[sync] remote file discovery failed:', error),
+        );
+    };
+    discover();
+    window.addEventListener('online', discover);
+    return () => window.removeEventListener('online', discover);
+  }, [remoteQueue, deps]);
+
   return {
     files,
     activeFile,
@@ -464,5 +564,6 @@ export function useFileSheetOperations({
     handleExportFile,
     loadAtprotoFiles,
     syncRecord,
+    receiveEpoch,
   };
 }

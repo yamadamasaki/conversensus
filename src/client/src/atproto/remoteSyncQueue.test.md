@@ -11,9 +11,10 @@
 このキューは設計 §3.1 / §3.6 の「純 fire-and-forget を採らず、失敗に気づけて回復できる」を
 成立させる中核。次が破れると remote 同期が静かに壊れる:
 
-- **フィルタ (C1/D7)**: enqueue が genesis actor batch を積む、または presentation を
-  remote に載せると、genesis 衝突 (remote 汚染) / presentation 漏洩が起きる。フィルタを
-  enqueue 内に閉じ込め、呼び出し側が生の batch を渡しても安全にする契約を固定する。
+- **フィルタ (D7, Phase 4e-0 で C1 見直し)**: enqueue が presentation を remote に載せると
+  presentation 漏洩が起きる。フィルタを enqueue 内に閉じ込め、呼び出し側が生の batch を
+  渡しても安全にする契約を固定する。genesis actor batch は Phase 4e-0 (C1 見直し) で
+  remote へ**通す**ようになった — bootstrap の起源として届くことを固定する。
 - **破棄しない (§3.6)**: flush 失敗時に未送信を捨てると、サイレント消失する。失敗で保持し、
   復帰後の再 flush で送信できることを固定する。ローカル正典 (Outbox) の非喪失契約を remote
   でも保つ。
@@ -21,7 +22,7 @@
   無制限成長を防ぐ。溢れてもローカル正典 + catch-up で回収できるのでデータは失われない。
 - **catch-up (取りこぼし回収)**: best-effort push がオフライン中に落とした分を、remote 全件
   pull と突き合わせて積み直す。remote に既にある分は二重投入しない (id 一致で除外) こと、
-  genesis は積まない (C1) ことを固定する。
+  genesis も積む (Phase 4e-0・C1 見直し) ことを固定する。
 - **pending 購読 (§3.7)**: UI が未同期件数を追えるよう、登録直後の現在値通知と enqueue/flush
   での更新、解除後の非通知を固定する。
 
@@ -30,8 +31,8 @@
 テスト用 `FakeProvider` (push/pull を記録、`online` で push 成否、`pullBatches` で pull 応答を
 切替) を注入して単体で閉じる (PDS 非依存)。
 
-- **enqueue (フィルタ)**: genesis actor batch を積まない / 全 presentation batch を積まない /
-  mixed batch は presentation を除いて積む。
+- **enqueue (フィルタ)**: genesis actor batch も積む (Phase 4e-0) / 全 presentation batch を
+  積まない / mixed batch は presentation を除いて積む。
 - **flush**: 成功でキューから除去 (provider に push される) / 失敗で破棄せず保持 /
   復帰後の再 flush で送信。
 - **pending 購読**: 登録直後に現在値 (0) を通知、enqueue で 1・flush で 0 を観測、解除後は
@@ -39,7 +40,7 @@
 - **上限 (D1)**: `capacity: 2` で 3 件積むと最古が溢れ直近 2 件を保持・`overflowed=true`。
   既定 `REMOTE_QUEUE_MAX` が正の有限値であること。
 - **catchUp**: remote に既にある id を除いた取りこぼしのみ push する / catch-up 経由でも
-  genesis batch は積まない。
+  genesis batch を積む (Phase 4e-0)。
 
 ## fileId の運搬 (Phase 4d-1)
 

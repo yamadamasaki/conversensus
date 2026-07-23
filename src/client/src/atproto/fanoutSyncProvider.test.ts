@@ -142,13 +142,13 @@ describe('FanoutSyncProvider', () => {
   });
 
   describe('remote leg のフィルタ', () => {
-    it('genesis batch は remote へ送らない (C1)', async () => {
+    it('genesis batch も remote へ送る (Phase 4e-0・C1 見直し)', async () => {
       const { local, remote, fanout } = setup();
       const g = batch('1', { actor: GENESIS_ACTOR });
       await fanout.push([g]);
       await fanout.whenRemoteSettled();
-      expect(local.flatPushed.map((b) => b.id)).toEqual(['1']); // ローカルには載る
-      expect(remote.flatPushed).toEqual([]);
+      expect(local.flatPushed.map((b) => b.id)).toEqual(['1']); // ローカルにも載る
+      expect(remote.flatPushed.map((b) => b.id)).toEqual(['1']); // remote にも載る
     });
 
     it('mixed batch は presentation を除いて remote へ送る', async () => {

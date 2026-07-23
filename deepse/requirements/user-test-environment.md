@@ -149,10 +149,13 @@ cd src/client && VITE_API_BASE=http://localhost:3001 bunx vite --port 5175 --str
 > 「A が送ったものを B が取得できるか」に限定していた. Phase 4d で受信経路が入り,
 > 端末一意の actor (`did#deviceId`) と `clock → actor → id` の全順序が入ったので,
 > **双方向の編集を前提に検証してよい** (それが 4d-6 の検証内容である).
-> なお **genesis actor の batch は remote へ push しない** 不変条件は現在も有効.
+> **genesis actor の batch も Phase 4e-0 以降は remote へ push される**
+> (`deepse/plans/step1-phase4e-bootstrap.md` §3.1 — genesis は content-addressed で
+> 端末間べき等なので, 同一 snapshot 由来なら id が一致し PDS 上で dedup される).
 >
-> ただし **画面反映は Phase 4e** なので, 受信内容は開き直すまで画面に出ない
-> (設計 §1.9). 検証は下の §5.2 のスクリプトで行うこと.
+> 画面反映は Phase 4e-3 で入った — 受信着地後に再 projection が走り, 開いている
+> ファイルへ反映される. ただし**画面は依然として証拠にしない** (§5.1 冒頭の理由).
+> 検証は下の §5.1 / §5.2 のスクリプトで行うこと.
 
 ### 5.1 PDS 上のレコードを直接検査する
 
@@ -167,7 +170,10 @@ PDS_URL=http://localhost:2583 REPO=alice.test \
   bun run scripts/inspect-remote-batches.ts                    # 宛先を明示する場合
 ```
 
-検査項目は genesis 非 push (C1) / presentation 非搭載 (D7) / sheetId 往復 / clock 衝突なし の 4 つ.
+検査項目は genesis push・id 収束 (4e-0) / presentation 非搭載 (D7) / sheetId 往復 / clock 衝突なし の 4 つ.
+genesis の検査は Phase 4e-0 で反転した — 旧 C1 (genesis 非 push) は削除され, いまは
+「genesis が remote に載っており, かつ同一 fileId に複数の genesis id が分岐していない」
+ことを見る (Phase 4e 設計 §1.2 MED1 の実機確認).
 `listRecords` は公開エンドポイントなのでログインは要らない. このスクリプトはクライアントの pull と
 同じ mapper (`recordToBatch`) を通すので, **別端末が Batch に戻せること** の確認も兼ねる.
 

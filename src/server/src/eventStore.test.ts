@@ -314,4 +314,51 @@ describe('EventStore', () => {
       expect(store.getCommits(other).map((c) => c.id)).toEqual(['c2']);
     });
   });
+
+  describe('listOplogFiles (Phase 4e-2a)', () => {
+    /** file 構造 (file.setName + sheet.create) を持つ batch を作るヘルパ */
+    const structure = (
+      id: string,
+      name: string,
+      clock: number,
+      description?: string,
+    ): Batch => ({
+      id: id as Batch['id'],
+      actor: 'genesis',
+      clock,
+      timestamp: clock,
+      ops: [
+        { kind: 'file.setName', name },
+        ...(description !== undefined
+          ? [{ kind: 'file.setDescription' as const, description }]
+          : []),
+        { kind: 'sheet.create', target: 'sheet-1' as SheetId, name: 'S1' },
+      ],
+    });
+
+    it('op-log が空なら空配列を返す', () => {
+      expect(store.listOplogFiles()).toEqual([]);
+    });
+
+    it('file 構造 op を畳んで name/description を得る', () => {
+      store.appendBatch(FILE, structure('b1', 'ファイルA', 1, 'せつめい'));
+      expect(store.listOplogFiles()).toEqual([
+        { id: FILE, name: 'ファイルA', description: 'せつめい' },
+      ]);
+    });
+
+    it('構造を持たない (0 シート) file_id は一覧に出さない', () => {
+      // genesis の無い孤児 content batch だけの file_id (D-4)。
+      // 有効な GraphFile は必ず 1 シート以上 (W3d-2 の読取失敗判定と同じ基準)。
+      store.appendBatch(FILE, addNode('b1', 'n1', 'ノード', 1));
+      expect(store.listOplogFiles()).toEqual([]);
+    });
+
+    it('初出順 (file_id ごとの最小 seq) で並ぶ', () => {
+      const other = 'file-2' as FileId;
+      store.appendBatch(other, structure('b1', '後で snapshot になる方', 1));
+      store.appendBatch(FILE, structure('b2', '先に受信した方', 1));
+      expect(store.listOplogFiles().map((f) => f.id)).toEqual([other, FILE]);
+    });
+  });
 });

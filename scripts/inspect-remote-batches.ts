@@ -6,7 +6,10 @@
  * 「載ったように見える」偽の確証が起きるため (critic A2)。PDS 上のレコードそのものを見る。
  *
  * 検査項目:
- *   1. genesis 非 push (C1)    — actor='genesis' の batch が 1 件も無いこと
+ *   1. genesis push・id 収束 (4e-0) — genesis batch が remote に載り、同一 fileId に
+ *      複数の genesis id が分岐していないこと (Phase 4e §1.2 MED1)。
+ *      旧 C1 (genesis 非 push) は Phase 4e-0 で削除された — genesis は content-addressed
+ *      で端末間べき等なので、同一 snapshot 由来なら rkey (= batch id) が一致し dedup される。
  *   2. presentation 非搭載 (D7) — 全 op が isSyncable を通ること
  *   3. sheetId 往復            — content batch が sheetId を持つこと
  *   4. clock 単調・衝突なし     — clock の重複が無いこと
@@ -35,9 +38,9 @@ import {
 } from '../src/shared/src/index';
 import {
   isBatchRecordValue,
-  recordToBatch,
+  recordToRemoteBatch,
 } from '../src/client/src/atproto/batchMapper';
-import { NSID } from '../src/client/src/atproto/types';
+import { NSID, type RemoteBatch } from '../src/client/src/atproto/types';
 
 const DEFAULT_PDS_URL = 'http://localhost:2583';
 const DEFAULT_REPO = 'alice.test';
@@ -83,18 +86,53 @@ async function listAllRecords(): Promise<ListedRecord[]> {
 
 type Check = { name: string; ok: boolean; detail: string };
 
-/** 1. genesis actor の batch が remote に載っていないこと (C1) */
-function checkGenesisNotPushed(batches: Batch[]): Check {
-  const genesis = batches.filter((b) => b.actor === GENESIS_ACTOR);
+/**
+ * 1. genesis batch が remote に載り、id が収束していること (Phase 4e-0)。
+ *
+ * genesis は 1 ファイルにつき **clock 連番の batch 列** (file.setName, sheet.create, ...)
+ * として生成される。各 batch は content-addressed (snapshot 内容から決定的に id を導出)
+ * なので、同一 snapshot から生成された genesis 列は端末が違っても同じ clock の batch が
+ * 同じ id (= rkey) を持ち、PDS 上で 1 レコードに dedup される。したがって
+ * **同一 (fileId, clock) に異なる id の genesis batch が並んでいたら**、float 直列化差
+ * などで id が分岐している (§1.2 MED1 の残余リスクが現実化) — FAIL とする。
+ * genesis が 0 件の場合も FAIL — 4e-0 以降 push されるはずで、bootstrap ギャップが
+ * 塞がっていない (SYNC_TO_REMOTE 無効か、4e-0 より前のデータ) 可能性がある。
+ */
+function checkGenesisConverged(remoteBatches: RemoteBatch[]): Check {
+  const genesis = remoteBatches.filter(
+    ({ batch }) => batch.actor === GENESIS_ACTOR,
+  );
+  if (genesis.length === 0) {
+    return {
+      name: 'genesis push・id 収束 (4e-0)',
+      ok: false,
+      detail:
+        'genesis batch が 1 件も載っていない (4e-0 以降は push されるはず。' +
+        'SYNC_TO_REMOTE の有効化とログイン後の編集を確認すること)',
+    };
+  }
+  const fileCount = new Set(genesis.map(({ fileId }) => fileId)).size;
+  const bySlot = new Map<string, Batch[]>();
+  for (const { fileId, batch } of genesis) {
+    const slot = `${fileId}#clock=${batch.clock}`;
+    const same = bySlot.get(slot) ?? [];
+    same.push(batch);
+    bySlot.set(slot, same);
+  }
+  const diverged = [...bySlot.entries()].filter(([, bs]) => bs.length > 1);
   return {
-    name: 'genesis 非 push (C1)',
-    ok: genesis.length === 0,
+    name: 'genesis push・id 収束 (4e-0)',
+    ok: diverged.length === 0,
     detail:
-      genesis.length === 0
-        ? 'genesis actor の batch は 1 件も載っていない'
-        : `genesis batch が ${genesis.length} 件載っている: ${genesis
-            .map((b) => `${b.id}(clock=${b.clock})`)
-            .join(', ')}`,
+      diverged.length === 0
+        ? `genesis batch ${genesis.length} 件 (file ${fileCount} 件) — ` +
+          'いずれの (fileId, clock) も genesis id は 1 つに収束している'
+        : `genesis id が分岐している (§1.2 MED1): ${diverged
+            .map(
+              ([slot, bs]) =>
+                `${slot} に ${bs.length} 件 [${bs.map((b) => b.id).join(', ')}]`,
+            )
+            .join('; ')}`,
   };
 }
 
@@ -147,51 +185,50 @@ function checkSheetIdRoundTrip(batches: Batch[]): Check {
 /**
  * 4. clock の衝突検査。
  *
- * **Lamport clock は全体一意を保証しない** — 保証するのは因果順序で、同値の tiebreak は
- * 慣習的に `(clock, actor)` で行う。受信 (import) 経路が無い現状、各端末は自分のローカル
- * 正典からしか seed できないので、別ファイル・別端末の clock は独立に 1 から進む。
- * したがって**別 sheet 間の衝突は multi-device では正常**であり、FAIL にすると
- * device B 検証 (W3d5-7) が常に赤くなる。
+ * **Lamport clock は全体一意を保証しない** — 保証するのは因果順序で、同値は
+ * `clock → actor → id` の全順序 (Phase 4d) で tiebreak される。したがって:
+ * - **別ファイル間・別端末 (actor) 間の clock 重複は正常** — 並行編集の証跡であり、
+ *   tiebreak で順序が決まる。FAIL にすると multi-device 検証が常に赤くなる。
+ * - **同一 file × 同一 sheet × 同一 actor 内の重複は真の異常** — 1 つの端末が同じ
+ *   編集文脈で clock を二重採番しており、デーモンのバグを示す。こちらを FAIL にする。
  *
- * 一方、**同一 sheet 内の衝突は真の異常**: 同じ編集文脈で採番が重複しており、順序が
- * 決められない。こちらは FAIL のままにする。
- *
- * 注意 (Phase 4d への申し送り): 現状 `actor` は両端末とも `'local'` で端末を識別せず、
- * batch レコードは `fileId` も持たない。よって別 sheet 間の衝突を「別ファイルだから正常」と
- * 判定できるのは sheetId を持つ content batch だけで、file 構造 batch (sheetId 無し) は
- * 区別できない。受信を実装するには actor の端末識別子化と fileId の付与が要る。
+ * batch レコードは fileId を必須で持つ (Phase 4d-1) ので、file 単位でスコープを
+ * 区切れる。genesis batch (4e-0 で push 解禁) は file ごとに clock 1.. を独立に
+ * 刻むため、fileId で区切らないと複数 file の genesis 同士が誤 FAIL する。
  */
-function checkClockUnique(batches: Batch[]): Check {
-  // 同一 sheet 内の衝突のみを異常とする。sheetId 無し (file 構造 batch) は
-  // 宛先を区別する手掛かりが無いので、まとめて 1 つのグループとして扱う。
-  const scopeOf = (b: Batch) => `${b.sheetId ?? '(sheet なし)'}#${b.clock}`;
+function checkClockUnique(remoteBatches: RemoteBatch[]): Check {
+  // 同一 file × 同一 sheet × 同一 actor 内の重複のみを異常とする。
+  // sheetId 無し (file 構造 batch) は file 内で 1 つのグループとして扱う。
+  const scopeOf = ({ fileId, batch: b }: RemoteBatch) =>
+    `${fileId}#${b.sheetId ?? '(sheet なし)'}#${b.actor}#${b.clock}`;
   const byScope = new Map<string, Batch[]>();
-  for (const b of batches) {
-    const same = byScope.get(scopeOf(b)) ?? [];
-    same.push(b);
-    byScope.set(scopeOf(b), same);
+  for (const rb of remoteBatches) {
+    const same = byScope.get(scopeOf(rb)) ?? [];
+    same.push(rb.batch);
+    byScope.set(scopeOf(rb), same);
   }
   const collisions = [...byScope.entries()].filter(([, bs]) => bs.length > 1);
 
-  // 別 sheet 間の衝突は正常だが、起きている事実は表示する (multi-device の証跡)
+  // actor 跨ぎ・file 跨ぎの clock 重複は正常だが、起きている事実は表示する
+  // (multi-device 並行編集の証跡)
   const clockCounts = new Map<number, number>();
-  for (const b of batches)
+  for (const { batch: b } of remoteBatches)
     clockCounts.set(b.clock, (clockCounts.get(b.clock) ?? 0) + 1);
-  const crossSheet = [...clockCounts.entries()].filter(([, n]) => n > 1);
+  const crossScope = [...clockCounts.entries()].filter(([, n]) => n > 1);
   const note =
-    crossSheet.length > 0
-      ? ` (別 sheet 間で clock 重複あり: ${crossSheet
+    crossScope.length > 0
+      ? ` (スコープ跨ぎの clock 重複あり: ${crossScope
           .map(([clock, n]) => `clock=${clock} に ${n} 件`)
-          .join(', ')} — 受信経路が無い現状では正常)`
+          .join(', ')} — tiebreak (clock → actor → id) で順序が決まるので正常)`
       : '';
 
   return {
-    name: 'clock 衝突なし (同一 sheet 内)',
+    name: 'clock 衝突なし (同一 file × sheet × actor 内)',
     ok: collisions.length === 0,
     detail:
       collisions.length === 0
-        ? `同一 sheet 内での clock 重複は無い${note}`
-        : `同一 sheet 内で clock が衝突している: ${collisions
+        ? `同一 file × sheet × actor 内での clock 重複は無い${note}`
+        : `同一スコープ内で clock が衝突している: ${collisions
             .map(([scope, bs]) => `${scope} に ${bs.length} 件`)
             .join(', ')}`,
   };
@@ -205,16 +242,17 @@ async function main(): Promise<void> {
   const records = await listAllRecords();
 
   // クライアントの pull と同じ mapper を通す = 別端末が Batch に戻せることの確認 (受入基準 3)
-  const batches: Batch[] = [];
+  const remoteBatches: RemoteBatch[] = [];
   const invalid: string[] = [];
   for (const r of records) {
     if (!isBatchRecordValue(r.value)) {
       invalid.push(rkeyFromUri(r.uri));
       continue;
     }
-    batches.push(recordToBatch(rkeyFromUri(r.uri), r.value));
+    remoteBatches.push(recordToRemoteBatch(rkeyFromUri(r.uri), r.value));
   }
-  batches.sort((a, b) => a.clock - b.clock);
+  remoteBatches.sort((a, b) => a.batch.clock - b.batch.clock);
+  const batches: Batch[] = remoteBatches.map((rb) => rb.batch);
 
   console.log(
     `レコード ${records.length} 件 → batch ${batches.length} 件に復元` +
@@ -232,19 +270,20 @@ async function main(): Promise<void> {
 
   if (DUMP) {
     console.log('\n--- batch 一覧 (clock 順) ---');
-    for (const b of batches) {
+    for (const { fileId, batch: b } of remoteBatches) {
       console.log(
         `  clock=${String(b.clock).padStart(4)} actor=${b.actor} ` +
-          `sheetId=${b.sheetId ?? '(なし)'} ops=[${b.ops.map((o) => o.kind).join(', ')}]`,
+          `fileId=${fileId} sheetId=${b.sheetId ?? '(なし)'} ` +
+          `ops=[${b.ops.map((o) => o.kind).join(', ')}]`,
       );
     }
   }
 
   const checks = [
-    checkGenesisNotPushed(batches),
+    checkGenesisConverged(remoteBatches),
     checkNoPresentation(batches),
     checkSheetIdRoundTrip(batches),
-    checkClockUnique(batches),
+    checkClockUnique(remoteBatches),
   ];
 
   console.log('\n--- 受入基準 (§4.1) ---');

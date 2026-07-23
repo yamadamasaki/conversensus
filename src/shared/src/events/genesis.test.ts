@@ -140,4 +140,69 @@ describe('graphFileToBatches (genesis)', () => {
       /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
     expect(batches.every((b) => uuidRe.test(b.id))).toBe(true);
   });
+
+  // Phase 4e-0 (C1 見直し): genesis が remote に載るようになったため、
+  // 異なる snapshot から genesis した 2 系統が混在しても収束することを固定する
+  // (4e 設計 §3.1 / critic MED2)。
+  describe('異 snapshot 由来の genesis 分岐の収束 (Phase 4e-0)', () => {
+    test('内容が異なる snapshot は batch id が食い違う (分岐の前提)', () => {
+      const v1 = sampleFile();
+      // v2: v1 を編集した snapshot (entity ID は共有、内容だけ変える)
+      const v2: GraphFile = {
+        ...v1,
+        sheets: v1.sheets.map((s, i) =>
+          i === 0
+            ? {
+                ...s,
+                nodes: s.nodes.map((n) =>
+                  n.content === 'A' ? { ...n, content: 'A 改' } : n,
+                ),
+              }
+            : s,
+        ),
+      };
+      const ids1 = new Set(graphFileToBatches(v1).map((b) => b.id));
+      const ids2 = graphFileToBatches(v2).map((b) => b.id);
+      // 変更したシートの content batch だけ id が変わる
+      expect(ids2.some((id) => !ids1.has(id))).toBe(true);
+    });
+
+    test('2 系統の genesis を混ぜても入力順によらず同一結果へ収束し、entity が重複しない', () => {
+      const v1 = sampleFile();
+      const extra = nid();
+      const v2: GraphFile = {
+        ...v1,
+        sheets: v1.sheets.map((s, i) =>
+          i === 0
+            ? {
+                ...s,
+                nodes: [
+                  ...s.nodes.map((n) =>
+                    n.content === 'A' ? { ...n, content: 'A 改' } : n,
+                  ),
+                  { id: extra, content: 'C' },
+                ],
+              }
+            : s,
+        ),
+      };
+      const gA = graphFileToBatches(v1);
+      const gB = graphFileToBatches(v2);
+
+      // 入力順を入れ替えても projection は一致する (orderBatches の全順序による収束)
+      const p1 = projectFile([...gA, ...gB], v1.id);
+      const p2 = projectFile([...gB, ...gA], v1.id);
+      expect(p1).toEqual(p2);
+
+      // entity ID 共有 (snapshot 経由) により、同じ entity へ収斂し重複を生まない
+      const s1 = p1.sheets[0];
+      expect(p1.sheets.map((s) => s.id).sort()).toEqual(
+        v1.sheets.map((s) => s.id).sort(),
+      );
+      expect([...s1.nodes].map((n) => n.id).sort()).toEqual(
+        [...v1.sheets[0].nodes.map((n) => n.id), extra].sort(),
+      );
+      expect(s1.edges).toHaveLength(1);
+    });
+  });
 });

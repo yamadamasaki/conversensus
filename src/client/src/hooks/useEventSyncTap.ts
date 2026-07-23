@@ -19,8 +19,22 @@ import type { RemoteSyncQueue } from '../atproto/remoteSyncQueue';
 import type { GraphEvent } from '../events/GraphEvent';
 import { EventSyncTap } from '../sync/eventSyncTap';
 import { LocalServerSyncProvider } from '../sync/localServerSyncProvider';
-import { receiveRemoteBatches } from '../sync/receiveRemoteBatches';
+import {
+  type ReceiveRemoteResult,
+  receiveRemoteBatches,
+} from '../sync/receiveRemoteBatches';
 import type { SyncProvider } from '../sync/syncProvider';
+
+/**
+ * 受信通知に添える tap の待ち合わせ点 (Phase 4e-3, critic MED3)。
+ * `settled` はローカル drain (flushChain) の完了を待つ — remote は待たない。
+ * `pending` は未 push 件数。`settled()` はローカル push 失敗時も resolve するため、
+ * 再 projection の可否は `pending() === 0` で判定する (reprojectAfterReceive)。
+ */
+export type TapHandle = {
+  settled: () => Promise<void>;
+  pending: () => number;
+};
 
 export type UseEventSyncTapOptions = {
   /** remote 送信キュー。null/未指定なら local-only (未ログイン時と同じ挙動) */
@@ -34,6 +48,16 @@ export type UseEventSyncTapOptions = {
    * **安定参照であること** — 毎レンダー再生成すると受信 effect が張り直される。
    */
   appendReceived?: (fileId: FileId, batches: Batch[]) => Promise<number>;
+  /**
+   * 受信がローカル正典へ着地した (`appended > 0`) ときの通知 (Phase 4e-3)。
+   * 画面反映 (再 projection → activeFile 差し替え) の起点。tap の待ち合わせ点を添える。
+   * **安定参照であること** (appendReceived と同じ理由)。
+   */
+  onReceived?: (
+    fileId: FileId,
+    result: ReceiveRemoteResult,
+    tap: TapHandle,
+  ) => void;
 };
 
 export function useEventSyncTap(
@@ -43,6 +67,7 @@ export function useEventSyncTap(
     actor,
     createLocalProvider,
     appendReceived = pushReceivedBatches,
+    onReceived,
   }: UseEventSyncTapOptions,
 ): (event: GraphEvent, sheetId?: SheetId) => void {
   // remote キューがあるときだけ fanout で包む。ローカル正典への経路は両者で同一。
@@ -104,6 +129,12 @@ export function useEventSyncTap(
               `[sync] received ${result.received} remote batch(es), ` +
                 `${result.appended} new`,
             );
+            // 画面反映の起点 (Phase 4e-3)。着地していない受信 (appended=0) では
+            // 呼ばない — 再 projection しても画面は変わらない。
+            onReceived?.(fileId, result, {
+              settled: () => tap.settled(),
+              pending: () => tap.pending,
+            });
           }
         })
         .catch((error) => console.warn('[sync] remote receive failed:', error));
@@ -112,7 +143,7 @@ export function useEventSyncTap(
     syncBoth();
     window.addEventListener('online', syncBoth);
     return () => window.removeEventListener('online', syncBoth);
-  }, [provider, fileId, remoteQueue, tap, appendReceived]);
+  }, [provider, fileId, remoteQueue, tap, appendReceived, onReceived]);
 
   // content 経路は sheetId を渡す (W3c2)。structure 経路は省略 → file-level batch。
   return useCallback(

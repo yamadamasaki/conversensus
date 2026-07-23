@@ -240,6 +240,62 @@ describe('API routes', () => {
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual([]);
     });
+
+    // Phase 4e-2a: 一覧は snapshot storage と op-log の和集合 (4e 設計 §3.2b)
+
+    /** file 構造 (file.setName + sheet.create) を持つ受信用 batch */
+    const structureBatch = (clock: number, name: string) => ({
+      id: uuid(9000 + clock),
+      actor: 'did:plc:alice#dev-a',
+      clock,
+      timestamp: clock,
+      ops: [
+        { kind: 'file.setName', name },
+        { kind: 'sheet.create', target: uuid(9100 + clock), name: 'S1' },
+      ],
+    });
+
+    async function receive(fileId: string, batches: unknown[]) {
+      return fetch(
+        new Request(`http://localhost/files/${fileId}/batches/received`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(batches),
+        }),
+      );
+    }
+
+    it('op-log にしか無いファイルも一覧に載る (受信 materialize の可視化)', async () => {
+      const snap = await (await createFile('スナップ側')).json();
+      const oplogId = uuid(42);
+      await receive(oplogId, [structureBatch(1, '受信ファイル')]);
+
+      const body = await (
+        await fetch(new Request('http://localhost/files'))
+      ).json();
+      // 順序: snapshot 順 → op-log-only
+      expect(body.map((f: { id: string }) => f.id)).toEqual([snap.id, oplogId]);
+      expect(body[1].name).toBe('受信ファイル');
+    });
+
+    it('両方に在るファイルは snapshot 側の name を正とし重複しない', async () => {
+      const snap = await (await createFile('スナップ名')).json();
+      await receive(snap.id, [structureBatch(1, 'オプログ名')]);
+
+      const body = await (
+        await fetch(new Request('http://localhost/files'))
+      ).json();
+      expect(body).toHaveLength(1);
+      expect(body[0].name).toBe('スナップ名');
+    });
+
+    it('構造を持たない孤児 batch だけの file_id は一覧に出さない (D-4)', async () => {
+      await receive(uuid(77), [sampleBatch(1)]); // sheet.create の無い content batch
+      const body = await (
+        await fetch(new Request('http://localhost/files'))
+      ).json();
+      expect(body).toEqual([]);
+    });
   });
 
   describe('POST /files', () => {
