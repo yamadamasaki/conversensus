@@ -229,7 +229,7 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
       expect(remote.pushed.map((b) => b.id)).toEqual(['2']);
     });
 
-    it('catch-up でも genesis batch は remote へ送らない (C1)', async () => {
+    it('catch-up で genesis batch も remote へ送る (Phase 4e-0・C1 見直し)', async () => {
       const local = new RecordingProvider();
       local.existing = [batch('1', { actor: GENESIS_ACTOR }), batch('2')];
       const remote = new RecordingProvider();
@@ -238,7 +238,7 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
       await renderTap({ local, remoteQueue });
       await settle();
 
-      expect(remote.pushed.map((b) => b.id)).toEqual(['2']);
+      expect(remote.pushed.map((b) => b.id)).toEqual(['1', '2']);
     });
 
     it('remoteQueue が無ければ catch-up は起きない (fanout でない)', async () => {

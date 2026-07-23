@@ -23,3 +23,4 @@
 - **べき等性 (critic C1-new)**: 同一 snapshot からの再 genesis が同一 batch id 列を返すことを確認する。二重 genesis を `appendBatch` が吸収できる前提。
 - **canonicalization (§3.4)**: snapshot のノード/エッジ順を入れ替えても batch id が変わらないことを確認する。配列順が不定でも id が決定論的であること。
 - **UUID フォーマット**: 導出した batch id が Zod の `.uuid()` (version 1-5 / variant 8-b) を満たすことを確認する。`BatchIdSchema.parse` を通せることの保証。
+- **異 snapshot 分岐の収束 (Phase 4e-0, 4e 設計 §3.1 / critic MED2)**: Phase 4e-0 の C1 見直しで genesis が remote に載るようになったため、同一ファイルを異なる内容の snapshot から genesis した 2 系統が混在するケースを固定する。(1) 内容が異なる snapshot は batch id が食い違う (分岐が実際に起きる前提の確認)。(2) 2 系統の genesis を混ぜても、入力順によらず `projectFile` が同一結果へ収束し (orderBatches の clock → actor → id 全順序)、entity ID (sheetId/nodeId/edgeId) が snapshot 経由で共有されるため同じ entity へ収斂し重複 entity を生まない。

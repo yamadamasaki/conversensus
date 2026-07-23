@@ -91,10 +91,10 @@ describe('RemoteSyncQueue', () => {
   });
 
   describe('enqueue (フィルタ適用)', () => {
-    it('genesis actor の batch は積まない (C1)', () => {
+    it('genesis actor の batch も積む (Phase 4e-0・C1 見直し)', () => {
       const q = new RemoteSyncQueue({ provider: new FakeProvider() });
       q.enqueue([batch('1', { actor: GENESIS_ACTOR })], FILE);
-      expect(q.pendingCount).toBe(0);
+      expect(q.pendingCount).toBe(1);
     });
 
     it('全 op が presentation の batch は積まない', () => {
@@ -197,13 +197,13 @@ describe('RemoteSyncQueue', () => {
       expect(q.pendingCount).toBe(0);
     });
 
-    it('catch-up も genesis batch は積まない (C1)', async () => {
+    it('catch-up も genesis batch を積む (Phase 4e-0・C1 見直し)', async () => {
       const provider = new FakeProvider();
       provider.setPullBatches([]);
       const q = new RemoteSyncQueue({ provider });
       await q.catchUp([batch('1', { actor: GENESIS_ACTOR }), batch('2')], FILE);
-      // genesis の '1' は除外され、'2' だけ push される
-      expect(provider.flatPushed.map((b) => b.id)).toEqual(['2']);
+      // genesis の '1' も bootstrap の起源として push される
+      expect(provider.flatPushed.map((b) => b.id)).toEqual(['1', '2']);
     });
 
     it('突合は fileId で絞ってから行う (Phase 4d-4, D-6)', async () => {

@@ -23,7 +23,7 @@ tap の provider 構成が切り替わること (local 単体 / `FanoutSyncProvi
   意図を明示しておく。
 - **起動時 catch-up (§3.6)**: best-effort push がオフライン中に落とした分は、ファイルを開いた
   ときに回収されなければ永久に remote に載らない。remote に既にある分を二重投入しないこと、
-  catch-up 経由でも genesis を送らないこと (C1) を固定する。
+  catch-up 経由で genesis も送ること (Phase 4e-0・C1 見直し) を固定する。
 - **再接続時 catch-up (§7・W3d5-7 確定)**: 再接続検知は `online` イベントで行う。アプリを開いた
   まま回線が切れて復帰した場合、次回起動まで待たずに回収できることがこの方式の存在理由なので、
   「イベントで実際に catch-up が走る」を固定する。あわせて**リスナ解除**も検証する — 解除漏れは
@@ -44,7 +44,7 @@ tap の provider 構成が切り替わること (local 単体 / `FanoutSyncProvi
   (同じ batch が両系統へ渡っている)。
 - **presentation**: `EDGE_STYLE_CHANGED` → local には載る (W3e 保全)、remote には 0 件。
 - **起動時 catch-up**: local の既存ログ ['1','2'] / remote に '1' → mount だけで '2' が remote へ
-  push される。local に genesis actor の batch があっても remote へは送らない (C1)。
+  push される。local の genesis actor の batch も remote へ送られる (Phase 4e-0・C1 見直し)。
   remoteQueue が無ければ catch-up 自体が起きない。
 - **再接続時 catch-up**: mount 時は remote に取りこぼし無し → push 0 件。その後ローカル正典に
   batch が増えた状態で `window.dispatchEvent(new Event('online'))` → その batch が remote へ

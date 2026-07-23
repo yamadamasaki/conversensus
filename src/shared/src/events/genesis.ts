@@ -4,11 +4,13 @@
  * 既存ファイルは snapshot が正典。読み取り経路を op-log へ移行する際、
  * snapshot を初期 batch 群へ変換して op-log を bootstrap する。
  *
- * 方針 (critic H1-new / C1-new):
- *   - **local-only**: genesis はローカルだけが実行する。remote へは通常 push で送るため、
- *     跨端末で同一 batch を独立生成する完全決定論 (content-hash) には依存しない。
- *   - **同一端末べき等**: batch id を ops から決定論的に導き、再 genesis しても
- *     `appendBatch` の (file_id, batch_id) 重複排除でクリーンに吸収される。
+ * 方針 (critic H1-new / Phase 4e-0 で C1 見直し):
+ *   - **remote へも push する** (4e 設計 §3.1): genesis は bootstrap の起源として
+ *     remote に載せる (presentation op は remote leg のフィルタで除外される)。
+ *   - **content-addressed べき等**: batch id を ops 内容のみから決定論的に導く
+ *     (actor/timestamp/clock を含めない)。同一端末の再 genesis は `appendBatch` の
+ *     (file_id, batch_id) 重複排除でクリーンに吸収され、同一 snapshot から genesis
+ *     した端末間でも id が一致して受信側のべき等 dedup が効く。
  *   - **canonicalization**: nodes/edges/properties のシリアライズ順は不定なので、
  *     ソートして安定化する (§3.4)。これが `graphFileToBatches` の第一責務。
  *   - **presentation 保全 (H1)**: edge style / label offset も ops に含める。
@@ -44,7 +46,8 @@ function stableStringify(value: unknown): string {
 
 /**
  * 文字列から決定論的な UUID (v4 形式) を導出する。
- * local-only genesis の同一端末べき等性のためのもので、暗号学的ハッシュではない。
+ * genesis のべき等性 (同一端末の再 genesis 吸収と、同一 snapshot からの端末間 dedup,
+ * 4e 設計 §1.2) のためのもので、暗号学的ハッシュではない。
  * hash 入力は ops の内容 (branded UUID を含む) のみ。actor/timestamp は含めない (§3.4)。
  */
 function deterministicUuid(input: string): string {
