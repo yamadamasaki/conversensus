@@ -237,6 +237,7 @@ export default function App() {
             deletedEdges={branchOps.deletedEdges}
             deletedNodeLayouts={branchOps.deletedNodeLayouts}
             deletedEdgeLayouts={branchOps.deletedEdgeLayouts}
+            receiveEpoch={fileOps.receiveEpoch}
           />
         ) : (
           <div

@@ -74,3 +74,22 @@ remote (repo 全体) にあってローカル正典に無いファイルを mate
 
 `online` イベントでの再発火は送信 catch-up (useEventSyncTap.test) と同じ方式のため、
 配線テストでは mount 契機のみ固定する。実 PDS からの発見経路は 4e-4 実機 e2e で検証する。
+
+### 受信着地後の画面反映 (Phase 4e-3 / 4e-4)
+
+受信 (a) が開いているファイルへ着地した後の swap 配線
+(`handleReceived` → `reprojectAfterReceive` → `setActiveFile` + `receiveEpoch`) の検証。
+可否判定ロジック自体は `reprojectAfterReceive.test.ts` が固定するので、ここでは hook の
+配線 — 受信契機から activeFile 差し替えと **`receiveEpoch` の増加**まで — を見る。
+
+`receiveEpoch` は 4e-4 実機 e2e で発見した欠陥の対策: GraphEditor は React Flow の内部
+state を `file.id` / `activeSheetId` の変化でしかリセットしないため、同一 file.id のまま
+activeFile を差し替えても画面に反映されなかった。swap のたびに増える世代番号を
+GraphEditor の reset effect の依存に加えることで再 seed を発火させる。
+
+- **開いているファイルへの受信 (appended > 0)**: activeFile が受信ノードを含む projection
+  に差し替わり、`receiveEpoch` が 1 増えること (React Flow 再 seed の回帰試験)。
+  受信の書き込み口は `deps.pushReceivedBatches` を注入 (discovery 4e-2b と同じ deps 抽象)。
+  in-memory deps はストアのファイルへノードを足すことでデーモンへの着地を模す。
+- **既知分のみの再受信 (appended = 0)**: onReceived 自体が呼ばれず、swap も epoch 増加も
+  起きないこと (べき等再受信で画面を無駄に触らない)。

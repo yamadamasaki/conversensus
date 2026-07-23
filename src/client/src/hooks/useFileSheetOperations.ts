@@ -137,6 +137,12 @@ export function useFileSheetOperations({
     activeFileRef.current = activeFile;
   }, [activeFile]);
 
+  // 受信 swap の世代番号 (Phase 4e-4 実機で発見)。GraphEditor は React Flow の内部
+  // state を file.id / activeSheetId の変化でしかリセットしないため、同一ファイルの
+  // activeFile 差し替え (受信 swap) は画面に反映されない。swap のたびに増える本値を
+  // GraphEditor の reset effect の依存に加えて再 seed を発火させる。
+  const [receiveEpoch, setReceiveEpoch] = useState(0);
+
   // 受信着地後の画面反映 (Phase 4e-3, 4e 設計 §3.3)。tap のローカル drain を待ち、
   // pending が空のときだけ再 projection で activeFile を差し替える (未 flush 編集を
   // 失わない)。見送り (defer) は次の受信契機が拾う。
@@ -158,6 +164,9 @@ export function useFileSheetOperations({
           // ファイルを切り替えていたら何もしない)
           if (activeFileRef.current?.id !== fileId) return;
           setActiveFile(result.file);
+          // GraphEditor に React Flow の再 seed を伝える (同一 file.id の差し替えは
+          // これが無いと画面に出ない — 4e-4 実機で発見)
+          setReceiveEpoch((epoch) => epoch + 1);
           // 開いていたシートが受信で消えていたら先頭シートへ退避する
           setActiveSheetId((prev) =>
             prev !== null && result.file.sheets.some((s) => s.id === prev)
@@ -178,6 +187,9 @@ export function useFileSheetOperations({
   const internalSyncRecord = useEventSyncTap(activeFile?.id ?? null, {
     remoteQueue,
     actor,
+    // 受信 (a) の書き込み口も discovery (4e-2b) と同じ deps 抽象を通す。
+    // 既定は api の pushReceivedBatches なので挙動は変わらない (deps は安定参照)。
+    appendReceived: deps.pushReceivedBatches,
     onReceived: handleReceived,
   });
   const syncRecord = syncRecordOverride ?? internalSyncRecord;
@@ -552,5 +564,6 @@ export function useFileSheetOperations({
     handleExportFile,
     loadAtprotoFiles,
     syncRecord,
+    receiveEpoch,
   };
 }

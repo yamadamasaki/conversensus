@@ -639,4 +639,85 @@ describe('useFileSheetOperations', () => {
       expect(received).toEqual([]);
     });
   });
+
+  describe('受信着地後の画面反映 (Phase 4e-3 / 4e-4)', () => {
+    const RECV_NODE = '88888888-8888-4888-8888-888888888888';
+
+    /** 開いているファイル宛の batch を remote に持つ RemoteSyncQueue を作る */
+    async function makeRemoteQueueFor(fileId: string) {
+      const { RemoteSyncQueue } = await import('../atproto/remoteSyncQueue');
+      const provider = {
+        pushRemote: async () => {},
+        pullRemote: async () => [
+          {
+            fileId,
+            batch: {
+              id: 'rb-open-1',
+              actor: 'did:plc:alice#dev-b',
+              clock: 100,
+              timestamp: 1,
+              ops: [
+                { kind: 'node.add', nodeId: RECV_NODE, content: 'B の編集' },
+              ],
+            },
+          },
+        ],
+      };
+      // biome-ignore lint/suspicious/noExplicitAny: テスト用の最小 provider
+      return new RemoteSyncQueue({ provider: provider as any });
+    }
+
+    it('開いているファイルへの受信で activeFile が差し替わり receiveEpoch が増える', async () => {
+      const deps = createInMemoryFileSheetOpsDeps();
+      const file = await deps.createFile('受信対象');
+      // 受信着地を模す: ストアのファイルへノードを足す。以後の fetchBatches
+      // (= 再 projection の読取) にこのノードが現れる = デーモンへの着地と同じ見え方
+      deps.pushReceivedBatches = async (fileId, batches) => {
+        deps._files.get(fileId)?.sheets[0]?.nodes.push({
+          id: RECV_NODE,
+          content: 'B の編集',
+        } as (typeof file.sheets)[0]['nodes'][number]);
+        return batches.length;
+      };
+      const remoteQueue = await makeRemoteQueueFor(file.id);
+
+      const { result } = await renderWith({ deps, remoteQueue });
+      expect(result.current.receiveEpoch).toBe(0);
+
+      await act(async () => {
+        await result.current.openFile(file.id);
+      });
+      // open 契機の受信 → onReceived → 再 projection → swap を待つ
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 30));
+      });
+
+      // 受信 swap: activeFile が受信ノードを含む projection に差し替わる
+      expect(
+        result.current.activeFile?.sheets[0]?.nodes.some(
+          (n) => n.id === RECV_NODE,
+        ),
+      ).toBe(true);
+      // GraphEditor の React Flow 再 seed トリガ (4e-4 実機で発見した欠陥の回帰試験)
+      expect(result.current.receiveEpoch).toBe(1);
+    });
+
+    it('受信が既知分のみ (appended=0) なら swap も epoch 増加も起きない', async () => {
+      const deps = createInMemoryFileSheetOpsDeps();
+      const file = await deps.createFile('受信対象');
+      // 着地 0 件 = 全 batch が既知 (べき等再受信)
+      deps.pushReceivedBatches = async () => 0;
+      const remoteQueue = await makeRemoteQueueFor(file.id);
+
+      const { result } = await renderWith({ deps, remoteQueue });
+      await act(async () => {
+        await result.current.openFile(file.id);
+      });
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 30));
+      });
+
+      expect(result.current.receiveEpoch).toBe(0);
+    });
+  });
 });

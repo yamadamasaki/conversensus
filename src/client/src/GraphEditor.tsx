@@ -143,6 +143,9 @@ type Props = {
   deletedEdgeLayouts?: EdgeLayout[];
   graphKey?: string;
   undoStateMap?: React.MutableRefObject<Map<string, UndoState>>;
+  // 受信 swap の世代番号 (Phase 4e-3/4e-4)。同一 file.id のまま activeFile が受信で
+  // 差し替わったとき、この値の増加を契機に React Flow の state を再 seed する。
+  receiveEpoch?: number;
 };
 
 function GraphEditorInner({
@@ -160,6 +163,7 @@ function GraphEditorInner({
   deletedEdgeLayouts,
   graphKey,
   undoStateMap,
+  receiveEpoch,
 }: Props) {
   const { screenToFlowPosition, getNodes, getEdges } = useReactFlow();
   const activeSheet = file.sheets.find((s) => s.id === activeSheetId);
@@ -214,8 +218,12 @@ function GraphEditorInner({
   // コンフリクトスタイル更新 (見た目のみ) による onChange 誤発火を抑制するフラグ
   const conflictUpdatePendingRef = useRef(false);
 
-  // file.id または activeSheetId が変わったとき React Flow の state をリセット
-  // biome-ignore lint/correctness/useExhaustiveDependencies: file.id / activeSheetId の変化のみをトリガーにする意図的な設計
+  // file.id / activeSheetId が変わったとき、および受信 swap (receiveEpoch の増加,
+  // Phase 4e-3) のとき React Flow の state をリセットする。受信 swap は file.id が
+  // 同一のままファイル内容が差し替わるため、epoch を依存に入れないと画面に出ない
+  // (4e-4 実機で発見)。swap は reprojectAfterReceive が「編集中でない・pending 0」を
+  // 保証した後にしか起きないので、ここで無条件に再 seed してよい。
+  // biome-ignore lint/correctness/useExhaustiveDependencies: file.id / activeSheetId / receiveEpoch の変化のみをトリガーにする意図的な設計
   useEffect(() => {
     readyForSave.current = false;
     const sheet = fileRef.current.sheets.find(
@@ -247,7 +255,7 @@ function GraphEditorInner({
       readyForSave.current = true;
     }, RF_INIT_DELAY_MS);
     return () => clearTimeout(t);
-  }, [file.id, activeSheetId, setNodes, setEdges]);
+  }, [file.id, activeSheetId, receiveEpoch, setNodes, setEdges]);
 
   // コンフリクト状態が変わったらノード/エッジのスタイルだけ更新
   // NOTE: setNodes/setEdges は nodes/edges state を変化させるため onChange effect が
