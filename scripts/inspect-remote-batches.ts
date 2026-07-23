@@ -89,10 +89,12 @@ type Check = { name: string; ok: boolean; detail: string };
 /**
  * 1. genesis batch が remote に載り、id が収束していること (Phase 4e-0)。
  *
- * genesis は content-addressed (snapshot 内容から決定的に id を導出) なので、同一 snapshot
- * から生成された genesis は端末が違っても id (= rkey) が一致し、PDS 上で 1 レコードに
- * dedup される。同一 fileId に複数の genesis batch が見えたら、float 直列化差などで
- * id が分岐している (§1.2 MED1 の残余リスクが現実化) — FAIL とする。
+ * genesis は 1 ファイルにつき **clock 連番の batch 列** (file.setName, sheet.create, ...)
+ * として生成される。各 batch は content-addressed (snapshot 内容から決定的に id を導出)
+ * なので、同一 snapshot から生成された genesis 列は端末が違っても同じ clock の batch が
+ * 同じ id (= rkey) を持ち、PDS 上で 1 レコードに dedup される。したがって
+ * **同一 (fileId, clock) に異なる id の genesis batch が並んでいたら**、float 直列化差
+ * などで id が分岐している (§1.2 MED1 の残余リスクが現実化) — FAIL とする。
  * genesis が 0 件の場合も FAIL — 4e-0 以降 push されるはずで、bootstrap ギャップが
  * 塞がっていない (SYNC_TO_REMOTE 無効か、4e-0 より前のデータ) 可能性がある。
  */
@@ -109,24 +111,26 @@ function checkGenesisConverged(remoteBatches: RemoteBatch[]): Check {
         'SYNC_TO_REMOTE の有効化とログイン後の編集を確認すること)',
     };
   }
-  const byFile = new Map<string, Batch[]>();
+  const fileCount = new Set(genesis.map(({ fileId }) => fileId)).size;
+  const bySlot = new Map<string, Batch[]>();
   for (const { fileId, batch } of genesis) {
-    const same = byFile.get(fileId) ?? [];
+    const slot = `${fileId}#clock=${batch.clock}`;
+    const same = bySlot.get(slot) ?? [];
     same.push(batch);
-    byFile.set(fileId, same);
+    bySlot.set(slot, same);
   }
-  const diverged = [...byFile.entries()].filter(([, bs]) => bs.length > 1);
+  const diverged = [...bySlot.entries()].filter(([, bs]) => bs.length > 1);
   return {
     name: 'genesis push・id 収束 (4e-0)',
     ok: diverged.length === 0,
     detail:
       diverged.length === 0
-        ? `genesis batch ${genesis.length} 件 (file ${byFile.size} 件) — ` +
-          'いずれの file も genesis id は 1 つに収束している'
-        : `genesis id が分岐している file がある (§1.2 MED1): ${diverged
+        ? `genesis batch ${genesis.length} 件 (file ${fileCount} 件) — ` +
+          'いずれの (fileId, clock) も genesis id は 1 つに収束している'
+        : `genesis id が分岐している (§1.2 MED1): ${diverged
             .map(
-              ([fileId, bs]) =>
-                `${fileId} に ${bs.length} 件 [${bs.map((b) => b.id).join(', ')}]`,
+              ([slot, bs]) =>
+                `${slot} に ${bs.length} 件 [${bs.map((b) => b.id).join(', ')}]`,
             )
             .join('; ')}`,
   };
