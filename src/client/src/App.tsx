@@ -58,12 +58,26 @@ export default function App() {
   // 重複排除の単位を識別できる (Phase 4d-2)
   const actor = useActor(atprotoSession);
 
+  // テキスト編集中の検出 (Phase 4e-3, 4e 設計 §3.3)。受信の activeFile 差し替えは
+  // 入力中のテキストを巻き込むため、フォーカスが入力要素 (ノードの inline textarea /
+  // エッジラベルの input / 各ダイアログ) にある間は保留する。ドラッグ中の検出は
+  // §7 未解決点 (実機で問題になれば React Flow の drag 状態を足す)。
+  const isEditingActive = useCallback(() => {
+    const el = document.activeElement;
+    return (
+      el instanceof HTMLInputElement ||
+      el instanceof HTMLTextAreaElement ||
+      (el instanceof HTMLElement && el.isContentEditable)
+    );
+  }, []);
+
   // File & sheet operations
   const fileOps = useFileSheetOperations({
     setConfirmState,
     setAlertState,
     remoteQueue,
     actor,
+    isEditingActive,
   });
 
   // Branch operations

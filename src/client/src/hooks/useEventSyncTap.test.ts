@@ -119,6 +119,7 @@ async function renderTap(opts: {
   local: RecordingProvider;
   remoteQueue?: InstanceType<typeof RemoteSyncQueue> | null;
   fileId?: FileId | null;
+  onReceived?: Parameters<typeof useEventSyncTap>[1]['onReceived'];
 }) {
   const createLocalProvider = () => opts.local;
   const view = renderHook(() =>
@@ -126,6 +127,7 @@ async function renderTap(opts: {
       remoteQueue: opts.remoteQueue ?? null,
       createLocalProvider,
       appendReceived,
+      ...(opts.onReceived && { onReceived: opts.onReceived }),
     }),
   );
   await act(async () => {
@@ -319,6 +321,54 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
       await renderTap({ local });
       await settle();
       expect(receivedWrites).toHaveLength(0);
+    });
+  });
+
+  describe('画面反映の起点 onReceived (Phase 4e-3)', () => {
+    it('受信が着地したら fileId・結果・待ち合わせ点つきで呼ばれる', async () => {
+      const local = new RecordingProvider();
+      const remote = new RecordingProvider();
+      remote.existing = [batch('r1'), batch('r2')];
+      const remoteQueue = new RemoteSyncQueue({ provider: remote });
+      const calls: Array<{
+        fileId: FileId;
+        appended: number;
+        pending: number;
+      }> = [];
+
+      await renderTap({
+        local,
+        remoteQueue,
+        onReceived: async (fileId, result, tap) => {
+          await tap.settled(); // 待ち合わせ点がそのまま使える
+          calls.push({
+            fileId,
+            appended: result.appended,
+            pending: tap.pending(),
+          });
+        },
+      });
+      await settle();
+
+      expect(calls).toEqual([{ fileId: FID, appended: 2, pending: 0 }]);
+    });
+
+    it('新規着地が無ければ呼ばれない (再 projection しても画面は変わらない)', async () => {
+      const local = new RecordingProvider();
+      const remote = new RecordingProvider(); // remote は空 = 受信 0 件
+      const remoteQueue = new RemoteSyncQueue({ provider: remote });
+      let called = 0;
+
+      await renderTap({
+        local,
+        remoteQueue,
+        onReceived: () => {
+          called += 1;
+        },
+      });
+      await settle();
+
+      expect(called).toBe(0);
     });
   });
 

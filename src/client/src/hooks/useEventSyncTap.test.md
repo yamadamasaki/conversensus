@@ -73,3 +73,13 @@ tap の provider 構成が切り替わること (local 単体 / `FanoutSyncProvi
 - **受信失敗が送信を止めない**: 受信が throw しても、ローカルにあって remote に無い batch は
   送信 catch-up で送られること。両者を独立に catch している設計の確認。
 - **未ログイン時は受信も起きない**: `remoteQueue` が無ければ local-only の挙動を保つこと。
+
+### 画面反映の起点 onReceived (Phase 4e-3)
+
+受信がローカル正典へ着地した (`appended > 0`) ときだけ `onReceived` が呼ばれ、画面反映
+(再 projection → `activeFile` 差し替え, `reprojectAfterReceive`) の起点になる。
+
+- **着地したら呼ばれる**: fileId・受信結果・tap の待ち合わせ点 (`settled` / `pending`) が
+  渡り、`settled()` がそのまま await できること (critic MED3 の配線)。
+- **新規着地が無ければ呼ばれない**: appended=0 では再 projection しても画面は変わらない
+  ため起点にしない。

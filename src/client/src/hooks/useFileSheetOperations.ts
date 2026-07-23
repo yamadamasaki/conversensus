@@ -6,7 +6,7 @@ import {
   projectFile,
   type SheetId,
 } from '@conversensus/shared';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   createFile,
   exportFile,
@@ -30,7 +30,9 @@ import type { GraphEvent } from '../events/GraphEvent';
 import { makeEventBase } from '../events/GraphEvent';
 import type { PopupTarget } from '../SettingsPopup';
 import { discoverRemoteFiles } from '../sync/discoverRemoteFiles';
-import { useEventSyncTap } from './useEventSyncTap';
+import type { ReceiveRemoteResult } from '../sync/receiveRemoteBatches';
+import { reprojectAfterReceive } from '../sync/reprojectAfterReceive';
+import { type TapHandle, useEventSyncTap } from './useEventSyncTap';
 
 type ConfirmState = {
   message: string;
@@ -96,6 +98,12 @@ interface UseFileSheetOperationsParams {
   remoteQueue?: RemoteSyncQueue | null;
   /** この端末の操作主体 `<did>#<deviceId>` (Phase 4d-2)。tap が batch の actor に使う */
   actor: Actor;
+  /**
+   * 編集中 (ノードの inline editor / ドラッグ中) なら true を返す (Phase 4e-3, §3.3)。
+   * 編集中の受信は activeFile 差し替えを保留し、次の受信契機で反映する。
+   * **安定参照であること** (ref 経由を推奨)。未指定 = 常に編集中でない扱い。
+   */
+  isEditingActive?: () => boolean;
 }
 
 export function useFileSheetOperations({
@@ -106,6 +114,7 @@ export function useFileSheetOperations({
   readFromOplog = READ_FROM_OPLOG,
   remoteQueue = null,
   actor,
+  isEditingActive,
 }: UseFileSheetOperationsParams) {
   const [files, setFiles] = useState<GraphFileListItem[]>([]);
   const [activeFile, setActiveFile] = useState<GraphFile | null>(null);
@@ -121,12 +130,55 @@ export function useFileSheetOperations({
     [activeFile, activeSheetId],
   );
 
+  // handleReceived (安定参照) から最新の activeFile を読むための ref。
+  // state を直接 dep に取ると受信 effect が activeFile 変化のたびに張り直される。
+  const activeFileRef = useRef<GraphFile | null>(null);
+  useEffect(() => {
+    activeFileRef.current = activeFile;
+  }, [activeFile]);
+
+  // 受信着地後の画面反映 (Phase 4e-3, 4e 設計 §3.3)。tap のローカル drain を待ち、
+  // pending が空のときだけ再 projection で activeFile を差し替える (未 flush 編集を
+  // 失わない)。見送り (defer) は次の受信契機が拾う。
+  const handleReceived = useCallback(
+    (fileId: FileId, _result: ReceiveRemoteResult, tap: TapHandle) => {
+      reprojectAfterReceive({
+        settled: tap.settled,
+        pendingCount: tap.pending,
+        loadProjection: async () =>
+          projectFile(await deps.fetchBatches(fileId), fileId),
+        ...(isEditingActive && { isEditing: isEditingActive }),
+      })
+        .then((result) => {
+          if (result.kind !== 'swap') {
+            console.info(`[sync] reprojection deferred: ${result.reason}`);
+            return;
+          }
+          // 受信対象のファイルを開いたままのときだけ差し替える (再 projection 中に
+          // ファイルを切り替えていたら何もしない)
+          if (activeFileRef.current?.id !== fileId) return;
+          setActiveFile(result.file);
+          // 開いていたシートが受信で消えていたら先頭シートへ退避する
+          setActiveSheetId((prev) =>
+            prev !== null && result.file.sheets.some((s) => s.id === prev)
+              ? prev
+              : ((result.file.sheets[0]?.id ?? null) as SheetId | null),
+          );
+        })
+        .catch((error) =>
+          console.warn('[sync] reprojection after receive failed:', error),
+        );
+    },
+    [deps, isEditingActive],
+  );
+
   // 操作ログ tap をファイル単位で保持する (W3c1)。content (GraphEditor) と
   // structure (以下の構造ハンドラ) の両方が単一の tap = 単一 Lamport 発番源を共有する。
   // remote キューがあれば tap は fanout (ローカル正典 + remote) になる (W3d5-5)。
   const internalSyncRecord = useEventSyncTap(activeFile?.id ?? null, {
     remoteQueue,
     actor,
+    onReceived: handleReceived,
   });
   const syncRecord = syncRecordOverride ?? internalSyncRecord;
 
