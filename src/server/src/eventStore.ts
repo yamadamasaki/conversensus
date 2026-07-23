@@ -16,7 +16,9 @@ import {
   type Batch,
   type Commit,
   type FileId,
+  type GraphFileListItem,
   projectBatches,
+  projectFile,
   type Sheet,
   type SheetId,
   toSheet,
@@ -177,6 +179,41 @@ export class EventStore {
     meta: { id: SheetId; name: string; description?: string },
   ): Sheet {
     return toSheet(projectBatches(this.getBatches(fileId)), meta);
+  }
+
+  /**
+   * op-log に batch を持つファイルの一覧を返す (Phase 4e-2a, 4e 設計 §3.2b)。
+   *
+   * `GET /files` を snapshot storage と op-log の和集合にするための op-log 側。
+   * 受信で materialize されたファイルは snapshot を持たないため、ここに出ないと
+   * 一覧から永久に見えない。name/description は file 構造 op を `projectFile` で
+   * 畳んで得る (fold の第 2 実装を作らない)。
+   *
+   * - 順序は初出順 (file_id ごとの最小 seq)。和集合では snapshot 側の後に足される。
+   * - projection が 0 シートの file_id は除外する — 有効な GraphFile は必ず
+   *   1 シート以上持つ (W3d-2 の読取失敗判定と同じ基準)。genesis を持たない
+   *   孤児 batch だけの file_id を出すと、開いても描画できない項目が並ぶため。
+   */
+  listOplogFiles(): GraphFileListItem[] {
+    const rows = this.db
+      .query<{ file_id: string }, []>(
+        'SELECT file_id FROM batches GROUP BY file_id ORDER BY MIN(seq)',
+      )
+      .all();
+    const items: GraphFileListItem[] = [];
+    for (const row of rows) {
+      const fileId = row.file_id as FileId;
+      const projected = projectFile(this.getBatches(fileId), fileId);
+      if (projected.sheets.length === 0) continue;
+      items.push({
+        id: fileId,
+        name: projected.name,
+        ...(projected.description !== undefined && {
+          description: projected.description,
+        }),
+      });
+    }
+    return items;
   }
 
   /** コミット (ラベル付きオフセット) を保存する。同一 id は上書きする */

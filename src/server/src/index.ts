@@ -60,10 +60,17 @@ app.onError((err, c) => {
   return c.json({ error: 'Internal server error' }, HTTP_INTERNAL_SERVER_ERROR);
 });
 
-// GET /files - ファイル一覧
+// GET /files - ファイル一覧 (snapshot storage と op-log の和集合, Phase 4e-2a)
 app.get('/files', async (c) => {
   const files = await listFiles();
-  return c.json(files);
+  // 受信で materialize されたファイルは snapshot を持たず op-log にしか無い (4e 設計 §3.2b)。
+  // 両方に在るものは fileId で distinct し、snapshot 側の name/description を正とする。
+  // 順序: 既存の snapshot 順 → op-log-only (初出順)。
+  const known = new Set<string>(files.map((f) => f.id));
+  const oplogOnly = getEventStore()
+    .listOplogFiles()
+    .filter((f) => !known.has(f.id));
+  return c.json([...files, ...oplogOnly]);
 });
 
 // POST /files - 新規ファイル作成
