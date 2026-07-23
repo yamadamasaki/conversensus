@@ -14,6 +14,7 @@ import {
   fetchFile,
   fetchFiles,
   importFile,
+  pushReceivedBatches,
   removeFile,
   saveFile,
 } from '../api';
@@ -28,6 +29,7 @@ import { READ_FROM_OPLOG } from '../config';
 import type { GraphEvent } from '../events/GraphEvent';
 import { makeEventBase } from '../events/GraphEvent';
 import type { PopupTarget } from '../SettingsPopup';
+import { discoverRemoteFiles } from '../sync/discoverRemoteFiles';
 import { useEventSyncTap } from './useEventSyncTap';
 
 type ConfirmState = {
@@ -47,6 +49,8 @@ export interface FileSheetOpsDeps {
   fetchFile: typeof fetchFile;
   fetchFiles: typeof fetchFiles;
   importFile: typeof importFile;
+  /** 受信 batch の書き込み口 (marker 経路, Phase 4e-2b の materialize 用) */
+  pushReceivedBatches: typeof pushReceivedBatches;
   removeFile: typeof removeFile;
   saveFile: typeof saveFile;
   atprotoFilesDelete: (id: string) => Promise<void>;
@@ -62,6 +66,7 @@ export const defaultFileSheetOpsDeps: FileSheetOpsDeps = {
   fetchFile,
   fetchFiles,
   importFile,
+  pushReceivedBatches,
   removeFile,
   saveFile,
   atprotoFilesDelete: (id: string) => atprotoFilesColl.delete(id),
@@ -439,6 +444,37 @@ export function useFileSheetOperations({
   useEffect(() => {
     deps.fetchFiles().then(setFiles).catch(console.error);
   }, [deps]);
+
+  // 未知ファイルの発見と materialize (Phase 4e-2b, 4e 設計 §3.2b)。
+  // remote (repo 全体) を走査し、ローカル正典に無いファイルの batch 群を marker 経路へ
+  // 書く。契機は受信 (a) と同じ「起動時 + online + 手動は今すぐ同期に相乗り予定」(§3.4)。
+  // 発見したら一覧を読み直す — GET /files が op-log との和集合 (4e-2a) なので、
+  // materialize されたファイルはこれだけで Sidebar に現れる。
+  useEffect(() => {
+    if (!remoteQueue) return;
+    const discover = () => {
+      discoverRemoteFiles({
+        pullRemote: () => remoteQueue.pullRemote(),
+        listLocalFileIds: async () =>
+          (await deps.fetchFiles()).map((f) => f.id),
+        appendReceived: deps.pushReceivedBatches,
+      })
+        .then((result) => {
+          if (result.discovered.length === 0) return;
+          console.info(
+            `[sync] discovered ${result.discovered.length} remote file(s), ` +
+              `${result.appended} batch(es)`,
+          );
+          deps.fetchFiles().then(setFiles).catch(console.error);
+        })
+        .catch((error) =>
+          console.warn('[sync] remote file discovery failed:', error),
+        );
+    };
+    discover();
+    window.addEventListener('online', discover);
+    return () => window.removeEventListener('online', discover);
+  }, [remoteQueue, deps]);
 
   return {
     files,

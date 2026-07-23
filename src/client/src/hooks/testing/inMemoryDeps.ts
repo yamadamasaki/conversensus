@@ -65,6 +65,9 @@ export function createInMemoryFileSheetOpsDeps(): FileSheetOpsDeps & {
 
     fetchFiles: async () => [...fileList],
 
+    // 受信 materialize の書き込み口 (Phase 4e-2b)。in-memory では何も書かない。
+    pushReceivedBatches: async () => 0,
+
     importFile: async (
       data: import('@conversensus/shared').ConversensusFile,
     ) => {

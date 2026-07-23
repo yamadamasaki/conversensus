@@ -33,6 +33,7 @@ afterEach(() => {
 type RenderOpts = {
   deps?: ReturnType<typeof createInMemoryFileSheetOpsDeps>;
   readFromOplog?: boolean;
+  remoteQueue?: import('../atproto/remoteSyncQueue').RemoteSyncQueue;
 };
 
 async function renderWith(opts: RenderOpts = {}) {
@@ -49,6 +50,7 @@ async function renderWith(opts: RenderOpts = {}) {
       ...(opts.readFromOplog !== undefined && {
         readFromOplog: opts.readFromOplog,
       }),
+      ...(opts.remoteQueue !== undefined && { remoteQueue: opts.remoteQueue }),
     }),
   );
   // Flush async effects (fetchFiles + ATProto sync)
@@ -562,6 +564,79 @@ describe('useFileSheetOperations', () => {
         result.current.setActiveSheetId(SID2);
       });
       expect(result.current.activeSheet?.name).toBe('Sheet 2');
+    });
+  });
+
+  describe('remote 未知ファイルの発見 (Phase 4e-2b)', () => {
+    const NEW_FILE = '99999999-9999-4999-8999-999999999999' as FileId;
+
+    /** remote に未知ファイルの batch がある状態の RemoteSyncQueue を作る */
+    async function makeRemoteQueue() {
+      const { RemoteSyncQueue } = await import('../atproto/remoteSyncQueue');
+      const provider = {
+        pushRemote: async () => {},
+        pullRemote: async () => [
+          {
+            fileId: NEW_FILE,
+            batch: {
+              id: 'rb1',
+              actor: 'did:plc:alice#dev-a',
+              clock: 1,
+              timestamp: 1,
+              ops: [{ kind: 'file.setName', name: '受信ファイル' }],
+            },
+          },
+        ],
+      };
+      // biome-ignore lint/suspicious/noExplicitAny: テスト用の最小 provider
+      return new RemoteSyncQueue({ provider: provider as any });
+    }
+
+    it('mount 時に未知ファイルを materialize し一覧を再読込する', async () => {
+      const deps = createInMemoryFileSheetOpsDeps();
+      const received: string[] = [];
+      deps.pushReceivedBatches = async (fileId, batches) => {
+        received.push(fileId);
+        // materialize されると GET /files (op-log 和集合, 4e-2a) に現れることを模す
+        deps._fileList.push({ id: NEW_FILE, name: '受信ファイル' });
+        return batches.length;
+      };
+      const remoteQueue = await makeRemoteQueue();
+
+      const { result } = await renderWith({ deps, remoteQueue });
+
+      expect(received).toEqual([NEW_FILE]);
+      // 発見後の再読込で Sidebar 一覧に現れる
+      expect(result.current.files.map((f) => f.id)).toContain(NEW_FILE);
+    });
+
+    it('既知ファイルしか無ければ書き込みも再読込も起きない', async () => {
+      const deps = createInMemoryFileSheetOpsDeps();
+      // ローカルに既知として登録しておく
+      deps._fileList.push({ id: NEW_FILE, name: '既知' });
+      const received: string[] = [];
+      deps.pushReceivedBatches = async (fileId, batches) => {
+        received.push(fileId);
+        return batches.length;
+      };
+      const remoteQueue = await makeRemoteQueue();
+
+      await renderWith({ deps, remoteQueue });
+
+      expect(received).toEqual([]);
+    });
+
+    it('remoteQueue が無ければ発見は起きない (未ログイン時)', async () => {
+      const deps = createInMemoryFileSheetOpsDeps();
+      const received: string[] = [];
+      deps.pushReceivedBatches = async (fileId, batches) => {
+        received.push(fileId);
+        return batches.length;
+      };
+
+      await renderWith({ deps });
+
+      expect(received).toEqual([]);
     });
   });
 });
