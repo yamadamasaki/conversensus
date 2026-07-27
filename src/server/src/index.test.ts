@@ -450,6 +450,20 @@ describe('API routes', () => {
       ).json();
       expect(body).toEqual([]);
     });
+
+    // Phase 5 p5-1: branch 専用 file_id は snapshot を持たず op-log にしか無いので、
+    // 一覧に出るとしたら op-log 側 (listOplogFiles) から。HTTP の口でも固定する。
+    it('branch 専用 file_id は一覧に出ない (Phase 5 p5-1)', async () => {
+      const trunk = await (await createFile('trunk')).json();
+      const branchFileId = uuid(88);
+      // branch の編集 = 分岐元シートを指す content batch のみ (構造 op を含まない)
+      await postBatches(branchFileId, [sampleBatch(1), sampleBatch(2)]);
+
+      const body = await (
+        await fetch(new Request('http://localhost/files'))
+      ).json();
+      expect(body.map((f: { id: string }) => f.id)).toEqual([trunk.id]);
+    });
   });
 
   describe('POST /files', () => {

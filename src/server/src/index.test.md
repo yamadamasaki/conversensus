@@ -76,6 +76,7 @@ Hono アプリの `fetch` 関数を直接呼び出すことで、実際の HTTP 
 | GET /files | op-log にしか無いファイルも載る (受信 materialize) | 和集合 (Phase 4e-2a) |
 | GET /files | 両方に在る → snapshot の name を正とし重複しない | fileId distinct |
 | GET /files | 孤児 batch だけの file_id は出ない (D-4) | 0 シート除外 |
+| GET /files | branch 専用 file_id は出ない | branch 除外 (Phase 5 p5-1) |
 | POST /files | 名前付きで作成 → 201 | 正常系 |
 | POST /files | name 省略 → "無題" | デフォルト値 |
 | GET /files/:id | 作成後に取得できる | 正常系 |
@@ -115,6 +116,15 @@ marker の役割なので、エンドポイントも分けて取り違えを経�
   わけではないことの対照。W3d-1 の破棄挙動を壊していないことの証拠。
 - **受信 0 件では marker を立てない**: 空配列を受けても正典宣言をせず、その後の
   lazy migration が従来どおり働くこと。機会を無意味に奪わないため。
+
+### branch 専用 file_id の一覧除外 (Phase 5 p5-1)
+
+branch batches は trunk と同じ `batches` テーブルに **branch 専用 file_id** で同居する
+(設計 §3.1-B)。除外できないと UI のファイル一覧に branch がファイルとして並ぶ。
+
+branch は snapshot を持たない (`writeFile` を通らない) ので、一覧に出るとしたら
+op-log 側 (`listOplogFiles`) から。**明示的な除外コードは書いていない** — 既存の
+0 シート除外がそのまま効くため (設計 §9.2 / M2)。HTTP の口でもそれを固定する。
 
 ## ブランチ / コミットのメタ情報 (step1 Phase 5)
 

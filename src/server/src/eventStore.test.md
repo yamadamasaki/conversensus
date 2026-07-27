@@ -68,6 +68,18 @@ Phase 3 の永続モデルは「append-only な操作ログ + projection」。�
     (W3d-2 の読取失敗判定と同じ基準)。genesis の無い孤児 batch だけの file_id (D-4) を
     一覧に出すと、開いても描画できない項目が並ぶ。
   - 順序は初出順 (file_id ごとの最小 seq)。和集合で snapshot 順の後に安定して足すため。
+  - **branch op-log の除外 (Phase 5 p5-1)**: branch batches は trunk と同じテーブルに
+    branch 専用 file_id で同居する (設計 §3.1-B) ため、除外できないと UI のファイル一覧に
+    branch がファイルとして並ぶ。**明示的な除外コードは書いていない** — `branchSheet` は
+    シートのメタを引数から受け取る設計なので branch op-log は `sheet.create` を持たず、
+    上の 0 シート除外がそのまま効く (設計 §9.2 / M2)。次の 3 点を固定する:
+    - content batch だけの branch op-log は一覧に出ない (trunk は出る)。
+    - 一覧から落ちても **branch op-log の中身は失われない** (p5-2 の `branchSheet` が
+      ここから branchBatches を読む)。表示上の判断であって破棄ではない。
+    - 🔴 **除外が依存している条件そのもの**: branch op-log に `sheet.create` が 1 つでも
+      入ると branch は一覧に現れる。p5-2 以降の配線は「branch op-log へ構造 op を
+      流さない」を守る必要があり、破れたらこのテストが赤くなって気づける
+      (破れた場合は明示除外の実装が要る)。
   - 同一 batch_id の再受信はべき等 (件数 0・ログ不変)。`appendBatch` のべき等性を継承する。
   - marker は下げない (より新しい版で正典化済ならそのまま残す)。
 - **projectSheet**: 操作ログを projection して Sheet を導出する。node.add → node.setContent

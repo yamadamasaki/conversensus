@@ -435,5 +435,46 @@ describe('EventStore', () => {
       store.appendBatch(FILE, structure('b2', '先に受信した方', 1));
       expect(store.listOplogFiles().map((f) => f.id)).toEqual([other, FILE]);
     });
+
+    // Phase 5 p5-1: branch 専用 file_id (§3.1-B) の op-log がファイル一覧に
+    // 漏れないことを固定する。branch は trunk と同じ batches テーブルに同居する
+    // ため、除外できないと UI のファイル一覧に branch がファイルとして並ぶ。
+    describe('branch op-log の除外 (Phase 5 p5-1)', () => {
+      const BRANCH_FILE = 'branch-file-1' as FileId;
+
+      /** branch 側の編集 = 分岐元シートを指す content batch */
+      const branchEdit = (id: string, clock: number): Batch => ({
+        ...addNode(id, `n-${id}`, `branch の編集 ${id}`, clock),
+        sheetId: SHEET_META.id,
+      });
+
+      it('content batch だけの branch op-log は一覧に出ない', () => {
+        store.appendBatch(FILE, structure('t1', 'trunk', 1));
+        store.appendBatch(BRANCH_FILE, branchEdit('br1', 2));
+        store.appendBatch(BRANCH_FILE, branchEdit('br2', 3));
+        // 除外は明示コードではなく既存の 0 シート除外で自動的に効く (設計 §9.2 / M2):
+        // `branchSheet` はシートのメタを引数から受け取る設計なので branch op-log は
+        // `sheet.create` を持たず、`projectFile` が content batch を未作成シート扱いで
+        // 落として 0 シートになる。
+        expect(store.listOplogFiles().map((f) => f.id)).toEqual([FILE]);
+      });
+
+      it('branch op-log の中身自体は失われない (一覧に出ないだけ)', () => {
+        store.appendBatch(BRANCH_FILE, branchEdit('br1', 2));
+        // 一覧から落ちるのは表示上の判断であって、projection の材料は残る。
+        // p5-2 の `branchSheet` はここから branchBatches を読む。
+        expect(store.listOplogFiles()).toEqual([]);
+        expect(store.getBatches(BRANCH_FILE).map((b) => b.id)).toEqual(['br1']);
+      });
+
+      // 🔴 除外が成り立つ条件そのものを固定する。branch op-log に構造 op
+      // (`sheet.create`) が 1 つでも入ると **branch がファイル一覧に現れる**。
+      // p5-2 以降の配線は「branch op-log へ構造 op を流さない」を守る必要があり、
+      // 破れたらこのテストが赤くなって気づける (破れた場合は明示除外が要る)。
+      it('sheet.create が入ると一覧に出てしまう (除外が依存している条件)', () => {
+        store.appendBatch(BRANCH_FILE, structure('br1', 'branch', 1));
+        expect(store.listOplogFiles().map((f) => f.id)).toEqual([BRANCH_FILE]);
+      });
+    });
   });
 });
