@@ -1,7 +1,7 @@
-# step2 branch subsystem の op-log 化 — 設計 (初版ドラフト)
+# step1 Phase 5: branch subsystem の op-log 化 — 設計 (初版ドラフト)
 
-> ステータス: **初版起案** / 起案日: 2026-07-24 / 起案: architect (read-only, 実コード裏取り込み)
-> 位置づけ: step1 (操作ログ正典化・ローカルファースト) Phase 4 完了・main マージ済の次段。
+> ステータス: **初版起案** / 起案日: 2026-07-24 / 起案: architect (read-only, 実コード裏取り込み) / 再分類: 2026-07-27 (旧「step2」→ step1 Phase 5)
+> 位置づけ: step1 (操作ログ正典化・ローカルファースト) Phase 4 完了・main マージ済の次段。**本 Phase は元 Phase 2 (ブランチ載せ替え) の実配線が Phase 2/3/4 を通じて滑った残タスクを step1 内で回収するもの**であり、当初「step2」として別 step に切り出していたものを step1 Phase 5 に戻した (経緯は `step1-implementation.md` §2 の注記参照)。本来の step2 は拡張エンジン (`../architecture/step1.md` §8) で、step1 リリース後に着手する。
 > branch/commit/merge subsystem を現行 snapshot/PDS 直叩きモデルから op-log 分岐モデルへ載せ替える。W3e (snapshot 完全退役) の前提条件を作る。
 > 本書の事実主張は `【コード裏取り済】` と `【要判断】`/`【推測】` を明示的に区別する。**設計判断は選択肢を列挙し推奨を付すが、最終決定はユーザーが行う。**
 
@@ -9,7 +9,7 @@
 
 ## 1. 背景と現状把握
 
-### 1.1 なぜ step2 か 【コード裏取り済】
+### 1.1 なぜ step1 Phase 5 か 【コード裏取り済】
 
 W3e (snapshot 退役 = `PUT /files`・`storage.ts`・snapshot 読込の撤去) の前提は「branch の op-log 化」。現行 branch は snapshot 複製に依存しているため、先にここを op-log 化しないと snapshot を撤去できない。
 
@@ -47,7 +47,7 @@ UI 配線 (`useBranchOperations.ts`) の state は **snapshot ベース**:
 - `EventStore` は **commit オフセットの永続化先を既に持つ** — `commits` テーブル + `saveCommit`/`getCommits` (file_id 単位, `eventStore.ts:69-76, 219-233, 327-338`)。**branch メタの永続化先は無い** (未定義)。
 - `spikes/o3/branchAsLog.ts` は投棄前提 PoC。merge の CRDT 意味論 (structure=OR-Set add-wins / content=LWW+conflict / layout=静かな LWW) と複合イベント分解 (`decomposeGroup`/`decomposePaste`) の**意味論の参照**に使う (`branchAsLog.ts:1-14, 139-265`)。
 
-### 1.4 step1 で確立し step2 が再利用できる基盤 【コード裏取り済】
+### 1.4 step1 の Phase 1〜4 で確立し Phase 5 が再利用できる基盤 【コード裏取り済】
 
 - op-log は **file_id 単位**で仕切られる (`EventStore` の全メソッドが `fileId` 引数, `eventStore.ts:122-338`)。batch = `{id, actor, clock, timestamp, sheetId?, ops[]}` (`unified.ts:232-242`)。
 - projection: `projectBatches` / `projectFile` / `orderBatches` (全順序 tiebreak = `clock → actor → id`, `project.ts:53-72, 295-328`)。
@@ -69,11 +69,11 @@ UI 配線 (`useBranchOperations.ts`) の state は **snapshot ベース**:
 
 ### 2.2 非目標 (後続 / W3e へ) 【要判断: 境界はユーザー確認】
 
-- **trunk snapshot の完全退役 (W3e)** — `PUT /files`・`storage.ts`・snapshot genesis fallback の撤去は W3e に残す。step2 は **branch 固有の snapshot 依存** (branch prefix レコード複製) のみ切る。
-- **content 対立の可視化 UX** — `merge.ts` は `MergeConflict` を**検出・返却**するところまでを step2 とし、グラフ上の対立提示 UX は後続 (Phase 4e §2 の非目標線を踏襲)。
-- **structure の add-wins OR-Set 厳密化** — 現 projection は structure も clock-LWW (`project.ts:74-125`、node.remove はカスケード削除)。o3 Phase1 課題 #2 は未解決のまま持ち越す。step2 は「決定論的に収束する」ことのみ要求。
+- **trunk snapshot の完全退役 (W3e)** — `PUT /files`・`storage.ts`・snapshot genesis fallback の撤去は W3e に残す。step1 Phase 5 は **branch 固有の snapshot 依存** (branch prefix レコード複製) のみ切る。
+- **content 対立の可視化 UX** — `merge.ts` は `MergeConflict` を**検出・返却**するところまでを step1 Phase 5 とし、グラフ上の対立提示 UX は後続 (Phase 4e §2 の非目標線を踏襲)。
+- **structure の add-wins OR-Set 厳密化** — 現 projection は structure も clock-LWW (`project.ts:74-125`、node.remove はカスケード削除)。o3 Phase1 課題 #2 は未解決のまま持ち越す。step1 Phase 5 は「決定論的に収束する」ことのみ要求。
 - **並行 branch の vector clock 判定** — Phase 4d/4e の方針 (scalar Lamport + 決定論収束) を踏襲。
-- **既存 PDS branch データの移行** — o3 は破棄前提 (§7)。step2 でも破棄を既定とする (§6 で扱う)。
+- **既存 PDS branch データの移行** — o3 は破棄前提 (§7)。step1 Phase 5 でも破棄を既定とする (§6 で扱う)。
 
 ---
 
@@ -102,7 +102,7 @@ trunk と同じ op-log に無条件で混ぜると `projectFile`/`projectBatches
 
 ### 3.2 branch / commit メタの永続化先
 
-- **commit オフセット**: `commits` テーブルの**型は再利用できる** (`eventStore.ts:219-233`)。`Commit = {id, message, at, authorActor}` は `branchLog.Commit` と同型。**ただし `saveCommit`/`getCommits` は定義のみで caller 0 件・HTTP endpoint も無い** (critic M1)。→ **s2-0 で `GET/POST /files/:id/commits` の endpoint と caller を新規に配線する必要がある**。加えて commit は現状 remote 同期経路も無い → remote へ載せる経路も新規 (§3.5)。
+- **commit オフセット**: `commits` テーブルの**型は再利用できる** (`eventStore.ts:219-233`)。`Commit = {id, message, at, authorActor}` は `branchLog.Commit` と同型。**ただし `saveCommit`/`getCommits` は定義のみで caller 0 件・HTTP endpoint も無い** (critic M1)。→ **p5-0 で `GET/POST /files/:id/commits` の endpoint と caller を新規に配線する必要がある**。加えて commit は現状 remote 同期経路も無い → remote へ載せる経路も新規 (§3.5)。
 - **branch メタ** (`{id, name, base: Commit, status}` + 紐付ける trunkFileId / branchFileId / sheetId): **永続化先が無い**。選択肢:
 
 | 選択肢 | Pros | Cons |
@@ -128,8 +128,8 @@ trunk と同じ op-log に無条件で混ぜると `projectFile`/`projectBatches
 - **merge した branch batches の clock 再付与**。`mergeBranches` は batches を**素朴連結**し、clock はそのまま (`merge.ts:73`)。だが trunk が base 以降に進んでいる場合、branch batch の clock は base 近傍 (低位) のままなので、`orderBatches` で **trunk の後発編集より前に並ぶ** (`project.ts:53-59`)。→ content LWW で **trunk の後発編集が branch を上書きする**方向になり、「branch を trunk の上に適用する」という merge の直感と食い違い得る。
   - 選択肢 (i): merge 時に branch batches を **trunk の現先端 clock の後へ再スタンプ** (`LamportClock.tick`, `unified.ts:282`)。branch が上に乗る。だが batch id を変えると端末間 dedup が壊れる → **id は保持し clock だけ更新**する新経路が要る。
   - 選択肢 (ii): clock を保持し「収束はするが LWW は clock 準拠」と割り切る (merge.ts の現挙動)。実装は最小だが merge 意味論がユーザー直感とずれる可能性。
-  - **推奨は (i) の思想 (branch を上に乗せる) だが、id 保持・clock 再付与が dedup/受信と両立するかを純ドメインで先に固める** (§4 の s2-3 で単体検証)。
-- **content 対立の扱い**: `MergeConflict` を検出しても step2 は**収束を優先し LWW 確定**、対立は**保持のみ** (可視化は後続, §2.2)。保持先 (op-log 上のマーカー op か、別メタか) は 【要判断】。
+  - **推奨は (i) の思想 (branch を上に乗せる) だが、id 保持・clock 再付与が dedup/受信と両立するかを純ドメインで先に固める** (§4 の p5-3 で単体検証)。
+- **content 対立の扱い**: `MergeConflict` を検出しても step1 Phase 5 は**収束を優先し LWW 確定**、対立は**保持のみ** (可視化は後続, §2.2)。保持先 (op-log 上のマーカー op か、別メタか) は 【要判断】。
 
 ### 3.4 現行 snapshot 依存の切り離し
 
@@ -143,8 +143,8 @@ trunk と同じ op-log に無条件で混ぜると `projectFile`/`projectBatches
 | `createMergeRecord`/`updateBranchStatus`/`fetchBranchesForSheet`/`fetchCommitsForBranch` | branch/commit メタ CRUD を §3.2 の永続化先 + §3.5 の remote 経路へ退避 | o3 の「退避」分類 |
 
 **W3e との境界 (明確化):**
-- **step2 がやる**: 上表すべて (branch 固有の snapshot 複製・PDS 直叩きの退役)。
-- **W3e に残す**: `PUT /files` / `storage.ts` の snapshot storage、trunk の snapshot genesis fallback (`migrateFileToOplog`, `index.ts:268`)、`GET /files` の snapshot 側 (`index.ts:65`)。step2 完了時点でも trunk snapshot は残り、branch だけが op-log 専業になる。
+- **step1 Phase 5 がやる**: 上表すべて (branch 固有の snapshot 複製・PDS 直叩きの退役)。
+- **W3e に残す**: `PUT /files` / `storage.ts` の snapshot storage、trunk の snapshot genesis fallback (`migrateFileToOplog`, `index.ts:268`)、`GET /files` の snapshot 側 (`index.ts:65`)。step1 Phase 5 完了時点でも trunk snapshot は残り、branch だけが op-log 専業になる。
 
 ### 3.5 remote (複数端末) での branch/commit/merge 伝播
 
@@ -161,15 +161,15 @@ Phase 4 と同様、**PDS 非依存で単体に閉じるスライスを先に積
 
 | スライス | 内容 | PDS 依存 | 依存 |
 |---|---|---|---|
-| **s2-0** | branch/commit メタの永続化先 (§3.2-B-1): `EventStore` に `branches` テーブル + `saveBranch`/`getBranches`。commit は既存 `commits` を再利用。server API `GET/POST /files/:id/branches`。**server 単体** | なし | — |
-| **s2-1** | branch batches 格納先 (§3.1-B): branch file_id の採番規約 + branch↔trunk 紐付けメタ。`EventStore`/server は file_id 素通しなので**新規コード最小**。branch file_id を `listOplogFiles`/`GET /files` から除外。**server 単体** | なし | s2-0 |
-| **s2-2** | branch projection 配線: `branchSheet` を op-log から供給する調整層 (`receiveRemoteBatches` と同型の純関数)。commit = `makeCommit(tipClock)` で offset 記録。**純ドメイン/単体** | なし | s2-1 |
-| **s2-3** | merge 配線 (§3.3): `mergeBranches` → trunk op-log 追記。**clock 再付与 (i) vs 保持 (ii) を単体で確定**。content 対立の保持先を確定。**純ドメイン/単体** | なし | s2-2 |
-| **s2-4** | client hook 載せ替え: `useBranchOperations` の snapshot state (`branchOriginalBase`/`lastCommitBase`) を op-log 派生へ。`computeOperations` は UI diff 用に残す。**dual-write フラグ** (`BRANCH_FROM_OPLOG` 相当) で旧 branchState と併存。client 単体 (PDS 経路はモック) | なし〜一部 | s2-3 |
-| **s2-5** | branch/commit/merge メタ + branch batches の remote 同期 (§3.5)。branch file_id の discover 除外を実機想定で。**PDS 依存** | あり | s2-1, s2-4 |
-| **s2-6** | 実機 e2e (device A/B)。branch 作成→編集→commit→merge の cross-device 収束。legacy branch snapshot を消した状態で op-log から branch が復元することを検査 | あり | 全て |
+| **p5-0** | branch/commit メタの永続化先 (§3.2-B-1): `EventStore` に `branches` テーブル + `saveBranch`/`getBranches`。commit は既存 `commits` を再利用。server API `GET/POST /files/:id/branches`。**server 単体** | なし | — |
+| **p5-1** | branch batches 格納先 (§3.1-B): branch file_id の採番規約 + branch↔trunk 紐付けメタ。`EventStore`/server は file_id 素通しなので**新規コード最小**。branch file_id を `listOplogFiles`/`GET /files` から除外。**server 単体** | なし | p5-0 |
+| **p5-2** | branch projection 配線: `branchSheet` を op-log から供給する調整層 (`receiveRemoteBatches` と同型の純関数)。commit = `makeCommit(tipClock)` で offset 記録。**純ドメイン/単体** | なし | p5-1 |
+| **p5-3** | merge 配線 (§3.3): `mergeBranches` → trunk op-log 追記。**clock 再付与 (i) vs 保持 (ii) を単体で確定**。content 対立の保持先を確定。**純ドメイン/単体** | なし | p5-2 |
+| **p5-4** | client hook 載せ替え: `useBranchOperations` の snapshot state (`branchOriginalBase`/`lastCommitBase`) を op-log 派生へ。`computeOperations` は UI diff 用に残す。**dual-write フラグ** (`BRANCH_FROM_OPLOG` 相当) で旧 branchState と併存。client 単体 (PDS 経路はモック) | なし〜一部 | p5-3 |
+| **p5-5** | branch/commit/merge メタ + branch batches の remote 同期 (§3.5)。branch file_id の discover 除外を実機想定で。**PDS 依存** | あり | p5-1, p5-4 |
+| **p5-6** | 実機 e2e (device A/B)。branch 作成→編集→commit→merge の cross-device 収束。legacy branch snapshot を消した状態で op-log から branch が復元することを検査 | あり | 全て |
 
-**s2-0 が最初** — メタの器が無いと後続が置き場を持たない。**s2-3 (merge の clock 意味論) と §6(a) (commit offset の端末間解釈) が最難関**。
+**p5-0 が最初** — メタの器が無いと後続が置き場を持たない。**p5-3 (merge の clock 意味論) と §6(a) (commit offset の端末間解釈) が最難関**。
 
 ---
 
@@ -178,11 +178,11 @@ Phase 4 と同様、**PDS 非依存で単体に閉じるスライスを先に積
 Phase 4 の教訓を継承: **「op-log に行が増えた」「画面に見える」を証拠にしない。** projection の決定論的一致と、legacy snapshot を除去した状態での成立で判定する。
 
 各スライス:
-- **s2-0/s2-1**: branch/commit メタと branch batches が op-log に永続化・取得できる (server 単体テスト)。branch file_id が `GET /files`/`listOplogFiles` に**出ない**ことを明示検査 (§3.1-B の除外)。
-- **s2-2**: `branchSheet(op-log 由来)` の projection が、旧 `fetchBranchSheetFromPds` の結果と **同一 fingerprint** になる (golden 比較)。branch を開いても trunk projection が不変。
-- **s2-3**: merge 後の trunk projection が期待どおり。**clock 再付与方針の下で** branch 編集と trunk 後発編集の LWW 勝敗が仕様どおり (単体で明示テスト)。`MergeConflict` が並行 content 変更で検出される。
-- **s2-4**: branch state が op-log から導出されても pending ops / diff ハイライトが旧挙動と一致。フラグ off で旧経路が無傷。
-- **s2-6 (Phase 全体)**:
+- **p5-0/p5-1**: branch/commit メタと branch batches が op-log に永続化・取得できる (server 単体テスト)。branch file_id が `GET /files`/`listOplogFiles` に**出ない**ことを明示検査 (§3.1-B の除外)。
+- **p5-2**: `branchSheet(op-log 由来)` の projection が、旧 `fetchBranchSheetFromPds` の結果と **同一 fingerprint** になる (golden 比較)。branch を開いても trunk projection が不変。
+- **p5-3**: merge 後の trunk projection が期待どおり。**clock 再付与方針の下で** branch 編集と trunk 後発編集の LWW 勝敗が仕様どおり (単体で明示テスト)。`MergeConflict` が並行 content 変更で検出される。
+- **p5-4**: branch state が op-log から導出されても pending ops / diff ハイライトが旧挙動と一致。フラグ off で旧経路が無傷。
+- **p5-6 (Phase 全体)**:
   1. **branch 成立が op-log 由来**: legacy branch prefix レコードを**消した状態**で branch 作成・編集・commit・merge が成立する (snapshot 肩代わりによる偽陽性を排除)。
   2. **cross-device 収束**: device A が作った branch を B が op-log 経由で取得し、両端末の `branchSheet` projection fingerprint が一致。
   3. **merge 収束**: merge 後の trunk projection が A/B で一致。
@@ -201,37 +201,37 @@ Phase 4 の教訓を継承: **「op-log に行が増えた」「画面に見え�
 - clock は端末ごとに `observe` で進む (`unified.ts:287-291`)。actor が複数だと clock 空間が**密でも単調でもない** (`orderBatches` の tiebreak が actor/id, `project.ts:53-59`)。
 - device A の commit `at=5` を device B が受け取ったとき、B の clock 空間で「clock<=5」が A の意図した batch 集合と一致する保証が無い。
 - **選択肢**: (i) commit を「含む batch id の集合 / content-addressed ハッシュ」で表現 (offset をやめる)、(ii) offset のまま単一端末では正しいと割り切り cross-device commit を非目標化、(iii) per-actor の vector で offset を表現。
-- **推奨**: s2-6 前に **単一端末では offset で十分・cross-device commit の意味論は s2-3 の merge clock 方針と一緒に決める**。ここは branchLog の現設計 (`at: Lamport`) が multi-device で綻ぶ可能性がある**最重要の未解決点**。
+- **推奨**: p5-6 前に **単一端末では offset で十分・cross-device commit の意味論は p5-3 の merge clock 方針と一緒に決める**。ここは branchLog の現設計 (`at: Lamport`) が multi-device で綻ぶ可能性がある**最重要の未解決点**。
 
 ### 6.2 【Medium・要判断】既存 PDS branch データの移行 or 破棄
 
 o3 は破棄前提 (`o3-report.md:41`, `branchState.ts:9`)。だが branch/commit は**ユーザーが作った版管理データ**。
 - **選択肢**: (i) 破棄 (step1 genesis の破棄前例に倣う)、(ii) 一度きりの migration (branch prefix レコード → branch op-log の genesis 相当)。
-- **推奨**: (i) 破棄を既定。ただし「試験リリース済で実データがある」なら (ii) の要否をユーザー確認。migration するなら `graphFileToBatches` と同型の「branch snapshot → branch batches」変換を s2-1 で用意。
+- **推奨**: (i) 破棄を既定。ただし「試験リリース済で実データがある」なら (ii) の要否をユーザー確認。migration するなら `graphFileToBatches` と同型の「branch snapshot → branch batches」変換を p5-1 で用意。
 
 ### 6.3 【Medium・要判断】undo/redo と branch の相互作用
 
 - undo/redo の単位は Batch (`unified.ts:5-9`)。branch 切替時に undo スタックをどう扱うか (branch ごとにスタックを分けるか、共有か) が未定義。現行 `useBranchOperations` は branch 切替で snapshot を差し替えるだけで undo との関係は暗黙 (`useBranchOperations.ts:211-304`)。
 - 受信 batch は undo 対象外 (Phase 4d 方針)。merge で trunk に入った branch batches も undo 対象外にすべきか (merge の取り消しは undo でなく revert か)。
 - o3 Phase1 課題 #5 (複合イベントの undo 粒度) も未決 (`o3-report.md:49`)。
-- **推奨**: branch 切替で undo スタックを **branch ごとに分離** (混線防止)、merge は undo 非対象 (別途 revert 操作) を初期方針とし s2-4 で確定。
+- **推奨**: branch 切替で undo スタックを **branch ごとに分離** (混線防止)、merge は undo 非対象 (別途 revert 操作) を初期方針とし p5-4 で確定。
 
 ### 6.4 【Medium】branch file_id の discover 漏れ (§3.1-B 固有)
 
-除外を入れ忘れると branch が Sidebar に裸で並ぶ / 他端末が branch を通常ファイルとして materialize する。受入基準 (§5 s2-0/s2-1) で明示検査。§3.1-A を選べば発生しない (A vs B のトレードオフの一部)。
+除外を入れ忘れると branch が Sidebar に裸で並ぶ / 他端末が branch を通常ファイルとして materialize する。受入基準 (§5 p5-0/p5-1) で明示検査。§3.1-A を選べば発生しない (A vs B のトレードオフの一部)。
 
 ### 6.5 【Low】ATProto の型制約
 
-float 不可 (整数丸め必須, Phase 4e で発覚) は branch batches にも適用 — 既存の layout 整数丸め対策 (`toUnified.ts` の `nodeSetLayoutOp`) が branch 経路でも効くことを s2-5 で確認。genesis の float 直列化差 dedup 外れ (`step1-phase4e-bootstrap.md:60-67`) と同型の注意。
+float 不可 (整数丸め必須, Phase 4e で発覚) は branch batches にも適用 — 既存の layout 整数丸め対策 (`toUnified.ts` の `nodeSetLayoutOp`) が branch 経路でも効くことを p5-5 で確認。genesis の float 直列化差 dedup 外れ (`step1-phase4e-bootstrap.md:60-67`) と同型の注意。
 
 ---
 
 ## 7. 前フェーズ教訓との突き合わせ (実装着手前チェック)
 
-Phase 4d/4e で「設計の対策・受入基準を既存仕様・外部 API 型・非目標節と実装前に突き合わせる」教訓 (memory `feedback_design_vs_existing_spec`)。step2 の要突き合わせ項目:
-- **既存テストが旧 branch 挙動を固定していないか** (Phase 4e-0 の M1 再発防止)。**critic H3 で所在が判明**: `branchState.test.ts` の 27 テストは**大半が `computeOperations`** (§3.4 で UI diff 用に残すもの = 書換対象外)。実際に置換対象の snapshot 挙動を固定しているのは **`useBranchOperations.test.ts` (29 テスト)** の `handleCreateBranch`(97)/`handleMergeBranch`(132)/`handleSelectBranch`(272,434)/`pendingOps`(315) の 5 describe。これらは `fetchBranchSheetFromPds` 呼出と `computeOperations` 由来 pending を検証しており **s2-4 でほぼ全滅する** → 旧経路はフラグ off で温存しつつ op-log 版へ書き換える。
-- **branchLog の `Branch` に sheetId が無い** (`branchLog.ts:36-41`) vs 現行 branch は per-sheet (`branchState.ts:88`)。step2 で branch を per-sheet のまま保つなら、branchLog の Branch に sheetId 相当をどう持たせるか (メタ側か、branch batches の sheetId scope で足りるか) を s2-0 で確定。
-- **`merge.ts` の clock 保持挙動** (§3.3) が既にテスト固定されているか (`merge.test.ts`) を s2-3 着手前に確認。clock 再付与 (i) を採るなら既存テストと衝突する可能性。
+Phase 4d/4e で「設計の対策・受入基準を既存仕様・外部 API 型・非目標節と実装前に突き合わせる」教訓 (memory `feedback_design_vs_existing_spec`)。step1 Phase 5 の要突き合わせ項目:
+- **既存テストが旧 branch 挙動を固定していないか** (Phase 4e-0 の M1 再発防止)。**critic H3 で所在が判明**: `branchState.test.ts` の 27 テストは**大半が `computeOperations`** (§3.4 で UI diff 用に残すもの = 書換対象外)。実際に置換対象の snapshot 挙動を固定しているのは **`useBranchOperations.test.ts` (29 テスト)** の `handleCreateBranch`(97)/`handleMergeBranch`(132)/`handleSelectBranch`(272,434)/`pendingOps`(315) の 5 describe。これらは `fetchBranchSheetFromPds` 呼出と `computeOperations` 由来 pending を検証しており **p5-4 でほぼ全滅する** → 旧経路はフラグ off で温存しつつ op-log 版へ書き換える。
+- **branchLog の `Branch` に sheetId が無い** (`branchLog.ts:36-41`) vs 現行 branch は per-sheet (`branchState.ts:88`)。step1 Phase 5 で branch を per-sheet のまま保つなら、branchLog の Branch に sheetId 相当をどう持たせるか (メタ側か、branch batches の sheetId scope で足りるか) を p5-0 で確定。
+- **`merge.ts` の clock 保持挙動** (§3.3) が既にテスト固定されているか (`merge.test.ts`) を p5-3 着手前に確認。clock 再付与 (i) を採るなら既存テストと衝突する可能性。
 
 ---
 
@@ -270,16 +270,16 @@ Phase 4d/4e で「設計の対策・受入基準を既存仕様・外部 API 型
 
 - **根拠**: remote の batch コレクションは repo 全体で 1 つ・`rkey=batchId` (`batchMapper.ts:8-11,63-64`)。`mergeBranches` は branch batch を **id そのまま** `[...trunkAfterBase, ...branchBatches]` で運ぶ (`merge.ts:73`)。§3.1-B では branch batch は既に **branch file_id** の記録として remote へ push 済 (§3.5)。merge で同一 batchId X が **trunk file_id の記録としても**載ると、PDS の put は rkey 単位で上書きなので **merged-X (fileId=trunk) が branch-X (fileId=branch) を上書きし、branch 側が X を失う** → 他端末で branch/merge projection が発散。
 - **§3.3 (i)「id 保持・clock だけ更新」はこの衝突を悪化させる** (同一 rkey に別 clock 2 版。local は `UNIQUE(file_id, batch_id)` で両立するが remote rkey 単一では表現不能, `eventStore.ts:64`)。初版は「id を変えると dedup が壊れる」ことだけ懸念し、**id 保持が remote 名前空間で別種の破綻を招く**点を見落としていた。
-- **影響**: 受入基準 s2-6.2/6.3 (cross-device fingerprint 一致) が**構造的に達成不能**になる。
+- **影響**: 受入基準 p5-6.2/6.3 (cross-device fingerprint 一致) が**構造的に達成不能**になる。
 - **Fix (要判断)**:
   - **(a) §3.1-B を維持するなら**: merge で trunk へ追記する batch は **新規 id を採番** (branch-X → trunk-Y)。ただし A/B 端末が独立に merge すると別 id の二重適用が起きるため、**merged batch id を `deterministicUuid(branchId + X)` で端末間一致させる** + merge の伝播モデル (一度実行し伝播 or 各端末で決定論再計算) を §3.3/§3.5 に明記。
   - **(b) §3.1-A (batches に `branch_id` 列) を採るなら**: merge は `branch_id: X→NULL` の**更新** = 同一 rkey・同一 file_id で表現でき、**この衝突が原理的に発生しない**。C1 は「trunk hot path に触らない (B)」と「merge が remote 名前空間と自然に整合 (A)」のトレードオフを示す。**初版は A/B を「projection の汚れをどこで防ぐか」だけで比較していたが、critic は「merge の remote 表現」という第 2 軸を追加すべきと指摘 (最大の盲点)。**
 
-### 8.2 【High H1】§6.1 は branch **base** の端末間決定性も破り、受入基準 s2-6.2 と非両立になり得る
+### 8.2 【High H1】§6.1 は branch **base** の端末間決定性も破り、受入基準 p5-6.2 と非両立になり得る
 
 - **根拠**: `branchSheet` は `batchesUpTo(trunkBatches, branch.base)` を分岐点に使う (`branchLog.ts:73`)。`batchesUpTo = filter(b.clock <= base.at)` (scalar, `branchLog.ts:59-61`)。clock は端末間で密でも単調でもない (`orderBatches` tiebreak=actor/id, `LamportClock.observe=max+1`, `project.ts:53-59`, `unified.ts:288-289`)。→ 端末 B が低 clock の trunk batch を後から観測すると `batchesUpTo` の結果が変わり、**同じ branch でも端末ごとに base が変わって branchSheet fingerprint が発散**。
-- 初版は §6.1 を「commit=checkpoint の解釈」問題として書いたが、実際は **branch の分岐点 (base) 自体**が綻ぶ。受入基準 s2-6.2 (cross-device branchSheet 一致) と非両立になり得る点まで接続できていなかった。
-- **Fix**: §6.1 の選択肢 (i)「content-addressed な位置表現」を **branch.base にも適用**。**s2-2 の golden 比較を単一端末に限定するか cross-device まで要求するかを先に確定** — 後者なら scalar offset は不可という結論を §3/§4 に前倒しする。この一点で §6.1 の緊急度が決まる。
+- 初版は §6.1 を「commit=checkpoint の解釈」問題として書いたが、実際は **branch の分岐点 (base) 自体**が綻ぶ。受入基準 p5-6.2 (cross-device branchSheet 一致) と非両立になり得る点まで接続できていなかった。
+- **Fix**: §6.1 の選択肢 (i)「content-addressed な位置表現」を **branch.base にも適用**。**p5-2 の golden 比較を単一端末に限定するか cross-device まで要求するかを先に確定** — 後者なら scalar offset は不可という結論を §3/§4 に前倒しする。この一点で §6.1 の緊急度が決まる。
 
 ### 8.3 【High H2】branch file_id の discover 除外に bootstrap 循環がある
 
@@ -288,54 +288,54 @@ Phase 4d/4e で「設計の対策・受入基準を既存仕様・外部 API 型
 
 ### 8.4 【Medium M2】listOplogFiles の除外は既存「0 シート除外」で概ね賄える — 本質的に要るのは discover 側
 
-- **根拠**: `branchSheet` は sheet メタを引数から与え `projectBatches` で畳む (`branchLog.ts:67-74`) ので branch file_id の op-log は `sheet.create` を持たず、`projectFile(branchBatches)` は 0 シート → `listOplogFiles` の `if (sheets.length===0) continue` で**自動除外** (`eventStore.ts:207`)。→ §3.1-B が「必須」とした listOplogFiles 側明示除外は概ね不要。**本質的に除外が要るのは sheet 数を見ない `discoverRemoteFiles`** (H2)。§5 s2-1 の主対象を discover 除外へ。
+- **根拠**: `branchSheet` は sheet メタを引数から与え `projectBatches` で畳む (`branchLog.ts:67-74`) ので branch file_id の op-log は `sheet.create` を持たず、`projectFile(branchBatches)` は 0 シート → `listOplogFiles` の `if (sheets.length===0) continue` で**自動除外** (`eventStore.ts:207`)。→ §3.1-B が「必須」とした listOplogFiles 側明示除外は概ね不要。**本質的に除外が要るのは sheet 数を見ない `discoverRemoteFiles`** (H2)。§5 p5-1 の主対象を discover 除外へ。
 
-### 8.5 【Medium M3】s2-3 (merge) と s2-4 (hook) の間に「merge 結果の受信・べき等・再 projection」中間層が欠落
+### 8.5 【Medium M3】p5-3 (merge) と p5-4 (hook) の間に「merge 結果の受信・べき等・再 projection」中間層が欠落
 
-- Phase 4d の `appendReceivedBatches`/`reprojectAfterReceive` に相当する層が s2-3〜s2-5 に明示されていない。**s2-3.5 (or s2-5 の一部) として「merge 追記 batch の採番規約 + 受信べき等 + 再 projection」を独立スライス化**する。
+- Phase 4d の `appendReceivedBatches`/`reprojectAfterReceive` に相当する層が p5-3〜p5-5 に明示されていない。**p5-3.5 (or p5-5 の一部) として「merge 追記 batch の採番規約 + 受信べき等 + 再 projection」を独立スライス化**する。
 
 ### 8.6 critic の各「要判断」推奨 (最終決定はユーザー)
 
 - **§3.1 A/B**: C1 を踏まえ**再評価を推奨**。単純な非破壊性なら B だが、merge が remote `rkey=batchId` 単一名前空間と両立するかを第 2 軸に入れると **A が有利になり得る**。B 維持なら「merge 追記 batch は新規決定論 id」を必須対策として同時確定。
 - **§3.2 B-1/B-2**: **B-1 (専用テーブル) 支持**。commit と対称にするなら commit endpoint も同時新設 (M1)。B-2 の Op 語彙拡張は後回しが妥当。
 - **§3.3 (i)/(ii)**: **(i) の思想 (branch を上に乗せる) は支持。ただし「id 保持 + clock 再付与」は C1 で remote 非互換 → 「merged batch は新規 (決定論) id + trunk 先端後の clock」へ修正した (i)** を推奨。
-- **§6.1**: **scalar offset を branch.base/commit の両方で放棄し content-addressed な位置表現へ**。cross-device を受入基準に含めるなら必須。「単一端末では offset で十分」は s2-2 を単一端末に限定する場合のみ有効。
+- **§6.1**: **scalar offset を branch.base/commit の両方で放棄し content-addressed な位置表現へ**。cross-device を受入基準に含めるなら必須。「単一端末では offset で十分」は p5-2 を単一端末に限定する場合のみ有効。
 - **§6.2 破棄/移行**: 破棄既定に同意。ただし試験リリース済で branch/commit の実データがあるかをユーザーに確認する姿勢は妥当。
 
 ### 8.7 Open Questions (critic 未採点・ユーザー確認事項)
 
 1. **merge の実行・伝播モデル**: 「一度だけ実行し伝播」か「各端末が独立に決定論再計算」か。C1 Fix 選択に直結。
-2. **branch の per-sheet 維持**を続けるか (現行 `branchState.Branch.sheetId`)。branchLog の Branch に sheetId が無いので、メタに持たせるか branch batch の sheetId scope で足りるかを s2-0 で確定。
-3. **s2-2 の golden 比較を単一端末に限定するか cross-device まで求めるか** (H1/§6.1 の緊急度を決める最重要スコープ判断)。
+2. **branch の per-sheet 維持**を続けるか (現行 `branchState.Branch.sheetId`)。branchLog の Branch に sheetId が無いので、メタに持たせるか branch batch の sheetId scope で足りるかを p5-0 で確定。
+3. **p5-2 の golden 比較を単一端末に限定するか cross-device まで求めるか** (H1/§6.1 の緊急度を決める最重要スコープ判断)。
 
 ---
 
 ## 9. スコープ確定と設計の簡素化 (2026-07-24 ユーザー決定)
 
-### 9.1 master 判断: cross-device branch 同期は step2 スコープ外 (単一端末に絞る)
+### 9.1 master 判断: cross-device branch 同期は step1 Phase 5 スコープ外 (単一端末に絞る)
 
-Phase 4 が「送信のみ → 受信」と段階を切ったのと同型で、**step2 は branch/commit/merge を op-log 化し単一端末で成立させるまで**とする。cross-device branch 同期 (2 端末で branch/merge が収束) は**後続 phase へ先送り**。
+Phase 4 が「送信のみ → 受信」と段階を切ったのと同型で、**step1 Phase 5 は branch/commit/merge を op-log 化し単一端末で成立させるまで**とする。cross-device branch 同期 (2 端末で branch/merge が収束) は**後続 phase へ先送り**。
 
 ### 9.2 これで立つ不変条件と、C1/H1/H2 の解消
 
-**不変条件 (step2 の核心): 「branch file_id の batch は local (daemon EventStore) 専用。remote へ push しない」。**
+**不変条件 (step1 Phase 5 の核心): 「branch file_id の batch は local (daemon EventStore) 専用。remote へ push しない」。**
 
-- **C1 (Critical) 解消**: branch batch を remote へ push しなければ `rkey=batchId` の単一名前空間衝突は起きない。merge は branch batch を trunk file_id へ追記し (trunk は従来どおり remote push される)、**branch file_id 側は一切 push されない**ので、同一 rkey が「branch 記録」と「trunk 記録」の 2 経路で載ることがない。→ merge 追記 batch の id は **保持しても新規採番でもよい** (remote 非互換の懸念が消える。local は `UNIQUE(file_id, batch_id)` で両立)。§3.3 の「id を変えると dedup が壊れる」も cross-device 前提だったので step2 では非問題。
-- **H1/§6.1 解消**: 単一端末・単一 actor では `LamportClock.tick` が単調 (`unified.ts:282`) なので scalar offset (`Commit.at`, `batchesUpTo(clock <= at)`) がそのまま正しい。content-addressed な位置表現への変更は cross-device phase へ先送り。**§6.1 は step2 の未解決点ではなくなり、後続 phase の前提条件へ移動**。
-- **H2 解消**: branch file_id を remote へ出さないので `discoverRemoteFiles` が branch を拾う race が起きない。local の `GET /files`/`listOplogFiles` は **M2 の 0 シート自動除外**で賄える (`branchSheet` が sheet メタを引数から与える設計上、branch op-log は `sheet.create` を持たず 0 シート projection になる, `branchLog.ts:67-74`, `eventStore.ts:207`)。→ **除外の明示実装すら原則不要**。要確認は「branch file_id が本当に 0 シート projection になり listOplogFiles から落ちるか」の 1 点のみ (s2-1 の受入基準)。
+- **C1 (Critical) 解消**: branch batch を remote へ push しなければ `rkey=batchId` の単一名前空間衝突は起きない。merge は branch batch を trunk file_id へ追記し (trunk は従来どおり remote push される)、**branch file_id 側は一切 push されない**ので、同一 rkey が「branch 記録」と「trunk 記録」の 2 経路で載ることがない。→ merge 追記 batch の id は **保持しても新規採番でもよい** (remote 非互換の懸念が消える。local は `UNIQUE(file_id, batch_id)` で両立)。§3.3 の「id を変えると dedup が壊れる」も cross-device 前提だったので step1 Phase 5 では非問題。
+- **H1/§6.1 解消**: 単一端末・単一 actor では `LamportClock.tick` が単調 (`unified.ts:282`) なので scalar offset (`Commit.at`, `batchesUpTo(clock <= at)`) がそのまま正しい。content-addressed な位置表現への変更は cross-device phase へ先送り。**§6.1 は step1 Phase 5 の未解決点ではなくなり、後続 phase の前提条件へ移動**。
+- **H2 解消**: branch file_id を remote へ出さないので `discoverRemoteFiles` が branch を拾う race が起きない。local の `GET /files`/`listOplogFiles` は **M2 の 0 シート自動除外**で賄える (`branchSheet` が sheet メタを引数から与える設計上、branch op-log は `sheet.create` を持たず 0 シート projection になる, `branchLog.ts:67-74`, `eventStore.ts:207`)。→ **除外の明示実装すら原則不要**。要確認は「branch file_id が本当に 0 シート projection になり listOplogFiles から落ちるか」の 1 点のみ (p5-1 の受入基準)。
 
 ### 9.3 確定した設計判断 (critic 推奨 + 9.1 スコープ下)
 
 - **§3.1 = B (branch 専用 file_id)**。C1 が解消したので推奨どおり B を採る。trunk 読取経路 (Phase 4 成果物) に一切触らない。
 - **§3.2 = B-1 (専用 `branches` テーブル + endpoint)**。commit も型は既存 `commits` 再利用だが **endpoint と caller は新規** (M1)。branch/commit とも **local daemon 経路のみ** (remote 同期は先送り)。
-- **§3.3 = (i) の思想 (merge した branch を trunk 先端の後へ)**。単一端末なので clock 再付与も id 保持も remote 制約から自由。**merged batch は trunk 先端 clock の後へ再スタンプし branch を上に乗せる**。id 採番規約は s2-3 で単体確定 (local dedup のみ考慮でよい)。
+- **§3.3 = (i) の思想 (merge した branch を trunk 先端の後へ)**。単一端末なので clock 再付与も id 保持も remote 制約から自由。**merged batch は trunk 先端 clock の後へ再スタンプし branch を上に乗せる**。id 採番規約は p5-3 で単体確定 (local dedup のみ考慮でよい)。
 - **§6.2 = 破棄既定**。既存 PDS branch データは破棄。ただし試験リリース済の実データ有無は §9.5 でユーザー確認。
 
 ### 9.4 スライスの簡素化
 
-- **s2-5 (remote 同期) は step2 から除外** → cross-device phase へ。
-- **s2-6 (実機 e2e) は「単一端末・local」e2e に**。受入基準 s2-6.1 (legacy branch prefix レコードを消した状態で branch 作成→編集→commit→merge が op-log から成立) を主軸に。cross-device 収束 (旧 s2-6.2/6.3) は先送り。
-- 改訂スライス: **s2-0** (branch/commit メタ table + endpoint, server 単体) → **s2-1** (branch file_id 採番 + 0 シート除外の確認, server 単体) → **s2-2** (branchSheet projection 配線, 純ドメイン/単体) → **s2-3** (merge = trunk 追記 + clock 再スタンプ + 受信べき等・再 projection 中間層 [M3], 純ドメイン/単体) → **s2-4** (client hook 載せ替え, dual-write フラグ, `useBranchOperations.test.ts` の 5 describe 書換 [H3]) → **s2-5'** (単一端末 local e2e)。
+- **p5-5 (remote 同期) は step1 Phase 5 から除外** → cross-device phase へ。
+- **p5-6 (実機 e2e) は「単一端末・local」e2e に**。受入基準 p5-6.1 (legacy branch prefix レコードを消した状態で branch 作成→編集→commit→merge が op-log から成立) を主軸に。cross-device 収束 (旧 p5-6.2/6.3) は先送り。
+- 改訂スライス: **p5-0** (branch/commit メタ table + endpoint, server 単体) → **p5-1** (branch file_id 採番 + 0 シート除外の確認, server 単体) → **p5-2** (branchSheet projection 配線, 純ドメイン/単体) → **p5-3** (merge = trunk 追記 + clock 再スタンプ + 受信べき等・再 projection 中間層 [M3], 純ドメイン/単体) → **p5-4** (client hook 載せ替え, dual-write フラグ, `useBranchOperations.test.ts` の 5 describe 書換 [H3]) → **p5-5'** (単一端末 local e2e)。
 
 ### 9.5 要確認の確定 (2026-07-24 ユーザー決定)
 
@@ -350,4 +350,4 @@ Phase 4 が「送信のみ → 受信」と段階を切ったのと同型で、*
 - branch/commit メタ: **専用 table (`branches` に sheetId 含む / `commits` 再利用) + 新規 local endpoint** (§3.2-B-1 + M1)。
 - merge: **branch batch を trunk 先端 clock の後へ再スタンプして trunk file_id へ追記** + 受信べき等・再 projection 中間層 (§3.3-i + M3)。
 - 既存データ: 破棄。branch は per-sheet 維持。
-- スライス: s2-0 → s2-1 → s2-2 → s2-3 → s2-4 → s2-5' (単一端末 local e2e) (§9.4)。
+- スライス: p5-0 → p5-1 → p5-2 → p5-3 → p5-4 → p5-5' (単一端末 local e2e) (§9.4)。

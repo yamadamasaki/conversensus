@@ -1,8 +1,10 @@
 # step1 アーキテクチャ
 
-> ステータス: **確定** / 作成日: 2026-07-11 / 確定日: 2026-07-12
+> ステータス: **確定 (実装は継続中)** / 作成日: 2026-07-11 / 確定日: 2026-07-12
 > 位置づけ: step0 (Web/シングルユーザー/ファイル保存) の次段。試験リリース後の方針検討 ([interim report](../reports/interim_2026-07-07.md)) と、それに続く設計相談の結論をまとめる。
 > このドキュメントは「コードの仕切り直し」ではなく「**仕様の仕切り直し**」を記述する。既存資産 (React Flow エディタ, Zod スキーマ, イベントソーシング, ATProto レコードモデル, テスト群) は継続利用する。
+>
+> **step1 の完了基準 = リリース可能であること** (2026-07-27 確定)。配布形態は Tauri v2 (B1) 単一バイナリまでを step1 リリースの到達点とする (§7・O2)。branch/commit/merge の op-log 化 (旧「step2」) は新機能ではなく D4 の branch subsystem への適用＝step1 の後始末であり、**step1 Phase 5 として step1 内で完了させる** (実装順序と gating は [`../plans/step1-implementation.md`](../plans/step1-implementation.md) §2)。
 
 ---
 
@@ -192,9 +194,9 @@ interface SyncProvider {
 
 ---
 
-## 8. 拡張機能の土台 (step2 以降の布石)
+## 8. 拡張機能の土台 (step1 完了後の step2 = 拡張エンジンへの布石)
 
-interim report (4) の拡張群は、正典が操作ログ + projection になっていることで自然に乗る。**step1 では実装せず、乗り口だけ確保する。**
+interim report (4) の拡張群は、正典が操作ログ + projection になっていることで自然に乗る。**step1 では実装せず、乗り口だけ確保する。** これらを本格的に着手するのが本来の **step2 (拡張エンジン)** であり、step1 がリリース可能になった後に始める。
 
 | 拡張 | 乗り方 |
 |---|---|
@@ -214,8 +216,8 @@ interim report (4) の拡張群は、正典が操作ログ + projection にな�
 2. **ローカル永続層 (D1/§5)**: 保存を「操作ログ + projection」へ。ストレージ実体を決定 (O1)。
 3. **sync-provider 境界 (D3/§6)**: ATProto を provider 実装に整理。outbox + オフライン分岐を導入。全件 list / polling / cidCache を改修。
 4. **配布形態の実証 (O2/§7)**: B2 (軽量 B) で local-first を end-to-end 検証。ARM64/Rosetta 原因調査を並行。
-5. **VPS 役割変更 (D6)**: アプリ配信ワークフローを、オプションのホスト型 PDS/リレー用途に読み替え。
-6. (step2) 拡張エンジンの着手 (§8)。
+5. **branch subsystem の op-log 化 = step1 Phase 5** (O3 の帰結。D4 を branch へ適用する step1 の後始末)。続いて **W3e (snapshot 完全退役・R2 解消)・範囲取得 (R3)・Tauri 配布 (O2/D6)** を step1 内で完了させ、リリース可能に到達する (実装 Phase 5〜8, [step1-implementation.md](../plans/step1-implementation.md) §2)。
+6. (**step1 完了後の step2**) 拡張エンジンの着手 (§8)。
 
 ---
 
@@ -225,7 +227,7 @@ interim report (4) の拡張群は、正典が操作ログ + projection にな�
 |---|---|---|
 | O1 | ローカルストレージ実体 (JSON / SQLite / IndexedDB) | §5。配布形態 O2 と連動 |
 | O2 | Tauri (B1) か 軽量 B (B2) か | §7。ARM64/Rosetta 原因特定が前提 |
-| O3 | branch/commit/merge 機能を統一イベントモデルにどう載せ替えるか | 既存 `branchState.ts` (969行) の扱い。projection のブランチ = 操作ログの分岐として再定義できるか要検討 |
+| O3 | branch/commit/merge 機能を統一イベントモデルにどう載せ替えるか | **Phase 5 として着手 (2026-07-27)**。Phase 0 spike で go 判定済、Phase 2 でドメイン (`branchLog.ts`/`merge.ts`) 定義済、実配線を Phase 5 で回収。設計は [step1-phase5-branch-oplog.md](../plans/step1-phase5-branch-oplog.md) |
 | R1 | ARM64/Rosetta の再燃 (Tauri) | 着手前に最小再現で切り分け |
 | R2 | 移行中の二重モデル併存期間 | 段階移行ゆえ一時的に §4 の旧新が共存する。期限を切る |
 | R3 | ATProto 範囲取得の設計 | 全件 list をやめる rkey/コレクション設計 (§6) が同期性能を左右 |
