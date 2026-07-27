@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import {
   type Batch,
   BatchSchema,
+  BranchMetaSchema,
+  CommitSchema,
   ConversensusFileSchema,
   ConversensusFileV1Schema,
   ConversensusFileV2Schema,
@@ -273,6 +275,51 @@ app.get('/files/:id/batches', async (c) => {
       ? batches
       : batches.filter((b) => b.clock > Number(since));
   return c.json(result);
+});
+
+// --- ブランチ / コミットのメタ情報エンドポイント (step1 Phase 5) ---
+// batches と違いこれらは**ログではなくメタ**なので上書き保存 (INSERT OR REPLACE)。
+// いずれも local daemon 専用の経路で、remote へは同期しない (設計 §9.2 の不変条件)。
+
+// POST /files/:id/commits - コミット (ログ上のラベル付きオフセット) を保存
+app.post('/files/:id/commits', async (c) => {
+  const raw = await c.req.json().catch(() => null);
+  const parsed = CommitSchema.safeParse(raw);
+  if (!parsed.success) {
+    return c.json({ error: parsed.error.flatten() }, HTTP_BAD_REQUEST);
+  }
+  getEventStore().saveCommit(c.req.param('id') as FileId, parsed.data);
+  return c.json(parsed.data, HTTP_CREATED);
+});
+
+// GET /files/:id/commits - ファイルのコミット一覧 (at 昇順)
+app.get('/files/:id/commits', (c) => {
+  return c.json(getEventStore().getCommits(c.req.param('id') as FileId));
+});
+
+// POST /files/:id/branches - ブランチのメタ情報を保存 (:id = 分岐元 trunk)
+app.post('/files/:id/branches', async (c) => {
+  const raw = await c.req.json().catch(() => null);
+  const parsed = BranchMetaSchema.safeParse(raw);
+  if (!parsed.success) {
+    return c.json({ error: parsed.error.flatten() }, HTTP_BAD_REQUEST);
+  }
+  // URL の trunk と body の trunkFileId が食い違うと、以後 GET で取り出せない
+  // ブランチが静かに生まれる。境界で弾く。
+  const fileId = c.req.param('id');
+  if (parsed.data.trunkFileId !== fileId) {
+    return c.json(
+      { error: 'trunkFileId does not match the URL file id' },
+      HTTP_BAD_REQUEST,
+    );
+  }
+  getEventStore().saveBranch(parsed.data);
+  return c.json(parsed.data, HTTP_CREATED);
+});
+
+// GET /files/:id/branches - trunk のブランチ一覧 (base オフセット昇順)
+app.get('/files/:id/branches', (c) => {
+  return c.json(getEventStore().getBranches(c.req.param('id') as FileId));
 });
 
 // DELETE /files/:id - ファイル削除

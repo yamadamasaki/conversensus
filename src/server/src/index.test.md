@@ -13,6 +13,10 @@
 | `DELETE /files/:id` | 指定 ID のファイルを削除する |
 | `POST /files/:id/batches` | 操作ログへ batches を追記する (step1 Phase 4 実配線) |
 | `GET /files/:id/batches` | 操作ログを取得する (`?since=<clock>` で範囲)。読み取り前に未 migration なら snapshot から genesis で正典化する (W3d) |
+| `POST /files/:id/commits` | コミット (ログ上のラベル付きオフセット) を保存する (step1 Phase 5) |
+| `GET /files/:id/commits` | ファイルのコミット一覧を at 昇順で返す (step1 Phase 5) |
+| `POST /files/:id/branches` | ブランチのメタ情報を保存する (`:id` = 分岐元 trunk, step1 Phase 5) |
+| `GET /files/:id/branches` | trunk のブランチ一覧を base オフセット昇順で返す (step1 Phase 5) |
 
 ## なぜテストするか
 
@@ -111,3 +115,35 @@ marker の役割なので、エンドポイントも分けて取り違えを経�
   わけではないことの対照。W3d-1 の破棄挙動を壊していないことの証拠。
 - **受信 0 件では marker を立てない**: 空配列を受けても正典宣言をせず、その後の
   lazy migration が従来どおり働くこと。機会を無意味に奪わないため。
+
+## ブランチ / コミットのメタ情報 (step1 Phase 5)
+
+branch/commit を op-log 上で成立させるための**メタの器**。batches と違い append-only の
+ログではなく上書き保存 (`INSERT OR REPLACE`) であり、**local daemon 専用で remote へは
+同期しない** (設計 `step1-phase5-branch-oplog.md` §9.2 の不変条件)。
+
+### コミット (`/commits`)
+
+コミット = 操作ログ上のラベル付きオフセット (`{id, message, at, authorActor}`)。
+
+- **保存と応答**: 201 と保存内容を返す。UI が採番結果をそのまま扱えること。
+- **at 昇順で取得**: `Commit.at` は `batchesUpTo` の切り出し位置なので、履歴は
+  分岐点の古い順に並ぶ必要がある。
+- **空なら空配列**: コミットの無いファイルでも 200 + `[]` (404 にしない)。
+- **境界バリデーション**: `id` が UUID でない等の不正な body は 400。branded UUID を
+  API 境界で強制する規約 (CLAUDE.md #2) の実施点。
+
+### ブランチ (`/branches`)
+
+`BranchMeta` = ログドメインの `Branch` + `{sheetId, trunkFileId, branchFileId}`。
+`:id` は**分岐元 trunk の file_id** であり、branch 自身の op-log (`branchFileId`) とは別物。
+
+- **保存と応答 / base オフセット昇順の取得 / 空なら空配列**: コミットと同じ観点。
+- **trunk での分離**: 別 trunk のブランチが一覧に混ざらないこと。branch は per-sheet で
+  数が増えるため、分離が崩れると他ファイルのブランチが UI に現れる。
+- **🔴 URL と body の trunk 不一致は 400**: `trunkFileId` は保存先の絞り込みキーでもある
+  ため、URL と食い違ったまま受け付けると **`GET /files/:id/branches` のどの :id でも
+  取り出せないブランチ**が静かに生まれる (作成は成功したように見える)。400 で弾き、
+  かつ body 側の trunk にも保存されていないことを確認する。
+- **未定義の `status` は 400**: `status` は `BRANCH_STATUS` の 4 値のみ。open/merged の
+  遷移で分岐の生死を判定するため、未知の値が入ると判定不能になる。

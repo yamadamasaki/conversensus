@@ -234,6 +234,160 @@ describe('API routes', () => {
     });
   });
 
+  // step1 Phase 5: ブランチ / コミットのメタ情報エンドポイント
+  describe('POST/GET /files/:id/commits', () => {
+    const sampleCommit = (seed: number, at: number) => ({
+      id: uuid(2000 + seed),
+      message: `commit ${seed}`,
+      at,
+      authorActor: 'local',
+    });
+
+    async function postCommit(fileId: string, commit: unknown) {
+      return fetch(
+        new Request(`http://localhost/files/${fileId}/commits`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(commit),
+        }),
+      );
+    }
+
+    it('コミットを保存して 201 と保存内容を返す', async () => {
+      const created = await (await createFile('ログ')).json();
+      const commit = sampleCommit(1, 3);
+      const res = await postCommit(created.id, commit);
+      expect(res.status).toBe(201);
+      expect(await res.json()).toEqual(commit);
+    });
+
+    it('保存したコミットを at 昇順で取得できる', async () => {
+      const created = await (await createFile('ログ')).json();
+      await postCommit(created.id, sampleCommit(2, 5));
+      await postCommit(created.id, sampleCommit(1, 2));
+      const res = await fetch(
+        new Request(`http://localhost/files/${created.id}/commits`),
+      );
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.map((cm: { at: number }) => cm.at)).toEqual([2, 5]);
+    });
+
+    it('コミットが無ければ空配列を返す', async () => {
+      const created = await (await createFile('ログ')).json();
+      const res = await fetch(
+        new Request(`http://localhost/files/${created.id}/commits`),
+      );
+      expect(await res.json()).toEqual([]);
+    });
+
+    it('不正なコミット (id が UUID でない) は 400 を返す', async () => {
+      const created = await (await createFile('ログ')).json();
+      const res = await postCommit(created.id, {
+        ...sampleCommit(1, 3),
+        id: 'not-a-uuid',
+      });
+      expect(res.status).toBe(400);
+    });
+  });
+
+  describe('POST/GET /files/:id/branches', () => {
+    const sampleBranch = (
+      seed: number,
+      trunkFileId: string,
+      at: number,
+      overrides: Record<string, unknown> = {},
+    ) => ({
+      id: uuid(3000 + seed),
+      name: `branch ${seed}`,
+      base: {
+        id: uuid(4000 + seed),
+        message: `base ${seed}`,
+        at,
+        authorActor: 'local',
+      },
+      status: 'open',
+      sheetId: uuid(5000 + seed),
+      trunkFileId,
+      branchFileId: uuid(6000 + seed),
+      ...overrides,
+    });
+
+    async function postBranch(fileId: string, meta: unknown) {
+      return fetch(
+        new Request(`http://localhost/files/${fileId}/branches`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(meta),
+        }),
+      );
+    }
+
+    it('ブランチのメタを保存して 201 と保存内容を返す', async () => {
+      const created = await (await createFile('trunk')).json();
+      const meta = sampleBranch(1, created.id, 3);
+      const res = await postBranch(created.id, meta);
+      expect(res.status).toBe(201);
+      expect(await res.json()).toEqual(meta);
+    });
+
+    it('保存したブランチを base オフセット昇順で取得できる', async () => {
+      const created = await (await createFile('trunk')).json();
+      await postBranch(created.id, sampleBranch(2, created.id, 5));
+      await postBranch(created.id, sampleBranch(1, created.id, 2));
+      const res = await fetch(
+        new Request(`http://localhost/files/${created.id}/branches`),
+      );
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.map((b: { base: { at: number } }) => b.base.at)).toEqual([
+        2, 5,
+      ]);
+    });
+
+    it('trunk が異なるブランチは一覧に混ざらない', async () => {
+      const trunkA = await (await createFile('trunk A')).json();
+      const trunkB = await (await createFile('trunk B')).json();
+      await postBranch(trunkA.id, sampleBranch(1, trunkA.id, 1));
+      await postBranch(trunkB.id, sampleBranch(2, trunkB.id, 1));
+      const res = await fetch(
+        new Request(`http://localhost/files/${trunkA.id}/branches`),
+      );
+      const body = await res.json();
+      expect(body.map((b: { id: string }) => b.id)).toEqual([uuid(3001)]);
+    });
+
+    // URL と body の trunk が食い違うと、以後 GET で取り出せないブランチが
+    // 静かに生まれる。境界で弾くことを固定する。
+    it('body の trunkFileId が URL と食い違えば 400 を返す', async () => {
+      const trunkA = await (await createFile('trunk A')).json();
+      const trunkB = await (await createFile('trunk B')).json();
+      const res = await postBranch(trunkA.id, sampleBranch(1, trunkB.id, 1));
+      expect(res.status).toBe(400);
+      const listed = await (
+        await fetch(new Request(`http://localhost/files/${trunkB.id}/branches`))
+      ).json();
+      expect(listed).toEqual([]);
+    });
+
+    it('不正なブランチ (status が未定義の値) は 400 を返す', async () => {
+      const created = await (await createFile('trunk')).json();
+      const res = await postBranch(
+        created.id,
+        sampleBranch(1, created.id, 1, { status: 'unknown' }),
+      );
+      expect(res.status).toBe(400);
+    });
+
+    it('ブランチが無ければ空配列を返す', async () => {
+      const created = await (await createFile('trunk')).json();
+      const res = await fetch(
+        new Request(`http://localhost/files/${created.id}/branches`),
+      );
+      expect(await res.json()).toEqual([]);
+    });
+  });
+
   describe('GET /files', () => {
     it('初期状態では空配列を返す', async () => {
       const res = await fetch(new Request('http://localhost/files'));

@@ -1,7 +1,11 @@
 import {
   type Batch,
   BatchSchema,
+  type BranchMeta,
+  BranchMetaSchema,
   CONVERSENSUS_FILE_VERSION,
+  type Commit,
+  CommitSchema,
   type ConversensusFile,
   type FileId,
   type GraphFile,
@@ -111,6 +115,49 @@ export async function fetchBatches(
   const res = await fetch(url);
   if (!res.ok) throw new Error('Failed to fetch batches');
   return z.array(BatchSchema).parse(await res.json());
+}
+
+// --- ブランチ / コミットのメタ情報 --- (step1 Phase 5)
+
+/** コミット (ログ上のラベル付きオフセット) を保存する。同一 id は上書きされる */
+export async function saveCommit(
+  fileId: FileId,
+  commit: Commit,
+): Promise<Commit> {
+  const res = await fetch(`${BASE}/files/${fileId}/commits`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(commit),
+  });
+  if (!res.ok) throw new Error('Failed to save commit');
+  return CommitSchema.parse(await res.json());
+}
+
+/** ファイルのコミット一覧を at 昇順で取得する */
+export async function fetchCommits(fileId: FileId): Promise<Commit[]> {
+  const res = await fetch(`${BASE}/files/${fileId}/commits`);
+  if (!res.ok) throw new Error('Failed to fetch commits');
+  return z.array(CommitSchema).parse(await res.json());
+}
+
+/** ブランチのメタ情報を保存する。分岐元 trunk (`meta.trunkFileId`) に紐付く */
+export async function saveBranch(meta: BranchMeta): Promise<BranchMeta> {
+  const res = await fetch(`${BASE}/files/${meta.trunkFileId}/branches`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(meta),
+  });
+  if (!res.ok) throw new Error('Failed to save branch');
+  return BranchMetaSchema.parse(await res.json());
+}
+
+/** trunk のブランチ一覧を base オフセット昇順で取得する */
+export async function fetchBranches(
+  trunkFileId: FileId,
+): Promise<BranchMeta[]> {
+  const res = await fetch(`${BASE}/files/${trunkFileId}/branches`);
+  if (!res.ok) throw new Error('Failed to fetch branches');
+  return z.array(BranchMetaSchema).parse(await res.json());
 }
 
 export function exportFile(file: GraphFile): void {

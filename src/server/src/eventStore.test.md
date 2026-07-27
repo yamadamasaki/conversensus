@@ -73,5 +73,15 @@ Phase 3 の永続モデルは「append-only な操作ログ + projection」。�
 - **projectSheet**: 操作ログを projection して Sheet を導出する。node.add → node.setContent
   で LWW の後勝ちが反映されること、空ログでは空 Sheet になること。
 - **saveCommit / getCommits**: at 昇順で読み返す、同一 id は上書き、file_id で分離。
+- **saveBranch / getBranches (step1 Phase 5)**: ブランチのメタ情報 (`BranchMeta`) の永続化。
+  ログ (batches) ではなくメタなので上書き保存であり、観点は `saveCommit/getCommits` と対称に取る:
+  - base オフセット (`base.at`) 昇順で読み返す (分岐点の古い順に並ぶ)。
+  - **メタ全体の round-trip**: base コミットは列へインライン展開して保存するため、
+    `message` / `authorActor` まで欠落なく戻ること。列の追加漏れが静かにメタを削るのを防ぐ。
+  - 同一 id は上書き (名前変更・`status` の open→merged 遷移がそのまま反映される)。
+  - `trunk_file_id` で分離され、別 trunk のブランチは混ざらない。
+  - **メタ (branches) と実体 (batches) の分離**: branch の編集は `branchFileId` 側の
+    op-log に積まれ、trunk の op-log は動かない (設計 §3.1-B の branch 専用 file_id)。
+    p5-2 以降の projection 配線がこの分離を前提にするため、ここで固定する。
 
 テストは `beforeEach` で毎回新しいインメモリ DB を生成し、テスト間の状態を分離する。

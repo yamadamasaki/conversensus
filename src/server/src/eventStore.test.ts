@@ -3,13 +3,16 @@ import { beforeEach, describe, expect, it } from 'bun:test';
 import { rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type {
-  Batch,
-  Commit,
-  CommitId,
-  FileId,
-  NodeId,
-  SheetId,
+import {
+  type Batch,
+  BRANCH_STATUS,
+  type BranchId,
+  type BranchMeta,
+  type Commit,
+  type CommitId,
+  type FileId,
+  type NodeId,
+  type SheetId,
 } from '@conversensus/shared';
 import { EventStore, IN_MEMORY } from './eventStore';
 
@@ -312,6 +315,78 @@ describe('EventStore', () => {
       store.saveCommit(other, commit('c2', 2));
       expect(store.getCommits(FILE).map((c) => c.id)).toEqual(['c1']);
       expect(store.getCommits(other).map((c) => c.id)).toEqual(['c2']);
+    });
+  });
+
+  describe('saveBranch / getBranches (Phase 5)', () => {
+    const branch = (
+      id: string,
+      baseAt: number,
+      overrides: Partial<BranchMeta> = {},
+    ): BranchMeta => ({
+      id: id as BranchId,
+      name: `branch ${id}`,
+      base: {
+        id: `${id}-base` as CommitId,
+        message: `base of ${id}`,
+        at: baseAt,
+        authorActor: 'local',
+      },
+      status: BRANCH_STATUS.OPEN,
+      sheetId: SHEET_META.id,
+      trunkFileId: FILE,
+      branchFileId: `${id}-log` as FileId,
+      ...overrides,
+    });
+
+    it('保存したブランチを base オフセット (at) 昇順で読み返せる', () => {
+      store.saveBranch(branch('b2', 5));
+      store.saveBranch(branch('b1', 2));
+      expect(store.getBranches(FILE).map((b) => b.id)).toEqual(['b1', 'b2']);
+    });
+
+    it('メタ全体を round-trip できる (base コミットと補足フィールド)', () => {
+      // base はインライン列へ展開して保存するため、message/authorActor まで
+      // 欠落なく戻ることを固定する (列の追加漏れが静かにメタを削るのを防ぐ)。
+      const meta = branch('b1', 7);
+      store.saveBranch(meta);
+      expect(store.getBranches(FILE)).toEqual([meta]);
+    });
+
+    it('同一 id は上書きする', () => {
+      store.saveBranch(branch('b1', 2));
+      store.saveBranch(
+        branch('b1', 9, { name: '改名', status: BRANCH_STATUS.MERGED }),
+      );
+      const branches = store.getBranches(FILE);
+      expect(branches).toHaveLength(1);
+      expect(branches[0]?.base.at).toBe(9);
+      expect(branches[0]?.name).toBe('改名');
+      expect(branches[0]?.status).toBe(BRANCH_STATUS.MERGED);
+    });
+
+    it('trunk が異なるブランチは混ざらない', () => {
+      const other = 'file-2' as FileId;
+      store.saveBranch(branch('b1', 2));
+      store.saveBranch(branch('b2', 2, { trunkFileId: other }));
+      expect(store.getBranches(FILE).map((b) => b.id)).toEqual(['b1']);
+      expect(store.getBranches(other).map((b) => b.id)).toEqual(['b2']);
+    });
+
+    it('branch batches は branch_file_id 側の op-log に置かれ trunk と混ざらない', () => {
+      // メタ (branches) と実体 (batches) の分離。branch の編集を追記しても
+      // trunk の projection は動かない (p5-2 以降が前提にする分離)。
+      const meta = branch('b1', 1);
+      store.saveBranch(meta);
+      store.appendBatch(FILE, addNode('t1', 'n1', 'trunk のノード', 1));
+      store.appendBatch(
+        meta.branchFileId,
+        addNode('br1', 'n2', 'branch のノード', 2),
+      );
+      expect(store.getBatches(FILE).map((b) => b.id)).toEqual(['t1']);
+      expect(store.getBatches(meta.branchFileId).map((b) => b.id)).toEqual([
+        'br1',
+      ]);
     });
   });
 
