@@ -13,6 +13,7 @@ import {
   type EdgeId,
   type FileId,
   type GraphFile,
+  graphFileToBatches,
   migrateV1toV2,
   migrateV2toV3,
   migrateV3toV4,
@@ -24,8 +25,25 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { getEventStore } from './eventStoreServer';
 import { migrateAllFilesToOplog } from './migrateAllToOplog';
-import { migrateFileToOplog, W3_SCHEMA_VERSION } from './migrateFileToOplog';
+import { W3_SCHEMA_VERSION } from './migrateFileToOplog';
 import { deleteFile, listFiles, readFile, writeFile } from './storage';
+
+/**
+ * 新規ファイルの op-log を genesis で初期化する (Phase 6 p6-1, 設計 §3.2)。
+ *
+ * `appendReceivedBatches` を使うのは **marker を同じ tx で立てる**ため。marker は
+ * 4d-0 以来「この op-log は正典であり snapshot から作り直してはならない」宣言であり、
+ * genesis 直書きしたファイルにこそ当てはまる (起動時の一括移行 §3.1 に拾わせない)。
+ * メソッド名が「received」なのは受信経路が最初の利用者だった名残で、意味は
+ * 「追記 + 正典宣言」。
+ */
+function initializeOplog(fileId: FileId, file: GraphFile): void {
+  getEventStore().appendReceivedBatches(
+    fileId,
+    graphFileToBatches(file),
+    W3_SCHEMA_VERSION,
+  );
+}
 
 const DEFAULT_SERVER_PORT = 3000;
 /**
@@ -39,7 +57,6 @@ const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN ?? null;
 const DEFAULT_FILE_NAME = '無題';
 const DEFAULT_SHEET_NAME = 'Sheet 1';
 
-const _HTTP_OK = 200;
 const HTTP_CREATED = 201;
 const HTTP_NO_CONTENT = 204;
 const HTTP_BAD_REQUEST = 400;
@@ -99,6 +116,11 @@ app.post('/files', async (c) => {
       },
     ],
   };
+  // Phase 6 p6-1: op-log を作る。作られた時点で op-log 正典なので読取時の
+  // lazy migration は不要になった (§3.2)。
+  initializeOplog(id, data);
+  // snapshot の書込は残す — GET/PUT/DELETE /files/:id がまだ snapshot を読むため
+  // (消費者を消す p6-2/p6-3 の後、p6-5 でこの行ごと落とす)
   await writeFile(data);
   return c.json(data, HTTP_CREATED);
 });
@@ -204,7 +226,10 @@ app.post('/files/import', async (c) => {
       };
     }),
   };
-  await writeFile(data);
+  // Phase 6 p6-1: import も op-log を作る (§3.2)。ID 再生成後の `data` をそのまま
+  // genesis 入力にするので、応答の GraphFile と op-log の projection は同じ内容になる。
+  initializeOplog(data.id, data);
+  await writeFile(data); // POST /files と同じ理由で p6-5 まで残す
   return c.json(data, HTTP_CREATED);
 });
 
@@ -235,13 +260,13 @@ app.post('/files/:id/batches', async (c) => {
 // POST /files/:id/batches/received - remote から受信した batches を追記 (べき等)
 //
 // **通常の POST /files/:id/batches とは別口にする** (Phase 4d-5)。受信は追記に加えて
-// **op-log 正典 marker を同じ tx で立てる**必要があるため (`appendReceivedBatches`)。
-// marker が無いと次の `GET /files/:id/batches` が lazy migration を起動し、
-// `DELETE FROM batches` で受信内容を丸ごと破棄する (設計 §1.8 / §3.3b)。
+// **op-log 正典 marker を同じ tx で立てる** (`appendReceivedBatches`)。
 //
-// ローカル編集の書き込み経路 (上の POST) は marker を立てない — 受信していない
-// ファイルの lazy migration は W3d-1 どおり動く必要があるため。両者を分けるのが
-// marker の役割なので、エンドポイントも分けて取り違えを型と経路で防ぐ。
+// Phase 6 p6-1 で読取時の lazy migration が消えたため、marker の役割は
+// 「**起動時の一括移行 (§3.1) に snapshot から作り直させない**」だけになった。
+// 受信で materialize されたファイルは元から snapshot を持たないので実害は無いが、
+// 同 id の snapshot が残っている環境では依然として意味がある。
+// marker 自体は snapshot が消える p6-5 で役目を終える。
 app.post('/files/:id/batches/received', async (c) => {
   const raw = await c.req.json().catch(() => null);
   if (!Array.isArray(raw)) {
@@ -265,12 +290,13 @@ app.post('/files/:id/batches/received', async (c) => {
 });
 
 // GET /files/:id/batches?since=<clock> - 操作ログを取得 (since より後の clock のみ)
-app.get('/files/:id/batches', async (c) => {
+//
+// Phase 6 p6-1 で **読取時の lazy migration を撤去した**。ファイルは作られた時点で
+// op-log を持ち (§3.2)、それ以前からある snapshot は起動時の一括移行が処理する (§3.1)。
+// これにより「読んだだけで op-log が DELETE される」経路 (4d-0 §1.8 の事故) が消滅する。
+app.get('/files/:id/batches', (c) => {
   const fileId = c.req.param('id') as FileId;
-  const store = getEventStore();
-  // W3d lazy cutover: 未 migration なら snapshot から genesis で op-log を正典化してから読む
-  await migrateFileToOplog(store, fileId);
-  const batches = store.getBatches(fileId);
+  const batches = getEventStore().getBatches(fileId);
   const since = c.req.query('since');
   const result: Batch[] =
     since === undefined

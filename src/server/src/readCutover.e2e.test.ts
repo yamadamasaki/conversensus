@@ -9,10 +9,14 @@
  * 別途手動で確認する。本テストは migration→projection の正当性を機械的に固める。
  *
  * 検証項目 (§5 W3d-4 / §6):
- *   1. 既存ファイル (snapshot) を開くと lazy migration が走り、projectFile が snapshot を再現
+ *   1. 既存ファイル (snapshot) が移行を経て projectFile で再現される
  *   2. migration はべき等: 再オープンで同一結果
  *   3. 編集 (batch 追記) → 再オープンで projection に反映
  *   4. flag off (snapshot 直読) は dual-write された最新 snapshot を返す (安全弁)
+ *
+ * **Phase 6 p6-1 での更新**: snapshot → op-log の変換契機が「読取時の lazy migration」から
+ * 「デーモン起動時の一括移行」(Phase 6 設計 §3.1) に移った。seed も実際の運用に合わせ、
+ * snapshot を直接置いてから一括移行を通す形にしている。検証している性質は変わらない。
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
@@ -27,7 +31,10 @@ import {
   projectFile,
   type SheetId,
 } from '@conversensus/shared';
+import { getEventStore } from './eventStoreServer';
 import server from './index';
+import { migrateAllFilesToOplog } from './migrateAllToOplog';
+import { writeFile } from './storage';
 
 const fetch = server.fetch;
 let tmpDir: string;
@@ -87,28 +94,17 @@ function richSnapshot(id: FileId): GraphFile {
   };
 }
 
-async function putSnapshot(file: GraphFile): Promise<void> {
-  // POST /files で空ファイルを作り、PUT で rich snapshot に差し替える (id を固定)
-  const created = await (
-    await fetch(
-      new Request('http://localhost/files', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: file.name }),
-      }),
-    )
-  ).json();
-  // 実 id で rich snapshot に更新する。marker はまだ立てない
-  // (既存ファイル = snapshot 保存済み・未 migration。初回 open が migration を発火する)
-  const target = { ...file, id: created.id };
-  await fetch(
-    new Request(`http://localhost/files/${created.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(target),
-    }),
-  );
-  file.id = created.id as FileId;
+/**
+ * pre-W3 の既存ファイル (snapshot だけが在り op-log を持たない状態) を置き、
+ * デーモン起動時の一括移行 (Phase 6 §3.1) を通す。
+ *
+ * endpoint を経由せず `writeFile` で直接置くのは、**endpoint 経由では作れない状態**
+ * だから — p6-1 以降 `POST /files` は op-log を作るので「snapshot だけが在る」に
+ * ならない。これは実際に移行が要る唯一の状況 (Phase 6 より前に作られたファイル) の再現。
+ */
+async function seedLegacySnapshot(file: GraphFile): Promise<void> {
+  await writeFile(file);
+  await migrateAllFilesToOplog(getEventStore());
 }
 
 async function openViaOplog(fileId: FileId): Promise<GraphFile> {
@@ -145,7 +141,7 @@ function structural(f: GraphFile) {
 describe('W3d-4 read cutover e2e (daemon + projectFile)', () => {
   it('1. 既存 snapshot を開くと migration→projectFile が構造を再現する', async () => {
     const file = richSnapshot(u(900) as FileId);
-    await putSnapshot(file);
+    await seedLegacySnapshot(file);
 
     const projected = await openViaOplog(file.id);
 
@@ -157,7 +153,7 @@ describe('W3d-4 read cutover e2e (daemon + projectFile)', () => {
 
   it('2. migration はべき等: 再オープンで同一 projection', async () => {
     const file = richSnapshot(u(901) as FileId);
-    await putSnapshot(file);
+    await seedLegacySnapshot(file);
 
     const first = await openViaOplog(file.id);
     const second = await openViaOplog(file.id);
@@ -167,7 +163,7 @@ describe('W3d-4 read cutover e2e (daemon + projectFile)', () => {
 
   it('3. 編集 (batch 追記) を再オープンで projection に反映する', async () => {
     const file = richSnapshot(u(902) as FileId);
-    await putSnapshot(file);
+    await seedLegacySnapshot(file);
 
     // 一度開いて genesis の最大 clock を確認してから、その後に編集を積む
     const before = await fetch(
@@ -203,8 +199,8 @@ describe('W3d-4 read cutover e2e (daemon + projectFile)', () => {
 
   it('4. flag off (snapshot 直読) は最新 snapshot を返す (安全弁)', async () => {
     const file = richSnapshot(u(903) as FileId);
-    await putSnapshot(file);
-    // migration を発火させる (op-log 側を正典化)
+    await seedLegacySnapshot(file);
+    // op-log 側を読んでおく (移行後の状態で snapshot が無傷であることを見る)
     await openViaOplog(file.id);
 
     // GET /files/:id = READ_FROM_OPLOG=false 相当の snapshot 直読経路

@@ -215,6 +215,27 @@ Phase 6 限りの使い捨てコードになる。lexicon json も**ファイル
 
 p6-0〜p6-5 は PDS 非依存 (Phase 5 と同じ型)。p6-6 だけ PDS docker を起動する。
 
+### 4.1 【実装中に判明】snapshot 書込は「消費者を消してから」落とす
+
+p6-1 を「`POST /files` を genesis **専業**にする」と読んで実装したところ、`GET`/`PUT`/
+`DELETE /files/:id` が snapshot を前提にしているため**新規作成ファイルが取得も更新も削除も
+できなくなった** (すべて 404)。とくに `DELETE` が効かない = ユーザーがファイルを消せない、
+`PUT` が 404 = client の autosave が黙って失敗する。
+
+スライスは 1 本ごとに動く状態で積む方針なので、**snapshot の書込は p6-1 では残す**。
+撤去の順序を「消費者 (読取・更新・削除) を先に消し、書込は最後」に改める:
+
+| 順序 | やること |
+|---|---|
+| p6-1 | genesis 直書きを**追加** + lazy migration 撤去 (snapshot 書込は残す) |
+| p6-2 | `GET /files/:id` 撤去 (export を projection へ) / `DELETE` を op-log 削除へ |
+| p6-3 | client `persistFile` 撤去 → `PUT /files/:id` の消費者が消えるので endpoint も撤去 |
+| p6-5 | 消費者ゼロになった snapshot 書込と `storage.ts` を削除 |
+
+**この間 snapshot は「書かれるが読まれる箇所が減っていく」状態**になるが、§6.1 で退けた
+「1 リリース分の猶予」とは別物である — 猶予はリリースを跨いで二重モデルを残す話で、
+こちらは Phase 6 内で閉じる撤去順序の問題。p6-5 の完了時点で二重モデルは消える。
+
 ---
 
 ## 5. 受入基準

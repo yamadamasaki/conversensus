@@ -7,12 +7,12 @@
 | エンドポイント | 責務 |
 |---|---|
 | `GET /files` | ファイル一覧を返す (snapshot storage と op-log の和集合, Phase 4e-2a) |
-| `POST /files` | ファイルを新規作成する |
+| `POST /files` | ファイルを新規作成する (op-log を genesis で初期化する, Phase 6 p6-1) |
 | `GET /files/:id` | 指定 ID のファイルを返す |
 | `PUT /files/:id` | 指定 ID のファイルを更新する |
 | `DELETE /files/:id` | 指定 ID のファイルを削除する |
 | `POST /files/:id/batches` | 操作ログへ batches を追記する (step1 Phase 4 実配線) |
-| `GET /files/:id/batches` | 操作ログを取得する (`?since=<clock>` で範囲)。読み取り前に未 migration なら snapshot から genesis で正典化する (W3d) |
+| `GET /files/:id/batches` | 操作ログを取得する (`?since=<clock>` で範囲)。**副作用は無い** — 読取時の lazy migration は Phase 6 p6-1 で撤去した |
 | `POST /files/:id/commits` | コミット (ログ上のラベル付きオフセット) を保存する (step1 Phase 5) |
 | `GET /files/:id/commits` | ファイルのコミット一覧を at 昇順で返す (step1 Phase 5) |
 | `POST /files/:id/branches` | ブランチのメタ情報を保存する (`:id` = 分岐元 trunk, step1 Phase 5) |
@@ -45,19 +45,24 @@ Hono アプリの `fetch` 関数を直接呼び出すことで、実際の HTTP 
 - **境界バリデーション**: 不正な Batch は 400。server は zod を直接依存に持たず shared の
   `BatchSchema` で各要素を検証する。
 
-### W3d lazy migration (読み取り正典化)
+### 作成時 genesis と読取の無害性 (Phase 6 p6-1)
 
-`GET /files/:id/batches` は読み取り前に `migrateFileToOplog` を呼び、未 migration の
-ファイルを snapshot から genesis で op-log 正典化する。この副作用を固定する:
+**p6-1 で読取時の lazy migration を撤去した**。ファイルは `POST /files` / `POST /files/import`
+の時点で op-log を持ち (genesis 直書き, 設計 §3.2)、Phase 6 より前から在る snapshot は
+デーモン起動時の一括移行 (§3.1) が処理する。よって `GET /files/:id/batches` は**副作用の無い
+純粋な読取**になった。
 
-- **append/retrieve の素の観点は snapshot 無しの生 file_id で検証する**。`createFile` は
-  snapshot を書くため、そのファイルへの GET は migration を発火させてしまう。生 file_id
-  なら snapshot が無く migration は skip されるので、追記した batch がそのまま読み返せる。
-- **新規作成ファイルの初回 GET は genesis を返す**。空 snapshot でも `file.setName` /
-  `sheet.create` の genesis batch が生成される (新規/既存を分岐せず同一経路で吸収)。
-- **migration はべき等**: 二度目の GET も同じ genesis を返す (marker ゲート)。
-- **初回 read 前に積まれた pre-W3 増分は破棄される**: openFile より前に post した増分
-  batch は、初回 GET の migration で破棄され genesis に置き換わる (破棄→genesis)。
+- **新規作成ファイルの初回 GET は genesis を返す**。空ファイルでも `file.setName` /
+  `sheet.create` の genesis batch が作られている。
+- **二度目の GET も同じ結果**: 読取に副作用が無いことの直接の確認。
+- **🔴 初回 read 前に積まれた batch が読取で破棄されない**: W3d-1 では同じ手順で
+  lazy migration が `DELETE FROM batches` を実行し、積んだ増分を捨てていた
+  (4d-0 §1.8 の事故の原因)。p6-1 でその経路ごと消えたので、**書いたものは読んでも消えない**。
+  genesis も残る (置き換えではなく追記) ことまで確認する。
+
+> 旧仕様では「`createFile` が snapshot を書くため GET が migration を発火する」ことを避けて
+> append/retrieve の素の観点を生 file_id で検証していた。その回避は不要になったが、
+> 生 file_id のケース自体は「op-log にしか無いファイル」の検証として引き続き有効なので残す。
 
 ### ケース設計
 
@@ -68,10 +73,10 @@ Hono アプリの `fetch` 関数を直接呼び出すことで、実際の HTTP 
 | POST /files/:id/batches | 不正 Batch → 400 | 境界検証 |
 | GET /files/:id/batches | clock 昇順で返す (生 file_id) | 決定論的順序 |
 | GET /files/:id/batches | ?since=1 → clock>1 のみ (生 file_id) | 範囲取得 |
-| GET /files/:id/batches | ログも snapshot も無い → [] | 空ログ (migration skip) |
-| GET /files/:id/batches | 新規作成の初回 GET → genesis | W3d lazy migration |
-| GET /files/:id/batches | 二度目の GET も同じ genesis | migration べき等 |
-| GET /files/:id/batches | pre-W3 増分は破棄される | 破棄→genesis |
+| GET /files/:id/batches | ログの無い file_id → [] | 空ログ |
+| GET /files/:id/batches | 新規作成の初回 GET → genesis | 作成時 genesis (p6-1) |
+| GET /files/:id/batches | 二度目の GET も同じ genesis | 読取に副作用が無い |
+| GET /files/:id/batches | 🔴 read 前に積んだ batch が消えない | 読取が破棄しない (p6-1) |
 | GET /files | 初期状態は [] | 空一覧 |
 | GET /files | op-log にしか無いファイルも載る (受信 materialize) | 和集合 (Phase 4e-2a) |
 | GET /files | 両方に在る → snapshot の name を正とし重複しない | fileId distinct |
@@ -86,6 +91,19 @@ Hono アプリの `fetch` 関数を直接呼び出すことで、実際の HTTP 
 | DELETE /files/:id | 削除 → 204 | 正常系 |
 | DELETE /files/:id | 削除後に GET → 404 | 削除の完全性 |
 | DELETE /files/:id | 存在しない ID → 404 | エラー系 |
+| POST /files/import | 正常なファイル → 201 | 正常系 |
+| POST /files/import | ID をすべて再生成し参照を付け替える | 取り込み時の同一性分離 |
+| POST /files/import | 🔴 応答の GraphFile = op-log の projection | 往復性 (p6-1, 設計 §6.3) |
+| POST /files/import | インポートしたファイルが一覧に現れる | 一覧との整合 |
+
+### import の往復性 (Phase 6 p6-1)
+
+import は **ID 再生成 + 参照の付け替え**を通してから genesis 化する。応答として返す
+`GraphFile` と、op-log を `projectFile` した `GraphFile` が食い違うと、**import 直後の画面と
+再オープン後の画面が別物になる**。`graphFileToBatches` の往復性は W3b で固定済だが、
+**import 固有の ID 再生成を通した後**の往復はどのテストも見ていなかった (設計 §6.3 で
+未固定として挙げた点)。ノードとエッジを含む payload で、名前・説明・シート/ノード/エッジの
+id 列・付け替え後の `source` 参照までを突き合わせて固定する。
 
 ## POST /files/:id/batches/received (Phase 4d-5)
 
@@ -98,24 +116,24 @@ remote から受信した batches を追記する**専用エンドポイント**
 丸ごと破棄する (設計 `step1-phase4d-receive.md` §1.8 / §3.3b)。受信 batch は remote に
 しか無いので、失うと取り直せない。
 
-**ローカル編集の書き込み経路 (通常 POST) は marker を立ててはならない** — 受信して
-いないファイルの lazy migration は W3d-1 どおり動く必要がある。両者を分けるのが
-marker の役割なので、エンドポイントも分けて取り違えを経路で防ぐ。
-
 > 設計 §3.3 は「受信は `POST /files/:id/batches` へ書く」と書いていたが、その
 > エンドポイントは `appendBatches` (marker 無し) を呼ぶので、**そのまま従うと §3.3b の
 > 不変条件を破る**。4d-0 は `appendReceivedBatches` を作ったが HTTP へ露出していなかった。
 
+> **Phase 6 p6-1 での変化**: 読取時の lazy migration が撤去され、marker の役割は
+> 「起動時の一括移行に snapshot から作り直させない」だけになった。したがって
+> **別口である理由のうち「読取に破棄される」部分は消滅した**。エンドポイントの分離自体は
+> 受信の意図を経路に残すために維持するが、marker は snapshot が消える p6-5 で役目を終える。
+
 - **追記と件数**: 201 と `{ appended: N }` を返すこと。
 - **べき等**: 同一 batch の再受信で `appended: 0` になること (受入基準 2)。
 - **不正な Batch は 400**: 通常 POST と同じ検証を通ること。
-- **🔴 受信 batch は lazy migration に破棄されない**: 「初回 read 前に積まれた pre-W3 増分は
-  migration で破棄される」テストと**同じ手順**で、書き込み口だけを受信用に替える。
-  marker が「正典宣言」として働き、同じ状況で結果が逆になることを固定する。4d-0 の要。
-- **通常 POST は marker を立てない**: 上の保護が「全ファイルで migration を無効化した」
-  わけではないことの対照。W3d-1 の破棄挙動を壊していないことの証拠。
-- **受信 0 件では marker を立てない**: 空配列を受けても正典宣言をせず、その後の
-  lazy migration が従来どおり働くこと。機会を無意味に奪わないため。
+- **受信 batch が後続の GET で失われない**: 受信経路の end-to-end 契約。4d-0 では marker が
+  これを守っていたが、p6-1 以降は経路の別なく成立する。
+
+> marker (正典宣言) そのものの性質 — 受信 0 件で立てない / ファイル境界で分離する — は
+> `eventStore.test.md` の担当。p6-1 で HTTP 越しに marker の有無を観測する手段が無くなった
+> (読取が挙動を変えないため) ので、ここで重ねていた 2 件は EventStore 側へ一本化した。
 
 ### branch 専用 file_id の一覧除外 (Phase 5 p5-1)
 

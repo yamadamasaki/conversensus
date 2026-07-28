@@ -2,9 +2,14 @@
 
 ## 何を
 
-`migrateFileToOplog` (W3d-1: op-log 読み取り正典化の lazy migration オーケストレーション) を
+`migrateFileToOplog` (snapshot → op-log 正典化の 1 ファイル分オーケストレーション) を
 テストする。snapshot (`storage.ts` の JSON) を入力に genesis batch を生成し、`EventStore` の
 原子トランザクション (破棄→genesis→marker) を駆動する薄い調停層の分岐を固定する。
+
+> **呼び出し契機の変遷**: W3d-1 では読取 (`GET /files/:id/batches`) が呼ぶ lazy migration
+> だったが、**Phase 6 p6-1 で読取からは撤去**され、いまは起動時の一括移行
+> (`migrateAllToOplog`) だけが呼ぶ。関数自体の契約は変わっていないので本仕様も変わらない。
+> snapshot が消える p6-5 で `migrateAllToOplog` ごと役目を終える。
 
 `DATA_DIR` をテスト毎の一時ディレクトリへ差し替えて snapshot を書き、`EventStore` は
 インメモリ (`:memory:`) を渡す。両者を跨いだ「snapshot → op-log」の橋渡しを検証する。

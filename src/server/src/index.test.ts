@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { projectFile } from '@conversensus/shared';
 import server from './index';
 
 let tmpDir: string;
@@ -75,8 +76,9 @@ describe('API routes', () => {
   });
 
   describe('GET /files/:id/batches', () => {
-    // snapshot を持たない生 file_id を使い、W3d の lazy migration を発火させずに
-    // append/retrieve のみを検証する (createFile は snapshot を書くため migration が走る)。
+    // genesis を持たない生 file_id を使い、append/retrieve だけを裸で検証する。
+    // (W3d では「createFile が snapshot を書くと GET が migration を発火する」のを
+    //  避けるためでもあったが、p6-1 でその副作用は消えた。素の観点としては引き続き有効)
     const rawId = 'raw-log';
 
     it('追記した batches を clock 昇順で返す', async () => {
@@ -102,7 +104,7 @@ describe('API routes', () => {
       expect(body.map((b: { clock: number }) => b.clock)).toEqual([2, 3]);
     });
 
-    it('ログも snapshot も無いファイルは空配列を返す', async () => {
+    it('ログの無いファイルは空配列を返す', async () => {
       const res = await fetch(
         new Request(`http://localhost/files/${rawId}/batches`),
       );
@@ -110,15 +112,16 @@ describe('API routes', () => {
     });
   });
 
-  // W3d-1: GET が読み取り前に lazy migration (snapshot→genesis) を実行する
-  describe('GET /files/:id/batches — W3d lazy migration', () => {
-    it('新規作成ファイル (snapshot のみ) の初回 GET が genesis を返す', async () => {
+  // Phase 6 p6-1: ファイルは作成時に op-log を持ち (genesis 直書き)、読取時の
+  // lazy migration は撤去された。「読んだだけで op-log が消える」経路がもう無いことを固定する。
+  describe('GET /files/:id/batches — 作成時 genesis と読取の無害性 (Phase 6 p6-1)', () => {
+    it('新規作成ファイルの初回 GET が genesis を返す', async () => {
       const created = await (await createFile('空')).json();
       const res = await fetch(
         new Request(`http://localhost/files/${created.id}/batches`),
       );
       const body = await res.json();
-      // 空 snapshot でも file.setName / sheet.create の genesis batch が生成される
+      // 空ファイルでも file.setName / sheet.create の genesis batch が作られている
       expect(body.length).toBeGreaterThan(0);
       const kinds = body.flatMap((b: { ops: { kind: string }[] }) =>
         b.ops.map((o) => o.kind),
@@ -126,7 +129,7 @@ describe('API routes', () => {
       expect(kinds).toContain('file.setName');
     });
 
-    it('migration はべき等: 二度目の GET も同じ genesis を返す', async () => {
+    it('二度目の GET も同じ genesis を返す (読取に副作用が無い)', async () => {
       const created = await (await createFile('反復')).json();
       const first = await (
         await fetch(new Request(`http://localhost/files/${created.id}/batches`))
@@ -137,19 +140,25 @@ describe('API routes', () => {
       expect(second).toEqual(first);
     });
 
-    it('初回 read 前に積まれた pre-W3 増分は migration で破棄される', async () => {
-      const created = await (await createFile('破棄')).json();
-      // openFile より前に増分 batch が積まれた状態を模す
+    it('🔴 初回 read 前に積まれた batch が読取で破棄されない', async () => {
+      // W3d-1 では lazy migration がここで `DELETE FROM batches` を実行し、
+      // 積んだ増分を捨てていた (4d-0 §1.8 の事故はこれが原因)。p6-1 で読取時の
+      // migration ごと撤去したので、**書いたものは読んでも消えない**。
+      const created = await (await createFile('保持')).json();
       await postBatches(created.id, [sampleBatch(1)]);
       const res = await fetch(
         new Request(`http://localhost/files/${created.id}/batches`),
       );
       const body = await res.json();
-      // 増分の node.add 'n1' は消え、genesis (空 snapshot 由来) だけが残る
       const contents = body.flatMap((b: { ops: { content?: string }[] }) =>
         b.ops.map((o) => o.content),
       );
-      expect(contents).not.toContain('n1');
+      expect(contents).toContain('n1');
+      // genesis も残っている (置き換えではなく追記)
+      const kinds = body.flatMap((b: { ops: { kind: string }[] }) =>
+        b.ops.map((o) => o.kind),
+      );
+      expect(kinds).toContain('file.setName');
     });
   });
 
@@ -187,10 +196,10 @@ describe('API routes', () => {
       expect(res.status).toBe(400);
     });
 
-    it('🔴 受信 batch は lazy migration に破棄されない (§1.8 / 4d-0 の要)', async () => {
-      // 上の「初回 read 前に積まれた pre-W3 増分は migration で破棄される」と
-      // **同じ手順**で、書き込み口だけを受信用に替えたもの。marker が「正典宣言」
-      // として働き、同じ状況で結果が逆になることを固定する。
+    it('受信 batch が後続の GET で失われない', async () => {
+      // 4d-0 (§1.8) では marker がこれを守っていた。p6-1 で読取時の migration ごと
+      // 撤去されたので、いまは経路の有無に関わらず消えない。受信経路の end-to-end 契約
+      // としては引き続き成立する必要があるため残す。
       const created = await (await createFile('受信保護')).json();
       // openFile より前に受信 batch が着地した状態を模す (device B の未オープンファイル)
       await postReceived(created.id, [sampleBatch(1)]);
@@ -201,37 +210,13 @@ describe('API routes', () => {
       const contents = body.flatMap((b: { ops: { content?: string }[] }) =>
         b.ops.map((o) => o.content),
       );
-      // 通常 POST なら消える 'n1' が、受信経路なら残る
       expect(contents).toContain('n1');
     });
 
-    it('通常 POST は marker を立てない (W3d-1 の破棄挙動を壊していない)', async () => {
-      // 上の 4d-0 保護が「全ファイルで migration を無効化した」わけではないことの対照。
-      const created = await (await createFile('破棄据置')).json();
-      await postBatches(created.id, [sampleBatch(1)]);
-      const body = await (
-        await fetch(new Request(`http://localhost/files/${created.id}/batches`))
-      ).json();
-      const contents = body.flatMap((b: { ops: { content?: string }[] }) =>
-        b.ops.map((o) => o.content),
-      );
-      expect(contents).not.toContain('n1');
-    });
-
-    it('受信 0 件では marker を立てない (lazy migration の機会を奪わない)', async () => {
-      const created = await (await createFile('空受信')).json();
-      const res = await postReceived(created.id, []);
-      expect(await res.json()).toEqual({ appended: 0 });
-      // marker が立っていないので、その後の通常 POST + GET は従来どおり破棄される
-      await postBatches(created.id, [sampleBatch(1)]);
-      const body = await (
-        await fetch(new Request(`http://localhost/files/${created.id}/batches`))
-      ).json();
-      const contents = body.flatMap((b: { ops: { content?: string }[] }) =>
-        b.ops.map((o) => o.content),
-      );
-      expect(contents).not.toContain('n1');
-    });
+    // marker (正典宣言) そのものの性質 — 受信 0 件で立てない / ファイル境界で分離する など —
+    // は `eventStore.test.ts` の appendReceivedBatches / migrateToOplog 群が固定している。
+    // p6-1 で読取時 migration が消え、HTTP 越しに marker の有無を観測する手段が無くなったため、
+    // ここで重ねて検査していた 2 件は EventStore 側の担当に一本化した。
   });
 
   // step1 Phase 5: ブランチ / コミットのメタ情報エンドポイント
@@ -688,6 +673,54 @@ describe('API routes', () => {
       expect(body.sheets[0].edges[0].id).not.toBe(edgeId);
       // source/target も新 ID に付け替えられている
       expect(body.sheets[0].edges[0].source).toBe(body.sheets[0].nodes[0].id);
+    });
+
+    it('🔴 応答の GraphFile と op-log の projection が一致する (Phase 6 p6-1, 設計 §6.3)', async () => {
+      // import は ID 再生成 + 参照付け替えを通してから genesis 化する。応答として返した
+      // GraphFile と op-log から projection した GraphFile が食い違うと、import 直後の画面と
+      // 再オープン後の画面が別物になる。graphFileToBatches の往復性は W3b で固定済だが、
+      // **import 固有の ID 再生成を通した後**の往復はどこも見ていなかった。
+      const payload = validPayload();
+      const nodeId = '11111111-1111-1111-1111-111111111111';
+      const edgeId = '22222222-2222-2222-2222-222222222222';
+      payload.sheets[0].nodes = [
+        { id: nodeId, content: 'ノード', style: { x: 12, y: 34 } },
+      ];
+      payload.sheets[0].edges = [
+        { id: edgeId, source: nodeId, target: nodeId },
+      ];
+      const imported = await (
+        await fetch(
+          new Request('http://localhost/files/import', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          }),
+        )
+      ).json();
+
+      const batches = await (
+        await fetch(
+          new Request(`http://localhost/files/${imported.id}/batches`),
+        )
+      ).json();
+      const projected = projectFile(batches, imported.id);
+
+      expect(projected.name).toBe(imported.name);
+      expect(projected.description).toBe(imported.description);
+      expect(projected.sheets.map((s) => s.id)).toEqual(
+        imported.sheets.map((s: { id: string }) => s.id),
+      );
+      expect(projected.sheets[0]?.nodes.map((n) => n.id)).toEqual(
+        imported.sheets[0].nodes.map((n: { id: string }) => n.id),
+      );
+      expect(projected.sheets[0]?.edges.map((e) => e.id)).toEqual(
+        imported.sheets[0].edges.map((e: { id: string }) => e.id),
+      );
+      // 付け替えた参照 (source/target) が projection でも保たれている
+      expect(projected.sheets[0]?.edges[0]?.source).toBe(
+        imported.sheets[0].nodes[0].id,
+      );
     });
 
     it('インポートしたファイルが一覧に現れる', async () => {
