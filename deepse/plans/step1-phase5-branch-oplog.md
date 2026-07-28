@@ -351,3 +351,47 @@ Phase 4 が「送信のみ → 受信」と段階を切ったのと同型で、*
 - merge: **branch batch を trunk 先端 clock の後へ再スタンプして trunk file_id へ追記** + 受信べき等・再 projection 中間層 (§3.3-i + M3)。
 - 既存データ: 破棄。branch は per-sheet 維持。
 - スライス: p5-0 → p5-1 → p5-2 → p5-3 → p5-4 → p5-5' (単一端末 local e2e) (§9.4)。
+
+---
+
+## 10. 実装結果 (2026-07-28)
+
+### 10.1 スライスの実施結果
+
+| スライス | commit | 主な逸脱・発見 |
+|---|---|---|
+| p5-0 | `bdbfe07` | `CommitSchema`/`BranchMetaSchema` は `schemas.ts` でなく `branchLog.ts` に置いた (循環参照回避)。`base_message` 列を追加 (無いと `BranchMeta` を復元できない)。`saveBranch` は trunk file_id を別引数で取らず、URL と body の不一致を HTTP 境界で 400 |
+| p5-1 | `2a04c79` | 実装コード無し。除外は明示コード不要 (M2 のとおり branch op-log は `sheet.create` を持たず 0 シート除外が効く)。**除外が依存する条件そのもの**もテストにした |
+| p5-2 | `d6794bd` | 🔴 多シート漏れを発見・修正 — `branchSheet`→`projectBatches` は content op を sheetId で仕分けないので、trunk batches を `meta.sheetId` で絞らないと他シートのノードが branch に現れる |
+| p5-3 | `e6b0805` | 🔴 `mergeBranches` の `merged` をそのまま追記できない (trunkAfterBase は既に trunk に居る) → 追記は branch batches だけ。**batch id は保持** (= 再 merge のべき等性そのもの) |
+| p5-4a | `32350a1` | 設計に無かった `DELETE /files/:id/branches/:branchId` を追加 (ユーザー決定)。メタ・branch op-log・commit を 1 tx で削除 |
+| p5-4b | `f8ec900` | 下記 §10.2 |
+| p5-5' | 本節 | 単一端末 local e2e (下記 §10.3) |
+
+### 10.2 p5-4 で判明した設計外の事項
+
+1. 🔴 **書込経路の穴**: branch 表示中も `GraphEditor` は trunk 用 `syncRecord` を使っており、**branch の編集が trunk op-log に流れ込んでいた** (W3d で branch を凍結した際の積み残し)。App が `branchOps.branchSyncRecord ?? fileOps.syncRecord` で切り替える。branch tap は `remoteQueue` を渡さないので §9.2 の不変条件が構造で成立する。
+2. 🔴 **`EventSyncTap.clockFloor`**: 空の branch op-log は clock 1 から発番してしまい、`branchSheet` の projection で base 時点の trunk batch に LWW で負ける。`clockFloor = base.at` で分岐点の続きから発番する。
+3. 🔴 **merge の再スタンプは trunk の tap と同じ clock で行う**: 発番器を分けると次のローカル編集が merge 済み batch と同じ `(clock, actor)` を発番しうる (4d-3 の tiebreak が id 任せになる)。`EventSyncTap.clockControl` を公開し `useEventSyncTap` の返り値を `{record, clock}` に変更。
+4. **pendingOps はハイブリッド** (ユーザー決定): コミットの実体は `makeCommit(tipClock(branchBatches))` (ログ上のオフセット) だが、**表示は `computeOperations` の diff のまま**。op-log の未コミット batch をそのまま数えると「編集して undo」の往復が 2 変更に見えるため。§3.4 の「diff をやめる」からは意図的に外れる。
+5. **§6.3 (undo スタック) は追加実装不要**: `GraphEditor` の `key={sheetId/branchId}` + `undoStateMap` で既に branch ごとに分離されていた。
+6. **`bun run typecheck` が実質 no-op だった** (Phase 5 と無関係の既存問題): `tsconfig.json` は `files: []` + `references` で、`tsc --noEmit` は参照先を辿らない。`-p tsconfig.app.json` を明示し、露出した既存エラー 2 件を修正 (commit `8544be0`)。
+
+### 10.3 p5-5' 単一端末 local e2e の結果 — 受入基準 §5-1 は **PASS**
+
+環境: daemon `DATA_DIR=data-p5` (:3000) + client (:5173)、**PDS は未使用**。ATProto にログインした状態で実施 (actor = `did:plc:…#<deviceId>`)。**legacy branch prefix レコードは 1 件も作られない** — branch は local op-log 専業になったため、基準 1 の「消した状態で成立」を構成的に満たす。
+
+| # | 検査 | 結果 |
+|---|---|---|
+| 1 | branch 作成が分岐点の記録のみ (複製なし) | ✅ `base.at=4` (trunk 先端)、trunk op-log は 4 件のまま、branch op-log は空 |
+| 2 | 🔴 **branch の編集が trunk op-log を汚さない** | ✅ branch 側編集後も trunk は 4 件、branch op-log にのみ 2 件 |
+| 3 | branch の発番が分岐点の後 (`clockFloor`) | ✅ branch batch の clock = 5, 6 (base.at=4 の後) |
+| 4 | branch projection = base + branch 編集 | ✅ trunk の後発編集は branch 画面に現れない。追加ノードは diff ハイライト (緑) |
+| 5 | commit = ログ上のオフセット | ✅ `{message, at:6}` が branch file_id 側に保存。差分は持たない |
+| 6 | merge = id 保持 + trunk 先端の後へ再スタンプ | ✅ branch batch id `7d56527e`/`781e3645` が **同一 id のまま** trunk へ clock 6,7 で着地 (trunk 後発編集は clock 5)。branch 側は clock 5,6 のまま残存 |
+| 7 | merge 後の trunk 表示 | ✅ 「trunk の後発編集」と「branch で追加」が両方見える |
+| 8 | 再ロード→再オープンで復元・batch が増えない | ✅ trunk 7 件のまま (読取専用) |
+| 9 | branch 専用 file_id が `GET /files` に出ない | ✅ 一覧はファイル 1 件のみ |
+| 10 | close / delete | ✅ close で status=closed。delete でメタ・branch op-log・commit が消え、**merge 済みの trunk 内容は残る** |
+
+未検査 (後続 phase): cross-device 収束 (§5-2/3, スコープ外)、適用不能 op の計測 (§5-4, 受信経路が無いため)、複数シートでの branch (単体テストで固定済)。
