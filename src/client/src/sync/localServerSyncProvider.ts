@@ -29,7 +29,13 @@ function cursorToClock(cursor: Cursor): number {
 }
 
 export class LocalServerSyncProvider implements SyncProvider {
-  constructor(private readonly fileId: FileId) {}
+  // parameter property (`constructor(private readonly fileId)`) は使わない —
+  // 型注釈の除去だけでは JS にならないため `erasableSyntaxOnly` に触れる
+  private readonly fileId: FileId;
+
+  constructor(fileId: FileId) {
+    this.fileId = fileId;
+  }
 
   async push(batches: Batch[]): Promise<void> {
     await pushBatches(this.fileId, batches);

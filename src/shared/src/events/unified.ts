@@ -227,6 +227,25 @@ export function isFileOp(op: Op): op is FileOp {
   return opCategory(op) === 'file';
 }
 
+/** グラフ内容 (LWW + 対立検出の対象) の op */
+export type ContentOp = Extract<Op, { kind: ContentOpKind }>;
+type ContentOpKind =
+  | 'node.setContent'
+  | 'node.setProperties'
+  | 'edge.setLabel'
+  | 'edge.setProperties';
+
+/**
+ * content カテゴリの op か。merge の対立検出に使う。
+ *
+ * 判定は `OP_CATEGORY` 一本 (種別の二重定義を作らない) だが、**型の絞り込みには
+ * `ContentOp` が要る** — content op は必ず `target` を持つのに対し `Op` 全体には
+ * `sheet.reorder` のように持たないものが混ざるため。
+ */
+export function isContentOp(op: Op): op is ContentOp {
+  return opCategory(op) === 'content';
+}
+
 // --- Batch: undo/redo と同期の運搬単位 ---
 
 export const BatchSchema = z.object({

@@ -13,8 +13,8 @@
  * この関数は「追記 + content 対立の検出」に集中する。
  */
 
-import type { Batch, BatchId, Op } from './unified';
-import { opCategory } from './unified';
+import type { Batch, BatchId, ContentOp, Op } from './unified';
+import { isContentOp } from './unified';
 
 /** content の並行変更 = 合意形成の機会。グラフ上に可視化する候補 */
 export type MergeConflict = {
@@ -31,13 +31,15 @@ export type MergeResult = {
   conflicts: MergeConflict[];
 };
 
-type TaggedOp = { batchId: BatchId; clock: number; op: Op };
+// op を `ContentOp` に絞って持つ — 対立検出は target ごとに引くので、target を持たない
+// op (sheet.reorder 等) が混ざらないことを型で示す
+type TaggedOp = { batchId: BatchId; clock: number; op: ContentOp };
 
 function flattenContentOps(batches: Batch[]): TaggedOp[] {
   const out: TaggedOp[] = [];
   for (const batch of batches) {
     for (const op of batch.ops) {
-      if (opCategory(op) === 'content') {
+      if (isContentOp(op)) {
         out.push({ batchId: batch.id, clock: batch.clock, op });
       }
     }
