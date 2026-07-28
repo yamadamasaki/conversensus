@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import {
   type Batch,
   BatchSchema,
+  type BranchId,
   BranchMetaSchema,
   CommitSchema,
   ConversensusFileSchema,
@@ -320,6 +321,20 @@ app.post('/files/:id/branches', async (c) => {
 // GET /files/:id/branches - trunk のブランチ一覧 (base オフセット昇順)
 app.get('/files/:id/branches', (c) => {
   return c.json(getEventStore().getBranches(c.req.param('id') as FileId));
+});
+
+// DELETE /files/:id/branches/:branchId - ブランチを削除 (:id = 分岐元 trunk)
+//
+// メタ行だけでなく branch 専用 file_id の op-log / commit もまとめて消す
+// (`EventStore.deleteBranch`)。trunk を URL で受けるのは、他ファイルのブランチを
+// id だけで消せないようにするため。
+app.delete('/files/:id/branches/:branchId', (c) => {
+  const deleted = getEventStore().deleteBranch(
+    c.req.param('id') as FileId,
+    c.req.param('branchId') as BranchId,
+  );
+  if (!deleted) return c.json({ error: 'Not found' }, HTTP_NOT_FOUND);
+  return c.body(null, HTTP_NO_CONTENT);
 });
 
 // DELETE /files/:id - ファイル削除

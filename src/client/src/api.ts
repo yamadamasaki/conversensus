@@ -1,6 +1,7 @@
 import {
   type Batch,
   BatchSchema,
+  type BranchId,
   type BranchMeta,
   BranchMetaSchema,
   CONVERSENSUS_FILE_VERSION,
@@ -17,6 +18,7 @@ import {
 import { z } from 'zod';
 
 const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:3000';
+const HTTP_NOT_FOUND = 404;
 
 export async function fetchFiles(): Promise<GraphFileListItem[]> {
   const res = await fetch(`${BASE}/files`);
@@ -158,6 +160,23 @@ export async function fetchBranches(
   const res = await fetch(`${BASE}/files/${trunkFileId}/branches`);
   if (!res.ok) throw new Error('Failed to fetch branches');
   return z.array(BranchMetaSchema).parse(await res.json());
+}
+
+/**
+ * ブランチを削除する。メタに加えて branch 専用 op-log / commit も消える (server 側 tx)。
+ * 該当ブランチが無い場合も成功扱いにする — 「消えていること」が目的なので、
+ * 二重削除や既に消えたブランチの削除を失敗として扱う理由が無い。
+ */
+export async function deleteBranch(
+  trunkFileId: FileId,
+  branchId: BranchId,
+): Promise<void> {
+  const res = await fetch(`${BASE}/files/${trunkFileId}/branches/${branchId}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok && res.status !== HTTP_NOT_FOUND) {
+    throw new Error('Failed to delete branch');
+  }
 }
 
 export function exportFile(file: GraphFile): void {

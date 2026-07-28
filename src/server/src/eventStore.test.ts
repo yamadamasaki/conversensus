@@ -388,6 +388,58 @@ describe('EventStore', () => {
         'br1',
       ]);
     });
+
+    describe('deleteBranch (p5-4)', () => {
+      const commit = (id: string, at: number): Commit => ({
+        id: id as CommitId,
+        message: `commit ${id}`,
+        at,
+        authorActor: 'local',
+      });
+
+      it('メタと branch 専用 op-log / commit をまとめて消す', () => {
+        // branch の中身へは branch_file_id からしか辿れないので、メタだけ消すと
+        // 参照者のいない batch が永久に残る (孤児)。同じ tx で消すことを固定する。
+        const meta = branch('b1', 1);
+        store.saveBranch(meta);
+        store.appendBatch(
+          meta.branchFileId,
+          addNode('br1', 'n2', 'branch のノード', 2),
+        );
+        store.saveCommit(meta.branchFileId, commit('c1', 2));
+
+        expect(store.deleteBranch(FILE, meta.id)).toBe(true);
+
+        expect(store.getBranches(FILE)).toEqual([]);
+        expect(store.getBatches(meta.branchFileId)).toEqual([]);
+        expect(store.getCommits(meta.branchFileId)).toEqual([]);
+      });
+
+      it('trunk 側の op-log は消さない', () => {
+        const meta = branch('b1', 1);
+        store.saveBranch(meta);
+        store.appendBatch(FILE, addNode('t1', 'n1', 'trunk のノード', 1));
+        store.saveCommit(FILE, commit('ct', 1));
+
+        store.deleteBranch(FILE, meta.id);
+
+        expect(store.getBatches(FILE).map((b) => b.id)).toEqual(['t1']);
+        expect(store.getCommits(FILE).map((c) => c.id)).toEqual(['ct']);
+      });
+
+      it('trunk が一致しないブランチは消せない', () => {
+        // URL の trunk を経由しないと消せないことで、id だけを知っている呼び出しが
+        // 別ファイルのブランチを消すのを防ぐ。
+        const meta = branch('b1', 1);
+        store.saveBranch(meta);
+        expect(store.deleteBranch('file-2' as FileId, meta.id)).toBe(false);
+        expect(store.getBranches(FILE).map((b) => b.id)).toEqual(['b1']);
+      });
+
+      it('存在しないブランチは false を返す (べき等な二重削除)', () => {
+        expect(store.deleteBranch(FILE, 'missing' as BranchId)).toBe(false);
+      });
+    });
   });
 
   describe('listOplogFiles (Phase 4e-2a)', () => {

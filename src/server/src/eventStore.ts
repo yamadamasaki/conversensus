@@ -311,6 +311,40 @@ export class EventStore {
   }
 
   /**
+   * ブランチを削除する (step1 Phase 5 p5-4)。
+   *
+   * メタ行だけでなく **branch 専用 file_id に貯めた op-log と commit も同じ tx で消す**。
+   * branch の中身へは `branch_file_id` からしか辿れないので、メタだけ消すと参照者の
+   * いない batch が永久に残る (孤児)。`DELETE /files/:id` (ファイル削除) と違い
+   * snapshot は存在しない — branch は op-log 専業のため (設計 §3.1-B)。
+   *
+   * @param trunkFileId 分岐元 trunk。他ファイルのブランチを id 指定で消せないようにする
+   * @returns 削除したら true、該当ブランチが無ければ false
+   */
+  deleteBranch(trunkFileId: FileId, branchId: BranchId): boolean {
+    const tx = this.db.transaction(() => {
+      const row = this.db
+        .query<{ branch_file_id: string }, [string, string]>(
+          'SELECT branch_file_id FROM branches WHERE id = ? AND trunk_file_id = ?',
+        )
+        .get(branchId, trunkFileId);
+      if (!row) return false;
+      const branchFileId = row.branch_file_id;
+      this.db
+        .query('DELETE FROM branches WHERE id = $id')
+        .run({ $id: branchId });
+      this.db
+        .query('DELETE FROM batches WHERE file_id = $file')
+        .run({ $file: branchFileId });
+      this.db
+        .query('DELETE FROM commits WHERE file_id = $file')
+        .run({ $file: branchFileId });
+      return true;
+    });
+    return tx();
+  }
+
+  /**
    * ファイルの op-log スキーマ marker を返す (W3d)。未 migration なら null。
    * marker >= W3_SCHEMA_VERSION なら op-log は既に正典 (genesis 済)。
    */

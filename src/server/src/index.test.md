@@ -157,3 +157,15 @@ branch/commit を op-log 上で成立させるための**メタの器**。batche
   かつ body 側の trunk にも保存されていないことを確認する。
 - **未定義の `status` は 400**: `status` は `BRANCH_STATUS` の 4 値のみ。open/merged の
   遷移で分岐の生死を判定するため、未知の値が入ると判定不能になる。
+
+#### `DELETE /files/:id/branches/:branchId` (p5-4)
+
+旧 `deleteBranchWithRecords` (PDS レコード一括削除) の置換。branch はメタと
+**branch 専用 file_id の op-log** の 2 箇所に散っているため、片方だけ消す API を
+作らない (メタだけ消すと辿れない batch が残り、op-log だけ消すと空のブランチが並ぶ)。
+
+- **削除後はメタも branch op-log も空**: 「消えていること」を両側から確認する。
+- **存在しないブランチは 404**: client 側ラッパーはこれを成功として扱う (二重削除を
+  失敗にしない) が、その判断を client に閉じ込めるため server は区別して返す。
+- **別 trunk 指定では消えない**: `:id` (trunk) を経路に含める理由そのもの。id だけを
+  知る呼び出しが他ファイルのブランチを消せないことを固定する。

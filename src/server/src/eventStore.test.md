@@ -95,5 +95,14 @@ Phase 3 の永続モデルは「append-only な操作ログ + projection」。�
   - **メタ (branches) と実体 (batches) の分離**: branch の編集は `branchFileId` 側の
     op-log に積まれ、trunk の op-log は動かない (設計 §3.1-B の branch 専用 file_id)。
     p5-2 以降の projection 配線がこの分離を前提にするため、ここで固定する。
+- **deleteBranch (step1 Phase 5 p5-4)**: ブランチの削除。観点は「消し残しと消し過ぎ」の両側:
+  - **メタ・branch 専用 op-log・commit がまとめて消える**: branch の中身へは
+    `branch_file_id` からしか辿れないので、メタだけ消すと参照者のいない batch が
+    永久に残る (孤児)。1 tx で消えることを固定する。
+  - **trunk 側は消えない**: 消し過ぎの検出。branch の削除で trunk の op-log や commit が
+    巻き添えになると編集履歴を失う。
+  - **trunk が一致しないと消せない / 存在しないブランチは false**: `trunkFileId` を
+    受けるのは、id だけを知る呼び出しが別ファイルのブランチを消せないようにするため。
+    存在しない場合の false は HTTP 404 の材料であり、二重削除を安全にする。
 
 テストは `beforeEach` で毎回新しいインメモリ DB を生成し、テスト間の状態を分離する。

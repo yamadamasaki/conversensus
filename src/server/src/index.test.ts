@@ -386,6 +386,70 @@ describe('API routes', () => {
       );
       expect(await res.json()).toEqual([]);
     });
+
+    describe('DELETE /files/:id/branches/:branchId (p5-4)', () => {
+      async function deleteBranch(fileId: string, branchId: string) {
+        return fetch(
+          new Request(`http://localhost/files/${fileId}/branches/${branchId}`, {
+            method: 'DELETE',
+          }),
+        );
+      }
+
+      it('ブランチを消すとメタと branch 専用 op-log が消える', async () => {
+        const created = await (await createFile('trunk')).json();
+        const meta = sampleBranch(1, created.id, 1);
+        await postBranch(created.id, meta);
+        // branch 専用 file_id へ編集を積む (branch の実体)
+        await fetch(
+          new Request(`http://localhost/files/${meta.branchFileId}/batches`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify([sampleBatch(1)]),
+          }),
+        );
+
+        const res = await deleteBranch(created.id, meta.id);
+        expect(res.status).toBe(204);
+
+        const listed = await (
+          await fetch(
+            new Request(`http://localhost/files/${created.id}/branches`),
+          )
+        ).json();
+        expect(listed).toEqual([]);
+        const batches = await (
+          await fetch(
+            new Request(`http://localhost/files/${meta.branchFileId}/batches`),
+          )
+        ).json();
+        expect(batches).toEqual([]);
+      });
+
+      it('存在しないブランチは 404 を返す', async () => {
+        const created = await (await createFile('trunk')).json();
+        const res = await deleteBranch(created.id, uuid(3999));
+        expect(res.status).toBe(404);
+      });
+
+      // trunk を URL で受けるのは、id だけを知る呼び出しが別ファイルのブランチを
+      // 消せないようにするため。
+      it('別の trunk を指定したブランチは消えない', async () => {
+        const trunkA = await (await createFile('trunk A')).json();
+        const trunkB = await (await createFile('trunk B')).json();
+        const meta = sampleBranch(1, trunkA.id, 1);
+        await postBranch(trunkA.id, meta);
+
+        const res = await deleteBranch(trunkB.id, meta.id);
+        expect(res.status).toBe(404);
+        const listed = await (
+          await fetch(
+            new Request(`http://localhost/files/${trunkA.id}/branches`),
+          )
+        ).json();
+        expect(listed).toHaveLength(1);
+      });
+    });
   });
 
   describe('GET /files', () => {
