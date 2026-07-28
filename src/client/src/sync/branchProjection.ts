@@ -34,6 +34,7 @@ import {
   branchSheet,
   type CommitId,
   type FileId,
+  type Lamport,
   makeCommit,
   type Sheet,
   type SheetId,
@@ -95,6 +96,16 @@ export async function createBranchOnOplog(
   return deps.saveBranch(meta);
 }
 
+/** UI が同時に要る 3 つの時点 (p5-4)。1 回の読取から導出する */
+export type BranchSheets = {
+  /** 現在の branch の内容 (branch batches を全部載せた projection) */
+  current: Sheet;
+  /** 分岐点 (base) 時点の内容。UI の diff ハイライトの基準 */
+  base: Sheet;
+  /** 直近コミット時点の内容。未コミット変更 (pendingOps) の基準 */
+  atLastCommit: Sheet;
+};
+
 /**
  * branch の Sheet を op-log から導出する。
  *
@@ -107,6 +118,24 @@ export async function readBranchSheet(
   sheetMeta: { id: SheetId; name: string; description?: string },
   deps: BranchProjectionDeps,
 ): Promise<Sheet> {
+  return (await readBranchSheets(meta, sheetMeta, deps)).current;
+}
+
+/**
+ * branch の「現在 / 分岐点 / 直近コミット時点」を **1 回の読取から** 導出する (p5-4)。
+ *
+ * hook はこの 3 つを同時に要る (現在 = 画面、分岐点 = diff ハイライト、直近コミット =
+ * 未コミット変更の判定)。旧経路はこれを PDS スナップショットの控えとして React state に
+ * 抱えていたが、op-log では**すべて同じログの切り出し**なので保持しない。
+ *
+ * @param lastCommitAt 直近コミットが指すログ位置。コミットが無ければ省略 (= 分岐点)
+ */
+export async function readBranchSheets(
+  meta: BranchMeta,
+  sheetMeta: { id: SheetId; name: string; description?: string },
+  deps: BranchProjectionDeps,
+  options: { lastCommitAt?: Lamport } = {},
+): Promise<BranchSheets> {
   const [trunkBatches, branchBatches] = await Promise.all([
     deps.fetchBatches(meta.trunkFileId),
     deps.fetchBatches(meta.branchFileId),
@@ -121,5 +150,21 @@ export async function readBranchSheet(
   // branch op-log は 1 branch = 1 シート専用なので絞らない。絞ると、配線の都合で
   // sheetId が付かなかった batch を黙って落としてしまう。
   // BranchMeta は Branch の上位型なのでそのまま渡せる (base/status を使う)
-  return branchSheet(meta, trunkForSheet, branchBatches, sheetMeta);
+  const project = (batches: Batch[]) =>
+    branchSheet(meta, trunkForSheet, batches, sheetMeta);
+  // 分岐点 = branch batches を 1 件も載せない状態。branch の発番は base.at の後から
+  // 始まる (`EventSyncTap.clockFloor`) ので、clock による切り出しでも同じ結果になる。
+  const base = project([]);
+  return {
+    current: project(branchBatches),
+    base,
+    atLastCommit:
+      options.lastCommitAt === undefined
+        ? base
+        : project(
+            branchBatches.filter(
+              (b) => b.clock <= (options.lastCommitAt as Lamport),
+            ),
+          ),
+  };
 }

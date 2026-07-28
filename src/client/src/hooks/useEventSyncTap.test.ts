@@ -147,7 +147,7 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
     it('編集はローカル正典にだけ流れる (W3d と同一挙動)', async () => {
       const local = new RecordingProvider();
       const { result } = await renderTap({ local });
-      result.current(relabel());
+      result.current.record(relabel());
       await settle();
       expect(local.pushed).toHaveLength(1);
     });
@@ -160,7 +160,7 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
       const remoteQueue = new RemoteSyncQueue({ provider: remote });
       const { result } = await renderTap({ local, remoteQueue });
 
-      result.current(relabel());
+      result.current.record(relabel());
       await settle();
 
       expect(local.pushed).toHaveLength(1);
@@ -174,7 +174,7 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
       const remoteQueue = new RemoteSyncQueue({ provider: remote });
       const { result } = await renderTap({ local, remoteQueue });
 
-      result.current(restyle());
+      result.current.record(restyle());
       await settle();
 
       expect(local.pushed).toHaveLength(1); // ローカル正典には残す (W3e 保全)
@@ -379,7 +379,7 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
       const remoteQueue = new RemoteSyncQueue({ provider: remote });
       const { result } = await renderTap({ local, remoteQueue, fileId: null });
 
-      result.current(relabel());
+      result.current.record(relabel());
       await settle();
 
       expect(local.pushed).toHaveLength(0);

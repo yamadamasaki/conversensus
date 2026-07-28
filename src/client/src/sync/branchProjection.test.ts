@@ -13,6 +13,7 @@ import {
   type BranchProjectionDeps,
   createBranchOnOplog,
   readBranchSheet,
+  readBranchSheets,
 } from './branchProjection';
 
 const TRUNK = 'trunk-file' as FileId;
@@ -202,6 +203,47 @@ describe('readBranchSheet', () => {
     const { deps, meta } = await setup();
     const sheet = await readBranchSheet(meta, SHEET_META, deps);
     expect(sheet.nodes.map((n) => n.id)).not.toContain('n4');
+  });
+
+  // p5-4: hook は「現在 / 分岐点 / 直近コミット時点」を同時に要る。旧経路は分岐点を
+  // PDS スナップショットの控えとして React state に抱えていたが、op-log では
+  // すべて同じログの切り出しなので保持しない。
+  describe('readBranchSheets (3 時点の切り出し)', () => {
+    it('base は branch の編集を 1 件も含まない (分岐点そのもの)', async () => {
+      const { deps, meta } = await setup();
+      const { base } = await readBranchSheets(meta, SHEET_META, deps);
+      expect(base.nodes.map((n) => n.content)).toEqual([
+        'trunk ノード1',
+        'trunk ノード2',
+      ]);
+    });
+
+    it('atLastCommit はコミット位置までの branch 編集だけを含む', async () => {
+      // branch の編集は clock 4 (n1 書き換え) と 5 (n3 追加)。at=4 で切ると後者は入らない。
+      const { deps, meta } = await setup();
+      const { atLastCommit, current } = await readBranchSheets(
+        meta,
+        SHEET_META,
+        deps,
+        { lastCommitAt: 4 },
+      );
+      expect(atLastCommit.nodes.map((n) => n.id)).not.toContain('n3');
+      expect(atLastCommit.nodes.find((n) => n.id === 'n1')?.content).toBe(
+        'branch で書き換え',
+      );
+      // 現在は両方入る (未コミットの n3 が pending として差分に出る)
+      expect(current.nodes.map((n) => n.id)).toContain('n3');
+    });
+
+    it('コミットが無ければ atLastCommit は base に等しい', async () => {
+      const { deps, meta } = await setup();
+      const { base, atLastCommit } = await readBranchSheets(
+        meta,
+        SHEET_META,
+        deps,
+      );
+      expect(fingerprint(atLastCommit)).toBe(fingerprint(base));
+    });
   });
 
   it('branch の編集は trunk の projection を変えない', async () => {

@@ -14,7 +14,7 @@ import { makeEventBase } from './events/GraphEvent';
 import { GraphEditor } from './GraphEditor';
 import { useActor } from './hooks/useActor';
 import { useAtprotoSession } from './hooks/useAtprotoSession';
-import { useBranchOperations } from './hooks/useBranchOperations';
+import { isBranchMeta, useBranchOperations } from './hooks/useBranchOperations';
 import type { UndoState } from './hooks/useEventStore';
 import { useFileSheetOperations } from './hooks/useFileSheetOperations';
 import { useRemoteSyncQueue } from './hooks/useRemoteSyncQueue';
@@ -89,6 +89,9 @@ export default function App() {
     setConfirmState,
     setInputState,
     setAlertState,
+    actor,
+    // merge の再スタンプは trunk と同じ発番器で行う (p5-4)
+    trunkClock: fileOps.trunkClock,
   });
 
   // Cross-domain wired callbacks
@@ -101,6 +104,10 @@ export default function App() {
       const sheetId = fileOps.activeSheetId;
 
       saveTimer.current = setTimeout(async () => {
+        // op-log の branch は編集ごとに branch tap が書いているので autosave は不要。
+        // ここで persistFile を呼ぶと **branch の内容で trunk の snapshot を上書きする**
+        // ため、何もしないのが正しい (p5-4)。
+        if (branch && isBranchMeta(branch)) return;
         if (
           branch &&
           branch.name !== TRUNK_PREFIX &&
@@ -228,7 +235,9 @@ export default function App() {
             file={fileOps.activeFile}
             activeSheetId={fileOps.activeSheetId}
             onChange={handleChange}
-            syncRecord={fileOps.syncRecord}
+            // branch 表示中の編集は branch 専用 op-log へ (p5-4)。trunk 用の tap に
+            // 流すと branch の編集が trunk のログに混ざる。
+            syncRecord={branchOps.branchSyncRecord ?? fileOps.syncRecord}
             addedNodeIds={branchOps.addedNodeIds}
             updatedNodeIds={branchOps.updatedNodeIds}
             addedEdgeIds={branchOps.addedEdgeIds}
