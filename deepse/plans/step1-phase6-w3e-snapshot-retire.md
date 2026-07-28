@@ -4,7 +4,7 @@
 > R2「移行中の二重モデル併存期間」([architecture/step1.md](../architecture/step1.md) §232) を閉じる。
 > 前提: Phase 5 (branch op-log 化) merged (main = `f1226cf`)。
 >
-> **状態**: ユーザーレビュー待ちの初版。【要判断】の節はユーザー決定が要る。
+> **状態**: 2026-07-28 ユーザー承認済。【要判断】3 件は §3.4 / §3.8 / §6.1 で決着済 (いずれも推奨案を採用)。実装中。
 
 ---
 
@@ -141,7 +141,7 @@ snapshot を撤去すると `migrateFileToOplog` は入力を失う。よって
 **branch 専用 file_id を一覧から隠す仕組みそのもの** (Phase 5 p5-1)。ここを触るときは
 `listOplogFiles.test` の除外テストが依存条件ごと固定されていることを確認する。
 
-### 3.4 【要判断】`GET /files/:id` と export の扱い
+### 3.4 `GET /files/:id` と export の扱い 【2026-07-28 ユーザー決定: B (endpoint を消す)】
 
 `GET /files/:id` (snapshot 読取) の生存消費者は client の `handleExportFile:502`
 (未オープンのファイルを書き出すとき) だけ。選択肢:
@@ -151,10 +151,10 @@ snapshot を撤去すると `migrateFileToOplog` は入力を失う。よって
 | A | endpoint を **projection 実装に差し替える** (`projectFile(getBatches(id), id)`) | 
 | B | endpoint を消し、export は client が `fetchBatches` → `projectFile` する |
 
-**推奨は B** — server に「GraphFile を組み立てて返す」責務を残すと、projection の実装が
+**B を採用** — server に「GraphFile を組み立てて返す」責務を残すと、projection の実装が
 client (`projectFile`) と server の 2 箇所に生まれる。server は既に `projectSheet` を持つが
 これは EventStore 内部用途で、HTTP 応答の正典を server 側に作ると R2 を別の形で再生産する。
-ただし **export だけのために client へ projection を足す手間**が乗るので判断を仰ぐ。
+export だけのために client へ projection を足す手間は受容する。
 
 ### 3.5 `DELETE /files/:id` を op-log 削除へ (§1.3 の穴を塞ぐ)
 
@@ -192,11 +192,12 @@ snapshot へ書かない」というガードは、書込先が消えれば不�
 | `fetchFileFromAtproto` → `loadSnapshot` | dual-read フォールバックごと消える (§3.6, §3.7) |
 | `collections.ts` の file/sheet/node/edge/layout | 上記が消えると batch コレクション以外は参照されなくなる |
 | lexicon json (file/sheet/node/edge/layout) | 書かなくなる。**ファイル自体を消すかは【要判断】** |
-| **PDS 上に既存の legacy レコード** | **【要判断】**: 放置 (読まないだけ) / 削除ツールを用意 |
+| **PDS 上に既存の legacy レコード** | **放置** 【2026-07-28 ユーザー決定】 |
 
-**放置を推奨**: step1 は「既存 PDS データは破棄前提」で進めてきた
+**放置**: step1 は「既存 PDS データは破棄前提」で進めてきた
 (architecture/step1.md の確定事項)。読まなくなったレコードは害を成さず、削除ツールは
-Phase 6 限りの使い捨てコードになる。ただし試験リリース済の環境があるため判断を仰ぐ。
+Phase 6 限りの使い捨てコードになる。lexicon json も**ファイルは残す** (レコードを書かなく
+なるだけで、PDS 上の既存レコードの解釈には引き続き必要)。
 
 ---
 
@@ -245,9 +246,8 @@ p6-0〜p6-5 は PDS 非依存 (Phase 5 と同じ型)。p6-6 だけ PDS docker �
 **緩和**: p6-5 (削除) を最終スライスに置き、p6-6 の実機 e2e を **p6-5 の前に**通す。
 つまり「snapshot が生成されない状態で全機能が動く」ことを確認してから物理削除する。
 
-**【要判断】**: それでも 1 リリース分の猶予を置くか (snapshot を書き続けるが読まない期間)。
-推奨は**置かない** — 「書くが読まない」は R2 の二重モデルそのもので、Phase 5 で
-実害が出た構造と同じ。
+**猶予期間は置かない** 【2026-07-28 ユーザー決定】 — 「書くが読まない」は R2 の二重モデル
+そのもので、Phase 5 で実害が出た構造と同じ。p6-6 の実機 e2e を通してから p6-5 で一気に落とす。
 
 ### 6.2 【Medium】起動時一括移行のコスト
 

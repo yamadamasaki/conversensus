@@ -23,6 +23,7 @@ import {
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { getEventStore } from './eventStoreServer';
+import { migrateAllFilesToOplog } from './migrateAllToOplog';
 import { migrateFileToOplog, W3_SCHEMA_VERSION } from './migrateFileToOplog';
 import { deleteFile, listFiles, readFile, writeFile } from './storage';
 
@@ -343,6 +344,21 @@ app.delete('/files/:id', async (c) => {
   if (!ok) return c.json({ error: 'Not found' }, HTTP_NOT_FOUND);
   return c.body(null, HTTP_NO_CONTENT);
 });
+
+// 起動時の一括移行 (step1 Phase 6 p6-0, 設計 §3.1)。
+// `import.meta.main` で **デーモンとして起動されたときだけ** 走らせる — テストは本
+// モジュールを import するので、無条件に走らせると `DATA_DIR` 差し替え前 (既定 = リポジトリの
+// `data/`) の開発者データを移行してしまう。
+if (import.meta.main) {
+  const migration = await migrateAllFilesToOplog(getEventStore());
+  if (migration.scanned > 0) {
+    console.log(
+      `[migration] snapshot ${migration.scanned} 件を走査: ` +
+        `${migration.migrated.length} 件を op-log 化 / ${migration.skipped} 件は移行済 / ` +
+        `${migration.failed.length} 件失敗 (${migration.elapsedMs.toFixed(1)}ms)`,
+    );
+  }
+}
 
 export default {
   port: SERVER_PORT,
