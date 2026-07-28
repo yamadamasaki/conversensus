@@ -124,6 +124,38 @@ describe('EventSyncTap', () => {
     expect(provider.pushed.map((b) => b.clock)).toEqual([8, 9]);
   });
 
+  // p5-4: branch 用 op-log は空から始まるので、下限を与えないと発番が 1 から再開し
+  // 分岐点 (base.at) 以前の trunk batch に LWW で負ける。
+  it('clockFloor があれば空ログでも下限の次から発番する (branch の分岐点)', async () => {
+    const provider = new RecordingProvider(); // existing なし = 空 op-log
+    const clock = new LamportClock();
+    const tap = new EventSyncTap({
+      provider,
+      clock,
+      actor: ACTOR,
+      clockFloor: 7,
+    });
+    tap.record(relabel());
+    await tap.settled();
+    expect(provider.pushed.map((b) => b.clock)).toEqual([8]);
+  });
+
+  it('clockFloor より永続ログが進んでいればログ側を優先する', async () => {
+    // 分岐後に branch へ既に書き込みがある状態。下限で発番を巻き戻さない。
+    const provider = new RecordingProvider();
+    provider.existing = [existingBatch(12)];
+    const clock = new LamportClock();
+    const tap = new EventSyncTap({
+      provider,
+      clock,
+      actor: ACTOR,
+      clockFloor: 7,
+    });
+    tap.record(relabel());
+    await tap.settled();
+    expect(provider.pushed.map((b) => b.clock)).toEqual([13]);
+  });
+
   it('restore (pull) 失敗時は保留し発番せず、次の record で再試行する', async () => {
     const provider = new RecordingProvider();
     provider.pullFails = true;

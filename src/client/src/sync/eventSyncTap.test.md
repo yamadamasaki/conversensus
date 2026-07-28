@@ -38,6 +38,10 @@ tap のロジックを framework 非依存に固定する。
   (空ログを pull → seed(0) → tick 1,2,3)。
 - **再起動後の復元**: `existing` に clock 5,7,6 の batch を仕込み、0 起点の clock を注入して
   record → seed(max=7) 後の tick で clock [8,9] が push される。
+- **clockFloor による下限 (step1 Phase 5 p5-4)**: branch 用の op-log は空から始まるので、
+  下限を与えないと発番が 1 から再開し、`branchSheet` の projection で**分岐点以前の
+  trunk batch に LWW で負ける**。空ログ + `clockFloor=7` → clock [8]、既存ログが
+  clock 12 まで進んでいれば下限で巻き戻さず [13]。trunk では指定しないので挙動不変。
 - **restore 失敗**: `pullFails=true` で record → push 0・pending 1・clock 0・onError 1 回。
   その後 `pullFails=false`・`existing=[clock 3]` にして別 record → seed(3) 後の tick で
   clock [4,5] が push され pending 0 (保留分ごと再試行)。

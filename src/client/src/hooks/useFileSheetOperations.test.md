@@ -93,3 +93,20 @@ GraphEditor の reset effect の依存に加えることで再 seed を発火さ
   in-memory deps はストアのファイルへノードを足すことでデーモンへの着地を模す。
 - **既知分のみの再受信 (appended = 0)**: onReceived 自体が呼ばれず、swap も epoch 増加も
   起きないこと (べき等再受信で画面を無駄に触らない)。
+
+## persistFile の branch ガード (step1 Phase 5 p5-4)
+
+op-log branch を表示している間、`activeFile` の該当シートは **branch の内容** に
+差し替わっている (`useBranchOperations` が projection を差し込む)。この状態で
+`persistFile` が snapshot (ローカルキャッシュ / ATProto の file レコード) を書くと、
+**trunk の snapshot を branch の内容で上書きする** (設計 §9.2)。branch の内容は
+branch 専用 op-log にだけ置くのが Phase 5 の不変条件。
+
+`persistFile` は autosave だけでなくシート追加・ファイル設定保存・シート名変更・
+シート削除からも呼ばれるため、呼び出し側ごとにガードを置くと必ず漏れる (実際 critic に
+4 箇所中 3 箇所の漏れを指摘された)。**ガードは `persistFile` 自身に置く**。
+
+- **trunk 表示中は書く** (既定の挙動が変わっていないことの対照)。
+- **🔴 branch 表示中は書かない**: `saveFile` / `syncFileToAtproto` のどちらも呼ばれない。
+  ただし **画面用の state 更新 (`setActiveFile`) は行う** — branch の編集が即座に
+  画面から消えては困るため。ガードを外すと落ちることを確認済み。

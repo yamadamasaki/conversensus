@@ -1,4 +1,5 @@
 import {
+  type Actor,
   type ConversensusFile,
   type FileId,
   type GraphFile,
@@ -104,7 +105,17 @@ interface UseFileSheetOperationsParams {
    * **安定参照であること** (ref 経由を推奨)。未指定 = 常に編集中でない扱い。
    */
   isEditingActive?: () => boolean;
+  /**
+   * op-log branch を表示中なら true を返す (step1 Phase 5 p5-4)。
+   * true の間は `persistFile` が snapshot を書かない — `activeFile` の該当シートが
+   * branch の内容なので、書くと trunk の snapshot を branch で上書きする。
+   * **安定参照であること** (`isEditingActive` と同じ理由)。未指定 = 常に trunk 扱い。
+   */
+  isBranchActive?: () => boolean;
 }
+
+/** 既定の `isBranchActive`。毎レンダー同じ参照でいるようモジュール定数にする */
+const NEVER_BRANCH = () => false;
 
 export function useFileSheetOperations({
   setConfirmState,
@@ -115,6 +126,7 @@ export function useFileSheetOperations({
   remoteQueue = null,
   actor,
   isEditingActive,
+  isBranchActive = NEVER_BRANCH,
 }: UseFileSheetOperationsParams) {
   const [files, setFiles] = useState<GraphFileListItem[]>([]);
   const [activeFile, setActiveFile] = useState<GraphFile | null>(null);
@@ -184,14 +196,17 @@ export function useFileSheetOperations({
   // 操作ログ tap をファイル単位で保持する (W3c1)。content (GraphEditor) と
   // structure (以下の構造ハンドラ) の両方が単一の tap = 単一 Lamport 発番源を共有する。
   // remote キューがあれば tap は fanout (ローカル正典 + remote) になる (W3d5-5)。
-  const internalSyncRecord = useEventSyncTap(activeFile?.id ?? null, {
-    remoteQueue,
-    actor,
-    // 受信 (a) の書き込み口も discovery (4e-2b) と同じ deps 抽象を通す。
-    // 既定は api の pushReceivedBatches なので挙動は変わらない (deps は安定参照)。
-    appendReceived: deps.pushReceivedBatches,
-    onReceived: handleReceived,
-  });
+  const { record: internalSyncRecord, clock: trunkClock } = useEventSyncTap(
+    activeFile?.id ?? null,
+    {
+      remoteQueue,
+      actor,
+      // 受信 (a) の書き込み口も discovery (4e-2b) と同じ deps 抽象を通す。
+      // 既定は api の pushReceivedBatches なので挙動は変わらない (deps は安定参照)。
+      appendReceived: deps.pushReceivedBatches,
+      onReceived: handleReceived,
+    },
+  );
   const syncRecord = syncRecordOverride ?? internalSyncRecord;
 
   // 従来の snapshot 読取 (ATProto → ローカルキャッシュ)。dual-read のフォールバック側。
@@ -303,6 +318,11 @@ export function useFileSheetOperations({
   const persistFile = useCallback(
     async (updated: GraphFile) => {
       setActiveFile(updated);
+      // 🔴 op-log branch 表示中は `activeFile` の該当シートが **branch の内容** なので、
+      // snapshot (ローカルキャッシュ / ATProto の file レコード) へ書くと trunk を
+      // branch で上書きする (§9.2)。branch の内容は branch 専用 op-log にだけ置く。
+      // 画面用の state 更新 (上の setActiveFile) は行い、永続だけを止める。
+      if (isBranchActive()) return;
       setFiles((fs) =>
         fs.map((f) =>
           f.id === updated.id
@@ -323,7 +343,7 @@ export function useFileSheetOperations({
         .saveFile(updated)
         .catch((err) => console.warn('[cache] local save failed:', err));
     },
-    [deps],
+    [deps, isBranchActive],
   );
 
   const handleSaveFileSettings = useCallback(
@@ -564,6 +584,9 @@ export function useFileSheetOperations({
     handleExportFile,
     loadAtprotoFiles,
     syncRecord,
+    // trunk の Lamport 発番器 (p5-4)。merge が branch batches を trunk へ再スタンプ
+    // するときに使う — 発番器を分けると同 (clock, actor) の batch が生まれる。
+    trunkClock,
     receiveEpoch,
   };
 }

@@ -34,6 +34,17 @@ export type EventSyncTapDeps = {
    * batch に載って remote へ渡り、受信側で因果順序と重複排除の単位を識別するのに使う。
    */
   actor: Actor;
+  /**
+   * この op-log の発番下限 (step1 Phase 5 p5-4)。restore 時に
+   * `max(永続ログの max clock, clockFloor)` を seed する。
+   *
+   * branch 用: branch の op-log は空から始まるので、放っておくと発番が 1 から再開し
+   * **base 時点の trunk batch より小さい clock** になる。`branchSheet` は
+   * 「base までの trunk + branch batches」を projection するので、それでは branch の
+   * 編集が base の内容に LWW で負ける。`clockFloor = base.at` で「branch は分岐点の
+   * 続きから発番する」を成立させる。trunk では不要 (指定しない)。
+   */
+  clockFloor?: Lamport;
   /** flush がオフライン等で失敗したときの通知 (保留は維持される) */
   onError?: (error: unknown) => void;
 };
@@ -43,6 +54,7 @@ export class EventSyncTap {
   private readonly clock: LamportClock;
   private readonly outbox: Outbox<Batch>;
   private readonly actor: Actor;
+  private readonly clockFloor: Lamport;
   private readonly onError?: (error: unknown) => void;
   /** flush を直列化するチェーン */
   private flushChain: Promise<void> = Promise.resolve();
@@ -59,6 +71,7 @@ export class EventSyncTap {
     this.clock = deps.clock ?? new LamportClock();
     this.outbox = deps.outbox ?? new Outbox<Batch>((b) => b.id);
     this.actor = deps.actor;
+    this.clockFloor = deps.clockFloor ?? 0;
     this.onError = deps.onError;
   }
 
@@ -99,7 +112,8 @@ export class EventSyncTap {
             (m, b) => Math.max(m, b.clock),
             0,
           );
-          this.clock.seed(maxClock);
+          // clockFloor は「このログが継ぐ分岐点」(branch のみ)。空ログでも下限を下回らない
+          this.clock.seed(Math.max(maxClock, this.clockFloor));
         })
         .catch((error) => {
           this.restored = undefined;
@@ -125,6 +139,25 @@ export class EventSyncTap {
    */
   observeRemote(remoteClock: Lamport): void {
     this.clock.observe(remoteClock);
+  }
+
+  /**
+   * この端末の clock を「自分で発番したが tap を通らなかった batch」のために操作する
+   * (step1 Phase 5 p5-4)。merge の再スタンプが唯一の利用者。
+   *
+   * merge は branch batches を trunk 先端の後へ振り直して trunk op-log へ直接追記する
+   * (`mergeBranchOnOplog`)。**その採番をこの clock で行わないと**、tap 側の clock は
+   * 追記を知らないまま進み、次のローカル編集が merge 済み batch と**同じ actor で
+   * 同じ clock** を発番しうる。同 (clock, actor) は順序が id 任せになり LWW の勝敗が
+   * 不定になるため、発番器を分けずここへ集約する。
+   */
+  get clockControl(): { seed: (floor: Lamport) => void; tick: () => Lamport } {
+    return {
+      seed: (floor) => {
+        this.clock.seed(floor);
+      },
+      tick: () => this.clock.tick(),
+    };
   }
 
   private scheduleFlush(): void {

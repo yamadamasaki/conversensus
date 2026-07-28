@@ -11,7 +11,18 @@
  * PDS I/O (sync-provider への退避分) は含めない (Phase 4)。
  */
 
-import type { BranchId, CommitId, Sheet, SheetId } from '../schemas';
+import { z } from 'zod';
+import {
+  type BranchId,
+  BranchIdSchema,
+  type CommitId,
+  CommitIdSchema,
+  type FileId,
+  FileIdSchema,
+  type Sheet,
+  type SheetId,
+  SheetIdSchema,
+} from '../schemas';
 import { projectBatches, toSheet } from './project';
 import type { Batch, Lamport } from './unified';
 
@@ -39,6 +50,47 @@ export type Branch = {
   base: Commit;
   status: BranchStatus;
 };
+
+// --- API 境界のバリデーション用スキーマ (step1 Phase 5) ---
+//
+// ドメイン型 (`Commit` / `BranchMeta`) は上の手書き定義を正とし、スキーマは
+// HTTP 境界で外来 JSON を検証するための対 (CLAUDE.md 規約 2)。両者の乖離は
+// `parse` の結果をドメイン型の引数へ渡す呼び出し側 (server の saveCommit /
+// saveBranch) でコンパイル時に検出される。
+
+export const CommitSchema = z.object({
+  id: CommitIdSchema,
+  message: z.string(),
+  at: z.number().int().nonnegative(),
+  authorActor: z.string(),
+});
+
+/**
+ * ブランチのメタ情報 = ドメインの `Branch` + 永続化・配線に要る補足。
+ *
+ * `Branch` はログドメインとして純粋 (base コミットのみ) だが、実配線では
+ *   - `sheetId`: branch は per-sheet を維持する (設計 §9.5-1)
+ *   - `trunkFileId`: どの trunk から分岐したか
+ *   - `branchFileId`: branch batches を貯める専用 file_id (§3.1-B)。
+ *     **local 専用で remote へ push しない** (§9.2 の不変条件)
+ * が要る。ドメイン型を汚さずメタ側で補う。
+ */
+export type BranchMeta = Branch & {
+  sheetId: SheetId;
+  trunkFileId: FileId;
+  branchFileId: FileId;
+};
+
+export const BranchMetaSchema = z.object({
+  id: BranchIdSchema,
+  name: z.string(),
+  base: CommitSchema,
+  // BRANCH_STATUS の定数と機械的に同期させる (値の二重定義を作らない)
+  status: z.nativeEnum(BRANCH_STATUS),
+  sheetId: SheetIdSchema,
+  trunkFileId: FileIdSchema,
+  branchFileId: FileIdSchema,
+});
 
 /** batches 中の最大 clock (= 現在のログ先端)。空なら 0 */
 export function tipClock(batches: Batch[]): Lamport {

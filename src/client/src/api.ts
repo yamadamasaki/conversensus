@@ -1,7 +1,12 @@
 import {
   type Batch,
   BatchSchema,
+  type BranchId,
+  type BranchMeta,
+  BranchMetaSchema,
   CONVERSENSUS_FILE_VERSION,
+  type Commit,
+  CommitSchema,
   type ConversensusFile,
   type FileId,
   type GraphFile,
@@ -13,6 +18,7 @@ import {
 import { z } from 'zod';
 
 const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:3000';
+const HTTP_NOT_FOUND = 404;
 
 export async function fetchFiles(): Promise<GraphFileListItem[]> {
   const res = await fetch(`${BASE}/files`);
@@ -111,6 +117,66 @@ export async function fetchBatches(
   const res = await fetch(url);
   if (!res.ok) throw new Error('Failed to fetch batches');
   return z.array(BatchSchema).parse(await res.json());
+}
+
+// --- ブランチ / コミットのメタ情報 --- (step1 Phase 5)
+
+/** コミット (ログ上のラベル付きオフセット) を保存する。同一 id は上書きされる */
+export async function saveCommit(
+  fileId: FileId,
+  commit: Commit,
+): Promise<Commit> {
+  const res = await fetch(`${BASE}/files/${fileId}/commits`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(commit),
+  });
+  if (!res.ok) throw new Error('Failed to save commit');
+  return CommitSchema.parse(await res.json());
+}
+
+/** ファイルのコミット一覧を at 昇順で取得する */
+export async function fetchCommits(fileId: FileId): Promise<Commit[]> {
+  const res = await fetch(`${BASE}/files/${fileId}/commits`);
+  if (!res.ok) throw new Error('Failed to fetch commits');
+  return z.array(CommitSchema).parse(await res.json());
+}
+
+/** ブランチのメタ情報を保存する。分岐元 trunk (`meta.trunkFileId`) に紐付く */
+export async function saveBranch(meta: BranchMeta): Promise<BranchMeta> {
+  const res = await fetch(`${BASE}/files/${meta.trunkFileId}/branches`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(meta),
+  });
+  if (!res.ok) throw new Error('Failed to save branch');
+  return BranchMetaSchema.parse(await res.json());
+}
+
+/** trunk のブランチ一覧を base オフセット昇順で取得する */
+export async function fetchBranches(
+  trunkFileId: FileId,
+): Promise<BranchMeta[]> {
+  const res = await fetch(`${BASE}/files/${trunkFileId}/branches`);
+  if (!res.ok) throw new Error('Failed to fetch branches');
+  return z.array(BranchMetaSchema).parse(await res.json());
+}
+
+/**
+ * ブランチを削除する。メタに加えて branch 専用 op-log / commit も消える (server 側 tx)。
+ * 該当ブランチが無い場合も成功扱いにする — 「消えていること」が目的なので、
+ * 二重削除や既に消えたブランチの削除を失敗として扱う理由が無い。
+ */
+export async function deleteBranch(
+  trunkFileId: FileId,
+  branchId: BranchId,
+): Promise<void> {
+  const res = await fetch(`${BASE}/files/${trunkFileId}/branches/${branchId}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok && res.status !== HTTP_NOT_FOUND) {
+    throw new Error('Failed to delete branch');
+  }
 }
 
 export function exportFile(file: GraphFile): void {

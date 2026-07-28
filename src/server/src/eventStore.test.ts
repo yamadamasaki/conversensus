@@ -3,13 +3,16 @@ import { beforeEach, describe, expect, it } from 'bun:test';
 import { rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type {
-  Batch,
-  Commit,
-  CommitId,
-  FileId,
-  NodeId,
-  SheetId,
+import {
+  type Batch,
+  BRANCH_STATUS,
+  type BranchId,
+  type BranchMeta,
+  type Commit,
+  type CommitId,
+  type FileId,
+  type NodeId,
+  type SheetId,
 } from '@conversensus/shared';
 import { EventStore, IN_MEMORY } from './eventStore';
 
@@ -315,6 +318,130 @@ describe('EventStore', () => {
     });
   });
 
+  describe('saveBranch / getBranches (Phase 5)', () => {
+    const branch = (
+      id: string,
+      baseAt: number,
+      overrides: Partial<BranchMeta> = {},
+    ): BranchMeta => ({
+      id: id as BranchId,
+      name: `branch ${id}`,
+      base: {
+        id: `${id}-base` as CommitId,
+        message: `base of ${id}`,
+        at: baseAt,
+        authorActor: 'local',
+      },
+      status: BRANCH_STATUS.OPEN,
+      sheetId: SHEET_META.id,
+      trunkFileId: FILE,
+      branchFileId: `${id}-log` as FileId,
+      ...overrides,
+    });
+
+    it('保存したブランチを base オフセット (at) 昇順で読み返せる', () => {
+      store.saveBranch(branch('b2', 5));
+      store.saveBranch(branch('b1', 2));
+      expect(store.getBranches(FILE).map((b) => b.id)).toEqual(['b1', 'b2']);
+    });
+
+    it('メタ全体を round-trip できる (base コミットと補足フィールド)', () => {
+      // base はインライン列へ展開して保存するため、message/authorActor まで
+      // 欠落なく戻ることを固定する (列の追加漏れが静かにメタを削るのを防ぐ)。
+      const meta = branch('b1', 7);
+      store.saveBranch(meta);
+      expect(store.getBranches(FILE)).toEqual([meta]);
+    });
+
+    it('同一 id は上書きする', () => {
+      store.saveBranch(branch('b1', 2));
+      store.saveBranch(
+        branch('b1', 9, { name: '改名', status: BRANCH_STATUS.MERGED }),
+      );
+      const branches = store.getBranches(FILE);
+      expect(branches).toHaveLength(1);
+      expect(branches[0]?.base.at).toBe(9);
+      expect(branches[0]?.name).toBe('改名');
+      expect(branches[0]?.status).toBe(BRANCH_STATUS.MERGED);
+    });
+
+    it('trunk が異なるブランチは混ざらない', () => {
+      const other = 'file-2' as FileId;
+      store.saveBranch(branch('b1', 2));
+      store.saveBranch(branch('b2', 2, { trunkFileId: other }));
+      expect(store.getBranches(FILE).map((b) => b.id)).toEqual(['b1']);
+      expect(store.getBranches(other).map((b) => b.id)).toEqual(['b2']);
+    });
+
+    it('branch batches は branch_file_id 側の op-log に置かれ trunk と混ざらない', () => {
+      // メタ (branches) と実体 (batches) の分離。branch の編集を追記しても
+      // trunk の projection は動かない (p5-2 以降が前提にする分離)。
+      const meta = branch('b1', 1);
+      store.saveBranch(meta);
+      store.appendBatch(FILE, addNode('t1', 'n1', 'trunk のノード', 1));
+      store.appendBatch(
+        meta.branchFileId,
+        addNode('br1', 'n2', 'branch のノード', 2),
+      );
+      expect(store.getBatches(FILE).map((b) => b.id)).toEqual(['t1']);
+      expect(store.getBatches(meta.branchFileId).map((b) => b.id)).toEqual([
+        'br1',
+      ]);
+    });
+
+    describe('deleteBranch (p5-4)', () => {
+      const commit = (id: string, at: number): Commit => ({
+        id: id as CommitId,
+        message: `commit ${id}`,
+        at,
+        authorActor: 'local',
+      });
+
+      it('メタと branch 専用 op-log / commit をまとめて消す', () => {
+        // branch の中身へは branch_file_id からしか辿れないので、メタだけ消すと
+        // 参照者のいない batch が永久に残る (孤児)。同じ tx で消すことを固定する。
+        const meta = branch('b1', 1);
+        store.saveBranch(meta);
+        store.appendBatch(
+          meta.branchFileId,
+          addNode('br1', 'n2', 'branch のノード', 2),
+        );
+        store.saveCommit(meta.branchFileId, commit('c1', 2));
+
+        expect(store.deleteBranch(FILE, meta.id)).toBe(true);
+
+        expect(store.getBranches(FILE)).toEqual([]);
+        expect(store.getBatches(meta.branchFileId)).toEqual([]);
+        expect(store.getCommits(meta.branchFileId)).toEqual([]);
+      });
+
+      it('trunk 側の op-log は消さない', () => {
+        const meta = branch('b1', 1);
+        store.saveBranch(meta);
+        store.appendBatch(FILE, addNode('t1', 'n1', 'trunk のノード', 1));
+        store.saveCommit(FILE, commit('ct', 1));
+
+        store.deleteBranch(FILE, meta.id);
+
+        expect(store.getBatches(FILE).map((b) => b.id)).toEqual(['t1']);
+        expect(store.getCommits(FILE).map((c) => c.id)).toEqual(['ct']);
+      });
+
+      it('trunk が一致しないブランチは消せない', () => {
+        // URL の trunk を経由しないと消せないことで、id だけを知っている呼び出しが
+        // 別ファイルのブランチを消すのを防ぐ。
+        const meta = branch('b1', 1);
+        store.saveBranch(meta);
+        expect(store.deleteBranch('file-2' as FileId, meta.id)).toBe(false);
+        expect(store.getBranches(FILE).map((b) => b.id)).toEqual(['b1']);
+      });
+
+      it('存在しないブランチは false を返す (べき等な二重削除)', () => {
+        expect(store.deleteBranch(FILE, 'missing' as BranchId)).toBe(false);
+      });
+    });
+  });
+
   describe('listOplogFiles (Phase 4e-2a)', () => {
     /** file 構造 (file.setName + sheet.create) を持つ batch を作るヘルパ */
     const structure = (
@@ -359,6 +486,47 @@ describe('EventStore', () => {
       store.appendBatch(other, structure('b1', '後で snapshot になる方', 1));
       store.appendBatch(FILE, structure('b2', '先に受信した方', 1));
       expect(store.listOplogFiles().map((f) => f.id)).toEqual([other, FILE]);
+    });
+
+    // Phase 5 p5-1: branch 専用 file_id (§3.1-B) の op-log がファイル一覧に
+    // 漏れないことを固定する。branch は trunk と同じ batches テーブルに同居する
+    // ため、除外できないと UI のファイル一覧に branch がファイルとして並ぶ。
+    describe('branch op-log の除外 (Phase 5 p5-1)', () => {
+      const BRANCH_FILE = 'branch-file-1' as FileId;
+
+      /** branch 側の編集 = 分岐元シートを指す content batch */
+      const branchEdit = (id: string, clock: number): Batch => ({
+        ...addNode(id, `n-${id}`, `branch の編集 ${id}`, clock),
+        sheetId: SHEET_META.id,
+      });
+
+      it('content batch だけの branch op-log は一覧に出ない', () => {
+        store.appendBatch(FILE, structure('t1', 'trunk', 1));
+        store.appendBatch(BRANCH_FILE, branchEdit('br1', 2));
+        store.appendBatch(BRANCH_FILE, branchEdit('br2', 3));
+        // 除外は明示コードではなく既存の 0 シート除外で自動的に効く (設計 §9.2 / M2):
+        // `branchSheet` はシートのメタを引数から受け取る設計なので branch op-log は
+        // `sheet.create` を持たず、`projectFile` が content batch を未作成シート扱いで
+        // 落として 0 シートになる。
+        expect(store.listOplogFiles().map((f) => f.id)).toEqual([FILE]);
+      });
+
+      it('branch op-log の中身自体は失われない (一覧に出ないだけ)', () => {
+        store.appendBatch(BRANCH_FILE, branchEdit('br1', 2));
+        // 一覧から落ちるのは表示上の判断であって、projection の材料は残る。
+        // p5-2 の `branchSheet` はここから branchBatches を読む。
+        expect(store.listOplogFiles()).toEqual([]);
+        expect(store.getBatches(BRANCH_FILE).map((b) => b.id)).toEqual(['br1']);
+      });
+
+      // 🔴 除外が成り立つ条件そのものを固定する。branch op-log に構造 op
+      // (`sheet.create`) が 1 つでも入ると **branch がファイル一覧に現れる**。
+      // p5-2 以降の配線は「branch op-log へ構造 op を流さない」を守る必要があり、
+      // 破れたらこのテストが赤くなって気づける (破れた場合は明示除外が要る)。
+      it('sheet.create が入ると一覧に出てしまう (除外が依存している条件)', () => {
+        store.appendBatch(BRANCH_FILE, structure('br1', 'branch', 1));
+        expect(store.listOplogFiles().map((f) => f.id)).toEqual([BRANCH_FILE]);
+      });
     });
   });
 });

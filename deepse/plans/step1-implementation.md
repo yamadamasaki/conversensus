@@ -1,8 +1,10 @@
 # step1 実装計画
 
-> ステータス: **実行中** / 作成日: 2026-07-12
+> ステータス: **実行中 (Phase 1〜4 完了 / Phase 5〜8 残)** / 作成日: 2026-07-12 / 完了基準改訂: 2026-07-27
 > 位置づけ: [step1 アーキテクチャ](../architecture/step1.md) の確定を受けた実装計画。
 > O3 (branch/commit/merge の統一イベントモデルへの載せ替え) の spike を起点に、§9 の移行順序を具体化する。
+>
+> **step1 の完了基準 = リリース可能であること** (2026-07-27 確定)。「Phase 4e マージ済」は step1 完了ではなくサブフェーズ完了に過ぎない。リリース gating の残タスクは Phase 5 (branch op-log 化) / Phase 6 (W3e snapshot 退役・R2 解消) / Phase 7 (範囲取得・R3) / Phase 8 (Tauri 単一バイナリ配布・R1・VPS 役割変更)。firehose 卒業・cidCache 永続化は非 gating (Phase 6〜8 の中で要否判断)。
 
 ---
 
@@ -59,9 +61,14 @@ branch: "{branchId}_{uuid}"
 | **2. ブランチ載せ替え** | ブランチ=base offset+イベント列、コミット=ラベル付きオフセット、マージ=追記+D7解決。rkey 複製方式を廃止 (既存データは破棄) | branchState.ts の全面書き換え |
 | **3. ローカル永続層** (§9-2, O1) | 保存を「操作ログ+projection」へ。ストレージ実体を決定 | 永続層実装 |
 | **4. sync-provider** (§9-3) | ATProto を provider 実装に整理。outbox+オフライン分岐。全件list/polling/cidCache 改修 | SyncProvider 境界 |
-| **5. 実証 / VPS** (§9-4,5) | 軽量 B で end-to-end 検証。VPS 役割変更 | local-first 実証 |
+| **5. branch op-log 化** | 元 Phase 2 の**実配線**を回収 (下記注記)。branch/commit/merge を op-log 上で成立させ snapshot 複製依存を切る。単一端末スコープ | `branchState.ts` 退役・[Phase 5 設計](./step1-phase5-branch-oplog.md) |
+| **6. W3e snapshot 完全退役** | `PUT /files`・`storage.ts`・snapshot genesis fallback を撤去し R2 二重モデルを解消 | snapshot storage 撤去 |
+| **7. 範囲取得** (R3) | remote の全件 list を rkey/コレクション範囲取得へ。cidCache 永続化の要否もここで解消 | 範囲取得実装 |
+| **8. 配布形態 / VPS** (O2, §9-4,5) | Tauri v2 (B1) 単一バイナリ配布。R1 (ARM64/Rosetta) 切り分け → 配布。firehose 卒業 (§6 polling→Jetstream) の要否判断。VPS 役割変更 (D6) | local-first 配布 + 単一バイナリ |
 
-**クリティカルパス**: Phase 0 → 1 → 2。破棄前提により Phase 2 の移行コストがほぼ消え、**最大リスクは Phase 0 の「複合イベントを sync 語彙にどう乗せるか」に絞られた**。
+**クリティカルパス**: Phase 0 → 1 → 2 → (3,4) → 5 → 6。破棄前提により Phase 2 の移行コストがほぼ消え、**最大リスクは Phase 0 の「複合イベントを sync 語彙にどう乗せるか」に絞られた**。
+
+> **Phase 2 と Phase 5 の関係 (2026-07-27 再分類)**: Phase 2「ブランチ載せ替え」は **純ドメイン (`branchLog.ts`/`merge.ts`) の定義のみを非破壊で追加し、実配線 (App/PDS I/O 置換・`branchState.ts` 退役) を Phase 3/4 へ後送り**した (§6 完了メモ)。しかし Phase 3 (永続層)・Phase 4 (sync-provider) はいずれも trunk に集中し、branch の実配線は毎 Phase の「引き継ぎ作業」に積み残されたまま実行されなかった。この滑った実配線を step1 内で回収するのが **Phase 5** である。当初これを別 step「step2」として切り出していた (branch `step/step2-branch-oplog`・設計書 `step2-branch-oplog.md`) が、「step1 の課題を残したまま次 step へ進まない」方針により step1 Phase 5 に戻した (branch/設計書ともリネーム済)。本来の「step2」は拡張エンジン (`../architecture/step1.md` §8) で、step1 リリース後に着手する。
 
 ---
 

@@ -14,7 +14,11 @@
 import { Database } from 'bun:sqlite';
 import {
   type Batch,
+  type BranchId,
+  type BranchMeta,
+  type BranchStatus,
   type Commit,
+  type CommitId,
   type FileId,
   type GraphFileListItem,
   projectBatches,
@@ -46,6 +50,19 @@ type CommitRow = {
   author_actor: string;
 };
 
+/** branches の 1 行 (base コミットは列へインライン展開する, step1 Phase 5) */
+type BranchRow = {
+  id: string;
+  branch_file_id: string;
+  name: string;
+  sheet_id: string;
+  status: string;
+  base_commit_id: string;
+  base_message: string;
+  base_at: number;
+  base_author_actor: string;
+};
+
 /** file_migrations の 1 行 (op-log 読み取り正典化のスキーマ marker, W3d) */
 type MigrationRow = {
   schema_version: number;
@@ -74,6 +91,24 @@ CREATE TABLE IF NOT EXISTS commits (
   author_actor TEXT    NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_commits_file ON commits (file_id);
+
+-- ブランチのメタ情報 (step1 Phase 5)。branch batches 自体は batches テーブルへ
+-- branch_file_id で分けて貯め、ここは「どの trunk のどのシートから、どの base で
+-- 分岐したか」だけを持つ。base コミットは低頻度メタなので commits への FK を張らず
+-- 列へインライン展開する (読取が 1 クエリで閉じ、branch と commit の生存期間が絡まない)。
+CREATE TABLE IF NOT EXISTS branches (
+  id                TEXT    PRIMARY KEY,
+  trunk_file_id     TEXT    NOT NULL,
+  branch_file_id    TEXT    NOT NULL,
+  name              TEXT    NOT NULL,
+  sheet_id          TEXT    NOT NULL,
+  status            TEXT    NOT NULL,
+  base_commit_id    TEXT    NOT NULL,
+  base_message      TEXT    NOT NULL,
+  base_at           INTEGER NOT NULL,
+  base_author_actor TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_branches_trunk ON branches (trunk_file_id);
 
 -- op-log 読み取り正典化 (W3d) の per-file スキーマ marker。
 -- 「破棄→genesis→marker 更新」を一度だけ実行するためのゲート。
@@ -233,6 +268,83 @@ export class EventStore {
   }
 
   /**
+   * ブランチのメタ情報を保存する。同一 id は上書きする (step1 Phase 5)。
+   *
+   * `saveCommit` と違い trunk file_id を別引数で取らない — `BranchMeta` 自身が
+   * `trunkFileId` を持つため、引数で二重に受けると食い違いを作れてしまう。
+   */
+  saveBranch(meta: BranchMeta): void {
+    this.db
+      .query(
+        `INSERT OR REPLACE INTO branches
+           (id, trunk_file_id, branch_file_id, name, sheet_id, status,
+            base_commit_id, base_message, base_at, base_author_actor)
+         VALUES ($id, $trunk, $branch, $name, $sheet, $status,
+                 $baseId, $baseMsg, $baseAt, $baseAuthor)`,
+      )
+      .run({
+        $id: meta.id,
+        $trunk: meta.trunkFileId,
+        $branch: meta.branchFileId,
+        $name: meta.name,
+        $sheet: meta.sheetId,
+        $status: meta.status,
+        $baseId: meta.base.id,
+        $baseMsg: meta.base.message,
+        $baseAt: meta.base.at,
+        $baseAuthor: meta.base.authorActor,
+      });
+  }
+
+  /** trunk のブランチ一覧を base オフセット (at) 昇順で取得する */
+  getBranches(trunkFileId: FileId): BranchMeta[] {
+    const rows = this.db
+      .query<BranchRow, string>(
+        `SELECT id, branch_file_id, name, sheet_id, status,
+                base_commit_id, base_message, base_at, base_author_actor
+           FROM branches
+          WHERE trunk_file_id = ?
+          ORDER BY base_at, id`,
+      )
+      .all(trunkFileId);
+    return rows.map((row) => rowToBranch(row, trunkFileId));
+  }
+
+  /**
+   * ブランチを削除する (step1 Phase 5 p5-4)。
+   *
+   * メタ行だけでなく **branch 専用 file_id に貯めた op-log と commit も同じ tx で消す**。
+   * branch の中身へは `branch_file_id` からしか辿れないので、メタだけ消すと参照者の
+   * いない batch が永久に残る (孤児)。`DELETE /files/:id` (ファイル削除) と違い
+   * snapshot は存在しない — branch は op-log 専業のため (設計 §3.1-B)。
+   *
+   * @param trunkFileId 分岐元 trunk。他ファイルのブランチを id 指定で消せないようにする
+   * @returns 削除したら true、該当ブランチが無ければ false
+   */
+  deleteBranch(trunkFileId: FileId, branchId: BranchId): boolean {
+    const tx = this.db.transaction(() => {
+      const row = this.db
+        .query<{ branch_file_id: string }, [string, string]>(
+          'SELECT branch_file_id FROM branches WHERE id = ? AND trunk_file_id = ?',
+        )
+        .get(branchId, trunkFileId);
+      if (!row) return false;
+      const branchFileId = row.branch_file_id;
+      this.db
+        .query('DELETE FROM branches WHERE id = $id')
+        .run({ $id: branchId });
+      this.db
+        .query('DELETE FROM batches WHERE file_id = $file')
+        .run({ $file: branchFileId });
+      this.db
+        .query('DELETE FROM commits WHERE file_id = $file')
+        .run({ $file: branchFileId });
+      return true;
+    });
+    return tx();
+  }
+
+  /**
    * ファイルの op-log スキーマ marker を返す (W3d)。未 migration なら null。
    * marker >= W3_SCHEMA_VERSION なら op-log は既に正典 (genesis 済)。
    */
@@ -360,5 +472,24 @@ function rowToCommit(row: CommitRow): Commit {
     message: row.message,
     at: row.at,
     authorActor: row.author_actor,
+  };
+}
+
+/** trunk_file_id は絞り込みキーなので行に含めず、呼び出し側から復元する */
+function rowToBranch(row: BranchRow, trunkFileId: FileId): BranchMeta {
+  return {
+    id: row.id as BranchId,
+    name: row.name,
+    base: {
+      id: row.base_commit_id as CommitId,
+      message: row.base_message,
+      at: row.base_at,
+      authorActor: row.base_author_actor,
+    },
+    // status は保存時に BranchMetaSchema で検証済 (API 境界の責務)
+    status: row.status as BranchStatus,
+    sheetId: row.sheet_id as SheetId,
+    trunkFileId,
+    branchFileId: row.branch_file_id as FileId,
   };
 }

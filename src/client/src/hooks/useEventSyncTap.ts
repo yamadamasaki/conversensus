@@ -11,8 +11,14 @@
  * (成功条件・保留・Lamport 復元) は local-only のときと変わらない。
  */
 
-import type { Actor, Batch, FileId, SheetId } from '@conversensus/shared';
-import { useCallback, useEffect, useMemo } from 'react';
+import type {
+  Actor,
+  Batch,
+  FileId,
+  Lamport,
+  SheetId,
+} from '@conversensus/shared';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { pushReceivedBatches } from '../api';
 import { FanoutSyncProvider } from '../atproto/fanoutSyncProvider';
 import type { RemoteSyncQueue } from '../atproto/remoteSyncQueue';
@@ -36,9 +42,25 @@ export type TapHandle = {
   pending: () => number;
 };
 
+/**
+ * merge の再スタンプ用に公開する clock 操作 (step1 Phase 5 p5-4)。
+ * tap が作り直されても同じ参照で最新の tap を見るよう ref 経由で束ねる。
+ */
+export type TapClock = {
+  /** 下限を引き上げる (`seed` 意味論: +1 しない) */
+  seed: (floor: Lamport) => void;
+  /** 次の clock を発番する */
+  tick: () => Lamport;
+};
+
 export type UseEventSyncTapOptions = {
   /** remote 送信キュー。null/未指定なら local-only (未ログイン時と同じ挙動) */
   remoteQueue?: RemoteSyncQueue | null;
+  /**
+   * この op-log の発番下限 (branch のみ: 分岐点 `base.at`)。
+   * 空の branch op-log でも base より後から発番させる (`EventSyncTap.clockFloor`)。
+   */
+  clockFloor?: Lamport;
   /** この端末の操作主体 `<did>#<deviceId>` (Phase 4d-2)。batch の actor になる */
   actor: Actor;
   /** テスト用: ローカル正典 provider の差し替え (既定 `LocalServerSyncProvider`) */
@@ -60,16 +82,31 @@ export type UseEventSyncTapOptions = {
   ) => void;
 };
 
+export type UseEventSyncTapResult = {
+  /** dispatch された event を op-log へ流す (content 経路は sheetId 付き) */
+  record: (event: GraphEvent, sheetId?: SheetId) => void;
+  /** merge の再スタンプ用 clock (§p5-4)。tap 未生成なら呼び出しは失敗する */
+  clock: TapClock;
+  /**
+   * これまでに record した event の drain 完了を待つ (§p5-4)。
+   * **op-log を読み直す操作 (commit / merge) の前に必ず待つ** — record は非同期に
+   * flush するので、待たないと直前の編集が commit のオフセットに入らなかったり、
+   * merge で trunk に載らないまま branch が MERGED になったりする。
+   */
+  settled: () => Promise<void>;
+};
+
 export function useEventSyncTap(
   fileId: FileId | null,
   {
     remoteQueue = null,
     actor,
+    clockFloor,
     createLocalProvider,
     appendReceived = pushReceivedBatches,
     onReceived,
   }: UseEventSyncTapOptions,
-): (event: GraphEvent, sheetId?: SheetId) => void {
+): UseEventSyncTapResult {
   // remote キューがあるときだけ fanout で包む。ローカル正典への経路は両者で同一。
   // (createLocalProvider を渡す場合は安定参照であること — 毎レンダー再生成すると tap が作り直される)
   const provider = useMemo(() => {
@@ -89,11 +126,36 @@ export function useEventSyncTap(
         ? new EventSyncTap({
             provider,
             actor,
+            clockFloor,
             onError: (error) =>
               console.warn('[sync] batch flush failed:', error),
           })
         : null,
-    [provider, actor],
+    [provider, actor, clockFloor],
+  );
+
+  // clock は tap の作り直しをまたいで同じ参照でいてほしい (merge の deps に渡すため)
+  const tapRef = useRef(tap);
+  tapRef.current = tap;
+  const clock = useMemo<TapClock>(
+    () => ({
+      seed: (floor) => tapRef.current?.clockControl.seed(floor),
+      // tap が無いときに 0 を返すと **clock 0 の batch が op-log に入る**。
+      // 発番できないことは呼び出し側の配線ミスなので、黙って進めず落とす。
+      tick: () => {
+        const tap = tapRef.current;
+        if (!tap)
+          throw new Error('clock.tick: tap が未生成です (fileId が null)');
+        return tap.clockControl.tick();
+      },
+    }),
+    [],
+  );
+
+  // tap が無い (未オープン) ときは待つものが無いので即 resolve
+  const settled = useCallback(
+    () => tapRef.current?.settled() ?? Promise.resolve(),
+    [],
   );
 
   // catch-up (§3.6): ローカル正典にあって remote に無い batch を回収する。オフライン中に
@@ -146,8 +208,10 @@ export function useEventSyncTap(
   }, [provider, fileId, remoteQueue, tap, appendReceived, onReceived]);
 
   // content 経路は sheetId を渡す (W3c2)。structure 経路は省略 → file-level batch。
-  return useCallback(
+  const record = useCallback(
     (event: GraphEvent, sheetId?: SheetId) => tap?.record(event, sheetId),
     [tap],
   );
+
+  return { record, clock, settled };
 }

@@ -14,7 +14,7 @@ import { makeEventBase } from './events/GraphEvent';
 import { GraphEditor } from './GraphEditor';
 import { useActor } from './hooks/useActor';
 import { useAtprotoSession } from './hooks/useAtprotoSession';
-import { useBranchOperations } from './hooks/useBranchOperations';
+import { isBranchMeta, useBranchOperations } from './hooks/useBranchOperations';
 import type { UndoState } from './hooks/useEventStore';
 import { useFileSheetOperations } from './hooks/useFileSheetOperations';
 import { useRemoteSyncQueue } from './hooks/useRemoteSyncQueue';
@@ -71,6 +71,13 @@ export default function App() {
     );
   }, []);
 
+  // op-log branch を表示中か (step1 Phase 5 p5-4)。**`fileOps` は `branchOps` より先に
+  // 作られる**ので、値ではなく安定参照のコールバック + ref で渡す (`isEditingActive` と同型)。
+  // これが true の間 `persistFile` は snapshot を書かない — branch の内容で trunk の
+  // snapshot を上書きしないため (§9.2)。
+  const branchActiveRef = useRef(false);
+  const isBranchActive = useCallback(() => branchActiveRef.current, []);
+
   // File & sheet operations
   const fileOps = useFileSheetOperations({
     setConfirmState,
@@ -78,6 +85,7 @@ export default function App() {
     remoteQueue,
     actor,
     isEditingActive,
+    isBranchActive,
   });
 
   // Branch operations
@@ -89,7 +97,17 @@ export default function App() {
     setConfirmState,
     setInputState,
     setAlertState,
+    actor,
+    // merge の再スタンプは trunk と同じ発番器で行う (p5-4)
+    trunkClock: fileOps.trunkClock,
   });
+
+  // branch 表示の有無を ref へ写す (上の isBranchActive が読む)。
+  // レンダー中に代入すると破棄されたレンダーの値を残しうるので effect で行う。
+  useEffect(() => {
+    branchActiveRef.current =
+      branchOps.activeBranch !== null && isBranchMeta(branchOps.activeBranch);
+  }, [branchOps.activeBranch]);
 
   // Cross-domain wired callbacks
   const handleChange = useCallback(
@@ -101,6 +119,10 @@ export default function App() {
       const sheetId = fileOps.activeSheetId;
 
       saveTimer.current = setTimeout(async () => {
+        // op-log の branch は編集ごとに branch tap が書いているので autosave は不要。
+        // ここで persistFile を呼ぶと **branch の内容で trunk の snapshot を上書きする**
+        // ため、何もしないのが正しい (p5-4)。
+        if (branch && isBranchMeta(branch)) return;
         if (
           branch &&
           branch.name !== TRUNK_PREFIX &&
@@ -139,15 +161,22 @@ export default function App() {
 
   const handleAddSheet = useCallback(async () => {
     if (!fileOps.activeFile) return;
+    // 🔴 シート追加は **trunk のファイルを土台に**行う。branch 表示中の activeFile は
+    // 該当シートが branch の内容なので、それを土台にすると branch の内容が trunk へ移る。
+    // branch は per-sheet なので、シートを増やす操作は branch を抜けてから行うのが筋
+    // (シート切替 `handleSelectSheet` が branch を抜けるのと同じ扱い)。
+    const trunkFile = branchOps.isTrunk
+      ? fileOps.activeFile
+      : (branchOps.resetBranchState() ?? fileOps.activeFile);
     const newSheet: Sheet = {
       id: generateId() as SheetId,
-      name: `Sheet ${fileOps.activeFile.sheets.length + 1}`,
+      name: `Sheet ${trunkFile.sheets.length + 1}`,
       nodes: [],
       edges: [],
     };
     const updated: GraphFile = {
-      ...fileOps.activeFile,
-      sheets: [...fileOps.activeFile.sheets, newSheet],
+      ...trunkFile,
+      sheets: [...trunkFile.sheets, newSheet],
     };
     // op-log へ sheet.create を emit する (dual-write, W3c1)
     fileOps.syncRecord({
@@ -157,7 +186,6 @@ export default function App() {
       name: newSheet.name,
     });
     fileOps.setActiveSheetId(newSheet.id);
-    if (!branchOps.isTrunk) branchOps.setBranchBases(newSheet);
     await fileOps.persistFile(updated);
   }, [
     fileOps.activeFile,
@@ -165,7 +193,7 @@ export default function App() {
     fileOps.persistFile,
     fileOps.syncRecord,
     branchOps.isTrunk,
-    branchOps.setBranchBases,
+    branchOps.resetBranchState,
   ]);
 
   // ATProto セッション確立後にファイル一覧を同期
@@ -228,7 +256,9 @@ export default function App() {
             file={fileOps.activeFile}
             activeSheetId={fileOps.activeSheetId}
             onChange={handleChange}
-            syncRecord={fileOps.syncRecord}
+            // branch 表示中の編集は branch 専用 op-log へ (p5-4)。trunk 用の tap に
+            // 流すと branch の編集が trunk のログに混ざる。
+            syncRecord={branchOps.branchSyncRecord ?? fileOps.syncRecord}
             addedNodeIds={branchOps.addedNodeIds}
             updatedNodeIds={branchOps.updatedNodeIds}
             addedEdgeIds={branchOps.addedEdgeIds}
