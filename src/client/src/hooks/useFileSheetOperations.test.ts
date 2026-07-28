@@ -34,6 +34,7 @@ type RenderOpts = {
   deps?: ReturnType<typeof createInMemoryFileSheetOpsDeps>;
   readFromOplog?: boolean;
   remoteQueue?: import('../atproto/remoteSyncQueue').RemoteSyncQueue;
+  isBranchActive?: () => boolean;
 };
 
 async function renderWith(opts: RenderOpts = {}) {
@@ -51,6 +52,7 @@ async function renderWith(opts: RenderOpts = {}) {
         readFromOplog: opts.readFromOplog,
       }),
       ...(opts.remoteQueue !== undefined && { remoteQueue: opts.remoteQueue }),
+      ...(opts.isBranchActive && { isBranchActive: opts.isBranchActive }),
     }),
   );
   // Flush async effects (fetchFiles + ATProto sync)
@@ -718,6 +720,58 @@ describe('useFileSheetOperations', () => {
       });
 
       expect(result.current.receiveEpoch).toBe(0);
+    });
+  });
+
+  // step1 Phase 5 p5-4: branch 表示中の activeFile は該当シートが **branch の内容**。
+  // これを snapshot (ローカルキャッシュ / ATProto の file レコード) へ書くと
+  // trunk を branch で上書きする (設計 §9.2)。
+  describe('persistFile の branch ガード (Phase 5 p5-4)', () => {
+    /** snapshot 書込の観測点を仕込んだ deps */
+    function depsWithSpies() {
+      const deps = createInMemoryFileSheetOpsDeps();
+      const saved: string[] = [];
+      const synced: string[] = [];
+      deps.saveFile = async (file) => {
+        saved.push(file.name);
+      };
+      deps.syncFileToAtproto = async (file) => {
+        synced.push(file.name);
+      };
+      return { deps, saved, synced };
+    }
+
+    const fileWith = (name: string) => ({
+      id: 'f-branch-guard' as FileId,
+      name,
+      description: '',
+      sheets: [{ id: SID1, name: 'Sheet 1', nodes: [], edges: [] }],
+    });
+
+    it('trunk 表示中は snapshot を書く (既定の挙動)', async () => {
+      const { deps, saved, synced } = depsWithSpies();
+      const { result } = await renderWith({ deps });
+      await act(async () => {
+        await result.current.persistFile(fileWith('trunk 保存'));
+      });
+      expect(saved).toEqual(['trunk 保存']);
+      expect(synced).toEqual(['trunk 保存']);
+    });
+
+    it('🔴 op-log branch 表示中は snapshot を書かない (画面の state だけ更新)', async () => {
+      const { deps, saved, synced } = depsWithSpies();
+      const { result } = await renderWith({
+        deps,
+        isBranchActive: () => true,
+      });
+      await act(async () => {
+        await result.current.persistFile(fileWith('branch の内容'));
+      });
+      // ローカルキャッシュにも ATProto にも出さない
+      expect(saved).toEqual([]);
+      expect(synced).toEqual([]);
+      // 画面用の state 更新は行う (branch の編集が即座に消えては困る)
+      expect(result.current.activeFile?.name).toBe('branch の内容');
     });
   });
 });

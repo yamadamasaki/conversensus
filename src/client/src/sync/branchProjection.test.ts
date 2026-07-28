@@ -235,6 +235,23 @@ describe('readBranchSheet', () => {
       expect(current.nodes.map((n) => n.id)).toContain('n3');
     });
 
+    it('🔴 branch op-log に混ざった別シートの batch は現れない', async () => {
+      // branch は 1 シート専用だが、配線の穴 (branch 表示中のシート追加など) で
+      // 別シートの content batch が branch op-log に入りうる。混ざったまま projection
+      // すると他シートのノードが branch に現れ、merge でそのまま trunk へ載る。
+      const { logs, deps, meta } = await setup();
+      logs[meta.branchFileId]?.push(
+        content(
+          'br-other',
+          7,
+          [addNode('n9', '別シートのノード')],
+          OTHER_SHEET,
+        ),
+      );
+      const { current } = await readBranchSheets(meta, SHEET_META, deps);
+      expect(current.nodes.map((n) => n.id)).not.toContain('n9');
+    });
+
     it('コミットが無ければ atLastCommit は base に等しい', async () => {
       const { deps, meta } = await setup();
       const { base, atLastCommit } = await readBranchSheets(

@@ -199,11 +199,12 @@ export function useBranchOperations({
   // op-log モードで branch を開いている間だけ、編集の宛先を branch 専用 op-log にする。
   // **これが載せ替えの要**: 旧経路では branch 中の編集も trunk の tap に流れていたため、
   // branch の編集が trunk の op-log を汚していた (W3d で branch を凍結した際の積み残し)。
+  // 判定は `isBranchMeta` のみ (フラグを混ぜない) — 他の分岐 (読取・commit・merge・
+  // close・delete) がすべて `isBranchMeta` 基準なので、ここだけフラグを見ると
+  // 「op-log の branch を表示しながら編集は trunk tap へ」という取り合わせが作れてしまう。
   const activeMeta =
-    branchFromOplog && activeBranch && isBranchMeta(activeBranch)
-      ? activeBranch
-      : null;
-  const { record: branchSyncRecord } = useEventSyncTap(
+    activeBranch && isBranchMeta(activeBranch) ? activeBranch : null;
+  const { record: branchSyncRecord, settled: branchSettled } = useEventSyncTap(
     activeMeta?.branchFileId ?? null,
     {
       actor,
@@ -299,21 +300,26 @@ export function useBranchOperations({
     return deps.computeOperations(lastCommitBase, activeSheet);
   }, [isTrunk, lastCommitBase, activeSheet, activeBranch?.status, deps]);
 
-  const resetBranchState = useCallback(() => {
+  /**
+   * branch 状態を捨てて trunk へ戻る。
+   *
+   * @returns 復帰した trunk のファイル。**呼び出し側が trunk のファイルを起点に
+   *   処理を続けられるようにする** — branch 表示中の `activeFile` は該当シートが
+   *   branch の内容なので、それを土台にファイルを組み立てると branch の内容が
+   *   trunk へ移ってしまう (シート追加の経路で実際に起きていた)。
+   */
+  const resetBranchState = useCallback((): GraphFile | null => {
     setActiveBranch(null);
     setLastCommitBase(null);
     setBranchOriginalBase(null);
     setNewCommitsSinceMerge(0);
-    if (preBranchFile.current) {
-      onSetActiveFile(preBranchFile.current);
+    const restored = preBranchFile.current;
+    if (restored) {
+      onSetActiveFile(restored);
       preBranchFile.current = null;
     }
+    return restored;
   }, [onSetActiveFile]);
-
-  const setBranchBases = useCallback((sheet: Sheet) => {
-    setBranchOriginalBase(sheet);
-    setLastCommitBase(sheet);
-  }, []);
 
   /** trunk へ戻る (両経路共通)。branch 側の内容は各経路の永続に既に書かれている */
   const backToTrunk = useCallback(
@@ -463,12 +469,21 @@ export function useBranchOperations({
         setActiveBranch(branch);
       } catch (err) {
         console.warn('[branch] select failed:', err);
+        // 失敗を握り潰すと「クリックしても何も起きない」になる (W3d5-7 の教訓)。
+        // op-log 経路の失敗は daemon 由来なので、原因を切り分けられるよう画面にも出す。
+        await new Promise<void>((resolve) => {
+          setAlertState({
+            message: 'branch を開けませんでした。',
+            resolve,
+          });
+        });
       }
     },
     [
       activeFile,
       activeSheetId,
       onSetActiveFile,
+      setAlertState,
       deps,
       activeBranch,
       backToTrunk,
@@ -593,6 +608,9 @@ export function useBranchOperations({
       if (!ok) return;
       try {
         if (isBranchMeta(branch)) {
+          // 🔴 直前の編集が branch op-log に着地するのを待つ。待たないと、その編集が
+          // trunk に載らないまま branch だけ MERGED になる (record は非同期に flush する)。
+          await branchSettled();
           // branch batches を trunk 先端の後へ再スタンプして trunk op-log へ追記する。
           // 再スタンプの発番は trunk の tap と同じ clock で行う (同 clock の衝突回避)。
           const result = await mergeBranchOnOplog(branch, {
@@ -640,6 +658,7 @@ export function useBranchOperations({
       oplogDeps,
       trunkClock,
       afterMerge,
+      branchSettled,
     ],
   );
 
@@ -733,6 +752,9 @@ export function useBranchOperations({
 
       try {
         if (isBranchMeta(activeBranch)) {
+          // 直前の編集の着地を待つ。待たないとその編集がコミット位置に入らず、
+          // 再オープン時に「コミット済みのはずの変更」が未コミットとして復活する。
+          await branchSettled();
           // コミット = ログ上のラベル付きオフセット。差分そのものは持たない
           // (`pendingOps` は表示用で、コミットに焼き込むのはログ位置だけ)。
           const branchBatches = await oplogDeps.fetchBatches(
@@ -780,6 +802,7 @@ export function useBranchOperations({
       deps,
       oplogDeps,
       actor,
+      branchSettled,
     ],
   );
 
@@ -803,8 +826,13 @@ export function useBranchOperations({
           return next;
         });
       })
-      .catch(() => {
-        // ATProto 未ログイン時 / ファイル未オープン時はサイレントスキップ
+      .catch((err) => {
+        // 旧経路の失敗は ATProto 未ログインが大半なので黙らせてよい。**op-log 経路は
+        // ATProto に依存しない**ので、ここが失敗するのは daemon 障害のときだけ。
+        // 黙って古い一覧を出し続けないよう診断ログに残す (W3d5-7 の「無言の失敗」の教訓)。
+        if (branchFromOplog) {
+          console.warn('[branch] ブランチ一覧の取得に失敗しました:', err);
+        }
       });
   }, [activeSheetId, deps, oplogDeps, branchFromOplog, trunkFileId]);
 
@@ -839,6 +867,5 @@ export function useBranchOperations({
     handleDeleteBranch,
     handleCommit,
     resetBranchState,
-    setBranchBases,
   };
 }

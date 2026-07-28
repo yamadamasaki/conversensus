@@ -395,3 +395,45 @@ Phase 4 が「送信のみ → 受信」と段階を切ったのと同型で、*
 | 10 | close / delete | ✅ close で status=closed。delete でメタ・branch op-log・commit が消え、**merge 済みの trunk 内容は残る** |
 
 未検査 (後続 phase): cross-device 収束 (§5-2/3, スコープ外)、適用不能 op の計測 (§5-4, 受信経路が無いため)、複数シートでの branch (単体テストで固定済)。
+
+### 10.4 critic レビュー (2026-07-28, Opus, 実コード裏取り込み) — 判定 REVISE → 反映
+
+p5-0〜p5-3 は設計 §9 に忠実と評価。**p5-4b (hook 載せ替え) に、この Phase が塞ぐと
+宣言した「branch の内容が trunk へ漏れる」と同系統の穴が 2 つ**あった。どちらも
+実コードで再現条件を確認した上で修正済 (commit は §10.1 の p5-4c)。
+
+- **🔴 H1 シート追加が branch を抜けない**: `handleSelectSheet` は `resetBranchState()` を
+  呼ぶのに `handleAddSheet` は呼んでいなかった。branch を開いたままシートを足すと
+  (a) 新シートの編集が **branch の op-log へ** 流れ、(b) `readBranchSheets` は branch 側を
+  シートで絞っていなかったので **他シートのノードが branch の画面に現れ**、(c) merge で
+  そのまま trunk へ載る。p5-2 で trunk 側について直した多シート漏れが branch 側に残っていた。
+  → シート追加は **trunk のファイルを土台に**行う (`resetBranchState()` が復帰した
+  ファイルを返すようにした)。branch 側 projection も `meta.sheetId` で絞る。
+- **🔴 H2 `persistFile` の漏れ**: autosave (§10.2-1) だけ塞いだが、`handleAddSheet` /
+  `handleSaveFileSettings` / `handleSaveSheetSettings` / `handleDeleteSheet` からの
+  `persistFile` が残っていた。branch を開いた状態でシート名を変えるだけで **branch の内容が
+  trunk の snapshot と PDS に書かれる**。→ ガードを **`persistFile` 自身**へ移した
+  (`isBranchActive` を App から安定参照で注入)。呼び出し側ごとのガードは必ず漏れる。
+- **M1 判定軸の非対称**: 書込先 `activeMeta` だけが `branchFromOplog && isBranchMeta` で、
+  他は `isBranchMeta` のみだった。フラグ off + BranchMeta が state に残る組合せで
+  「op-log を表示しながら編集は trunk tap へ」が作れる。→ `isBranchMeta` のみに統一。
+- **M2 commit/merge が flush を待たない**: `record` は非同期なので、編集直後の commit で
+  その編集がコミット位置に入らない / merge で **trunk に載らないまま branch が MERGED**。
+  → `useEventSyncTap` が `settled` を返すようにし、commit/merge の前に待つ。
+- **M3 無言の失敗 (W3d5-7 の再発)**: branch 選択失敗が `console.warn` のみ (クリックしても
+  何も起きない) / 一覧取得の `.catch(() => {})` (op-log 経路に ATProto は無関係なので
+  daemon 障害を隠す) / merge の再 projection 失敗を「merge に失敗」と誤表示。
+  → 順に alert 追加・warn 追加・`trunk` を optional にして成功を通す。
+- **M5 `clock.tick()` の `?? 0`**: tap 未生成で **clock 0 の batch** を作りうる。
+  「既定値を持たせない」方針と矛盾するので throw に変更。
+
+**未対応 (後続スライスへ)**: M4 (merge 時の sheetId 検証 — H1/L1 を塞いだので混入経路は
+消えた)、L2 (`BRANCH_FROM_OPLOG` の `READ_FROM_OPLOG` 依存を docstring に明記)、
+L3 (op-log 経路で死んでいる `branchOriginalBaseMap`)、L4 (branch file_id への GET が
+lazy migration を通ることのテスト固定)、L5 (`tapRef` のレンダー中代入)。
+
+**構造的な指摘 (受け止め)**: H1/H2 はどちらも hook の外 (`App.tsx` / `useFileSheetOperations`)
+との結合部にあり、`useBranchOperations.test.ts` は hook 単体に閉じているのでどのテストも
+その境界を見ていなかった。→ 修正では `persistFile` の branch ガードを
+`useFileSheetOperations.test.ts` 側に、`resetBranchState` の返り値を hook 側に、
+それぞれ**境界の両端**でテストを置いた。

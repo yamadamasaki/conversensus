@@ -67,8 +67,12 @@ export type MergeBranchResult = {
   appended: number;
   /** 検出された content 対立 (検出のみ。可視化は後続 phase) */
   conflicts: MergeConflict[];
-  /** 追記後に projection し直した trunk */
-  trunk: GraphFile;
+  /**
+   * 追記後に projection し直した trunk。**再 projection に失敗したときは undefined** —
+   * merge 自体 (追記 + status 更新) は成功しているので、ここでの失敗を merge の
+   * 失敗として扱わせないための区別。
+   */
+  trunk: GraphFile | undefined;
   /** merged 済みに更新した branch メタ */
   branch: BranchMeta;
 };
@@ -118,11 +122,19 @@ export async function mergeBranchOnOplog(
     status: BRANCH_STATUS.MERGED,
   });
 
-  // 再 projection: 追記後の trunk を読み直して畳む (畳み込みの第 2 実装を作らない)
-  const trunk = projectFile(
-    await deps.fetchBatches(meta.trunkFileId),
-    meta.trunkFileId,
-  );
+  // 再 projection: 追記後の trunk を読み直して畳む (畳み込みの第 2 実装を作らない)。
+  // **ここでの失敗は merge の失敗ではない** — 追記も status 更新も既に成功している。
+  // 呼び出し側が「merge に失敗しました」と誤って伝えないよう、trunk を返さない形に
+  // 落として成功を通す (画面の再描画はファイルを開き直せば回復する)。
+  let trunk: GraphFile | undefined;
+  try {
+    trunk = projectFile(
+      await deps.fetchBatches(meta.trunkFileId),
+      meta.trunkFileId,
+    );
+  } catch (error) {
+    console.warn('[branch] merge 後の trunk 再 projection に失敗:', error);
+  }
 
   return { appended, conflicts, trunk, branch };
 }

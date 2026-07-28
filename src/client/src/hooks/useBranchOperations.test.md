@@ -87,3 +87,14 @@ deps は `createInMemoryBranchOplogDeps` (batches / branches / commits の in-me
 ### close / delete
 - close は status を closed にし、branch op-log は残す (再開の余地を残す)。
 - delete は **メタと branch 専用 op-log をまとめて**消す (server 側は 1 tx)。
+
+### critic レビューで足した観点 (p5-4 修正分)
+
+- **🔴 コミットは直前の編集の着地を待つ**: `record` は非同期に flush するので、待たずに
+  op-log を読むとその編集がコミット位置に入らず、再オープン時に未コミットとして復活する。
+  テストは branch tap の push を 30ms 遅らせ、`record` の直後に `handleCommit` を呼ぶ
+  (`slowBranchPush`)。**待ちを外すと落ちることを確認済み**。merge も同じ理由で待つ
+  (待たないと trunk に載らないまま branch だけ MERGED になる)。
+- **`resetBranchState` が復帰した trunk のファイルを返す**: 呼び出し側 (App のシート追加)
+  が **trunk のファイルを土台に**処理を続けるための返り値。branch 表示中の `activeFile` を
+  土台にすると branch の内容が trunk へ移る。

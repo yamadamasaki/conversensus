@@ -74,3 +74,14 @@ hook は「現在 / 分岐点 / 直近コミット時点」の 3 つを同時に
   それより後 (未コミット) の編集は入らない。切り出し位置がずれると
   「コミット済みの変更が未コミットとして表示される」ことになる。
 - **コミットが無ければ atLastCommit は base に等しい**: 初回コミット前の基準。
+
+### branch 側の sheetId フィルタ (p5-4 critic 指摘)
+
+branch は 1 シート専用だが、**配線の穴で別シートの content batch が branch op-log に
+入りうる** (branch 表示中にシートを追加すると、新シートの編集が branch tap を通っていた)。
+混ざったまま projection すると他シートのノードが branch の画面に現れ、merge で
+そのまま trunk へ載る。→ trunk 側と同じく `meta.sheetId` で絞る。
+
+- **別シートの batch が混ざっても projection に現れない**。
+- sheetId 無し (structure 経路) の batch は残す — 絞りたいのは「他シートの content」
+  であって、文脈を持たない batch を落とすことではない。

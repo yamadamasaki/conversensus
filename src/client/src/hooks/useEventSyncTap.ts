@@ -85,8 +85,15 @@ export type UseEventSyncTapOptions = {
 export type UseEventSyncTapResult = {
   /** dispatch された event を op-log へ流す (content 経路は sheetId 付き) */
   record: (event: GraphEvent, sheetId?: SheetId) => void;
-  /** merge の再スタンプ用 clock (§p5-4)。tap 未生成のときは no-op / 0 */
+  /** merge の再スタンプ用 clock (§p5-4)。tap 未生成なら呼び出しは失敗する */
   clock: TapClock;
+  /**
+   * これまでに record した event の drain 完了を待つ (§p5-4)。
+   * **op-log を読み直す操作 (commit / merge) の前に必ず待つ** — record は非同期に
+   * flush するので、待たないと直前の編集が commit のオフセットに入らなかったり、
+   * merge で trunk に載らないまま branch が MERGED になったりする。
+   */
+  settled: () => Promise<void>;
 };
 
 export function useEventSyncTap(
@@ -133,8 +140,21 @@ export function useEventSyncTap(
   const clock = useMemo<TapClock>(
     () => ({
       seed: (floor) => tapRef.current?.clockControl.seed(floor),
-      tick: () => tapRef.current?.clockControl.tick() ?? 0,
+      // tap が無いときに 0 を返すと **clock 0 の batch が op-log に入る**。
+      // 発番できないことは呼び出し側の配線ミスなので、黙って進めず落とす。
+      tick: () => {
+        const tap = tapRef.current;
+        if (!tap)
+          throw new Error('clock.tick: tap が未生成です (fileId が null)');
+        return tap.clockControl.tick();
+      },
     }),
+    [],
+  );
+
+  // tap が無い (未オープン) ときは待つものが無いので即 resolve
+  const settled = useCallback(
+    () => tapRef.current?.settled() ?? Promise.resolve(),
     [],
   );
 
@@ -193,5 +213,5 @@ export function useEventSyncTap(
     [tap],
   );
 
-  return { record, clock };
+  return { record, clock, settled };
 }

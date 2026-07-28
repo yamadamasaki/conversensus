@@ -147,8 +147,13 @@ export async function readBranchSheets(
   // 絞らないと旧経路と一致しない。構造 batch は sheetId を持たないがここで落ちてよい
   // (`projectBatches` が file op を無視するので projection には元々効かない)。
   const trunkForSheet = trunkBatches.filter((b) => b.sheetId === meta.sheetId);
-  // branch op-log は 1 branch = 1 シート専用なので絞らない。絞ると、配線の都合で
-  // sheetId が付かなかった batch を黙って落としてしまう。
+  // branch op-log は 1 branch = 1 シート専用だが、**配線の穴で別シートの batch が
+  // 混ざりうる**ので同じくシートで絞る (混ざると他シートのノードが branch に現れ、
+  // merge でそのまま trunk へ載る)。sheetId 無し (structure 経路) は残す —
+  // 「絞りたいのは他シートの content」であって、文脈が無い batch を落とすことではない。
+  const branchForSheet = branchBatches.filter(
+    (b) => b.sheetId === undefined || b.sheetId === meta.sheetId,
+  );
   // BranchMeta は Branch の上位型なのでそのまま渡せる (base/status を使う)
   const project = (batches: Batch[]) =>
     branchSheet(meta, trunkForSheet, batches, sheetMeta);
@@ -156,13 +161,13 @@ export async function readBranchSheets(
   // 始まる (`EventSyncTap.clockFloor`) ので、clock による切り出しでも同じ結果になる。
   const base = project([]);
   return {
-    current: project(branchBatches),
+    current: project(branchForSheet),
     base,
     atLastCommit:
       options.lastCommitAt === undefined
         ? base
         : project(
-            branchBatches.filter(
+            branchForSheet.filter(
               (b) => b.clock <= (options.lastCommitAt as Lamport),
             ),
           ),

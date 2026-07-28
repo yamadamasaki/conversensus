@@ -71,6 +71,13 @@ export default function App() {
     );
   }, []);
 
+  // op-log branch を表示中か (step1 Phase 5 p5-4)。**`fileOps` は `branchOps` より先に
+  // 作られる**ので、値ではなく安定参照のコールバック + ref で渡す (`isEditingActive` と同型)。
+  // これが true の間 `persistFile` は snapshot を書かない — branch の内容で trunk の
+  // snapshot を上書きしないため (§9.2)。
+  const branchActiveRef = useRef(false);
+  const isBranchActive = useCallback(() => branchActiveRef.current, []);
+
   // File & sheet operations
   const fileOps = useFileSheetOperations({
     setConfirmState,
@@ -78,6 +85,7 @@ export default function App() {
     remoteQueue,
     actor,
     isEditingActive,
+    isBranchActive,
   });
 
   // Branch operations
@@ -93,6 +101,13 @@ export default function App() {
     // merge の再スタンプは trunk と同じ発番器で行う (p5-4)
     trunkClock: fileOps.trunkClock,
   });
+
+  // branch 表示の有無を ref へ写す (上の isBranchActive が読む)。
+  // レンダー中に代入すると破棄されたレンダーの値を残しうるので effect で行う。
+  useEffect(() => {
+    branchActiveRef.current =
+      branchOps.activeBranch !== null && isBranchMeta(branchOps.activeBranch);
+  }, [branchOps.activeBranch]);
 
   // Cross-domain wired callbacks
   const handleChange = useCallback(
@@ -146,15 +161,22 @@ export default function App() {
 
   const handleAddSheet = useCallback(async () => {
     if (!fileOps.activeFile) return;
+    // 🔴 シート追加は **trunk のファイルを土台に**行う。branch 表示中の activeFile は
+    // 該当シートが branch の内容なので、それを土台にすると branch の内容が trunk へ移る。
+    // branch は per-sheet なので、シートを増やす操作は branch を抜けてから行うのが筋
+    // (シート切替 `handleSelectSheet` が branch を抜けるのと同じ扱い)。
+    const trunkFile = branchOps.isTrunk
+      ? fileOps.activeFile
+      : (branchOps.resetBranchState() ?? fileOps.activeFile);
     const newSheet: Sheet = {
       id: generateId() as SheetId,
-      name: `Sheet ${fileOps.activeFile.sheets.length + 1}`,
+      name: `Sheet ${trunkFile.sheets.length + 1}`,
       nodes: [],
       edges: [],
     };
     const updated: GraphFile = {
-      ...fileOps.activeFile,
-      sheets: [...fileOps.activeFile.sheets, newSheet],
+      ...trunkFile,
+      sheets: [...trunkFile.sheets, newSheet],
     };
     // op-log へ sheet.create を emit する (dual-write, W3c1)
     fileOps.syncRecord({
@@ -164,7 +186,6 @@ export default function App() {
       name: newSheet.name,
     });
     fileOps.setActiveSheetId(newSheet.id);
-    if (!branchOps.isTrunk) branchOps.setBranchBases(newSheet);
     await fileOps.persistFile(updated);
   }, [
     fileOps.activeFile,
@@ -172,7 +193,7 @@ export default function App() {
     fileOps.persistFile,
     fileOps.syncRecord,
     branchOps.isTrunk,
-    branchOps.setBranchBases,
+    branchOps.resetBranchState,
   ]);
 
   // ATProto セッション確立後にファイル一覧を同期

@@ -576,10 +576,29 @@ const relabel = (to: string) => ({
   to,
 });
 
-async function renderOplog(trunkLog = [trunkBatch('t1', 3, 'n1', 'trunk')]) {
+async function renderOplog(
+  trunkLog = [trunkBatch('t1', 3, 'n1', 'trunk')],
+  options: { slowBranchPush?: boolean } = {},
+) {
   const deps = createInMemoryBranchOpsDeps();
   const oplogDeps = createInMemoryBranchOplogDeps();
   oplogDeps._batches.set(TRUNK_ID, trunkLog);
+  if (options.slowBranchPush) {
+    // branch tap の push を遅らせ、「record 直後に commit/merge」を再現する。
+    // tap の flush は非同期なので、待たない実装ではこの窓で編集を取りこぼす。
+    const base = oplogDeps.createBranchProvider;
+    oplogDeps.createBranchProvider = (fileId) => {
+      const provider = base?.(fileId);
+      if (!provider) throw new Error('provider が要る');
+      return {
+        ...provider,
+        push: async (batches) => {
+          await new Promise((r) => setTimeout(r, 30));
+          await provider.push(batches);
+        },
+      };
+    };
+  }
   const clock = makeClock();
   const view = renderHook(
     ({ activeFile, activeSheetId, activeSheet }) =>
@@ -621,8 +640,9 @@ async function withOpenBranch(
   trunkLog?: Parameters<typeof renderOplog>[0],
   // biome-ignore lint/suspicious/noExplicitAny: computeOperations の戻り値はテストでは形だけ
   pending: any[] = [],
+  options: Parameters<typeof renderOplog>[1] = {},
 ) {
-  const view = await renderOplog(trunkLog);
+  const view = await renderOplog(trunkLog, options);
   view.deps._setComputeOps(pending);
   mockSetInputState.mockImplementationOnce(
     (s: { resolve: (v: string) => void }) => {
@@ -691,6 +711,18 @@ describe('useBranchOperations — op-log 経路 (Phase 5 p5-4)', () => {
         mockActiveFile,
       );
     });
+
+    it('resetBranchState は復帰した trunk のファイルを返す', async () => {
+      // 呼び出し側 (App のシート追加) が **trunk のファイルを土台に**続けるための返り値。
+      // branch 表示中の activeFile を土台にすると branch の内容が trunk へ移る。
+      const { result } = await withOpenBranch();
+      let restored: unknown;
+      act(() => {
+        restored = result.current.resetBranchState();
+      });
+      expect(restored).toEqual(mockActiveFile);
+      expect(result.current.isTrunk).toBe(true);
+    });
   });
 
   describe('branch 編集の宛先 (載せ替えの要)', () => {
@@ -750,6 +782,26 @@ describe('useBranchOperations — op-log 経路 (Phase 5 p5-4)', () => {
       expect(commits[0]?.at).toBe(branchLog[0]?.clock);
       expect(commits[0]?.message).toBe('編集をコミット');
       expect(result.current.newCommitsSinceMerge).toBe(1);
+    });
+
+    it('🔴 直前の編集が着地するのを待ってからコミットする', async () => {
+      // record は非同期に flush する。待たずに op-log を読むと、その編集が
+      // コミット位置に入らず、再オープン時に未コミットとして復活する。
+      const { result, branch, oplogDeps } = await withOpenBranch(
+        undefined,
+        [{ op: 'node.update', nodeId: 'n1' }],
+        { slowBranchPush: true },
+      );
+      await act(async () => {
+        result.current.branchSyncRecord?.(relabel('編集'), SHEET_ID);
+        // 待たずに続けてコミットする (push はまだ飛んでいない)
+        await result.current.handleCommit('直後のコミット');
+      });
+
+      const branchLog = oplogDeps._batches.get(branch.branchFileId) ?? [];
+      const commits = oplogDeps._commits.get(branch.branchFileId) ?? [];
+      expect(branchLog).toHaveLength(1);
+      expect(commits[0]?.at).toBe(branchLog[0]?.clock as number);
     });
 
     it('変更が無ければコミットしない', async () => {
