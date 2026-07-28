@@ -437,3 +437,12 @@ lazy migration を通ることのテスト固定)、L5 (`tapRef` のレンダー
 その境界を見ていなかった。→ 修正では `persistFile` の branch ガードを
 `useFileSheetOperations.test.ts` 側に、`resetBranchState` の返り値を hook 側に、
 それぞれ**境界の両端**でテストを置いた。
+
+**H1/H2 の修正は実機でも確認済 (2026-07-28, 同じ e2e 環境)**:
+
+| 検査 | 結果 |
+|---|---|
+| branch 表示中にシート追加 → branch を抜ける | ✅ サイドバーの branch バーが消え trunk 表示へ |
+| 新シートの `sheet.create` と、そこでの編集の行き先 | ✅ trunk op-log (clock 8, 9)。**branch op-log は空のまま** |
+| branch 表示中にシート名変更 → snapshot | ✅ snapshot の md5 が不変 (branch の内容で上書きされない) |
+| 同上 → op-log | ✅ trunk op-log に `sheet.setName` (clock 10) が入り読取正典は更新される |
