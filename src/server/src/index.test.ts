@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { projectFile } from '@conversensus/shared';
 import server from './index';
+import { writeFile } from './storage';
 
 let tmpDir: string;
 const fetch = server.fetch;
@@ -489,14 +490,8 @@ describe('API routes', () => {
     // 和集合だった頃は snapshot 側が勝っていた (二重の正典)。今は op-log projection だけ。
     it('snapshot だけを更新しても一覧には反映されない (op-log projection が正)', async () => {
       const created = await (await createFile('op-log の名前')).json();
-      // PUT は snapshot にしか書かない (p6-3 で撤去予定の経路)
-      await fetch(
-        new Request(`http://localhost/files/${created.id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...created, name: 'snapshot だけの名前' }),
-        }),
-      );
+      // snapshot を直接書き換える (HTTP からは書けなくなった — p6-3 で PUT を撤去)
+      await writeFile({ ...created, name: 'snapshot だけの名前' });
 
       const body = await (
         await fetch(new Request('http://localhost/files'))
@@ -551,48 +546,25 @@ describe('API routes', () => {
     });
   });
 
-  describe('GET /files/:id', () => {
-    it('作成したファイルを取得できる', async () => {
+  // Phase 6 p6-3 (設計 §3.4 / §3.6): snapshot の読取・全体保存の口を撤去した。
+  // 「消えたこと」を固定するのは、client 側の消費者を戻したときに気づくため
+  // (読取は op-log の projection、書込は batch 追記が唯一の口)。
+  describe('🔴 撤去した snapshot endpoint (Phase 6 p6-3)', () => {
+    it('GET /files/:id は存在しない', async () => {
       const created = await (await createFile('テスト')).json();
       const res = await fetch(
         new Request(`http://localhost/files/${created.id}`),
       );
-      expect(res.status).toBe(200);
-      expect((await res.json()).id).toBe(created.id);
-    });
-
-    it('存在しない ID は 404 を返す', async () => {
-      const res = await fetch(
-        new Request('http://localhost/files/nonexistent'),
-      );
       expect(res.status).toBe(404);
     });
-  });
 
-  describe('PUT /files/:id', () => {
-    it('ファイルを更新できる', async () => {
+    it('PUT /files/:id は存在しない', async () => {
       const created = await (await createFile('元の名前')).json();
       const res = await fetch(
         new Request(`http://localhost/files/${created.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ...created, name: '新しい名前' }),
-        }),
-      );
-      expect(res.status).toBe(200);
-      expect((await res.json()).name).toBe('新しい名前');
-    });
-
-    it('存在しない ID への PUT は 404 を返す', async () => {
-      const res = await fetch(
-        new Request('http://localhost/files/nonexistent', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            id: 'nonexistent',
-            name: 'x',
-            sheets: [{ id: 's', name: 's', nodes: [], edges: [] }],
-          }),
         }),
       );
       expect(res.status).toBe(404);

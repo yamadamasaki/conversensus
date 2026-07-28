@@ -12,21 +12,13 @@ import {
   createFile,
   exportFile,
   fetchBatches,
-  fetchFile,
   fetchFiles,
   importFile,
   pushReceivedBatches,
   removeFile,
-  saveFile,
 } from '../api';
-import {
-  files as atprotoFilesColl,
-  fetchFileFromAtproto,
-  fetchFilesFromAtproto,
-  syncFileToAtproto,
-} from '../atproto';
+import { files as atprotoFilesColl, fetchFilesFromAtproto } from '../atproto';
 import type { RemoteSyncQueue } from '../atproto/remoteSyncQueue';
-import { READ_FROM_OPLOG } from '../config';
 import type { GraphEvent } from '../events/GraphEvent';
 import { makeEventBase } from '../events/GraphEvent';
 import type { PopupTarget } from '../SettingsPopup';
@@ -49,33 +41,25 @@ export interface FileSheetOpsDeps {
   createFile: typeof createFile;
   exportFile: typeof exportFile;
   fetchBatches: typeof fetchBatches;
-  fetchFile: typeof fetchFile;
   fetchFiles: typeof fetchFiles;
   importFile: typeof importFile;
   /** 受信 batch の書き込み口 (marker 経路, Phase 4e-2b の materialize 用) */
   pushReceivedBatches: typeof pushReceivedBatches;
   removeFile: typeof removeFile;
-  saveFile: typeof saveFile;
   atprotoFilesDelete: (id: string) => Promise<void>;
-  fetchFileFromAtproto: typeof fetchFileFromAtproto;
   fetchFilesFromAtproto: typeof fetchFilesFromAtproto;
-  syncFileToAtproto: typeof syncFileToAtproto;
 }
 
 export const defaultFileSheetOpsDeps: FileSheetOpsDeps = {
   createFile,
   exportFile,
   fetchBatches,
-  fetchFile,
   fetchFiles,
   importFile,
   pushReceivedBatches,
   removeFile,
-  saveFile,
   atprotoFilesDelete: (id: string) => atprotoFilesColl.delete(id),
-  fetchFileFromAtproto,
   fetchFilesFromAtproto,
-  syncFileToAtproto,
 };
 
 interface UseFileSheetOperationsParams {
@@ -87,11 +71,6 @@ interface UseFileSheetOperationsParams {
    * content 経路 (GraphEditor) は sheetId を渡し、structure 経路 (以下のハンドラ) は渡さない (W3c2)。
    */
   syncRecord?: (event: GraphEvent, sheetId?: SheetId) => void;
-  /**
-   * W3d dual-read 安全弁: trunk 読取を op-log 正典から行うか (§3.4)。
-   * 未指定なら `READ_FROM_OPLOG` 定数 (env)。テストは明示指定で on/off を固定する。
-   */
-  readFromOplog?: boolean;
   /**
    * W3d5 remote 送信キュー (§3.4)。ATProto ログイン中のみ非 null (`useRemoteSyncQueue`)。
    * null なら tap は local-only = W3d と完全に同じ挙動 (退行なし)。
@@ -105,28 +84,16 @@ interface UseFileSheetOperationsParams {
    * **安定参照であること** (ref 経由を推奨)。未指定 = 常に編集中でない扱い。
    */
   isEditingActive?: () => boolean;
-  /**
-   * op-log branch を表示中なら true を返す (step1 Phase 5 p5-4)。
-   * true の間は `persistFile` が snapshot を書かない — `activeFile` の該当シートが
-   * branch の内容なので、書くと trunk の snapshot を branch で上書きする。
-   * **安定参照であること** (`isEditingActive` と同じ理由)。未指定 = 常に trunk 扱い。
-   */
-  isBranchActive?: () => boolean;
 }
-
-/** 既定の `isBranchActive`。毎レンダー同じ参照でいるようモジュール定数にする */
-const NEVER_BRANCH = () => false;
 
 export function useFileSheetOperations({
   setConfirmState,
   setAlertState,
   deps = defaultFileSheetOpsDeps,
   syncRecord: syncRecordOverride,
-  readFromOplog = READ_FROM_OPLOG,
   remoteQueue = null,
   actor,
   isEditingActive,
-  isBranchActive = NEVER_BRANCH,
 }: UseFileSheetOperationsParams) {
   const [files, setFiles] = useState<GraphFileListItem[]>([]);
   const [activeFile, setActiveFile] = useState<GraphFile | null>(null);
@@ -209,46 +176,25 @@ export function useFileSheetOperations({
   );
   const syncRecord = syncRecordOverride ?? internalSyncRecord;
 
-  // 従来の snapshot 読取 (ATProto → ローカルキャッシュ)。dual-read のフォールバック側。
-  const loadSnapshot = useCallback(
-    async (id: string): Promise<GraphFile> => {
-      try {
-        const file = await deps.fetchFileFromAtproto(id);
-        deps
-          .saveFile(file)
-          .catch((err) => console.warn('[cache] save failed:', err));
-        return file;
-      } catch {
-        return deps.fetchFile(id);
-      }
-    },
-    [deps],
-  );
-
-  // W3d trunk 読取: op-log 正典 (fetchBatches→projectFile) を優先し、失敗時は snapshot へ
-  // フォールバックする (§3.4)。GET /files/:id/batches はサーバ側で lazy migration
-  // (snapshot→genesis) を起動する (W3d-1) ため、既存ファイルも op-log projection で開ける。
+  // trunk 読取 (Phase 6 p6-3 で op-log 単独へ, 設計 §3.6)。
+  //
+  // W3d は op-log を正典としつつ snapshot への dual-read フォールバックを残していたが、
+  // p6-3 で snapshot への**書込を止めた**ため退避先として成立しなくなった (古い内容を
+  // 見せる方が失敗するより悪い)。安全弁 `READ_FROM_OPLOG` もここで役目を終える。
   const loadFile = useCallback(
     async (id: string): Promise<GraphFile> => {
-      if (readFromOplog) {
-        try {
-          const batches = await deps.fetchBatches(id as FileId);
-          const file = projectFile(batches, id as FileId);
-          // 有効な GraphFile は必ず 1 枚以上のシートを持つ。0 枚 = op-log 未生成
-          // (snapshot 欠損 / 未 migration / 欠損 file) とみなし snapshot へ委ねる。
-          // 「読取失敗」と同様にフォールバックし、真の欠損は snapshot 側で 404 → alert に至る。
-          if (file.sheets.length === 0) {
-            throw new Error('op-log projection has no sheets');
-          }
-          return file;
-        } catch (err) {
-          // dual-read 安全弁: op-log 読取が失敗したときのみ snapshot に退避する
-          console.warn('[oplog] read failed; falling back to snapshot:', err);
-        }
+      const file = projectFile(
+        await deps.fetchBatches(id as FileId),
+        id as FileId,
+      );
+      // 有効な GraphFile は必ず 1 枚以上のシートを持つ (W3d-2 の読取失敗判定)。
+      // 0 枚 = 欠損ファイル / 孤児 batch のみ。呼び出し側で alert に至らせる。
+      if (file.sheets.length === 0) {
+        throw new Error(`op-log projection has no sheets: ${id}`);
       }
-      return loadSnapshot(id);
+      return file;
     },
-    [deps, readFromOplog, loadSnapshot],
+    [deps],
   );
 
   const openFile = useCallback(
@@ -303,8 +249,8 @@ export function useFileSheetOperations({
           description: created.description,
         },
       ]);
-      // 作成直後も同じ op-log 経路で読み直し、genesis を起動して projection を表示する
-      // (open との一貫性)。失敗時は loadFile が snapshot(=作成レスポンス相当)へ退避する。
+      // 作成直後も同じ op-log 経路で読み直し、projection を表示する (open との一貫性)。
+      // `POST /files` が genesis を書いた後なので必ず読める (p6-1)。
       const file = await loadFile(created.id);
       setActiveFile(file);
       setActiveSheetId((file.sheets[0]?.id ?? null) as SheetId | null);
@@ -315,39 +261,35 @@ export function useFileSheetOperations({
     }
   }, [newFileName, deps, loadFile]);
 
-  const persistFile = useCallback(
-    async (updated: GraphFile) => {
-      setActiveFile(updated);
-      // 🔴 op-log branch 表示中は `activeFile` の該当シートが **branch の内容** なので、
-      // snapshot (ローカルキャッシュ / ATProto の file レコード) へ書くと trunk を
-      // branch で上書きする (§9.2)。branch の内容は branch 専用 op-log にだけ置く。
-      // 画面用の state 更新 (上の setActiveFile) は行い、永続だけを止める。
-      if (isBranchActive()) return;
-      setFiles((fs) =>
-        fs.map((f) =>
-          f.id === updated.id
-            ? {
-                id: updated.id,
-                name: updated.name,
-                description: updated.description,
-              }
-            : f,
-        ),
-      );
-      try {
-        await deps.syncFileToAtproto(updated);
-      } catch (err) {
-        console.warn('[atproto] sync failed (falling back to local):', err);
-      }
-      deps
-        .saveFile(updated)
-        .catch((err) => console.warn('[cache] local save failed:', err));
-    },
-    [deps, isBranchActive],
-  );
+  /**
+   * 画面 state を進める (Phase 6 p6-3, 設計 §3.6)。**永続化はしない**。
+   *
+   * 旧 `persistFile` は「画面 state 更新」と「snapshot 書込 (`saveFile` +
+   * `syncFileToAtproto`)」の二役だった。後者を消すと前者だけが残る — それがこの関数。
+   * 状態の永続化は op-log tap (`syncRecord`) が唯一の書込口になった。
+   *
+   * ✅ Phase 5 の `isBranchActive` ガードはこの撤去で**構造ごと消えた** — 「branch 表示中は
+   * snapshot へ書かない」というガードは、書込先が無ければ要らない。Phase 5 critic の
+   * 「呼び出し側ごとのガードは必ず漏れる」への最終的な答え。
+   */
+  const updateFileState = useCallback((updated: GraphFile) => {
+    setActiveFile(updated);
+    // サイドバー一覧の名前・説明を追随させる (一覧は id/name/description だけを持つ)
+    setFiles((fs) =>
+      fs.map((f) =>
+        f.id === updated.id
+          ? {
+              id: updated.id,
+              name: updated.name,
+              description: updated.description,
+            }
+          : f,
+      ),
+    );
+  }, []);
 
   const handleSaveFileSettings = useCallback(
-    async (fileId: string, name: string, description: string) => {
+    (fileId: string, name: string, description: string) => {
       if (!activeFile || activeFile.id !== fileId) return;
       // op-log へ変化した項目のみ emit する (dual-write, 空 batch 回避)
       if (name !== activeFile.name) {
@@ -361,13 +303,13 @@ export function useFileSheetOperations({
           ...(newDesc !== undefined && { description: newDesc }),
         });
       }
-      await persistFile({
+      updateFileState({
         ...activeFile,
         name,
         description: newDesc,
       });
     },
-    [activeFile, persistFile, syncRecord],
+    [activeFile, updateFileState, syncRecord],
   );
 
   const handleDeleteFile = useCallback(
@@ -408,7 +350,7 @@ export function useFileSheetOperations({
   );
 
   const handleSaveSheetSettings = useCallback(
-    async (sheetId: string, name: string, description: string) => {
+    (sheetId: string, name: string, description: string) => {
       if (!activeFile) return;
       const sheet = activeFile.sheets.find((s) => s.id === sheetId);
       // op-log へ変化した項目のみ emit する (dual-write, 空 batch 回避)
@@ -429,14 +371,14 @@ export function useFileSheetOperations({
           ...(newDesc !== undefined && { description: newDesc }),
         });
       }
-      await persistFile({
+      updateFileState({
         ...activeFile,
         sheets: activeFile.sheets.map((s) =>
           s.id === sheetId ? { ...s, name, description: newDesc } : s,
         ),
       });
     },
-    [activeFile, persistFile, syncRecord],
+    [activeFile, updateFileState, syncRecord],
   );
 
   const handleDeleteSheet = useCallback(
@@ -465,9 +407,9 @@ export function useFileSheetOperations({
         setActiveSheetId((updated.sheets[0]?.id ?? null) as SheetId | null);
       }
       setPopupTarget(null);
-      await persistFile(updated);
+      updateFileState(updated);
     },
-    [activeFile, activeSheetId, persistFile, setAlertState, syncRecord],
+    [activeFile, activeSheetId, updateFileState, setAlertState, syncRecord],
   );
 
   const handleImportFile = useCallback(
@@ -495,17 +437,21 @@ export function useFileSheetOperations({
     [deps, setAlertState],
   );
 
+  // 未オープンのファイルの書き出し元も op-log の projection にする (Phase 6 p6-3)。
+  // 設計 §3.4 は「server に GraphFile を組み立てて返す責務を残さない」ために
+  // `GET /files/:id` を消す判断をした (projection の第 2 実装を作らない)。その代わりが
+  // これ — 読取は `loadFile` と同じ 1 本の経路に揃う。
   const handleExportFile = useCallback(
     async (fileId: string) => {
       try {
         const file =
-          activeFile?.id === fileId ? activeFile : await deps.fetchFile(fileId);
+          activeFile?.id === fileId ? activeFile : await loadFile(fileId);
         deps.exportFile(file);
       } catch (err) {
         console.error('Failed to export file:', err);
       }
     },
-    [activeFile, deps],
+    [activeFile, deps, loadFile],
   );
 
   const loadAtprotoFiles = useCallback(async () => {
@@ -575,7 +521,7 @@ export function useFileSheetOperations({
     openFile,
     toggleExpand,
     handleCreate,
-    persistFile,
+    updateFileState,
     handleSaveFileSettings,
     handleDeleteFile,
     handleSaveSheetSettings,

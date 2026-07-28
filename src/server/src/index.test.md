@@ -2,14 +2,12 @@
 
 ## 何をテストするか
 
-`src/server/src/index.ts` の REST API エンドポイント全5種:
+`src/server/src/index.ts` の REST API エンドポイント:
 
 | エンドポイント | 責務 |
 |---|---|
 | `GET /files` | ファイル一覧を返す (**op-log 単独**, Phase 6 p6-2) |
 | `POST /files` | ファイルを新規作成する (op-log を genesis で初期化する, Phase 6 p6-1) |
-| `GET /files/:id` | 指定 ID のファイルを返す |
-| `PUT /files/:id` | 指定 ID のファイルを更新する |
 | `DELETE /files/:id` | 指定 ID のファイルを削除する (**op-log 正典**, Phase 6 p6-2) |
 | `POST /files/:id/batches` | 操作ログへ batches を追記する (step1 Phase 4 実配線) |
 | `GET /files/:id/batches` | 操作ログを取得する (`?since=<clock>` で範囲)。**副作用は無い** — 読取時の lazy migration は Phase 6 p6-1 で撤去した |
@@ -79,15 +77,13 @@ Hono アプリの `fetch` 関数を直接呼び出すことで、実際の HTTP 
 | GET /files/:id/batches | 🔴 read 前に積んだ batch が消えない | 読取が破棄しない (p6-1) |
 | GET /files | 初期状態は [] | 空一覧 |
 | GET /files | op-log にしか無いファイルも載る (受信 materialize) | op-log 単独 (p6-2) |
-| GET /files | 🔴 snapshot だけ更新しても一覧は動かない | projection が唯一の正典 (p6-2) |
+| GET /files | 🔴 snapshot を直接書き換えても一覧は動かない | projection が唯一の正典 (p6-2) |
 | GET /files | 孤児 batch だけの file_id は出ない (D-4) | 0 シート除外 |
 | GET /files | branch 専用 file_id は出ない | branch 除外 (Phase 5 p5-1) |
 | POST /files | 名前付きで作成 → 201 | 正常系 |
 | POST /files | name 省略 → "無題" | デフォルト値 |
-| GET /files/:id | 作成後に取得できる | 正常系 |
-| GET /files/:id | 存在しない ID → 404 | エラー系 |
-| PUT /files/:id | 名前を更新できる | 正常系 |
-| PUT /files/:id | 存在しない ID → 404 | エラー系 |
+| GET /files/:id | 🔴 endpoint ごと存在しない → 404 | 撤去の固定 (p6-3) |
+| PUT /files/:id | 🔴 endpoint ごと存在しない → 404 | 撤去の固定 (p6-3) |
 | DELETE /files/:id | 削除 → 204 | 正常系 |
 | DELETE /files/:id | 削除後に GET → 404 | 削除の完全性 |
 | DELETE /files/:id | 存在しない ID → 404 | エラー系 |
@@ -171,6 +167,21 @@ projection が返る。和集合へ戻ると即座に赤くなる。
 snapshot 削除も併せて呼び続けているのは、まだ書かれているため (p6-5 で落とす) と、
 一括移行に失敗して op-log を持たないファイルにも削除手段を残すため。応答は
 「どちらでも消せなければ 404」で、既存の 404 契約は変わらない。
+
+### 撤去した snapshot endpoint (Phase 6 p6-3, 設計 §3.4 / §3.6)
+
+`GET /files/:id` (snapshot 読取) と `PUT /files/:id` (全体保存) を撤去した。
+
+- **読取**: server に「GraphFile を組み立てて返す」責務を残すと projection の実装が
+  client (`projectFile`) と server の 2 箇所に生まれ、R2 の二重モデルを別の形で
+  再生産する。client が `GET /files/:id/batches` → `projectFile` する (§3.4 の B 案)。
+- **書込**: client の `persistFile` が解体され消費者を失った。状態の書込口は
+  `POST /files/:id/batches` (op-log への追記) ただ一つになった。
+
+**「消えたこと」を 404 で固定する**。復活すると client 側の消費者も一緒に戻せてしまい、
+二重モデルが静かに再発するため。なお `GET /files` の「snapshot を書き換えても一覧は
+動かない」テストは、HTTP から snapshot を書けなくなったので `storage.writeFile` を
+直接呼ぶ形へ変えた (観測したい不変条件は同じ)。
 
 ### branch 専用 file_id の一覧除外 (Phase 5 p5-1)
 

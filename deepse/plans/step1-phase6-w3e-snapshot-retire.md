@@ -176,7 +176,8 @@ snapshot へ書かない」というガードは、書込先が消えれば不�
 
 ### 3.7 安全弁フラグの撤去と `branchState.ts` の退役
 
-`READ_FROM_OPLOG` / `BRANCH_FROM_OPLOG` を削除する。`BRANCH_FROM_OPLOG` の削除で
+`READ_FROM_OPLOG` / `BRANCH_FROM_OPLOG` を削除する
+(前者の撤去時期は §4.3 で p6-3 に前倒し)。`BRANCH_FROM_OPLOG` の削除で
 `branchState.ts` (PDS レコード複製方式) は消費者を失い退役する
 = **Phase 5 の Exit 条件「`branchState.ts` 退役」を完遂する**。
 
@@ -209,7 +210,7 @@ Phase 6 限りの使い捨てコードになる。lexicon json も**ファイル
 | **p6-0** | 一括移行 (§3.1) — 起動時に未 migration snapshot を全件 genesis 化。失敗は 1 件単位で warn。移行時間を実測 | 無 |
 | **p6-1** | genesis 直書き (§3.2) — `POST /files` / `POST /files/import` を op-log へ。**`migrateFileToOplog.ts` と lazy migration 撤去を同一スライスで**行う (§3.2 の順序制約) | 無 |
 | **p6-2** | server の一覧・削除 (§3.3, §3.5) — `GET /files` を op-log 単独へ / `EventStore.deleteFile` 1 tx | 無 |
-| **p6-3** | client の snapshot 撤去 (§3.6) — `persistFile` 解体・`loadSnapshot` / dual-read 撤去・export の読取元差し替え + `GET`/`PUT /files/:id` 撤去 (§4.2) | 無 |
+| **p6-3** | client の snapshot 撤去 (§3.6) — `persistFile` 解体・`loadSnapshot` / dual-read 撤去・export の読取元差し替え + `GET`/`PUT /files/:id` と `READ_FROM_OPLOG` の撤去 (§4.2, §4.3) | 無 |
 | **p6-4** | PDS legacy 撤去 (§3.8) — 死コード削除 + `loadAtprotoFiles` の一本化 + `sync.ts` の legacy 関数削除 | 無 |
 | **p6-5** | 退役の仕上げ (§3.7) — `storage.ts` 削除・安全弁フラグ削除・`branchState.ts` 削除 | 無 |
 | **p6-6** | 実機 e2e — 単一端末 + PDS ありの 2 端末 (op-log 経路のみで cross-device が成立することの確認) | **有** |
@@ -245,6 +246,17 @@ p6-1 を「`POST /files` を genesis **専業**にする」と読んで実装し
 `GET /files/:id` の撤去は**消費者 (`handleExportFile` / `loadSnapshot`) を消す p6-3 と
 同一スライス**へ移す。§3.4 の決定 (B 案 = endpoint を消して export は client の projection へ)
 は変えない。終状態は同じで、消す順序だけを「消費者と endpoint を同時に」へ揃える。
+
+### 4.3 【実装中に判明】`READ_FROM_OPLOG` は p6-5 まで持たない
+
+§3.7 は安全弁フラグの撤去を最終スライス (p6-5) に置いていたが、`READ_FROM_OPLOG` は
+p6-3 で役目を終える。**退避先の snapshot を維持しているのは `persistFile` (client の
+書込) であり、それを消した瞬間に snapshot は古くなる**ため。古い内容を見せる安全弁は
+安全ではない — 「op-log が読めない」より「1 世代前の内容が正常に見える」方が悪い。
+
+したがって p6-3 で `loadSnapshot` / dual-read フォールバックと同時に `READ_FROM_OPLOG` を
+落とす。`BRANCH_FROM_OPLOG` は branch 側の独立した経路 (`branchState.ts` + PDS) の
+スイッチなので §3.7 のとおり p6-5 まで残る。
 
 **この間 snapshot は「書かれるが読まれる箇所が減っていく」状態**になるが、§6.1 で退けた
 「1 リリース分の猶予」とは別物である — 猶予はリリースを跨いで二重モデルを残す話で、

@@ -50,13 +50,8 @@ export function createInMemoryFileSheetOpsDeps(): FileSheetOpsDeps & {
       // no-op in tests
     },
 
-    fetchFile: async (id: string) => {
-      const file = fileStore.get(id);
-      if (!file) throw new Error(`File not found: ${id}`);
-      return file;
-    },
-
-    // サーバの lazy migration (snapshot→genesis) を模す。snapshot が無ければ空 op-log。
+    // server の op-log を模す。`POST /files` の genesis 直書き (p6-1) と同じく、
+    // 作成済みファイルは必ず genesis を持つ。未知 id は空 op-log。
     // zod mock 下で genesis の batch id が実 UUID にならないため、決定論的な plain id に
     // 振り直して projection の tiebreak を安定させる。
     fetchBatches: async (id: string) => {
@@ -96,27 +91,11 @@ export function createInMemoryFileSheetOpsDeps(): FileSheetOpsDeps & {
       if (idx >= 0) fileList.splice(idx, 1);
     },
 
-    saveFile: async (_file: GraphFile) => {
-      // no-op in tests (cache save)
-    },
-
     atprotoFilesDelete: async (_id: string) => {
       // no-op in tests
     },
 
-    fetchFileFromAtproto: async (_id: string) => {
-      throw new Error('Not found');
-    },
-
     fetchFilesFromAtproto: async () => [],
-
-    login: async (_handle: string, _password: string) => {
-      // no-op in tests
-    },
-
-    syncFileToAtproto: async (_file: GraphFile) => {
-      // no-op in tests
-    },
   };
 
   return deps;

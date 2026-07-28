@@ -19,14 +19,13 @@ import {
   migrateV3toV4,
   type NodeId,
   type SheetId,
-  UpdateFileRequestSchema,
 } from '@conversensus/shared';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { getEventStore } from './eventStoreServer';
 import { migrateAllFilesToOplog } from './migrateAllToOplog';
 import { W3_SCHEMA_VERSION } from './migrateFileToOplog';
-import { deleteFile, readFile, writeFile } from './storage';
+import { deleteFile, writeFile } from './storage';
 
 /**
  * 新規ファイルの op-log を genesis で初期化する (Phase 6 p6-1, 設計 §3.2)。
@@ -118,33 +117,21 @@ app.post('/files', async (c) => {
   // Phase 6 p6-1: op-log を作る。作られた時点で op-log 正典なので読取時の
   // lazy migration は不要になった (§3.2)。
   initializeOplog(id, data);
-  // snapshot の書込は残す — GET/PUT/DELETE /files/:id がまだ snapshot を読むため
-  // (消費者を消す p6-2/p6-3 の後、p6-5 でこの行ごと落とす)
+  // p6-3 で snapshot の読取経路は全て消えたので、この書込は **write-only** になった
+  // (起動時の一括移行も marker 済のファイルは読まない)。`storage.ts` と一括移行の
+  // 仕組みごと落とす p6-5 まで残す — 設計 §6.1 の「物理削除は実機 e2e の後」。
   await writeFile(data);
   return c.json(data, HTTP_CREATED);
 });
 
-// GET /files/:id - ファイル取得
-app.get('/files/:id', async (c) => {
-  const data = await readFile(c.req.param('id'));
-  if (!data) return c.json({ error: 'Not found' }, HTTP_NOT_FOUND);
-  return c.json(data);
-});
-
-// PUT /files/:id - ファイル更新 (全体保存)
-app.put('/files/:id', async (c) => {
-  const id = c.req.param('id');
-  const existing = await readFile(id);
-  if (!existing) return c.json({ error: 'Not found' }, HTTP_NOT_FOUND);
-  const raw = await c.req.json().catch(() => null);
-  const parsed = UpdateFileRequestSchema.safeParse(raw);
-  if (!parsed.success) {
-    return c.json({ error: parsed.error.flatten() }, HTTP_BAD_REQUEST);
-  }
-  const data: GraphFile = { ...parsed.data, id: existing.id };
-  await writeFile(data);
-  return c.json(data);
-});
+// GET /files/:id (snapshot 読取) と PUT /files/:id (全体保存) は Phase 6 p6-3 で
+// 撤去した (設計 §3.4 の B 案 / §3.6)。
+//
+// - **読取**: server に「GraphFile を組み立てて返す」責務を残すと projection の実装が
+//   client (`projectFile`) と server の 2 箇所に生まれ、R2 の二重モデルを別の形で
+//   再生産する。client が `GET /files/:id/batches` → `projectFile` する。
+// - **書込**: client の `persistFile` (snapshot 書込) が消え消費者を失った。状態の
+//   書込口は `POST /files/:id/batches` (op-log への追記) ただ一つになった。
 
 // POST /files/import - .conversensus ファイルをインポートして新規ファイルとして保存
 app.post('/files/import', async (c) => {
@@ -228,7 +215,7 @@ app.post('/files/import', async (c) => {
   // Phase 6 p6-1: import も op-log を作る (§3.2)。ID 再生成後の `data` をそのまま
   // genesis 入力にするので、応答の GraphFile と op-log の projection は同じ内容になる。
   initializeOplog(data.id, data);
-  await writeFile(data); // POST /files と同じ理由で p6-5 まで残す
+  await writeFile(data); // POST /files と同じく write-only。p6-5 で落とす
   return c.json(data, HTTP_CREATED);
 });
 

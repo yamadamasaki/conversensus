@@ -71,13 +71,6 @@ export default function App() {
     );
   }, []);
 
-  // op-log branch を表示中か (step1 Phase 5 p5-4)。**`fileOps` は `branchOps` より先に
-  // 作られる**ので、値ではなく安定参照のコールバック + ref で渡す (`isEditingActive` と同型)。
-  // これが true の間 `persistFile` は snapshot を書かない — branch の内容で trunk の
-  // snapshot を上書きしないため (§9.2)。
-  const branchActiveRef = useRef(false);
-  const isBranchActive = useCallback(() => branchActiveRef.current, []);
-
   // File & sheet operations
   const fileOps = useFileSheetOperations({
     setConfirmState,
@@ -85,7 +78,6 @@ export default function App() {
     remoteQueue,
     actor,
     isEditingActive,
-    isBranchActive,
   });
 
   // Branch operations
@@ -102,14 +94,13 @@ export default function App() {
     trunkClock: fileOps.trunkClock,
   });
 
-  // branch 表示の有無を ref へ写す (上の isBranchActive が読む)。
-  // レンダー中に代入すると破棄されたレンダーの値を残しうるので effect で行う。
-  useEffect(() => {
-    branchActiveRef.current =
-      branchOps.activeBranch !== null && isBranchMeta(branchOps.activeBranch);
-  }, [branchOps.activeBranch]);
-
   // Cross-domain wired callbacks
+  //
+  // Phase 6 p6-3: **trunk の autosave は消えた**。content の編集は op-log tap
+  // (GraphEditor → syncRecord) が編集ごとに書いており、debounce して snapshot へ
+  // 書き戻す経路が撤去されたため、trunk 側で遅延保存すべきものが無い (設計 §3.6)。
+  // タイマーが残っているのは旧 branch (PDS レコード複製, `BRANCH_FROM_OPLOG=false`)
+  // の autosave のためだけで、これは `branchState.ts` ごと p6-5 で退役する。
   const handleChange = useCallback(
     (updated: GraphFile) => {
       fileOps.setActiveFile(updated);
@@ -117,38 +108,29 @@ export default function App() {
 
       const branch = branchOps.activeBranch;
       const sheetId = fileOps.activeSheetId;
+      // op-log の branch は編集ごとに branch tap が書いているので autosave は不要
+      if (!branch || isBranchMeta(branch)) return;
+      if (
+        branch.name === TRUNK_PREFIX ||
+        !sheetId ||
+        (branch.status !== BRANCH_STATUS.OPEN &&
+          branch.status !== BRANCH_STATUS.MERGED)
+      ) {
+        return;
+      }
 
       saveTimer.current = setTimeout(async () => {
-        // op-log の branch は編集ごとに branch tap が書いているので autosave は不要。
-        // ここで persistFile を呼ぶと **branch の内容で trunk の snapshot を上書きする**
-        // ため、何もしないのが正しい (p5-4)。
-        if (branch && isBranchMeta(branch)) return;
-        if (
-          branch &&
-          branch.name !== TRUNK_PREFIX &&
-          sheetId &&
-          (branch.status === BRANCH_STATUS.OPEN ||
-            branch.status === BRANCH_STATUS.MERGED)
-        ) {
-          const sheet = updated.sheets.find((s) => s.id === sheetId);
-          if (!sheet) return;
-          try {
-            const sheetRef = await sheets.ref(sheetId);
-            await syncBranchSheetToAtproto(sheet, sheetRef, branch.id);
-          } catch (err) {
-            console.warn('[branch] auto-save failed:', err);
-          }
-        } else {
-          await fileOps.persistFile(updated);
+        const sheet = updated.sheets.find((s) => s.id === sheetId);
+        if (!sheet) return;
+        try {
+          const sheetRef = await sheets.ref(sheetId);
+          await syncBranchSheetToAtproto(sheet, sheetRef, branch.id);
+        } catch (err) {
+          console.warn('[branch] auto-save failed:', err);
         }
       }, AUTOSAVE_DELAY);
     },
-    [
-      fileOps.setActiveFile,
-      fileOps.persistFile,
-      fileOps.activeSheetId,
-      branchOps.activeBranch,
-    ],
+    [fileOps.setActiveFile, fileOps.activeSheetId, branchOps.activeBranch],
   );
 
   const handleSelectSheet = useCallback(
@@ -159,7 +141,7 @@ export default function App() {
     [fileOps.setActiveSheetId, branchOps.resetBranchState],
   );
 
-  const handleAddSheet = useCallback(async () => {
+  const handleAddSheet = useCallback(() => {
     if (!fileOps.activeFile) return;
     // 🔴 シート追加は **trunk のファイルを土台に**行う。branch 表示中の activeFile は
     // 該当シートが branch の内容なので、それを土台にすると branch の内容が trunk へ移る。
@@ -186,11 +168,11 @@ export default function App() {
       name: newSheet.name,
     });
     fileOps.setActiveSheetId(newSheet.id);
-    await fileOps.persistFile(updated);
+    fileOps.updateFileState(updated);
   }, [
     fileOps.activeFile,
     fileOps.setActiveSheetId,
-    fileOps.persistFile,
+    fileOps.updateFileState,
     fileOps.syncRecord,
     branchOps.isTrunk,
     branchOps.resetBranchState,

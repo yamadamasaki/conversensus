@@ -26,11 +26,9 @@ export async function fetchFiles(): Promise<GraphFileListItem[]> {
   return z.array(GraphFileListItemSchema).parse(await res.json());
 }
 
-export async function fetchFile(id: string): Promise<GraphFile> {
-  const res = await fetch(`${BASE}/files/${id}`);
-  if (!res.ok) throw new Error('Failed to fetch file');
-  return GraphFileSchema.parse(await res.json());
-}
+// `fetchFile` (GET /files/:id) と `saveFile` (PUT /files/:id) は Phase 6 p6-3 で
+// 撤去した。ファイルの読取は op-log の projection (`fetchBatches` → `projectFile`)、
+// 書込は batch の追記が唯一の口になった (設計 §3.4 / §3.6)。
 
 export async function createFile(name: string): Promise<GraphFile> {
   const res = await fetch(`${BASE}/files`, {
@@ -39,16 +37,6 @@ export async function createFile(name: string): Promise<GraphFile> {
     body: JSON.stringify({ name }),
   });
   if (!res.ok) throw new Error('Failed to create file');
-  return GraphFileSchema.parse(await res.json());
-}
-
-export async function saveFile(file: GraphFile): Promise<GraphFile> {
-  const res = await fetch(`${BASE}/files/${file.id}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(file),
-  });
-  if (!res.ok) throw new Error('Failed to save file');
   return GraphFileSchema.parse(await res.json());
 }
 

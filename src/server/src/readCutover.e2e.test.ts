@@ -12,11 +12,15 @@
  *   1. 既存ファイル (snapshot) が移行を経て projectFile で再現される
  *   2. migration はべき等: 再オープンで同一結果
  *   3. 編集 (batch 追記) → 再オープンで projection に反映
- *   4. flag off (snapshot 直読) は dual-write された最新 snapshot を返す (安全弁)
+ *   4. snapshot 直読の口は無い (Phase 6 p6-3 で撤去)。移行は snapshot を破壊しない
  *
  * **Phase 6 p6-1 での更新**: snapshot → op-log の変換契機が「読取時の lazy migration」から
  * 「デーモン起動時の一括移行」(Phase 6 設計 §3.1) に移った。seed も実際の運用に合わせ、
  * snapshot を直接置いてから一括移行を通す形にしている。検証している性質は変わらない。
+ *
+ * **Phase 6 p6-3 での更新**: dual-read 安全弁 (`READ_FROM_OPLOG=false` → `GET /files/:id`)
+ * を撤去した (設計 §3.4 / §3.6)。項目 4 は意味を反転させ、「口が無いこと」と
+ * 「それでも移行は snapshot を壊していないこと」を固定する。
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
@@ -34,7 +38,7 @@ import {
 import { getEventStore } from './eventStoreServer';
 import server from './index';
 import { migrateAllFilesToOplog } from './migrateAllToOplog';
-import { writeFile } from './storage';
+import { readFile, writeFile } from './storage';
 
 const fetch = server.fetch;
 let tmpDir: string;
@@ -197,17 +201,18 @@ describe('W3d-4 read cutover e2e (daemon + projectFile)', () => {
     expect(nodeA?.content).toBe('A-edited');
   });
 
-  it('4. flag off (snapshot 直読) は最新 snapshot を返す (安全弁)', async () => {
+  it('4. 🔴 snapshot 直読の口は無い。ただし移行は snapshot を壊さない', async () => {
     const file = richSnapshot(u(903) as FileId);
     await seedLegacySnapshot(file);
-    // op-log 側を読んでおく (移行後の状態で snapshot が無傷であることを見る)
     await openViaOplog(file.id);
 
-    // GET /files/:id = READ_FROM_OPLOG=false 相当の snapshot 直読経路
+    // かつての安全弁 (READ_FROM_OPLOG=false 相当) は p6-3 で endpoint ごと消えた
     const res = await fetch(new Request(`http://localhost/files/${file.id}`));
-    const snapshot = await res.json();
+    expect(res.status).toBe(404);
 
-    // snapshot は migration で破壊されず、元の GraphFile を返す
-    expect(structural(snapshot)).toEqual(structural(file));
+    // 一括移行は snapshot を読むだけで書き換えない。p6-5 の物理削除まで、
+    // ディスク上の JSON は seed した内容のまま残る (移行の非破壊性)。
+    const onDisk = await readFile(file.id);
+    expect(structural(onDisk as GraphFile)).toEqual(structural(file));
   });
 });
