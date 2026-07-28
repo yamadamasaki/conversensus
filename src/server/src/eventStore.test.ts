@@ -442,6 +442,84 @@ describe('EventStore', () => {
     });
   });
 
+  // Phase 6 p6-2 (設計 §3.5, §1.3): ファイル削除の正典。deleteBranch の trunk 版で、
+  // trunk にぶら下がるブランチの実体まで巻き込んで消すのがこの API の存在理由。
+  describe('deleteFile (Phase 6 p6-2)', () => {
+    const W3 = 1;
+    const branchOf = (id: string, branchFileId: string): BranchMeta => ({
+      id: id as BranchId,
+      name: `branch ${id}`,
+      base: {
+        id: `${id}-base` as CommitId,
+        message: 'base',
+        at: 1,
+        authorActor: 'local',
+      },
+      status: BRANCH_STATUS.OPEN,
+      sheetId: SHEET_META.id,
+      trunkFileId: FILE,
+      branchFileId: branchFileId as FileId,
+    });
+    const commit = (id: string, at: number): Commit => ({
+      id: id as CommitId,
+      message: `commit ${id}`,
+      at,
+      authorActor: 'local',
+    });
+
+    it('batches / commits / marker をまとめて消して true を返す', () => {
+      store.appendReceivedBatches(FILE, [addNode('b1', 'n1', 'A', 1)], W3);
+      store.saveCommit(FILE, commit('c1', 1));
+
+      expect(store.deleteFile(FILE)).toBe(true);
+
+      expect(store.getBatches(FILE)).toEqual([]);
+      expect(store.getCommits(FILE)).toEqual([]);
+      // marker が残ると、同じ id が受信で materialize されたとき「移行済」と
+      // 誤認する。削除は marker まで含めて初期状態へ戻す。
+      expect(store.getSchemaVersion(FILE)).toBeNull();
+    });
+
+    it('trunk のブランチのメタと branch 専用 op-log / commit も消す', () => {
+      const meta = branchOf('b1', 'b1-log');
+      store.saveBranch(meta);
+      store.appendBatch(meta.branchFileId, addNode('br1', 'n2', 'branch', 2));
+      store.saveCommit(meta.branchFileId, commit('bc1', 2));
+
+      expect(store.deleteFile(FILE)).toBe(true);
+
+      expect(store.getBranches(FILE)).toEqual([]);
+      expect(store.getBatches(meta.branchFileId)).toEqual([]);
+      expect(store.getCommits(meta.branchFileId)).toEqual([]);
+    });
+
+    it('他ファイルの op-log は消さない', () => {
+      const other = 'file-2' as FileId;
+      store.appendBatch(FILE, addNode('t1', 'n1', 'A', 1));
+      store.appendBatch(other, addNode('o1', 'n2', 'B', 1));
+      store.saveCommit(other, commit('oc', 1));
+
+      store.deleteFile(FILE);
+
+      expect(store.getBatches(other).map((b) => b.id)).toEqual(['o1']);
+      expect(store.getCommits(other).map((c) => c.id)).toEqual(['oc']);
+    });
+
+    it('対象が何も無ければ false を返す (べき等な二重削除)', () => {
+      expect(store.deleteFile(FILE)).toBe(false);
+      store.appendBatch(FILE, addNode('t1', 'n1', 'A', 1));
+      expect(store.deleteFile(FILE)).toBe(true);
+      expect(store.deleteFile(FILE)).toBe(false);
+    });
+
+    it('op-log を持たずメタだけのファイルも削除対象になる', () => {
+      // snapshot 由来の孤児メタ (commit / branch だけが残った状態) を掃除できること
+      store.saveCommit(FILE, commit('c1', 1));
+      expect(store.deleteFile(FILE)).toBe(true);
+      expect(store.getCommits(FILE)).toEqual([]);
+    });
+  });
+
   describe('listOplogFiles (Phase 4e-2a)', () => {
     /** file 構造 (file.setName + sheet.create) を持つ batch を作るヘルパ */
     const structure = (

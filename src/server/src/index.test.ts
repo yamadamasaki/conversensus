@@ -444,7 +444,8 @@ describe('API routes', () => {
       expect(await res.json()).toEqual([]);
     });
 
-    // Phase 4e-2a: 一覧は snapshot storage と op-log の和集合 (4e 設計 §3.2b)
+    // Phase 6 p6-2: 一覧は **op-log 単独** (設計 §3.3)。
+    // 4e-2a の「snapshot ∪ op-log」から切り替わった。
 
     /** file 構造 (file.setName + sheet.create) を持つ受信用 batch */
     const structureBatch = (clock: number, name: string) => ({
@@ -469,27 +470,39 @@ describe('API routes', () => {
     }
 
     it('op-log にしか無いファイルも一覧に載る (受信 materialize の可視化)', async () => {
-      const snap = await (await createFile('スナップ側')).json();
+      const created = await (await createFile('作成側')).json();
       const oplogId = uuid(42);
       await receive(oplogId, [structureBatch(1, '受信ファイル')]);
 
       const body = await (
         await fetch(new Request('http://localhost/files'))
       ).json();
-      // 順序: snapshot 順 → op-log-only
-      expect(body.map((f: { id: string }) => f.id)).toEqual([snap.id, oplogId]);
+      // 順序は op-log の初出順 (file_id ごとの最小 seq)
+      expect(body.map((f: { id: string }) => f.id)).toEqual([
+        created.id,
+        oplogId,
+      ]);
       expect(body[1].name).toBe('受信ファイル');
     });
 
-    it('両方に在るファイルは snapshot 側の name を正とし重複しない', async () => {
-      const snap = await (await createFile('スナップ名')).json();
-      await receive(snap.id, [structureBatch(1, 'オプログ名')]);
+    // p6-2 の切り替えの核心: 一覧の name はどちらの正典から来るか。
+    // 和集合だった頃は snapshot 側が勝っていた (二重の正典)。今は op-log projection だけ。
+    it('snapshot だけを更新しても一覧には反映されない (op-log projection が正)', async () => {
+      const created = await (await createFile('op-log の名前')).json();
+      // PUT は snapshot にしか書かない (p6-3 で撤去予定の経路)
+      await fetch(
+        new Request(`http://localhost/files/${created.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...created, name: 'snapshot だけの名前' }),
+        }),
+      );
 
       const body = await (
         await fetch(new Request('http://localhost/files'))
       ).json();
       expect(body).toHaveLength(1);
-      expect(body[0].name).toBe('スナップ名');
+      expect(body[0].name).toBe('op-log の名前');
     });
 
     it('構造を持たない孤児 batch だけの file_id は一覧に出さない (D-4)', async () => {
@@ -586,24 +599,35 @@ describe('API routes', () => {
     });
   });
 
+  // Phase 6 p6-2 (設計 §3.5, §1.3): 削除の正典が snapshot から op-log へ移った。
   describe('DELETE /files/:id', () => {
+    async function deleteFileReq(id: string) {
+      return fetch(
+        new Request(`http://localhost/files/${id}`, { method: 'DELETE' }),
+      );
+    }
+
+    async function listFileIds(): Promise<string[]> {
+      const body = await (
+        await fetch(new Request('http://localhost/files'))
+      ).json();
+      return body.map((f: { id: string }) => f.id);
+    }
+
+    async function getBatches(fileId: string): Promise<unknown[]> {
+      return (
+        await fetch(new Request(`http://localhost/files/${fileId}/batches`))
+      ).json();
+    }
+
     it('ファイルを削除すると 204 を返す', async () => {
       const created = await (await createFile('削除対象')).json();
-      const res = await fetch(
-        new Request(`http://localhost/files/${created.id}`, {
-          method: 'DELETE',
-        }),
-      );
-      expect(res.status).toBe(204);
+      expect((await deleteFileReq(created.id)).status).toBe(204);
     });
 
     it('削除後は GET で 404 になる', async () => {
       const created = await (await createFile('削除対象')).json();
-      await fetch(
-        new Request(`http://localhost/files/${created.id}`, {
-          method: 'DELETE',
-        }),
-      );
+      await deleteFileReq(created.id);
       const res = await fetch(
         new Request(`http://localhost/files/${created.id}`),
       );
@@ -611,10 +635,104 @@ describe('API routes', () => {
     });
 
     it('存在しない ID への DELETE は 404 を返す', async () => {
-      const res = await fetch(
-        new Request('http://localhost/files/nonexistent', { method: 'DELETE' }),
+      expect((await deleteFileReq('nonexistent')).status).toBe(404);
+    });
+
+    // §1.3 の穴: snapshot しか消していなかったため、削除したファイルの op-log が残り、
+    // 同じ id が受信で materialize されると消したはずの内容が復活しうる。
+    it('削除すると op-log も消える (batches が残らない)', async () => {
+      const created = await (await createFile('削除対象')).json();
+      await postBatches(created.id, [sampleBatch(1)]);
+      expect(await getBatches(created.id)).not.toEqual([]);
+
+      await deleteFileReq(created.id);
+
+      expect(await getBatches(created.id)).toEqual([]);
+      expect(await listFileIds()).toEqual([]);
+    });
+
+    // §1.3 の穴: op-log-only ファイル (受信 materialize) は snapshot を持たないため
+    // 従来は 404 で削除できなかった = ユーザーが消せないファイルが存在した。
+    it('snapshot を持たない op-log-only ファイルも削除できる', async () => {
+      const oplogId = uuid(42);
+      await fetch(
+        new Request(`http://localhost/files/${oplogId}/batches/received`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify([
+            {
+              id: uuid(9001),
+              actor: 'did:plc:alice#dev-a',
+              clock: 1,
+              timestamp: 1,
+              ops: [
+                { kind: 'file.setName', name: '受信ファイル' },
+                { kind: 'sheet.create', target: uuid(9101), name: 'S1' },
+              ],
+            },
+          ]),
+        }),
       );
-      expect(res.status).toBe(404);
+      expect(await listFileIds()).toEqual([oplogId]);
+
+      expect((await deleteFileReq(oplogId)).status).toBe(204);
+      expect(await listFileIds()).toEqual([]);
+      expect(await getBatches(oplogId)).toEqual([]);
+    });
+
+    // branch の中身へは branches.branch_file_id からしか辿れない。trunk を消すときに
+    // 一緒に消さないと、参照者のいない batch が永久に残る (deleteBranch と同じ理由)。
+    it('trunk を削除するとブランチのメタと branch 専用 op-log も消える', async () => {
+      const trunk = await (await createFile('trunk')).json();
+      const branchFileId = uuid(6001);
+      const meta = {
+        id: uuid(3001),
+        name: 'branch 1',
+        base: { id: uuid(4001), message: 'base', at: 1, authorActor: 'local' },
+        status: 'open',
+        sheetId: uuid(5001),
+        trunkFileId: trunk.id,
+        branchFileId,
+      };
+      await fetch(
+        new Request(`http://localhost/files/${trunk.id}/branches`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(meta),
+        }),
+      );
+      await postBatches(branchFileId, [sampleBatch(1)]);
+
+      await deleteFileReq(trunk.id);
+
+      const branches = await (
+        await fetch(new Request(`http://localhost/files/${trunk.id}/branches`))
+      ).json();
+      expect(branches).toEqual([]);
+      expect(await getBatches(branchFileId)).toEqual([]);
+    });
+
+    it('コミットも消える', async () => {
+      const created = await (await createFile('削除対象')).json();
+      await fetch(
+        new Request(`http://localhost/files/${created.id}/commits`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: uuid(7001),
+            message: 'c1',
+            at: 1,
+            authorActor: 'local',
+          }),
+        }),
+      );
+
+      await deleteFileReq(created.id);
+
+      const commits = await (
+        await fetch(new Request(`http://localhost/files/${created.id}/commits`))
+      ).json();
+      expect(commits).toEqual([]);
     });
   });
 

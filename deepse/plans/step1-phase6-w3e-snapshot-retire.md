@@ -144,7 +144,8 @@ snapshot を撤去すると `migrateFileToOplog` は入力を失う。よって
 ### 3.4 `GET /files/:id` と export の扱い 【2026-07-28 ユーザー決定: B (endpoint を消す)】
 
 `GET /files/:id` (snapshot 読取) の生存消費者は client の `handleExportFile:502`
-(未オープンのファイルを書き出すとき) だけ。選択肢:
+(未オープンのファイルを書き出すとき) と `loadSnapshot:222` (dual-read の最終フォールバック)。
+撤去スライスは §4.2 で p6-3 へ移した。選択肢:
 
 | 案 | 内容 |
 |---|---|
@@ -207,8 +208,8 @@ Phase 6 限りの使い捨てコードになる。lexicon json も**ファイル
 |---|---|---|
 | **p6-0** | 一括移行 (§3.1) — 起動時に未 migration snapshot を全件 genesis 化。失敗は 1 件単位で warn。移行時間を実測 | 無 |
 | **p6-1** | genesis 直書き (§3.2) — `POST /files` / `POST /files/import` を op-log へ。**`migrateFileToOplog.ts` と lazy migration 撤去を同一スライスで**行う (§3.2 の順序制約) | 無 |
-| **p6-2** | server の一覧・削除 (§3.3, §3.5) — `GET /files` を op-log 単独へ / `EventStore.deleteFile` 1 tx / `GET /files/:id` の【要判断】決着 | 無 |
-| **p6-3** | client の snapshot 撤去 (§3.6) — `persistFile` 解体・`loadSnapshot` / dual-read 撤去・export の読取元差し替え | 無 |
+| **p6-2** | server の一覧・削除 (§3.3, §3.5) — `GET /files` を op-log 単独へ / `EventStore.deleteFile` 1 tx | 無 |
+| **p6-3** | client の snapshot 撤去 (§3.6) — `persistFile` 解体・`loadSnapshot` / dual-read 撤去・export の読取元差し替え + `GET`/`PUT /files/:id` 撤去 (§4.2) | 無 |
 | **p6-4** | PDS legacy 撤去 (§3.8) — 死コード削除 + `loadAtprotoFiles` の一本化 + `sync.ts` の legacy 関数削除 | 無 |
 | **p6-5** | 退役の仕上げ (§3.7) — `storage.ts` 削除・安全弁フラグ削除・`branchState.ts` 削除 | 無 |
 | **p6-6** | 実機 e2e — 単一端末 + PDS ありの 2 端末 (op-log 経路のみで cross-device が成立することの確認) | **有** |
@@ -228,9 +229,22 @@ p6-1 を「`POST /files` を genesis **専業**にする」と読んで実装し
 | 順序 | やること |
 |---|---|
 | p6-1 | genesis 直書きを**追加** + lazy migration 撤去 (snapshot 書込は残す) |
-| p6-2 | `GET /files/:id` 撤去 (export を projection へ) / `DELETE` を op-log 削除へ |
-| p6-3 | client `persistFile` 撤去 → `PUT /files/:id` の消費者が消えるので endpoint も撤去 |
+| p6-2 | `GET /files` を op-log 単独へ / `DELETE` を op-log 削除へ (server 内で閉じる) |
+| p6-3 | client の snapshot 読み書き撤去 → 消費者を失った `GET`/`PUT /files/:id` も撤去 |
 | p6-5 | 消費者ゼロになった snapshot 書込と `storage.ts` を削除 |
+
+### 4.2 【実装中に判明】`GET /files/:id` 撤去は p6-2 ではなく p6-3
+
+§4.1 の表は `GET /files/:id` の撤去を p6-2 に置いていたが、この endpoint は
+**§3.7 / §6.1 が前提にしている安全弁の最終到達点**である: `READ_FROM_OPLOG=false` の
+とき client の読取は `loadSnapshot` → `fetchFileFromAtproto` → **`fetchFile` (`GET /files/:id`)**
+と落ちる。p6-2 で消すと、ATProto 未ログイン環境では安全弁を倒しても何も開けなくなり、
+「退行が出たときの切り分け手段」が p6-6 の実機 e2e より前に失われる。
+
+そこで **p6-2 は server 内で閉じる変更に限り** (一覧の op-log 単独化 + 削除の op-log 化)、
+`GET /files/:id` の撤去は**消費者 (`handleExportFile` / `loadSnapshot`) を消す p6-3 と
+同一スライス**へ移す。§3.4 の決定 (B 案 = endpoint を消して export は client の projection へ)
+は変えない。終状態は同じで、消す順序だけを「消費者と endpoint を同時に」へ揃える。
 
 **この間 snapshot は「書かれるが読まれる箇所が減っていく」状態**になるが、§6.1 で退けた
 「1 リリース分の猶予」とは別物である — 猶予はリリースを跨いで二重モデルを残す話で、

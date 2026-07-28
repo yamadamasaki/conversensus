@@ -6,11 +6,11 @@
 
 | エンドポイント | 責務 |
 |---|---|
-| `GET /files` | ファイル一覧を返す (snapshot storage と op-log の和集合, Phase 4e-2a) |
+| `GET /files` | ファイル一覧を返す (**op-log 単独**, Phase 6 p6-2) |
 | `POST /files` | ファイルを新規作成する (op-log を genesis で初期化する, Phase 6 p6-1) |
 | `GET /files/:id` | 指定 ID のファイルを返す |
 | `PUT /files/:id` | 指定 ID のファイルを更新する |
-| `DELETE /files/:id` | 指定 ID のファイルを削除する |
+| `DELETE /files/:id` | 指定 ID のファイルを削除する (**op-log 正典**, Phase 6 p6-2) |
 | `POST /files/:id/batches` | 操作ログへ batches を追記する (step1 Phase 4 実配線) |
 | `GET /files/:id/batches` | 操作ログを取得する (`?since=<clock>` で範囲)。**副作用は無い** — 読取時の lazy migration は Phase 6 p6-1 で撤去した |
 | `POST /files/:id/commits` | コミット (ログ上のラベル付きオフセット) を保存する (step1 Phase 5) |
@@ -78,8 +78,8 @@ Hono アプリの `fetch` 関数を直接呼び出すことで、実際の HTTP 
 | GET /files/:id/batches | 二度目の GET も同じ genesis | 読取に副作用が無い |
 | GET /files/:id/batches | 🔴 read 前に積んだ batch が消えない | 読取が破棄しない (p6-1) |
 | GET /files | 初期状態は [] | 空一覧 |
-| GET /files | op-log にしか無いファイルも載る (受信 materialize) | 和集合 (Phase 4e-2a) |
-| GET /files | 両方に在る → snapshot の name を正とし重複しない | fileId distinct |
+| GET /files | op-log にしか無いファイルも載る (受信 materialize) | op-log 単独 (p6-2) |
+| GET /files | 🔴 snapshot だけ更新しても一覧は動かない | projection が唯一の正典 (p6-2) |
 | GET /files | 孤児 batch だけの file_id は出ない (D-4) | 0 シート除外 |
 | GET /files | branch 専用 file_id は出ない | branch 除外 (Phase 5 p5-1) |
 | POST /files | 名前付きで作成 → 201 | 正常系 |
@@ -91,6 +91,10 @@ Hono アプリの `fetch` 関数を直接呼び出すことで、実際の HTTP 
 | DELETE /files/:id | 削除 → 204 | 正常系 |
 | DELETE /files/:id | 削除後に GET → 404 | 削除の完全性 |
 | DELETE /files/:id | 存在しない ID → 404 | エラー系 |
+| DELETE /files/:id | 🔴 削除後に batches が残らない | op-log の削除 (p6-2) |
+| DELETE /files/:id | 🔴 op-log-only ファイルも消せる | §1.3 の穴 (p6-2) |
+| DELETE /files/:id | trunk 削除でブランチのメタと実体も消える | 孤児 batch の防止 |
+| DELETE /files/:id | コミットも消える | メタの消し残し |
 | POST /files/import | 正常なファイル → 201 | 正常系 |
 | POST /files/import | ID をすべて再生成し参照を付け替える | 取り込み時の同一性分離 |
 | POST /files/import | 🔴 応答の GraphFile = op-log の projection | 往復性 (p6-1, 設計 §6.3) |
@@ -135,14 +139,47 @@ remote から受信した batches を追記する**専用エンドポイント**
 > `eventStore.test.md` の担当。p6-1 で HTTP 越しに marker の有無を観測する手段が無くなった
 > (読取が挙動を変えないため) ので、ここで重ねていた 2 件は EventStore 側へ一本化した。
 
+## 一覧と削除の op-log 単独化 (Phase 6 p6-2, 設計 §3.3 / §3.5)
+
+### GET /files — 和集合から op-log 単独へ
+
+4e-2a の `listFiles ∪ listOplogFiles` を `listOplogFiles` だけにした。すべてのファイルが
+op-log を持つようになった (起動時の一括移行 §3.1 + 作成時の genesis 直書き §3.2) ので
+和集合が要らなくなり、同時に **「name は snapshot 側を正とする」という二重の正典が消える**。
+
+固定したいのはこの「正典がどちらか」であって件数ではない。そこで従来の
+「両方に在れば snapshot の name を正とする」テストを**意味を反転させて**残した:
+`PUT /files/:id` (snapshot にしか書かない経路) で改名しても一覧は動かず、op-log の
+projection が返る。和集合へ戻ると即座に赤くなる。
+
+> **一括移行に失敗した snapshot はここに現れない**。無言の消失を避けるため、失敗は
+> 起動時に warn される (`migrateAllFilesToOplog`)。§4.1 の撤去順序どおり、
+> `GET /files/:id` はまだ生きているので中身へは到達できる。
+
+### DELETE /files/:id — snapshot 削除から op-log 削除へ
+
+設計 §1.3 が挙げた**既存の穴**を塞ぐ変更なので、テストは穴の形に沿って置く:
+
+- **削除後に batches が残らない**: 従来は snapshot だけ消えて op-log が残っていた。
+  同じ id が受信で materialize されると、消したはずの内容が復活しうる。
+- **op-log-only ファイルも消せる**: 受信 materialize されたファイルは snapshot を持たず、
+  従来は 404 で**ユーザーが消せないファイル**になっていた。
+- **trunk 削除でブランチのメタと実体も消える**: branch の中身へは `branch_file_id` から
+  しか辿れない (`deleteBranch` と同じ理由)。trunk だけ消すと孤児 batch が永久に残る。
+- **コミットも消える**: メタの消し残しの検出。
+
+snapshot 削除も併せて呼び続けているのは、まだ書かれているため (p6-5 で落とす) と、
+一括移行に失敗して op-log を持たないファイルにも削除手段を残すため。応答は
+「どちらでも消せなければ 404」で、既存の 404 契約は変わらない。
+
 ### branch 専用 file_id の一覧除外 (Phase 5 p5-1)
 
 branch batches は trunk と同じ `batches` テーブルに **branch 専用 file_id** で同居する
 (設計 §3.1-B)。除外できないと UI のファイル一覧に branch がファイルとして並ぶ。
 
-branch は snapshot を持たない (`writeFile` を通らない) ので、一覧に出るとしたら
-op-log 側 (`listOplogFiles`) から。**明示的な除外コードは書いていない** — 既存の
-0 シート除外がそのまま効くため (設計 §9.2 / M2)。HTTP の口でもそれを固定する。
+一覧が `listOplogFiles` 単独になった今 (p6-2)、branch を隠しているのはこの除外だけになる。
+**明示的な除外コードは書いていない** — 既存の 0 シート除外がそのまま効くため
+(設計 §9.2 / M2)。HTTP の口でもそれを固定する。
 
 ## ブランチ / コミットのメタ情報 (step1 Phase 5)
 

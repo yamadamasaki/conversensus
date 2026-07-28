@@ -26,7 +26,7 @@ import { cors } from 'hono/cors';
 import { getEventStore } from './eventStoreServer';
 import { migrateAllFilesToOplog } from './migrateAllToOplog';
 import { W3_SCHEMA_VERSION } from './migrateFileToOplog';
-import { deleteFile, listFiles, readFile, writeFile } from './storage';
+import { deleteFile, readFile, writeFile } from './storage';
 
 /**
  * 新規ファイルの op-log を genesis で初期化する (Phase 6 p6-1, 設計 §3.2)。
@@ -81,17 +81,16 @@ app.onError((err, c) => {
   return c.json({ error: 'Internal server error' }, HTTP_INTERNAL_SERVER_ERROR);
 });
 
-// GET /files - ファイル一覧 (snapshot storage と op-log の和集合, Phase 4e-2a)
-app.get('/files', async (c) => {
-  const files = await listFiles();
-  // 受信で materialize されたファイルは snapshot を持たず op-log にしか無い (4e 設計 §3.2b)。
-  // 両方に在るものは fileId で distinct し、snapshot 側の name/description を正とする。
-  // 順序: 既存の snapshot 順 → op-log-only (初出順)。
-  const known = new Set<string>(files.map((f) => f.id));
-  const oplogOnly = getEventStore()
-    .listOplogFiles()
-    .filter((f) => !known.has(f.id));
-  return c.json([...files, ...oplogOnly]);
+// GET /files - ファイル一覧 (op-log 単独, Phase 6 p6-2 / 設計 §3.3)
+//
+// 4e-2a の「snapshot ∪ op-log」から **op-log 単独**へ切り替えた。すべてのファイルが
+// op-log を持つようになった (起動時の一括移行 §3.1 + 作成時の genesis 直書き §3.2) ため
+// 和集合が不要になり、同時に「name は snapshot 側を正とする」という二重の正典も消える。
+//
+// 一括移行に失敗した snapshot はここに現れない。無言の消失にしないため、失敗は起動時に
+// warn 出力される (migrateAllFilesToOplog)。
+app.get('/files', (c) => {
+  return c.json(getEventStore().listOplogFiles());
 });
 
 // POST /files - 新規ファイル作成
@@ -364,10 +363,21 @@ app.delete('/files/:id/branches/:branchId', (c) => {
   return c.body(null, HTTP_NO_CONTENT);
 });
 
-// DELETE /files/:id - ファイル削除
+// DELETE /files/:id - ファイル削除 (op-log 正典, Phase 6 p6-2 / 設計 §3.5)
+//
+// 正典は `EventStore.deleteFile` (batches / commits / branches / marker を 1 tx)。
+// snapshot 削除も併せて呼ぶのは、まだ書かれているため (p6-5 でこの行ごと落とす) と、
+// 一括移行に失敗して op-log を持たないファイルにも削除手段を残すため。
+// どちらも「対象なし」なら 404 とする。
 app.delete('/files/:id', async (c) => {
-  const ok = await deleteFile(c.req.param('id'));
-  if (!ok) return c.json({ error: 'Not found' }, HTTP_NOT_FOUND);
+  const id = c.req.param('id');
+  const oplogDeleted = getEventStore().deleteFile(id as FileId);
+  // 不正な id 形式では storage が throw する (パストラバーサル対策)。op-log 側の結果で
+  // 応答したいので握り潰す — 不正 id は op-log にも在り得ないので結果は 404 になる。
+  const snapshotDeleted = await deleteFile(id).catch(() => false);
+  if (!oplogDeleted && !snapshotDeleted) {
+    return c.json({ error: 'Not found' }, HTTP_NOT_FOUND);
+  }
   return c.body(null, HTTP_NO_CONTENT);
 });
 

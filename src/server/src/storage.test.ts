@@ -9,7 +9,7 @@ import type {
   NodeId,
   SheetId,
 } from '@conversensus/shared';
-import { deleteFile, listFiles, readFile, writeFile } from './storage';
+import { deleteFile, listSnapshotIds, readFile, writeFile } from './storage';
 
 let tmpDir: string;
 
@@ -61,37 +61,28 @@ describe('storage', () => {
     });
   });
 
-  describe('listFiles', () => {
+  // Phase 6 p6-2: 中身を読む一覧 (旧 listFiles) は GET /files が op-log 単独に
+  // なって消費者を失い削除した。残るのは一括移行 (p6-0) が使う id 走査のみ。
+  describe('listSnapshotIds', () => {
     it('空ディレクトリでは空配列を返す', async () => {
-      const result = await listFiles();
-      expect(result).toEqual([]);
+      expect(await listSnapshotIds()).toEqual([]);
     });
 
     it('DATA_DIR が存在しなくても空配列を返す (初回起動・2 組目のデーモン)', async () => {
       process.env.DATA_DIR = join(tmpDir, 'not-created-yet');
-      const result = await listFiles();
-      expect(result).toEqual([]);
+      expect(await listSnapshotIds()).toEqual([]);
     });
 
-    it('書き込んだファイルが一覧に現れる', async () => {
+    it('書き込んだファイルの id を拡張子なしで返す', async () => {
       const data = sampleFile();
       await writeFile(data);
-      const result = await listFiles();
-      expect(result).toHaveLength(1);
-      expect(result[0]).toEqual({
-        id: data.id,
-        name: data.name,
-        description: data.description,
-      });
+      expect(await listSnapshotIds()).toEqual([data.id]);
     });
 
-    it('複数ファイルをすべてリストアップする', async () => {
+    it('複数ファイルをすべて列挙する', async () => {
       await writeFile({ ...sampleFile(), id: 'id-a' as FileId, name: 'A' });
       await writeFile({ ...sampleFile(), id: 'id-b' as FileId, name: 'B' });
-      const result = await listFiles();
-      expect(result).toHaveLength(2);
-      const ids = result.map((f) => f.id).sort();
-      expect(ids).toEqual(['id-a', 'id-b']);
+      expect((await listSnapshotIds()).sort()).toEqual(['id-a', 'id-b']);
     });
   });
 

@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import type { GraphFile, GraphFileListItem } from '@conversensus/shared';
+import type { GraphFile } from '@conversensus/shared';
 
 const SNAPSHOT_EXT = '.json';
 
@@ -18,25 +18,12 @@ function filePath(id: string) {
   return resolved;
 }
 
-export async function listFiles(): Promise<GraphFileListItem[]> {
-  // DATA_DIR 未作成 (初回起動・data/ を消した直後・2 組目のデーモン) では scan が throw する。
-  // 「データが無い」は正常なので空一覧を返す。書込側は Bun.write が親ディレクトリを作る。
-  if (!existsSync(dataDir())) return [];
-  const glob = new Bun.Glob('*.json');
-  const items: GraphFileListItem[] = [];
-  for await (const name of glob.scan(dataDir())) {
-    const file = Bun.file(join(dataDir(), name));
-    const data: GraphFile = await file.json();
-    items.push({ id: data.id, name: data.name, description: data.description });
-  }
-  return items;
-}
-
 /**
  * snapshot ファイルの id 一覧を返す (**中身を読まない**)。
  *
- * `listFiles` は全件を JSON parse するため、壊れた 1 件が一覧全体を巻き添えにする。
- * 一括移行 (Phase 6 p6-0) は per-file で失敗を隔離したいので、走査は名前だけで行い
+ * 中身を読む一覧 (旧 `listFiles`) は `GET /files` が op-log 単独になった時点 (p6-2) で
+ * 消費者を失ったので削除した。走査を名前だけで行うのは、一括移行 (Phase 6 p6-0) が
+ * per-file で失敗を隔離するため — 壊れた 1 件に一覧全体を巻き添えにさせない。
  * 読み込みは `readFile` に任せる。**storage.ts ごと退役する (p6-5) までの寿命**。
  */
 export async function listSnapshotIds(): Promise<string[]> {
