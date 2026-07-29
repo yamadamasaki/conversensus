@@ -63,7 +63,7 @@ branch: "{branchId}_{uuid}"
 | **4. sync-provider** (§9-3) | ATProto を provider 実装に整理。outbox+オフライン分岐。全件list/polling/cidCache 改修 | SyncProvider 境界 |
 | **5. branch op-log 化** | 元 Phase 2 の**実配線**を回収 (下記注記)。branch/commit/merge を op-log 上で成立させ snapshot 複製依存を切る。単一端末スコープ | `branchState.ts` 退役・[Phase 5 設計](./step1-phase5-branch-oplog.md) |
 | **6. W3e snapshot 完全退役** | `PUT /files`・`storage.ts`・snapshot genesis fallback を撤去し R2 二重モデルを解消 | snapshot storage 撤去 |
-| **7. 範囲取得** (R3) | remote の全件 list を rkey/コレクション範囲取得へ。cidCache 永続化の要否もここで解消 | 範囲取得実装 |
+| **7. 範囲取得** (R3) | remote の全件 list を rkey 範囲取得へ (rkey を構造化し cursor で seek する。`rkeyStart`/`rkeyEnd` は現行 lexicon に無い)。cidCache 永続化は Phase 6 で `cidCache.ts` ごと退役し解消済 | 範囲取得実装・[Phase 7 設計](./step1-phase7-range-fetch.md) |
 | **8. 配布形態 / VPS** (O2, §9-4,5) | Tauri v2 (B1) 単一バイナリ配布。R1 (ARM64/Rosetta) 切り分け → 配布。firehose 卒業 (§6 polling→Jetstream) の要否判断。VPS 役割変更 (D6) | local-first 配布 + 単一バイナリ |
 
 **クリティカルパス**: Phase 0 → 1 → 2 → (3,4) → 5 → 6。破棄前提により Phase 2 の移行コストがほぼ消え、**最大リスクは Phase 0 の「複合イベントを sync 語彙にどう乗せるか」に絞られた**。
