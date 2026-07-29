@@ -296,7 +296,7 @@ W3d5-7 (PDS が float を拒否して全 push が 400、しかしコンソール
 
 | スライス | 内容 | 不可逆性 |
 |---|---|---|
-| **p7-0** | **実機 spike**: docker PDS で cursor 意味論を確定する。①合成 cursor が受理される ②`reverse: true` が rkey 昇順 + `rkey > cursor` ③`reverse: false` + `cursor = v1~<fileId>` がそのファイルを飛ばす ④`limit` 上限 ⑤既存レコードの rkey が小文字 hex UUID である (§3.1 の前提)。**否定されたら §3.3 の索引コレクション案へ切替**を判断する | なし (捨てるコード) |
+| **p7-0** | **実機 spike**: docker PDS で cursor 意味論を確定する。①合成 cursor が受理される ②`reverse: true` が rkey 昇順 + `rkey > cursor` ③`reverse: false` + `cursor = v1~<fileId>` がそのファイルを飛ばす ④`limit` 上限 ⑤既存レコードの rkey が小文字 hex UUID である (§3.1 の前提)。**否定されたら §3.3 の索引コレクション案へ切替**を判断する | なし (捨てるコード) — **✅ 完了 (2026-07-30): 全 12 項目 PASS, §5.1**  |
 | **p7-1** | rkey 純関数 (`batchRkey` / `parseBatchRkey`) + テスト。`pushRemote` を新 rkey へ切替。**読取は全件のまま**で両形式を許容 (非破壊) | なし |
 | **p7-2** | `listByFile` / `pullRemoteForFile` を追加し `receiveRemoteBatches` を載せ替え | なし (旧経路は残存) |
 | **p7-3** | `listFileIds` / `listRemoteFileIds` を追加し `discoverRemoteFiles` を「列挙 → 未知ファイルだけ prefix 取得」へ | なし |
@@ -333,11 +333,43 @@ p7-1〜p7-3 はすべて非破壊で、旧経路 (全件 list) が生きたま�
    - 端末 A の新規ファイルが端末 B に materialize する。
    - **ファイルを 3 つ以上持つ状態で**、B の起動時リクエストが「列挙 N+1 件 + 開いている
      ファイル 1 つ分」に収まる (ネットワークタブで確認)。他ファイルの batch を落としていない。
-4. **PDS 直接検査** — §5.1 のスクリプトで batch コレクションの rkey が新形式であることを確認する。
+4. **PDS 直接検査** — [user-test-environment.md](../requirements/user-test-environment.md) §5.1 の
+   スクリプトで batch コレクションの rkey が新形式であることを確認する。
    **画面は証拠にしない** (W3d5 critic A2 の教訓)。
 5. **実測 before/after** — 同一データで、リクエスト数と転送量を Phase 6 時点と比較して記録する。
    改善が無ければ設計が誤っている。
 6. **full gate** — lint / typecheck / 全テスト green、client build 成功。
+
+### 5.1 【p7-0 実施結果】cursor 意味論を実機で確定 — 全 12 項目 PASS (2026-07-30)
+
+docker PDS (`ghcr.io/bluesky-social/pds:latest`, :2583) に対し、**投棄前提の spike スクリプト**
+(生の XRPC を fetch で叩くだけ・依存ゼロ) で観測した。**`alice.test` を汚さないよう
+spike 専用アカウントを invite code から作り、検証後に `com.atproto.admin.deleteAccount` で
+repo ごと削除した** (実行後に `alice.test` の batch 21 件が無傷であることを確認済)。
+
+仕込んだデータ: 新形式 rkey = 3 ファイル (先頭が `1…` / `5…` / `9…` の UUID) × 各 3 batch、
+加えて**旧形式 rkey (小文字 hex UUID) 4 件**を同じコレクションに混ぜた。
+
+| 観測 | 結果 |
+|---|---|
+| ⓪ rkey 構文 | `~` を含む **89 文字**の rkey が `putRecord` に受理された (9 件) |
+| ② 昇順 | `reverse=true` の並びが rkey 昇順 (13 件) |
+| ② 降順 | `reverse` 省略時は rkey 降順 |
+| ① 合成 cursor | 前回応答由来でない `cursor = v1~<fileId>` が **200 で受理**された |
+| ① 昇順 seek の先頭 | 1 件目が対象ファイルの先頭レコード (`v1~5555…~000000000001~…`) |
+| ① prefix の連続性 | 対象ファイルの 3 件が連続し、他ファイルが間に挟まらない |
+| ① 旧 rkey 不出現 | `v1~` より小さい旧 rkey は昇順 seek に**現れない** |
+| ③ ファイル飛ばし | 降順 + `cursor = v1~<fileId>` が対象ファイル 3 件を飛ばし、**1 つ小さいファイルの最終レコードに着地** |
+| ③ ファイル列挙 | 全 fileId をちょうど 1 回ずつ降順で列挙。**リクエスト数 4 = ファイル数 3 + 1** (§3.3 の予測どおり) |
+| ④ limit 上限 | `limit=101` は **400 InvalidRequest** / `limit=100` は 200 → **上限 100** (現行実装の `PAGE_LIMIT = 100` は既に上限値) |
+| ⑤ 既存 rkey 形式 | `alice.test` の batch **21 件すべてが小文字 hex UUID** (逸脱 0 件) |
+| ⑤ `v1~` 分離 | 既存 rkey の最大値 `f28b4dce-…` **< `"v1~"`** — 新旧が rkey 空間で分離する |
+
+**帰結**: §3.2 (prefix seek) / §3.3 (ファイル列挙) / §3.1 (`v1~` 分離) はいずれも実機で成立した。
+§3.3 の索引コレクション fallback へ切り替える必要はない。§6.1 (PDS 実装依存) のリスクは
+「稼働 image で確認済」まで下がるが、**契約ではなく実装の性質である**点は変わらないので
+緩和策 (b)(c) — 2 関数への封じ込めと fallback 案の温存 — はそのまま維持する。
+§6.6 の前提 (旧 rkey は小文字 hex) も実データで裏取りできた。
 
 ---
 
