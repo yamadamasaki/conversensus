@@ -9,6 +9,7 @@ import {
   type IntervalScheduler,
 } from './atprotoSyncProvider';
 import { batchToRecord } from './batchMapper';
+import { batchRkey } from './batchRkey';
 import { NSID } from './types';
 
 const batch = (id: string, clock: number, actor = 'did:plc:alice'): Batch => ({
@@ -26,14 +27,28 @@ function inMemoryBatches() {
     { uri: string; cid: string; value: unknown }
   >();
   let cid = 0;
+  const seedAt = (rkey: string, b: Batch) => {
+    records.set(rkey, {
+      uri: `at://did:plc:test/${NSID.batch}/${rkey}`,
+      cid: `seed-${rkey}`,
+      value: { $type: NSID.batch, ...batchToRecord(b, FILE) },
+    });
+  };
   const store: BatchCollection & {
+    /** 新形式 rkey (Phase 7 p7-1) で仕込む */
     _seed: (b: Batch) => void;
+    /** 旧形式 rkey (= batchId 単体, Phase 4c〜6) で仕込む */
+    _seedLegacy: (b: Batch) => void;
+    /** 任意の rkey で仕込む (壊れた rkey の検証用) */
+    _seedRkey: (rkey: string, b: Batch) => void;
     _size: () => number;
+    _rkeys: () => string[];
   } = {
-    put(batchId, data) {
+    // 引数は rkey。Phase 7 p7-1 以降は batchId 単体ではない
+    put(rkey, data) {
       cid += 1;
-      const uri = `at://did:plc:test/${NSID.batch}/${batchId}`;
-      records.set(batchId, {
+      const uri = `at://did:plc:test/${NSID.batch}/${rkey}`;
+      records.set(rkey, {
         uri,
         cid: `cid-${cid}`,
         value: { $type: NSID.batch, ...data },
@@ -44,13 +59,14 @@ function inMemoryBatches() {
       return Promise.resolve([...records.values()]);
     },
     _seed(b) {
-      records.set(b.id, {
-        uri: `at://did:plc:test/${NSID.batch}/${b.id}`,
-        cid: `seed-${b.id}`,
-        value: { $type: NSID.batch, ...batchToRecord(b, FILE) },
-      });
+      seedAt(batchRkey(FILE, b.clock, b.id), b);
     },
+    _seedLegacy(b) {
+      seedAt(b.id, b);
+    },
+    _seedRkey: seedAt,
     _size: () => records.size,
+    _rkeys: () => [...records.keys()],
   };
   return store;
 }
@@ -81,7 +97,8 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
 
 describe('AtprotoSyncProvider', () => {
   describe('pushRemote', () => {
-    it('batch を rkey=batchId で op-log へ書く', async () => {
+    it('rkey = v1~<fileId>~<clock>~<batchId> で op-log へ書く (Phase 7 p7-1)', async () => {
+      // 範囲取得はこの rkey の辞書順だけで成立するので、書込形式そのものを固定する
       const batches = inMemoryBatches();
       const provider = new AtprotoSyncProvider({ batches });
       await provider.pushRemote(
@@ -90,10 +107,13 @@ describe('AtprotoSyncProvider', () => {
           batch,
         })),
       );
-      expect(batches._size()).toBe(2);
+      expect(batches._rkeys()).toEqual([
+        `v1~${FILE}~000000000001~1`,
+        `v1~${FILE}~000000000002~2`,
+      ]);
     });
 
-    it('同一 batchId の push は上書き (べき等、重複しない)', async () => {
+    it('同一 batch の push は上書き (rkey が決定論的なのでべき等、重複しない)', async () => {
       const batches = inMemoryBatches();
       const provider = new AtprotoSyncProvider({ batches });
       await provider.pushRemote(
@@ -160,6 +180,36 @@ describe('AtprotoSyncProvider', () => {
       const provider = new AtprotoSyncProvider({ batches });
       const entries = await provider.pullRemote();
       expect(entries.map((e) => e.batch.id)).toEqual(['a']);
+    });
+
+    it('新形式 rkey から batch.id を復元する (Phase 7 p7-1)', async () => {
+      // id はレコードボディに無く rkey にしかない。第 4 セグメントが id
+      const batches = inMemoryBatches();
+      batches._seed(batch('a', 1));
+      const provider = new AtprotoSyncProvider({ batches });
+      const entries = await provider.pullRemote();
+      expect(entries.map((e) => e.batch.id)).toEqual(['a']);
+    });
+
+    it('旧形式 rkey (= batchId 単体) も復元できる', async () => {
+      // p7-1 時点の読取は repo 全件 list のままなので新旧が混在する。
+      // この寛容さは全件 list を撤去する p7-5 で外す。
+      const batches = inMemoryBatches();
+      batches._seedLegacy(batch('old', 1));
+      batches._seed(batch('new', 2));
+      const provider = new AtprotoSyncProvider({ batches });
+      const entries = await provider.pullRemote();
+      expect(entries.map((e) => e.batch.id)).toEqual(['old', 'new']);
+    });
+
+    it('v1~ で始まるのに形式を満たさない rkey は飛ばす', async () => {
+      // 壊れた新形式レコードから id を推測して正典へ入れない (呼び出し側は数えて警告する)
+      const batches = inMemoryBatches();
+      batches._seed(batch('ok', 1));
+      batches._seedRkey(`v1~${FILE}~42~short-clock`, batch('bad', 2));
+      const provider = new AtprotoSyncProvider({ batches });
+      const entries = await provider.pullRemote();
+      expect(entries.map((e) => e.batch.id)).toEqual(['ok']);
     });
   });
 

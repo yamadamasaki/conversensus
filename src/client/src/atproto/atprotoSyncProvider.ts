@@ -8,7 +8,8 @@
  * ファイル単位の境界だが、ATProto の batch コレクションは **repo 全体で 1 つ**なので、
  * 送信単位は fileId を伴う `RemoteBatch` になる。この非対称を型に出している。
  *
- * - pushRemote: batch を putRecord (rkey = batchId)。batch は不変なのでべき等。
+ * - pushRemote: batch を putRecord (rkey = `v1~<fileId>~<clock>~<batchId>`, Phase 7 p7-1)。
+ *   rkey が batch の不変属性だけから決まるのでべき等 (`batchRkey.ts`)。
  * - pullRemote: batch レコードを**全件**取得。**既読位置 (cursor) を持たない** (Phase 4d-4) —
  *   rkey が UUID で時系列順にならず、ATProto 側に既読位置へ使える値が無いため。
  *   取りこぼしゼロを構造で保証し、二重取り込みは受信側のべき等性が無害化する。
@@ -24,6 +25,7 @@ import {
   isBatchRecordValue,
   recordToRemoteBatch,
 } from './batchMapper';
+import { batchIdFromRkey, batchRkey } from './batchRkey';
 import type { RemoteBatchTarget } from './remoteSyncQueue';
 import type { BatchRecord, RecordResult, RemoteBatch } from './types';
 
@@ -72,15 +74,23 @@ export class AtprotoSyncProvider implements RemoteBatchTarget {
   }
 
   /**
-   * batch を op-log レコードとして PDS へ書く (rkey=batchId, べき等)。
+   * batch を op-log レコードとして PDS へ書く (べき等)。
+   *
+   * rkey は `v1~<fileId>~<clock>~<batchId>` (Phase 7 p7-1, `batchRkey.ts`)。**ファイル単位の
+   * 範囲取得を成り立たせるために fileId を先頭に置く**。決定論的なので、同じ batch を
+   * 再送しても同じレコードを上書きする = べき等性は rkey=batchId だった頃と変わらない。
    *
    * 運搬単位が `Batch` ではなく `RemoteBatch` (Batch + fileId) なのは、ATProto の batch
    * コレクションが **repo 全体で 1 つ**で、レコード自身が適用先ファイルを持たないと
-   * 受信側が復元できないため (Phase 4d-1, 設計 §3.1)。
+   * 受信側が復元できないため (Phase 4d-1, 設計 §3.1)。rkey にも fileId が入るが、
+   * **適用先の権威はボディの `fileId`** — rkey は取得経路の索引にすぎない。
    */
   async pushRemote(entries: readonly RemoteBatch[]): Promise<void> {
     for (const { batch, fileId } of entries) {
-      await this.batches.put(batch.id, batchToRecord(batch, fileId));
+      await this.batches.put(
+        batchRkey(fileId, batch.clock, batch.id),
+        batchToRecord(batch, fileId),
+      );
     }
   }
 
@@ -101,7 +111,10 @@ export class AtprotoSyncProvider implements RemoteBatchTarget {
    * 受信側 (`EventStore.appendReceivedBatches`, 4d-0) のべき等性が無害化する。
    * 代償は毎回 O(全履歴) の list だが、起動契機は起動時 + `online` + 手動に限られる
    * (§3.4 で subscribe を不採用としたため) ので受容できる。
-   * rkey を時系列ソート可能なキーへ変える案は Jetstream 化と同じ Phase で扱う。
+   *
+   * **Phase 7 で「repo 全体 → 1 ファイル」に絞る** (`v1~<fileId>~…` の rkey に対する
+   * prefix 範囲取得, p7-2)。**既読位置を持たない契約自体は維持する** — 上記 3 つの理由は
+   * 今も有効で、変わるのは 1 回の取得量だけ (設計 §1.4 / §2.2)。この関数は p7-5 で退役する。
    *
    * 返すのは `Batch` ではなく `RemoteBatch` (Batch + fileId)。remote の batch
    * コレクションは repo 全体で 1 つなので、適用先ファイルは受信側で復元できない (§3.1)。
@@ -110,6 +123,7 @@ export class AtprotoSyncProvider implements RemoteBatchTarget {
     const records = await this.batches.list();
 
     let skipped = 0;
+    let malformedRkey = 0;
     const entries: RemoteBatch[] = [];
     for (const r of records) {
       if (!isBatchRecordValue(r.value)) {
@@ -120,7 +134,15 @@ export class AtprotoSyncProvider implements RemoteBatchTarget {
         skipped += 1;
         continue;
       }
-      entries.push(recordToRemoteBatch(rkeyFromUri(r.uri), r.value));
+      // rkey から batch.id を復元する (Phase 7 p7-1)。新形式は第 4 セグメント、
+      // 旧形式 (rkey = batchId) はそのまま。`v1~` で始まるのに割れないものだけ
+      // 復元不能で、これも**数えて警告する**。
+      const batchId = batchIdFromRkey(rkeyFromUri(r.uri));
+      if (batchId === null) {
+        malformedRkey += 1;
+        continue;
+      }
+      entries.push(recordToRemoteBatch(batchId, r.value));
     }
 
     // 決定論的な順序で返す: clock → actor → id (`orderBatches` と同じ規則, 4d-3)
@@ -135,6 +157,12 @@ export class AtprotoSyncProvider implements RemoteBatchTarget {
       console.warn(
         `[atproto] skipped ${skipped} batch record(s): not a valid BatchRecord ` +
           '(missing fileId, or a foreign/corrupt record)',
+      );
+    }
+    if (malformedRkey > 0) {
+      console.warn(
+        `[atproto] skipped ${malformedRkey} batch record(s): rkey starts with ` +
+          "'v1~' but does not parse as v1~<fileId>~<clock>~<batchId>",
       );
     }
 

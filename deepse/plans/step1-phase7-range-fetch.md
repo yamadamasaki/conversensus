@@ -297,7 +297,7 @@ W3d5-7 (PDS が float を拒否して全 push が 400、しかしコンソール
 | スライス | 内容 | 不可逆性 |
 |---|---|---|
 | **p7-0** | **実機 spike**: docker PDS で cursor 意味論を確定する。①合成 cursor が受理される ②`reverse: true` が rkey 昇順 + `rkey > cursor` ③`reverse: false` + `cursor = v1~<fileId>` がそのファイルを飛ばす ④`limit` 上限 ⑤既存レコードの rkey が小文字 hex UUID である (§3.1 の前提)。**否定されたら §3.3 の索引コレクション案へ切替**を判断する | なし (捨てるコード) — **✅ 完了 (2026-07-30): 全 12 項目 PASS, §5.1**  |
-| **p7-1** | rkey 純関数 (`batchRkey` / `parseBatchRkey`) + テスト。`pushRemote` を新 rkey へ切替。**読取は全件のまま**で両形式を許容 (非破壊) | なし |
+| **p7-1** | rkey 純関数 (`batchRkey` / `parseBatchRkey`) + テスト。`pushRemote` を新 rkey へ切替。**読取は全件のまま**で両形式を許容 (非破壊) | なし — **✅ 完了 (2026-07-30)** |
 | **p7-2** | `listByFile` / `pullRemoteForFile` を追加し `receiveRemoteBatches` を載せ替え | なし (旧経路は残存) |
 | **p7-3** | `listFileIds` / `listRemoteFileIds` を追加し `discoverRemoteFiles` を「列挙 → 未知ファイルだけ prefix 取得」へ | なし |
 | **p7-4** | 移行 (§3.4): 1 回だけ全件受信 → 新 rkey で再 push → marker。実測 (件数・所要時間) | **あり** (PDS へ書く) |

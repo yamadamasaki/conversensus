@@ -10,7 +10,7 @@
 
 4c の橋渡し方針は「batch をそのまま PDS の op-log レコードにする (非可逆なし)」。
 この非可逆性のなさが崩れると、同期往復で clock や ops が欠落し projection が壊れる。
-特に **id は rkey として持ちボディに含めない**設計のため、`recordToBatch` が rkey から
+特に **id は rkey として持ちボディに含めない**設計のため、`recordToBatch` が渡された `batchId` から
 id を正しく復元できることが往復の要。
 
 **W3d5-1: sheetId の remote 往復**。daemon 側は W3c2 で `sheet_id` 列を持つが、ATProto
@@ -29,7 +29,7 @@ optional なので、無いレコードは通し (後方互換)、有るなら s
 - **batchToRecord**: id を除き actor/clock/timestamp/ops を載せ、createdAt を timestamp
   から導出すること、ボディに `id` を含めないことを確認。sheetId 無しの batch は record に
   `sheetId` フィールドを付けない / content batch の sheetId は record に載る、の 2 ケース。
-- **recordToBatch**: rkey を id として復元し、`batchToRecord` → `recordToBatch` の往復が
+- **recordToBatch**: 渡された `batchId` を id として復元し、`batchToRecord` → `recordToBatch` の往復が
   元の `Batch` に一致すること (非可逆でない) を確認。content batch の往復で sheetId が保たれる /
   旧データ (sheetId 無しレコード) は sheetId undefined で復元する、の後方互換ケースも固定。
 - **isBatchRecordValue**: 正しい BatchRecord を受理 / null・非オブジェクト・型不一致

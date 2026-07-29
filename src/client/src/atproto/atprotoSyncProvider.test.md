@@ -24,7 +24,8 @@
 - 依存を注入する: `inMemoryBatches` (collections.batches と同形の in-memory 実装、
   `_seed` で他ユーザーの追記を模擬) と `manualScheduler` (手動 tick 可能なスケジューラ)。
   非同期の解決は `flush` (setTimeout 0) で待つ。
-- **push**: batch を rkey=batchId で書く / 同一 id の再 push は上書き (件数不変)。
+- **push**: batch を `v1~<fileId>~<clock>~<batchId>` の rkey で書く (Phase 7 p7-1) /
+  同一 batch の再 push は上書き (件数不変)。
 - **pull**: cursor より後を clock 昇順で返し cursor=最大 clock / 空 cursor は全件 /
   新規ゼロでも cursor が tip まで前進 / 壊れたレコードを飛ばす。
 - **subscribe**: 初回 tick は非配信 (baseline) / baseline 後に seed した新規のみ配信 /
@@ -52,7 +53,7 @@ repo 全体という粒度と噛み合わないため。
 取りこぼす (設計 §1.3)。ではレコード順に基づく cursor へ替えられるかを実コードで確認した
 結果、**ATProto 側に既読位置として使える値が無い**ことが判明した:
 
-- `listRecords` の cursor は **rkey 位置**。本実装の rkey は batchId (ランダム UUID) なので
+- `listRecords` の cursor は **rkey 位置**。当時の rkey は batchId (ランダム UUID) だったので
   順序が時系列にならず、後から書いた batch の UUID が保存済み cursor より小さいと
   永久に取りこぼす。**clock cursor と同じバグの構造**。
 - `indexedAt` は repo の `listRecords` 出力に存在しない (`@atproto/api` の型で確認済。
@@ -91,3 +92,26 @@ baseline になり、**その間に現れた batch を恒久的に落として�
   追記が起きても、以降に現れた batch が確実に配信されることを確認する。cursor 版の
   恒久取りこぼしが再発しないための固定。
 - `unsubscribe` でティックが止まること。
+
+## rkey スキームの切替 (Phase 7 p7-1)
+
+**何が変わったか**: 書込の rkey が `batchId` 単体から `v1~<fileId>~<clock12>~<batchId>` になった
+(組み立て・分解は `batchRkey.ts`、性質のテストは `batchRkey.test.md`)。**ファイル単位の範囲取得は
+rkey の辞書順だけで成立する**ので、この層では「書いた rkey そのもの」と「rkey から id を
+復元できること」を固定する。
+
+**なぜここで固定するか**: `batch.id` はレコードボディに無く **rkey にしか存在しない**。
+rkey の形式と復元が食い違えば、受信した batch が別 id として正典に入り、
+`(file_id, batch_id)` のべき等 dedup が効かなくなる (= 同じ編集が二重に適用される)。
+
+**どのように**: `inMemoryBatches` に 3 つの仕込み口を持たせ、rkey の形を作り分ける。
+
+- `_seed` — 新形式 rkey。既定の経路。
+- `_seedLegacy` — 旧形式 rkey (= batchId 単体)。**p7-1 時点は読取が repo 全件 list のままで
+  新旧が混在する**ので、旧形式からも復元できることを固定する。この寛容さは全件 list を
+  撤去する p7-5 で外す (そのときこのテストも落とす)。
+- `_seedRkey` — 任意の rkey。`v1~` で始まるのに形式を満たさない rkey を仕込み、
+  **id を推測して正典へ入れない**こと (飛ばして数える) を固定する。
+
+`push` 側は `_rkeys()` で書き込まれた rkey を直接 assert する — 件数だけを見ると
+「rkey は違うが件数は同じ」を見逃し、範囲取得が静かに壊れる。

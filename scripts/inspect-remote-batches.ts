@@ -40,6 +40,7 @@ import {
   isBatchRecordValue,
   recordToRemoteBatch,
 } from '../src/client/src/atproto/batchMapper';
+import { batchIdFromRkey } from '../src/client/src/atproto/batchRkey';
 import { NSID, type RemoteBatch } from '../src/client/src/atproto/types';
 
 const DEFAULT_PDS_URL = 'http://localhost:2583';
@@ -245,11 +246,19 @@ async function main(): Promise<void> {
   const remoteBatches: RemoteBatch[] = [];
   const invalid: string[] = [];
   for (const r of records) {
+    const rkey = rkeyFromUri(r.uri);
     if (!isBatchRecordValue(r.value)) {
-      invalid.push(rkeyFromUri(r.uri));
+      invalid.push(rkey);
       continue;
     }
-    remoteBatches.push(recordToRemoteBatch(rkeyFromUri(r.uri), r.value));
+    // batch.id は rkey から復元する (Phase 7 p7-1 で rkey が構造化された)。
+    // 復元できない rkey は壊れた新形式なので invalid と同じ扱いにする。
+    const batchId = batchIdFromRkey(rkey);
+    if (batchId === null) {
+      invalid.push(rkey);
+      continue;
+    }
+    remoteBatches.push(recordToRemoteBatch(batchId, r.value));
   }
   remoteBatches.sort((a, b) => a.batch.clock - b.batch.clock);
   const batches: Batch[] = remoteBatches.map((rb) => rb.batch);
