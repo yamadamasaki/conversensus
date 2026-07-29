@@ -38,7 +38,8 @@ import {
 import { getEventStore } from './eventStoreServer';
 import server from './index';
 import { migrateAllFilesToOplog } from './migrateAllToOplog';
-import { readFile, writeFile } from './storage';
+import { readFile } from './storage';
+import { writeLegacySnapshot } from './testing/legacySnapshot';
 
 const fetch = server.fetch;
 let tmpDir: string;
@@ -102,12 +103,12 @@ function richSnapshot(id: FileId): GraphFile {
  * pre-W3 の既存ファイル (snapshot だけが在り op-log を持たない状態) を置き、
  * デーモン起動時の一括移行 (Phase 6 §3.1) を通す。
  *
- * endpoint を経由せず `writeFile` で直接置くのは、**endpoint 経由では作れない状態**
+ * endpoint を経由せず `writeLegacySnapshot` (テスト専用ヘルパ) で直接置くのは、**endpoint 経由では作れない状態**
  * だから — p6-1 以降 `POST /files` は op-log を作るので「snapshot だけが在る」に
  * ならない。これは実際に移行が要る唯一の状況 (Phase 6 より前に作られたファイル) の再現。
  */
 async function seedLegacySnapshot(file: GraphFile): Promise<void> {
-  await writeFile(file);
+  await writeLegacySnapshot(file);
   await migrateAllFilesToOplog(getEventStore());
 }
 

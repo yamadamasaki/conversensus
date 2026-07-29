@@ -9,7 +9,8 @@ import type {
   NodeId,
   SheetId,
 } from '@conversensus/shared';
-import { deleteFile, listSnapshotIds, readFile, writeFile } from './storage';
+import { deleteFile, listSnapshotIds, readFile } from './storage';
+import { writeLegacySnapshot } from './testing/legacySnapshot';
 
 let tmpDir: string;
 
@@ -47,10 +48,12 @@ afterEach(async () => {
 });
 
 describe('storage', () => {
-  describe('writeFile / readFile', () => {
-    it('書き込んだファイルを読み返せる', async () => {
+  // Phase 6 p6-5a: 書込 (旧 writeFile) は production から消えた。ここで置く snapshot は
+  // 「Phase 6 より前に作られた既存ファイル」= 移行の入力の再現である。
+  describe('readFile', () => {
+    it('既存 snapshot を読み返せる', async () => {
       const data = sampleFile();
-      await writeFile(data);
+      await writeLegacySnapshot(data);
       const result = await readFile(data.id);
       expect(result).toEqual(data);
     });
@@ -73,15 +76,23 @@ describe('storage', () => {
       expect(await listSnapshotIds()).toEqual([]);
     });
 
-    it('書き込んだファイルの id を拡張子なしで返す', async () => {
+    it('既存 snapshot の id を拡張子なしで返す', async () => {
       const data = sampleFile();
-      await writeFile(data);
+      await writeLegacySnapshot(data);
       expect(await listSnapshotIds()).toEqual([data.id]);
     });
 
     it('複数ファイルをすべて列挙する', async () => {
-      await writeFile({ ...sampleFile(), id: 'id-a' as FileId, name: 'A' });
-      await writeFile({ ...sampleFile(), id: 'id-b' as FileId, name: 'B' });
+      await writeLegacySnapshot({
+        ...sampleFile(),
+        id: 'id-a' as FileId,
+        name: 'A',
+      });
+      await writeLegacySnapshot({
+        ...sampleFile(),
+        id: 'id-b' as FileId,
+        name: 'B',
+      });
       expect((await listSnapshotIds()).sort()).toEqual(['id-a', 'id-b']);
     });
   });
@@ -89,7 +100,7 @@ describe('storage', () => {
   describe('deleteFile', () => {
     it('存在するファイルを削除できる', async () => {
       const data = sampleFile();
-      await writeFile(data);
+      await writeLegacySnapshot(data);
       const ok = await deleteFile(data.id);
       expect(ok).toBe(true);
       expect(await readFile(data.id)).toBeNull();

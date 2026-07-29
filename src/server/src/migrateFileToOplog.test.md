@@ -3,7 +3,8 @@
 ## 何を
 
 `migrateFileToOplog` (snapshot → op-log 正典化の 1 ファイル分オーケストレーション) を
-テストする。snapshot (`storage.ts` の JSON) を入力に genesis batch を生成し、`EventStore` の
+テストする。snapshot (`storage.ts` が読む JSON。書込は p6-5a で消えたのでテストは
+`writeLegacySnapshot` ヘルパで置く) を入力に genesis batch を生成し、`EventStore` の
 原子トランザクション (破棄→genesis→marker) を駆動する薄い調停層の分岐を固定する。
 
 > **呼び出し契機の変遷**: W3d-1 では読取 (`GET /files/:id/batches`) が呼ぶ lazy migration

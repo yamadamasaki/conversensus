@@ -213,7 +213,8 @@ Phase 6 限りの使い捨てコードになる。lexicon json も**ファイル
 | **p6-2** | server の一覧・削除 (§3.3, §3.5) — `GET /files` を op-log 単独へ / `EventStore.deleteFile` 1 tx | 無 |
 | **p6-3** | client の snapshot 撤去 (§3.6) — `persistFile` 解体・`loadSnapshot` / dual-read 撤去・export の読取元差し替え + `GET`/`PUT /files/:id` と `READ_FROM_OPLOG` の撤去 (§4.2, §4.3) | 無 |
 | **p6-4** | PDS legacy の**読取**撤去 (§3.8) — 死コード削除 + `loadAtprotoFiles` の一本化 + `sync.ts` の読取関数削除。書込側は旧 branch 経路が使うので p6-5 へ (§4.4) | 無 |
-| **p6-5** | 退役の仕上げ (§3.7) — `storage.ts` 削除・安全弁フラグ削除・`branchState.ts` 削除 + それで消費者を失う `sync.ts` / `cidCache.ts` の削除 (§4.4) | 無 |
+| **p6-5a** | snapshot 書込の撤去 (§4.5) — `POST /files` / import の `writeFile` と `storage.writeFile` を削除。**`storage.ts` 本体は移行と同じ寿命なので残す** | 無 |
+| **p6-5b** | 安全弁の撤去 (§3.7) — `BRANCH_FROM_OPLOG` 削除・`branchState.ts` 退役 + それで消費者を失う `sync.ts` (書込側) / `cidCache.ts` の削除 (§4.4)。**p6-6 の実機 e2e を通してから** (§6.1) | 無 |
 | **p6-6** | 実機 e2e — 単一端末 + PDS ありの 2 端末 (op-log 経路のみで cross-device が成立することの確認) | **有** |
 
 p6-0〜p6-5 は PDS 非依存 (Phase 5 と同じ型)。p6-6 だけ PDS docker を起動する。
@@ -294,6 +295,35 @@ p6-4 の実際の範囲:
 取り込みは op-log (batch コレクション) 単独になった。残る legacy は書込のみで、
 その唯一の消費者は旧 branch 経路である。
 
+### 4.5 【実装中に判明】p6-5 は 2 つに割れる — 書込撤去と安全弁撤去は寿命が違う
+
+p6-5 を「退役の仕上げ」として 1 本にまとめていたが、中身は寿命の異なる 2 つの削除だった。
+
+**(1) 順序の食い違い**: §4 のスライス表は p6-5 → p6-6 だが、§6.1 の緩和策は
+「**p6-6 の実機 e2e を p6-5 の前に**通す」と書いている。安全弁 (`BRANCH_FROM_OPLOG`)
+を e2e より先に落とすと、退行が出たときに旧 branch 経路との切り分けができない。
+→ **安全弁の撤去 (p6-5b) は e2e の後**。§6.1 の緩和策を採る。
+
+**(2) `storage.ts` は今消せない** 🔴: §4.1 は「p6-5 で snapshot 書込と `storage.ts` を
+削除」としていたが、`storage.ts` を消すと `listSnapshotIds` / `readFile` を入力にしている
+**一括移行 (p6-0) と `migrateFileToOplog` も道連れになる**。一方 §3.1 は移行コードを
+「Phase 6 限りの存在で**次リリースで削除できる** (移行済み環境では no-op になる)」と
+書いており、**Phase 6 のリリースには移行が載っている前提**である。ここで消すと:
+
+- 既存 snapshot を持つ環境 (試験リリース済みの VPS など) は移行の機会を一度も得られない
+- `GET /files` は op-log 単独 (p6-2) なので、**既存ファイルが一覧から消える** = 実質のデータ喪失
+
+→ **`storage.ts` の物理削除は移行の退役と同時 (次リリース)**。Phase 6 で落とすのは
+**書込 (`writeFile`) だけ**にする。読取・一覧・削除は移行の入力と残骸の後始末として残る。
+`deleteFile` を残すのも同じ理由 — snapshot を消し損ねると、次回起動の一括移行が
+それを拾って**削除済みファイルを復活させる**。
+
+**p6-5a で落としたもの**: `POST /files` / `POST /files/import` の `writeFile` 呼出と
+`storage.writeFile` 本体。これで受入基準 §5-2 (`*.json` が生成されない) が満たされる。
+テストが移行の入力 (「snapshot だけが在り op-log を持たない」= endpoint 経由では作れない
+状態) を用意する手段は、production の書込口を生かしておくのではなく**テスト専用ヘルパ**
+`src/server/src/testing/legacySnapshot.ts` に分離した。
+
 ---
 
 ## 5. 受入基準
@@ -324,6 +354,12 @@ p6-4 の実際の範囲:
 
 **緩和**: p6-5 (削除) を最終スライスに置き、p6-6 の実機 e2e を **p6-5 の前に**通す。
 つまり「snapshot が生成されない状態で全機能が動く」ことを確認してから物理削除する。
+
+**【p6-5a 時点の実際】** (§4.5): この緩和策は **p6-5b (安全弁 `BRANCH_FROM_OPLOG` の撤去)
+に適用する**。p6-5a で落としたのは書込のみで、既存 snapshot は `DATA_DIR` に残り
+`storage.ts` の読取も生きている — つまり「snapshot が生成されない状態で全機能が動く」を
+**e2e で確認できる状態そのもの**を作ったのが p6-5a である。不可逆になるのは
+`storage.ts` の物理削除 (移行の退役と同時, 次リリース) の時点。
 
 **猶予期間は置かない** 【2026-07-28 ユーザー決定】 — 「書くが読まない」は R2 の二重モデル
 そのもので、Phase 5 で実害が出た構造と同じ。p6-6 の実機 e2e を通してから p6-5 で一気に落とす。

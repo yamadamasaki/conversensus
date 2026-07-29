@@ -2,9 +2,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { FileId, SheetId } from '@conversensus/shared';
 import { projectFile } from '@conversensus/shared';
 import server from './index';
-import { writeFile } from './storage';
+import { listSnapshotIds } from './storage';
+import { writeLegacySnapshot } from './testing/legacySnapshot';
 
 let tmpDir: string;
 const fetch = server.fetch;
@@ -491,7 +493,7 @@ describe('API routes', () => {
     it('snapshot だけを更新しても一覧には反映されない (op-log projection が正)', async () => {
       const created = await (await createFile('op-log の名前')).json();
       // snapshot を直接書き換える (HTTP からは書けなくなった — p6-3 で PUT を撤去)
-      await writeFile({ ...created, name: 'snapshot だけの名前' });
+      await writeLegacySnapshot({ ...created, name: 'snapshot だけの名前' });
 
       const body = await (
         await fetch(new Request('http://localhost/files'))
@@ -543,6 +545,53 @@ describe('API routes', () => {
       );
       const body = await res.json();
       expect(body.name).toBe('無題');
+    });
+  });
+
+  // 受入基準 §5-2 の固定 (Phase 6 p6-5a)。snapshot の書込は production から消えた —
+  // 「読まれないが書かれ続ける」状態こそ R2 の二重モデルそのものなので、
+  // 生成されないことを直接見張る。作成・インポート・編集の 3 経路を通しても
+  // `DATA_DIR` に *.json が 1 つも現れないことを確認する。
+  describe('🔴 snapshot が生成されない (Phase 6 p6-5a)', () => {
+    const snapshotFiles = async () => {
+      const glob = new Bun.Glob('*.json');
+      const names: string[] = [];
+      for await (const name of glob.scan(tmpDir)) names.push(name);
+      return names;
+    };
+
+    it('POST /files は snapshot を作らない', async () => {
+      await createFile('新規');
+      expect(await snapshotFiles()).toEqual([]);
+    });
+
+    it('POST /files/import は snapshot を作らない', async () => {
+      await fetch(
+        new Request('http://localhost/files/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            version: '1',
+            id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+            name: 'インポート',
+            sheets: [
+              {
+                id: 'ffffffff-0000-1111-2222-333333333333',
+                name: 'Sheet 1',
+                nodes: [],
+                edges: [],
+              },
+            ],
+          }),
+        }),
+      );
+      expect(await snapshotFiles()).toEqual([]);
+    });
+
+    it('batch を追記しても snapshot は現れない', async () => {
+      const created = await (await createFile('編集')).json();
+      await postBatches(created.id, [sampleBatch(1)]);
+      expect(await snapshotFiles()).toEqual([]);
     });
   });
 
@@ -650,6 +699,31 @@ describe('API routes', () => {
       expect((await deleteFileReq(oplogId)).status).toBe(204);
       expect(await listFileIds()).toEqual([]);
       expect(await getBatches(oplogId)).toEqual([]);
+    });
+
+    // Phase 6 p6-5a: snapshot 書込を消した後も `storage.deleteFile` を残す根拠。
+    // legacy snapshot を消し損ねると、**次回起動の一括移行がそれを拾って
+    // 削除済みファイルを復活させる** (marker も一緒に消えているので移行対象に戻る)。
+    // 移行の走査対象 (`listSnapshotIds`) から消えることで固定する。
+    it('legacy snapshot を持つファイルを削除すると snapshot も消える (次回起動の移行で復活しない)', async () => {
+      const legacyId = uuid(4242);
+      await writeLegacySnapshot({
+        id: legacyId as FileId,
+        name: '移行前の既存ファイル',
+        sheets: [
+          {
+            id: uuid(4243) as SheetId,
+            name: 'Sheet 1',
+            nodes: [],
+            edges: [],
+          },
+        ],
+      });
+      expect(await listSnapshotIds()).toEqual([legacyId]);
+
+      expect((await deleteFileReq(legacyId)).status).toBe(204);
+
+      expect(await listSnapshotIds()).toEqual([]);
     });
 
     // branch の中身へは branches.branch_file_id からしか辿れない。trunk を消すときに

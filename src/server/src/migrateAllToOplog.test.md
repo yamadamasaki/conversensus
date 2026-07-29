@@ -10,15 +10,18 @@ op-log 正典 (genesis) へ移す処理。
 
 ## なぜテストするか
 
-Phase 6 は最終的に `storage.ts` を物理削除する (p6-5)。その前に**全 snapshot が op-log に
-移っていること**が絶対条件で、漏れた 1 件はそのままユーザーデータの喪失になる。
+Phase 6 は最終的に `storage.ts` を物理削除する (移行の退役と同時, 設計 §4.5)。その前に
+**全 snapshot が op-log に移っていること**が絶対条件で、漏れた 1 件はそのまま
+ユーザーデータの喪失になる — p6-2 以降 `GET /files` は op-log 単独なので、
+移行されなかったファイルは一覧から消える。
 `migrateFileToOplog` (単体の移行) は W3d-1 でテスト済なので、ここで固定すべきは
 **「全件を漏れなく」「何度実行しても安全に」「1 件の失敗で全体を巻き添えにせず」**という
 オーケストレーションの性質に絞る。
 
 ## どのようにテストするか
 
-`DATA_DIR` をテストごとの一時ディレクトリに差し替え、`writeFile` で実際の snapshot JSON を
+`DATA_DIR` をテストごとの一時ディレクトリに差し替え、`writeLegacySnapshot`
+(テスト専用ヘルパ, p6-5a で production の書込が消えたため) で実際の snapshot JSON を
 書いてから実行する (`migrateFileToOplog.test.ts` と同じ流儀)。EventStore は `IN_MEMORY`。
 
 | # | テスト | 何を守るか |

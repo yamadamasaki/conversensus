@@ -6,7 +6,7 @@ import type { FileId, GraphFile, SheetId } from '@conversensus/shared';
 import { EventStore, IN_MEMORY } from './eventStore';
 import { migrateAllFilesToOplog } from './migrateAllToOplog';
 import { W3_SCHEMA_VERSION } from './migrateFileToOplog';
-import { writeFile } from './storage';
+import { writeLegacySnapshot } from './testing/legacySnapshot';
 
 /** 1 シートを持つ最小 snapshot を DATA_DIR に書く */
 async function writeSnapshot(id: FileId, name = 'スナップ'): Promise<void> {
@@ -17,7 +17,7 @@ async function writeSnapshot(id: FileId, name = 'スナップ'): Promise<void> {
       { id: `${id}-sheet` as SheetId, name: 'Sheet 1', nodes: [], edges: [] },
     ],
   };
-  await writeFile(snapshot);
+  await writeLegacySnapshot(snapshot);
 }
 
 let tmpDir: string;

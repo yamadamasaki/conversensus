@@ -2,23 +2,28 @@
 
 ## 何をテストするか
 
-`src/server/src/storage.ts` が提供する snapshot 永続化の4関数:
+`src/server/src/storage.ts` が提供する legacy snapshot への読取アクセス 3 関数:
 
 | 関数 | 責務 |
 |---|---|
-| `writeFile` | GraphFile を JSON として書き込む |
-| `readFile` | ID で JSON を読み込み GraphFile を返す |
+| `readFile` | ID で JSON を読み込み GraphFile を返す (移行の入力) |
 | `listSnapshotIds` | snapshot ファイルの id 一覧を返す (**中身は読まない**) |
-| `deleteFile` | ID のファイルを削除する |
+| `deleteFile` | ID のファイルを削除する (残骸の後始末) |
 
-> **退役予定** (step1 Phase 6, 設計 §2.1-3): このモジュールは op-log 単独化の完了
-> (p6-5) で丸ごと消える。中身を読む一覧 (旧 `listFiles`) は `GET /files` が op-log 単独に
-> なった p6-2 で消費者を失ったため、既に削除した。
+> **退役予定** (step1 Phase 6, 設計 §2.1-3 / §4.5): このモジュールは既存 snapshot を
+> op-log へ移行する仕組み (`migrateAllToOplog` / `migrateFileToOplog`) と**同じ寿命**で、
+> 移行が no-op になった次のリリースで一緒に消える。
+> 撤去済み: 中身を読む一覧 (旧 `listFiles`) は `GET /files` が op-log 単独になった p6-2 で、
+> **書込 (旧 `writeFile`) は p6-5a で** それぞれ消費者を失い削除した。
+> テストが移行の入力を用意するには「snapshot だけが在り op-log を持たない」状態が要るが、
+> それは endpoint 経由では作れないので、テスト専用ヘルパ
+> `testing/legacySnapshot.ts` の `writeLegacySnapshot` で置く。
+> **production の書込口をテストのために生かしておかない**ための分離である。
 
 ## なぜテストするか
 
 - サーバーの唯一のデータ永続化層であり、バグが即データロスに直結する
-- 入出力の対称性 (書いたものを読める) と境界値 (存在しない ID) を保証したい
+- 入出力の対称性 (置いた snapshot を読める) と境界値 (存在しない ID) を保証したい
 - ファイルシステムを直接操作するため、ロジックの正確さが自明でない
 
 ## どのようにテストするか

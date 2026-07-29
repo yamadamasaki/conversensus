@@ -25,7 +25,7 @@ import { cors } from 'hono/cors';
 import { getEventStore } from './eventStoreServer';
 import { migrateAllFilesToOplog } from './migrateAllToOplog';
 import { W3_SCHEMA_VERSION } from './migrateFileToOplog';
-import { deleteFile, writeFile } from './storage';
+import { deleteFile } from './storage';
 
 /**
  * 新規ファイルの op-log を genesis で初期化する (Phase 6 p6-1, 設計 §3.2)。
@@ -117,10 +117,9 @@ app.post('/files', async (c) => {
   // Phase 6 p6-1: op-log を作る。作られた時点で op-log 正典なので読取時の
   // lazy migration は不要になった (§3.2)。
   initializeOplog(id, data);
-  // p6-3 で snapshot の読取経路は全て消えたので、この書込は **write-only** になった
-  // (起動時の一括移行も marker 済のファイルは読まない)。`storage.ts` と一括移行の
-  // 仕組みごと落とす p6-5 まで残す — 設計 §6.1 の「物理削除は実機 e2e の後」。
-  await writeFile(data);
+  // Phase 6 p6-5a: snapshot 書込はここから消えた。p6-3 で読取経路が全て消えて
+  // write-only になっていたもので、これで **新しい snapshot は二度と作られない**
+  // (設計 §5-2)。既存 snapshot の移行と後始末だけが `storage.ts` に残る。
   return c.json(data, HTTP_CREATED);
 });
 
@@ -215,7 +214,7 @@ app.post('/files/import', async (c) => {
   // Phase 6 p6-1: import も op-log を作る (§3.2)。ID 再生成後の `data` をそのまま
   // genesis 入力にするので、応答の GraphFile と op-log の projection は同じ内容になる。
   initializeOplog(data.id, data);
-  await writeFile(data); // POST /files と同じく write-only。p6-5 で落とす
+  // POST /files と同じく snapshot は書かない (p6-5a)
   return c.json(data, HTTP_CREATED);
 });
 

@@ -26,7 +26,7 @@ migration→projection の契約が崩れていないことは別途保証が要
 
 `richSnapshot()` で実運用相当の GraphFile を組む: 2 シート、複数ノード (content/properties)、
 ラベル付きエッジ、ノードレイアウト (x/y/width/height)、エッジルーティング (pathType)。
-`seedLegacySnapshot()` は `writeFile` で snapshot を直接置き、続けて起動時の一括移行
+`seedLegacySnapshot()` は `writeLegacySnapshot` (テスト専用ヘルパ) で snapshot を直接置き、続けて起動時の一括移行
 (`migrateAllFilesToOplog`) を通す。**endpoint を経由しないのは経由では作れない状態だから** —
 Phase 6 p6-1 以降 `POST /files` は op-log を作るので「snapshot だけが在る」状態にならない。
 これは移行が実際に要る唯一の状況 (Phase 6 より前に作られたファイル) の再現である。
