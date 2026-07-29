@@ -343,6 +343,45 @@ p6-5 を「退役の仕上げ」として 1 本にまとめていたが、中身
    (W3d5 critic A2「画面に見えるのは op-log が届いた証拠にならない」の再発防止)
 7. lint / typecheck / test すべて green
 
+### 5.1 【p6-6 実施結果】実機 e2e — 全基準 PASS (2026-07-29)
+
+構成: PDS docker (:2583, alice.test) 共用 / device A = `DATA_DIR=data` daemon :3000 +
+client :5173 / device B = `DATA_DIR=data-b` daemon :3001 + client :5175。
+ローカルは両方まっさらにし、**device A にだけ未移行の legacy snapshot を 1 件仕込んだ**
+(Phase 6 より前に作られたファイルの再現)。PDS の既存レコードは消さず、
+legacy コレクションの**前後差分**で基準 5 を判定した。
+
+| # | 基準 | 結果 | 証拠 |
+|---|---|---|---|
+| 1 | 一括移行 | ✅ | 起動ログ `snapshot 1 件を走査: 1 件を op-log 化 (3.1ms)` → `GET /files` に出現。projection が snapshot と**完全一致** (layout / edgeLayout / properties / description 含む)。2 回目起動は `0 件を op-log 化 / 1 件は移行済` で batch も 3 件のまま |
+| 2 | snapshot 非生成 | ✅ | device B は**ファイル発見・編集をしても `data-b/` に `*.json` が 1 件も無い**。A の仕込み snapshot も編集後に書き換わっていない (中身は `旧ノードA/B` のまま = 書き戻し無し) |
+| 3 | 削除 | ✅ | op-log-only ファイル (受信 materialize された `4e-4 検証`) を B で削除 → 204、一覧から消え、`batches` / `branches` / `commits` / `file_migrations` すべて 0 件 |
+| 4 | export | ✅ | **一度も開いていない**ファイルを A で export → 保存された `.conversensus` が op-log projection と一致 (`version: 4`, 6 ノード) |
+| 5 | PDS に legacy レコード無し | ✅ | 前: file=1 / sheet=1 / node=6 / edge=1 / nodeLayout=6 / edgeLayout=1 → 検証後も**同一**。batch のみ 14 → 21 に増加 |
+| 6 | cross-device | ✅ | 下記 |
+| 7 | lint / typecheck / test | ✅ | 673 tests green (p6-5a 時点) |
+
+**基準 6 の内訳** — op-log 単独で双方向に届き、両端末が同一 projection へ収束した:
+
+- **発見**: ローカルを空にした A・B が、PDS の batch op-log だけから既存ファイルを
+  materialize (`discoverRemoteFiles`)。**p6-4 で `loadAtprotoFiles` を消しているので
+  legacy 一覧経路は存在しない**
+- **A → B**: A が追加したノードが B のローカル op-log に着地 (clock 4,5)
+- **B → A**: B が追加したノードが A に着地 (clock 7,8)。契機はファイルを開いたとき
+- **収束**: 両端末とも batch 7 件・projection fingerprint `7edd53d2d72e68ab` で一致
+- **べき等**: 再受信させても batch 件数・projection ともに不変 (2 回目実行で実判定)
+- **取りこぼし無し**: PDS 上の 7 件がすべて両端末のローカル op-log にある
+- **適用不能 op 0 件**: 全 15 op が projection へ効いた (§1.10 の無言脱落が無い)
+
+🔴 **legacy snapshot 経路が肩代わりしていないことの根拠** (W3d5 critic A2 の再発防止):
+device B の `DATA_DIR` には `*.json` が 1 件も存在せず、**snapshot を読む口
+(`GET /files/:id` / `fetchFileFromAtproto`) は p6-3 / p6-4 でコードごと消えている**。
+したがって B の画面に出た内容は op-log 以外から来ようがない。前回 (W3d5-7) は
+「画面に見えた」が偽の確証だったが、今回は**肩代わりする経路が物理的に存在しない**。
+
+検査コマンド: `scripts/inspect-remote-batches.ts` (PDS 側 4 項目) /
+`scripts/inspect-local-oplog.ts` (ローカル 6 項目、A と B の両方で実行)。
+
 ---
 
 ## 6. リスクと未解決点

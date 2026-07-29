@@ -17,8 +17,10 @@ bun run dev:client   # web クライアント (vite) を :5173 で起動
 
 デーモンのデータはすべて `DATA_DIR` (既定 `data/`) 配下に置かれる. `data/` は `.gitignore` 済みで, ここに何を投入・削除してもリポジトリには影響しない.
 
-- `data/<fileId>.json` — 各ファイルの snapshot (`storage.ts`)
-- `data/events.db*` — 操作ログ (op-log) の SQLite (`eventStore`)
+- `data/events.db*` — 操作ログ (op-log) の SQLite (`eventStore`). **これが唯一の正典**
+- `data/<fileId>.json` — legacy snapshot。**step1 Phase 6 以降は新しく作られない**
+  (p6-5a で書込を撤去)。Phase 6 より前に作られたファイルだけが残っており、
+  デーモン起動時の一括移行で op-log 化される (移行後もファイル自体は残る)
 
 ## 2. テストデータの投入
 
@@ -32,33 +34,33 @@ bun run dev:client   # web クライアント (vite) を :5173 で起動
 
 | メソッド | パス | 用途 |
 |----------|------|------|
-| `POST` | `/files` | 新規ファイル作成 (空シート 1 枚を持つ). body: `{name?, description?, sheet?:{name?}}` |
-| `GET` | `/files` | ファイル一覧 |
-| `GET` | `/files/:id` | snapshot 取得 |
-| `PUT` | `/files/:id` | ファイル全体を上書き保存 (snapshot). body は `GraphFile` 全体 |
-| `DELETE` | `/files/:id` | snapshot 削除 (op-log は残る — §4 参照) |
-| `GET` | `/files/:id/batches` | op-log (batch 列) 取得. **副作用注意, §6** |
+| `POST` | `/files` | 新規ファイル作成 (空シート 1 枚を持つ). body: `{name?, description?, sheet?:{name?}}`. **genesis batch を直接書く** (snapshot は作らない) |
+| `POST` | `/files/import` | ファイルのインポート (ID は再生成される) |
+| `GET` | `/files` | ファイル一覧 (**op-log 単独**) |
+| `DELETE` | `/files/:id` | ファイル削除 (**op-log 正典**: batches / branches / commits / marker を 1 tx で消す) |
+| `GET` | `/files/:id/batches` | op-log (batch 列) 取得 |
+| `POST` | `/files/:id/batches` | op-log への追記 (クライアントの編集経路) |
+| `POST` | `/files/:id/batches/received` | 受信 batch の書き込み口 (marker も立てる) |
+
+> **step1 Phase 6 で撤去された口**: `GET /files/:id` (snapshot 取得) と
+> `PUT /files/:id` (全体保存) は **p6-3 で削除**した (404 になる)。読取は
+> `GET /files/:id/batches` → クライアントの `projectFile`、書込は
+> `POST /files/:id/batches` が唯一の口である。
 
 **ID はすべて UUID でなければならない** (`fileId` / `sheetId` / `nodeId` / `edgeId` は Zod の branded UUID 型で検証される). ノードの座標・大きさは `sheets[].layouts[]` に `{nodeId, x, y, width?, height?}` として持たせる.
 
-以下は「2 ノード + ラベル付きエッジ」を 1 枚のシートに持つファイルを投入する例. `POST` で器を作り, その `id` と最初のシートの `id` を引き継いで `PUT` で中身を流し込む.
+**題材の投入は GUI か import で行う**。`PUT /files/:id` が撤去された (Phase 6 p6-3) ため、
+HTTP から中身を流し込む口は `POST /files/import` だけになった。以下は「2 ノード +
+ラベル付きエッジ」を 1 枚のシートに持つファイルをインポートする例である.
 
 ```shell
 uuid() { uuidgen | tr 'A-F' 'a-f'; }
+FID=$(uuid); S1=$(uuid); N1=$(uuid); N2=$(uuid); E1=$(uuid)
 
-# 1) 器を作り, file_id と sheet_id を取得
-FID=$(curl -s -X POST http://localhost:3000/files \
-  -H 'content-type: application/json' \
-  -d '{"name":"テスト題材"}' | python3 -c "import sys,json;print(json.load(sys.stdin)['id'])")
-S1=$(curl -s http://localhost:3000/files/$FID \
-  | python3 -c "import sys,json;print(json.load(sys.stdin)['sheets'][0]['id'])")
-
-# 2) ノード・エッジ・レイアウトを PUT で流し込む
-N1=$(uuid); N2=$(uuid); E1=$(uuid)
-curl -s -X PUT http://localhost:3000/files/$FID \
+curl -s -X POST http://localhost:3000/files/import \
   -H 'content-type: application/json' \
   -d "{
-    \"id\":\"$FID\", \"name\":\"テスト題材\",
+    \"version\":\"4\", \"id\":\"$FID\", \"name\":\"テスト題材\",
     \"sheets\":[{
       \"id\":\"$S1\", \"name\":\"Sheet 1\",
       \"nodes\":[
@@ -69,49 +71,58 @@ curl -s -X PUT http://localhost:3000/files/$FID \
         {\"nodeId\":\"$N1\",\"x\":100,\"y\":100},
         {\"nodeId\":\"$N2\",\"x\":420,\"y\":220}]
     }]
-  }" -o /dev/null -w 'PUT %{http_code}\n'
+  }" -o /dev/null -w 'IMPORT %{http_code}\n'
 ```
+
+> **ID は再生成される**: import は file / sheet / node / edge の ID をすべて振り直すので、
+> 投入後の実 ID は `GET /files` と `GET /files/:id/batches` で確認する.
+
 
 クライアントを再読み込みすれば, 投入したファイルが一覧に現れる. 複数シートにしたい場合は `sheets` 配列に要素を足す.
 
-> **補足 (操作ログ正典化との関係)**: `POST`+`PUT` で作ったファイルは snapshot だけを持つ「pre-W3 相当」の状態になる. クライアントが最初にそのファイルを開くと, デーモンが snapshot から op-log を自動生成する (lazy migration). つまり **HTTP API で投入した題材は, GUI で開いた瞬間に op-log 正典の形へ移行する**. これは意図した挙動である.
+> **補足 (操作ログ正典化との関係)**: step1 Phase 6 以降、**作成・インポートの時点で
+> op-log (genesis batch) が書かれる**. かつて存在した lazy migration (最初に開いた
+> ときに snapshot から op-log を生成する仕組み) は p6-1 で撤去された — 作られた時点で
+> op-log 正典なので不要になったためである.
+>
+> **「snapshot だけを持つ pre-Phase-6 のファイル」を再現したい**場合は、
+> `data/<uuid>.json` に `GraphFile` の JSON を直接置いてデーモンを起動する.
+> 起動時の一括移行がそれを op-log 化する (ログに `[migration] snapshot N 件を走査...`).
+> HTTP からはこの状態を作れない.
 
-## 3. 読取ソースの切替 (dual-read 安全弁)
+## 3. 読取ソースの切替 (dual-read 安全弁) — **撤去済み**
 
-クライアントの読取ソースは環境変数 `VITE_READ_FROM_OPLOG` で切り替えられる (`src/client/src/config.ts`).
+かつてクライアントの読取ソースは `VITE_READ_FROM_OPLOG` で snapshot 直読へ戻せた.
+**step1 Phase 6 p6-3 でこのフラグは撤去された**. 退避先の snapshot を維持していたのが
+クライアントの書込 (`persistFile`) であり、それを消した時点で snapshot は古くなるため —
+「op-log が読めない」より「1 世代前の内容が正常に見える」方が悪い、という判断である
+(設計 `step1-phase6-w3e-snapshot-retire.md` §4.3).
 
-- 既定 (`true`): op-log を正典として読む (`fetchBatches` → `projectFile`). 失敗時は snapshot へ自動フォールバック.
-- `false`: 従来どおり snapshot を直読する. 退行時に即座に戻せる安全弁.
+読取経路は `GET /files/:id/batches` → `projectFile` の 1 本だけである.
 
-`src/client/.env.local` に `VITE_READ_FROM_OPLOG=false` を書くか, 起動時にインラインで渡す. vite は env 変更の反映に再起動が要る. 既存の :5173 を止めずに比較したいときは, 別ポートで起動するとよい.
-
-```shell
-# snapshot 読取のクライアントを別ポートで起動 (既存 :5173 と併存)
-cd src/client && VITE_READ_FROM_OPLOG=false bunx vite --port 5174 --strictPort
-```
-
-同じファイルを :5173 (op-log 読取) と :5174 (snapshot 直読) で開き比べれば, どちらの経路で描画されているかを確認できる.
+> branch 側の安全弁 `VITE_BRANCH_FROM_OPLOG=false` (旧 PDS レコード複製方式へ戻す)
+> はまだ生きている. こちらは PDS レコードを自分で書いて自分で読む閉じた経路なので
+> 陳腐化しておらず、Phase 6 の最終スライスまで残す (§4.4).
 
 ## 4. クリーンな状態へのリセット
 
-テストセッションの合間に初期状態へ戻すには, snapshot と op-log の両方を消す.
+テストセッションの合間に初期状態へ戻すには, op-log (`events.db`) を消す.
 
 ### 4.1 個別ファイルを消す
 
-`DELETE /files/:id` は **snapshot だけ** を消す. op-log の batch と migration marker (`events.db`) は残るため, 完全に消すには op-log 側も別途クリアする. デーモンは `events.db` を WAL モードで開いているので, 別接続からの削除で干渉しない.
+**`DELETE /files/:id` だけで完全に消える** (step1 Phase 6 p6-2 以降). 削除の正典は op-log 側で,
+batches / branches / commits / migration marker と legacy snapshot を 1 トランザクションで消す.
+かつては snapshot しか消しておらず, op-log が残って同じ id の受信で内容が復活しうる穴があった.
 
 ```shell
 FID=<消したい file_id>
 curl -s -X DELETE http://localhost:3000/files/$FID -o /dev/null -w 'DELETE %{http_code}\n'
-bun -e "
-import { Database } from 'bun:sqlite';
-const db = new Database('data/events.db');
-db.query('DELETE FROM batches WHERE file_id = ?').run('$FID');
-db.query('DELETE FROM file_migrations WHERE file_id = ?').run('$FID');
-db.close();
-"
 curl -s http://localhost:3000/files   # [] になれば一覧から消えている
 ```
+
+> **PDS 上の batch は消えない**. ログイン中の別端末が同じファイルを持っていれば,
+> 次の発見 (`discoverRemoteFiles`) で materialize され直す. ローカルだけを空にしたいなら
+> ログアウトするか, PDS 側のレコードも別途消すこと.
 
 ### 4.2 全部まっさらにする
 
@@ -121,6 +132,9 @@ curl -s http://localhost:3000/files   # [] になれば一覧から消えてい�
 # dev:server を止めてから
 rm -f data/*.json data/events.db*
 ```
+
+`*.json` (legacy snapshot) は Phase 6 以降そもそも作られないので, 通常は `events.db*` を
+消すだけで足りる.
 
 `data/` は gitignore 済みなので, 消してもリポジトリには影響しない. 次回 `dev:server` 起動時に `events.db` は自動的に再作成される.
 
@@ -202,14 +216,18 @@ bun run scripts/inspect-local-oplog.ts --dump    # 全 batch を clock 順に一
 - 環境変数を渡さなかった検査は **未実施として一覧に出る** (黙って PASS にはしない).
 - **基準 2 (べき等) は 2 回実行して比較する**: 1 回目で `--snapshot` に記録 → 再受信させる →
   同じコマンドを再実行. 1 回目は必ず PASS (記録するだけ) なので, 2 回目まで回して初めて判定になる.
-- `DATA_DIR` を渡すと `events.db` の migration marker を直接読む. marker が無いまま受信 batch が
-  あると, 次の読み取りで lazy migration が受信内容を破棄する (設計 §1.8) ため FAIL にする.
+- `DATA_DIR` を渡すと `events.db` の migration marker を直接読む. これは元々「marker が無いまま
+  受信 batch があると, 次の読み取りで lazy migration が受信内容を破棄する」(設計 §1.8) 事故を
+  検出するための検査だった. **lazy migration は Phase 6 p6-1 で撤去された**ので破棄の危険自体は
+  無くなったが, marker は「op-log がこのファイルの正典である」という宣言として残っており,
+  受信経路が marker を立てていることの確認として引き続き有効である.
 
 ## 6. 注意点 (ハマりどころ)
 
-- **`GET /files/:id/batches` は副作用を持つ**. このエンドポイントは読取前に lazy migration を発火させる (snapshot → op-log 生成). 「まだ migration させたくない pre-W3 状態」のファイルを curl で観察する目的でこれを叩くと, その瞬間に migration が走ってしまう. 素の状態を保ちたいファイルには触れないこと. ブラウザに migration を起こさせて挙動を見たい場合は, クライアントで開く方を先にする.
-- **`PUT /files/:id` は op-log を更新しない**. op-log への追記はクライアントの編集経路 (dispatch tap) 経由でのみ起きる. curl の `PUT` は snapshot だけを書き換えるので, op-log と snapshot に意図的な差を作ってフラグ切替の検証に使える (§3).
+- **`GET /files/:id/batches` の副作用は無くなった** (step1 Phase 6 p6-1). かつては読取前に lazy migration を発火させたため「素の pre-W3 状態を保ちたいファイルには触れない」注意が要ったが, 移行は**デーモン起動時に一括で**行われるようになったので, curl で観察しても状態は動かない.
+- **snapshot を書く口はもう無い** (Phase 6 p6-5a). `PUT /files/:id` は撤去済みで, `POST /files` / `POST /files/import` も snapshot を作らない. op-log と snapshot に意図的な差を作る検証 (旧 §3) は成立しない.
 - **`data/` はリポジトリ管理外**. テストデータの投入・削除は自由に行ってよい.
+- **`GET /files` は op-log 単独** (Phase 6 p6-2). ファイルが一覧に出ないときは snapshot ではなく op-log を見ること — 構造 op (`sheet.create`) を持たない孤児 batch だけの file_id は一覧に出ない仕様である.
 
 ## 関連
 
