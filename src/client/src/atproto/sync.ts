@@ -1,5 +1,11 @@
 /**
- * GraphFile / Sheet ↔ ATProto PDS の同期オーケストレーター
+ * GraphFile / Sheet → ATProto PDS の legacy snapshot 書込オーケストレーター
+ *
+ * **Phase 6 p6-4 で読取側 (`fetchFilesFromAtproto` / `fetchFileFromAtproto` /
+ * `fetchSheetsFromAtproto`) は撤去した** — PDS legacy レコードを読む経路は無くなり、
+ * リモートからの取り込みは op-log (batch コレクション) だけになった (設計 §3.8)。
+ * 残る書込側の唯一の呼び出し元は旧 branch 経路 (`BRANCH_FROM_OPLOG=false`) であり、
+ * その安全弁を落とす p6-5 でこのファイルごと退役する (設計 §3.7)。
  *
  * 書き込み順序 (strongRef の依存関係に従う):
  *   1. sheet レコード       → sheetRef 取得
@@ -9,18 +15,15 @@
  *   5. edgeLayout (並列、edgeRef が必要)
  */
 
-import type { GraphFile, GraphFileListItem, Sheet } from '@conversensus/shared';
+import type { GraphFile, Sheet } from '@conversensus/shared';
 import { cacheResult, getCreatedAt } from './cidCache';
 import {
   edgeLayouts,
   edges,
   files,
-  idFromRkey,
   makeRkey,
   nodeLayouts,
   nodes,
-  prefixFromRkey,
-  rkeyFromUri,
   sheets,
   TRUNK_PREFIX,
 } from './collections';
@@ -30,23 +33,9 @@ import {
   fileToRecord,
   nodeLayoutToRecord,
   nodeToRecord,
-  recordToEdge,
-  recordToEdgeLayout,
-  recordToFileMeta,
-  recordToNode,
-  recordToNodeLayout,
-  recordToSheetMeta,
   sheetToRecord,
 } from './mapper';
-import type {
-  EdgeLayoutRecord,
-  EdgeRecord,
-  FileRecord,
-  NodeLayoutRecord,
-  NodeRecord,
-  SheetRecord,
-  StrongRef,
-} from './types';
+import type { StrongRef } from './types';
 import { NSID } from './types';
 
 // --- 書き込み ---
@@ -181,188 +170,4 @@ export async function syncFileToAtproto(file: GraphFile): Promise<void> {
   for (const sheet of file.sheets) {
     await syncSheetToAtproto(sheet, fileRef);
   }
-}
-
-// --- 読み込み ---
-
-export async function fetchSheetsFromAtproto(): Promise<Sheet[]> {
-  // 全コレクションを並列取得
-  const [
-    sheetRecords,
-    nodeRecords,
-    edgeRecords,
-    nodeLayoutRecords,
-    edgeLayoutRecords,
-  ] = await Promise.all([
-    sheets.list(),
-    nodes.list(),
-    edges.list(),
-    nodeLayouts.list(),
-    edgeLayouts.list(),
-  ]);
-
-  return sheetRecords.map((sheetEntry) => {
-    const sheetRkey = rkeyFromUri(sheetEntry.uri);
-    const sheetRecord = sheetEntry.value as SheetRecord;
-    const sheetMeta = recordToSheetMeta(sheetRkey, sheetRecord);
-
-    // trunk レコードのみ抽出 (branch レコードを除外)
-    const sheetNodeEntries = nodeRecords.filter(
-      (r) =>
-        prefixFromRkey(rkeyFromUri(r.uri)) === TRUNK_PREFIX &&
-        rkeyFromUri((r.value as NodeRecord).sheet.uri) === sheetRkey,
-    );
-    const sheetEdgeEntries = edgeRecords.filter(
-      (r) =>
-        prefixFromRkey(rkeyFromUri(r.uri)) === TRUNK_PREFIX &&
-        rkeyFromUri((r.value as EdgeRecord).sheet.uri) === sheetRkey,
-    );
-
-    // rkey から nodeId/edgeId を抽出 (trunk_ プレフィックスを除去)
-    const sheetNodes = sheetNodeEntries.map((r) =>
-      recordToNode(idFromRkey(rkeyFromUri(r.uri)), r.value as NodeRecord),
-    );
-    const sheetEdges = sheetEdgeEntries.map((r) =>
-      recordToEdge(idFromRkey(rkeyFromUri(r.uri)), r.value as EdgeRecord),
-    );
-
-    // nodeLayout: trunk prefix + nodeId で照合
-    const sheetNodeUriSet = new Set(sheetNodeEntries.map((r) => r.uri));
-    const sheetLayouts = nodeLayoutRecords
-      .filter(
-        (r) =>
-          prefixFromRkey(rkeyFromUri(r.uri)) === TRUNK_PREFIX &&
-          sheetNodeUriSet.has((r.value as NodeLayoutRecord).node.uri),
-      )
-      .map((r) =>
-        recordToNodeLayout(
-          idFromRkey(rkeyFromUri(r.uri)),
-          r.value as NodeLayoutRecord,
-        ),
-      );
-
-    // edgeLayout: trunk prefix + edgeId で照合
-    const sheetEdgeUriSet = new Set(sheetEdgeEntries.map((r) => r.uri));
-    const sheetEdgeLayouts = edgeLayoutRecords
-      .filter(
-        (r) =>
-          prefixFromRkey(rkeyFromUri(r.uri)) === TRUNK_PREFIX &&
-          sheetEdgeUriSet.has((r.value as EdgeLayoutRecord).edge.uri),
-      )
-      .map((r) =>
-        recordToEdgeLayout(
-          idFromRkey(rkeyFromUri(r.uri)),
-          r.value as EdgeLayoutRecord,
-        ),
-      );
-
-    return {
-      ...sheetMeta,
-      nodes: sheetNodes,
-      edges: sheetEdges,
-      layouts: sheetLayouts.length > 0 ? sheetLayouts : undefined,
-      edgeLayouts: sheetEdgeLayouts.length > 0 ? sheetEdgeLayouts : undefined,
-    };
-  });
-}
-
-/** ATProto の file レコード一覧を取得して GraphFileListItem[] として返す */
-export async function fetchFilesFromAtproto(): Promise<GraphFileListItem[]> {
-  const fileRecords = await files.list();
-  return fileRecords.map((entry) =>
-    recordToFileMeta(rkeyFromUri(entry.uri), entry.value as FileRecord),
-  );
-}
-
-/**
- * ATProto から特定ファイルを取得して GraphFile として返す
- * シートは sheet.file 参照で照合する (file 参照がないシートは対象外)
- */
-export async function fetchFileFromAtproto(fileId: string): Promise<GraphFile> {
-  const [
-    fileEntry,
-    sheetRecords,
-    nodeRecords,
-    edgeRecords,
-    nodeLayoutRecords,
-    edgeLayoutRecords,
-  ] = await Promise.all([
-    files.get(fileId),
-    sheets.list(),
-    nodes.list(),
-    edges.list(),
-    nodeLayouts.list(),
-    edgeLayouts.list(),
-  ]);
-
-  const fileMeta = recordToFileMeta(fileId, fileEntry.value as FileRecord);
-
-  // このファイルに属するシートだけ抽出 (sheet.file の rkey = fileId)
-  const fileSheets = sheetRecords.filter((entry) => {
-    const rec = entry.value as SheetRecord;
-    return rec.file !== undefined && rkeyFromUri(rec.file.uri) === fileId;
-  });
-
-  const sheetList: Sheet[] = fileSheets.map((sheetEntry) => {
-    const sheetRkey = rkeyFromUri(sheetEntry.uri);
-    const sheetRecord = sheetEntry.value as SheetRecord;
-    const sheetMeta = recordToSheetMeta(sheetRkey, sheetRecord);
-
-    // trunk レコードのみ抽出 (branch レコードを除外)
-    const sheetNodeEntries = nodeRecords.filter(
-      (r) =>
-        prefixFromRkey(rkeyFromUri(r.uri)) === TRUNK_PREFIX &&
-        rkeyFromUri((r.value as NodeRecord).sheet.uri) === sheetRkey,
-    );
-    const sheetEdgeEntries = edgeRecords.filter(
-      (r) =>
-        prefixFromRkey(rkeyFromUri(r.uri)) === TRUNK_PREFIX &&
-        rkeyFromUri((r.value as EdgeRecord).sheet.uri) === sheetRkey,
-    );
-
-    const sheetNodes = sheetNodeEntries.map((r) =>
-      recordToNode(idFromRkey(rkeyFromUri(r.uri)), r.value as NodeRecord),
-    );
-    const sheetEdges = sheetEdgeEntries.map((r) =>
-      recordToEdge(idFromRkey(rkeyFromUri(r.uri)), r.value as EdgeRecord),
-    );
-
-    const sheetNodeUriSet = new Set(sheetNodeEntries.map((r) => r.uri));
-    const sheetLayouts = nodeLayoutRecords
-      .filter(
-        (r) =>
-          prefixFromRkey(rkeyFromUri(r.uri)) === TRUNK_PREFIX &&
-          sheetNodeUriSet.has((r.value as NodeLayoutRecord).node.uri),
-      )
-      .map((r) =>
-        recordToNodeLayout(
-          idFromRkey(rkeyFromUri(r.uri)),
-          r.value as NodeLayoutRecord,
-        ),
-      );
-
-    const sheetEdgeUriSet = new Set(sheetEdgeEntries.map((r) => r.uri));
-    const sheetEdgeLayouts = edgeLayoutRecords
-      .filter(
-        (r) =>
-          prefixFromRkey(rkeyFromUri(r.uri)) === TRUNK_PREFIX &&
-          sheetEdgeUriSet.has((r.value as EdgeLayoutRecord).edge.uri),
-      )
-      .map((r) =>
-        recordToEdgeLayout(
-          idFromRkey(rkeyFromUri(r.uri)),
-          r.value as EdgeLayoutRecord,
-        ),
-      );
-
-    return {
-      ...sheetMeta,
-      nodes: sheetNodes,
-      edges: sheetEdges,
-      layouts: sheetLayouts.length > 0 ? sheetLayouts : undefined,
-      edgeLayouts: sheetEdgeLayouts.length > 0 ? sheetEdgeLayouts : undefined,
-    };
-  });
-
-  return { ...fileMeta, sheets: sheetList };
 }

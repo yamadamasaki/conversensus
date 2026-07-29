@@ -94,8 +94,6 @@ export function createInMemoryFileSheetOpsDeps(): FileSheetOpsDeps & {
     atprotoFilesDelete: async (_id: string) => {
       // no-op in tests
     },
-
-    fetchFilesFromAtproto: async () => [],
   };
 
   return deps;

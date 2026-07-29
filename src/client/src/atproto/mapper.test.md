@@ -17,3 +17,13 @@
 - `width/height` の `string` 型 ("120") が `integer` に変換されることを確認
 - `parentId` ↔ `parent.uri` の変換が正しく動くことを確認
 - `properties` が省略された場合に undefined になることを確認
+
+## 対象範囲の変遷
+
+- **step1 Phase 6 p6-4**: `recordToSheetMeta` / `recordToFileMeta` のテストを削除した。
+  この 2 関数は PDS legacy レコードの**読取**専用で、唯一の消費者だった
+  `sync.ts` の `fetchSheetsFromAtproto` / `fetchFilesFromAtproto` /
+  `fetchFileFromAtproto` を撤去した時点で消費者 0 になったため、関数ごと削除した
+  (設計 `step1-phase6-w3e-snapshot-retire.md` §3.8)。
+  file/sheet の**書込側** (`fileToRecord` / `sheetToRecord`) は旧 branch 経路
+  (`BRANCH_FROM_OPLOG=false`) が使っているのでテストごと残る — p6-5 で退役する。

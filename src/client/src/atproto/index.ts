@@ -52,19 +52,7 @@ export {
   sheets,
   TRUNK_PREFIX,
 } from './collections';
-export {
-  initCidCacheFromPds,
-  POLL_INTERVAL_MS,
-  startPolling,
-  stopPolling,
-} from './poller';
-export {
-  fetchFileFromAtproto,
-  fetchFilesFromAtproto,
-  fetchSheetsFromAtproto,
-  syncFileToAtproto,
-  syncSheetToAtproto,
-} from './sync';
+export { syncFileToAtproto, syncSheetToAtproto } from './sync';
 export type {
   BatchRecord,
   BranchRecord,
@@ -75,7 +63,6 @@ export type {
   NodeLayoutRecord,
   NodeRecord,
   RecordResult,
-  RemoteChange,
   SheetRecord,
   StrongRef,
 } from './types';

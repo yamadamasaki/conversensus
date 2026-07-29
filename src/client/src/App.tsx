@@ -178,13 +178,9 @@ export default function App() {
     branchOps.resetBranchState,
   ]);
 
-  // ATProto セッション確立後にファイル一覧を同期
-  const { loadAtprotoFiles } = fileOps;
-  useEffect(() => {
-    if (atprotoSession) {
-      loadAtprotoFiles();
-    }
-  }, [atprotoSession, loadAtprotoFiles]);
+  // Phase 6 p6-4: セッション確立後の PDS legacy file レコード同期 (`loadAtprotoFiles`)
+  // は撤去した。リモートのファイル発見は `useFileSheetOperations` 内の
+  // `discoverRemoteFiles` (op-log 経路) に一本化されている (設計 §3.8)。
 
   // Save timer cleanup
   useEffect(() => {

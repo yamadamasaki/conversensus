@@ -1,10 +1,13 @@
 import type { ISODateString, Rkey } from '@conversensus/shared';
 
 /**
- * CID キャッシュ: PDS 上の各レコードの最終確認済み CID を追跡する。
- * - 書き込み時 (syncSheetToAtproto) → setCid で更新
- * - ログイン時 (initCidCacheFromPds) → PDS の現在状態で初期化
- * - ポーリング時 (poller.ts) → 新 CID と比較してリモート変更を検出
+ * CID キャッシュ: PDS legacy レコードの createdAt を追跡する。
+ *
+ * 元はリモート変更のポーリング検出 (CID 比較) のための仕組みだったが、
+ * **Phase 6 p6-4 で poller.ts を削除した**ため、残る役目は
+ * 「同じデータを再 sync しても createdAt が動かない = CID が変わらない」保証だけ
+ * (`sync.ts` の書込側が `getCreatedAt` で参照する)。
+ * その sync.ts が退役する p6-5 で、このファイルも消える (設計 §3.8)。
  */
 
 type CacheEntry = { cid: string; createdAt?: ISODateString };
@@ -14,7 +17,7 @@ function key(collection: string, rkey: Rkey): string {
   return `${collection}/${rkey}`;
 }
 
-export function setCid(
+function setCid(
   collection: string,
   rkey: Rkey,
   cid: string,
@@ -26,10 +29,6 @@ export function setCid(
     // 一度キャッシュされた createdAt は変えない (CID 安定性のため)
     createdAt: existing?.createdAt ?? createdAt,
   });
-}
-
-export function getCid(collection: string, rkey: Rkey): string | undefined {
-  return _cache.get(key(collection, rkey))?.cid;
 }
 
 /** PDS から読んだ createdAt を返す。なければ undefined */
@@ -51,8 +50,4 @@ export function cacheResult(
   const collection = parts[3];
   const rkey = parts[4];
   if (collection && rkey) setCid(collection, rkey, cid, createdAt);
-}
-
-export function clearCache(): void {
-  _cache.clear();
 }

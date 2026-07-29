@@ -55,7 +55,7 @@ W3d (trunk 読取) / W3d5 (送信) / Phase 4d・4e (受信) / Phase 5 (branch) �
 | `atproto/sync.ts` `syncFileToAtproto` / `syncSheetToAtproto` | **生存** (`persistFile` と `useBranchOperations:524` から呼ばれる) |
 | 同 `fetchFilesFromAtproto` / `fetchFileFromAtproto` / `fetchSheetsFromAtproto` | **生存** (`loadAtprotoFiles` / `loadSnapshot`) |
 | `atproto/poller.ts` (`startPolling` / `RemoteChange`) | 🔵 **死コード** — production 消費者 0 件 |
-| `atproto/cidCache.ts` (`getCid`/`setCid`/`initCidCacheFromPds`) | 🔵 **死コード** — 消費者は `poller.ts` だけ |
+| `atproto/cidCache.ts` (`getCid`/`setCid`/`initCidCacheFromPds`) | 🔵 **死コード** — 消費者は `poller.ts` だけ ⚠️ **誤り** (p6-4 で判明): `sync.ts` の書込側も `cacheResult`/`getCreatedAt` を使う (§4.4) |
 | `atproto/branchState.ts` | `BRANCH_FROM_OPLOG=false` のときだけ生きる (Phase 5 の安全弁) |
 
 > 🔵 **発見**: ポーリングによるリモート変更検出とコンフリクト通知は、op-log 受信
@@ -188,8 +188,9 @@ snapshot へ書かない」というガードは、書込先が消えれば不�
 
 | 対象 | 方針 |
 |---|---|
-| `poller.ts` / `cidCache.ts` / `RemoteChange` | 死コード。**削除するだけ** (§1.2 で消費者 0 を確認済) |
-| `syncFileToAtproto` / `syncSheetToAtproto` | 呼び出し元 (`persistFile` §3.6 / `useBranchOperations:524`) ごと消える |
+| `poller.ts` / `RemoteChange` | 死コード。**削除するだけ** (§1.2 で消費者 0 を確認済) |
+| `cidCache.ts` | ⚠️ 消費者は poller だけではなかった (§4.4)。p6-4 では poller 専用の口 (`getCid` / `clearCache` / `setCid` の export) のみ削除し、ファイルは p6-5 まで残る |
+| `syncFileToAtproto` / `syncSheetToAtproto` | 呼び出し元 (`persistFile` §3.6 / `useBranchOperations:524`) ごと消える。ただし後者は `BRANCH_FROM_OPLOG=false` の旧 branch 経路にあるため **消えるのは p6-5** (§4.4) |
 | `fetchFilesFromAtproto` → `loadAtprotoFiles` | **`discoverRemoteFiles` (4e-2b) と機能重複**。op-log 側へ一本化して削除 |
 | `fetchFileFromAtproto` → `loadSnapshot` | dual-read フォールバックごと消える (§3.6, §3.7) |
 | `collections.ts` の file/sheet/node/edge/layout | 上記が消えると batch コレクション以外は参照されなくなる |
@@ -211,8 +212,8 @@ Phase 6 限りの使い捨てコードになる。lexicon json も**ファイル
 | **p6-1** | genesis 直書き (§3.2) — `POST /files` / `POST /files/import` を op-log へ。**`migrateFileToOplog.ts` と lazy migration 撤去を同一スライスで**行う (§3.2 の順序制約) | 無 |
 | **p6-2** | server の一覧・削除 (§3.3, §3.5) — `GET /files` を op-log 単独へ / `EventStore.deleteFile` 1 tx | 無 |
 | **p6-3** | client の snapshot 撤去 (§3.6) — `persistFile` 解体・`loadSnapshot` / dual-read 撤去・export の読取元差し替え + `GET`/`PUT /files/:id` と `READ_FROM_OPLOG` の撤去 (§4.2, §4.3) | 無 |
-| **p6-4** | PDS legacy 撤去 (§3.8) — 死コード削除 + `loadAtprotoFiles` の一本化 + `sync.ts` の legacy 関数削除 | 無 |
-| **p6-5** | 退役の仕上げ (§3.7) — `storage.ts` 削除・安全弁フラグ削除・`branchState.ts` 削除 | 無 |
+| **p6-4** | PDS legacy の**読取**撤去 (§3.8) — 死コード削除 + `loadAtprotoFiles` の一本化 + `sync.ts` の読取関数削除。書込側は旧 branch 経路が使うので p6-5 へ (§4.4) | 無 |
+| **p6-5** | 退役の仕上げ (§3.7) — `storage.ts` 削除・安全弁フラグ削除・`branchState.ts` 削除 + それで消費者を失う `sync.ts` / `cidCache.ts` の削除 (§4.4) | 無 |
 | **p6-6** | 実機 e2e — 単一端末 + PDS ありの 2 端末 (op-log 経路のみで cross-device が成立することの確認) | **有** |
 
 p6-0〜p6-5 は PDS 非依存 (Phase 5 と同じ型)。p6-6 だけ PDS docker を起動する。
@@ -261,6 +262,37 @@ p6-3 で役目を終える。**退避先の snapshot を維持しているのは
 **この間 snapshot は「書かれるが読まれる箇所が減っていく」状態**になるが、§6.1 で退けた
 「1 リリース分の猶予」とは別物である — 猶予はリリースを跨いで二重モデルを残す話で、
 こちらは Phase 6 内で閉じる撤去順序の問題。p6-5 の完了時点で二重モデルは消える。
+
+### 4.4 【実装中に判明】p6-4 で消せるのは「読取側」まで — 書込側は p6-5
+
+§3.8 は PDS legacy 撤去を「その大半が死コード削除」と見積もっていたが、実コードを
+当たると 2 点ずれていた:
+
+| §1.2 / §3.8 の記述 | 実際 |
+|---|---|
+| `cidCache.ts` の消費者は `poller.ts` だけ | `sync.ts` の**書込側**が `cacheResult` / `getCreatedAt` を使っている (同じデータを再 sync しても `createdAt` が動かない = CID が変わらないことの保証) |
+| `syncFileToAtproto` は呼び出し元ごと消える | 最後の呼び出し元 `useBranchOperations:524` は `BRANCH_FROM_OPLOG=false` の旧 branch 経路にあり、このフラグの撤去は §3.7 で **p6-5 (実機 e2e 後)** と決めている |
+
+**判断**: §3.7 の順序 (「安全弁は実機 e2e で退行が無いことを確認してから落とす」) を優先し、
+p6-4 は**消費者が本当にゼロのものだけ**を落とす。`READ_FROM_OPLOG` を前倒しした §4.3 とは
+逆の結論になるが、理由は一貫している — **安全弁が生きているかどうか**である。
+`READ_FROM_OPLOG` は退避先 (snapshot) の更新が止まった時点で「1 世代前を正常に見せる」
+危険物になったので前倒しで消した。`BRANCH_FROM_OPLOG` の旧 branch 経路は PDS レコードを
+**自分で書いて自分で読む**閉じた経路 (`syncFileToAtproto(activeFile)` は server snapshot を
+参照しない) なので、p6-3 の撤去による陳腐化を受けていない = 安全弁として今も成立している。
+
+p6-4 の実際の範囲:
+
+| 落としたもの | 残したもの (p6-5 送り) |
+|---|---|
+| `poller.ts` 全体 / `RemoteChange` 型 | `cidCache.ts` (`cacheResult` / `getCreatedAt` のみ) |
+| `sync.ts` の読取半分 (`fetchSheetsFromAtproto` / `fetchFilesFromAtproto` / `fetchFileFromAtproto`) | `sync.ts` の書込半分 (`syncFileToAtproto` / `syncSheetToAtproto`) |
+| `mapper.ts` の `recordToSheetMeta` / `recordToFileMeta` (読取専用で消費者 0 に) | `fileToRecord` / `sheetToRecord` など書込側 mapper |
+| `loadAtprotoFiles` と App の呼び出し effect、`FileSheetOpsDeps.fetchFilesFromAtproto` | `atprotoFilesDelete` (legacy file レコードの後始末) |
+
+**結果として「PDS legacy レコードを読む経路」は p6-4 で完全に消えた** — リモートからの
+取り込みは op-log (batch コレクション) 単独になった。残る legacy は書込のみで、
+その唯一の消費者は旧 branch 経路である。
 
 ---
 

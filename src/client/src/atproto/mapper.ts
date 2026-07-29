@@ -9,7 +9,6 @@
 
 import type {
   EdgeLayout,
-  FileId,
   GraphEdge,
   GraphFile,
   GraphNode,
@@ -17,12 +16,7 @@ import type {
   Rkey,
   Sheet,
 } from '@conversensus/shared';
-import {
-  EdgeIdSchema,
-  FileIdSchema,
-  NodeIdSchema,
-  SheetIdSchema,
-} from '@conversensus/shared';
+import { EdgeIdSchema, NodeIdSchema } from '@conversensus/shared';
 import { idFromRkey, rkeyFromUri } from './collections';
 import type {
   EdgeLayoutRecord,
@@ -219,32 +213,6 @@ export function recordToEdgeLayout(
     }),
     ...(record.labelOffsetY !== undefined && {
       labelOffsetY: record.labelOffsetY,
-    }),
-  };
-}
-
-export function recordToSheetMeta(
-  rkey: Rkey,
-  record: SheetRecord,
-): Pick<Sheet, 'id' | 'name' | 'description'> {
-  return {
-    id: SheetIdSchema.parse(rkey),
-    name: record.name,
-    ...(record.description !== undefined && {
-      description: record.description,
-    }),
-  };
-}
-
-export function recordToFileMeta(
-  rkey: Rkey,
-  record: FileRecord,
-): Pick<GraphFile, 'id' | 'name' | 'description'> & { id: FileId } {
-  return {
-    id: FileIdSchema.parse(rkey),
-    name: record.name,
-    ...(record.description !== undefined && {
-      description: record.description,
     }),
   };
 }

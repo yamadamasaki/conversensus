@@ -4,7 +4,6 @@ import type {
   Did,
   FileId,
   ISODateString,
-  Rkey,
 } from '@conversensus/shared';
 
 // ATProto strongRef: uri (AT-URI) + cid (content hash)
@@ -91,15 +90,6 @@ export type EdgeLayoutRecord = {
 };
 
 export type RecordResult = { uri: AtUri; cid: string };
-
-/** ポーリングで検出されたリモート変更 */
-export type RemoteChange = {
-  collection: string; // NSID (例: "app.conversensus.graph.node")
-  rkey: Rkey; // レコードキー (例: nodeId)
-  cid: string; // 新しい CID
-  value: unknown; // PDS 上の最新レコード値
-  changeType: 'add' | 'update'; // 新規追加 or 既存変更
-};
 
 export type BranchRecord = {
   $type: typeof NSID.branch;

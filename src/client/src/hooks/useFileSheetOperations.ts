@@ -17,7 +17,7 @@ import {
   pushReceivedBatches,
   removeFile,
 } from '../api';
-import { files as atprotoFilesColl, fetchFilesFromAtproto } from '../atproto';
+import { files as atprotoFilesColl } from '../atproto';
 import type { RemoteSyncQueue } from '../atproto/remoteSyncQueue';
 import type { GraphEvent } from '../events/GraphEvent';
 import { makeEventBase } from '../events/GraphEvent';
@@ -47,7 +47,6 @@ export interface FileSheetOpsDeps {
   pushReceivedBatches: typeof pushReceivedBatches;
   removeFile: typeof removeFile;
   atprotoFilesDelete: (id: string) => Promise<void>;
-  fetchFilesFromAtproto: typeof fetchFilesFromAtproto;
 }
 
 export const defaultFileSheetOpsDeps: FileSheetOpsDeps = {
@@ -59,7 +58,6 @@ export const defaultFileSheetOpsDeps: FileSheetOpsDeps = {
   pushReceivedBatches,
   removeFile,
   atprotoFilesDelete: (id: string) => atprotoFilesColl.delete(id),
-  fetchFilesFromAtproto,
 };
 
 interface UseFileSheetOperationsParams {
@@ -454,30 +452,19 @@ export function useFileSheetOperations({
     [activeFile, deps, loadFile],
   );
 
-  const loadAtprotoFiles = useCallback(async () => {
-    try {
-      const atprotoFiles = await deps.fetchFilesFromAtproto();
-      setFiles((local) => {
-        const localIds = new Set(local.map((f) => f.id));
-        const newFromAtproto = atprotoFiles.filter((f) => !localIds.has(f.id));
-        const updated = local.map(
-          (f) => atprotoFiles.find((a) => a.id === f.id) ?? f,
-        );
-        return [...updated, ...newFromAtproto];
-      });
-    } catch {
-      // ATProto 未設定時はサイレントにスキップ
-    }
-  }, [deps]);
-
   // 初期ファイル読み込み
   useEffect(() => {
     deps.fetchFiles().then(setFiles).catch(console.error);
   }, [deps]);
 
   // 未知ファイルの発見と materialize (Phase 4e-2b, 4e 設計 §3.2b)。
+  // **リモートのファイル一覧を得る唯一の経路** (Phase 6 p6-4, 設計 §3.8)。以前は
+  // `loadAtprotoFiles` (PDS の legacy file レコード一覧) が並走していたが、あちらは
+  // snapshot 由来のメタデータしか持たず、op-log で作られたファイルは載らない。
   // remote (repo 全体) を走査し、ローカル正典に無いファイルの batch 群を marker 経路へ
   // 書く。契機は受信 (a) と同じ「起動時 + online + 手動は今すぐ同期に相乗り予定」(§3.4)。
+  // `remoteQueue` はログイン中のみ非 null なので、撤去した `loadAtprotoFiles` の契機
+  // (セッション確立時) もこの effect の再実行が引き取っている。
   // 発見したら一覧を読み直す — GET /files が op-log との和集合 (4e-2a) なので、
   // materialize されたファイルはこれだけで Sidebar に現れる。
   useEffect(() => {
@@ -528,7 +515,6 @@ export function useFileSheetOperations({
     handleDeleteSheet,
     handleImportFile,
     handleExportFile,
-    loadAtprotoFiles,
     syncRecord,
     // trunk の Lamport 発番器 (p5-4)。merge が branch batches を trunk へ再スタンプ
     // するときに使う — 発番器を分けると同 (clock, actor) の batch が生まれる。
