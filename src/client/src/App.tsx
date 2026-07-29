@@ -1,20 +1,20 @@
-import type { GraphFile, Sheet, SheetId } from '@conversensus/shared';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { AlertDialog } from './AlertDialog';
-import { AtprotoLoginDialog } from './AtprotoLoginDialog';
 import {
   BRANCH_STATUS,
-  sheets,
-  syncBranchSheetToAtproto,
-  TRUNK_PREFIX,
-} from './atproto';
+  type GraphFile,
+  type Sheet,
+  type SheetId,
+} from '@conversensus/shared';
+import { useCallback, useRef, useState } from 'react';
+import { AlertDialog } from './AlertDialog';
+import { AtprotoLoginDialog } from './AtprotoLoginDialog';
+import { TRUNK_PREFIX } from './atproto';
 import { CommitDialog } from './CommitDialog';
 import { ConfirmDialog } from './ConfirmDialog';
 import { makeEventBase } from './events/GraphEvent';
 import { GraphEditor } from './GraphEditor';
 import { useActor } from './hooks/useActor';
 import { useAtprotoSession } from './hooks/useAtprotoSession';
-import { isBranchMeta, useBranchOperations } from './hooks/useBranchOperations';
+import { useBranchOperations } from './hooks/useBranchOperations';
 import type { UndoState } from './hooks/useEventStore';
 import { useFileSheetOperations } from './hooks/useFileSheetOperations';
 import { useRemoteSyncQueue } from './hooks/useRemoteSyncQueue';
@@ -22,8 +22,6 @@ import { InputDialog } from './InputDialog';
 import { FLOATING_UI_Z_INDEX } from './SettingsPopup';
 import { Sidebar } from './Sidebar';
 import { generateId } from './uuid';
-
-const AUTOSAVE_DELAY = 1000; // ms
 
 export default function App() {
   // Dialog state (UI only)
@@ -40,7 +38,6 @@ export default function App() {
     resolve: () => void;
   } | null>(null);
 
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const undoStateMapRef = useRef<Map<string, UndoState>>(new Map());
 
   // ATProto セッション
@@ -96,41 +93,15 @@ export default function App() {
 
   // Cross-domain wired callbacks
   //
-  // Phase 6 p6-3: **trunk の autosave は消えた**。content の編集は op-log tap
-  // (GraphEditor → syncRecord) が編集ごとに書いており、debounce して snapshot へ
-  // 書き戻す経路が撤去されたため、trunk 側で遅延保存すべきものが無い (設計 §3.6)。
-  // タイマーが残っているのは旧 branch (PDS レコード複製, `BRANCH_FROM_OPLOG=false`)
-  // の autosave のためだけで、これは `branchState.ts` ごと p6-5 で退役する。
+  // Phase 6 p6-3 / p6-5b: **autosave は trunk・branch とも消えた**。content の編集は
+  // op-log tap (GraphEditor → syncRecord、branch 表示中は branch 専用 tap) が編集ごとに
+  // 書いており、debounce して別の永続先へ書き戻す経路がもう無い (設計 §3.6 / §3.7)。
+  // ここに残るのは画面 state の更新だけである。
   const handleChange = useCallback(
     (updated: GraphFile) => {
       fileOps.setActiveFile(updated);
-      if (saveTimer.current) clearTimeout(saveTimer.current);
-
-      const branch = branchOps.activeBranch;
-      const sheetId = fileOps.activeSheetId;
-      // op-log の branch は編集ごとに branch tap が書いているので autosave は不要
-      if (!branch || isBranchMeta(branch)) return;
-      if (
-        branch.name === TRUNK_PREFIX ||
-        !sheetId ||
-        (branch.status !== BRANCH_STATUS.OPEN &&
-          branch.status !== BRANCH_STATUS.MERGED)
-      ) {
-        return;
-      }
-
-      saveTimer.current = setTimeout(async () => {
-        const sheet = updated.sheets.find((s) => s.id === sheetId);
-        if (!sheet) return;
-        try {
-          const sheetRef = await sheets.ref(sheetId);
-          await syncBranchSheetToAtproto(sheet, sheetRef, branch.id);
-        } catch (err) {
-          console.warn('[branch] auto-save failed:', err);
-        }
-      }, AUTOSAVE_DELAY);
     },
-    [fileOps.setActiveFile, fileOps.activeSheetId, branchOps.activeBranch],
+    [fileOps.setActiveFile],
   );
 
   const handleSelectSheet = useCallback(
@@ -181,13 +152,6 @@ export default function App() {
   // Phase 6 p6-4: セッション確立後の PDS legacy file レコード同期 (`loadAtprotoFiles`)
   // は撤去した。リモートのファイル発見は `useFileSheetOperations` 内の
   // `discoverRemoteFiles` (op-log 経路) に一本化されている (設計 §3.8)。
-
-  // Save timer cleanup
-  useEffect(() => {
-    return () => {
-      if (saveTimer.current) clearTimeout(saveTimer.current);
-    };
-  }, []);
 
   const branch = branchOps.activeBranch;
 

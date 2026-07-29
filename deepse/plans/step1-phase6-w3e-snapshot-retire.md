@@ -214,7 +214,7 @@ Phase 6 限りの使い捨てコードになる。lexicon json も**ファイル
 | **p6-3** | client の snapshot 撤去 (§3.6) — `persistFile` 解体・`loadSnapshot` / dual-read 撤去・export の読取元差し替え + `GET`/`PUT /files/:id` と `READ_FROM_OPLOG` の撤去 (§4.2, §4.3) | 無 |
 | **p6-4** | PDS legacy の**読取**撤去 (§3.8) — 死コード削除 + `loadAtprotoFiles` の一本化 + `sync.ts` の読取関数削除。書込側は旧 branch 経路が使うので p6-5 へ (§4.4) | 無 |
 | **p6-5a** | snapshot 書込の撤去 (§4.5) — `POST /files` / import の `writeFile` と `storage.writeFile` を削除。**`storage.ts` 本体は移行と同じ寿命なので残す** | 無 |
-| **p6-5b** | 安全弁の撤去 (§3.7) — `BRANCH_FROM_OPLOG` 削除・`branchState.ts` 退役 + それで消費者を失う `sync.ts` (書込側) / `cidCache.ts` の削除 (§4.4)。**p6-6 の実機 e2e を通してから** (§6.1) | 無 |
+| **p6-5b** | 安全弁の撤去 (§3.7) — `BRANCH_FROM_OPLOG` 削除・`branchState.ts` 退役 + それで消費者を失う `sync.ts` (書込側) / `cidCache.ts` の削除 (§4.4)。**p6-6 の実機 e2e を通してから** (§6.1)。実施結果は §4.6 (PDS legacy 層のほぼ全体まで波及) | 無 |
 | **p6-6** | 実機 e2e — 単一端末 + PDS ありの 2 端末 (op-log 経路のみで cross-device が成立することの確認) | **有** |
 
 p6-0〜p6-5 は PDS 非依存 (Phase 5 と同じ型)。p6-6 だけ PDS docker を起動する。
@@ -324,6 +324,38 @@ p6-5 を「退役の仕上げ」として 1 本にまとめていたが、中身
 状態) を用意する手段は、production の書込口を生かしておくのではなく**テスト専用ヘルパ**
 `src/server/src/testing/legacySnapshot.ts` に分離した。
 
+### 4.6 【p6-5b 実施結果】安全弁の撤去は「PDS legacy 層の解体」まで波及した (2026-07-29)
+
+§3.7 の想定は「`BRANCH_FROM_OPLOG` を消し、消費者を失う `sync.ts` (書込側) と
+`cidCache.ts` を落とす」だったが、フラグを外すと **`branchState.ts` (981 行) の
+最後の消費者が消え、そこから芋づる式に PDS legacy 層のほぼ全体が死んだ**。
+撤去は消費者が 0 になったところまで進めた:
+
+| 落としたもの | 理由 |
+|---|---|
+| `config.ts` の `BRANCH_FROM_OPLOG` | 退行先が無くなった (本スライスの目的) |
+| `branchState.ts` + `branchState.test.ts` / `.test.md` | 唯一の消費者だった旧 branch 経路が消えた = **Phase 5 の Exit 条件を完遂** |
+| `sync.ts` (書込側) / `cidCache.ts` | §3.8 の予定どおり。呼び出し元は `useBranchOperations:524` だけだった |
+| `mapper.ts` + テスト、`collectionTypes.ts`、`atproto/testing/inMemoryCollections.ts` | 消費者が `branchState.ts` / `sync.ts` しかなかった |
+| `collections.ts` の sheet/node/edge/layout/branch/commit/merge と rkey ヘルパー (`makeRkey` / `idFromRkey` / `prefixFromRkey`) + `collections.test.ts` | rkey プレフィックス方式そのものが旧 branch 専用だった |
+| `useBranchOperations` の二経路構造 (`AnyBranch` / `isBranchMeta` / `branchKey`、legacy 分岐、`branchOriginalBaseMap` / `lastCommitBaseMap` / `latestCommitRef`) | 型が `BranchMeta` 単独になり、base / 直近コミット時点の控えは op-log から導出するだけになった |
+| `App.tsx` の branch autosave (`AUTOSAVE_DELAY` / `saveTimer` / cleanup effect) | 旧 branch へ debounce 保存する経路ごと消滅。`handleChange` は画面 state 更新のみ |
+
+**残したもの**: `collections.batches` (op-log の正典) と `collections.files.delete`
+(legacy file レコードの後始末)、`types.ts` のレコード型と NSID。後者は §3.8 の
+「lexicon json と PDS 上の既存レコードは放置」という決定と対になる — 読み書きしなく
+なっても、既存レコードの解釈に必要な定義は残す。
+
+**`computeOperations` の移設**: UI の差分表示 (ハイライト・ゴースト・`pendingOps`) は
+残るので、`branchState.ts` から `src/client/src/sync/computeOperations.ts` へ純粋関数
+として切り出した。テストも同時に移設し、旧ファイルにあった PDS 非同期関数のテストは
+対象ごと削除している。op-log では**コミットが差分を持たない**ため、この関数の役目は
+表示だけに絞られた。
+
+**gate**: lint / typecheck / 626 tests green。テスト数が 673 → 626 に減るのは
+削除した経路の分 (旧 branch 経路・PDS legacy mapper・rkey ヘルパー)。経路に依らない
+表示ロジック (status ゲート・ゴースト表示・リセット) は op-log ハーネスへ移して維持した。
+
 ---
 
 ## 5. 受入基準
@@ -402,6 +434,10 @@ device B の `DATA_DIR` には `*.json` が 1 件も存在せず、**snapshot �
 
 **猶予期間は置かない** 【2026-07-28 ユーザー決定】 — 「書くが読まない」は R2 の二重モデル
 そのもので、Phase 5 で実害が出た構造と同じ。p6-6 の実機 e2e を通してから p6-5 で一気に落とす。
+
+**【p6-5b 完了時点】** 緩和策のとおり e2e (p6-6) 通過後に安全弁を落とした (§4.6)。
+Phase 6 で残る不可逆化は `storage.ts` の物理削除 (= 移行の退役) のみで、これは
+次リリースへ送っている (§4.5-(2))。
 
 ### 6.2 【Medium】起動時一括移行のコスト
 

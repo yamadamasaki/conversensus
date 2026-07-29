@@ -1,42 +1,23 @@
+/**
+ * ATProto PDS のコレクション操作
+ *
+ * **step1 Phase 6 p6-5b で legacy snapshot コレクション (sheet/node/edge/layout/
+ * branch/commit/merge) の口を撤去した** — これらを読み書きしていた `branchState.ts` /
+ * `sync.ts` / `mapper.ts` が退役し、消費者がゼロになったため (設計 §3.8)。
+ * PDS 上の既存レコードと lexicon json は放置する決定なので、レコード型 (`types.ts`)
+ * と NSID はそのまま残る。
+ *
+ * 残っているのは:
+ *   - `batches`: op-log の正典コレクション (Phase 4c 以降の唯一の同期単位)
+ *   - `files`:   legacy file レコードの後始末 (ファイル削除時の `delete` のみ)
+ */
+
 import type { AtUri, Rkey } from '@conversensus/shared';
 import { currentDid, getAgent } from './client';
-import {
-  type BatchRecord,
-  type BranchRecord,
-  type CommitRecord,
-  type EdgeLayoutRecord,
-  type EdgeRecord,
-  type FileRecord,
-  type MergeRecord,
-  type NodeLayoutRecord,
-  type NodeRecord,
-  NSID,
-  type RecordResult,
-  type SheetRecord,
-  type StrongRef,
-} from './types';
+import { type BatchRecord, NSID, type RecordResult } from './types';
 
-// --- rkey ヘルパー ---
-// trunk node/edge の rkey: "trunk_{uuid}"
-// branch node/edge の rkey: "{branchId}_{uuid}"
-
+/** trunk を指す表示名。branch 一覧・UI の既定枝として使う */
 export const TRUNK_PREFIX = 'trunk';
-
-export function makeRkey(prefix: string, id: string): Rkey {
-  return `${prefix}_${id}`;
-}
-
-// "trunk_uuid" → "uuid"、旧形式 "uuid" (プレフィックスなし) → "uuid" (後方互換)
-export function idFromRkey(rkey: Rkey): string {
-  const idx = rkey.indexOf('_');
-  return idx >= 0 ? rkey.slice(idx + 1) : rkey;
-}
-
-// "trunk_uuid" → "trunk"、旧形式 "uuid" → TRUNK_PREFIX (後方互換)
-export function prefixFromRkey(rkey: Rkey): string {
-  const idx = rkey.indexOf('_');
-  return idx >= 0 ? rkey.slice(0, idx) : TRUNK_PREFIX;
-}
 
 // --- 汎用ヘルパー ---
 
@@ -92,223 +73,11 @@ async function deleteRecord(collection: string, rkey: Rkey): Promise<void> {
   });
 }
 
-// rkey を AT-URI から取り出す: "at://did/collection/rkey" → "rkey"
-function rkeyFromUri(uri: AtUri): string {
-  return uri.split('/').at(-1) ?? uri;
-}
-
-// AT-URI を構築する
-function atUri(collection: string, rkey: Rkey): string {
-  return `at://${currentDid()}/${collection}/${rkey}`;
-}
-
-// --- File ---
+// --- File (legacy レコードの後始末のみ) ---
 
 export const files = {
-  put(fileId: string, data: Omit<FileRecord, '$type'>): Promise<RecordResult> {
-    return putRecord(NSID.file, fileId, { $type: NSID.file, ...data });
-  },
-  get(fileId: string) {
-    return getRecord(NSID.file, fileId);
-  },
-  list() {
-    return listRecords(NSID.file);
-  },
   delete(fileId: string) {
     return deleteRecord(NSID.file, fileId);
-  },
-  async ref(fileId: string): Promise<StrongRef> {
-    const r = await getRecord(NSID.file, fileId);
-    return { uri: r.uri, cid: r.cid };
-  },
-};
-
-// --- Sheet ---
-
-export const sheets = {
-  put(
-    sheetId: string,
-    data: Omit<SheetRecord, '$type'>,
-  ): Promise<RecordResult> {
-    return putRecord(NSID.sheet, sheetId, { $type: NSID.sheet, ...data });
-  },
-  get(sheetId: string) {
-    return getRecord(NSID.sheet, sheetId);
-  },
-  list() {
-    return listRecords(NSID.sheet);
-  },
-  delete(sheetId: string) {
-    return deleteRecord(NSID.sheet, sheetId);
-  },
-  // sheetId から StrongRef を構築 (get して CID を取得)
-  async ref(sheetId: string): Promise<StrongRef> {
-    const r = await getRecord(NSID.sheet, sheetId);
-    return { uri: r.uri, cid: r.cid };
-  },
-};
-
-// --- Node ---
-
-export const nodes = {
-  put(rkey: Rkey, data: Omit<NodeRecord, '$type'>): Promise<RecordResult> {
-    return putRecord(NSID.node, rkey, { $type: NSID.node, ...data });
-  },
-  get(rkey: Rkey) {
-    return getRecord(NSID.node, rkey);
-  },
-  list() {
-    return listRecords(NSID.node);
-  },
-  async listForPrefix(prefix: string) {
-    const all = await listRecords(NSID.node);
-    return all.filter((r) => prefixFromRkey(rkeyFromUri(r.uri)) === prefix);
-  },
-  delete(rkey: Rkey) {
-    return deleteRecord(NSID.node, rkey);
-  },
-  async ref(rkey: Rkey): Promise<StrongRef> {
-    const r = await getRecord(NSID.node, rkey);
-    return { uri: r.uri, cid: r.cid };
-  },
-  refFromResult(_rkey: Rkey, result: RecordResult): StrongRef {
-    return { uri: result.uri, cid: result.cid };
-  },
-};
-
-// --- Edge ---
-
-export const edges = {
-  put(rkey: Rkey, data: Omit<EdgeRecord, '$type'>): Promise<RecordResult> {
-    return putRecord(NSID.edge, rkey, { $type: NSID.edge, ...data });
-  },
-  get(rkey: Rkey) {
-    return getRecord(NSID.edge, rkey);
-  },
-  list() {
-    return listRecords(NSID.edge);
-  },
-  async listForPrefix(prefix: string) {
-    const all = await listRecords(NSID.edge);
-    return all.filter((r) => prefixFromRkey(rkeyFromUri(r.uri)) === prefix);
-  },
-  delete(rkey: Rkey) {
-    return deleteRecord(NSID.edge, rkey);
-  },
-};
-
-// --- NodeLayout ---
-
-export const nodeLayouts = {
-  put(
-    rkey: Rkey,
-    data: Omit<NodeLayoutRecord, '$type'>,
-  ): Promise<RecordResult> {
-    return putRecord(NSID.nodeLayout, rkey, {
-      $type: NSID.nodeLayout,
-      ...data,
-    });
-  },
-  get(rkey: Rkey) {
-    return getRecord(NSID.nodeLayout, rkey);
-  },
-  list() {
-    return listRecords(NSID.nodeLayout);
-  },
-  async listForPrefix(prefix: string) {
-    const all = await listRecords(NSID.nodeLayout);
-    return all.filter((r) => prefixFromRkey(rkeyFromUri(r.uri)) === prefix);
-  },
-  delete(rkey: Rkey) {
-    return deleteRecord(NSID.nodeLayout, rkey);
-  },
-};
-
-// --- EdgeLayout ---
-
-export const edgeLayouts = {
-  put(
-    rkey: Rkey,
-    data: Omit<EdgeLayoutRecord, '$type'>,
-  ): Promise<RecordResult> {
-    return putRecord(NSID.edgeLayout, rkey, {
-      $type: NSID.edgeLayout,
-      ...data,
-    });
-  },
-  get(rkey: Rkey) {
-    return getRecord(NSID.edgeLayout, rkey);
-  },
-  list() {
-    return listRecords(NSID.edgeLayout);
-  },
-  async listForPrefix(prefix: string) {
-    const all = await listRecords(NSID.edgeLayout);
-    return all.filter((r) => prefixFromRkey(rkeyFromUri(r.uri)) === prefix);
-  },
-  delete(rkey: Rkey) {
-    return deleteRecord(NSID.edgeLayout, rkey);
-  },
-};
-
-// --- Branch ---
-
-export const branches = {
-  put(
-    branchId: string,
-    data: Omit<BranchRecord, '$type'>,
-  ): Promise<RecordResult> {
-    return putRecord(NSID.branch, branchId, { $type: NSID.branch, ...data });
-  },
-  get(branchId: string) {
-    return getRecord(NSID.branch, branchId);
-  },
-  list() {
-    return listRecords(NSID.branch);
-  },
-  delete(branchId: string) {
-    return deleteRecord(NSID.branch, branchId);
-  },
-  async ref(branchId: string): Promise<StrongRef> {
-    const r = await getRecord(NSID.branch, branchId);
-    return { uri: r.uri, cid: r.cid };
-  },
-};
-
-// --- Commit ---
-
-export const commits = {
-  put(
-    commitId: string,
-    data: Omit<CommitRecord, '$type'>,
-  ): Promise<RecordResult> {
-    return putRecord(NSID.commit, commitId, { $type: NSID.commit, ...data });
-  },
-  get(commitId: string) {
-    return getRecord(NSID.commit, commitId);
-  },
-  list() {
-    return listRecords(NSID.commit);
-  },
-  delete(commitId: string) {
-    return deleteRecord(NSID.commit, commitId);
-  },
-};
-
-// --- Merge ---
-
-export const merges = {
-  put(
-    mergeId: string,
-    data: Omit<MergeRecord, '$type'>,
-  ): Promise<RecordResult> {
-    return putRecord(NSID.merge, mergeId, { $type: NSID.merge, ...data });
-  },
-  list() {
-    return listRecords(NSID.merge);
-  },
-  delete(mergeId: string) {
-    return deleteRecord(NSID.merge, mergeId);
   },
 };
 
@@ -331,5 +100,3 @@ export const batches = {
     return deleteRecord(NSID.batch, batchId);
   },
 };
-
-export { atUri, rkeyFromUri };

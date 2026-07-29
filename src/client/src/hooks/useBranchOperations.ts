@@ -14,33 +14,16 @@ import type {
   Sheet,
   SheetId,
 } from '@conversensus/shared';
-import { makeCommit } from '@conversensus/shared';
+import { BRANCH_STATUS, makeCommit } from '@conversensus/shared';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as api from '../api';
-import {
-  BRANCH_STATUS,
-  type Branch,
-  computeOperations,
-  createBranch,
-  createCommit,
-  createMergeRecord,
-  deleteBranchWithRecords,
-  fetchBranchesForSheet,
-  fetchBranchSheetFromPds,
-  fetchCommitsForBranch,
-  mergeBranchToTrunk,
-  sheets,
-  syncBranchSheetToAtproto,
-  syncFileToAtproto,
-  TRUNK_PREFIX,
-  updateBranchStatus,
-} from '../atproto';
-import { BRANCH_FROM_OPLOG } from '../config';
+import { TRUNK_PREFIX } from '../atproto';
 import {
   type BranchProjectionDeps,
   createBranchOnOplog,
   readBranchSheets,
 } from '../sync/branchProjection';
+import { computeOperations } from '../sync/computeOperations';
 import { mergeBranchOnOplog } from '../sync/mergeBranch';
 import type { SyncProvider } from '../sync/syncProvider';
 import { type TapClock, useEventSyncTap } from './useEventSyncTap';
@@ -61,54 +44,18 @@ type AlertState = {
 };
 
 /**
- * UI が扱うブランチ。**旧 PDS 経路の `Branch` と op-log の `BranchMeta` が同居する**
- * (step1 Phase 5 p5-4)。`BRANCH_FROM_OPLOG` でどちらが作られるかが決まるが、
- * Sidebar が触るのは `{id, name, status}` の共通部分だけなので UI は区別しない。
+ * UI 表示用の差分計算 (step1 Phase 6 p6-5b で残った唯一の注入点)。
+ *
+ * 旧 PDS 経路 (`branchState.ts`) の I/O 関数群はここに並んでいたが、安全弁
+ * `BRANCH_FROM_OPLOG` の撤去で経路ごと退役した。op-log 側の I/O は
+ * `BranchOplogDeps` にあるので、こちらに残るのは純粋関数だけである。
  */
-export type AnyBranch = Branch | BranchMeta;
-
-/**
- * op-log 側のブランチか。フラグではなく**構造で**判定する — フラグ切替の前後で
- * state に残った古い形のブランチを取り違えないため (`branchFileId` は op-log 専用)。
- */
-export function isBranchMeta(branch: AnyBranch): branch is BranchMeta {
-  return 'branchFileId' in branch;
-}
-
-/** 状態マップのキー。旧経路は uri、op-log は id で一意 */
-const branchKey = (branch: AnyBranch): string =>
-  isBranchMeta(branch) ? branch.id : branch.uri;
-
 export interface BranchOpsDeps {
   computeOperations: typeof computeOperations;
-  createBranch: typeof createBranch;
-  createCommit: typeof createCommit;
-  createMergeRecord: typeof createMergeRecord;
-  deleteBranchWithRecords: typeof deleteBranchWithRecords;
-  fetchBranchesForSheet: typeof fetchBranchesForSheet;
-  fetchBranchSheetFromPds: typeof fetchBranchSheetFromPds;
-  fetchCommitsForBranch: typeof fetchCommitsForBranch;
-  mergeBranchToTrunk: typeof mergeBranchToTrunk;
-  sheetsRef: (sheetId: string) => Promise<{ uri: string; cid: string }>;
-  updateBranchStatus: typeof updateBranchStatus;
-  syncFileToAtproto: typeof syncFileToAtproto;
-  TRUNK_PREFIX: string;
 }
 
 export const defaultBranchOpsDeps: BranchOpsDeps = {
   computeOperations,
-  createBranch,
-  createCommit,
-  createMergeRecord,
-  deleteBranchWithRecords,
-  fetchBranchesForSheet,
-  fetchBranchSheetFromPds,
-  fetchCommitsForBranch,
-  mergeBranchToTrunk,
-  sheetsRef: (sheetId) => sheets.ref(sheetId),
-  updateBranchStatus,
-  syncFileToAtproto,
-  TRUNK_PREFIX,
 };
 
 /**
@@ -157,8 +104,6 @@ interface UseBranchOperationsParams {
   trunkClock: TapClock;
   deps?: BranchOpsDeps;
   oplogDeps?: BranchOplogDeps;
-  /** テスト・退行用の経路スイッチ。既定は `BRANCH_FROM_OPLOG` */
-  branchFromOplog?: boolean;
 }
 
 export function useBranchOperations({
@@ -173,10 +118,9 @@ export function useBranchOperations({
   trunkClock,
   deps = defaultBranchOpsDeps,
   oplogDeps = defaultBranchOplogDeps,
-  branchFromOplog = BRANCH_FROM_OPLOG,
 }: UseBranchOperationsParams) {
-  const [activeBranch, setActiveBranch] = useState<AnyBranch | null>(null);
-  const [sheetBranches, setSheetBranches] = useState<Map<string, AnyBranch[]>>(
+  const [activeBranch, setActiveBranch] = useState<BranchMeta | null>(null);
+  const [sheetBranches, setSheetBranches] = useState<Map<string, BranchMeta[]>>(
     new Map(),
   );
   const [newCommitsSinceMerge, setNewCommitsSinceMerge] = useState(0);
@@ -186,31 +130,24 @@ export function useBranchOperations({
   const [branchOriginalBase, setBranchOriginalBase] = useState<Sheet | null>(
     null,
   );
-  const branchOriginalBaseMap = useRef<Map<string, Sheet>>(new Map());
-  const lastCommitBaseMap = useRef<Map<string, Sheet>>(new Map());
   const preBranchFile = useRef<GraphFile | null>(null);
-  const latestCommitRef = useRef<{ uri: string; cid: string } | null>(null);
   // merge 時にその時点の newCommitsSinceMerge を累積保存し、
-  // 再エントリ時に cs.length - 累積値 で真の新規コミット数を計算する
+  // 再エントリ時に commits.length - 累積値 で真の新規コミット数を計算する。
+  // **base / 直近コミット時点の控えは持たない** — op-log からその都度導出する (p5-4)。
   const mergedCommitCounts = useRef<Map<string, number>>(new Map());
 
   const isTrunk = !activeBranch || activeBranch.name === TRUNK_PREFIX;
 
-  // op-log モードで branch を開いている間だけ、編集の宛先を branch 専用 op-log にする。
+  // branch を開いている間だけ、編集の宛先を branch 専用 op-log にする。
   // **これが載せ替えの要**: 旧経路では branch 中の編集も trunk の tap に流れていたため、
   // branch の編集が trunk の op-log を汚していた (W3d で branch を凍結した際の積み残し)。
-  // 判定は `isBranchMeta` のみ (フラグを混ぜない) — 他の分岐 (読取・commit・merge・
-  // close・delete) がすべて `isBranchMeta` 基準なので、ここだけフラグを見ると
-  // 「op-log の branch を表示しながら編集は trunk tap へ」という取り合わせが作れてしまう。
-  const activeMeta =
-    activeBranch && isBranchMeta(activeBranch) ? activeBranch : null;
   const { record: branchSyncRecord, settled: branchSettled } = useEventSyncTap(
-    activeMeta?.branchFileId ?? null,
+    activeBranch?.branchFileId ?? null,
     {
       actor,
       // 分岐点の後から発番する。空の branch op-log は clock 1 から始まってしまい、
       // それでは base 時点の trunk batch に LWW で負ける (§p5-4)。
-      ...(activeMeta && { clockFloor: activeMeta.base.at }),
+      ...(activeBranch && { clockFloor: activeBranch.base.at }),
       // remoteQueue は渡さない = branch batches は remote へ出ない (設計 §9.2)
       ...(oplogDeps.createBranchProvider && {
         createLocalProvider: oplogDeps.createBranchProvider,
@@ -225,11 +162,8 @@ export function useBranchOperations({
     setLastCommitBase(null);
     setBranchOriginalBase(null);
     setNewCommitsSinceMerge(0);
-    branchOriginalBaseMap.current.clear();
-    lastCommitBaseMap.current.clear();
     mergedCommitCounts.current.clear();
     preBranchFile.current = null;
-    latestCommitRef.current = null;
   }, [activeFile?.id]);
 
   const [addedNodeIds, updatedNodeIds, addedEdgeIds, updatedEdgeIds] =
@@ -321,9 +255,9 @@ export function useBranchOperations({
     return restored;
   }, [onSetActiveFile]);
 
-  /** trunk へ戻る (両経路共通)。branch 側の内容は各経路の永続に既に書かれている */
+  /** trunk へ戻る。branch 側の内容は branch tap が既に op-log へ書いている */
   const backToTrunk = useCallback(
-    (branch: AnyBranch | null) => {
+    (branch: BranchMeta | null) => {
       setActiveBranch(branch);
       setLastCommitBase(null);
       setBranchOriginalBase(null);
@@ -336,6 +270,7 @@ export function useBranchOperations({
     [onSetActiveFile],
   );
 
+  /** branch のシート内容を op-log の projection から組み立てて表示に載せる */
   const selectBranchFromOplog = useCallback(
     async (sheetId: SheetId, meta: BranchMeta) => {
       if (!activeFile) return;
@@ -381,96 +316,20 @@ export function useBranchOperations({
   );
 
   const handleSelectBranch = useCallback(
-    async (sheetId: SheetId, branch: AnyBranch | null) => {
-      latestCommitRef.current = null;
-
+    async (sheetId: SheetId, branch: BranchMeta | null) => {
       if (!branch || branch.name === TRUNK_PREFIX) {
-        // 旧経路では trunk に戻る前に編集内容を PDS の branch レコードへ保存する
-        // 必要があった。op-log 経路では branch tap が編集ごとに書いているので不要。
-        if (
-          !branchFromOplog &&
-          activeBranch &&
-          activeBranch.name !== TRUNK_PREFIX &&
-          activeSheetId &&
-          activeFile
-        ) {
-          const sheet = activeFile.sheets.find((s) => s.id === activeSheetId);
-          if (sheet && !isBranchMeta(activeBranch)) {
-            try {
-              const sheetRef = await sheets.ref(activeSheetId);
-              await syncBranchSheetToAtproto(sheet, sheetRef, activeBranch.id);
-            } catch (err) {
-              console.warn('[branch] pre-switch save failed:', err);
-            }
-          }
-        }
+        // 編集は branch tap が逐次 op-log へ書いているので、抜ける前の保存は要らない
+        // (旧 PDS 経路にあった pre-switch save は p6-5b で経路ごと退役した)。
         backToTrunk(branch);
         return;
       }
 
       try {
-        if (isBranchMeta(branch)) {
-          await selectBranchFromOplog(sheetId, branch);
-          return;
-        }
-        const branchSheet = await deps.fetchBranchSheetFromPds(
-          branch.id,
-          sheetId,
-        );
-        const cs = await deps.fetchCommitsForBranch(branch.uri);
-
-        // trunk からブランチに入る時のみ trunk の状態を保存
-        if (!activeBranch || activeBranch.name === TRUNK_PREFIX) {
-          preBranchFile.current = activeFile ?? null;
-        }
-
-        // branchOriginalBase: ブランチ作成時 (または前回マージ時) の trunk スナップショット
-        const storedOriginal = branchOriginalBaseMap.current.get(branch.uri);
-        const originalBase = storedOriginal ?? branchSheet;
-        if (!storedOriginal) {
-          branchOriginalBaseMap.current.set(branch.uri, originalBase);
-        }
-        setBranchOriginalBase(originalBase);
-        if (
-          branch.status === BRANCH_STATUS.OPEN ||
-          branch.status === BRANCH_STATUS.MERGED
-        ) {
-          const storedLastBase = lastCommitBaseMap.current.get(branch.uri);
-          if (storedLastBase) {
-            setLastCommitBase(storedLastBase);
-          } else {
-            setLastCommitBase(originalBase);
-            lastCommitBaseMap.current.set(branch.uri, originalBase);
-          }
-        } else {
-          setLastCommitBase(null);
-        }
-
-        if (cs.length > 0) {
-          const last = cs[cs.length - 1];
-          latestCommitRef.current = { uri: last.uri, cid: last.cid };
-        }
-
-        if (activeFile) {
-          onSetActiveFile({
-            ...activeFile,
-            sheets: activeFile.sheets.map((s) =>
-              s.id === sheetId ? branchSheet : s,
-            ),
-          });
-        }
-
-        if (branch.status === BRANCH_STATUS.MERGED) {
-          const mergedCount = mergedCommitCounts.current.get(branch.uri) ?? 0;
-          setNewCommitsSinceMerge(Math.max(0, cs.length - mergedCount));
-        } else {
-          setNewCommitsSinceMerge(cs.length);
-        }
-        setActiveBranch(branch);
+        await selectBranchFromOplog(sheetId, branch);
       } catch (err) {
         console.warn('[branch] select failed:', err);
         // 失敗を握り潰すと「クリックしても何も起きない」になる (W3d5-7 の教訓)。
-        // op-log 経路の失敗は daemon 由来なので、原因を切り分けられるよう画面にも出す。
+        // 失敗は daemon 由来なので、原因を切り分けられるよう画面にも出す。
         await new Promise<void>((resolve) => {
           setAlertState({
             message: 'branch を開けませんでした。',
@@ -479,17 +338,7 @@ export function useBranchOperations({
         });
       }
     },
-    [
-      activeFile,
-      activeSheetId,
-      onSetActiveFile,
-      setAlertState,
-      deps,
-      activeBranch,
-      backToTrunk,
-      branchFromOplog,
-      selectBranchFromOplog,
-    ],
+    [setAlertState, backToTrunk, selectBranchFromOplog],
   );
 
   const handleCreateBranch = useCallback(
@@ -499,33 +348,17 @@ export function useBranchOperations({
       });
       if (!name?.trim()) return;
       try {
-        const branch: AnyBranch = branchFromOplog
-          ? await (async () => {
-              if (!activeFile)
-                throw new Error('アクティブなファイルがありません');
-              // 複製は行わず、分岐点 (現在のログ先端) を指す base コミットだけを記録する
-              return createBranchOnOplog(
-                {
-                  name: name.trim(),
-                  sheetId,
-                  trunkFileId: activeFile.id as FileId,
-                  authorActor: actor,
-                },
-                oplogDeps,
-              );
-            })()
-          : await (async () => {
-              let sheetRef: { uri: string; cid: string };
-              try {
-                sheetRef = await deps.sheetsRef(sheetId);
-              } catch {
-                if (!activeFile)
-                  throw new Error('アクティブなファイルがありません');
-                await deps.syncFileToAtproto(activeFile);
-                sheetRef = await deps.sheetsRef(sheetId);
-              }
-              return deps.createBranch(name.trim(), sheetId, sheetRef);
-            })();
+        if (!activeFile) throw new Error('アクティブなファイルがありません');
+        // 複製は行わず、分岐点 (現在のログ先端) を指す base コミットだけを記録する
+        const branch = await createBranchOnOplog(
+          {
+            name: name.trim(),
+            sheetId,
+            trunkFileId: activeFile.id as FileId,
+            authorActor: actor,
+          },
+          oplogDeps,
+        );
         setSheetBranches((prev) => {
           const next = new Map(prev);
           const existing = next.get(sheetId) ?? [];
@@ -536,28 +369,18 @@ export function useBranchOperations({
         console.warn('[branch] create failed:', err);
         await new Promise<void>((resolve) => {
           setAlertState({
-            message: branchFromOplog
-              ? 'branch の作成に失敗しました。'
-              : 'branch の作成に失敗しました。ATProto にログインしているか確認してください。',
+            message: 'branch の作成に失敗しました。',
             resolve,
           });
         });
       }
     },
-    [
-      activeFile,
-      setInputState,
-      setAlertState,
-      deps,
-      oplogDeps,
-      branchFromOplog,
-      actor,
-    ],
+    [activeFile, setInputState, setAlertState, oplogDeps, actor],
   );
 
-  /** merge 後の共通後始末 (どちらの経路でも状態遷移は同じ) */
+  /** merge 後の後始末 */
   const afterMerge = useCallback(
-    (sheetId: SheetId, merged: AnyBranch, mergedTrunk?: GraphFile) => {
+    (sheetId: SheetId, merged: BranchMeta, mergedTrunk?: GraphFile) => {
       setSheetBranches((prev) => {
         const next = new Map(prev);
         const existing = next.get(sheetId) ?? [];
@@ -582,22 +405,17 @@ export function useBranchOperations({
       setBranchOriginalBase(activeSheet ?? null);
       setLastCommitBase(activeSheet ?? null);
       // 今回 merge したコミット数を累積
-      const key = branchKey(merged);
       mergedCommitCounts.current.set(
-        key,
-        (mergedCommitCounts.current.get(key) ?? 0) + newCommitsSinceMerge,
+        merged.id,
+        (mergedCommitCounts.current.get(merged.id) ?? 0) + newCommitsSinceMerge,
       );
-      if (activeSheet) {
-        branchOriginalBaseMap.current.set(key, activeSheet);
-        lastCommitBaseMap.current.set(key, activeSheet);
-      }
       setNewCommitsSinceMerge(0);
     },
     [activeFile, activeSheet, newCommitsSinceMerge],
   );
 
   const handleMergeBranch = useCallback(
-    async (branch: AnyBranch) => {
+    async (branch: BranchMeta) => {
       if (!activeSheetId || !activeFile) return;
       const ok = await new Promise<boolean>((resolve) => {
         setConfirmState({
@@ -607,41 +425,26 @@ export function useBranchOperations({
       });
       if (!ok) return;
       try {
-        if (isBranchMeta(branch)) {
-          // 🔴 直前の編集が branch op-log に着地するのを待つ。待たないと、その編集が
-          // trunk に載らないまま branch だけ MERGED になる (record は非同期に flush する)。
-          await branchSettled();
-          // branch batches を trunk 先端の後へ再スタンプして trunk op-log へ追記する。
-          // 再スタンプの発番は trunk の tap と同じ clock で行う (同 clock の衝突回避)。
-          const result = await mergeBranchOnOplog(branch, {
-            fetchBatches: oplogDeps.fetchBatches,
-            appendBatches: oplogDeps.appendBatches,
-            saveBranch: oplogDeps.saveBranch,
-            seedClock: trunkClock.seed,
-            tick: trunkClock.tick,
-          });
-          if (result.conflicts.length > 0) {
-            // 収束は LWW で確定させ、対立は診断ログに残す (可視化は後続 phase)
-            console.warn(
-              `[branch] merge: ${result.conflicts.length} 件の content 対立を LWW で確定`,
-              result.conflicts,
-            );
-          }
-          afterMerge(activeSheetId, result.branch, result.trunk);
-          return;
+        // 🔴 直前の編集が branch op-log に着地するのを待つ。待たないと、その編集が
+        // trunk に載らないまま branch だけ MERGED になる (record は非同期に flush する)。
+        await branchSettled();
+        // branch batches を trunk 先端の後へ再スタンプして trunk op-log へ追記する。
+        // 再スタンプの発番は trunk の tap と同じ clock で行う (同 clock の衝突回避)。
+        const result = await mergeBranchOnOplog(branch, {
+          fetchBatches: oplogDeps.fetchBatches,
+          appendBatches: oplogDeps.appendBatches,
+          saveBranch: oplogDeps.saveBranch,
+          seedClock: trunkClock.seed,
+          tick: trunkClock.tick,
+        });
+        if (result.conflicts.length > 0) {
+          // 収束は LWW で確定させ、対立は診断ログに残す (可視化は後続 phase)
+          console.warn(
+            `[branch] merge: ${result.conflicts.length} 件の content 対立を LWW で確定`,
+            result.conflicts,
+          );
         }
-
-        const sheetRef = await deps.sheetsRef(activeSheetId);
-        const branchRef = { uri: branch.uri, cid: branch.cid };
-        const latestCommit = latestCommitRef.current ?? undefined;
-
-        await deps.mergeBranchToTrunk(branch, activeSheetId, sheetRef);
-        await deps.createMergeRecord(branch, sheetRef, branchRef, latestCommit);
-        const mergedBranch = await deps.updateBranchStatus(
-          branch,
-          BRANCH_STATUS.MERGED,
-        );
-        afterMerge(activeSheetId, mergedBranch);
+        afterMerge(activeSheetId, result.branch, result.trunk);
       } catch (err) {
         console.warn('[branch] merge failed:', err);
         await new Promise<void>((resolve) => {
@@ -654,7 +457,6 @@ export function useBranchOperations({
       activeFile,
       setConfirmState,
       setAlertState,
-      deps,
       oplogDeps,
       trunkClock,
       afterMerge,
@@ -664,16 +466,15 @@ export function useBranchOperations({
 
   /** close / delete でアクティブなブランチが失われたときの後始末 */
   const clearActiveBranch = useCallback(
-    (branch: AnyBranch) => {
+    (branch: BranchMeta) => {
       if (activeBranch?.id !== branch.id) return;
-      lastCommitBaseMap.current.delete(branchKey(activeBranch));
       backToTrunk(null);
     },
     [activeBranch, backToTrunk],
   );
 
   const handleCloseBranch = useCallback(
-    async (branch: AnyBranch) => {
+    async (branch: BranchMeta) => {
       const ok = await new Promise<boolean>((resolve) => {
         setConfirmState({
           message: `branch "${branch.name}" を close しますか？`,
@@ -682,12 +483,10 @@ export function useBranchOperations({
       });
       if (!ok) return;
       try {
-        const closedBranch: AnyBranch = isBranchMeta(branch)
-          ? await oplogDeps.saveBranch({
-              ...branch,
-              status: BRANCH_STATUS.CLOSED,
-            })
-          : await deps.updateBranchStatus(branch, BRANCH_STATUS.CLOSED);
+        const closedBranch = await oplogDeps.saveBranch({
+          ...branch,
+          status: BRANCH_STATUS.CLOSED,
+        });
         setSheetBranches((prev) => {
           const next = new Map(prev);
           const sheetId = branch.sheetId;
@@ -706,11 +505,11 @@ export function useBranchOperations({
         });
       }
     },
-    [setConfirmState, setAlertState, deps, oplogDeps, clearActiveBranch],
+    [setConfirmState, setAlertState, oplogDeps, clearActiveBranch],
   );
 
   const handleDeleteBranch = useCallback(
-    async (branch: AnyBranch) => {
+    async (branch: BranchMeta) => {
       const ok = await new Promise<boolean>((resolve) => {
         setConfirmState({
           message: `branch "${branch.name}" を削除しますか？\nこの操作は取り消せません。`,
@@ -719,12 +518,8 @@ export function useBranchOperations({
       });
       if (!ok) return;
       try {
-        if (isBranchMeta(branch)) {
-          // メタと branch 専用 op-log をまとめて消す (server 側 1 tx)
-          await oplogDeps.deleteBranch(branch.trunkFileId, branch.id);
-        } else {
-          await deps.deleteBranchWithRecords(branch);
-        }
+        // メタと branch 専用 op-log をまとめて消す (server 側 1 tx)
+        await oplogDeps.deleteBranch(branch.trunkFileId, branch.id);
         setSheetBranches((prev) => {
           const next = new Map(prev);
           const sheetId = branch.sheetId;
@@ -742,7 +537,7 @@ export function useBranchOperations({
         });
       }
     },
-    [setConfirmState, setAlertState, deps, oplogDeps, clearActiveBranch],
+    [setConfirmState, setAlertState, oplogDeps, clearActiveBranch],
   );
 
   const handleCommit = useCallback(
@@ -751,39 +546,23 @@ export function useBranchOperations({
       if (pendingOps.length === 0) return;
 
       try {
-        if (isBranchMeta(activeBranch)) {
-          // 直前の編集の着地を待つ。待たないとその編集がコミット位置に入らず、
-          // 再オープン時に「コミット済みのはずの変更」が未コミットとして復活する。
-          await branchSettled();
-          // コミット = ログ上のラベル付きオフセット。差分そのものは持たない
-          // (`pendingOps` は表示用で、コミットに焼き込むのはログ位置だけ)。
-          const branchBatches = await oplogDeps.fetchBatches(
-            activeBranch.branchFileId,
-          );
-          const commit = makeCommit(
-            oplogDeps.newId() as CommitId,
-            message,
-            actor,
-            branchBatches,
-          );
-          await oplogDeps.saveCommit(activeBranch.branchFileId, commit);
-        } else {
-          const sheetRef = await deps.sheetsRef(activeSheetId);
-          const branchRef = { uri: activeBranch.uri, cid: activeBranch.cid };
-          const parentRef = latestCommitRef.current ?? undefined;
-
-          const commit = await deps.createCommit(
-            message,
-            pendingOps,
-            sheetRef,
-            branchRef,
-            parentRef,
-          );
-          latestCommitRef.current = { uri: commit.uri, cid: commit.cid };
-        }
+        // 直前の編集の着地を待つ。待たないとその編集がコミット位置に入らず、
+        // 再オープン時に「コミット済みのはずの変更」が未コミットとして復活する。
+        await branchSettled();
+        // コミット = ログ上のラベル付きオフセット。差分そのものは持たない
+        // (`pendingOps` は表示用で、コミットに焼き込むのはログ位置だけ)。
+        const branchBatches = await oplogDeps.fetchBatches(
+          activeBranch.branchFileId,
+        );
+        const commit = makeCommit(
+          oplogDeps.newId() as CommitId,
+          message,
+          actor,
+          branchBatches,
+        );
+        await oplogDeps.saveCommit(activeBranch.branchFileId, commit);
 
         setLastCommitBase(activeSheet);
-        lastCommitBaseMap.current.set(branchKey(activeBranch), activeSheet);
         setNewCommitsSinceMerge((prev) => prev + 1);
         setCommitDialogOpen(false);
       } catch (err) {
@@ -799,7 +578,6 @@ export function useBranchOperations({
       activeSheet,
       pendingOps,
       setAlertState,
-      deps,
       oplogDeps,
       actor,
       branchSettled,
@@ -810,16 +588,15 @@ export function useBranchOperations({
   const trunkFileId = activeFile?.id;
   useEffect(() => {
     if (!activeSheetId) return;
-    const load = branchFromOplog
-      ? trunkFileId
-        ? // op-log の branch メタは trunk 単位で保存されているのでシートで絞る
-          oplogDeps
-            .fetchBranches(trunkFileId as FileId)
-            .then((bs) => bs.filter((b) => b.sheetId === activeSheetId))
-        : Promise.resolve<AnyBranch[]>([])
-      : deps.fetchBranchesForSheet(activeSheetId);
+    // branch メタは trunk 単位で保存されているのでシートで絞る。ファイル未選択の間は
+    // 空一覧を入れる (前のファイルの branch を出したままにしない)。
+    const load = trunkFileId
+      ? oplogDeps
+          .fetchBranches(trunkFileId as FileId)
+          .then((bs) => bs.filter((b) => b.sheetId === activeSheetId))
+      : Promise.resolve<BranchMeta[]>([]);
     load
-      .then((bs: AnyBranch[]) => {
+      .then((bs) => {
         setSheetBranches((prev) => {
           const next = new Map(prev);
           next.set(activeSheetId, bs);
@@ -827,14 +604,12 @@ export function useBranchOperations({
         });
       })
       .catch((err) => {
-        // 旧経路の失敗は ATProto 未ログインが大半なので黙らせてよい。**op-log 経路は
-        // ATProto に依存しない**ので、ここが失敗するのは daemon 障害のときだけ。
-        // 黙って古い一覧を出し続けないよう診断ログに残す (W3d5-7 の「無言の失敗」の教訓)。
-        if (branchFromOplog) {
-          console.warn('[branch] ブランチ一覧の取得に失敗しました:', err);
-        }
+        // op-log 経路は ATProto に依存しないので、ここが失敗するのは daemon 障害の
+        // ときだけ。黙って古い一覧を出し続けないよう診断ログに残す
+        // (W3d5-7 の「無言の失敗」の教訓)。
+        console.warn('[branch] ブランチ一覧の取得に失敗しました:', err);
       });
-  }, [activeSheetId, deps, oplogDeps, branchFromOplog, trunkFileId]);
+  }, [activeSheetId, oplogDeps, trunkFileId]);
 
   return {
     activeBranch,
@@ -855,11 +630,11 @@ export function useBranchOperations({
     deletedEdgeLayouts: deletedEdgeLayouts as EdgeLayout[],
     pendingOps,
     /**
-     * branch 表示中の編集の宛先 (op-log モードのみ)。trunk 表示中は null。
+     * branch 表示中の編集の宛先。trunk 表示中は null。
      * GraphEditor には trunk 用と使い分けて渡す — branch の編集を trunk の
      * op-log へ流さないための切替点。
      */
-    branchSyncRecord: activeMeta ? branchSyncRecord : null,
+    branchSyncRecord: activeBranch ? branchSyncRecord : null,
     handleSelectBranch,
     handleCreateBranch,
     handleMergeBranch,

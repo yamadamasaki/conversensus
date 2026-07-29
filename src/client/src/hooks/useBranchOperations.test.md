@@ -3,47 +3,49 @@
 ## 何をテストするか
 
 `useBranchOperations` はブランチ/コミット管理の全 state/ref/callback/effect を束ねるカスタムフック。
-ATProto モジュールをモックし、branch の作成・merge・close・delete・commit の各フローを検証する。
+branch の作成・選択・編集・commit・merge・close・delete の各フローを検証する。
 
 ## なぜテストするか
 
 App.tsx から抽出された最大のビジネスロジックの塊であり、
 branch のライフサイクル全体の正確性を保証する必要がある。
 
-## テストケース
+**step1 Phase 6 p6-5b**: 安全弁 `BRANCH_FROM_OPLOG` の撤去で hook から旧 PDS 経路
+(`branchState.ts` のレコード複製方式) が消えたため、**経路は op-log の 1 本だけ**に
+なった。旧経路専用だったケース (PDS レコードの読み書きを確認していたもの) は対象ごと
+削除し、経路に依らない表示ロジック (状態ゲート・ハイライト・ゴースト表示・リセット)
+は op-log ハーネスへ移した。
+
+## 表示状態 (経路に依らないもの)
 
 ### 初期状態
 - activeBranch が null、isTrunk が true、pendingOps が空配列
 - newCommitsSinceMerge が 0、commitDialogOpen が false
-- diff 関連の Set が空
+- diff 関連の Set が空、対象シートの branches が空
 
-### branch 作成
-- handleCreateBranch: 名前を入力して branch を作成し sheetBranches に追加
-- 空の名前では作成されないこと
+### pendingOps の status ゲート
+`pendingOps` は「コミットできる変更があるか」= コミットボタンの有効/無効。
+- OPEN / MERGED の branch で変更があれば含まれる
+- **CLOSED の branch では空** (閉じた branch にコミットさせない)
+- trunk 表示中は空
 
-### branch 操作
-- handleMergeBranch: merge を実行しステータスが merged になる、merge 後も branch mode 継続
-- handleMergeBranch: 確認でキャンセルした場合は merge されない
-- handleCloseBranch: branch を close する
-- handleDeleteBranch: branch を削除する
+### ゴースト表示 (deletedNodes / deletedEdges)
+- `node.remove` は base に存在するノードをゴーストとして残し、**ハイライト
+  (conflicted) には入れない**
+- `node.add` はハイライトに入る
 
-### commit
-- handleCommit: pendingOps が空の場合はコミットされない
+### リセット・ダイアログ
+- activeFile.id が変わると activeBranch が null に戻る
+- resetBranchState で branch 状態が消える
+- setCommitDialogOpen で commitDialogOpen を切り替えられる
+- 空の名前では branch を作成しない
+- activeBranch が null のとき handleCommit は早期 return する
 
-### branch 切り替え
-- handleSelectBranch (trunk): branch 状態がリセットされる
-- handleSelectBranch (branch): branch 状態が設定される
+`computeOperations` だけを `BranchOpsDeps` から差し替えている
+(p6-5b 後に残る唯一の注入点)。**UI の見え方が差分計算の結果だけで決まる**ことを、
+シートを実際に編集せずに固定するため。
 
-### ヘルパー
-- resetBranchState: 全 branch 状態をリセットする
-- setBranchBases: branchOriginalBase と lastCommitBase を設定する
-- setCommitDialogOpen: commitDialogOpen を切り替えられる
-
-## op-log 経路 (step1 Phase 5 p5-4)
-
-hook は 2 つの経路を持つ。上の各ケースは **`branchFromOplog: false` を明示して
-旧 PDS 経路を張る** — フラグ off の安全弁が無傷であることの固定に役目が変わった。
-以下は既定 (`BRANCH_FROM_OPLOG=true`) の op-log 経路。
+## branch 操作 (op-log)
 
 deps は `createInMemoryBranchOplogDeps` (batches / branches / commits の in-memory ストア)。
 **branch tap の書き込み口と projection の読取口が同じストアを共有する**のが要で、
@@ -70,7 +72,7 @@ deps は `createInMemoryBranchOplogDeps` (batches / branches / commits の in-me
 
 ### commit — ログ上のオフセット
 - 保存されるのは `{message, at}` であって差分ではない。`at` は branch op-log の先端。
-- 変更が無ければコミットしない (旧経路と同じ早期 return)。
+- 変更が無ければコミットしない。
 - **`pendingOps` は diff 由来のまま** (p5-4 の確定事項)。op-log の未コミット batch を
   そのまま数えると「編集して undo」の往復が 2 変更に見えるため、表示は正味の差分に、
   コミットの実体はログ位置に、と役割を分ける。テストでは branch 選択**前**に

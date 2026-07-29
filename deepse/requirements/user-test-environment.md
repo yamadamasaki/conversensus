@@ -101,8 +101,9 @@ curl -s -X POST http://localhost:3000/files/import \
 読取経路は `GET /files/:id/batches` → `projectFile` の 1 本だけである.
 
 > branch 側の安全弁 `VITE_BRANCH_FROM_OPLOG=false` (旧 PDS レコード複製方式へ戻す)
-> はまだ生きている. こちらは PDS レコードを自分で書いて自分で読む閉じた経路なので
-> 陳腐化しておらず、Phase 6 の最終スライスまで残す (§4.4).
+> も **p6-5b で撤去された**. p6-6 の実機 e2e で op-log 経路に退行が無いことを
+> 確認してから、退行先だった `branchState.ts` ごと退役させている (§3.7 / §6.1).
+> branch の作成・編集・commit・merge・close・delete は op-log の 1 本だけである.
 
 ## 4. クリーンな状態へのリセット
 
