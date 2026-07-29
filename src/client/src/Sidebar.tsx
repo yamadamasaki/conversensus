@@ -1,4 +1,6 @@
 import {
+  BRANCH_STATUS,
+  type BranchMeta,
   type ConversensusFile,
   ConversensusFileSchema,
   ConversensusFileV1Schema,
@@ -13,11 +15,8 @@ import {
 } from '@conversensus/shared';
 import { useRef, useState } from 'react';
 import { AlertDialog } from './AlertDialog';
-import { BRANCH_STATUS, TRUNK_PREFIX } from './atproto';
+import { TRUNK_PREFIX } from './atproto';
 import type { RemoteSyncQueue } from './atproto/remoteSyncQueue';
-// 一覧に並ぶブランチは旧 PDS 経路の `Branch` と op-log の `BranchMeta` が同居する
-// (step1 Phase 5 p5-4)。Sidebar が触るのは {id, name, status, sheetId} の共通部分だけ。
-import type { AnyBranch } from './hooks/useBranchOperations';
 import type { PopupTarget } from './SettingsPopup';
 import { SettingsPopup } from './SettingsPopup';
 import { SyncStatusIndicator } from './SyncStatusIndicator';
@@ -29,7 +28,7 @@ type Props = {
   expandedFileIds: Set<string>;
   newFileName: string;
   popupTarget: PopupTarget | null;
-  sheetBranches: Map<string, AnyBranch[]>;
+  sheetBranches: Map<string, BranchMeta[]>;
   activeBranchId: string | null;
   onNewFileNameChange: (name: string) => void;
   onCreateFile: () => void;
@@ -44,11 +43,11 @@ type Props = {
   onExportFile: (fileId: string) => void;
   onSaveSheetSettings: (sheetId: string, name: string, desc: string) => void;
   onDeleteSheet: (sheetId: string) => void;
-  onSelectBranch: (sheetId: SheetId, branch: AnyBranch | null) => void;
+  onSelectBranch: (sheetId: SheetId, branch: BranchMeta | null) => void;
   onCreateBranch: (sheetId: SheetId) => void;
-  onMergeBranch: (branch: AnyBranch) => void;
-  onCloseBranch: (branch: AnyBranch) => void;
-  onDeleteBranch: (branch: AnyBranch) => void;
+  onMergeBranch: (branch: BranchMeta) => void;
+  onCloseBranch: (branch: BranchMeta) => void;
+  onDeleteBranch: (branch: BranchMeta) => void;
   atprotoSession: { handle: string } | null;
   onAtprotoLogin: () => void;
   onAtprotoLogout: () => void;

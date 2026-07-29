@@ -6,9 +6,9 @@
  *   - ブランチ = base コミット + そのブランチで追記された batches
  *   - ブランチの sheet = base までの trunk batches + branch batches の projection
  *
- * 現行 `branchState.ts` の rkey 複製方式 (createMainBranch/createBranch/
- * fetchBranchSheetFromPds/mergeBranchToTrunk 等) のドメイン概念を置換する。
- * PDS I/O (sync-provider への退避分) は含めない (Phase 4)。
+ * 旧 `branchState.ts` の rkey 複製方式 (createMainBranch/createBranch/
+ * fetchBranchSheetFromPds/mergeBranchToTrunk 等) のドメイン概念を置換したもの。
+ * **置換は完了し、旧方式は Phase 6 p6-5b で退役した** (client 側の配線は Phase 5)。
  */
 
 import { z } from 'zod';

@@ -345,6 +345,48 @@ export class EventStore {
   }
 
   /**
+   * ファイルを op-log ごと削除する (step1 Phase 6 p6-2, 設計 §3.5)。
+   *
+   * `deleteBranch` の trunk 版。**1 tx** で以下をまとめて消す:
+   *
+   * - 当該 file_id の batches / commits / file_migrations
+   * - trunk にぶら下がる branches のメタ行と、その branch 専用 file_id の batches / commits
+   *
+   * branch を巻き込むのは、branch の中身へは `branches.branch_file_id` からしか
+   * 辿れないため — trunk のメタ行だけ消すと参照者のいない batch が永久に残る
+   * (`deleteBranch` と同じ理由)。
+   *
+   * 【§1.3 の穴】これ以前の `DELETE /files/:id` は snapshot しか消していなかった。
+   * Phase 4e で snapshot を持たない op-log-only ファイル (受信 materialize) が
+   * 生まれて以降、それらは削除不能で、削除できたファイルも op-log が残っていた。
+   *
+   * @returns 1 行でも消したら true、対象が何も無ければ false (= 404 の根拠)
+   */
+  deleteFile(fileId: FileId): boolean {
+    const tx = this.db.transaction(() => {
+      const branchFileIds = this.db
+        .query<{ branch_file_id: string }, string>(
+          'SELECT branch_file_id FROM branches WHERE trunk_file_id = ?',
+        )
+        .all(fileId)
+        .map((row) => row.branch_file_id);
+      let removed = 0;
+      for (const id of [fileId, ...branchFileIds]) {
+        for (const table of ['batches', 'commits', 'file_migrations']) {
+          removed += this.db
+            .query(`DELETE FROM ${table} WHERE file_id = $file`)
+            .run({ $file: id }).changes;
+        }
+      }
+      removed += this.db
+        .query('DELETE FROM branches WHERE trunk_file_id = $file')
+        .run({ $file: fileId }).changes;
+      return removed > 0;
+    });
+    return tx();
+  }
+
+  /**
    * ファイルの op-log スキーマ marker を返す (W3d)。未 migration なら null。
    * marker >= W3_SCHEMA_VERSION なら op-log は既に正典 (genesis 済)。
    */

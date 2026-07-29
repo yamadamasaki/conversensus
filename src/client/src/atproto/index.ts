@@ -18,65 +18,11 @@ export {
   resolveBlobUrl,
   uploadImageBlob,
 } from './blob';
-export {
-  BRANCH_STATUS,
-  type Branch,
-  type BranchStatus,
-  type Commit,
-  computeOperations,
-  createBranch,
-  createCommit,
-  createMainBranch,
-  createMergeRecord,
-  deleteBranchWithRecords,
-  fetchBranchesForSheet,
-  fetchBranchSheetFromPds,
-  fetchCommitsForBranch,
-  mergeBranchToTrunk,
-  syncBranchSheetToAtproto,
-  updateBranchStatus,
-} from './branchState';
 export type { AtprotoSession } from './client';
 export { currentDid, getAgent, login, logout, resumeSession } from './client';
-export {
-  atUri,
-  batches,
-  branches,
-  commits,
-  edgeLayouts,
-  edges,
-  files,
-  nodeLayouts,
-  nodes,
-  rkeyFromUri,
-  sheets,
-  TRUNK_PREFIX,
-} from './collections';
-export {
-  initCidCacheFromPds,
-  POLL_INTERVAL_MS,
-  startPolling,
-  stopPolling,
-} from './poller';
-export {
-  fetchFileFromAtproto,
-  fetchFilesFromAtproto,
-  fetchSheetsFromAtproto,
-  syncFileToAtproto,
-  syncSheetToAtproto,
-} from './sync';
-export type {
-  BatchRecord,
-  BranchRecord,
-  CommitRecord,
-  EdgeLayoutRecord,
-  EdgeRecord,
-  FileRecord,
-  NodeLayoutRecord,
-  NodeRecord,
-  RecordResult,
-  RemoteChange,
-  SheetRecord,
-  StrongRef,
-} from './types';
+// step1 Phase 6 p6-5b: PDS legacy レコード (file/sheet/node/edge/layout/branch/
+// commit/merge) を読み書きする経路は退役した。ここに残るのは op-log の batch
+// コレクションと、legacy file レコードの後始末に使う `files` だけ (設計 §3.8)。
+export { batches, files, TRUNK_PREFIX } from './collections';
+export type { BatchRecord, RecordResult, StrongRef } from './types';
 export { NSID } from './types';

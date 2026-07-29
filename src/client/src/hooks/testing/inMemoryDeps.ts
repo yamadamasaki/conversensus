@@ -2,16 +2,14 @@ import {
   type Batch,
   type BranchMeta,
   type Commit,
+  type CommitOperation,
   type GraphFile,
   type GraphFileListItem,
   graphFileToBatches,
 } from '@conversensus/shared';
 import { INITIAL_CURSOR } from '../../sync/syncProvider';
-import type { BranchOplogDeps } from '../useBranchOperations';
+import type { BranchOplogDeps, BranchOpsDeps } from '../useBranchOperations';
 import type { FileSheetOpsDeps } from '../useFileSheetOperations';
-
-// biome-ignore lint/suspicious/noExplicitAny: fetchBranchSheetFromPds の戻り値は any で十分
-type AnySheet = any;
 
 export function createInMemoryFileSheetOpsDeps(): FileSheetOpsDeps & {
   _files: Map<string, GraphFile>;
@@ -50,13 +48,8 @@ export function createInMemoryFileSheetOpsDeps(): FileSheetOpsDeps & {
       // no-op in tests
     },
 
-    fetchFile: async (id: string) => {
-      const file = fileStore.get(id);
-      if (!file) throw new Error(`File not found: ${id}`);
-      return file;
-    },
-
-    // サーバの lazy migration (snapshot→genesis) を模す。snapshot が無ければ空 op-log。
+    // server の op-log を模す。`POST /files` の genesis 直書き (p6-1) と同じく、
+    // 作成済みファイルは必ず genesis を持つ。未知 id は空 op-log。
     // zod mock 下で genesis の batch id が実 UUID にならないため、決定論的な plain id に
     // 振り直して projection の tiebreak を安定させる。
     fetchBatches: async (id: string) => {
@@ -96,25 +89,7 @@ export function createInMemoryFileSheetOpsDeps(): FileSheetOpsDeps & {
       if (idx >= 0) fileList.splice(idx, 1);
     },
 
-    saveFile: async (_file: GraphFile) => {
-      // no-op in tests (cache save)
-    },
-
     atprotoFilesDelete: async (_id: string) => {
-      // no-op in tests
-    },
-
-    fetchFileFromAtproto: async (_id: string) => {
-      throw new Error('Not found');
-    },
-
-    fetchFilesFromAtproto: async () => [],
-
-    login: async (_handle: string, _password: string) => {
-      // no-op in tests
-    },
-
-    syncFileToAtproto: async (_file: GraphFile) => {
       // no-op in tests
     },
   };
@@ -195,136 +170,23 @@ export function createInMemoryBranchOplogDeps(): BranchOplogDeps & {
   };
 }
 
-export function createInMemoryBranchOpsDeps(): {
-  createBranch: (
-    name: string,
-    sheetId: string,
-    sheetRef: { uri: string; cid: string },
-  ) => Promise<AnySheet>;
-  fetchBranchesForSheet: (sheetId: string) => Promise<AnySheet[]>;
-  fetchBranchSheetFromPds: (
-    branchId: string,
-    sheetId: string,
-  ) => Promise<AnySheet>;
-  fetchCommitsForBranch: (branchUri: string) => Promise<AnySheet[]>;
-  mergeBranchToTrunk: (
-    branch: AnySheet,
-    sheetId: string,
-    sheetRef: AnySheet,
-  ) => Promise<void>;
-  createMergeRecord: (
-    branch: AnySheet,
-    sheetRef: AnySheet,
-    branchRef: AnySheet,
-    latestCommit?: AnySheet,
-  ) => Promise<AnySheet>;
-  updateBranchStatus: (branch: AnySheet, status: string) => Promise<AnySheet>;
-  deleteBranchWithRecords: (branch: AnySheet) => Promise<void>;
-  createCommit: (
-    message: string,
-    ops: AnySheet[],
-    sheetRef: AnySheet,
-    branchRef: AnySheet,
-    parentRef?: AnySheet,
-  ) => Promise<AnySheet>;
-  sheetsRef: (sheetId: string) => Promise<{ uri: string; cid: string }>;
-  syncFileToAtproto: (file: AnySheet) => Promise<void>;
-  computeOperations: (base: AnySheet, current: AnySheet) => AnySheet[];
-  TRUNK_PREFIX: string;
-  _branches: Map<string, AnySheet[]>;
-  _commits: Map<string, AnySheet[]>;
-  _setComputeOps: (ops: AnySheet[]) => void;
+/**
+ * `BranchOpsDeps` の in-memory 実装 (step1 Phase 6 p6-5b で純粋関数だけになった)。
+ *
+ * `computeOperations` を差し替え可能にしてあるのは、pendingOps / ハイライト /
+ * ゴースト表示といった **UI の見え方が差分計算の結果だけで決まる**ことを、シートを
+ * 実際に編集せずに固定するため。
+ */
+export function createInMemoryBranchOpsDeps(): BranchOpsDeps & {
+  _setComputeOps: (ops: CommitOperation[]) => void;
 } {
-  const branches = new Map<string, AnySheet[]>();
-  const commits = new Map<string, AnySheet[]>();
-  let branchCounter = 0;
-  let _computeOps: AnySheet[] = [];
+  let _computeOps: CommitOperation[] = [];
 
   return {
-    _branches: branches,
-    _commits: commits,
-
-    createBranch: async (name: string, sheetId: string) => {
-      branchCounter++;
-      const branch = {
-        id: `b-${branchCounter}`,
-        name,
-        uri: `at://branch/${branchCounter}`,
-        cid: `cid-b-${branchCounter}`,
-        sheetId,
-        status: 'open' as const,
-      };
-      const existing = branches.get(sheetId) ?? [];
-      existing.push(branch);
-      branches.set(sheetId, existing);
-      return branch;
-    },
-
-    fetchBranchesForSheet: async (sheetId: string) =>
-      branches.get(sheetId) ?? [],
-
-    fetchBranchSheetFromPds: async (_branchId: string, _sheetId: string) => ({
-      id: _sheetId,
-      name: 'Sheet 1',
-      nodes: [],
-      edges: [],
-    }),
-
-    fetchCommitsForBranch: async (branchUri: string) =>
-      commits.get(branchUri) ?? [],
-
-    mergeBranchToTrunk: async () => {},
-
-    createMergeRecord: async () => ({
-      uri: 'at://merge/1',
-      cid: 'cid-m',
-    }),
-
-    updateBranchStatus: async (branch: AnySheet, status: string) => ({
-      ...branch,
-      status,
-    }),
-
-    deleteBranchWithRecords: async (branch: AnySheet) => {
-      const sheetBranches = branches.get(branch.sheetId) ?? [];
-      branches.set(
-        branch.sheetId,
-        sheetBranches.filter((b: AnySheet) => b.id !== branch.id),
-      );
-    },
-
-    createCommit: async (
-      _message: string,
-      _ops: AnySheet[],
-      _sheetRef: AnySheet,
-      branchRef: AnySheet,
-      _parentRef?: AnySheet,
-    ) => {
-      const commit = {
-        uri: `at://commit/${Date.now()}`,
-        cid: `cid-c-${Date.now()}`,
-        message: _message,
-        ops: _ops,
-      };
-      const existing = commits.get(branchRef.uri) ?? [];
-      existing.push(commit);
-      commits.set(branchRef.uri, existing);
-      return commit;
-    },
-
-    sheetsRef: async (_sheetId: string) => ({
-      uri: `at://sheet/${_sheetId}`,
-      cid: 'cid-s',
-    }),
-
-    syncFileToAtproto: async () => {},
-
     computeOperations: () => _computeOps,
 
-    _setComputeOps: (ops: AnySheet[]) => {
+    _setComputeOps: (ops: CommitOperation[]) => {
       _computeOps = ops;
     },
-
-    TRUNK_PREFIX: 'trunk',
   };
 }

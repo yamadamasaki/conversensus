@@ -26,8 +26,14 @@ migration→projection の契約が崩れていないことは別途保証が要
 
 `richSnapshot()` で実運用相当の GraphFile を組む: 2 シート、複数ノード (content/properties)、
 ラベル付きエッジ、ノードレイアウト (x/y/width/height)、エッジルーティング (pathType)。
-`putSnapshot()` は `POST /files` で空ファイルを作り、`PUT /files/:id` で rich snapshot に
-差し替える (**marker は立てない** = 既存の未 migration ファイルを模す)。
+`seedLegacySnapshot()` は `writeLegacySnapshot` (テスト専用ヘルパ) で snapshot を直接置き、続けて起動時の一括移行
+(`migrateAllFilesToOplog`) を通す。**endpoint を経由しないのは経由では作れない状態だから** —
+Phase 6 p6-1 以降 `POST /files` は op-log を作るので「snapshot だけが在る」状態にならない。
+これは移行が実際に要る唯一の状況 (Phase 6 より前に作られたファイル) の再現である。
+
+> 旧版は `POST /files` + `PUT /files/:id` で seed し、初回 GET の lazy migration を
+> 発火させていた。p6-1 で読取時 migration を撤去したため seed 方法を実運用に合わせた。
+> **検証している性質 (実 snapshot → 実 migration → projectFile の再現性) は変わらない**。
 
 比較は `structural()` で正規化する: `projectFile` が `GraphFile` に再現するフィールド
 (ファイルメタ・シート順・nodes・edges・node layouts・edge routing) だけを id 昇順にソートして
@@ -36,9 +42,9 @@ migration→projection の契約が崩れていないことは別途保証が要
 
 ### ケース
 
-1. **既存 snapshot を開くと migration→projectFile が構造を再現する**:
-   rich snapshot を PUT → 初回 `GET /files/:id/batches` が lazy migration を発火 →
-   返る batches を `projectFile` → 元の snapshot と構造が一致。シート順 (メイン→サブ) も保たれる。
+1. **既存 snapshot が migration→projectFile で構造を再現する**:
+   rich snapshot を置いて一括移行 → `GET /files/:id/batches` の batches を `projectFile` →
+   元の snapshot と構造が一致。シート順 (メイン→サブ) も保たれる。
 2. **migration はべき等**: 二度 `openViaOplog` して projection が完全一致
    (marker により再 genesis されない)。
 3. **編集を再オープンで反映**: 初回 open で genesis の最大 clock を確認 → その後に

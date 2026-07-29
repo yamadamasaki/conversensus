@@ -58,8 +58,9 @@ Phase 3 の永続モデルは「append-only な操作ログ + projection」。�
     仕様化した pre-W3 増分ログの破棄 (上記 §migrateToOplog) を壊す。**両者を分けるのが
     marker の役割**であり、この 2 本のテストが対で意図を固定する。
   - 受信 0 件では marker を立てない (lazy migration の機会を無意味に奪わない)。
-- **listOplogFiles (Phase 4e-2a)**: `GET /files` を snapshot storage と op-log の和集合に
-  するための op-log 側。受信で materialize されたファイルは snapshot を持たないため、
+- **listOplogFiles (Phase 4e-2a)**: `GET /files` の一覧を作る。4e-2a では snapshot storage
+  との和集合の op-log 側だったが、**Phase 6 p6-2 で `GET /files` の唯一の供給元になった**
+  (設計 §3.3)。受信で materialize されたファイルは snapshot を持たないため、
   ここに出ないと一覧から永久に見えない (4e 設計 §3.2b)。
   - 空 op-log では空配列。
   - file 構造 op (`file.setName` / `file.setDescription` / `sheet.create`) を `projectFile` で
@@ -67,7 +68,8 @@ Phase 3 の永続モデルは「append-only な操作ログ + projection」。�
   - **projection が 0 シートの file_id は出さない** — 有効な GraphFile は必ず 1 シート以上
     (W3d-2 の読取失敗判定と同じ基準)。genesis の無い孤児 batch だけの file_id (D-4) を
     一覧に出すと、開いても描画できない項目が並ぶ。
-  - 順序は初出順 (file_id ごとの最小 seq)。和集合で snapshot 順の後に安定して足すため。
+  - 順序は初出順 (file_id ごとの最小 seq)。和集合だった頃は snapshot 順の後へ安定して
+    足すための規則で、単独化後はそれ自体が一覧の順序になる。
   - **branch op-log の除外 (Phase 5 p5-1)**: branch batches は trunk と同じテーブルに
     branch 専用 file_id で同居する (設計 §3.1-B) ため、除外できないと UI のファイル一覧に
     branch がファイルとして並ぶ。**明示的な除外コードは書いていない** — `branchSheet` は
@@ -104,5 +106,17 @@ Phase 3 の永続モデルは「append-only な操作ログ + projection」。�
   - **trunk が一致しないと消せない / 存在しないブランチは false**: `trunkFileId` を
     受けるのは、id だけを知る呼び出しが別ファイルのブランチを消せないようにするため。
     存在しない場合の false は HTTP 404 の材料であり、二重削除を安全にする。
+
+- **deleteFile (step1 Phase 6 p6-2)**: ファイルの削除。`deleteBranch` の trunk 版で、
+  観点も対称に「消し残しと消し過ぎ」で取る。ただし**消し残しの範囲が広い**のがこの API の
+  難しさで、設計 §1.3 が挙げた既存の穴 (snapshot しか消していなかった) の裏返しでもある:
+  - **batches / commits / marker がまとめて消える**: marker を残すと、同じ id が受信で
+    materialize されたときに「移行済」と誤認する。削除は初期状態へ戻すこと。
+  - **trunk のブランチのメタと実体も消える**: branch の中身へは `branch_file_id` からしか
+    辿れないため、trunk だけ消すと孤児 batch が永久に残る (`deleteBranch` と同じ理由)。
+  - **他ファイルは巻き添えにしない**: 消し過ぎの検出。
+  - **対象が無ければ false**: HTTP 404 の材料であり、二重削除を安全にする。
+  - **op-log を持たずメタだけのファイルも対象**: 判定を batches の有無に絞ると、
+    commit や branch だけが残った孤児メタを掃除できなくなる。
 
 テストは `beforeEach` で毎回新しいインメモリ DB を生成し、テスト間の状態を分離する。

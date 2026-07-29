@@ -1,20 +1,20 @@
-import type { GraphFile, Sheet, SheetId } from '@conversensus/shared';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { AlertDialog } from './AlertDialog';
-import { AtprotoLoginDialog } from './AtprotoLoginDialog';
 import {
   BRANCH_STATUS,
-  sheets,
-  syncBranchSheetToAtproto,
-  TRUNK_PREFIX,
-} from './atproto';
+  type GraphFile,
+  type Sheet,
+  type SheetId,
+} from '@conversensus/shared';
+import { useCallback, useRef, useState } from 'react';
+import { AlertDialog } from './AlertDialog';
+import { AtprotoLoginDialog } from './AtprotoLoginDialog';
+import { TRUNK_PREFIX } from './atproto';
 import { CommitDialog } from './CommitDialog';
 import { ConfirmDialog } from './ConfirmDialog';
 import { makeEventBase } from './events/GraphEvent';
 import { GraphEditor } from './GraphEditor';
 import { useActor } from './hooks/useActor';
 import { useAtprotoSession } from './hooks/useAtprotoSession';
-import { isBranchMeta, useBranchOperations } from './hooks/useBranchOperations';
+import { useBranchOperations } from './hooks/useBranchOperations';
 import type { UndoState } from './hooks/useEventStore';
 import { useFileSheetOperations } from './hooks/useFileSheetOperations';
 import { useRemoteSyncQueue } from './hooks/useRemoteSyncQueue';
@@ -22,8 +22,6 @@ import { InputDialog } from './InputDialog';
 import { FLOATING_UI_Z_INDEX } from './SettingsPopup';
 import { Sidebar } from './Sidebar';
 import { generateId } from './uuid';
-
-const AUTOSAVE_DELAY = 1000; // ms
 
 export default function App() {
   // Dialog state (UI only)
@@ -40,7 +38,6 @@ export default function App() {
     resolve: () => void;
   } | null>(null);
 
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const undoStateMapRef = useRef<Map<string, UndoState>>(new Map());
 
   // ATProto セッション
@@ -71,13 +68,6 @@ export default function App() {
     );
   }, []);
 
-  // op-log branch を表示中か (step1 Phase 5 p5-4)。**`fileOps` は `branchOps` より先に
-  // 作られる**ので、値ではなく安定参照のコールバック + ref で渡す (`isEditingActive` と同型)。
-  // これが true の間 `persistFile` は snapshot を書かない — branch の内容で trunk の
-  // snapshot を上書きしないため (§9.2)。
-  const branchActiveRef = useRef(false);
-  const isBranchActive = useCallback(() => branchActiveRef.current, []);
-
   // File & sheet operations
   const fileOps = useFileSheetOperations({
     setConfirmState,
@@ -85,7 +75,6 @@ export default function App() {
     remoteQueue,
     actor,
     isEditingActive,
-    isBranchActive,
   });
 
   // Branch operations
@@ -102,53 +91,17 @@ export default function App() {
     trunkClock: fileOps.trunkClock,
   });
 
-  // branch 表示の有無を ref へ写す (上の isBranchActive が読む)。
-  // レンダー中に代入すると破棄されたレンダーの値を残しうるので effect で行う。
-  useEffect(() => {
-    branchActiveRef.current =
-      branchOps.activeBranch !== null && isBranchMeta(branchOps.activeBranch);
-  }, [branchOps.activeBranch]);
-
   // Cross-domain wired callbacks
+  //
+  // Phase 6 p6-3 / p6-5b: **autosave は trunk・branch とも消えた**。content の編集は
+  // op-log tap (GraphEditor → syncRecord、branch 表示中は branch 専用 tap) が編集ごとに
+  // 書いており、debounce して別の永続先へ書き戻す経路がもう無い (設計 §3.6 / §3.7)。
+  // ここに残るのは画面 state の更新だけである。
   const handleChange = useCallback(
     (updated: GraphFile) => {
       fileOps.setActiveFile(updated);
-      if (saveTimer.current) clearTimeout(saveTimer.current);
-
-      const branch = branchOps.activeBranch;
-      const sheetId = fileOps.activeSheetId;
-
-      saveTimer.current = setTimeout(async () => {
-        // op-log の branch は編集ごとに branch tap が書いているので autosave は不要。
-        // ここで persistFile を呼ぶと **branch の内容で trunk の snapshot を上書きする**
-        // ため、何もしないのが正しい (p5-4)。
-        if (branch && isBranchMeta(branch)) return;
-        if (
-          branch &&
-          branch.name !== TRUNK_PREFIX &&
-          sheetId &&
-          (branch.status === BRANCH_STATUS.OPEN ||
-            branch.status === BRANCH_STATUS.MERGED)
-        ) {
-          const sheet = updated.sheets.find((s) => s.id === sheetId);
-          if (!sheet) return;
-          try {
-            const sheetRef = await sheets.ref(sheetId);
-            await syncBranchSheetToAtproto(sheet, sheetRef, branch.id);
-          } catch (err) {
-            console.warn('[branch] auto-save failed:', err);
-          }
-        } else {
-          await fileOps.persistFile(updated);
-        }
-      }, AUTOSAVE_DELAY);
     },
-    [
-      fileOps.setActiveFile,
-      fileOps.persistFile,
-      fileOps.activeSheetId,
-      branchOps.activeBranch,
-    ],
+    [fileOps.setActiveFile],
   );
 
   const handleSelectSheet = useCallback(
@@ -159,7 +112,7 @@ export default function App() {
     [fileOps.setActiveSheetId, branchOps.resetBranchState],
   );
 
-  const handleAddSheet = useCallback(async () => {
+  const handleAddSheet = useCallback(() => {
     if (!fileOps.activeFile) return;
     // 🔴 シート追加は **trunk のファイルを土台に**行う。branch 表示中の activeFile は
     // 該当シートが branch の内容なので、それを土台にすると branch の内容が trunk へ移る。
@@ -186,30 +139,19 @@ export default function App() {
       name: newSheet.name,
     });
     fileOps.setActiveSheetId(newSheet.id);
-    await fileOps.persistFile(updated);
+    fileOps.updateFileState(updated);
   }, [
     fileOps.activeFile,
     fileOps.setActiveSheetId,
-    fileOps.persistFile,
+    fileOps.updateFileState,
     fileOps.syncRecord,
     branchOps.isTrunk,
     branchOps.resetBranchState,
   ]);
 
-  // ATProto セッション確立後にファイル一覧を同期
-  const { loadAtprotoFiles } = fileOps;
-  useEffect(() => {
-    if (atprotoSession) {
-      loadAtprotoFiles();
-    }
-  }, [atprotoSession, loadAtprotoFiles]);
-
-  // Save timer cleanup
-  useEffect(() => {
-    return () => {
-      if (saveTimer.current) clearTimeout(saveTimer.current);
-    };
-  }, []);
+  // Phase 6 p6-4: セッション確立後の PDS legacy file レコード同期 (`loadAtprotoFiles`)
+  // は撤去した。リモートのファイル発見は `useFileSheetOperations` 内の
+  // `discoverRemoteFiles` (op-log 経路) に一本化されている (設計 §3.8)。
 
   const branch = branchOps.activeBranch;
 

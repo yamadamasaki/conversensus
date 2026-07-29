@@ -9,8 +9,9 @@ API と ATProto モジュールをモックし、状態遷移とコールバッ�
 
 App.tsx から抽出された最大のビジネスロジックの塊であり、
 ファイル作成・削除・インポート・永続化の正確性を保証する必要がある。
-さらに W3c1 で構造操作 (シート/ファイルの追加・削除・改名・説明) が
-**snapshot と op-log の dual-write** になったため、op-log 側 (tap) への emit も検証する。
+さらに W3c1 で構造操作 (シート/ファイルの追加・削除・改名・説明) が op-log へ流れるように
+なったため、tap への emit も検証する。**Phase 6 p6-3 で snapshot 側の読み書きが撤去され、
+dual-write / dual-read は終わった** — 状態の永続先は op-log ただ一つになった (設計 §3.6)。
 tap は `syncRecord` として注入し、実ネットワーク (LocalServerSyncProvider) を避けつつ
 発行イベントを観測する。
 
@@ -23,10 +24,11 @@ tap は `syncRecord` として注入し、実ネットワーク (LocalServerSync
 
 ### ファイル操作
 - handleCreate: 新規ファイルを作成し activeFile / activeSheetId が設定されること
-- persistFile: activeFile と files を更新し ATProto / ローカルに保存すること
-- handleSaveFileSettings: ファイル名と説明を更新し、**変化した項目のみ** op-log へ emit すること (`FILE_RENAMED` / `FILE_DESCRIBED`)。dual-write なので snapshot 側も従来通り更新される。
+- updateFileState: activeFile と files 一覧を更新すること。**永続化は伴わない** (op-log へも emit しない — それは呼び出し側の責務で、ここで emit すると二重記録になる)
+- handleSaveFileSettings: ファイル名と説明を更新し、**変化した項目のみ** op-log へ emit すること (`FILE_RENAMED` / `FILE_DESCRIBED`)
 - handleDeleteFile: 確認後ファイルを削除し activeFile をクリアすること
 - handleImportFile: インポートしたファイルを active にすること
+- handleExportFile: 開いていないファイルは **op-log の projection** を書き出すこと (p6-3, 設計 §3.4)。server に projection の第 2 実装を作らない判断の帰結で、読取経路が `loadFile` 1 本に揃ったことの固定でもある
 
 ### シート操作
 - handleDeleteSheet: 最後のシートは削除できず alert が表示されること (この場合は op-log へ emit しない)
@@ -34,30 +36,31 @@ tap は `syncRecord` として注入し、実ネットワーク (LocalServerSync
 - handleSaveSheetSettings: シート名と説明を更新し、変化した項目のみ op-log へ emit すること (`SHEET_RENAMED` / `SHEET_DESCRIBED`)
 - handleSaveSheetSettings: 変化が無ければ何も emit しないこと (空 batch 回避)
 
-### 読み取り経路の cutover — W3d dual-read (`READ_FROM_OPLOG`)
+### 読み取り経路 — op-log 単独 (Phase 6 p6-3)
 
-`openFile` (trunk 読取) は W3d で snapshot から **op-log 正典** (`fetchBatches`→`projectFile`)
-へ切替わる。`GET /files/:id/batches` はサーバ側で lazy migration (snapshot→genesis, W3d-1)
-を起動するため、既存ファイルも op-log projection で開ける。安全弁として `READ_FROM_OPLOG`
-フラグ (テストは hook 引数 `readFromOplog` で明示) と snapshot フォールバックを持つ。
+`openFile` (trunk 読取) は W3d で op-log 正典 (`fetchBatches`→`projectFile`) へ切替わりつつ、
+snapshot への dual-read フォールバックと安全弁 `READ_FROM_OPLOG` を残していた。
+**p6-3 で snapshot への書込を止めたため、退避先として成立しなくなった** — 古い内容を
+見せる方が失敗するより悪い。よってフォールバックとフラグを撤去した (設計 §3.6 / §4.2)。
 
-- **flag ON**: op-log (`fetchBatches`) から読み、snapshot (`fetchFile`) には触れないこと。
-  in-memory deps は snapshot から genesis を合成 (`graphFileToBatches`) して op-log を模す。
-- **flag ON + op-log 読取失敗**: `fetchBatches` が throw したら snapshot にフォールバックし、
-  正常に開けること (dual-read 安全弁)。
-- **flag ON + op-log が空 (0 シート)**: 有効な `GraphFile` は 1 枚以上シートを持つため、
-  0 シート projection は「読取失敗」扱いで snapshot に退避すること。真の欠損は snapshot 側で
-  404 → alert に至る (既存の「見つからない場合はエラー通知」ケースが空 op-log→フォールバックを兼ねる)。
-- **flag OFF**: 従来通り snapshot (`fetchFile`) から読み、op-log (`fetchBatches`) には
-  一切触れないこと (即時退行の担保)。
+旧テストは削除せず **意味を反転**させて残す。「退避する」が「退避しない」に変わることで、
+フォールバックを戻したら赤くなる:
 
-`handleCreate` も作成直後に同じ `loadFile` (op-log 経路) で読み直し、genesis を起動して
-projection を表示する (open との一貫性)。作成レスポンス由来の snapshot がフォールバック先。
+- **op-log から開ける**: `fetchBatches` を読み、projection が activeFile になること。
+  in-memory deps は作成済みファイルから genesis を合成 (`graphFileToBatches`) して op-log を模す
+  (`POST /files` の genesis 直書き = p6-1 と同じ状態)。
+- **🔴 op-log 読取が失敗したら開けない**: `fetchBatches` が throw したとき、かつては
+  snapshot (`fetchFile`) が肩代わりして開けていた。今は activeFile が null のままで alert に至る。
+- **🔴 projection が 0 シートなら開けない**: 有効な `GraphFile` は 1 枚以上シートを持つ
+  (W3d-2 の読取失敗判定)。0 シートは欠損 / 孤児 batch のみで、退避先はもう無い。
 
-### dual-write の設計意図
-構造操作は W3d の読み取り cutover まで snapshot が正典。op-log への emit は
-「op-log を書き込み経路の正典にする (D4)」ための前進で、変化項目のみ emit することで
-空 ops batch (`appendBatch` が拒否) を避け、無変化保存でログを汚さない。
+`handleCreate` も作成直後に同じ `loadFile` で読み直す (open との一貫性)。`POST /files` が
+genesis を書いた後なので必ず読める。
+
+### 構造操作の emit 方針
+変化項目のみ emit することで空 ops batch (`appendBatch` が拒否) を避け、無変化保存で
+ログを汚さない。W3c1 当時は snapshot との dual-write だったが、p6-3 で snapshot 側が
+消えたので **これが唯一の永続経路**になった。
 
 ### remote 未知ファイルの発見 (Phase 4e-2b)
 
@@ -74,6 +77,13 @@ remote (repo 全体) にあってローカル正典に無いファイルを mate
 
 `online` イベントでの再発火は送信 catch-up (useEventSyncTap.test) と同じ方式のため、
 配線テストでは mount 契機のみ固定する。実 PDS からの発見経路は 4e-4 実機 e2e で検証する。
+
+**Phase 6 p6-4 でこれがリモート一覧を得る唯一の経路になった** — 並走していた
+`loadAtprotoFiles` (PDS legacy の file レコード一覧を取得して `files` にマージ) を
+撤去したため (設計 §3.8)。テストは増やしていない: 上記 3 件が「ログイン中のみ発見が
+起きる」ことを既に固定しており、`loadAtprotoFiles` の撤去で変わるのは
+**同じ契機で走るもう 1 本が消えた**ことだけだからである。撤去した側の一覧マージには
+専用テストが無かった (deps stub が空配列を返すだけだった) ので、失われた検証も無い。
 
 ### 受信着地後の画面反映 (Phase 4e-3 / 4e-4)
 
@@ -94,19 +104,16 @@ GraphEditor の reset effect の依存に加えることで再 seed を発火さ
 - **既知分のみの再受信 (appended = 0)**: onReceived 自体が呼ばれず、swap も epoch 増加も
   起きないこと (べき等再受信で画面を無駄に触らない)。
 
-## persistFile の branch ガード (step1 Phase 5 p5-4)
+## 【退役】persistFile の branch ガード (step1 Phase 5 p5-4)
 
 op-log branch を表示している間、`activeFile` の該当シートは **branch の内容** に
-差し替わっている (`useBranchOperations` が projection を差し込む)。この状態で
-`persistFile` が snapshot (ローカルキャッシュ / ATProto の file レコード) を書くと、
-**trunk の snapshot を branch の内容で上書きする** (設計 §9.2)。branch の内容は
-branch 専用 op-log にだけ置くのが Phase 5 の不変条件。
+差し替わっている。この状態で `persistFile` が snapshot を書くと **trunk の snapshot を
+branch の内容で上書きする** (Phase 5 設計 §9.2)。`persistFile` は autosave だけでなく
+シート追加・ファイル設定保存・シート名変更・シート削除からも呼ばれるため、呼び出し側ごとに
+ガードを置くと必ず漏れる (実際 critic に 4 箇所中 3 箇所の漏れを指摘された)。そこで
+ガードを `persistFile` 自身に置いていた。
 
-`persistFile` は autosave だけでなくシート追加・ファイル設定保存・シート名変更・
-シート削除からも呼ばれるため、呼び出し側ごとにガードを置くと必ず漏れる (実際 critic に
-4 箇所中 3 箇所の漏れを指摘された)。**ガードは `persistFile` 自身に置く**。
-
-- **trunk 表示中は書く** (既定の挙動が変わっていないことの対照)。
-- **🔴 branch 表示中は書かない**: `saveFile` / `syncFileToAtproto` のどちらも呼ばれない。
-  ただし **画面用の state 更新 (`setActiveFile`) は行う** — branch の編集が即座に
-  画面から消えては困るため。ガードを外すと落ちることを確認済み。
+**Phase 6 p6-3 でこのガードは構造ごと消えた** — 書込先 (`saveFile` / `syncFileToAtproto`)
+が `FileSheetOpsDeps` から無くなり、漏れようがなくなったため (設計 §3.6)。
+ガードのテストも一緒に退役させた。Phase 5 critic の「呼び出し側ごとのガードは必ず漏れる」に
+対する最終的な答えは「書込先を消す」だった、というのがこの節の記録である。
