@@ -163,8 +163,9 @@ export function useEventSyncTap(
   //   - 起動時 (ファイルを開いた時点)
   //   - 再接続時 (`online` イベント / W3d5-7 確定)
   // `online` が発火しない障害 (PDS だけ落ちている等) は手動「今すぐ同期」(§3.7) と
-  // 次回起動時 catch-up で回収する。定期リトライは catch-up 1 回 = 全件 pull (D2) の
-  // コストを常時払うことになるため採らず、Phase 4d の subscribe/cursor 化へ委ねる。
+  // 次回起動時 catch-up で回収する。定期リトライは 1 回あたり remote 取得 1 往復の
+  // コストを常時払うことになるため採らず、Jetstream 購読 (Phase 8) へ委ねる。
+  // (Phase 7 p7-2 で 1 回のコストは repo 全件からそのファイルの履歴分に縮んだ。)
   //
   // **受信 (Phase 4d-5) も同じ契機に相乗りする** (§3.4)。送信 catch-up と受信は
   // 「remote と突き合わせて差分を埋める」同じ性質の操作なので、発火経路を分けない。
@@ -181,7 +182,8 @@ export function useEventSyncTap(
         );
       // 受信は fanout を通さない (echo ループ回避, §3.3a)。ローカル正典への直書き。
       receiveRemoteBatches(fileId, {
-        pullRemote: () => remoteQueue.pullRemote(),
+        // 取得はファイル単位 (Phase 7 p7-2)。repo 全体を落として捨てる形を止めた
+        pullRemoteForFile: (id) => remoteQueue.pullRemoteForFile(id),
         appendReceived,
         observeRemote: (clock) => tap.observeRemote(clock),
       })

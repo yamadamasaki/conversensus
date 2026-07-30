@@ -75,6 +75,15 @@ class FakeProvider implements SyncProvider, RemoteBatchTarget {
     this.pulledRemote += 1;
     return this.pullRemoteEntries;
   }
+  /**
+   * ファイル単位の取得 (Phase 7 p7-2)。catch-up の経路はこちらを通る。
+   * 呼び出し回数は `pulledRemote` に合流させる — このテストが数えているのは
+   * 「catch-up が remote を 1 回だけ読むか」であって取得の粒度ではない。
+   */
+  async pullRemoteForFile(fileId: FileId): Promise<RemoteBatch[]> {
+    this.pulledRemote += 1;
+    return this.pullRemoteEntries.filter((e) => e.fileId === fileId);
+  }
   subscribe(onRemote: OnRemote): Unsubscribe {
     this.subscribed.push(onRemote);
     return () => {

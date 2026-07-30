@@ -95,6 +95,17 @@ export function batchRkeyFileCursor(fileId: FileId): string {
 }
 
 /**
+ * AT-URI (`at://<did>/<collection>/<rkey>`) の末尾から rkey を取り出す。
+ *
+ * `listRecords` の応答は rkey を独立したフィールドで返さないので、rkey を見る側は
+ * 必ずここを通る (取得の範囲判定 = `collections.listRecordsByRkeyPrefix` と、
+ * `batch.id` の復元 = `pullRemote` の両方)。
+ */
+export function rkeyFromUri(uri: string): string {
+  return uri.split('/').at(-1) ?? uri;
+}
+
+/**
  * rkey から `batch.id` を復元する。復元できなければ `null`。
  *
  * **旧 rkey (= batchId 単体) を許容する**のは p7-1 時点の読取が repo 全件 list のままで、

@@ -44,6 +44,10 @@ class FakeProvider implements SyncProvider, RemoteBatchTarget {
   async pullRemote(): Promise<RemoteBatch[]> {
     return [];
   }
+  /** ファイル単位の取得 (Phase 7 p7-2)。この画面のテストでは remote は空でよい */
+  async pullRemoteForFile(): Promise<RemoteBatch[]> {
+    return [];
+  }
   subscribe(_onRemote: OnRemote) {
     return () => {};
   }

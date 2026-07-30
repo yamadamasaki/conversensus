@@ -577,20 +577,24 @@ describe('useFileSheetOperations', () => {
     /** remote に未知ファイルの batch がある状態の RemoteSyncQueue を作る */
     async function makeRemoteQueue() {
       const { RemoteSyncQueue } = await import('../atproto/remoteSyncQueue');
+      const entries = [
+        {
+          fileId: NEW_FILE,
+          batch: {
+            id: 'rb1',
+            actor: 'did:plc:alice#dev-a',
+            clock: 1,
+            timestamp: 1,
+            ops: [{ kind: 'file.setName', name: '受信ファイル' }],
+          },
+        },
+      ];
       const provider = {
         pushRemote: async () => {},
-        pullRemote: async () => [
-          {
-            fileId: NEW_FILE,
-            batch: {
-              id: 'rb1',
-              actor: 'did:plc:alice#dev-a',
-              clock: 1,
-              timestamp: 1,
-              ops: [{ kind: 'file.setName', name: '受信ファイル' }],
-            },
-          },
-        ],
+        // 発見は repo 全体の走査 (ファイル列挙への置換は Phase 7 p7-3)
+        pullRemote: async () => entries,
+        pullRemoteForFile: async (fileId: string) =>
+          entries.filter((e) => e.fileId === fileId),
       };
       // biome-ignore lint/suspicious/noExplicitAny: テスト用の最小 provider
       return new RemoteSyncQueue({ provider: provider as any });
@@ -650,22 +654,24 @@ describe('useFileSheetOperations', () => {
     /** 開いているファイル宛の batch を remote に持つ RemoteSyncQueue を作る */
     async function makeRemoteQueueFor(fileId: string) {
       const { RemoteSyncQueue } = await import('../atproto/remoteSyncQueue');
+      const entries = [
+        {
+          fileId,
+          batch: {
+            id: 'rb-open-1',
+            actor: 'did:plc:alice#dev-b',
+            clock: 100,
+            timestamp: 1,
+            ops: [{ kind: 'node.add', nodeId: RECV_NODE, content: 'B の編集' }],
+          },
+        },
+      ];
       const provider = {
         pushRemote: async () => {},
-        pullRemote: async () => [
-          {
-            fileId,
-            batch: {
-              id: 'rb-open-1',
-              actor: 'did:plc:alice#dev-b',
-              clock: 100,
-              timestamp: 1,
-              ops: [
-                { kind: 'node.add', nodeId: RECV_NODE, content: 'B の編集' },
-              ],
-            },
-          },
-        ],
+        pullRemote: async () => entries,
+        // 受信はファイル単位取得を通る (Phase 7 p7-2)
+        pullRemoteForFile: async (id: string) =>
+          entries.filter((e) => e.fileId === id),
       };
       // biome-ignore lint/suspicious/noExplicitAny: テスト用の最小 provider
       return new RemoteSyncQueue({ provider: provider as any });

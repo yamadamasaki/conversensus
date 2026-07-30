@@ -9,8 +9,12 @@ import {
   type IntervalScheduler,
 } from './atprotoSyncProvider';
 import { batchToRecord } from './batchMapper';
-import { batchRkey } from './batchRkey';
-import { NSID } from './types';
+import { batchRkey, batchRkeyFileCursor, batchRkeyPrefix } from './batchRkey';
+import { NSID, type RemoteBatch } from './types';
+
+/** FILE より rkey が小さいファイルと大きいファイル (prefix 境界の検証用) */
+const FILE_LOWER = '11111111-1111-4111-8111-111111111111' as FileId;
+const FILE_UPPER = '33333333-3333-4333-8333-333333333333' as FileId;
 
 const batch = (id: string, clock: number, actor = 'did:plc:alice'): Batch => ({
   id: id as Batch['id'],
@@ -20,29 +24,39 @@ const batch = (id: string, clock: number, actor = 'did:plc:alice'): Batch => ({
   ops: [{ kind: 'node.add', target: `n${id}` as NodeId, content: id }],
 });
 
-/** collections.batches と同形の in-memory 実装 */
+/**
+ * collections.batches と同形の in-memory 実装。
+ *
+ * `listByFile` は**実 PDS と同じ手順**を模す — rkey 昇順に並べ、合成 cursor
+ * (`v1~<fileId>`) より大きいところから読み、prefix を外れた 1 件で止める。
+ * こうしないと「rkey 空間の分離が効いている」ことを単体で確かめられない (設計 §3.2)。
+ */
 function inMemoryBatches() {
   const records = new Map<
     string,
     { uri: string; cid: string; value: unknown }
   >();
   let cid = 0;
-  const seedAt = (rkey: string, b: Batch) => {
+  const seedAt = (rkey: string, b: Batch, fileId: FileId = FILE) => {
     records.set(rkey, {
       uri: `at://did:plc:test/${NSID.batch}/${rkey}`,
       cid: `seed-${rkey}`,
-      value: { $type: NSID.batch, ...batchToRecord(b, FILE) },
+      value: { $type: NSID.batch, ...batchToRecord(b, fileId) },
     });
   };
+  /** 走査したレコード件数 (範囲取得が旧レコードを踏まないことの証拠に使う) */
+  let scanned = 0;
   const store: BatchCollection & {
     /** 新形式 rkey (Phase 7 p7-1) で仕込む */
-    _seed: (b: Batch) => void;
+    _seed: (b: Batch, fileId?: FileId) => void;
     /** 旧形式 rkey (= batchId 単体, Phase 4c〜6) で仕込む */
     _seedLegacy: (b: Batch) => void;
     /** 任意の rkey で仕込む (壊れた rkey の検証用) */
     _seedRkey: (rkey: string, b: Batch) => void;
     _size: () => number;
     _rkeys: () => string[];
+    /** 直近の `listByFile` が読んだレコード件数 */
+    _scanned: () => number;
   } = {
     // 引数は rkey。Phase 7 p7-1 以降は batchId 単体ではない
     put(rkey, data) {
@@ -58,8 +72,23 @@ function inMemoryBatches() {
     list() {
       return Promise.resolve([...records.values()]);
     },
-    _seed(b) {
-      seedAt(batchRkey(FILE, b.clock, b.id), b);
+    listByFile(fileId) {
+      const prefix = batchRkeyPrefix(fileId);
+      const seek = batchRkeyFileCursor(fileId);
+      const found: Array<{ uri: string; cid: string; value: unknown }> = [];
+      scanned = 0;
+      // rkey 昇順 + `rkey > cursor` (実 PDS の reverse: true と同じ意味論)
+      for (const rkey of [...records.keys()].sort()) {
+        if (rkey <= seek) continue;
+        scanned += 1;
+        if (!rkey.startsWith(prefix)) break; // 範囲を出た 1 件で停止
+        const record = records.get(rkey);
+        if (record) found.push(record);
+      }
+      return Promise.resolve(found);
+    },
+    _seed(b, fileId = FILE) {
+      seedAt(batchRkey(fileId, b.clock, b.id), b, fileId);
     },
     _seedLegacy(b) {
       seedAt(b.id, b);
@@ -67,6 +96,7 @@ function inMemoryBatches() {
     _seedRkey: seedAt,
     _size: () => records.size,
     _rkeys: () => [...records.keys()],
+    _scanned: () => scanned,
   };
   return store;
 }
@@ -210,6 +240,106 @@ describe('AtprotoSyncProvider', () => {
       const provider = new AtprotoSyncProvider({ batches });
       const entries = await provider.pullRemote();
       expect(entries.map((e) => e.batch.id)).toEqual(['ok']);
+    });
+  });
+
+  describe('pullRemoteForFile (Phase 7 p7-2)', () => {
+    it('そのファイルの batch だけを返す (隣接 fileId を含めない)', async () => {
+      // prefix 範囲取得の核心。fileId は UUID 固定長なので、ある fileId が別の fileId の
+      // prefix になることはなく、同一ファイルの rkey は rkey 空間で連続する (§3.2)。
+      const batches = inMemoryBatches();
+      batches._seed(batch('lower', 1), FILE_LOWER);
+      batches._seed(batch('a', 1));
+      batches._seed(batch('b', 2));
+      batches._seed(batch('upper', 1), FILE_UPPER);
+      const provider = new AtprotoSyncProvider({ batches });
+
+      const entries = await provider.pullRemoteForFile(FILE);
+      expect(entries.map((e) => e.batch.id)).toEqual(['a', 'b']);
+      expect(entries.map((e) => e.fileId)).toEqual([FILE, FILE]);
+    });
+
+    it('走査は repo 全体に比例しない (prefix を出た 1 件で止まる)', async () => {
+      // 「repo 全体を落として他ファイル分を捨てる」形に戻っていないことの直接の証拠。
+      // 読み過ぎ 1 件 (境界の検出) は正常動作なので許容する (§3.2)。
+      const batches = inMemoryBatches();
+      for (let i = 1; i <= 5; i += 1) {
+        batches._seed(batch(`low${i}`, i), FILE_LOWER);
+        batches._seed(batch(`up${i}`, i), FILE_UPPER);
+      }
+      batches._seed(batch('mine', 1));
+      const provider = new AtprotoSyncProvider({ batches });
+
+      const entries = await provider.pullRemoteForFile(FILE);
+      expect(entries.map((e) => e.batch.id)).toEqual(['mine']);
+      // 自分の 1 件 + 境界の 1 件。全 11 件を舐めていない
+      expect(batches._scanned()).toBe(2);
+    });
+
+    it('旧 rkey のレコードを 1 件も走査しない (v1~ 分離, §3.1)', async () => {
+      // 旧レコードは PDS に放置する決定なので、走査がそれらを踏まないことが範囲取得の前提。
+      // 踏むと「全件 list を別の形でやり直す」ことになる。
+      const batches = inMemoryBatches();
+      for (let i = 1; i <= 4; i += 1) batches._seedLegacy(batch(`old${i}`, i));
+      batches._seed(batch('new', 1));
+      const provider = new AtprotoSyncProvider({ batches });
+
+      const entries = await provider.pullRemoteForFile(FILE);
+      expect(entries.map((e) => e.batch.id)).toEqual(['new']);
+      // 旧 rkey は `v1~` より小さいので合成 cursor の手前にあり、走査に現れない
+      expect(batches._scanned()).toBe(1);
+    });
+
+    it('既読位置を持たず、2 回呼んでも同じ全履歴を返す', async () => {
+      // 絞るのは「repo 全体 → 1 ファイル」の軸だけ。「全履歴 → 差分」の軸は絞らない
+      // (端末をまたぐと clock が単調でなく、既読位置を安全に作れない, §1.4 / §2.2)。
+      const batches = inMemoryBatches();
+      batches._seed(batch('a', 1));
+      batches._seed(batch('b', 2));
+      const provider = new AtprotoSyncProvider({ batches });
+
+      const first = await provider.pullRemoteForFile(FILE);
+      const second = await provider.pullRemoteForFile(FILE);
+      expect(second.map((e) => e.batch.id)).toEqual(
+        first.map((e) => e.batch.id),
+      );
+      expect(second).toHaveLength(2);
+    });
+
+    it('clock → actor → id で整列して返す (rkey 順に依存しない)', async () => {
+      // 範囲取得は rkey 昇順で返るが、rkey の clock は発番端末のものなので順序の権威に
+      // できない。並べ替えは全件版と同じ規則で行う (`orderBatches` と同一)。
+      const batches = inMemoryBatches();
+      batches._seed({ ...batch('x', 2), actor: 'dev-b' });
+      batches._seed({ ...batch('y', 2), actor: 'dev-a' });
+      batches._seed(batch('z', 1));
+      const provider = new AtprotoSyncProvider({ batches });
+
+      const entries = await provider.pullRemoteForFile(FILE);
+      expect(entries.map((e) => e.batch.id)).toEqual(['z', 'y', 'x']);
+    });
+
+    it('壊れた新形式 rkey は飛ばす (id を推測して正典へ入れない)', async () => {
+      const batches = inMemoryBatches();
+      batches._seed(batch('ok', 1));
+      // prefix には合致するが clock 桁数が違う = 復元不能。呼び出し側は数えて警告する
+      batches._seedRkey(
+        `${batchRkeyPrefix(FILE)}42~short-clock`,
+        batch('bad', 2),
+      );
+      const provider = new AtprotoSyncProvider({ batches });
+
+      const entries = await provider.pullRemoteForFile(FILE);
+      expect(entries.map((e) => e.batch.id)).toEqual(['ok']);
+    });
+
+    it('合成 cursor は prefix の直前を指す (先頭レコードを落とさない)', async () => {
+      // `v1~<fileId>` < `v1~<fileId>~…` の関係が崩れると、そのファイルの
+      // **最初の 1 件だけ**が静かに落ちる (最も見つけにくい壊れ方)。
+      expect(batchRkeyFileCursor(FILE) < batchRkeyPrefix(FILE)).toBe(true);
+      expect(batchRkeyPrefix(FILE).startsWith(batchRkeyFileCursor(FILE))).toBe(
+        true,
+      );
     });
   });
 

@@ -298,7 +298,7 @@ W3d5-7 (PDS が float を拒否して全 push が 400、しかしコンソール
 |---|---|---|
 | **p7-0** | **実機 spike**: docker PDS で cursor 意味論を確定する。①合成 cursor が受理される ②`reverse: true` が rkey 昇順 + `rkey > cursor` ③`reverse: false` + `cursor = v1~<fileId>` がそのファイルを飛ばす ④`limit` 上限 ⑤既存レコードの rkey が小文字 hex UUID である (§3.1 の前提)。**否定されたら §3.3 の索引コレクション案へ切替**を判断する | なし (捨てるコード) — **✅ 完了 (2026-07-30): 全 12 項目 PASS, §5.1**  |
 | **p7-1** | rkey 純関数 (`batchRkey` / `parseBatchRkey`) + テスト。`pushRemote` を新 rkey へ切替。**読取は全件のまま**で両形式を許容 (非破壊) | なし — **✅ 完了 (2026-07-30)** |
-| **p7-2** | `listByFile` / `pullRemoteForFile` を追加し `receiveRemoteBatches` を載せ替え | なし (旧経路は残存) |
+| **p7-2** | `listByFile` / `pullRemoteForFile` を追加し `receiveRemoteBatches` を載せ替え。**catch-up も同じ経路に載せた** (§5.2) | なし (旧経路は残存) — **✅ 完了 (2026-07-30)** |
 | **p7-3** | `listFileIds` / `listRemoteFileIds` を追加し `discoverRemoteFiles` を「列挙 → 未知ファイルだけ prefix 取得」へ | なし |
 | **p7-4** | 移行 (§3.4): 1 回だけ全件受信 → 新 rkey で再 push → marker。実測 (件数・所要時間) | **あり** (PDS へ書く) |
 | **p7-5** | 全件 list の撤去: `pullRemote()` / `collections.batches.list()` / `subscribe` を退役 | **あり** (削除) |
@@ -370,6 +370,39 @@ repo ごと削除した** (実行後に `alice.test` の batch 21 件が無傷�
 「稼働 image で確認済」まで下がるが、**契約ではなく実装の性質である**点は変わらないので
 緩和策 (b)(c) — 2 関数への封じ込めと fallback 案の温存 — はそのまま維持する。
 §6.6 の前提 (旧 rkey は小文字 hex) も実データで裏取りできた。
+
+### 5.2 【p7-2 実施結果】ファイル単位の範囲取得 (2026-07-30)
+
+`pullRemoteForFile(fileId)` を追加し、**ファイル単位の消費者をすべてそちらへ載せ替えた**。
+`pullRemote()` (repo 全件) に残るのは `discoverRemoteFiles` (p7-3 で置換) だけになった。
+
+| 変更 | 内容 |
+|---|---|
+| `rangeFetch.ts` (新規) | `listByRkeyPrefix(listPage, prefix, seekCursor)`。**合成 cursor への依存をこのファイルに閉じ込めた** (§6.1 の緩和 b)。ページ取得を引数で受けるので `getAgent()` 非依存で、停止条件とリクエスト数を単体で固定できる |
+| `collections.ts` | 内部 `listRecords` を `listRecordsPage` (1 ページ・`reverse`/`cursor` 受け) に分解し、その上に全件版と `batches.listByFile(fileId)` を載せた。`PAGE_LIMIT = 100` は p7-0 で確認した PDS の上限値 |
+| `atprotoSyncProvider.ts` | `pullRemoteForFile` を追加。レコード → `RemoteBatch` の翻訳 (id 復元・整列・counted skip) を `toRemoteBatches` に括り出し、全件版と共有 |
+| `remoteSyncQueue.ts` | `RemoteBatchTarget` / `RemoteSyncQueue` に `pullRemoteForFile` を通し、**`catchUp` の取得もファイル単位へ**。以前は 4d-4 で JS 側の絞り込みだけが入り転送量は全件のままだった |
+| `receiveRemoteBatches.ts` | deps を `pullRemoteForFile` へ。**fileId フィルタは防御として残し** (§3.5)、0 件でなければ warn する検知器にした |
+| `useEventSyncTap.ts` | 受信の配線をファイル単位取得へ |
+
+**設計との差分 (1 点)**: §4 のスライス表は p7-2 を「`receiveRemoteBatches` の載せ替え」と
+書いていたが、`RemoteSyncQueue.catchUp` も**ファイル単位の消費者**だったので同じスライスで
+載せ替えた。ファイル単位の消費者を 1 つだけ旧経路に残す理由が無く、p7-5 の削除条件を
+先に整えられるため。非破壊であることは変わらない。
+
+**テスト (+16 件, 全 663 pass)**:
+- `rangeFetch.test.ts` (新規): 実 PDS の cursor 意味論を模した pager で、**結果とリクエスト数
+  と cursor 列**を固定。prefix 境界での停止 (1 リクエスト)、複数ページの継承、
+  旧 rkey 40 件を混ぜてもリクエスト数が比例しないこと、空ページ + cursor での無限ループ回避。
+- `atprotoSyncProvider.test.ts`: in-memory collection の `listByFile` を実 PDS と同じ手順で
+  実装し**走査件数を公開**。隣接 fileId 不混入 / 走査が repo 全体に比例しない (11 件中 2 件) /
+  旧 rkey を 1 件も走査しない / 既読位置を持たない / 整列規則 / 合成 cursor の境界性質。
+- `remoteSyncQueue.test.ts`: catch-up が全件 pull を呼ばない (`fullPulls === 0`) こと。
+  D-6 の JS フィルタは「範囲取得が漏らした」状況を作って防御として検証する形に変えた。
+- `receiveRemoteBatches.test.ts`: 取得が**開いている fileId を引数に**呼ばれること。
+
+**gate**: lint / typecheck / 663 tests green、client build 成功。
+実測 (§5-5) と実機 e2e は p7-6 で行う。
 
 ---
 

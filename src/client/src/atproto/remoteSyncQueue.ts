@@ -11,9 +11,9 @@
  *   積む。フィルタで空になれば積まない。
  * - **flush (best-effort)**: 内包 `Outbox` 経由で remote provider へ push。成功→除去、
  *   失敗→保持 (破棄しない)。失敗は編集フローに波及しない。
- * - **catch-up**: remote を全件 pull し、remote に無いローカル batch を積み直して flush する
- *   (取りこぼし回収)。本スライスでは**メソッドのみ提供**し、起動時/再接続時の自動呼び出しは
- *   W3d5-5 で配線する。catch-up 1 回 = remote 全件 pull 1 回のコスト (D2)。
+ * - **catch-up**: remote の**そのファイル分**を pull し、remote に無いローカル batch を
+ *   積み直して flush する (取りこぼし回収)。起動時/再接続時の呼び出しは W3d5-5 で配線済。
+ *   コストは catch-up 1 回 = そのファイルの履歴 1 回 (Phase 7 p7-2 で全件 pull から縮小)。
  * - **上限 (D1)**: 内包 `Outbox` に `REMOTE_QUEUE_MAX` を渡し無制限成長を防ぐ。溢れた分は
  *   ローカル正典に残るため catch-up で回収でき、データは失われない。
  * - **pending 公開**: 未送信件数を購読可能にし (§3.7 UI 用)、tap の pending に合流させる。
@@ -42,8 +42,18 @@ export interface RemoteBatchTarget {
    * 本実装の rkey は batchId (ランダム UUID) なので**レコード順が時系列にならない**。
    * 既読位置を表せる値が存在しないため、既読位置を持たない契約にした (設計 §1.3 の再検討)。
    * 取りこぼしゼロを構造的に保証し、二重取り込みは受信側のべき等性が無害化する。
+   *
+   * **repo 全体を必要とする消費者専用になった (Phase 7 p7-2)**。ファイル単位の経路は
+   * `pullRemoteForFile` を使う。この口は p7-5 で退役する。
    */
   pullRemote(): Promise<RemoteBatch[]>;
+  /**
+   * remote の batch のうち **1 ファイル分**を取得する (Phase 7 p7-2)。
+   *
+   * `since` を取らないのは `pullRemote` と同じ理由 — 既読位置を持たない契約は変わらず、
+   * 絞るのは「repo 全体 → 1 ファイル」の軸だけである (設計 §1.4 / §2.2)。
+   */
+  pullRemoteForFile(fileId: FileId): Promise<RemoteBatch[]>;
 }
 
 /** remote キューのセッション内保持上限 (直近 N 件)。溢れは catch-up で回収 (D1) */
@@ -98,24 +108,25 @@ export class RemoteSyncQueue {
   }
 
   /**
-   * 取りこぼし回収。remote を全件 pull し、remote に無いローカル batch を積み直して flush する。
-   * `localBatches` はローカル正典の全 batch (呼び出し側が渡す)。genesis 除外は enqueue 内で
-   * 適用されるので remote に genesis を積むことはない (C1)。
+   * 取りこぼし回収。remote の**そのファイル分**を pull し、remote に無いローカル batch を
+   * 積み直して flush する。`localBatches` はローカル正典の全 batch (呼び出し側が渡す)。
+   * genesis 除外は enqueue 内で適用されるので remote に genesis を積むことはない (C1)。
    *
-   * **fileId で絞ってから突合する (Phase 4d-4, 設計 §1.11 D-6)**。remote の batch
-   * コレクションは repo 全体で 1 つなので、pull は他ファイルの batch も返す。
-   * `localBatches` は 1 ファイル分なので、他ファイル分と突合しても一致しようがなく、
-   * 無関係な全件を毎回舐めるコストだけが残っていた。
-   * (誤マッチはしない — batch id は UUID なのでファイルを跨いで衝突しない。
-   * 直していたのは正しさではなくコスト。)
+   * **Phase 7 p7-2 で取得をファイル単位に絞った**。以前は repo 全件 pull → fileId で
+   * 絞り込みで、`localBatches` が 1 ファイル分なのに無関係な全件を毎回落としていた
+   * (4d-4 で JS 側の絞り込みは入ったが、転送量は全件のままだった)。
+   * コストは catch-up 1 回 = **そのファイルの履歴 1 回**になった。
    *
-   * コスト: pull は remote 全件 list なので catch-up 1 回 = 全件 pull 1 回 (D2)。
+   * **fileId フィルタは防御として残す** (設計 §3.5)。取得の正しさは rkey 形式に依存するので、
+   * 「他ファイルの batch を remote 済みと誤認して push を取りやめる」ことが rkey の
+   * 崩れで起きないようにする。(誤マッチ自体は起きない — batch id は UUID なのでファイルを
+   * 跨いで衝突しない。)
    */
   async catchUp(
     localBatches: readonly Batch[],
     fileId: FileId,
   ): Promise<FlushResult> {
-    const remote = await this.provider.pullRemote();
+    const remote = await this.provider.pullRemoteForFile(fileId);
     const remoteIds = new Set(
       remote.filter((e) => e.fileId === fileId).map((e) => e.batch.id),
     );
@@ -130,9 +141,20 @@ export class RemoteSyncQueue {
    * キューの責務は送信だが、remote provider を保持しているのがここなので取得も委譲する。
    * **受信の書き込みには使わない** — 受信は `receiveRemoteBatches` がローカル正典へ
    * 直書きする (fanout / enqueue を通すと echo ループになる, 設計 §3.3a)。
+   *
+   * 消費者は repo 全体を要する `discoverRemoteFiles` だけになった (Phase 7 p7-2)。
    */
   pullRemote(): Promise<RemoteBatch[]> {
     return this.provider.pullRemote();
+  }
+
+  /**
+   * remote の batch を**ファイル単位で**取得する (Phase 7 p7-2)。受信経路の既定。
+   *
+   * 全件版と同じく取得のみを委譲する。書き込みには使わない (echo ループ回避, §3.3a)。
+   */
+  pullRemoteForFile(fileId: FileId): Promise<RemoteBatch[]> {
+    return this.provider.pullRemoteForFile(fileId);
   }
 
   /** 現在の未送信件数 */
