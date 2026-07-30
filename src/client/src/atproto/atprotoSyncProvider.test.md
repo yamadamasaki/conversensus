@@ -144,3 +144,18 @@ rkey の形式と復元が食い違えば、受信した batch が別 id とし�
 - **合成 cursor が prefix の直前を指す** — `batchRkeyFileCursor(f) < batchRkeyPrefix(f)` と
   前方一致関係を直接 assert する。この関係が崩れると**そのファイルの最初の 1 件だけ**が
   静かに落ちる (最も見つけにくい壊れ方) ので、性質として固定する。
+
+## createRemote — 移行専用のまとめ書き (Phase 7 p7-4)
+
+移行 (`migrateRemoteRkey`) はローカル正典の全 batch を新 rkey で書き直す。`pushRemote`
+(1 件 = 1 `putRecord` = **repo commit 1 回**) ではその規模で commit 費用が支配的になるため、
+`applyWrites` (1 リクエスト = 1 commit に最大 200 件) の口を別に用意した。実測は
+200 件で **4084ms (20.4ms/件) → 209ms (1.0ms/件)** (設計 §5.4)。局所 PDS で RTT が
+ほぼ 0 の条件なので、差は往復回数ではなく commit 回数である。
+
+- **`pushRemote` と同じ rkey で書く** — 書込経路が 2 本になった以上、rkey が食い違うと
+  移行したレコードが範囲取得から漏れる。両者の rkey 列を同じ形で固定する。
+- **既存 rkey が混ざると失敗し、レコードは増えない** — `applyWrites#create` は
+  `putRecord` と違い**べき等ではない**。実 PDS では 500 が返り、チャンクは原子的に
+  巻き戻る (§5.4 の観測③④)。この非対称が `migrateRemoteRkey` に差分計算を強いている
+  根拠なので、契約としてテストに残す。`inMemoryBatches.createMany` も同じ性質にしてある。

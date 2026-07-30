@@ -300,7 +300,7 @@ W3d5-7 (PDS が float を拒否して全 push が 400、しかしコンソール
 | **p7-1** | rkey 純関数 (`batchRkey` / `parseBatchRkey`) + テスト。`pushRemote` を新 rkey へ切替。**読取は全件のまま**で両形式を許容 (非破壊) | なし — **✅ 完了 (2026-07-30)** |
 | **p7-2** | `listByFile` / `pullRemoteForFile` を追加し `receiveRemoteBatches` を載せ替え。**catch-up も同じ経路に載せた** (§5.2) | なし (旧経路は残存) — **✅ 完了 (2026-07-30)** |
 | **p7-3** | `listFileIds` / `listRemoteFileIds` を追加し `discoverRemoteFiles` を「列挙 → 未知ファイルだけ prefix 取得」へ | なし — **✅ 完了 (2026-07-30)** |
-| **p7-4** | 移行 (§3.4): 1 回だけ全件受信 → 新 rkey で再 push → marker。実測 (件数・所要時間) | **あり** (PDS へ書く) |
+| **p7-4** | 移行 (§3.4): 1 回だけ全件受信 → 新 rkey で再 push → marker。実測 (件数・所要時間)。**再 push は `applyWrites` のまとめ書き + 差分計算に変えた** (§5.4) | **あり** (PDS へ書く) — **✅ 完了 (2026-07-31)** |
 | **p7-5** | 全件 list の撤去: `pullRemote()` / `collections.batches.list()` / `subscribe` を退役 | **あり** (削除) |
 | **p7-6** | **実機 e2e + 実測**: 2 端末での伝播、リクエスト数・転送量の before/after、PDS 直接検査 | 検証のみ |
 
@@ -443,6 +443,94 @@ repo ごと削除した** (実行後に `alice.test` の batch 21 件が無傷�
 
 **gate**: lint / typecheck / 673 tests green、client build 成功。
 
+### 5.4 【p7-4 実施結果】移行と再 push コストの実測 (2026-07-31)
+
+§3.4 の手順を 1 つの手続き (`src/client/src/sync/migrateRemoteRkey.ts`) に固定し、
+起動経路 (`useFileSheetOperations` の発見 effect) の**発見より前**に置いた。
+
+#### 実測 — `applyWrites` を採る (§6.3 の判断点)
+
+docker PDS (`ghcr.io/bluesky-social/pds:latest`, :2583) に対し、**投棄前提の spike**
+(生の XRPC・依存ゼロ) で計測した。p7-0 と同じく **spike 専用アカウントを invite code から
+作り、検証後に `com.atproto.admin.deleteAccount` で repo ごと削除**している。
+
+| 書き方 | 200 件の所要 | 1 件あたり | リクエスト数 |
+|---|---|---|---|
+| 直列 `putRecord` (現行 `pushRemote`) | 4084ms | 20.4ms | 200 |
+| `applyWrites` × 25 | 409ms | 2.0ms | 8 |
+| `applyWrites` × 50 | 387ms | 1.9ms | 4 |
+| `applyWrites` × 100 | 250ms | 1.3ms | 2 |
+| **`applyWrites` × 200** | **209ms** | **1.0ms** | **1** |
+
+**局所 PDS で RTT がほぼ 0 の条件での 20 倍差**である。つまりこれは往復回数ではなく
+**repo commit 回数**の差 — 1 レコード 1 commit だと MST 更新・署名・firehose イベントの
+費用が件数分かかる。WAN 越し (VPS) ではここに RTT の差が上乗せされるので、差はさらに開く。
+**採用する。**
+
+境界も実機で確定した:
+
+| 観測 | 結果 |
+|---|---|
+| ① 1 リクエストの write 上限 | 200 は 200 OK / **201 は `400 InvalidRequest "Too many writes. Max: 200"`** |
+| ② `#update` を存在しないレコードへ | **500** (使えない) |
+| ③ `#create` を既存 rkey へ | **500** — `putRecord` と違い**べき等ではない** |
+| ④ チャンクの原子性 | `[既存, 新規]` の create は 500 で、**新規側も書かれない** (巻き戻る) |
+| ⑤ `putRecord` の再実行 | 2 回とも 200 (上書き = べき等。現行 `pushRemote` の前提は健在) |
+
+#### ③④ が設計を変えた点 — 再 push は「差分だけ」を書く
+
+§3.4 は「ローカル正典の全 batch を再 push、rkey が決定論的なので何度実行しても収束」と
+書いていた。これは `putRecord` のべき等な上書きに依存した記述で、`applyWrites#create`
+では成立しない (既存 rkey が 1 件でもあるとチャンクごと失敗する)。
+
+そこで再 push を **「ローカル正典 − すでに新 rkey で載っている分」** に変えた。差分は
+p7-2 の範囲取得 (`pullRemoteForFile`) で取る — **新形式しか見ない**ので、旧 rkey で
+載っているレコードを「載っている」と誤判定しない。結果として:
+
+- 1 回目は全件が差分になり、まとめ書きで一気に載る。
+- **やり直し (marker が立つ前の再実行) では載っていない分だけを書く** — §6.2 の
+  「何度でもやり直せる」が、べき等な上書きではなく**差分計算**によって保たれる。
+- 通常の送信 (outbox の再送) は**べき等な `pushRemote` (putRecord) のまま**。
+  非べき等な口は移行だけが使う (`createRemote`)。
+
+#### 設計との差分 (3 点)
+
+1. **再 push の対象を「全件受信で remote に見えたファイル」に限った**。§3.4 は「各ファイル」
+   としか書いていなかったが、それだと**一度も push していないローカルファイル**
+   (ログアウト中に作った等) まで移行のついでに PDS へ上がる。移行は「PDS 上の旧形式
+   レコードを載せ替える」作業であって同期作業ではないので、線を引いた。remote に無い
+   ファイルは通常の catch-up (開いたとき) が回収する。
+2. **再 push を `applyWrites` のまとめ書きにし、差分計算を入れた** (上記)。
+3. **移行が失敗しても発見は走らせる**。設計は移行と発見の関係を規定していなかった。
+   発見は非破壊で移行と独立に価値があるので、移行の例外は warn に出して発見へ進む
+   (marker は立たないので次の契機で再試行される)。
+
+#### 実装
+
+| 変更 | 内容 |
+|---|---|
+| `sync/migrateRemoteRkey.ts` (新規) | 手続き本体と marker。1 が失敗したら 2 へ進まず marker も立てない (§6.2) |
+| `sync/safeStorage.ts` (新規) | localStorage の try/catch ラッパ。`actor.ts` と marker が同じ守りを要したので括り出した |
+| `sync/actor.ts` | `didFromActor` (= `composeActor` の逆)。marker が DID 単位のキーを要する |
+| `atproto/collections.ts` | `createRecords` (applyWrites, 200 件チャンク) と `batches.createMany` |
+| `atproto/atprotoSyncProvider.ts` | `createRemote(entries)` — **べき等でない**ことを型の説明で明示 |
+| `atproto/remoteSyncQueue.ts` | `createRemote` を素通し。**キューを経由しない**理由 (上限 `REMOTE_QUEUE_MAX` で溢れると完了判定が嘘になる) をコメントに固定 |
+| `hooks/useFileSheetOperations.ts` | 発見 effect の前段に移行を差し込み。marker を deps 化 (テストが移行の副作用に汚染されないため) |
+
+**テスト (+22 件, 全 694 pass)**:
+- `migrateRemoteRkey.test.ts` (新規, 16 件): 未受信の旧 rkey レコードが取り込まれること、
+  2 回実行してレコードが増えないこと、**部分失敗後のやり直しで載っていない分だけを書く**こと、
+  1 が失敗したら 2 へ進まず marker も立てないこと、ローカル専用ファイルを読みにも行かないこと。
+  fake は **`applyWrites#create` の非べき等性と原子性を写して**あり、差分計算が抜けると落ちる。
+- `atprotoSyncProvider.test.ts` (+2): `createRemote` が `pushRemote` と同じ rkey で書くこと、
+  既存 rkey が混ざると失敗しレコードが増えないこと。
+- `useFileSheetOperations.test.ts` (+3): 移行が発見より前に 1 回だけ走ること、marker が
+  あれば全件 list を実行しないこと、移行が失敗しても発見は走ること。
+- `actor.test.ts` (+3): `didFromActor` の往復と未ログイン時の扱い。
+
+**gate**: lint / typecheck / 694 tests green、client build 成功。
+実機 e2e と before/after の転送量実測は p7-6 で行う。
+
 ---
 
 ## 6. リスクと未解決点
@@ -476,6 +564,11 @@ opaque token 化したら §3.2 / §3.3 は壊れる。
 `applyWrites` によるまとめ書きを評価する。許容外なら「開いたファイルから順に移行する」
 遅延移行へ切り替える判断点を p7-4 に置く。ただし遅延移行は移行中の期間が延びる = 二重状態が
 長引くので、まず一括を試す。
+
+**【p7-4 で解消】** 実測 (§5.4) の結果、`applyWrites` のまとめ書きで **200 件 209ms
+(1.0ms/件)** になった。1 件 1 commit の `putRecord` (20.4ms/件) の約 20 分の 1 で、
+個人利用の規模なら一括移行が起動経路に載る。**遅延移行へは切り替えない。**
+レート制限には触れなかった (200 件 = 1 リクエスト、局所 PDS)。VPS 越しの実測は p7-6。
 
 ### 6.4 【Medium】1 ファイルの履歴の単調増加は解決しない
 

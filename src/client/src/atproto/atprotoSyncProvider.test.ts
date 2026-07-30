@@ -74,6 +74,25 @@ function inMemoryBatches() {
       });
       return Promise.resolve({ uri, cid: `cid-${cid}` });
     },
+    // applyWrites#create を模す (Phase 7 p7-4)。**既存 rkey があればチャンクごと失敗**し、
+    // 書込は原子的に巻き戻る — 実 PDS の観測 (設計 §5.4 の③④) と同じ形にする
+    createMany(entries) {
+      const conflict = entries.find((e) => records.has(e.rkey));
+      if (conflict) {
+        return Promise.reject(
+          new Error(`record already exists: ${conflict.rkey}`),
+        );
+      }
+      for (const e of entries) {
+        cid += 1;
+        records.set(e.rkey, {
+          uri: `at://did:plc:test/${NSID.batch}/${e.rkey}`,
+          cid: `cid-${cid}`,
+          value: { $type: NSID.batch, ...e.data },
+        });
+      }
+      return Promise.resolve();
+    },
     list() {
       return Promise.resolve([...records.values()]);
     },
@@ -168,6 +187,39 @@ describe('AtprotoSyncProvider', () => {
         [batch('1', 1)].map((batch) => ({ fileId: FILE, batch })),
       );
       expect(batches._size()).toBe(1);
+    });
+  });
+
+  describe('createRemote (Phase 7 p7-4 の移行専用まとめ書き)', () => {
+    it('pushRemote と同じ rkey で書く (取得経路が同じ辞書順に乗る)', async () => {
+      // まとめ書きだけ rkey が違うと、移行したレコードが範囲取得から漏れる。
+      // 経路が 2 本になった以上、rkey が一致することを明示的に固定する。
+      const batches = inMemoryBatches();
+      const provider = new AtprotoSyncProvider({ batches });
+      await provider.createRemote(
+        [batch('1', 1), batch('2', 2)].map((batch) => ({
+          fileId: FILE,
+          batch,
+        })),
+      );
+      expect(batches._rkeys()).toEqual([
+        `v1~${FILE}~000000000001~1`,
+        `v1~${FILE}~000000000002~2`,
+      ]);
+    });
+
+    it('既存 rkey が混ざると失敗する (べき等ではない)', async () => {
+      // `pushRemote` (putRecord) と決定的に違う点。呼び出し側 (`migrateRemoteRkey`) が
+      // 範囲取得で差分を取る責務を負う根拠なので、契約としてテストで残す。
+      const batches = inMemoryBatches();
+      const provider = new AtprotoSyncProvider({ batches });
+      const entries = [batch('1', 1)].map((batch) => ({ fileId: FILE, batch }));
+      await provider.createRemote(entries);
+
+      await expect(provider.createRemote(entries)).rejects.toThrow(
+        'record already exists',
+      );
+      expect(batches._size()).toBe(1); // 巻き戻る (増えない)
     });
   });
 

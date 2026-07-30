@@ -18,6 +18,10 @@ const { createInMemoryFileSheetOpsDeps } = await import(
   './testing/inMemoryDeps'
 );
 
+/** hook が要求する操作主体 `<did>#<deviceId>` (Phase 4d-2) */
+const TEST_ACTOR =
+  'did:plc:test#dev-test' as import('@conversensus/shared').Actor;
+
 const SID1 = '00000000-0000-0000-0000-000000000001' as SheetId;
 const SID2 = '00000000-0000-0000-0000-000000000002' as SheetId;
 
@@ -46,6 +50,8 @@ async function renderWith(opts: RenderOpts = {}) {
       setAlertState: mockSetAlertState,
       deps,
       syncRecord: syncRecord as unknown as (event: never) => void,
+      // rkey 移行 marker (p7-4) がこの actor の DID 部分をキーにする
+      actor: TEST_ACTOR,
       ...(opts.remoteQueue !== undefined && { remoteQueue: opts.remoteQueue }),
     }),
   );
@@ -648,6 +654,142 @@ describe('useFileSheetOperations', () => {
       await renderWith({ deps });
 
       expect(received).toEqual([]);
+    });
+  });
+
+  describe('rkey 移行の配線 (Phase 7 p7-4)', () => {
+    const OLD_FILE = '77777777-7777-4777-8777-777777777777' as FileId;
+
+    /**
+     * 旧 rkey のレコードしか無い remote を模した queue。
+     *
+     * **列挙 (`listRemoteFileIds`) は空を返す** — 旧 rkey は `v1~` より小さく新経路の
+     * 走査に現れないので、これが移行前の実際の見え方である。つまり発見だけでは
+     * このファイルに到達できず、**移行の全件受信 (`pullRemote`) だけが拾える**。
+     */
+    async function makeLegacyRemoteQueue() {
+      const { RemoteSyncQueue } = await import('../atproto/remoteSyncQueue');
+      const entries = [
+        {
+          fileId: OLD_FILE,
+          batch: {
+            id: 'old-1',
+            actor: 'did:plc:alice#dev-a',
+            clock: 1,
+            timestamp: 1,
+            ops: [{ kind: 'file.setName', name: '旧形式ファイル' }],
+          },
+        },
+      ];
+      const calls = { pullRemote: 0, createRemote: 0 };
+      const provider = {
+        pushRemote: async () => {},
+        // 移行の再 push は applyWrites のまとめ書きを通る (Phase 7 p7-4)
+        createRemote: async () => {
+          calls.createRemote += 1;
+        },
+        pullRemote: async () => {
+          calls.pullRemote += 1;
+          return entries;
+        },
+        listRemoteFileIds: async () => [], // 新経路からは見えない
+        pullRemoteForFile: async () => [], // 新形式ではまだ 1 件も載っていない
+      };
+      const queue = new RemoteSyncQueue({
+        // biome-ignore lint/suspicious/noExplicitAny: テスト用の最小 provider
+        provider: provider as any,
+      });
+      return { queue, calls };
+    }
+
+    it('marker が無ければ移行が走り、新経路から見えないファイルを取り込む', async () => {
+      const deps = createInMemoryFileSheetOpsDeps();
+      const received: string[] = [];
+      let marked = 0;
+      deps.hasRkeyMigrated = () => false;
+      deps.markRkeyMigrated = () => {
+        marked += 1;
+      };
+      deps.pushReceivedBatches = async (fileId, batches) => {
+        received.push(fileId);
+        // materialize を模す。**ローカル正典 (_files) にも入れる** — 移行の再 push は
+        // 「受信で正典に入った内容」を読み直して新 rkey で載せ直すので、ここが空だと
+        // 手続きの後半 (2) が素通りしてしまう
+        deps._files.set(fileId, {
+          id: fileId,
+          name: '旧形式ファイル',
+          description: '',
+          sheets: [{ id: SID1, name: 'Sheet 1', nodes: [], edges: [] }],
+        });
+        deps._fileList.push({ id: OLD_FILE, name: '旧形式ファイル' });
+        return batches.length;
+      };
+      const { queue, calls } = await makeLegacyRemoteQueue();
+
+      const { result } = await renderWith({ deps, remoteQueue: queue });
+
+      expect(calls.pullRemote).toBe(1); // 全件受信は 1 回だけ
+      expect(received).toEqual([OLD_FILE]);
+      expect(calls.createRemote).toBe(1); // 新 rkey でまとめて載せ直す
+      expect(marked).toBe(1); // 成功したので marker が立つ
+      // 移行で materialize されたファイルが Sidebar 一覧に現れる
+      expect(result.current.files.map((f) => f.id)).toContain(OLD_FILE);
+    });
+
+    it('marker があれば全件 list を実行しない', async () => {
+      const deps = createInMemoryFileSheetOpsDeps();
+      deps.hasRkeyMigrated = () => true;
+      const { queue, calls } = await makeLegacyRemoteQueue();
+
+      await renderWith({ deps, remoteQueue: queue });
+
+      expect(calls.pullRemote).toBe(0);
+      expect(calls.createRemote).toBe(0);
+    });
+
+    it('移行が失敗しても発見は走る (発見は非破壊で独立に価値がある)', async () => {
+      const { RemoteSyncQueue } = await import('../atproto/remoteSyncQueue');
+      const DISCOVERED = '66666666-6666-4666-8666-666666666666' as FileId;
+      const entries = [
+        {
+          fileId: DISCOVERED,
+          batch: {
+            id: 'new-1',
+            actor: 'did:plc:alice#dev-a',
+            clock: 1,
+            timestamp: 1,
+            ops: [{ kind: 'file.setName', name: '新形式ファイル' }],
+          },
+        },
+      ];
+      const provider = {
+        pushRemote: async () => {},
+        pullRemote: async () => {
+          throw new Error('offline');
+        },
+        listRemoteFileIds: async () => [DISCOVERED],
+        pullRemoteForFile: async () => entries,
+      };
+      const deps = createInMemoryFileSheetOpsDeps();
+      const received: string[] = [];
+      let marked = 0;
+      deps.hasRkeyMigrated = () => false;
+      deps.markRkeyMigrated = () => {
+        marked += 1;
+      };
+      deps.pushReceivedBatches = async (fileId, batches) => {
+        received.push(fileId);
+        return batches.length;
+      };
+
+      await renderWith({
+        deps,
+        // biome-ignore lint/suspicious/noExplicitAny: テスト用の最小 provider
+        remoteQueue: new RemoteSyncQueue({ provider: provider as any }),
+      });
+
+      expect(received).toEqual([DISCOVERED]); // 発見は走った
+      expect(marked).toBe(0); // 移行は未完了のまま (次回起動で再試行)
     });
   });
 

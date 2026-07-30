@@ -3,6 +3,7 @@ import {
   ACTOR_SEPARATOR,
   composeActor,
   DEVICE_ID_STORAGE_KEY,
+  didFromActor,
   getDeviceId,
   LOCAL_DID,
 } from './actor';
@@ -81,5 +82,26 @@ describe('composeActor', () => {
     expect(composeActor('did:plc:alice', 'dev-1')).toBe(
       composeActor('did:plc:alice', 'dev-1'),
     );
+  });
+});
+
+describe('didFromActor (Phase 7 p7-4)', () => {
+  it('composeActor の逆になる', () => {
+    expect(didFromActor(composeActor('did:plc:alice', 'dev-1'))).toBe(
+      'did:plc:alice',
+    );
+  });
+
+  it('未ログインの actor からは LOCAL_DID が返る (null に潰さない)', () => {
+    // 呼び出し側が「本物の DID か」を判定できる形にしておく — rkey 移行 marker は
+    // アカウント単位のキーなので、未ログインを本物の DID と混同してはいけない
+    expect(didFromActor(composeActor(null, 'dev-1'))).toBe(LOCAL_DID);
+  });
+
+  it('deviceId に区切り文字が混ざっても DID 部分だけを返す', () => {
+    // DID 自体は '#' を含まないので、最初の区切りまでで確定する
+    expect(
+      didFromActor(`did:plc:alice${ACTOR_SEPARATOR}dev${ACTOR_SEPARATOR}1`),
+    ).toBe('did:plc:alice');
   });
 });

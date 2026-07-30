@@ -42,6 +42,10 @@ type RecordSummary = { uri: string; cid: string; value: unknown };
 /** op-log コレクションの最小インターフェース (実体は collections.batches) */
 export interface BatchCollection {
   put(rkey: string, data: Omit<BatchRecord, '$type'>): Promise<RecordResult>;
+  /** **未存在**のレコードをまとめて作る (Phase 7 p7-4 の移行専用, applyWrites) */
+  createMany(
+    entries: readonly { rkey: string; data: Omit<BatchRecord, '$type'> }[],
+  ): Promise<void>;
   /** repo 全体 (Phase 4d-4)。p7-5 で退役する */
   list(): Promise<RecordSummary[]>;
   /** 1 ファイル分だけを rkey prefix の範囲で取得する (Phase 7 p7-2) */
@@ -100,6 +104,27 @@ export class AtprotoSyncProvider implements RemoteBatchTarget {
         batchToRecord(batch, fileId),
       );
     }
+  }
+
+  /**
+   * **remote にまだ無い** batch をまとめて書く (Phase 7 p7-4 の移行専用)。
+   *
+   * `pushRemote` (1 件 = 1 `putRecord` = repo commit 1 回) では、移行のように
+   * ローカル正典の全 batch を書き直す規模で commit 費用が支配的になる。`applyWrites` は
+   * 1 リクエスト = 1 commit に最大 200 件を畳めるので、実測で約 20 倍速い (設計 §5.4)。
+   *
+   * **べき等ではない** — 既存の rkey が 1 件でも混ざるとそのチャンクが丸ごと失敗する
+   * (PDS は 500 を返し、書込は原子的に巻き戻る)。呼び出し側 (`migrateRemoteRkey`) が
+   * 範囲取得で「新形式でまだ書かれていない batch」だけを渡す責務を負う。
+   * 通常の送信 (outbox の再送) は**べき等な `pushRemote` のまま**である。
+   */
+  async createRemote(entries: readonly RemoteBatch[]): Promise<void> {
+    await this.batches.createMany(
+      entries.map(({ batch, fileId }) => ({
+        rkey: batchRkey(fileId, batch.clock, batch.id),
+        data: batchToRecord(batch, fileId),
+      })),
+    );
   }
 
   /**

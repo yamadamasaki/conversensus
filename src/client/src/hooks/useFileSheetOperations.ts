@@ -22,7 +22,13 @@ import type { RemoteSyncQueue } from '../atproto/remoteSyncQueue';
 import type { GraphEvent } from '../events/GraphEvent';
 import { makeEventBase } from '../events/GraphEvent';
 import type { PopupTarget } from '../SettingsPopup';
+import { didFromActor } from '../sync/actor';
 import { discoverRemoteFiles } from '../sync/discoverRemoteFiles';
+import {
+  hasRkeyMigrated,
+  markRkeyMigrated,
+  migrateRemoteRkey,
+} from '../sync/migrateRemoteRkey';
 import type { ReceiveRemoteResult } from '../sync/receiveRemoteBatches';
 import { reprojectAfterReceive } from '../sync/reprojectAfterReceive';
 import { type TapHandle, useEventSyncTap } from './useEventSyncTap';
@@ -47,6 +53,15 @@ export interface FileSheetOpsDeps {
   pushReceivedBatches: typeof pushReceivedBatches;
   removeFile: typeof removeFile;
   atprotoFilesDelete: (id: string) => Promise<void>;
+  /**
+   * rkey 移行の marker (Phase 7 p7-4)。既定は localStorage (DID 単位)。
+   *
+   * **deps にしてあるのはテストのため** — 移行は「起動時に 1 回」なので、差し替えられないと
+   * 他のテスト (発見・受信) の観測に移行の副作用が混ざり、何を検証しているのか分からなくなる。
+   * in-memory deps は「移行済」を既定にして移行経路を止める。
+   */
+  hasRkeyMigrated: (did: string) => boolean;
+  markRkeyMigrated: (did: string) => void;
 }
 
 export const defaultFileSheetOpsDeps: FileSheetOpsDeps = {
@@ -58,6 +73,8 @@ export const defaultFileSheetOpsDeps: FileSheetOpsDeps = {
   pushReceivedBatches,
   removeFile,
   atprotoFilesDelete: (id: string) => atprotoFilesColl.delete(id),
+  hasRkeyMigrated,
+  markRkeyMigrated,
 };
 
 interface UseFileSheetOperationsParams {
@@ -468,8 +485,48 @@ export function useFileSheetOperations({
   // (セッション確立時) もこの effect の再実行が引き取っている。
   // 発見したら一覧を読み直す — GET /files が op-log との和集合 (4e-2a) なので、
   // materialize されたファイルはこれだけで Sidebar に現れる。
+  //
+  // **発見の前に rkey 移行 (Phase 7 p7-4) を 1 回だけ通す**。p7-1 より前に書かれた
+  // 旧 rkey のレコードは新経路 (列挙・prefix 取得) の走査に現れないので、移行を経ずに
+  // 発見だけを回すと「PDS にしか無い古い batch」を持つファイルが見えないままになる。
+  // 移行は marker (端末ローカル) で 1 回に限られ、失敗しても marker が立たないので
+  // 次の契機で再試行される (設計 §3.4 / §6.2)。
+  // **移行が失敗しても発見は走らせる** — 発見は非破壊で、移行と独立に価値があるため。
   useEffect(() => {
     if (!remoteQueue) return;
+    const did = didFromActor(actor);
+    const migrate = () =>
+      migrateRemoteRkey({
+        // 旧経路 (repo 全件)。移行がこの口の最後の消費者で、p7-5 で一緒に退役する
+        pullRemote: () => remoteQueue.pullRemote(),
+        appendReceived: deps.pushReceivedBatches,
+        fetchBatches: deps.fetchBatches,
+        // 新形式で既に載っている分を除くための範囲取得 (まとめ書きは既存 rkey で落ちる)
+        pullRemoteForFile: (fileId) => remoteQueue.pullRemoteForFile(fileId),
+        // キューを経由しない直送 (上限で溢れると完了判定が嘘になる, remoteSyncQueue 参照)
+        createRemote: (entries) => remoteQueue.createRemote(entries),
+        hasMigrated: () => deps.hasRkeyMigrated(did),
+        markMigrated: () => deps.markRkeyMigrated(did),
+      })
+        .then((result) => {
+          if (result.status === 'already-migrated') return;
+          // 無言で済ませない (§3.6) — 移行は 1 回きりなので記録が残る形で出す
+          console.info(
+            `[sync] rkey migration done: ${result.remoteFiles} remote file(s), ` +
+              `received ${result.receivedBatches} batch(es), ` +
+              `re-pushed ${result.pushedBatches} batch(es) across ` +
+              `${result.pushedFiles} file(s) in ${result.elapsedMs}ms`,
+          );
+          // 移行の全件受信で未知ファイルが materialize されている可能性がある
+          deps.fetchFiles().then(setFiles).catch(console.error);
+        })
+        .catch((error) =>
+          console.warn(
+            '[sync] rkey migration failed (will retry on the next start):',
+            error,
+          ),
+        );
+
     const discover = () => {
       discoverRemoteFiles({
         // 列挙 → 未知ファイルだけ取得 (Phase 7 p7-3)。既知ファイルの batch は落とさない
@@ -491,10 +548,14 @@ export function useFileSheetOperations({
           console.warn('[sync] remote file discovery failed:', error),
         );
     };
-    discover();
-    window.addEventListener('online', discover);
-    return () => window.removeEventListener('online', discover);
-  }, [remoteQueue, deps]);
+    // 移行 → 発見の順に走らせる。移行の成否によらず発見は必ず実行する
+    const sync = () => {
+      migrate().finally(discover);
+    };
+    sync();
+    window.addEventListener('online', sync);
+    return () => window.removeEventListener('online', sync);
+  }, [remoteQueue, deps, actor]);
 
   return {
     files,

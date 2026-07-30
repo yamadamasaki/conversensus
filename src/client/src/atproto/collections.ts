@@ -32,6 +32,13 @@ export const TRUNK_PREFIX = 'trunk';
  */
 const PAGE_LIMIT = 100;
 
+/**
+ * `applyWrites` の 1 リクエストあたりの write 上限 (step1 Phase 7 p7-4)。
+ * **PDS の上限値そのもの** — 201 件は `400 InvalidRequest "Too many writes. Max: 200"`
+ * になることを実機で確認済 (設計 §5.4)。
+ */
+const APPLY_WRITES_MAX = 200;
+
 // --- 汎用ヘルパー ---
 
 async function putRecord(
@@ -93,6 +100,36 @@ async function listRecords(collection: string): Promise<RecordSummary[]> {
   return all;
 }
 
+/**
+ * 複数レコードを `applyWrites` で**まとめて新規作成する** (step1 Phase 7 p7-4)。
+ *
+ * `putRecord` を 1 件ずつ回すと**レコード 1 件 = repo commit 1 回**になり、
+ * MST 更新・署名・firehose イベントの費用がそのまま件数分かかる。実測 (設計 §5.4) で
+ * 200 件が **4084ms (20.4ms/件) → 209ms (1.0ms/件)** と約 20 倍の差が出た。
+ * 局所 PDS で RTT がほぼ 0 の条件での差なので、これは往復回数ではなく **commit 回数**の差である。
+ *
+ * **`#create` はべき等ではない** — 既存 rkey へ create すると PDS は 500 を返し、
+ * そのチャンクは**丸ごと巻き戻る** (原子性は実機で確認済, §5.4 の観測④)。したがって
+ * **呼び出し側が「これらの rkey はまだ存在しない」ことを確かめる責務を負う**。
+ * べき等な上書きが要る経路 (outbox の再送など) は `putRecord` を使い続けること。
+ */
+async function createRecords(
+  collection: string,
+  entries: readonly { rkey: Rkey; record: Record<string, unknown> }[],
+): Promise<void> {
+  for (let i = 0; i < entries.length; i += APPLY_WRITES_MAX) {
+    await getAgent().api.com.atproto.repo.applyWrites({
+      repo: currentDid(),
+      writes: entries.slice(i, i + APPLY_WRITES_MAX).map((e) => ({
+        $type: 'com.atproto.repo.applyWrites#create' as const,
+        collection,
+        rkey: e.rkey,
+        value: e.record,
+      })),
+    });
+  }
+}
+
 async function deleteRecord(collection: string, rkey: Rkey): Promise<void> {
   await getAgent().api.com.atproto.repo.deleteRecord({
     repo: currentDid(),
@@ -118,6 +155,22 @@ export const batches = {
    */
   put(rkey: string, data: Omit<BatchRecord, '$type'>): Promise<RecordResult> {
     return putRecord(NSID.batch, rkey, { $type: NSID.batch, ...data });
+  },
+  /**
+   * **まだ存在しない**レコードをまとめて作る (Phase 7 p7-4 の移行専用)。
+   * rkey は `put` と同じく `batchRkey()` だけが組み立てる。既存 rkey が 1 件でも
+   * 混ざるとそのチャンクが丸ごと失敗する (`createRecords` の注意書き)。
+   */
+  createMany(
+    entries: readonly { rkey: string; data: Omit<BatchRecord, '$type'> }[],
+  ) {
+    return createRecords(
+      NSID.batch,
+      entries.map((e) => ({
+        rkey: e.rkey,
+        record: { $type: NSID.batch, ...e.data },
+      })),
+    );
   },
   get(rkey: string) {
     return getRecord(NSID.batch, rkey);

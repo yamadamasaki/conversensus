@@ -36,6 +36,13 @@ import type { RemoteBatch } from './types';
 export interface RemoteBatchTarget {
   pushRemote(entries: readonly RemoteBatch[]): Promise<void>;
   /**
+   * **remote にまだ無い** batch をまとめて書く (Phase 7 p7-4 の移行専用)。
+   *
+   * `pushRemote` と違い**べき等ではない** — 既存の rkey が混ざるとチャンクごと失敗する。
+   * 渡す前に範囲取得で差分を取る責務は呼び出し側 (`migrateRemoteRkey`) にある。
+   */
+  createRemote(entries: readonly RemoteBatch[]): Promise<void>;
+  /**
    * remote の batch を**全件**取得する (Phase 4d-4)。
    *
    * `since` を取らないのは意図的である。ATProto の `listRecords` は rkey 順で、
@@ -153,6 +160,26 @@ export class RemoteSyncQueue {
    */
   pullRemote(): Promise<RemoteBatch[]> {
     return this.provider.pullRemote();
+  }
+
+  /**
+   * remote へ **キューを経由せず**まとめて書く (Phase 7 p7-4 の移行専用)。
+   *
+   * 通常の送信は `enqueue` → `flush` で、失敗しても保持され UI に「未同期 N 件」として
+   * 現れる。移行 (`migrateRemoteRkey`) だけがこの口を使う理由は 2 つある:
+   *
+   * - キューには保持上限 (`REMOTE_QUEUE_MAX`) がある。移行は「ローカル正典の全 batch」を
+   *   書くので上限を超えうる。溢れた分は eviction されるが `flush` は残りの成功を返すので、
+   *   **「移行が完了した」という判定が嘘になる** (marker を立ててはいけない状態で立つ)。
+   * - 移行の規模では 1 件 1 commit の `putRecord` が重い。`applyWrites` にまとめると
+   *   実測で約 20 倍速い (設計 §5.4)。
+   *
+   * 直送なら失敗は例外で伝わり、marker が立たないまま次回起動で再試行される (§6.2)。
+   * `filterBatchesForRemote` は `enqueue` の中にあるので、**呼び出し側が自分で通す**
+   * 責務を負う (移行側で明示している)。
+   */
+  createRemote(entries: readonly RemoteBatch[]): Promise<void> {
+    return this.provider.createRemote(entries);
   }
 
   /**
