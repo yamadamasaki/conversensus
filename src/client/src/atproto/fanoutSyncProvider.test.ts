@@ -84,6 +84,10 @@ class FakeProvider implements SyncProvider, RemoteBatchTarget {
     this.pulledRemote += 1;
     return this.pullRemoteEntries.filter((e) => e.fileId === fileId);
   }
+  /** ファイル列挙 (Phase 7 p7-3)。fanout は発見経路に関与しない */
+  async listRemoteFileIds(): Promise<FileId[]> {
+    return [...new Set(this.pullRemoteEntries.map((e) => e.fileId))];
+  }
   subscribe(onRemote: OnRemote): Unsubscribe {
     this.subscribed.push(onRemote);
     return () => {

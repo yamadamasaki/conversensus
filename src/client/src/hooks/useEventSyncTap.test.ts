@@ -99,6 +99,10 @@ class RecordingProvider implements SyncProvider, RemoteBatchTarget {
     this.pulledFor.push(fileId);
     return (await this.pullRemote()).filter((e) => e.fileId === fileId);
   }
+  /** ファイル列挙 (Phase 7 p7-3)。この hook のテストでは 1 ファイルしか扱わない */
+  async listRemoteFileIds(): Promise<FileId[]> {
+    return [FID];
+  }
   subscribe(_onRemote: OnRemote) {
     return () => {};
   }

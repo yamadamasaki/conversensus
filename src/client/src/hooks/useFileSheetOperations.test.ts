@@ -591,8 +591,11 @@ describe('useFileSheetOperations', () => {
       ];
       const provider = {
         pushRemote: async () => {},
-        // 発見は repo 全体の走査 (ファイル列挙への置換は Phase 7 p7-3)
         pullRemote: async () => entries,
+        // 発見は「列挙 → 未知ファイルだけ取得」(Phase 7 p7-3)
+        listRemoteFileIds: async () => [
+          ...new Set(entries.map((e) => e.fileId)),
+        ],
         pullRemoteForFile: async (fileId: string) =>
           entries.filter((e) => e.fileId === fileId),
       };

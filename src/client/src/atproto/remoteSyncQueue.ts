@@ -54,6 +54,13 @@ export interface RemoteBatchTarget {
    * 絞るのは「repo 全体 → 1 ファイル」の軸だけである (設計 §1.4 / §2.2)。
    */
   pullRemoteForFile(fileId: FileId): Promise<RemoteBatch[]>;
+  /**
+   * remote に存在する fileId を列挙する (Phase 7 p7-3)。
+   *
+   * batch 本体を伴わない — 未知ファイルの発見は「まず fileId の集合を知り、
+   * 未知の分だけ本体を取る」形になる (設計 §3.3)。
+   */
+  listRemoteFileIds(): Promise<FileId[]>;
 }
 
 /** remote キューのセッション内保持上限 (直近 N 件)。溢れは catch-up で回収 (D1) */
@@ -155,6 +162,14 @@ export class RemoteSyncQueue {
    */
   pullRemoteForFile(fileId: FileId): Promise<RemoteBatch[]> {
     return this.provider.pullRemoteForFile(fileId);
+  }
+
+  /**
+   * remote に存在する fileId を列挙する (Phase 7 p7-3)。未知ファイル発見の入口。
+   * 取得のみを委譲する (書き込みには使わない, §3.3a)。
+   */
+  listRemoteFileIds(): Promise<FileId[]> {
+    return this.provider.listRemoteFileIds();
   }
 
   /** 現在の未送信件数 */

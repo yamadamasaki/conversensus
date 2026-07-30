@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test';
-import type { Batch, NodeId } from '@conversensus/shared';
+import type { Batch, FileId, NodeId } from '@conversensus/shared';
 
 // zod を先にモックする (./atproto 経由で推移的に読まれる)
 const zodProxy: Record<string, unknown> = new Proxy(() => zodProxy, {
@@ -46,6 +46,10 @@ class FakeProvider implements SyncProvider, RemoteBatchTarget {
   }
   /** ファイル単位の取得 (Phase 7 p7-2)。この画面のテストでは remote は空でよい */
   async pullRemoteForFile(): Promise<RemoteBatch[]> {
+    return [];
+  }
+  /** ファイル列挙 (Phase 7 p7-3) */
+  async listRemoteFileIds(): Promise<FileId[]> {
     return [];
   }
   subscribe(_onRemote: OnRemote) {

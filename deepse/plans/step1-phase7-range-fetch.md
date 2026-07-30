@@ -299,7 +299,7 @@ W3d5-7 (PDS が float を拒否して全 push が 400、しかしコンソール
 | **p7-0** | **実機 spike**: docker PDS で cursor 意味論を確定する。①合成 cursor が受理される ②`reverse: true` が rkey 昇順 + `rkey > cursor` ③`reverse: false` + `cursor = v1~<fileId>` がそのファイルを飛ばす ④`limit` 上限 ⑤既存レコードの rkey が小文字 hex UUID である (§3.1 の前提)。**否定されたら §3.3 の索引コレクション案へ切替**を判断する | なし (捨てるコード) — **✅ 完了 (2026-07-30): 全 12 項目 PASS, §5.1**  |
 | **p7-1** | rkey 純関数 (`batchRkey` / `parseBatchRkey`) + テスト。`pushRemote` を新 rkey へ切替。**読取は全件のまま**で両形式を許容 (非破壊) | なし — **✅ 完了 (2026-07-30)** |
 | **p7-2** | `listByFile` / `pullRemoteForFile` を追加し `receiveRemoteBatches` を載せ替え。**catch-up も同じ経路に載せた** (§5.2) | なし (旧経路は残存) — **✅ 完了 (2026-07-30)** |
-| **p7-3** | `listFileIds` / `listRemoteFileIds` を追加し `discoverRemoteFiles` を「列挙 → 未知ファイルだけ prefix 取得」へ | なし |
+| **p7-3** | `listFileIds` / `listRemoteFileIds` を追加し `discoverRemoteFiles` を「列挙 → 未知ファイルだけ prefix 取得」へ | なし — **✅ 完了 (2026-07-30)** |
 | **p7-4** | 移行 (§3.4): 1 回だけ全件受信 → 新 rkey で再 push → marker。実測 (件数・所要時間) | **あり** (PDS へ書く) |
 | **p7-5** | 全件 list の撤去: `pullRemote()` / `collections.batches.list()` / `subscribe` を退役 | **あり** (削除) |
 | **p7-6** | **実機 e2e + 実測**: 2 端末での伝播、リクエスト数・転送量の before/after、PDS 直接検査 | 検証のみ |
@@ -403,6 +403,45 @@ repo ごと削除した** (実行後に `alice.test` の batch 21 件が無傷�
 
 **gate**: lint / typecheck / 663 tests green、client build 成功。
 実測 (§5-5) と実機 e2e は p7-6 で行う。
+
+### 5.3 【p7-3 実施結果】ファイル列挙と未知ファイルの発見 (2026-07-30)
+
+`discoverRemoteFiles` を「repo 全件取得 → 既知分を捨てる」から
+**「fileId を列挙 → 未知ファイルの分だけ本体を取る」**へ変えた。
+**`pullRemote()` (repo 全件) の消費者はこれで 0 になった** — 残るのは移行 (p7-4) だけ。
+
+| 変更 | 内容 |
+|---|---|
+| `rangeFetch.ts` | `listBatchFileIds(listPage, maxRequests?)` を追加。降順 1 件 seek + 合成 cursor `v1~<fileId>` でファイルを丸ごと飛ばす (§3.3)。`ListRecordsPage` に `limit` を足し、列挙は **1 リクエスト 1 レコード**にした |
+| `collections.ts` | `batches.listFileIds()`。`listRecordsPage` が `limit` を受けるようになった |
+| `atprotoSyncProvider.ts` | `listRemoteFileIds()` (collection への委譲) |
+| `remoteSyncQueue.ts` | `RemoteBatchTarget` / `RemoteSyncQueue` に `listRemoteFileIds` を通す |
+| `discoverRemoteFiles.ts` | deps を `listRemoteFileIds` + `pullRemoteForFile` へ。取得結果の fileId フィルタは防御として持ち、食い違いは warn。**batch が 0 件のファイルは materialize しない** (列挙にだけ現れた食い違いで空ファイルを作らない) |
+| `useFileSheetOperations.ts` | 発見の配線を列挙経路へ |
+
+**設計との差分 (2 点)**:
+
+1. **`skippedKnown` → `skippedKnownFiles` に改名**した。§2.1 の目標は「`skippedKnown` が 0」
+   だったが、既知ファイルの batch を 1 件も落とさなくなった結果、**batch 数を数える
+   フィールドは常に 0 の飾りになる**。単位がファイル数に変わったことを名前で伝える方が
+   誠実なので改名した (呼び出し側は `discovered` / `appended` しか読んでいない)。
+2. **壊れた新形式 rkey に着地したときの扱い**を実装で決めた (設計は未規定)。飛ばす cursor が
+   作れないので**その 1 件分だけ cursor を進める**。止めると以降のファイルを見落とし、
+   進めないと同じ場所を回り続ける。件数は warn に出す。
+   あわせて**同じ fileId への再着地を検知して止める** — 上限 (§3.6) に達するまで回らせず、
+   前提が崩れた瞬間に気付けるようにした。
+
+**テスト (+10 件, 全 673 pass)**:
+- `rangeFetch.test.ts`: **リクエスト数 = ファイル数 + 1** (3 ファイルで 4)、`limit` が 1 で
+  あること、旧 rkey 30 件を混ぜても 2 リクエストで終わること、壊れた rkey を 1 件跨ぐこと、
+  再着地の検知、上限での打ち切り。fileId は実データと同じ UUID 固定長で作る。
+- `atprotoSyncProvider.test.ts`: 列挙が fileId を返すこと / 旧 rkey しか無いファイルは
+  現れないこと (移行前の穴は §3.4 の全件受信が塞ぐ)。
+- `discoverRemoteFiles.test.ts`: **既知ファイルの本体を取得しない** (`pulledFor` で固定)、
+  未知なしなら取得も書き込みも 0、列挙にだけ現れて batch が取れないファイルは
+  materialize しない。
+
+**gate**: lint / typecheck / 673 tests green、client build 成功。
 
 ---
 

@@ -9,7 +9,12 @@ import {
   type IntervalScheduler,
 } from './atprotoSyncProvider';
 import { batchToRecord } from './batchMapper';
-import { batchRkey, batchRkeyFileCursor, batchRkeyPrefix } from './batchRkey';
+import {
+  batchRkey,
+  batchRkeyFileCursor,
+  batchRkeyPrefix,
+  parseBatchRkey,
+} from './batchRkey';
 import { NSID, type RemoteBatch } from './types';
 
 /** FILE より rkey が小さいファイルと大きいファイル (prefix 境界の検証用) */
@@ -86,6 +91,16 @@ function inMemoryBatches() {
         if (record) found.push(record);
       }
       return Promise.resolve(found);
+    },
+    listFileIds() {
+      // 実装は降順 1 件ずつの seek で列挙する (§3.3)。ここでは結果の性質だけを模す:
+      // 新形式 rkey から fileId を取り出し、降順・重複なしで返す
+      const ids = [...records.keys()]
+        .sort()
+        .reverse()
+        .map((rkey) => parseBatchRkey(rkey)?.fileId)
+        .filter((id): id is FileId => id !== undefined);
+      return Promise.resolve([...new Set(ids)]);
     },
     _seed(b, fileId = FILE) {
       seedAt(batchRkey(fileId, b.clock, b.id), b, fileId);
@@ -340,6 +355,31 @@ describe('AtprotoSyncProvider', () => {
       expect(batchRkeyPrefix(FILE).startsWith(batchRkeyFileCursor(FILE))).toBe(
         true,
       );
+    });
+  });
+
+  describe('listRemoteFileIds (Phase 7 p7-3)', () => {
+    it('remote に存在する fileId を返す (batch 本体は伴わない)', async () => {
+      // 未知ファイルの発見はまず fileId の集合を要求する。本体は未知の分だけ取れば
+      // よく、既知ファイルの履歴を落とさないのが p7-3 の要点 (設計 §3.3)。
+      const batches = inMemoryBatches();
+      batches._seed(batch('a', 1), FILE_LOWER);
+      batches._seed(batch('b', 1));
+      batches._seed(batch('c', 2));
+      const provider = new AtprotoSyncProvider({ batches });
+
+      const ids = await provider.listRemoteFileIds();
+      expect([...ids].sort()).toEqual([FILE_LOWER, FILE].sort());
+    });
+
+    it('旧 rkey のレコードしか無いファイルは現れない', async () => {
+      // 旧 rkey は fileId を持たないので列挙できない。それらは移行 (p7-4) が新 rkey で
+      // 再 push するまで発見経路の外にあり、移行前の 1 回の全件受信 (§3.4) が穴を塞ぐ。
+      const batches = inMemoryBatches();
+      batches._seedLegacy(batch('old', 1));
+      const provider = new AtprotoSyncProvider({ batches });
+
+      expect(await provider.listRemoteFileIds()).toEqual([]);
     });
   });
 

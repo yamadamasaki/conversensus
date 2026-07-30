@@ -461,8 +461,9 @@ export function useFileSheetOperations({
   // **リモートのファイル一覧を得る唯一の経路** (Phase 6 p6-4, 設計 §3.8)。以前は
   // `loadAtprotoFiles` (PDS の legacy file レコード一覧) が並走していたが、あちらは
   // snapshot 由来のメタデータしか持たず、op-log で作られたファイルは載らない。
-  // remote (repo 全体) を走査し、ローカル正典に無いファイルの batch 群を marker 経路へ
-  // 書く。契機は受信 (a) と同じ「起動時 + online + 手動は今すぐ同期に相乗り予定」(§3.4)。
+  // remote の fileId を列挙し、ローカル正典に無いファイルの batch 群だけを marker 経路へ
+  // 書く (Phase 7 p7-3 で「全件取得 → 既知分を捨てる」から変更)。契機は受信 (a) と同じ
+  // 「起動時 + online + 手動は今すぐ同期に相乗り予定」(§3.4)。
   // `remoteQueue` はログイン中のみ非 null なので、撤去した `loadAtprotoFiles` の契機
   // (セッション確立時) もこの effect の再実行が引き取っている。
   // 発見したら一覧を読み直す — GET /files が op-log との和集合 (4e-2a) なので、
@@ -471,7 +472,9 @@ export function useFileSheetOperations({
     if (!remoteQueue) return;
     const discover = () => {
       discoverRemoteFiles({
-        pullRemote: () => remoteQueue.pullRemote(),
+        // 列挙 → 未知ファイルだけ取得 (Phase 7 p7-3)。既知ファイルの batch は落とさない
+        listRemoteFileIds: () => remoteQueue.listRemoteFileIds(),
+        pullRemoteForFile: (fileId) => remoteQueue.pullRemoteForFile(fileId),
         listLocalFileIds: async () =>
           (await deps.fetchFiles()).map((f) => f.id),
         appendReceived: deps.pushReceivedBatches,

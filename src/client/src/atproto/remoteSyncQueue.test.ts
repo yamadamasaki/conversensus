@@ -62,6 +62,10 @@ class FakeProvider implements RemoteBatchTarget {
     if (this.leakOtherFiles) return this.pullEntries;
     return this.pullEntries.filter((e) => e.fileId === fileId);
   }
+  /** ファイル列挙 (Phase 7 p7-3)。batch 本体は伴わない */
+  async listRemoteFileIds(): Promise<FileId[]> {
+    return [...new Set(this.pullEntries.map((e) => e.fileId))];
+  }
   /** `pullEntries` を「全部 FILE のもの」として簡便に設定するヘルパ */
   setPullBatches(batches: Batch[], fileId: FileId = FILE): void {
     this.pullEntries = batches.map((batch) => ({ fileId, batch }));

@@ -46,6 +46,8 @@ export interface BatchCollection {
   list(): Promise<RecordSummary[]>;
   /** 1 ファイル分だけを rkey prefix の範囲で取得する (Phase 7 p7-2) */
   listByFile(fileId: FileId): Promise<RecordSummary[]>;
+  /** remote に存在する fileId を列挙する (Phase 7 p7-3, batch 本体は落とさない) */
+  listFileIds(): Promise<FileId[]>;
 }
 
 /** 定期実行のスケジューラ (既定は setInterval)。テストで差し替え可能 */
@@ -149,6 +151,22 @@ export class AtprotoSyncProvider implements RemoteBatchTarget {
    */
   async pullRemoteForFile(fileId: FileId): Promise<RemoteBatch[]> {
     return toRemoteBatches(await this.batches.listByFile(fileId));
+  }
+
+  /**
+   * remote に存在する fileId を列挙する (Phase 7 p7-3)。
+   *
+   * 未知ファイルの発見 (`discoverRemoteFiles`) が必要とするのは、まず **fileId の集合**で
+   * ある — batch 本体は未知ファイルの分だけあればよい。rkey が `v1~<fileId>~…` なので
+   * **1 ファイル 1 リクエスト・各 1 レコード**で列挙でき、既知ファイルの batch を
+   * 落として捨てることが無くなる (設計 §3.3)。
+   *
+   * 旧 rkey のレコードしか無いファイルはここに現れない。それらは移行 (p7-4) が
+   * 新 rkey で再 push するまで発見経路の外にある — 移行前に全件受信を 1 回通す順序
+   * (§3.4) がその穴を塞ぐ。
+   */
+  listRemoteFileIds(): Promise<FileId[]> {
+    return this.batches.listFileIds();
   }
 
   /**

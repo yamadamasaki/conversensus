@@ -16,6 +16,7 @@ import type { AtUri, FileId, Rkey } from '@conversensus/shared';
 import { batchRkeyFileCursor, batchRkeyPrefix } from './batchRkey';
 import { currentDid, getAgent } from './client';
 import {
+  listBatchFileIds,
   listByRkeyPrefix,
   type RecordPage,
   type RecordSummary,
@@ -69,12 +70,12 @@ async function getRecord(
  */
 async function listRecordsPage(
   collection: string,
-  params: { cursor?: string; reverse?: boolean } = {},
+  params: { cursor?: string; reverse?: boolean; limit?: number } = {},
 ): Promise<RecordPage> {
   const res = await getAgent().api.com.atproto.repo.listRecords({
     repo: currentDid(),
     collection,
-    limit: PAGE_LIMIT,
+    limit: params.limit ?? PAGE_LIMIT,
     cursor: params.cursor,
     reverse: params.reverse,
   });
@@ -139,6 +140,13 @@ export const batches = {
       batchRkeyPrefix(fileId),
       batchRkeyFileCursor(fileId),
     );
+  },
+  /**
+   * remote に存在する fileId を列挙する (Phase 7 p7-3)。
+   * 1 ファイル 1 リクエスト・各 1 レコードで、**batch 本体を落とさない** (§3.3)。
+   */
+  listFileIds() {
+    return listBatchFileIds((params) => listRecordsPage(NSID.batch, params));
   },
   delete(rkey: string) {
     return deleteRecord(NSID.batch, rkey);
