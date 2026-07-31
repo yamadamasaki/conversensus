@@ -59,9 +59,10 @@ fileId を受け取る。
 ## catchUp の fileId フィルタ (Phase 4d-4, 設計 §1.11 D-6)
 
 4d-1 から繰延していた対応。前提条件だった「`pull` が fileId を返せること」が
-`pullRemote(): Promise<RemoteBatch[]>` で揃ったため実装した。
+`pullAllRemoteForMigration(): Promise<RemoteBatch[]>` で揃ったため実装した
+(p7-5 で改名。全件取得は移行専用に閉じ込めた)。
 
-remote の batch コレクションは **repo 全体で 1 つ**なので `pullRemote` は他ファイルの
+remote の batch コレクションは **repo 全体で 1 つ**なので全件取得は他ファイルの
 batch も返す。`localBatches` は 1 ファイル分なので、他ファイル分と突合しても一致しよう
 がなく、**無関係な全件を毎回舐めるコストだけが残っていた**。
 
@@ -74,3 +75,22 @@ batch も返す。`localBatches` は 1 ファイル分なので、他ファイ�
   「FILE として送信済み」と誤判定されないことを固定する。
 - **他ファイルの batch しか無ければローカル全件を積み直す**: 積み直したエンベロープが
   すべて `FILE` 宛であることも確認する (fileId の取り違えが起きない)。
+
+## catchUp の取得をファイル単位に絞る (Phase 7 p7-2)
+
+4d-4 で入ったのは **JS 側の絞り込み**だけで、転送量は repo 全件のままだった。
+p7-2 で取得そのものを `pullRemoteForFile(fileId)` (rkey prefix の範囲取得) に載せ替え、
+catch-up 1 回のコストが**そのファイルの履歴 1 回**になった。
+
+`FakeProvider` はこれを 3 つの口で表す:
+
+- `pullRemoteForFile` は既定で **fileId 一致分だけを返す** (実装の忠実な模擬)。
+  要求された fileId を `pulledFor` に記録する。
+- `fullPulls` は `pullAllRemoteForMigration` (全件) が呼ばれた回数。**ファイル単位経路では 0** であること
+  を assert する — ここが 0 でなくなれば全件 list へ戻った回帰である。
+- `leakOtherFiles` で「範囲取得が他ファイルを漏らす」状況を作れる。
+
+**JS 側の fileId フィルタは残している** (Phase 7 設計 §3.5)。取得の正しさは rkey 形式に
+依存するので、それが崩れたときに「他ファイルの batch を remote 済みと誤認して push を
+取りやめる」= 取りこぼしが起きないようにする。上記の D-6 のテストは `leakOtherFiles` を
+立ててこの防御を試す形に変えた。

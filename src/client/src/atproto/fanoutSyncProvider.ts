@@ -10,9 +10,9 @@
  *   remote が落ちていても `push` は local 成功で resolve し、編集も undo/redo も途切れない。
  *   genesis actor 除外・presentation 除外は `RemoteSyncQueue.enqueue` 内で適用される (§3.2/§3.5)。
  *
- * `pull` / `subscribe` は **local へ委譲**する。Lamport 復元 (`eventSyncTap.ensureRestored`) の
- * clock seed はローカル正典の max clock を正とし、remote の clock を混ぜない。batch op-log 経由の
- * remote 受信は非目標 (Phase 4d)。
+ * `pull` は **local へ委譲**する。Lamport 復元 (`eventSyncTap.ensureRestored`) の
+ * clock seed はローカル正典の max clock を正とし、remote の clock を混ぜない。
+ * remote の受信は常時購読ではなく起動時 + `online` + 手動で駆動する (Phase 4d 設計 §3.4)。
  */
 
 import type { Batch, FileId } from '@conversensus/shared';
@@ -20,10 +20,8 @@ import type { FlushResult } from '../sync/outbox';
 import {
   type Cursor,
   INITIAL_CURSOR,
-  type OnRemote,
   type PullResult,
   type SyncProvider,
-  type Unsubscribe,
 } from '../sync/syncProvider';
 import type { RemoteSyncQueue } from './remoteSyncQueue';
 
@@ -71,11 +69,6 @@ export class FanoutSyncProvider implements SyncProvider {
   /** Lamport 復元の権威はローカル正典。remote の clock は seed に混ぜない (§3.1) */
   async pull(since: Cursor): Promise<PullResult> {
     return this.local.pull(since);
-  }
-
-  /** remote 受信の常時購読は Phase 4d。本スライスでは local へ委譲する (§3.1) */
-  subscribe(onRemote: OnRemote): Unsubscribe {
-    return this.local.subscribe(onRemote);
   }
 
   /**

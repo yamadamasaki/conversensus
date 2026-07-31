@@ -35,19 +35,36 @@ const batch = (id: string, over: Partial<Batch> = {}): Batch => ({
   ...over,
 });
 
-/** pushRemote/pullRemote を記録し成否・pull 応答を切り替えられるテスト用 remote */
+/** pushRemote/pull 系を記録し成否・pull 応答を切り替えられるテスト用 remote */
 class FakeProvider implements RemoteBatchTarget {
   pushed: RemoteBatch[][] = [];
   online = true;
-  /** pullRemote が返すエンベロープ (repo 全体なので他ファイル分も混ざりうる) */
+  /** remote に載っているエンベロープ (repo 全体なので他ファイル分も混ざりうる) */
   pullEntries: RemoteBatch[] = [];
+  /** 全件取得が呼ばれた回数。ファイル単位経路 (p7-2) では 0 のはず */
+  fullPulls = 0;
+  /** `pullRemoteForFile` が要求された fileId (Phase 7 p7-2) */
+  pulledFor: FileId[] = [];
+  /** true で「範囲取得が他ファイルを漏らす」状況を模す (JS 側フィルタの防御を試す用) */
+  leakOtherFiles = false;
 
   async pushRemote(entries: readonly RemoteBatch[]): Promise<void> {
     if (!this.online) throw new Error('offline');
     this.pushed.push([...entries]);
   }
-  async pullRemote(): Promise<RemoteBatch[]> {
+  async pullAllRemoteForMigration(): Promise<RemoteBatch[]> {
+    this.fullPulls += 1;
     return this.pullEntries;
+  }
+  /** 実装は rkey prefix でそのファイル分だけを返す (Phase 7 p7-2, 設計 §3.2) */
+  async pullRemoteForFile(fileId: FileId): Promise<RemoteBatch[]> {
+    this.pulledFor.push(fileId);
+    if (this.leakOtherFiles) return this.pullEntries;
+    return this.pullEntries.filter((e) => e.fileId === fileId);
+  }
+  /** ファイル列挙 (Phase 7 p7-3)。batch 本体は伴わない */
+  async listRemoteFileIds(): Promise<FileId[]> {
+    return [...new Set(this.pullEntries.map((e) => e.fileId))];
   }
   /** `pullEntries` を「全部 FILE のもの」として簡便に設定するヘルパ */
   setPullBatches(batches: Batch[], fileId: FileId = FILE): void {
@@ -206,11 +223,24 @@ describe('RemoteSyncQueue', () => {
       expect(provider.flatPushed.map((b) => b.id)).toEqual(['1', '2']);
     });
 
-    it('突合は fileId で絞ってから行う (Phase 4d-4, D-6)', async () => {
+    it('取得はファイル単位で行い repo 全件を落とさない (Phase 7 p7-2)', async () => {
+      // 以前は catch-up 1 回 = repo 全件 pull 1 回だった。localBatches は 1 ファイル分
+      // なので、他ファイル分は突合しようがない転送量として捨てられていた。
+      const provider = new FakeProvider();
+      provider.setPullBatches([batch('1')]);
+      const q = new RemoteSyncQueue({ provider });
+      await q.catchUp([batch('1'), batch('2')], FILE);
+
+      expect(provider.pulledFor).toEqual([FILE]);
+      expect(provider.fullPulls).toBe(0);
+    });
+
+    it('取得が他ファイルを漏らしても突合は fileId で絞る (D-6 の防御)', async () => {
       const provider = new FakeProvider();
       const OTHER = '33333333-3333-4333-8333-333333333333' as FileId;
-      // remote は repo 全体なので他ファイルの batch も返ってくる。
-      // 別ファイルの '2' は FILE の突合対象に入ってはならない。
+      // 範囲取得が壊れて他ファイル分が混ざった状況を模す。別ファイルの '2' を
+      // 「remote 済み」と誤認して push を取りやめてはならない (取りこぼしになる)。
+      provider.leakOtherFiles = true;
       provider.pullEntries = [
         { fileId: FILE, batch: batch('1') },
         { fileId: OTHER, batch: batch('2') },
@@ -223,6 +253,8 @@ describe('RemoteSyncQueue', () => {
     });
 
     it('他ファイルの batch しか remote に無ければローカル全件を積み直す', async () => {
+      // p7-2 以降は範囲取得の段階で他ファイル分が視界に入らない (rkey prefix が違う)。
+      // 結果は同じ = このファイルの batch は 1 件も remote に無い、である。
       const provider = new FakeProvider();
       const OTHER = '33333333-3333-4333-8333-333333333333' as FileId;
       provider.pullEntries = [

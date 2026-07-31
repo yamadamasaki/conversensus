@@ -2,8 +2,6 @@ export {
   AtprotoSyncProvider,
   type AtprotoSyncProviderDeps,
   type BatchCollection,
-  type IntervalScheduler,
-  SUBSCRIBE_INTERVAL_MS,
 } from './atprotoSyncProvider';
 export {
   batchToRecord,

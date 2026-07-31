@@ -92,6 +92,12 @@ export function createInMemoryFileSheetOpsDeps(): FileSheetOpsDeps & {
     atprotoFilesDelete: async (_id: string) => {
       // no-op in tests
     },
+
+    // rkey 移行 (Phase 7 p7-4) は既定で「移行済」= 走らせない。移行の副作用が
+    // 発見・受信のテストの観測に混ざらないようにする (移行自体は
+    // `migrateRemoteRkey.test.ts` と、これを false にする専用テストで見る)。
+    hasRkeyMigrated: () => true,
+    markRkeyMigrated: () => {},
   };
 
   return deps;
@@ -165,7 +171,6 @@ export function createInMemoryBranchOplogDeps(): BranchOplogDeps & {
         batches: [...(batches.get(fileId) ?? [])],
         cursor: INITIAL_CURSOR,
       }),
-      subscribe: () => () => {},
     }),
   };
 }

@@ -18,6 +18,7 @@
  */
 
 import type { Actor } from '@conversensus/shared';
+import { safeLocalStorage } from './safeStorage';
 
 /** deviceId の保存キー (localStorage) */
 export const DEVICE_ID_STORAGE_KEY = 'conversensus_device_id';
@@ -62,11 +63,13 @@ export function composeActor(did: string | null, deviceId: string): Actor {
   return `${did ?? LOCAL_DID}${ACTOR_SEPARATOR}${deviceId}`;
 }
 
-function safeLocalStorage(): Storage | null {
-  try {
-    return globalThis.localStorage ?? null;
-  } catch {
-    // アクセス自体が例外になる環境がある (ブラウザ設定・iframe の制約)
-    return null;
-  }
+/**
+ * actor から DID 部分を取り出す (`composeActor` の逆, Phase 7 p7-4)。
+ *
+ * 未ログイン時は `LOCAL_DID` (`'local'`) が返る — 呼び出し側が「本物の DID か」を
+ * 判定できるよう、null に潰さずそのまま返す。DID 自体は `#` を含まないので、
+ * 最初の区切りまでを取れば十分である。
+ */
+export function didFromActor(actor: Actor): string {
+  return actor.split(ACTOR_SEPARATOR)[0] ?? LOCAL_DID;
 }

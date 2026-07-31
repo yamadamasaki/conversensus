@@ -38,19 +38,25 @@ const envelope = (fileId: FileId, b: Batch): RemoteBatch => ({
   batch: b,
 });
 
-/** pullRemote / appendReceived / observeRemote を記録するテスト用 deps */
+/** pullRemoteForFile / appendReceived / observeRemote を記録するテスト用 deps */
 function makeDeps(entries: RemoteBatch[]) {
   const appendCalls: Array<{ fileId: FileId; batches: Batch[] }> = [];
   const observed: Lamport[] = [];
+  /** 取得が「どのファイル宛」で呼ばれたか (Phase 7 p7-2) */
+  const pulledFor: FileId[] = [];
   let appendFails: Error | null = null;
   return {
     appendCalls,
     observed,
+    pulledFor,
     failAppendWith(e: Error) {
       appendFails = e;
     },
     deps: {
-      pullRemote: async () => entries,
+      pullRemoteForFile: async (fileId: FileId) => {
+        pulledFor.push(fileId);
+        return entries;
+      },
       appendReceived: async (fileId: FileId, batches: Batch[]) => {
         if (appendFails) throw appendFails;
         appendCalls.push({ fileId, batches });
@@ -77,9 +83,19 @@ describe('receiveRemoteBatches (Phase 4d-5)', () => {
     expect(t.appendCalls[0]?.batches.map((b) => b.id)).toEqual(['a', 'b']);
   });
 
-  it('他ファイル宛の batch は捨てて数える (repo 全体 pull の副産物)', async () => {
-    // remote の batch コレクションは repo 全体で 1 つなので他ファイル分も返る。
-    // 未知の fileId を書くと孤児 batch になる (§1.11 D-4) ので、ここが防御を兼ねる。
+  it('取得は開いているファイルを指定して行う (Phase 7 p7-2)', async () => {
+    // repo 全体を落として他ファイル分を捨てる形をやめた。取得の粒度そのものを固定する —
+    // 引数を渡さない実装に戻ると、範囲取得の効果が静かに消える。
+    const t = makeDeps([envelope(FILE, batch('a', 1))]);
+    await receiveRemoteBatches(FILE, t.deps);
+
+    expect(t.pulledFor).toEqual([FILE]);
+  });
+
+  it('他ファイル宛の batch は捨てて数える (rkey が崩れたときの防御)', async () => {
+    // Phase 7 p7-2 以降、ファイル単位取得が正しければこれは 0 件になる。それでも
+    // フィルタを残すのは、未知の fileId を書くと孤児 batch になる (§1.11 D-4) 不変条件を
+    // **rkey 形式の正しさに依存させない**ため。0 でなければ食い違いの検知器になる。
     const t = makeDeps([
       envelope(FILE, batch('a', 1)),
       envelope(OTHER, batch('x', 2)),
@@ -133,7 +149,7 @@ describe('receiveRemoteBatches (Phase 4d-5)', () => {
       envelope(FILE, batch('b', 2)),
     ];
     const deps = {
-      pullRemote: async () => entries,
+      pullRemoteForFile: async () => entries,
       appendReceived: async (_f: FileId, batches: Batch[]) => {
         let appended = 0;
         for (const b of batches) {
@@ -152,7 +168,8 @@ describe('receiveRemoteBatches (Phase 4d-5)', () => {
 
     expect(first.appended).toBe(2);
     expect(second.appended).toBe(0); // op-log は増えない
-    expect(second.received).toBe(2); // 取得自体は毎回全件 (4d-4: cursor 廃止)
+    // 取得自体は毎回そのファイルの全履歴 (既読位置を持たない契約は p7-2 でも不変)
+    expect(second.received).toBe(2);
     expect(stored.size).toBe(2);
   });
 
@@ -216,7 +233,7 @@ describe('bootstrap: genesis を含む受信で未知シートが立ち上がる
   function makeStore() {
     const stored: Batch[] = [];
     const deps = {
-      pullRemote: async () => [] as RemoteBatch[],
+      pullRemoteForFile: async () => [] as RemoteBatch[],
       appendReceived: async (_f: FileId, batches: Batch[]) => {
         stored.push(...batches);
         return batches.length;
@@ -232,7 +249,7 @@ describe('bootstrap: genesis を含む受信で未知シートが立ち上がる
       envelope(FILE, b),
     );
     const t = makeStore();
-    t.deps.pullRemote = async () => remote;
+    t.deps.pullRemoteForFile = async () => remote;
 
     const result = await receiveRemoteBatches(FILE, t.deps);
 
@@ -255,7 +272,7 @@ describe('bootstrap: genesis を含む受信で未知シートが立ち上がる
       .filter((b) => b.actor !== GENESIS_ACTOR)
       .map((b) => envelope(FILE, b));
     const t = makeStore();
-    t.deps.pullRemote = async () => remote;
+    t.deps.pullRemoteForFile = async () => remote;
 
     await receiveRemoteBatches(FILE, t.deps);
 

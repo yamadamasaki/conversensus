@@ -14,6 +14,12 @@
  *   3. sheetId 往復            — content batch が sheetId を持つこと
  *   4. clock 単調・衝突なし     — clock の重複が無いこと
  *
+ * **検査対象は新形式 rkey (`v1~…`) のレコードだけ** (step1 Phase 7)。移行 (p7-4) は旧 rkey の
+ * レコードを消さずに残すので、全件を見ると移行済み batch が 2 レコードとして数えられ、偽の
+ * FAIL (genesis id の分岐・clock 衝突) が出る。本番の読取経路 `pullRemoteForFile` が
+ * `v1~` 以外を走査しない以上、検査器もそれに揃えなければ赤も緑も証拠にならない。
+ * 旧 rkey は件数だけを表示する (黙って捨てない)。
+ *
  * device B (2 台目) 上で実行すれば、受入基準 3「別端末が remote から取得できる」の検証も兼ねる:
  *   listRecords で取得したレコードが `recordToBatch` を通って Batch に戻せることを、この
  *   スクリプト自体が確かめている (クライアントの pull と同じ mapper を使う)。
@@ -40,6 +46,10 @@ import {
   isBatchRecordValue,
   recordToRemoteBatch,
 } from '../src/client/src/atproto/batchMapper';
+import {
+  batchIdFromRkey,
+  RKEY_VERSION_PREFIX,
+} from '../src/client/src/atproto/batchRkey';
 import { NSID, type RemoteBatch } from '../src/client/src/atproto/types';
 
 const DEFAULT_PDS_URL = 'http://localhost:2583';
@@ -244,18 +254,43 @@ async function main(): Promise<void> {
   // クライアントの pull と同じ mapper を通す = 別端末が Batch に戻せることの確認 (受入基準 3)
   const remoteBatches: RemoteBatch[] = [];
   const invalid: string[] = [];
+  let legacy = 0;
   for (const r of records) {
-    if (!isBatchRecordValue(r.value)) {
-      invalid.push(rkeyFromUri(r.uri));
+    const rkey = rkeyFromUri(r.uri);
+    // **新形式 (`v1~…`) のレコードだけを検査する** (step1 Phase 7)。
+    //
+    // 移行 (p7-4) は旧 rkey のレコードを消さず、同じ batch を新 rkey で書き足す
+    // (設計 §3.4)。全件を検査すると移行済みの batch が 2 レコードとして数えられ、
+    // 「genesis id が分岐」「同一スコープで clock 衝突」という **偽の FAIL** が出る
+    // (どちらも実体は同一 id の重複であって分岐ではない)。
+    //
+    // 本番の読取経路 (`pullRemoteForFile`) は `v1~` 以外を走査しないので、検査器も
+    // それに揃える — 検査器が本番と違うものを見ると、赤も緑も証拠にならない。
+    if (!rkey.startsWith(RKEY_VERSION_PREFIX)) {
+      legacy += 1;
       continue;
     }
-    remoteBatches.push(recordToRemoteBatch(rkeyFromUri(r.uri), r.value));
+    if (!isBatchRecordValue(r.value)) {
+      invalid.push(rkey);
+      continue;
+    }
+    // batch.id は rkey から復元する (Phase 7 p7-1 で rkey が構造化された)。
+    // 復元できない rkey は壊れた新形式なので invalid と同じ扱いにする。
+    const batchId = batchIdFromRkey(rkey);
+    if (batchId === null) {
+      invalid.push(rkey);
+      continue;
+    }
+    remoteBatches.push(recordToRemoteBatch(batchId, r.value));
   }
   remoteBatches.sort((a, b) => a.batch.clock - b.batch.clock);
   const batches: Batch[] = remoteBatches.map((rb) => rb.batch);
 
   console.log(
-    `レコード ${records.length} 件 → batch ${batches.length} 件に復元` +
+    `レコード ${records.length} 件 → 新形式 batch ${batches.length} 件に復元` +
+      (legacy > 0
+        ? ` (旧 rkey ${legacy} 件は移行 (p7-4) の残骸として検査対象外)`
+        : '') +
       (invalid.length > 0
         ? ` (batch として解釈できないレコード ${invalid.length} 件: ${invalid.join(', ')})`
         : ''),
@@ -264,6 +299,14 @@ async function main(): Promise<void> {
   if (records.length === 0) {
     console.log(
       '\nレコードが 0 件。ログインして編集したか、SYNC_TO_REMOTE が有効かを確認すること。',
+    );
+    process.exit(1);
+  }
+
+  if (batches.length === 0) {
+    console.log(
+      `\n新形式 (${RKEY_VERSION_PREFIX}…) のレコードが 0 件で、旧 rkey が ${legacy} 件ある。` +
+        '移行 (p7-4) が未実行の可能性が高い — ログインして起動時の移行を走らせること。',
     );
     process.exit(1);
   }

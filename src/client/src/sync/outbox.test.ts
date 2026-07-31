@@ -2,12 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import type { Batch, NodeId } from '@conversensus/shared';
 import { NullSyncProvider } from './nullSyncProvider';
 import { Outbox } from './outbox';
-import type {
-  Cursor,
-  OnRemote,
-  PullResult,
-  SyncProvider,
-} from './syncProvider';
+import type { Cursor, PullResult, SyncProvider } from './syncProvider';
 
 const batch = (id: string, clock: number): Batch => ({
   id: id as Batch['id'],
@@ -34,9 +29,6 @@ class RecordingProvider implements SyncProvider {
   }
   async pull(_since: Cursor): Promise<PullResult> {
     return { batches: [], cursor: '' };
-  }
-  subscribe(_onRemote: OnRemote) {
-    return () => {};
   }
 }
 

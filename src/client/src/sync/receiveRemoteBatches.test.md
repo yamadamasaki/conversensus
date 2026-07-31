@@ -23,15 +23,20 @@ Phase 4d の目標は「受信が**安全に**ローカル正典へ着地する�
 
 ## どのように
 
-依存 (`pullRemote` / `appendReceived` / `observeRemote`) を注入し、呼び出しを記録して
+依存 (`pullRemoteForFile` / `appendReceived` / `observeRemote`) を注入し、呼び出しを記録して
 検証する。PDS もデーモンも要らない純粋な単体テスト。
 
 - **自ファイル宛の取り込み**: remote から取得した batch が `appendReceived` へ、
   正しい fileId とともに渡ることを確認する。
-- **他ファイル宛は捨てて数える**: remote の batch コレクションは repo 全体で 1 つなので
-  他ファイル分も返る。未知の fileId を書くと孤児 batch が生まれる (§1.11 D-4) ため、
-  この fileId フィルタが防御を兼ねる。捨てた件数を返すのは silent skip にしないため
-  (§3.1 の counted skip と同じ思想)。
+- **取得は開いているファイル単位** (Phase 7 p7-2): `pullRemoteForFile` が**開いている
+  fileId を引数に**呼ばれることを固定する。以前は repo 全件を落として他ファイル分を
+  JS で捨てていた。引数を渡さない実装へ戻ると範囲取得の効果が静かに消えるので、
+  取得の粒度そのものをテストの対象にしている。
+- **他ファイル宛は捨てて数える**: p7-2 以降、範囲取得が正しければ 0 件になる。それでも
+  フィルタを残すのは、未知の fileId を書くと孤児 batch が生まれる (§1.11 D-4) という
+  不変条件を **rkey 形式の正しさに依存させない**ため。0 でない件数は「rkey とボディの
+  fileId が食い違った」ことの検知器になり、`console.warn` に出る (silent skip にしない,
+  §3.1 の counted skip と同じ思想)。
 - **自ファイル宛 0 件では書き込まない**: `observeRemote` も呼ばない。受信 0 件で
   正典宣言 marker を立てると lazy migration の機会を無意味に奪うため (4d-0 と整合)。
 - **`observe` は受信 clock の最大値** (不変条件 c): 複数 batch のうち最大の clock で
@@ -41,7 +46,7 @@ Phase 4d の目標は「受信が**安全に**ローカル正典へ着地する�
   throw したとき `observeRemote` が呼ばれないことを固定する。順序が意味を持つ理由そのもの。
 - **べき等 (受入基準 2)**: server 側 `appendBatch` の batch_id べき等性を模し、2 回呼んでも
   `appended` が 0 になるだけで op-log が増えないことを確認する。あわせて `received` は
-  毎回全件であること (4d-4 で cursor を廃止したため) も固定する。
+  毎回そのファイルの全履歴であること (既読位置を持たない契約は p7-2 でも不変) も固定する。
 - **genesis batch は素通し**: Phase 4e-0 の C1 見直しで genesis は remote へ push される
   ようになった (bootstrap の正規経路)。受信側では特別扱いせず、べき等な追記に委ねる —
   判別ロジックを増やすと「何を受け入れるか」の条件が 2 箇所に分かれるため。

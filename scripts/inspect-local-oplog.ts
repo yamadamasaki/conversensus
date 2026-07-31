@@ -53,6 +53,7 @@ import {
   isBatchRecordValue,
   recordToRemoteBatch,
 } from '../src/client/src/atproto/batchMapper';
+import { batchIdFromRkey } from '../src/client/src/atproto/batchRkey';
 import { NSID } from '../src/client/src/atproto/types';
 import { W3_SCHEMA_VERSION } from '../src/server/src/migrateFileToOplog';
 
@@ -283,7 +284,10 @@ async function fetchRemoteBatchIds(
     for (const r of body.records) {
       if (!isBatchRecordValue(r.value)) continue;
       const rkey = r.uri.split('/').at(-1) ?? r.uri;
-      const remote = recordToRemoteBatch(rkey, r.value);
+      // batch.id は rkey から復元する (Phase 7 p7-1 で rkey が構造化された)
+      const batchId = batchIdFromRkey(rkey);
+      if (batchId === null) continue;
+      const remote = recordToRemoteBatch(batchId, r.value);
       if (remote.fileId === fileId) ids.add(remote.batch.id as string);
     }
     cursor = body.cursor;

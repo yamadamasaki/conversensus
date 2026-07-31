@@ -23,19 +23,4 @@ describe('NullSyncProvider', () => {
     expect(result.batches).toEqual([]);
     expect(result.cursor).toBe(INITIAL_CURSOR);
   });
-
-  it('subscribe は onRemote を一度も呼ばない', () => {
-    const provider = new NullSyncProvider();
-    let called = 0;
-    provider.subscribe(() => {
-      called += 1;
-    });
-    expect(called).toBe(0);
-  });
-
-  it('subscribe の解除ハンドルは例外なく呼べる (no-op)', () => {
-    const provider = new NullSyncProvider();
-    const unsubscribe = provider.subscribe(() => {});
-    expect(() => unsubscribe()).not.toThrow();
-  });
 });

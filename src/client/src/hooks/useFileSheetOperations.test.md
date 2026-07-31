@@ -104,6 +104,29 @@ GraphEditor の reset effect の依存に加えることで再 seed を発火さ
 - **既知分のみの再受信 (appended = 0)**: onReceived 自体が呼ばれず、swap も epoch 増加も
   起きないこと (べき等再受信で画面を無駄に触らない)。
 
+## rkey 移行の配線 (Phase 7 p7-4)
+
+発見 (`discoverRemoteFiles`) の**前に** rkey 移行を 1 回だけ通す配線を検証する。
+
+**なぜ発見の前か**: p7-1 より前に書かれた旧 rkey のレコードは `v1~` より小さく、
+新経路 (列挙・prefix 取得) の走査に現れない。移行を経ずに発見だけを回すと、
+「PDS にしか無い古い batch」を持つファイルが見えないままになる。テストの fake は
+**`listRemoteFileIds` が空を返す**ことでこの状況を再現している — 発見だけでは
+到達できず、移行の全件受信 (`pullAllRemoteForMigration`) だけが拾える形にしてある。
+
+**なぜ marker を deps にしたか**: 移行は「起動時に 1 回」なので、差し替えられないと
+他のテスト (発見・受信) の観測に移行の副作用が混ざり、何を検証しているのか分からなくなる。
+in-memory deps は `hasRkeyMigrated: () => true` (移行済) を既定にして移行経路を止め、
+この節のテストだけが `false` にして配線を見る。
+
+- **marker が無ければ移行が走り、新経路から見えないファイルを取り込む**: 全件 list が
+  ちょうど 1 回呼ばれ、受信が marker 経路へ書かれ、`createRemote` (まとめ書き) で
+  新 rkey に載せ直され、marker が立ち、materialize されたファイルが一覧に現れること。
+- **marker があれば全件 list を実行しない**: 移行済端末で毎回 repo 全件を落とさないこと。
+  これが効かないと p7-2/p7-3 の成果 (全件 list をやめる) が起動経路で帳消しになる。
+- **移行が失敗しても発見は走る**: 発見は非破壊で、移行と独立に価値がある。あわせて
+  marker が立たない (次回起動で再試行される) ことを固定する。
+
 ## 【退役】persistFile の branch ガード (step1 Phase 5 p5-4)
 
 op-log branch を表示している間、`activeFile` の該当シートは **branch の内容** に

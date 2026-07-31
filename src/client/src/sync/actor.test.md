@@ -43,3 +43,19 @@ actor が端末を区別しない限り、受信側は 2 つの batch を因果�
 **人間可読な値 (端末名など) を混ぜない**方針はテストでは固定していない — actor は PDS 上の
 レコードに載って公開されるため実装コメントで戒めているが、「混ぜていないこと」を機械的に
 検査する手段がないため。
+
+## didFromActor (Phase 7 p7-4 で追加)
+
+`composeActor` の逆。rkey 移行 marker (`migrateRemoteRkey`) が**アカウント単位**の
+キーを必要とし、hook が持っているのは actor だけなので追加した。
+
+- `composeActor` の逆になること (往復)。
+- **未ログインの actor からは `LOCAL_DID` が返る** — null に潰さない。marker は
+  アカウント単位のキーなので、呼び出し側が「本物の DID か」を判定できる必要がある。
+- deviceId 側に区切り文字が混ざっても DID 部分だけを返す (DID 自体は `#` を含まないので
+  最初の区切りまでで確定する)。
+
+`safeStorage.ts` (localStorage の try/catch ラッパ) には単体テストを置いていない —
+`globalThis.localStorage` を返すか null を返すかだけの自明なコードで、テストが
+実装をそのまま写す以上の意味を持たないため。使う側 (`getDeviceId` / marker) は
+ストレージを引数で受け取れるので、そちらで固定できている。

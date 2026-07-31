@@ -122,7 +122,7 @@ describe('batchMapper', () => {
         ops: [],
         createdAt: new Date(1_700_000_000_000).toISOString(),
       };
-      const restored = recordToBatch('batch-1', record);
+      const restored = recordToBatch('batch-1' as Batch['id'], record);
       expect('sheetId' in restored).toBe(false);
       expect(restored.sheetId).toBeUndefined();
     });

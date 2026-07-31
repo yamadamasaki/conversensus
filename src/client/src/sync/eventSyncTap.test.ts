@@ -8,12 +8,7 @@ import type {
 } from '../events/GraphEvent';
 import { graphEventToBatch } from '../events/toUnified';
 import { EventSyncTap } from './eventSyncTap';
-import type {
-  Cursor,
-  OnRemote,
-  PullResult,
-  SyncProvider,
-} from './syncProvider';
+import type { Cursor, PullResult, SyncProvider } from './syncProvider';
 
 let seq = 0;
 const uuid = () => {
@@ -60,9 +55,6 @@ class RecordingProvider implements SyncProvider {
   async pull(_since: Cursor): Promise<PullResult> {
     if (this.pullFails) throw new Error('pull failed');
     return { batches: this.existing, cursor: '' };
-  }
-  subscribe(_onRemote: OnRemote) {
-    return () => {};
   }
 }
 

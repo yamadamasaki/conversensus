@@ -10,7 +10,12 @@
  * レコードには埋め込む必要がある。この非対称は `RemoteBatch` エンベロープで表現する。
  */
 
-import type { Batch, FileId, ISODateString } from '@conversensus/shared';
+import type {
+  Batch,
+  BatchId,
+  FileId,
+  ISODateString,
+} from '@conversensus/shared';
 import type { BatchRecord, RemoteBatch } from './types';
 
 /** Batch + fileId → レコードボディ ($type と rkey=batchId を除く) */
@@ -56,13 +61,13 @@ export function isBatchRecordValue(value: unknown): value is BatchRecord {
 }
 
 /**
- * レコード (rkey + value) → Batch。
+ * レコード (batchId + value) → Batch。
  * value は事前に `isBatchRecordValue` で検証済みであること。
- * id は rkey (= batchId) から復元する。
+ * `batchId` は rkey から復元した値 (`batchIdFromRkey`) を渡す。
  */
-export function recordToBatch(rkey: string, value: BatchRecord): Batch {
+export function recordToBatch(batchId: BatchId, value: BatchRecord): Batch {
   return {
-    id: rkey as Batch['id'],
+    id: batchId,
     actor: value.actor,
     clock: value.clock,
     timestamp: value.timestamp,
@@ -79,11 +84,13 @@ export function recordToBatch(rkey: string, value: BatchRecord): Batch {
  * 受信経路 (Phase 4d-5) が適用先を復元するために使う。
  */
 export function recordToRemoteBatch(
-  rkey: string,
+  batchId: BatchId,
   value: BatchRecord,
 ): RemoteBatch {
   return {
+    // 適用先の権威は**ボディの fileId**。rkey にも fileId が入る (Phase 7) が、
+    // そちらは取得経路の索引であって復元元にしない (二重の真実を作らない)。
     fileId: value.fileId as FileId,
-    batch: recordToBatch(rkey, value),
+    batch: recordToBatch(batchId, value),
   };
 }
