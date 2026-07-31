@@ -39,7 +39,6 @@ const { RemoteSyncQueue } = await import('../atproto/remoteSyncQueue');
 const { GENESIS_ACTOR } = await import('@conversensus/shared');
 type SyncProvider = import('../sync/syncProvider').SyncProvider;
 type Cursor = import('../sync/syncProvider').Cursor;
-type OnRemote = import('../sync/syncProvider').OnRemote;
 type PullResult = import('../sync/syncProvider').PullResult;
 
 const FID = '00000000-0000-4000-8000-00000000f11e' as FileId;
@@ -89,22 +88,21 @@ class RecordingProvider implements SyncProvider, RemoteBatchTarget {
   async pull(_since: Cursor): Promise<PullResult> {
     return { batches: this.existing, cursor: '' };
   }
-  /** remote 側の取得 (Phase 4d-4: cursor を取らず全件返す) */
-  async pullRemote(): Promise<RemoteBatch[]> {
+  /** remote 側の全件取得 (Phase 4d-4)。p7-5 以降は移行だけが使う */
+  async pullAllRemoteForMigration(): Promise<RemoteBatch[]> {
     return this.existing.map((batch) => ({ fileId: FID, batch }));
   }
   /** ファイル単位の取得 (Phase 7 p7-2)。要求された fileId を記録する */
   pulledFor: FileId[] = [];
   async pullRemoteForFile(fileId: FileId): Promise<RemoteBatch[]> {
     this.pulledFor.push(fileId);
-    return (await this.pullRemote()).filter((e) => e.fileId === fileId);
+    return (await this.pullAllRemoteForMigration()).filter(
+      (e) => e.fileId === fileId,
+    );
   }
   /** ファイル列挙 (Phase 7 p7-3)。この hook のテストでは 1 ファイルしか扱わない */
   async listRemoteFileIds(): Promise<FileId[]> {
     return [FID];
-  }
-  subscribe(_onRemote: OnRemote) {
-    return () => {};
   }
 }
 

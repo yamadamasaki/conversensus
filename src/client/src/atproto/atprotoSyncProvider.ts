@@ -12,18 +12,19 @@
  *   rkey が batch の不変属性だけから決まるのでべき等 (`batchRkey.ts`)。
  * - pullRemoteForFile: **1 ファイル分**を rkey prefix の範囲取得で得る (Phase 7 p7-2)。
  *   受信 (`receiveRemoteBatches`) と catch-up の経路はこちらに載る。
- * - pullRemote: batch レコードを**全件**取得。**既読位置 (cursor) を持たない** (Phase 4d-4) —
- *   rkey が UUID で時系列順にならず、ATProto 側に既読位置へ使える値が無いため。
- *   取りこぼしゼロを構造で保証し、二重取り込みは受信側のべき等性が無害化する。
- *   残る消費者は `discoverRemoteFiles` (p7-3 で置換) と移行 (p7-4) で、p7-5 で退役する。
- * - subscribe: 定期 poll で新規 batch を配信 (観測済み id 集合との差分のみ)。
- *   消費箇所は 0 件。Jetstream 購読への置き換えは別 Phase (§3.4)。
+ * - listRemoteFileIds: remote に存在する fileId を列挙する (Phase 7 p7-3)。発見経路が使う。
+ * - pullAllRemoteForMigration: batch レコードを**全件**取得。**移行 (p7-4) 専用の 1 回限りの口**で、
+ *   旧 rkey のレコードを探せる唯一の経路である (新経路は `v1~` しか走査しない)。p7-5 で
+ *   他の消費者はすべて上の 2 つへ移り、この名前が用途を型の面に固定している。
  *
- * 依存 (batch collection / scheduler) は注入可能にし、PDS・タイマー非依存にテストする。
+ * **`subscribe` は p7-5 で撤去した** — 定期 poll + 全件 list という実装で、消費箇所は
+ * 一度も 1 件にならなかった (受信は起動時 + `online` + 手動で駆動する, 4d 設計 §3.4)。
+ * Jetstream 購読は別形式なので Phase 8 で作り直す。
+ *
+ * 依存 (batch collection) は注入可能にし、PDS 非依存にテストする。
  */
 
 import type { FileId } from '@conversensus/shared';
-import type { Unsubscribe } from '../sync';
 import {
   batchToRecord,
   isBatchRecordValue,
@@ -32,9 +33,6 @@ import {
 import { batchIdFromRkey, batchRkey, rkeyFromUri } from './batchRkey';
 import type { RemoteBatchTarget } from './remoteSyncQueue';
 import type { BatchRecord, RecordResult, RemoteBatch } from './types';
-
-/** 新着 remote batch の配信先。fileId が要るので `Batch[]` ではなく `RemoteBatch[]` */
-export type OnRemoteBatches = (entries: readonly RemoteBatch[]) => void;
 
 /** `listRecords` が返すレコード 1 件分 (rkey は uri の末尾にしか無い) */
 type RecordSummary = { uri: string; cid: string; value: unknown };
@@ -46,43 +44,29 @@ export interface BatchCollection {
   createMany(
     entries: readonly { rkey: string; data: Omit<BatchRecord, '$type'> }[],
   ): Promise<void>;
-  /** repo 全体 (Phase 4d-4)。p7-5 で退役する */
-  list(): Promise<RecordSummary[]>;
+  /**
+   * repo 全体 (Phase 4d-4)。**移行 (p7-4) 専用**である (p7-5)。
+   *
+   * 通常経路がこれを呼ばないのは Phase 7 の目的そのものだが、移行だけは代替が無い —
+   * 旧 rkey (`v1~` で始まらない) のレコードは `listByFile` / `listFileIds` の走査範囲に
+   * 現れないので、探せるのは全件走査だけである。名前で用途を固定しておく。
+   */
+  listAllForMigration(): Promise<RecordSummary[]>;
   /** 1 ファイル分だけを rkey prefix の範囲で取得する (Phase 7 p7-2) */
   listByFile(fileId: FileId): Promise<RecordSummary[]>;
   /** remote に存在する fileId を列挙する (Phase 7 p7-3, batch 本体は落とさない) */
   listFileIds(): Promise<FileId[]>;
 }
 
-/** 定期実行のスケジューラ (既定は setInterval)。テストで差し替え可能 */
-export interface IntervalScheduler {
-  set(callback: () => void, ms: number): unknown;
-  clear(handle: unknown): void;
-}
-
-const DEFAULT_SCHEDULER: IntervalScheduler = {
-  set: (cb, ms) => setInterval(cb, ms),
-  clear: (h) => clearInterval(h as ReturnType<typeof setInterval>),
-};
-
-/** subscribe の既定 poll 間隔 (開発向け)。4d の Jetstream 化まで暫定 */
-export const SUBSCRIBE_INTERVAL_MS = 10_000;
-
 export type AtprotoSyncProviderDeps = {
   batches: BatchCollection;
-  scheduler?: IntervalScheduler;
-  intervalMs?: number;
 };
 
 export class AtprotoSyncProvider implements RemoteBatchTarget {
   private readonly batches: BatchCollection;
-  private readonly scheduler: IntervalScheduler;
-  private readonly intervalMs: number;
 
   constructor(deps: AtprotoSyncProviderDeps) {
     this.batches = deps.batches;
-    this.scheduler = deps.scheduler ?? DEFAULT_SCHEDULER;
-    this.intervalMs = deps.intervalMs ?? SUBSCRIBE_INTERVAL_MS;
   }
 
   /**
@@ -128,7 +112,7 @@ export class AtprotoSyncProvider implements RemoteBatchTarget {
   }
 
   /**
-   * remote の batch レコードを**全件**取得する (Phase 4d-4)。
+   * remote の batch レコードを**全件**取得する — **移行 (p7-4) 専用** (Phase 4d-4 / p7-5)。
    *
    * **既読位置 (cursor) を持たない**。4d-3 までは clock を符号化した cursor を返して
    * いたが、clock は端末をまたぐと単調でないため取りこぼす (設計 §1.3)。かといって
@@ -145,16 +129,17 @@ export class AtprotoSyncProvider implements RemoteBatchTarget {
    * 代償は毎回 O(全履歴) の list だが、起動契機は起動時 + `online` + 手動に限られる
    * (§3.4 で subscribe を不採用としたため) ので受容できる。
    *
-   * **Phase 7 p7-2 で「repo 全体 → 1 ファイル」の経路 (`pullRemoteForFile`) が入った**。
-   * この関数に残る消費者は repo 全体を必要とする `discoverRemoteFiles` (p7-3 で
-   * ファイル列挙へ置換) と移行 (p7-4) だけで、**p7-5 で退役する**。
+   * **p7-5 で残った消費者は移行 (`migrateRemoteRkey`) だけになった**。受信・catch-up は
+   * `pullRemoteForFile`、発見は `listRemoteFileIds` へ移っている。移行だけが残るのは
+   * 代替が無いためで、**旧 rkey のレコードは新経路の走査範囲に現れない** (§3.1 の
+   * `v1~` 分離が効くのは新形式の側だけ)。名前で 1 回限りの用途を固定している。
    * 既読位置を持たない契約は新経路でも維持している (上記 3 つの理由は今も有効, §2.2)。
    *
    * 返すのは `Batch` ではなく `RemoteBatch` (Batch + fileId)。remote の batch
    * コレクションは repo 全体で 1 つなので、適用先ファイルは受信側で復元できない (§3.1)。
    */
-  async pullRemote(): Promise<RemoteBatch[]> {
-    return toRemoteBatches(await this.batches.list());
+  async pullAllRemoteForMigration(): Promise<RemoteBatch[]> {
+    return toRemoteBatches(await this.batches.listAllForMigration());
   }
 
   /**
@@ -165,11 +150,11 @@ export class AtprotoSyncProvider implements RemoteBatchTarget {
    * 外れた時点で止めるので、**取得量が repo 全体ではなくそのファイルの履歴に比例する**
    * (設計 §3.2)。旧 rkey のレコードは `v1~` より小さく、走査に現れない (§3.1)。
    *
-   * **既読位置 (cursor) は持たない** — `pullRemote` と同じ契約である。毎回そのファイルの
+   * **既読位置 (cursor) は持たない** — 全件版と同じ契約である。毎回そのファイルの
    * 先頭から読み、二重取り込みは受信側 (`EventStore.appendReceivedBatches`) のべき等性が
    * 無害化する。変わったのは 1 回の取得量だけで、取りこぼしゼロの保証は構造のまま (§2.2)。
    *
-   * 返すのが `Batch` ではなく `RemoteBatch` なのは `pullRemote` と同じ理由 (§3.1) だが、
+   * 返すのが `Batch` ではなく `RemoteBatch` なのは全件版と同じ理由 (§3.1) だが、
    * ここでは `fileId` は引数と一致するはずである。**一致しない場合の扱いは呼び出し側に
    * 委ねる** — 不変条件 (孤児 batch を作らない, 4d 設計 §1.11 D-4) を rkey の正しさに
    * 依存させないため、`receiveRemoteBatches` 側の fileId フィルタを防御として残している。
@@ -192,43 +177,6 @@ export class AtprotoSyncProvider implements RemoteBatchTarget {
    */
   listRemoteFileIds(): Promise<FileId[]> {
     return this.batches.listFileIds();
-  }
-
-  /**
-   * remote の新規 batch を購読する。
-   * 初回 poll は既知集合を埋める baseline 確立のみ (再配信を避ける)。
-   * 以降の poll で**初めて見た id** の batch だけを onRemote へ渡す。
-   *
-   * **既読管理を cursor から「観測済み id 集合」へ変えた (Phase 4d-4)**。cursor 版には
-   * baseline 確立が失敗すると次の成功 poll が baseline になり、その間の batch を
-   * **恒久的に落とす**欠陥があった (設計 §1.5)。id 集合なら poll が失敗しても集合は
-   * 前進しないので、次の成功 poll で取りこぼし分がそのまま現れる。
-   *
-   * 消費箇所は現在 0 件 — §3.4 のとおり subscribe は採用せず、起動時 + `online` + 手動で
-   * 駆動する。Jetstream 化と `list()` のページングを併せて別 Phase で作り直す。
-   */
-  subscribe(onRemote: OnRemoteBatches): Unsubscribe {
-    const seen = new Set<string>();
-    let baselined = false;
-
-    const tick = async () => {
-      const entries = await this.pullRemote();
-      const fresh = entries.filter((e) => !seen.has(e.batch.id));
-      for (const e of entries) seen.add(e.batch.id);
-      if (!baselined) {
-        baselined = true; // 初回は基準確立のみ、配信しない
-        return;
-      }
-      if (fresh.length > 0) onRemote(fresh);
-    };
-
-    const handle = this.scheduler.set(() => {
-      tick().catch((err) =>
-        console.warn('[atproto] subscribe poll error:', err),
-      );
-    }, this.intervalMs);
-
-    return () => this.scheduler.clear(handle);
   }
 }
 

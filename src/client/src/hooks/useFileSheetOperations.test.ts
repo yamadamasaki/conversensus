@@ -597,7 +597,7 @@ describe('useFileSheetOperations', () => {
       ];
       const provider = {
         pushRemote: async () => {},
-        pullRemote: async () => entries,
+        pullAllRemoteForMigration: async () => entries,
         // 発見は「列挙 → 未知ファイルだけ取得」(Phase 7 p7-3)
         listRemoteFileIds: async () => [
           ...new Set(entries.map((e) => e.fileId)),
@@ -665,7 +665,7 @@ describe('useFileSheetOperations', () => {
      *
      * **列挙 (`listRemoteFileIds`) は空を返す** — 旧 rkey は `v1~` より小さく新経路の
      * 走査に現れないので、これが移行前の実際の見え方である。つまり発見だけでは
-     * このファイルに到達できず、**移行の全件受信 (`pullRemote`) だけが拾える**。
+     * このファイルに到達できず、**移行の全件受信 (`pullAllRemoteForMigration`) だけが拾える**。
      */
     async function makeLegacyRemoteQueue() {
       const { RemoteSyncQueue } = await import('../atproto/remoteSyncQueue');
@@ -681,15 +681,15 @@ describe('useFileSheetOperations', () => {
           },
         },
       ];
-      const calls = { pullRemote: 0, createRemote: 0 };
+      const calls = { pullAllRemoteForMigration: 0, createRemote: 0 };
       const provider = {
         pushRemote: async () => {},
         // 移行の再 push は applyWrites のまとめ書きを通る (Phase 7 p7-4)
         createRemote: async () => {
           calls.createRemote += 1;
         },
-        pullRemote: async () => {
-          calls.pullRemote += 1;
+        pullAllRemoteForMigration: async () => {
+          calls.pullAllRemoteForMigration += 1;
           return entries;
         },
         listRemoteFileIds: async () => [], // 新経路からは見えない
@@ -728,7 +728,7 @@ describe('useFileSheetOperations', () => {
 
       const { result } = await renderWith({ deps, remoteQueue: queue });
 
-      expect(calls.pullRemote).toBe(1); // 全件受信は 1 回だけ
+      expect(calls.pullAllRemoteForMigration).toBe(1); // 全件受信は 1 回だけ
       expect(received).toEqual([OLD_FILE]);
       expect(calls.createRemote).toBe(1); // 新 rkey でまとめて載せ直す
       expect(marked).toBe(1); // 成功したので marker が立つ
@@ -743,7 +743,7 @@ describe('useFileSheetOperations', () => {
 
       await renderWith({ deps, remoteQueue: queue });
 
-      expect(calls.pullRemote).toBe(0);
+      expect(calls.pullAllRemoteForMigration).toBe(0);
       expect(calls.createRemote).toBe(0);
     });
 
@@ -764,7 +764,7 @@ describe('useFileSheetOperations', () => {
       ];
       const provider = {
         pushRemote: async () => {},
-        pullRemote: async () => {
+        pullAllRemoteForMigration: async () => {
           throw new Error('offline');
         },
         listRemoteFileIds: async () => [DISCOVERED],
@@ -813,7 +813,7 @@ describe('useFileSheetOperations', () => {
       ];
       const provider = {
         pushRemote: async () => {},
-        pullRemote: async () => entries,
+        pullAllRemoteForMigration: async () => entries,
         // 受信はファイル単位取得を通る (Phase 7 p7-2)
         pullRemoteForFile: async (id: string) =>
           entries.filter((e) => e.fileId === id),

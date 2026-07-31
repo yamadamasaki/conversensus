@@ -497,8 +497,9 @@ export function useFileSheetOperations({
     const did = didFromActor(actor);
     const migrate = () =>
       migrateRemoteRkey({
-        // 旧経路 (repo 全件)。移行がこの口の最後の消費者で、p7-5 で一緒に退役する
-        pullRemote: () => remoteQueue.pullRemote(),
+        // repo 全件。**移行だけが使う口** — 旧 rkey は新経路の走査に現れない (p7-5)
+        pullAllRemoteForMigration: () =>
+          remoteQueue.pullAllRemoteForMigration(),
         appendReceived: deps.pushReceivedBatches,
         fetchBatches: deps.fetchBatches,
         // 新形式で既に載っている分を除くための範囲取得 (まとめ書きは既存 rkey で落ちる)

@@ -20,7 +20,7 @@
  *   順序が壊れ、Phase 4d-4 が捨てた clock cursor と同型のバグになる)。
  * - **clock を挟む**: ファイル内をおおむね書込順に並べる。ただし**順序の正しさは
  *   rkey に依存していない** — 受信側は `(clock, actor, id)` で正規化ソートする
- *   (`atprotoSyncProvider.pullRemote` / 正典の `orderBatches` と同一規則)。
+ *   (`atprotoSyncProvider` の取得経路 / 正典の `orderBatches` と同一規則)。
  * - **batchId が末尾**: `batch.id` をここから復元する。レコードボディに `id` を持たないので
  *   lexicon (`batch.json` は `"key": "any"`) の変更が要らない。
  *
@@ -99,7 +99,7 @@ export function batchRkeyFileCursor(fileId: FileId): string {
  *
  * `listRecords` の応答は rkey を独立したフィールドで返さないので、rkey を見る側は
  * 必ずここを通る (取得の範囲判定 = `collections.listRecordsByRkeyPrefix` と、
- * `batch.id` の復元 = `pullRemote` の両方)。
+ * `batch.id` の復元 = 取得経路の両方)。
  */
 export function rkeyFromUri(uri: string): string {
   return uri.split('/').at(-1) ?? uri;

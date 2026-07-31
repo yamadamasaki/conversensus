@@ -9,7 +9,7 @@
  *
  * 手続きは 3 段で、**この順序が安全性そのもの** (§6.2):
  *
- *   1. **旧経路で 1 回だけ全件受信する** — `pullRemote()` (repo 全件) で旧 rkey も新 rkey も
+ *   1. **旧経路で 1 回だけ全件受信する** — `pullAllRemoteForMigration()` (repo 全件) で旧 rkey も新 rkey も
  *      まとめて取り、fileId ごとにローカル正典へ marker 経路で追記する。ローカルに無い
  *      fileId はここで materialize される (`discoverRemoteFiles` と同じ書込口)。
  *   2. **ローカル正典を新 rkey で再 push する** — 1 の結果を含んだローカル正典が、
@@ -54,10 +54,13 @@ const inMemoryMigrated = new Set<string>();
 
 export type MigrateRemoteRkeyDeps = {
   /**
-   * remote の batch を**全件**取得する (旧経路)。移行がこの口の最後の消費者で、
-   * p7-5 で移行コードごと退役する (§3.5)。
+   * remote の batch を**全件**取得する。**移行がこの口の唯一の消費者である** (p7-5)。
+   *
+   * 通常経路がすべてファイル単位の範囲取得へ移った後もここだけ残るのは、探したいものが
+   * **旧 rkey のレコード**だからである。新経路 (`listByFile` / `listFileIds`) は `v1~` で
+   * 始まる rkey しか走査しないので、旧レコードは原理的に見つけられない (設計 §3.1)。
    */
-  pullRemote: () => Promise<RemoteBatch[]>;
+  pullAllRemoteForMigration: () => Promise<RemoteBatch[]>;
   /** ローカル正典へ受信追記する (marker 経路であること — `POST /files/:id/batches/received`) */
   appendReceived: (fileId: FileId, batches: Batch[]) => Promise<number>;
   /** ローカル正典の batch を読む (再 push の元) */
@@ -130,7 +133,7 @@ export async function migrateRemoteRkey(
   // 旧 rkey にしか無い batch をローカル正典へ取り込む。ここを飛ばすと 2 の再 push が
   // 「ローカルにある分」しか書かず、PDS にしか無い batch が新経路の外に取り残される (§6.2)。
   const byFile = new Map<FileId, Batch[]>();
-  for (const { fileId, batch } of await deps.pullRemote()) {
+  for (const { fileId, batch } of await deps.pullAllRemoteForMigration()) {
     const batches = byFile.get(fileId);
     if (batches) batches.push(batch);
     else byFile.set(fileId, [batch]);

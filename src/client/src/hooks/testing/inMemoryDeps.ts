@@ -171,7 +171,6 @@ export function createInMemoryBranchOplogDeps(): BranchOplogDeps & {
         batches: [...(batches.get(fileId) ?? [])],
         cursor: INITIAL_CURSOR,
       }),
-      subscribe: () => () => {},
     }),
   };
 }

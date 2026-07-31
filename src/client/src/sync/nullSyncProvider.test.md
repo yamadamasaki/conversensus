@@ -3,7 +3,7 @@
 ## 何を
 
 `NullSyncProvider` (step1 Phase 4a、完全ローカルの `SyncProvider` 実装) をテストする。
-`push` / `pull` / `subscribe` の 3 メソッドが「同期しない」契約どおりに振る舞うことを検証する。
+`push` / `pull` の 2 メソッドが「同期しない」契約どおりに振る舞うことを検証する。
 
 ## なぜ
 
@@ -19,5 +19,7 @@
 
 - **push**: remote が無くても reject せず解決する (no-op、返り値 undefined)。
 - **pull**: どんなカーソルを渡しても空 batches と `INITIAL_CURSOR` を返す (前進しない)。
-- **subscribe**: 登録した `onRemote` を一度も呼ばない (配信元が無い)。
-- **unsubscribe**: 返り値の解除ハンドルを呼んでも例外を投げない (no-op)。
+
+> `subscribe` の 2 件 (「`onRemote` を呼ばない」「解除ハンドルが例外を投げない」) は
+> **step1 Phase 7 p7-5 で削除した**。`SyncProvider` から `subscribe` そのものを撤去した
+> ため — 検証すべき契約が無くなった (テストだけ残すと、消えたメソッドが在るように読める)。

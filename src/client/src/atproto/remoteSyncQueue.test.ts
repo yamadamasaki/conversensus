@@ -52,7 +52,7 @@ class FakeProvider implements RemoteBatchTarget {
     if (!this.online) throw new Error('offline');
     this.pushed.push([...entries]);
   }
-  async pullRemote(): Promise<RemoteBatch[]> {
+  async pullAllRemoteForMigration(): Promise<RemoteBatch[]> {
     this.fullPulls += 1;
     return this.pullEntries;
   }

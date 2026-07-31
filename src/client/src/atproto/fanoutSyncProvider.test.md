@@ -4,7 +4,7 @@
 
 `FanoutSyncProvider` (step1 W3d5-4) をテストする。tap の単一 provider モデルを保ったまま、
 ローカル正典 (ブロッキング) と remote 再送キュー (非ブロッキング) へ配る合成 `SyncProvider`。
-push の二系統への配り方、remote leg のフィルタが効いていること、pull/subscribe の local 委譲を
+push の二系統への配り方、remote leg のフィルタが効いていること、pull の local 委譲を
 検証する。
 
 ## なぜ
@@ -24,7 +24,7 @@ push の二系統への配り方、remote leg のフィルタが効いている�
   漏れないこと・genesis が remote へ**通る**こと (Phase 4e-0) は別途固定が要る。
   同時に**ローカルには元 batch がそのまま (presentation 込みで) 載る**ことも確認する
   (W3e の snapshot 退役に必要な保全)。
-- **pull/subscribe の local 委譲 (§3.1)**: Lamport 復元の clock seed に remote の clock が
+- **pull の local 委譲 (§3.1)**: Lamport 復元の clock seed に remote の clock が
   混ざると、端末間で clock 空間が壊れる。→ `pull` が local だけを呼び remote を呼ばないことを
   固定する。batch op-log 経由の remote 受信は非目標 (Phase 4d)。
 - **flush の直列化**: `Outbox.flush` は多重起動を弾く (in-flight は即 `ok=false`) ため、push 連打で
@@ -32,7 +32,7 @@ push の二系統への配り方、remote leg のフィルタが効いている�
 
 ## どのように
 
-local / remote それぞれに `FakeProvider` (push/pull/subscribe を記録、`online` で push 成否を切替)
+local / remote それぞれに `FakeProvider` (push/pull を記録、`online` で push 成否を切替)
 を割り当て、remote 側は実物の `RemoteSyncQueue` で包んで単体に閉じる (PDS 非依存)。remote flush は
 非ブロッキングなので、検証前に `whenRemoteSettled()` で進行中の flush の落ち着きを待つ。
 
@@ -43,9 +43,11 @@ local / remote それぞれに `FakeProvider` (push/pull/subscribe を記録、`
 - **remote leg のフィルタ**: genesis batch は local にも remote にも載る (Phase 4e-0・C1 見直し) /
   mixed batch は presentation を除いた ops で remote へ / 全 presentation batch は remote へ
   一切 push しない (空 batch も送らない)。
-- **pull / subscribe の local 委譲**: `pull` が local の batches と cursor をそのまま返し、
-  since が local にだけ渡り remote の pull は呼ばれない / `subscribe` のコールバックが local に
-  登録され、解除ハンドルが local の解除を呼ぶ。
+- **pull の local 委譲**: `pull` が local の batches と cursor をそのまま返し、
+  since が local にだけ渡り remote の pull は呼ばれない。
+
+> `subscribe` の委譲テストは **step1 Phase 7 p7-5 で削除した**。`SyncProvider` から
+> `subscribe` を撤去したので、委譲すべきメソッドが無くなった。
 
 ## fileId の供給 (Phase 4d-1)
 

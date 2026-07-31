@@ -277,6 +277,12 @@ Phase 6 p6-0 の「起動時一括移行 + 実測してから受入基準を決�
 1 回限りの位置に閉じ込める。`collections.batches.list()` はそこでのみ生き残るか、
 移行を `listFileIds` ベースに書ける場合は完全に消える (p7-5 で判断)。
 
+> **【p7-5 の判断】完全には消せず、移行専用として残した**。移行が探すのは**旧 rkey の
+> レコード**であり、`listByFile` / `listFileIds` は `v1~` で始まる rkey しか走査しない
+> (それが §3.1 の分離の効果そのもの) ので、旧レコードは新経路から原理的に見つけられない。
+> 削除する代わりに **`listAllForMigration` / `pullAllRemoteForMigration` へ改名**し、
+> 用途を名前で固定した (§5.6)。
+
 ### 3.6 無言の失敗を作らない
 
 W3d5-7 (PDS が float を拒否して全 push が 400、しかしコンソールは無言) の教訓を継ぐ:
@@ -301,7 +307,7 @@ W3d5-7 (PDS が float を拒否して全 push が 400、しかしコンソール
 | **p7-2** | `listByFile` / `pullRemoteForFile` を追加し `receiveRemoteBatches` を載せ替え。**catch-up も同じ経路に載せた** (§5.2) | なし (旧経路は残存) — **✅ 完了 (2026-07-30)** |
 | **p7-3** | `listFileIds` / `listRemoteFileIds` を追加し `discoverRemoteFiles` を「列挙 → 未知ファイルだけ prefix 取得」へ | なし — **✅ 完了 (2026-07-30)** |
 | **p7-4** | 移行 (§3.4): 1 回だけ全件受信 → 新 rkey で再 push → marker。実測 (件数・所要時間)。**再 push は `applyWrites` のまとめ書き + 差分計算に変えた** (§5.4) | **あり** (PDS へ書く) — **✅ 完了 (2026-07-31)** |
-| **p7-5** | 全件 list の撤去: `pullRemote()` / `collections.batches.list()` / `subscribe` を退役 | **あり** (削除) |
+| **p7-5** | 全件 list の撤去: `subscribe` を `SyncProvider` ごと退役し、全件 list を移行専用の名前へ閉じ込めた (§5.6) | **あり** (削除) — **✅ 完了 (2026-07-31)** |
 | **p7-6** | **実機 e2e + 実測**: 2 端末での伝播、リクエスト数・転送量の before/after、PDS 直接検査 | 検証のみ — **✅ 完了 (2026-07-31): 全基準 PASS, §5.5** |
 
 **順序の根拠** (Phase 6 §6.1 の教訓「e2e を不可逆化の前に」):
@@ -623,6 +629,54 @@ repo に存在する。全件を走査する検査器はこれを 2 つの batch
 放置すれば移行後の repo では検査器が**恒久的に赤**になっていた。
 
 **gate**: lint / typecheck / 全テスト green。
+
+---
+
+### 5.6 【p7-5 実施結果】全件 list の撤去 (2026-07-31)
+
+p7-6 の実機 e2e を通してから着手した (不可逆な削除を後ろに置く §4 の順序どおり)。
+
+#### `subscribe` は `SyncProvider` ごと撤去した
+
+設計 §3.5 は「`subscribe` は消費者 0 のまま撤去する」とだけ書いていたが、実際には
+**ATProto の poll 実装だけでなく `SyncProvider` インターフェースの `subscribe` と
+local / null / fanout の no-op 実装もすべて消費者 0** だった (grep で確認)。
+**倒す先の無い拡張点を残さない**という Phase 6 の教訓に従い、まとめて撤去した
+(ユーザー選択)。あわせて `OnRemote` 型・`IntervalScheduler`・`SUBSCRIBE_INTERVAL_MS`・
+`DEFAULT_SCHEDULER` も消費者を失い削除。
+
+Jetstream 購読 (Phase 8) は WebSocket でレコード形式も違うため、この実装を温存しても
+再利用できる部分が無い。**4d-4 で得た知見 (§1.5 の baseline 失敗による恒久取りこぼし) は
+失われていない** — 既読位置を持たない契約が同じ問題を構造的に消しており、それは
+「2 回続けて呼んでも同じ全件が返る」テストで固定されている。
+
+#### 全件 list は消えず、移行専用として残った
+
+§3.5 が p7-5 送りにしていた判断は **「消せない」で確定**した。移行が探すのは旧 rkey の
+レコードで、新経路 (`listByFile` / `listFileIds`) は `v1~` で始まる rkey しか走査しない。
+§3.1 の rkey 空間分離は**新形式の側から旧形式を見えなくする**ので、旧レコードを見つける
+手段は全件走査しかない。
+
+代わりに **名前で用途を固定**した (削除の代替としての改名):
+
+| 旧 | 新 |
+|---|---|
+| `collections.batches.list()` | `listAllForMigration()` |
+| `AtprotoSyncProvider.pullRemote()` | `pullAllRemoteForMigration()` |
+| `RemoteBatchTarget.pullRemote` / `RemoteSyncQueue.pullRemote` | 同上 |
+| `MigrateRemoteRkeyDeps.pullRemote` | 同上 |
+
+呼び出し側が 1 箇所 (`migrateRemoteRkey`) しか無い以上、型で禁止するより**名前が用途を
+語る**方が安く、将来「便利だから」と通常経路から呼ばれることへの抑止にもなる。
+
+#### 結果
+
+- 通常経路 (受信 / catch-up / 発見) から repo 全件 list への参照は **0 件**。
+  p7-6 のネットワーク実測でも全件 list は 1 回も発行されていない (§5.5)。
+- **690 tests green** (697 から 7 減。内訳は subscribe のテスト — ATProto 4 / fanout 1 /
+  null 2 — の削除で、機能の欠落ではない)。lint / typecheck / client build green。
+- テスト仕様書 (`.test.md`) も追随させた。削除したテストは**黙って消さず**、
+  「なぜ消えたか」を各ドキュメントに残している (後から「検証が抜けている」と誤読されないため)。
 
 ---
 

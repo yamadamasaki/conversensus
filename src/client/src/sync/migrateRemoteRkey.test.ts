@@ -70,8 +70,8 @@ function makeWorld(options?: {
   let clock = 0;
 
   const deps = {
-    pullRemote: async () => {
-      if (failPullRemote) throw new Error('pullRemote failed');
+    pullAllRemoteForMigration: async () => {
+      if (failPullRemote) throw new Error('pullAllRemoteForMigration failed');
       return [...remote.values()];
     },
     appendReceived: async (fileId: FileId, batches: Batch[]) => {
@@ -242,7 +242,7 @@ describe('migrateRemoteRkey (Phase 7 p7-4)', () => {
     w.failPull();
 
     await expect(migrateRemoteRkey(w.deps)).rejects.toThrow(
-      'pullRemote failed',
+      'pullAllRemoteForMigration failed',
     );
     expect(w.pushedRkeys).toEqual([]);
     expect(w.storage.has(DID)).toBe(false); // 次回起動で再試行できる

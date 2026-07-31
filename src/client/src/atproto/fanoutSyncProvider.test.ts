@@ -6,13 +6,7 @@ import {
   type NodeId,
   type Op,
 } from '@conversensus/shared';
-import type {
-  Cursor,
-  OnRemote,
-  PullResult,
-  SyncProvider,
-  Unsubscribe,
-} from '../sync/syncProvider';
+import type { Cursor, PullResult, SyncProvider } from '../sync/syncProvider';
 import { FanoutSyncProvider } from './fanoutSyncProvider';
 import { type RemoteBatchTarget, RemoteSyncQueue } from './remoteSyncQueue';
 import type { RemoteBatch } from './types';
@@ -40,7 +34,7 @@ const batch = (id: string, over: Partial<Batch> = {}): Batch => ({
 });
 
 /**
- * push/pull/subscribe を記録し、成否を切り替えられるテスト用 provider。
+ * push/pull を記録し、成否を切り替えられるテスト用 provider。
  * local (SyncProvider) と remote (RemoteBatchTarget) の両方に使えるよう
  * `push` と `pushRemote` の両方を持たせる (Phase 4d-1)。
  */
@@ -51,11 +45,9 @@ class FakeProvider implements SyncProvider, RemoteBatchTarget {
   pullBatches: Batch[] = [];
   pullCursor = 'local-cursor';
   pulledSince: Cursor[] = [];
-  /** pullRemote の応答と呼び出し回数 (Phase 4d-4) */
+  /** remote 取得の応答と呼び出し回数 (Phase 4d-4) */
   pullRemoteEntries: RemoteBatch[] = [];
   pulledRemote = 0;
-  subscribed: OnRemote[] = [];
-  unsubscribed = 0;
 
   async push(batches: Batch[]): Promise<void> {
     if (!this.online) throw new Error('offline');
@@ -70,8 +62,8 @@ class FakeProvider implements SyncProvider, RemoteBatchTarget {
     this.pulledSince.push(since);
     return { batches: this.pullBatches, cursor: this.pullCursor };
   }
-  /** remote 側の取得 (Phase 4d-4: cursor を取らず全件返す) */
-  async pullRemote(): Promise<RemoteBatch[]> {
+  /** remote 側の全件取得 (Phase 4d-4)。p7-5 以降は移行だけが使う */
+  async pullAllRemoteForMigration(): Promise<RemoteBatch[]> {
     this.pulledRemote += 1;
     return this.pullRemoteEntries;
   }
@@ -87,12 +79,6 @@ class FakeProvider implements SyncProvider, RemoteBatchTarget {
   /** ファイル列挙 (Phase 7 p7-3)。fanout は発見経路に関与しない */
   async listRemoteFileIds(): Promise<FileId[]> {
     return [...new Set(this.pullRemoteEntries.map((e) => e.fileId))];
-  }
-  subscribe(onRemote: OnRemote): Unsubscribe {
-    this.subscribed.push(onRemote);
-    return () => {
-      this.unsubscribed += 1;
-    };
   }
   get flatPushed(): Batch[] {
     return this.pushed.flat();
@@ -179,7 +165,7 @@ describe('FanoutSyncProvider', () => {
     });
   });
 
-  describe('pull / subscribe は local 委譲', () => {
+  describe('pull は local 委譲', () => {
     it('pull は local の結果をそのまま返す (remote の clock を混ぜない)', async () => {
       const { local, remote, fanout } = setup();
       local.pullBatches = [batch('1')];
@@ -189,16 +175,6 @@ describe('FanoutSyncProvider', () => {
       expect(result.cursor).toBe('local-cursor');
       expect(local.pulledSince).toEqual(['since-1']);
       expect(remote.pulledSince).toEqual([]);
-    });
-
-    it('subscribe は local へ委譲し、解除も local へ届く', () => {
-      const { local, remote, fanout } = setup();
-      const onRemote: OnRemote = () => {};
-      const unsub = fanout.subscribe(onRemote);
-      expect(local.subscribed).toEqual([onRemote]);
-      expect(remote.subscribed).toEqual([]);
-      unsub();
-      expect(local.unsubscribed).toBe(1);
     });
   });
 });

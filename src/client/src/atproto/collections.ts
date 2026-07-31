@@ -176,10 +176,13 @@ export const batches = {
     return getRecord(NSID.batch, rkey);
   },
   /**
-   * repo 全体の batch レコード (Phase 4d-4)。
-   * 消費者は `discoverRemoteFiles` (p7-3 で置換) と移行 (p7-4) だけになり、p7-5 で退役する。
+   * repo 全体の batch レコード (Phase 4d-4) — **移行 (p7-4) 専用** (p7-5)。
+   *
+   * 通常経路 (受信・catch-up・発見) はすべて下の範囲取得へ移った。ここが残るのは
+   * **旧 rkey のレコードを探せるのが全件走査だけ**だからである — `listByFile` /
+   * `listFileIds` は `v1~` で始まる rkey しか走査しない (§3.1 の分離)。
    */
-  list() {
+  listAllForMigration() {
     return listRecords(NSID.batch);
   },
   /**

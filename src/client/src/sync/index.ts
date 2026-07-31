@@ -5,7 +5,6 @@ export { type FlushResult, Outbox } from './outbox';
 export {
   type Cursor,
   INITIAL_CURSOR,
-  type OnRemote,
   type PullResult,
   type SyncProvider,
   type Unsubscribe,

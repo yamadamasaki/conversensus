@@ -6,7 +6,6 @@ const FILE = '22222222-2222-4222-8222-222222222222' as FileId;
 import {
   AtprotoSyncProvider,
   type BatchCollection,
-  type IntervalScheduler,
 } from './atprotoSyncProvider';
 import { batchToRecord } from './batchMapper';
 import {
@@ -15,7 +14,7 @@ import {
   batchRkeyPrefix,
   parseBatchRkey,
 } from './batchRkey';
-import { NSID, type RemoteBatch } from './types';
+import { NSID } from './types';
 
 /** FILE より rkey が小さいファイルと大きいファイル (prefix 境界の検証用) */
 const FILE_LOWER = '11111111-1111-4111-8111-111111111111' as FileId;
@@ -93,7 +92,7 @@ function inMemoryBatches() {
       }
       return Promise.resolve();
     },
-    list() {
+    listAllForMigration() {
       return Promise.resolve([...records.values()]);
     },
     listByFile(fileId) {
@@ -134,30 +133,6 @@ function inMemoryBatches() {
   };
   return store;
 }
-
-/** 手動でティックできるスケジューラ */
-function manualScheduler() {
-  let cb: (() => void) | null = null;
-  const scheduler: IntervalScheduler = {
-    set(callback) {
-      cb = callback;
-      return 1;
-    },
-    clear() {
-      cb = null;
-    },
-  };
-  return {
-    scheduler,
-    tick: () => cb?.(),
-    get active() {
-      return cb !== null;
-    },
-  };
-}
-
-/** マイクロタスク + マクロタスクを flush する */
-const flush = () => new Promise((r) => setTimeout(r, 0));
 
 describe('AtprotoSyncProvider', () => {
   describe('pushRemote', () => {
@@ -223,7 +198,7 @@ describe('AtprotoSyncProvider', () => {
     });
   });
 
-  describe('pullRemote (Phase 4d-4)', () => {
+  describe('pullAllRemoteForMigration (Phase 4d-4, p7-5 で移行専用に)', () => {
     it('既読位置を持たず常に全件を返す', async () => {
       // 4d-3 までは clock cursor で絞っていたが、clock は端末をまたぐと単調でなく
       // 取りこぼす (§1.3)。ATProto 側にも既読位置に使える値が無い (rkey は UUID で
@@ -234,11 +209,11 @@ describe('AtprotoSyncProvider', () => {
       batches._seed(batch('c', 2));
       const provider = new AtprotoSyncProvider({ batches });
 
-      const first = await provider.pullRemote();
+      const first = await provider.pullAllRemoteForMigration();
       expect(first.map((e) => e.batch.id)).toEqual(['a', 'c', 'b']);
 
       // 2 回目も同じ全件が返る (前進する既読位置が無い = 取りこぼしようがない)
-      const second = await provider.pullRemote();
+      const second = await provider.pullAllRemoteForMigration();
       expect(second.map((e) => e.batch.id)).toEqual(['a', 'c', 'b']);
     });
 
@@ -249,7 +224,7 @@ describe('AtprotoSyncProvider', () => {
       batches._seed({ ...batch('y', 2), actor: 'dev-a', timestamp: 999 });
       batches._seed(batch('z', 1));
       const provider = new AtprotoSyncProvider({ batches });
-      const entries = await provider.pullRemote();
+      const entries = await provider.pullAllRemoteForMigration();
       // clock 1 の z → clock 2 は actor 昇順で dev-a(y) → dev-b(x)
       expect(entries.map((e) => e.batch.id)).toEqual(['z', 'y', 'x']);
     });
@@ -260,7 +235,7 @@ describe('AtprotoSyncProvider', () => {
       const batches = inMemoryBatches();
       batches._seed(batch('a', 1));
       const provider = new AtprotoSyncProvider({ batches });
-      const entries = await provider.pullRemote();
+      const entries = await provider.pullAllRemoteForMigration();
       expect(entries.map((e) => e.fileId)).toEqual([FILE]);
     });
 
@@ -275,7 +250,7 @@ describe('AtprotoSyncProvider', () => {
         ops: [] as unknown[],
       } as never);
       const provider = new AtprotoSyncProvider({ batches });
-      const entries = await provider.pullRemote();
+      const entries = await provider.pullAllRemoteForMigration();
       expect(entries.map((e) => e.batch.id)).toEqual(['a']);
     });
 
@@ -284,7 +259,7 @@ describe('AtprotoSyncProvider', () => {
       const batches = inMemoryBatches();
       batches._seed(batch('a', 1));
       const provider = new AtprotoSyncProvider({ batches });
-      const entries = await provider.pullRemote();
+      const entries = await provider.pullAllRemoteForMigration();
       expect(entries.map((e) => e.batch.id)).toEqual(['a']);
     });
 
@@ -295,7 +270,7 @@ describe('AtprotoSyncProvider', () => {
       batches._seedLegacy(batch('old', 1));
       batches._seed(batch('new', 2));
       const provider = new AtprotoSyncProvider({ batches });
-      const entries = await provider.pullRemote();
+      const entries = await provider.pullAllRemoteForMigration();
       expect(entries.map((e) => e.batch.id)).toEqual(['old', 'new']);
     });
 
@@ -305,7 +280,7 @@ describe('AtprotoSyncProvider', () => {
       batches._seed(batch('ok', 1));
       batches._seedRkey(`v1~${FILE}~42~short-clock`, batch('bad', 2));
       const provider = new AtprotoSyncProvider({ batches });
-      const entries = await provider.pullRemote();
+      const entries = await provider.pullAllRemoteForMigration();
       expect(entries.map((e) => e.batch.id)).toEqual(['ok']);
     });
   });
@@ -432,97 +407,6 @@ describe('AtprotoSyncProvider', () => {
       const provider = new AtprotoSyncProvider({ batches });
 
       expect(await provider.listRemoteFileIds()).toEqual([]);
-    });
-  });
-
-  describe('subscribe', () => {
-    it('初回 poll は baseline 確立のみで配信しない', async () => {
-      const batches = inMemoryBatches();
-      batches._seed(batch('a', 1));
-      const manual = manualScheduler();
-      const provider = new AtprotoSyncProvider({
-        batches,
-        scheduler: manual.scheduler,
-      });
-      const received: Batch[][] = [];
-      provider.subscribe((b) => received.push(b));
-
-      manual.tick(); // baseline
-      await flush();
-      expect(received).toHaveLength(0);
-    });
-
-    it('baseline 後に現れた新規 batch だけを配信する', async () => {
-      const batches = inMemoryBatches();
-      batches._seed(batch('a', 1));
-      const manual = manualScheduler();
-      const provider = new AtprotoSyncProvider({
-        batches,
-        scheduler: manual.scheduler,
-      });
-      const received: RemoteBatch[][] = [];
-      provider.subscribe((b) => received.push([...b]));
-
-      manual.tick(); // baseline (観測済み集合 → {a})
-      await flush();
-      batches._seed(batch('b', 2)); // 他ユーザーの追記
-      manual.tick();
-      await flush();
-
-      expect(received).toHaveLength(1);
-      expect(received[0]?.map((x) => x.batch.id)).toEqual(['b']);
-    });
-
-    it('baseline の poll が失敗しても、その間の batch を落とさない (4d-4 回帰)', async () => {
-      // cursor 版の欠陥 (§1.5): 初回 poll が失敗すると次の成功 poll が baseline になり、
-      // その間に現れた batch を恒久的に落としていた。観測済み id 集合なら poll が
-      // 失敗しても集合は前進しないので、次の成功 poll で取りこぼし分がそのまま現れる。
-      const batches = inMemoryBatches();
-      batches._seed(batch('a', 1));
-      const manual = manualScheduler();
-      const provider = new AtprotoSyncProvider({
-        batches,
-        scheduler: manual.scheduler,
-      });
-      const received: RemoteBatch[][] = [];
-      provider.subscribe((b) => received.push([...b]));
-
-      // 初回 poll を失敗させる (baseline 未確立のまま)
-      const failing = new Error('network down');
-      const original = batches.list;
-      batches.list = () => Promise.reject(failing);
-      manual.tick();
-      await flush();
-      expect(received).toHaveLength(0);
-
-      // 失敗中に他ユーザーが追記
-      batches.list = original;
-      batches._seed(batch('b', 2));
-
-      manual.tick(); // ここが baseline になる (a も b も観測済みになるだけ)
-      await flush();
-      manual.tick();
-      await flush();
-      // baseline 後の新規は無いので配信は 0。重要なのは a/b が「見えなくなる」のではなく
-      // 観測済み集合に入ること — 次に現れた c は必ず配信される。
-      batches._seed(batch('c', 3));
-      manual.tick();
-      await flush();
-      expect(received).toHaveLength(1);
-      expect(received[0]?.map((x) => x.batch.id)).toEqual(['c']);
-    });
-
-    it('unsubscribe でティックが止まる', async () => {
-      const batches = inMemoryBatches();
-      const manual = manualScheduler();
-      const provider = new AtprotoSyncProvider({
-        batches,
-        scheduler: manual.scheduler,
-      });
-      const unsubscribe = provider.subscribe(() => {});
-      expect(manual.active).toBe(true);
-      unsubscribe();
-      expect(manual.active).toBe(false);
     });
   });
 });

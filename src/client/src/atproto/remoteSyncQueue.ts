@@ -43,21 +43,22 @@ export interface RemoteBatchTarget {
    */
   createRemote(entries: readonly RemoteBatch[]): Promise<void>;
   /**
-   * remote の batch を**全件**取得する (Phase 4d-4)。
+   * remote の batch を**全件**取得する — **移行 (p7-4) 専用** (Phase 4d-4 / p7-5)。
    *
    * `since` を取らないのは意図的である。ATProto の `listRecords` は rkey 順で、
    * 本実装の rkey は batchId (ランダム UUID) なので**レコード順が時系列にならない**。
    * 既読位置を表せる値が存在しないため、既読位置を持たない契約にした (設計 §1.3 の再検討)。
    * 取りこぼしゼロを構造的に保証し、二重取り込みは受信側のべき等性が無害化する。
    *
-   * **repo 全体を必要とする消費者専用になった (Phase 7 p7-2)**。ファイル単位の経路は
-   * `pullRemoteForFile` を使う。この口は p7-5 で退役する。
+   * **p7-5 で通常経路の消費者は 0 になった**。受信・catch-up は `pullRemoteForFile`、
+   * 発見は `listRemoteFileIds`。残るのは移行だけで、それは**旧 rkey のレコードを
+   * 新経路では走査できない**ため代替が無い (設計 §3.1)。
    */
-  pullRemote(): Promise<RemoteBatch[]>;
+  pullAllRemoteForMigration(): Promise<RemoteBatch[]>;
   /**
    * remote の batch のうち **1 ファイル分**を取得する (Phase 7 p7-2)。
    *
-   * `since` を取らないのは `pullRemote` と同じ理由 — 既読位置を持たない契約は変わらず、
+   * `since` を取らないのは全件版と同じ理由 — 既読位置を持たない契約は変わらず、
    * 絞るのは「repo 全体 → 1 ファイル」の軸だけである (設計 §1.4 / §2.2)。
    */
   pullRemoteForFile(fileId: FileId): Promise<RemoteBatch[]>;
@@ -150,16 +151,16 @@ export class RemoteSyncQueue {
   }
 
   /**
-   * remote の batch を全件取得する (Phase 4d-5 の受信経路用)。
+   * remote の batch を全件取得する — **移行 (p7-4) 専用** (Phase 4d-5 / p7-5)。
    *
    * キューの責務は送信だが、remote provider を保持しているのがここなので取得も委譲する。
    * **受信の書き込みには使わない** — 受信は `receiveRemoteBatches` がローカル正典へ
    * 直書きする (fanout / enqueue を通すと echo ループになる, 設計 §3.3a)。
    *
-   * 消費者は repo 全体を要する `discoverRemoteFiles` だけになった (Phase 7 p7-2)。
+   * 消費者は移行 (`migrateRemoteRkey`) だけである (Phase 7 p7-5)。
    */
-  pullRemote(): Promise<RemoteBatch[]> {
-    return this.provider.pullRemote();
+  pullAllRemoteForMigration(): Promise<RemoteBatch[]> {
+    return this.provider.pullAllRemoteForMigration();
   }
 
   /**

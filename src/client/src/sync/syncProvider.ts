@@ -31,16 +31,17 @@ export type PullResult = {
   cursor: Cursor;
 };
 
-/** `subscribe` の解除ハンドル */
+/** 購読の解除ハンドル (現在の利用者は `RemoteSyncQueue` の pending 購読) */
 export type Unsubscribe = () => void;
-
-/** remote batches を受け取るコールバック */
-export type OnRemote = (batches: Batch[]) => void;
 
 /**
  * ローカル正典 (操作ログ) と remote の同期境界。
- * - オフライン時は push をスキップし outbox に積む (4b)。UI は常にローカルを読むので編集は途切れない。
- * - subscribe は firehose/jetstream 購読で手動 polling を卒業する (4d)。
+ * オフライン時は push をスキップし outbox に積む (4b)。UI は常にローカルを読むので編集は途切れない。
+ *
+ * **`subscribe` は step1 Phase 7 p7-5 で撤去した**。常時購読は 4d 設計 §3.4 で不採用となり
+ * (受信は起動時 + `online` + 手動で駆動する)、以来どの実装も no-op か全件 poll のまま
+ * 消費者 0 件だった。倒す先の無い拡張点を残すと「書くが読まない二重モデル」になる
+ * (Phase 6 の教訓)。Jetstream 購読は別形式なので Phase 8 で作り直す。
  */
 export interface SyncProvider {
   /** ローカルの batches を remote へ送る (outbox flush) */
@@ -48,7 +49,4 @@ export interface SyncProvider {
 
   /** since より後の remote 変更を取得する */
   pull(since: Cursor): Promise<PullResult>;
-
-  /** remote 追記を購読する。返り値で購読解除する */
-  subscribe(onRemote: OnRemote): Unsubscribe;
 }

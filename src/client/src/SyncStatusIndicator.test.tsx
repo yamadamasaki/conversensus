@@ -23,7 +23,6 @@ import type { RemoteBatch } from './atproto/types';
 const { RemoteSyncQueue } = await import('./atproto/remoteSyncQueue');
 type SyncProvider = import('./sync/syncProvider').SyncProvider;
 type Cursor = import('./sync/syncProvider').Cursor;
-type OnRemote = import('./sync/syncProvider').OnRemote;
 type PullResult = import('./sync/syncProvider').PullResult;
 
 /** online を切り替えて push の成否を作るテスト用 provider */
@@ -40,8 +39,8 @@ class FakeProvider implements SyncProvider, RemoteBatchTarget {
   async pull(_since: Cursor): Promise<PullResult> {
     return { batches: [], cursor: '' };
   }
-  /** remote 側の取得 (Phase 4d-4: cursor を取らず全件返す) */
-  async pullRemote(): Promise<RemoteBatch[]> {
+  /** remote 側の全件取得 (Phase 4d-4)。p7-5 以降は移行だけが使う */
+  async pullAllRemoteForMigration(): Promise<RemoteBatch[]> {
     return [];
   }
   /** ファイル単位の取得 (Phase 7 p7-2)。この画面のテストでは remote は空でよい */
@@ -51,9 +50,6 @@ class FakeProvider implements SyncProvider, RemoteBatchTarget {
   /** ファイル列挙 (Phase 7 p7-3) */
   async listRemoteFileIds(): Promise<FileId[]> {
     return [];
-  }
-  subscribe(_onRemote: OnRemote) {
-    return () => {};
   }
 }
 
