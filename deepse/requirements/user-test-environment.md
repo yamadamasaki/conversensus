@@ -244,9 +244,18 @@ Safari と同じ **WebKit** であり, Chrome (Blink) とは描画も JavaScript
 後から WebKit で検証し直す対象が比例して増えていく. 逆に最初から Safari で使い込めば,
 **使い込みそのものが WebKit 適合の証跡になり, 検証を後払いしなくて済む**.
 
-> **Safari と WKWebView は同一ではない** (対応 API や既定の挙動に差がある). あくまで近似であり,
-> どこまで代理になるかは Phase 8a の spike (S4) で確かめる —
-> [`../plans/step1-phase8a-r1-spike.md`](../plans/step1-phase8a-r1-spike.md) §4 S4.
+> **Safari と WKWebView は同一ではない** (対応 API や既定の挙動に差がある). あくまで近似だが,
+> **どこまで代理になるかは Phase 8a の spike (S4) で実測し, 代理として機能することを確認した**
+> (2026-08-02) — [`../plans/step1-phase8a-r1-spike.md`](../plans/step1-phase8a-r1-spike.md) §7 S4.
+>
+> | 対象 | Chrome (Blink) | Safari (WebKit) | Tauri (WKWebView) |
+> |---|---|---|---|
+> | テキスト描画の鮮明さ | 鮮明 | ぼやける | **ぼやける** |
+> | import ボタン (#51, §7.3) | 正常 | 壊れる | **同じ壊れ方** |
+>
+> Safari と Tauri が一致し Chrome だけが違った. **Safari で見つかる壊れ方は Tauri でも起きる**
+> と考えてよい. なお「ぼやけ」は不具合ではなく Blink と WebKit のテキストラスタライズの差である
+> (検証機は非 Retina モニタで `devicePixelRatio: 1` が正しい値だった).
 
 ### 7.2 手順
 
@@ -313,8 +322,62 @@ Safari はスクリプトが書いた保存領域の寿命の扱いが Chrome �
 - WebKit 不具合の切り分け (§7.4 の 2 ブラウザ比較)
 - `scripts/inspect-*.ts` による検査 — ブラウザに依存しない
 
+## 8. Tauri (デスクトップアプリ) で動かす
+
+**この節は Phase 8 (単一バイナリ配布) 用である**. §7 の Safari 使い込みフェイズでは要らない.
+
+Phase 8a の spike (2026-08-02) で **Tauri v2 のシェルに conversensus クライアントを載せて
+動かすところまで実測済み**である. そのとき **§1 の手順のままでは動かず, 2 点の追加が要る**
+ことが分かったので, 先に記録しておく. 詳細と根拠は
+[`../plans/step1-phase8a-r1-spike.md`](../plans/step1-phase8a-r1-spike.md) §7.2.
+
+### 8.1 §1 に足りない 2 点
+
+| 事項 | 必要な対応 |
+|---|---|
+| **デーモンの CORS** | `ALLOWED_ORIGIN='tauri://localhost'` を渡す |
+| **クライアントのビルド** | `VITE_API_BASE=http://localhost:3000` を明示する |
+
+```shell
+# デーモン: Tauri の origin を許可する
+ALLOWED_ORIGIN='tauri://localhost' bun run dev:server
+
+# クライアント: ローカルデーモンを向いた dist を焼く
+VITE_API_BASE=http://localhost:3000 bun run --cwd src/client build
+```
+
+**なぜ要るか**:
+
+- **CORS**: デーモンの `cors()` は origin が `http://localhost:` で始まるものだけ通す
+  (`src/server/src/index.ts`). macOS の Tauri v2 は custom scheme を使うので origin は
+  **`tauri://localhost`** であり, この前綴りに該当しない. 既存の `ALLOWED_ORIGIN` env が
+  ちょうど逃げ道になる (コード変更は要らない).
+- **`VITE_API_BASE`**: `bun run --cwd src/client build` は vite の production モードなので
+  `src/client/.env.production` を読み, **dist に VPS の URL (`https://api.conversensus.site`)
+  が焼き込まれる**. 明示しないと Tauri アプリはローカルデーモンではなく本番 VPS と話す.
+  **ATProto ログインは本物の PDS で成立してしまうため画面は一見正常に見え, 気づきにくい**
+  (spike ではこの切り分けに 40 分を要した).
+
+### 8.2 要らないもの
+
+- **Info.plist の ATS (App Transport Security) 例外は不要**. `tauri://localhost` (secure context)
+  から `http://localhost:3000` への fetch は素で通る. A/B で確認済み
+- **CSP の緩和は不要**. `bun create tauri-app` が生成する `tauri.conf.json` は `"csp": null`
+
+### 8.3 この環境で Tauri の中身を観測する方法
+
+macOS の権限設定により, **`screencapture` (画面収録) も `osascript` (アクセシビリティ) も
+devtools も使えない**ことがある. そのとき使える代替手段:
+
+- **webview が起動したかの判定** — アプリを起動すると WKWebView のヘルパープロセス
+  (`com.apple.WebKit.GPU` / `.Networking` / `.WebContent`) が直後の PID で生える.
+  アプリを kill すると道連れに落ちるので, 因果まで確認できる
+- **webview 内部の値を機械的に採る** — `frontendDist` を差し替えて診断ページを読ませ,
+  `devicePixelRatio` や機能検出の結果を **localhost のプローブサーバへ fetch で送り返す**.
+  spike ではこれで `origin` / `devicePixelRatio` / `navigator.clipboard.read` の有無などを取った
+
 ## 関連
 
 - [`operation-manual-for-dev.md`](./operation-manual-for-dev.md) — アプリ GUI の操作手順 (product-owner 向け動作確認マニュアル)
-- [`../plans/step1-phase8a-r1-spike.md`](../plans/step1-phase8a-r1-spike.md) — R1 (ARM64/Rosetta) 切り分け spike. §7 の Safari 戦略が成立するかの裏取り (S4) を含む
+- [`../plans/step1-phase8a-r1-spike.md`](../plans/step1-phase8a-r1-spike.md) — R1 (ARM64/Rosetta) 切り分け spike (実施済). §7 の Safari 戦略の裏取り (S4) と, §8 の根拠となった実測記録を含む
 - `deepse/plans/step1-w3d-read-cutover.md` §10 — 本環境を使った W3d 読取 cutover の実機検証記録
