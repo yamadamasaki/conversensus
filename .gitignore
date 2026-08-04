@@ -11,3 +11,5 @@ src/client/.vite/
 .claude/settings.local.json
 infra/pds/pds-data
 .gitnexus
+/playwright-report/
+/test-results/
