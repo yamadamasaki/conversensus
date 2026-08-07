@@ -1,14 +1,18 @@
 import { describe, expect, it } from 'bun:test';
 import type { Node } from '@xyflow/react';
+import { RF_GROUP_NODE_TYPE } from '../graphTransform';
 import {
   absoluteBoundingBoxOf,
   absoluteCenterOf,
   absolutePositionOf,
   depthOf,
+  descendantIdsOf,
   groupBoundsOf,
+  innermostGroupAt,
   isAncestorOf,
   nodeSizeOf,
   pointInGroup,
+  resolveDropTarget,
   toParentRelative,
 } from './coords';
 
@@ -319,5 +323,158 @@ describe('absoluteCenterOf', () => {
 
     // 絶対座標 (160, 160) + サイズの半分 (50, 20)
     expect(absoluteCenterOf(child, nodes)).toEqual({ x: 210, y: 180 });
+  });
+});
+
+function group(
+  id: string,
+  position: { x: number; y: number },
+  size: { width: number; height: number },
+  parentId?: string,
+): Node {
+  return node(id, position, parentId, {
+    type: RF_GROUP_NODE_TYPE,
+    style: size,
+  });
+}
+
+// 入れ子のグループ: outerG (0,0)-(400,400) の中に innerG (50,50)-(150,150)。
+// React Flow の要求どおり親を配列上で子より前に置く (= 配列順の最初の一致では
+// 必ず外側が勝つ配置。ANA-109 の再現条件)
+const outerG = group('outerG', { x: 0, y: 0 }, { width: 400, height: 400 });
+const innerG = group(
+  'innerG',
+  { x: 50, y: 50 },
+  { width: 100, height: 100 },
+  'outerG',
+);
+const nestedGroups = [outerG, innerG];
+
+describe('descendantIdsOf', () => {
+  it('子孫の id をすべて返し、自身は含めない', () => {
+    expect(descendantIdsOf('outer', nested)).toEqual(
+      new Set(['middle', 'inner']),
+    );
+  });
+
+  it('子を持たないノードでは空集合を返す', () => {
+    expect(descendantIdsOf('inner', nested)).toEqual(new Set());
+  });
+});
+
+describe('innermostGroupAt', () => {
+  it('入れ子では外側が配列で先に来ていても内側のグループを返す', () => {
+    expect(innermostGroupAt({ x: 100, y: 100 }, nestedGroups)?.id).toBe(
+      'innerG',
+    );
+  });
+
+  it('配列の順序を入れ替えても同じ結果になる', () => {
+    const reversed = [...nestedGroups].reverse();
+
+    expect(innermostGroupAt({ x: 100, y: 100 }, reversed)?.id).toBe('innerG');
+  });
+
+  it('内側の外・外側の中の点では外側のグループを返す', () => {
+    expect(innermostGroupAt({ x: 300, y: 300 }, nestedGroups)?.id).toBe(
+      'outerG',
+    );
+  });
+
+  it('同じ深さで重なるグループでは面積が小さい方を返す', () => {
+    const big = group('big', { x: 0, y: 0 }, { width: 400, height: 400 });
+    const small = group(
+      'small',
+      { x: 100, y: 100 },
+      { width: 100, height: 100 },
+    );
+
+    expect(innermostGroupAt({ x: 150, y: 150 }, [big, small])?.id).toBe(
+      'small',
+    );
+    expect(innermostGroupAt({ x: 150, y: 150 }, [small, big])?.id).toBe(
+      'small',
+    );
+  });
+
+  it('excludeIds に含まれるグループは候補から外れる', () => {
+    expect(
+      innermostGroupAt({ x: 100, y: 100 }, nestedGroups, new Set(['innerG']))
+        ?.id,
+    ).toBe('outerG');
+  });
+
+  it('グループでないノードは候補にならない', () => {
+    const plain = node('plain', { x: 0, y: 0 }, undefined, {
+      measured: { width: 400, height: 400 },
+    });
+
+    expect(innermostGroupAt({ x: 100, y: 100 }, [plain])).toBeUndefined();
+  });
+
+  it('どのグループにも含まれない点では undefined を返す', () => {
+    expect(innermostGroupAt({ x: 900, y: 900 }, nestedGroups)).toBeUndefined();
+  });
+});
+
+describe('resolveDropTarget', () => {
+  // 既定サイズ (160x80) のノードは position + (80, 40) が中心になる
+  const centeredAt = (x: number, y: number, parentId?: string) =>
+    node('dragged', { x: x - 80, y: y - 40 }, parentId);
+
+  it('入れ子のグループへドロップすると内側のグループを返す (ANA-109)', () => {
+    const dragged = centeredAt(100, 100);
+
+    expect(resolveDropTarget(dragged, [...nestedGroups, dragged])?.id).toBe(
+      'innerG',
+    );
+  });
+
+  it('nodes 内の自分自身が stale でも渡された node の位置で判定する', () => {
+    const dragged = centeredAt(100, 100);
+    const stale = node('dragged', { x: 900, y: 900 });
+
+    expect(resolveDropTarget(dragged, [...nestedGroups, stale])?.id).toBe(
+      'innerG',
+    );
+  });
+
+  it('どのグループにも入っていなければ undefined を返す', () => {
+    const dragged = centeredAt(900, 900);
+
+    expect(
+      resolveDropTarget(dragged, [...nestedGroups, dragged]),
+    ).toBeUndefined();
+  });
+
+  it('親を少しはみ出しただけなら親に留まる', () => {
+    // 中心 (440, 200) は outerG の外だが、ノード幅の半分 (80) のバッファ内
+    const dragged = centeredAt(440, 200, 'outerG');
+
+    expect(resolveDropTarget(dragged, [...nestedGroups, dragged])?.id).toBe(
+      'outerG',
+    );
+  });
+
+  it('親をほぼ完全に出たら離脱する', () => {
+    // 中心 (500, 200) はバッファ (400 + 80) の外
+    const dragged = centeredAt(500, 200, 'outerG');
+
+    expect(
+      resolveDropTarget(dragged, [...nestedGroups, dragged]),
+    ).toBeUndefined();
+  });
+
+  it('自分自身と自分の子孫は候補にならない (循環の防止)', () => {
+    // 子が親をほぼ覆っているため、親の中心は子の内側にある
+    const parent = group('parent', { x: 0, y: 0 }, { width: 400, height: 400 });
+    const child = group(
+      'child',
+      { x: 10, y: 10 },
+      { width: 380, height: 380 },
+      'parent',
+    );
+
+    expect(resolveDropTarget(parent, [parent, child])).toBeUndefined();
   });
 });

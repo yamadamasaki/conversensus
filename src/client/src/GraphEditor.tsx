@@ -44,11 +44,8 @@ import { EventDispatchContext } from './EventDispatchContext';
 import { type GraphEvent, makeEventBase } from './events/GraphEvent';
 import { GroupNode } from './GroupNode';
 import {
-  absoluteCenterOf,
   absolutePositionOf,
-  isAncestorOf,
-  nodeSizeOf,
-  pointInGroup,
+  resolveDropTarget,
   toParentRelative,
 } from './graph/coords';
 import {
@@ -375,51 +372,26 @@ function GraphEditorInner({
   const onNodeDrag = useCallback(
     (_: React.MouseEvent, node: Node) => {
       const allNodes = getNodes();
-      // ドラッグ中の node.position は最新だが、allNodes 内の同じノードは stale で
-      // ありうる。祖先だけを allNodes から辿るため node をそのまま渡す。
-      const center = absoluteCenterOf(node, allNodes);
-
       clearDragHighlights();
 
+      // ドラッグ中の node.position は最新だが、allNodes 内の同じノードは stale で
+      // ありうる。祖先だけを allNodes から辿るため node をそのまま渡す。
+      // 確定時 (onNodeDragStop) と同じ関数で解決し、ハイライトと実際の移動先を揃える。
+      const target = resolveDropTarget(node, allNodes);
       const oldParentId = node.parentId;
+      if (target?.id === oldParentId) return;
+
+      // 親グループから出ようとしている: 元の親を赤でハイライト
       if (oldParentId) {
-        // 子ノードのドラッグ: 親グループの外に出ているなら赤でハイライト
-        const parent = allNodes.find((n) => n.id === oldParentId);
-        if (parent && !pointInGroup(center, parent, allNodes)) {
-          document
-            .querySelector(`.react-flow__node[data-id="${oldParentId}"]`)
-            ?.setAttribute(LEAVING_GROUP_ATTR, 'true');
-          // 別グループへ移動しようとしているならそちらもオレンジでハイライト
-          const targetGroup = allNodes
-            .filter(
-              (n) =>
-                n.type === RF_GROUP_NODE_TYPE &&
-                n.id !== node.id &&
-                n.id !== oldParentId,
-            )
-            .find((g) => {
-              if (isAncestorOf(g.id, node.id, allNodes)) return false;
-              return pointInGroup(center, g, allNodes);
-            });
-          if (targetGroup) {
-            document
-              .querySelector(`.react-flow__node[data-id="${targetGroup.id}"]`)
-              ?.setAttribute(DROP_TARGET_ATTR, 'true');
-          }
-        }
-      } else {
-        // トップレベルノードのドラッグ: 入ろうとしているグループをハイライト
-        const target = allNodes
-          .filter((n) => n.type === RF_GROUP_NODE_TYPE && n.id !== node.id)
-          .find((g) => {
-            if (isAncestorOf(g.id, node.id, allNodes)) return false;
-            return pointInGroup(center, g, allNodes);
-          });
-        if (target) {
-          document
-            .querySelector(`.react-flow__node[data-id="${target.id}"]`)
-            ?.setAttribute(DROP_TARGET_ATTR, 'true');
-        }
+        document
+          .querySelector(`.react-flow__node[data-id="${oldParentId}"]`)
+          ?.setAttribute(LEAVING_GROUP_ATTR, 'true');
+      }
+      // 入ろうとしているグループをオレンジでハイライト
+      if (target) {
+        document
+          .querySelector(`.react-flow__node[data-id="${target.id}"]`)
+          ?.setAttribute(DROP_TARGET_ATTR, 'true');
       }
     },
     [getNodes],
@@ -437,47 +409,10 @@ function GraphEditorInner({
       // ドラッグ中の node.position は最新だが、allNodes 内の同じノードは stale で
       // ありうる。祖先だけを allNodes から辿るため node をそのまま渡す。
       const absolute = absolutePositionOf(node, allNodes);
-      const { width: nodeW, height: nodeH } = nodeSizeOf(node);
-      const center = { x: absolute.x + nodeW / 2, y: absolute.y + nodeH / 2 };
-      let newParentId: NodeId | undefined;
-
-      if (oldParentId) {
-        // 既にグループ内: ノード自身の幅/高さの半分をバッファとして使い
-        // 「ノードがグループをほぼ完全に出た」ときだけ離脱とみなす
-        const currentParent = allNodes.find((n) => n.id === oldParentId);
-        if (
-          currentParent &&
-          pointInGroup(center, currentParent, allNodes, {
-            x: nodeW / 2,
-            y: nodeH / 2,
-          })
-        ) {
-          newParentId = oldParentId;
-        } else {
-          // 明らかに親の外: 別グループへの移動か、完全離脱
-          const other = allNodes
-            .filter(
-              (n) =>
-                n.type === RF_GROUP_NODE_TYPE &&
-                n.id !== node.id &&
-                n.id !== oldParentId,
-            )
-            .find((g) => {
-              if (isAncestorOf(g.id, node.id, allNodes)) return false;
-              return pointInGroup(center, g, allNodes);
-            });
-          newParentId = other?.id as NodeId | undefined;
-        }
-      } else {
-        // トップレベル: グループへの追加を検出
-        const target = allNodes
-          .filter((n) => n.type === RF_GROUP_NODE_TYPE && n.id !== node.id)
-          .find((g) => {
-            if (isAncestorOf(g.id, node.id, allNodes)) return false;
-            return pointInGroup(center, g, allNodes);
-          });
-        newParentId = target?.id as NodeId | undefined;
-      }
+      // ハイライト (onNodeDrag) と同じ関数でドロップ先を解決する
+      const newParentId = resolveDropTarget(node, allNodes)?.id as
+        | NodeId
+        | undefined;
 
       if (newParentId !== oldParentId) {
         const newPosition = toParentRelative(absolute, newParentId, allNodes);
