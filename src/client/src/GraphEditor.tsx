@@ -44,6 +44,14 @@ import { EventDispatchContext } from './EventDispatchContext';
 import { type GraphEvent, makeEventBase } from './events/GraphEvent';
 import { GroupNode } from './GroupNode';
 import {
+  absoluteCenterOf,
+  absolutePositionOf,
+  isAncestorOf,
+  nodeSizeOf,
+  pointInGroup,
+  toParentRelative,
+} from './graph/coords';
+import {
   DEFAULT_EDGE_PATH_TYPE,
   DEFAULT_NODE_STYLE,
   fromFlowEdges,
@@ -72,51 +80,6 @@ import { NodeTypeMenu } from './NodeTypeMenu';
 const RF_INIT_DELAY_MS = 150;
 const DROP_TARGET_ATTR = 'data-drop-target'; // グループへ追加しようとしている
 const LEAVING_GROUP_ATTR = 'data-leaving-group'; // グループを出ようとしている
-
-// React Flow v12 では positionAbsolute が Node 型から除外されたため型キャストで取得する
-function getAbsPos(node: Node): { x: number; y: number } {
-  return (
-    (node as Node & { positionAbsolute?: { x: number; y: number } })
-      .positionAbsolute ?? node.position
-  );
-}
-
-// measured と style の大きい方を採用することで recalculateParentBounds 後の
-// 非同期 DOM 再計測とのズレに対して安定した境界値を返す
-function getGroupBounds(g: Node) {
-  const styleW = typeof g.style?.width === 'number' ? g.style.width : 0;
-  const styleH = typeof g.style?.height === 'number' ? g.style.height : 0;
-  return {
-    x: getAbsPos(g).x,
-    y: getAbsPos(g).y,
-    w: Math.max(g.measured?.width ?? 0, styleW) || 300,
-    h: Math.max(g.measured?.height ?? 0, styleH) || 200,
-  };
-}
-
-function pointInGroup(
-  cx: number,
-  cy: number,
-  g: Node,
-  bufX = 0,
-  bufY = bufX,
-): boolean {
-  const { x, y, w, h } = getGroupBounds(g);
-  return (
-    cx >= x - bufX && cx <= x + w + bufX && cy >= y - bufY && cy <= y + h + bufY
-  );
-}
-
-function isAncestorOf(
-  candidateId: string,
-  targetId: string,
-  nodes: Node[],
-): boolean {
-  const t = nodes.find((n) => n.id === targetId);
-  if (!t?.parentId) return false;
-  if (t.parentId === candidateId) return true;
-  return isAncestorOf(candidateId, t.parentId, nodes);
-}
 
 function clearDragHighlights(): void {
   for (const attr of [DROP_TARGET_ATTR, LEAVING_GROUP_ATTR]) {
@@ -412,21 +375,9 @@ function GraphEditorInner({
   const onNodeDrag = useCallback(
     (_: React.MouseEvent, node: Node) => {
       const allNodes = getNodes();
-      // positionAbsolute は非同期更新のため stale の可能性がある。
-      // 子ノードは 親.positionAbsolute + node.position(相対) で正確な絶対座標を算出する。
-      const parentInStore = node.parentId
-        ? allNodes.find((n) => n.id === node.parentId)
-        : undefined;
-      const absX = parentInStore
-        ? getAbsPos(parentInStore).x + node.position.x
-        : getAbsPos(node).x;
-      const absY = parentInStore
-        ? getAbsPos(parentInStore).y + node.position.y
-        : getAbsPos(node).y;
-      const nodeW = Number(node.measured?.width ?? DEFAULT_NODE_STYLE.width);
-      const nodeH = Number(node.measured?.height ?? DEFAULT_NODE_STYLE.height);
-      const cx = absX + nodeW / 2;
-      const cy = absY + nodeH / 2;
+      // ドラッグ中の node.position は最新だが、allNodes 内の同じノードは stale で
+      // ありうる。祖先だけを allNodes から辿るため node をそのまま渡す。
+      const center = absoluteCenterOf(node, allNodes);
 
       clearDragHighlights();
 
@@ -434,7 +385,7 @@ function GraphEditorInner({
       if (oldParentId) {
         // 子ノードのドラッグ: 親グループの外に出ているなら赤でハイライト
         const parent = allNodes.find((n) => n.id === oldParentId);
-        if (parent && !pointInGroup(cx, cy, parent)) {
+        if (parent && !pointInGroup(center, parent, allNodes)) {
           document
             .querySelector(`.react-flow__node[data-id="${oldParentId}"]`)
             ?.setAttribute(LEAVING_GROUP_ATTR, 'true');
@@ -448,7 +399,7 @@ function GraphEditorInner({
             )
             .find((g) => {
               if (isAncestorOf(g.id, node.id, allNodes)) return false;
-              return pointInGroup(cx, cy, g);
+              return pointInGroup(center, g, allNodes);
             });
           if (targetGroup) {
             document
@@ -462,7 +413,7 @@ function GraphEditorInner({
           .filter((n) => n.type === RF_GROUP_NODE_TYPE && n.id !== node.id)
           .find((g) => {
             if (isAncestorOf(g.id, node.id, allNodes)) return false;
-            return pointInGroup(cx, cy, g);
+            return pointInGroup(center, g, allNodes);
           });
         if (target) {
           document
@@ -483,21 +434,11 @@ function GraphEditorInner({
 
       const oldParentId = node.parentId as NodeId | undefined;
 
-      // positionAbsolute は非同期更新のため stale の可能性がある。
-      // 子ノードは 親.positionAbsolute + node.position(相対) で正確な絶対座標を算出する。
-      const parentInStore = oldParentId
-        ? allNodes.find((n) => n.id === oldParentId)
-        : undefined;
-      const absX = parentInStore
-        ? getAbsPos(parentInStore).x + node.position.x
-        : getAbsPos(node).x;
-      const absY = parentInStore
-        ? getAbsPos(parentInStore).y + node.position.y
-        : getAbsPos(node).y;
-      const nodeW = Number(node.measured?.width ?? DEFAULT_NODE_STYLE.width);
-      const nodeH = Number(node.measured?.height ?? DEFAULT_NODE_STYLE.height);
-      const cx = absX + nodeW / 2;
-      const cy = absY + nodeH / 2;
+      // ドラッグ中の node.position は最新だが、allNodes 内の同じノードは stale で
+      // ありうる。祖先だけを allNodes から辿るため node をそのまま渡す。
+      const absolute = absolutePositionOf(node, allNodes);
+      const { width: nodeW, height: nodeH } = nodeSizeOf(node);
+      const center = { x: absolute.x + nodeW / 2, y: absolute.y + nodeH / 2 };
       let newParentId: NodeId | undefined;
 
       if (oldParentId) {
@@ -506,7 +447,10 @@ function GraphEditorInner({
         const currentParent = allNodes.find((n) => n.id === oldParentId);
         if (
           currentParent &&
-          pointInGroup(cx, cy, currentParent, nodeW / 2, nodeH / 2)
+          pointInGroup(center, currentParent, allNodes, {
+            x: nodeW / 2,
+            y: nodeH / 2,
+          })
         ) {
           newParentId = oldParentId;
         } else {
@@ -520,7 +464,7 @@ function GraphEditorInner({
             )
             .find((g) => {
               if (isAncestorOf(g.id, node.id, allNodes)) return false;
-              return pointInGroup(cx, cy, g);
+              return pointInGroup(center, g, allNodes);
             });
           newParentId = other?.id as NodeId | undefined;
         }
@@ -530,21 +474,13 @@ function GraphEditorInner({
           .filter((n) => n.type === RF_GROUP_NODE_TYPE && n.id !== node.id)
           .find((g) => {
             if (isAncestorOf(g.id, node.id, allNodes)) return false;
-            return pointInGroup(cx, cy, g);
+            return pointInGroup(center, g, allNodes);
           });
         newParentId = target?.id as NodeId | undefined;
       }
 
       if (newParentId !== oldParentId) {
-        const targetGroup = newParentId
-          ? allNodes.find((n) => n.id === newParentId)
-          : undefined;
-        const newPosition = targetGroup
-          ? {
-              x: absX - getAbsPos(targetGroup).x,
-              y: absY - getAbsPos(targetGroup).y,
-            }
-          : { x: absX, y: absY };
+        const newPosition = toParentRelative(absolute, newParentId, allNodes);
         dispatch({
           ...makeEventBase('structure'),
           type: 'NODE_REPARENTED',
