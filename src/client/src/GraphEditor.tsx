@@ -70,8 +70,9 @@ import { useClipboard } from './hooks/useClipboard';
 import { useEdgeContextMenu } from './hooks/useEdgeContextMenu';
 import { type UndoState, useEventStore } from './hooks/useEventStore';
 import { useGroupNodes } from './hooks/useGroupNodes';
-import { usePaneDoubleClick } from './hooks/usePaneDoubleClick';
+import { useNodeTypeMenu } from './hooks/useNodeTypeMenu';
 import { ImageNode } from './ImageNode';
+import { NodeCreationContext } from './NodeCreationContext';
 import type { NodeTypeOption } from './NodeTypeMenu';
 import { NodeTypeMenu } from './NodeTypeMenu';
 
@@ -497,6 +498,8 @@ function GraphEditorInner({
       position?: { x: number; y: number },
       nodeType?: NodeTypeOption,
       properties?: Record<string, unknown>,
+      // 生成先のグループ。指定時 position はそのグループから見た相対座標
+      parentId?: NodeId,
     ) => {
       const nodeId = crypto.randomUUID() as NodeId;
       const pos = position ?? {
@@ -509,6 +512,7 @@ function GraphEditorInner({
         ...(nodeType === 'group' ? { nodeType: GROUP_NODE_TYPE } : {}),
         ...(nodeType === 'image' ? { nodeType: IMAGE_NODE_TYPE } : {}),
         ...(properties ? { properties } : {}),
+        ...(parentId ? { parentId } : {}),
       };
       const layout: NodeLayout = {
         nodeId,
@@ -729,8 +733,8 @@ function GraphEditorInner({
   useClipboard(getNodes, getEdges, dispatch);
   const { contextMenu, onEdgeContextMenu, setEdgePathType } =
     useEdgeContextMenu(getEdges, dispatch);
-  const { onPaneClick, nodeTypeMenu, clearNodeTypeMenu } =
-    usePaneDoubleClick(screenToFlowPosition);
+  const { onPaneClick, openNodeTypeMenu, nodeTypeMenu, clearNodeTypeMenu } =
+    useNodeTypeMenu(screenToFlowPosition, getNodes);
 
   // --- PNG export ---
   const handleExportPng = useCallback(() => {
@@ -776,133 +780,140 @@ function GraphEditorInner({
 
   return (
     <EventDispatchContext.Provider value={{ dispatch, setDragging }}>
-      {/* biome-ignore lint/a11y/noStaticElementInteractions: drop target wrapper */}
-      <div
-        style={{ width: '100%', height: '100%' }}
-        onDragOver={handleDragOver}
-        onDrop={handleDrop}
-      >
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          nodeTypes={nodeTypes}
-          edgeTypes={edgeTypes}
-          onNodesChange={handleNodesChange}
-          onEdgesChange={handleEdgesChange}
-          connectionMode={ConnectionMode.Loose}
-          onConnect={onConnect}
-          onReconnect={onReconnect}
-          onNodeDragStart={onNodeDragStart}
-          onNodeDrag={onNodeDrag}
-          onNodeDragStop={onNodeDragStop}
-          edgesReconnectable
-          onPaneClick={onPaneClick}
-          onEdgeContextMenu={onEdgeContextMenu}
-          zoomOnDoubleClick={false}
-          deleteKeyCode={null}
-          fitView
+      <NodeCreationContext.Provider value={{ openNodeTypeMenu }}>
+        {/* biome-ignore lint/a11y/noStaticElementInteractions: drop target wrapper */}
+        <div
+          style={{ width: '100%', height: '100%' }}
+          onDragOver={handleDragOver}
+          onDrop={handleDrop}
         >
-          <Background />
-          <Controls />
-          <MiniMap />
-          <Panel position="top-right">
-            <button
-              type="button"
-              onClick={undo}
-              style={{
-                padding: '6px 12px',
-                fontSize: 13,
-                cursor: 'pointer',
-                background: '#e0e0e0',
-                color: '#333',
-                border: 'none',
-                borderRadius: 6,
-                marginRight: 4,
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            nodeTypes={nodeTypes}
+            edgeTypes={edgeTypes}
+            onNodesChange={handleNodesChange}
+            onEdgesChange={handleEdgesChange}
+            connectionMode={ConnectionMode.Loose}
+            onConnect={onConnect}
+            onReconnect={onReconnect}
+            onNodeDragStart={onNodeDragStart}
+            onNodeDrag={onNodeDrag}
+            onNodeDragStop={onNodeDragStop}
+            edgesReconnectable
+            onPaneClick={onPaneClick}
+            onEdgeContextMenu={onEdgeContextMenu}
+            zoomOnDoubleClick={false}
+            deleteKeyCode={null}
+            fitView
+          >
+            <Background />
+            <Controls />
+            <MiniMap />
+            <Panel position="top-right">
+              <button
+                type="button"
+                onClick={undo}
+                style={{
+                  padding: '6px 12px',
+                  fontSize: 13,
+                  cursor: 'pointer',
+                  background: '#e0e0e0',
+                  color: '#333',
+                  border: 'none',
+                  borderRadius: 6,
+                  marginRight: 4,
+                }}
+              >
+                Undo
+              </button>
+              <button
+                type="button"
+                onClick={redo}
+                style={{
+                  padding: '6px 12px',
+                  fontSize: 13,
+                  cursor: 'pointer',
+                  background: '#e0e0e0',
+                  color: '#333',
+                  border: 'none',
+                  borderRadius: 6,
+                  marginRight: 8,
+                }}
+              >
+                Redo
+              </button>
+              <button
+                type="button"
+                onClick={groupSelectedNodes}
+                style={{
+                  padding: '6px 12px',
+                  fontSize: 13,
+                  cursor: 'pointer',
+                  background: '#7c9ef8',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: 6,
+                }}
+              >
+                グループ化
+              </button>
+              <button
+                type="button"
+                onClick={ungroupSelectedNodes}
+                style={{
+                  padding: '6px 12px',
+                  fontSize: 13,
+                  cursor: 'pointer',
+                  background: '#7c9ef8',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: 6,
+                  marginLeft: 4,
+                }}
+              >
+                グループ解除
+              </button>
+              <button
+                type="button"
+                onClick={handleExportPng}
+                style={{
+                  padding: '6px 12px',
+                  fontSize: 13,
+                  cursor: 'pointer',
+                  background: '#e0e0e0',
+                  color: '#333',
+                  border: 'none',
+                  borderRadius: 6,
+                  marginLeft: 8,
+                }}
+              >
+                PNG
+              </button>
+            </Panel>
+          </ReactFlow>
+          {nodeTypeMenu && (
+            <NodeTypeMenu
+              position={nodeTypeMenu.screenPos}
+              onSelect={(nodeType) => {
+                addNode(
+                  nodeTypeMenu.position,
+                  nodeType,
+                  undefined,
+                  nodeTypeMenu.containerId,
+                );
+                clearNodeTypeMenu();
               }}
-            >
-              Undo
-            </button>
-            <button
-              type="button"
-              onClick={redo}
-              style={{
-                padding: '6px 12px',
-                fontSize: 13,
-                cursor: 'pointer',
-                background: '#e0e0e0',
-                color: '#333',
-                border: 'none',
-                borderRadius: 6,
-                marginRight: 8,
-              }}
-            >
-              Redo
-            </button>
-            <button
-              type="button"
-              onClick={groupSelectedNodes}
-              style={{
-                padding: '6px 12px',
-                fontSize: 13,
-                cursor: 'pointer',
-                background: '#7c9ef8',
-                color: '#fff',
-                border: 'none',
-                borderRadius: 6,
-              }}
-            >
-              グループ化
-            </button>
-            <button
-              type="button"
-              onClick={ungroupSelectedNodes}
-              style={{
-                padding: '6px 12px',
-                fontSize: 13,
-                cursor: 'pointer',
-                background: '#7c9ef8',
-                color: '#fff',
-                border: 'none',
-                borderRadius: 6,
-                marginLeft: 4,
-              }}
-            >
-              グループ解除
-            </button>
-            <button
-              type="button"
-              onClick={handleExportPng}
-              style={{
-                padding: '6px 12px',
-                fontSize: 13,
-                cursor: 'pointer',
-                background: '#e0e0e0',
-                color: '#333',
-                border: 'none',
-                borderRadius: 6,
-                marginLeft: 8,
-              }}
-            >
-              PNG
-            </button>
-          </Panel>
-        </ReactFlow>
-        {nodeTypeMenu && (
-          <NodeTypeMenu
-            position={nodeTypeMenu.screenPos}
-            onSelect={(nodeType) => {
-              addNode(nodeTypeMenu.flowPos, nodeType);
-              clearNodeTypeMenu();
-            }}
-          />
-        )}
-        {contextMenu && (
-          <EdgeContextMenu
-            contextMenu={contextMenu}
-            onSelect={setEdgePathType}
-          />
-        )}
-      </div>
+            />
+          )}
+          {contextMenu && (
+            <EdgeContextMenu
+              contextMenu={contextMenu}
+              onSelect={setEdgePathType}
+            />
+          )}
+        </div>
+      </NodeCreationContext.Provider>
     </EventDispatchContext.Provider>
   );
 }

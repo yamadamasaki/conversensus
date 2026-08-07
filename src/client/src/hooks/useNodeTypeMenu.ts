@@ -1,21 +1,35 @@
+import type { NodeId } from '@conversensus/shared';
+import type { Node } from '@xyflow/react';
 import type { MouseEvent } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { type Position, toParentRelative } from '../graph/coords';
 
 const DOUBLE_CLICK_INTERVAL_MS = 300;
 const DOUBLE_CLICK_THRESHOLD_PX = 5;
 
 export type NodeTypeMenuState = {
-  screenPos: { x: number; y: number };
-  flowPos: { x: number; y: number };
+  /** メニューを表示する画面座標 */
+  screenPos: Position;
+  /** 生成先コンテナから見た, 新しいノードの位置 */
+  position: Position;
+  /** 生成先コンテナ (グループ)。undefined ならトップレベル */
+  containerId?: NodeId;
 } | null;
 
-export function usePaneDoubleClick(
-  screenToFlowPosition: (pos: { x: number; y: number }) => {
-    x: number;
-    y: number;
-  },
+/**
+ * ノード生成の入り口。pane でもグループ本体でも, ダブルクリックしたら
+ * まず `NodeTypeMenu` を出し, 種類が選ばれてから生成する (設計 D5)。
+ *
+ * 生成先コンテナ (pane = undefined / グループ = その id) をメニューの状態に持たせ,
+ * 位置をコンテナ相対に直すところまでをここで済ませる。呼び出し側は
+ * 「どこに何を作るか」だけを受け取ればよい。
+ */
+export function useNodeTypeMenu(
+  screenToFlowPosition: (pos: Position) => Position,
+  getNodes: () => Node[],
 ): {
   onPaneClick: (e: MouseEvent) => void;
+  openNodeTypeMenu: (screenPos: Position, containerId?: NodeId) => void;
   nodeTypeMenu: NodeTypeMenuState;
   clearNodeTypeMenu: () => void;
 } {
@@ -23,6 +37,22 @@ export function usePaneDoubleClick(
   const lastPaneClickPos = useRef({ x: 0, y: 0 });
   const [nodeTypeMenu, setNodeTypeMenu] = useState<NodeTypeMenuState>(null);
 
+  const openNodeTypeMenu = useCallback(
+    (screenPos: Position, containerId?: NodeId) => {
+      const flowPos = screenToFlowPosition(screenPos);
+      setNodeTypeMenu({
+        screenPos,
+        position: containerId
+          ? toParentRelative(flowPos, containerId, getNodes())
+          : flowPos,
+        ...(containerId ? { containerId } : {}),
+      });
+    },
+    [screenToFlowPosition, getNodes],
+  );
+
+  // pane では React の onDoubleClick が使えない (ReactFlow が pane のイベントを
+  // 握るため) ので, クリックの間隔と距離から自前でダブルクリックを判定する
   const onPaneClick = useCallback(
     (e: MouseEvent) => {
       const now = Date.now();
@@ -35,21 +65,14 @@ export function usePaneDoubleClick(
         now - lastPaneClickTime.current < DOUBLE_CLICK_INTERVAL_MS &&
         isSameSpot
       ) {
-        const flowPos = screenToFlowPosition({
-          x: e.clientX,
-          y: e.clientY,
-        });
-        setNodeTypeMenu({
-          screenPos: { x: e.clientX, y: e.clientY },
-          flowPos,
-        });
+        openNodeTypeMenu({ x: e.clientX, y: e.clientY });
         lastPaneClickTime.current = 0;
       } else {
         lastPaneClickTime.current = now;
         lastPaneClickPos.current = { x: e.clientX, y: e.clientY };
       }
     },
-    [screenToFlowPosition],
+    [openNodeTypeMenu],
   );
 
   const clearNodeTypeMenu = useCallback(() => setNodeTypeMenu(null), []);
@@ -74,5 +97,5 @@ export function usePaneDoubleClick(
     };
   }, [nodeTypeMenu]);
 
-  return { onPaneClick, nodeTypeMenu, clearNodeTypeMenu };
+  return { onPaneClick, openNodeTypeMenu, nodeTypeMenu, clearNodeTypeMenu };
 }
