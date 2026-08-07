@@ -3,3 +3,6 @@
 
 [test]
 preload = ["./src/test-setup.ts"]
+# 単体テストは src/ 配下だけ。tests/ は Playwright (E2E) 専用で、
+# bun のテストランナーが拾うと「test() を期待していない」で落ちる
+root = "src"
