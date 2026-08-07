@@ -123,9 +123,9 @@ describe('NODES_GROUPED ↔ NODES_UNGROUPED', () => {
   const children = [
     {
       nodeId: 'n1' as NodeId,
-      originalParentId: undefined,
-      originalPosition: { x: 10, y: 20 },
-      newPosition: { x: 30, y: 40 },
+      outerParentId: undefined,
+      outerPosition: { x: 10, y: 20 },
+      innerPosition: { x: 30, y: 40 },
     },
   ];
   const parentData: GraphNode = {

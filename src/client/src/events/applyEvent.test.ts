@@ -196,9 +196,9 @@ describe('NODES_GROUPED', () => {
       children: [
         {
           nodeId: 'n1' as NodeId,
-          originalParentId: undefined,
-          originalPosition: { x: 10, y: 20 },
-          newPosition: { x: 30, y: 40 },
+          outerParentId: undefined,
+          outerPosition: { x: 10, y: 20 },
+          innerPosition: { x: 30, y: 40 },
         },
       ],
     };
@@ -245,9 +245,9 @@ describe('NODES_UNGROUPED', () => {
       children: [
         {
           nodeId: 'n1' as NodeId,
-          originalParentId: undefined,
-          originalPosition: { x: 10, y: 20 },
-          newPosition: { x: 30, y: 40 },
+          outerParentId: undefined,
+          outerPosition: { x: 10, y: 20 },
+          innerPosition: { x: 30, y: 40 },
         },
       ],
     };
@@ -256,6 +256,54 @@ describe('NODES_UNGROUPED', () => {
     const restored = nodes.find((n) => n.id === 'n1');
     expect(restored?.parentId).toBeUndefined();
     expect(restored?.position).toEqual({ x: 10, y: 20 });
+  });
+
+  // 不変条件: 消えた親を指したままのノード (孤児) を残さない。
+  // 孤児の相対座標は React Flow では未定義動作で, ANA-111 / ANA-112 の原因である
+  it('children に載っていない子が居ても孤児を残さない', () => {
+    const parentNode: Node = {
+      id: 'parent',
+      position: { x: 0, y: 0 },
+      data: { label: 'グループ' },
+      type: 'groupNode',
+    };
+    const listed: Node = {
+      ...n1,
+      parentId: 'parent',
+      position: { x: 5, y: 5 },
+    };
+    const unlisted: Node = {
+      ...n2,
+      parentId: 'parent',
+      position: { x: 7, y: 7 },
+    };
+    const event: GraphEvent = {
+      ...base,
+      category: 'structure',
+      type: 'NODES_UNGROUPED',
+      parentId: 'parent' as NodeId,
+      parentData: {
+        id: 'parent' as NodeId,
+        content: 'グループ',
+        nodeType: 'group',
+      },
+      parentLayout: { nodeId: 'parent' as NodeId, x: 0, y: 0 },
+      children: [
+        {
+          nodeId: 'n1' as NodeId,
+          outerParentId: undefined,
+          outerPosition: { x: 5, y: 5 },
+          innerPosition: { x: 5, y: 5 },
+        },
+      ],
+    };
+
+    const { nodes } = applyEvent(event, [parentNode, listed, unlisted], []);
+
+    const ids = new Set(nodes.map((n) => n.id));
+    for (const n of nodes) {
+      expect(n.parentId === undefined || ids.has(n.parentId)).toBe(true);
+    }
   });
 });
 

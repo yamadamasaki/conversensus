@@ -27,28 +27,41 @@ function findById(nodes: Node[], id: string | undefined): Node | undefined {
 }
 
 /**
- * 祖先チェーンを再帰的に畳んで絶対座標を求める。
- *
- * React Flow の `node.positionAbsolute` は非同期に更新されるため、ドラッグ中は
- * stale でありうる。ここでは一切依存せず、`node.position` (親からの相対座標) と
- * 祖先の位置だけから計算する。
+ * 祖先を近い順に並べて返す。
  *
  * 親が見つからない場合 (孤児ノード) はそこで打ち切る。React Flow は親不在の子の
  * 相対座標をそのまま絶対座標として扱うため、その挙動に合わせる。
+ * データ破損で親子関係が循環しても `MAX_ANCESTOR_HOPS` で停止する。
  */
-export function absolutePositionOf(node: Node, nodes: Node[]): Position {
-  let { x, y } = node.position;
+export function ancestorsOf(node: Node, nodes: Node[]): Node[] {
+  const ancestors: Node[] = [];
   let parentId = node.parentId;
 
   for (let hop = 0; parentId && hop < MAX_ANCESTOR_HOPS; hop++) {
     const parent = findById(nodes, parentId);
     if (!parent) break;
-    x += parent.position.x;
-    y += parent.position.y;
+    ancestors.push(parent);
     parentId = parent.parentId;
   }
 
-  return { x, y };
+  return ancestors;
+}
+
+/**
+ * 祖先チェーンを畳んで絶対座標を求める。
+ *
+ * React Flow の `node.positionAbsolute` は非同期に更新されるため、ドラッグ中は
+ * stale でありうる。ここでは一切依存せず、`node.position` (親からの相対座標) と
+ * 祖先の位置だけから計算する。
+ */
+export function absolutePositionOf(node: Node, nodes: Node[]): Position {
+  return ancestorsOf(node, nodes).reduce(
+    (acc, ancestor) => ({
+      x: acc.x + ancestor.position.x,
+      y: acc.y + ancestor.position.y,
+    }),
+    { x: node.position.x, y: node.position.y },
+  );
 }
 
 /** 絶対座標を、指定した親から見た相対座標へ変換する。親が無ければ絶対座標のまま */
@@ -69,17 +82,7 @@ export function toParentRelative(
 
 /** 入れ子の深さ。トップレベルのノードは 0 */
 export function depthOf(node: Node, nodes: Node[]): NodeDepth {
-  let depth = 0;
-  let parentId = node.parentId;
-
-  for (let hop = 0; parentId && hop < MAX_ANCESTOR_HOPS; hop++) {
-    const parent = findById(nodes, parentId);
-    if (!parent) break;
-    depth++;
-    parentId = parent.parentId;
-  }
-
-  return depth;
+  return ancestorsOf(node, nodes).length;
 }
 
 /** candidateId が targetId の祖先か */
@@ -88,14 +91,10 @@ export function isAncestorOf(
   targetId: string,
   nodes: Node[],
 ): boolean {
-  let parentId = findById(nodes, targetId)?.parentId;
+  const target = findById(nodes, targetId);
+  if (!target) return false;
 
-  for (let hop = 0; parentId && hop < MAX_ANCESTOR_HOPS; hop++) {
-    if (parentId === candidateId) return true;
-    parentId = findById(nodes, parentId)?.parentId;
-  }
-
-  return false;
+  return ancestorsOf(target, nodes).some((a) => a.id === candidateId);
 }
 
 /**

@@ -726,7 +726,10 @@ function GraphEditorInner({
   );
 
   // --- Custom hooks ---
-  const { groupSelectedNodes } = useGroupNodes(getNodes, dispatch);
+  const { groupSelectedNodes, ungroupSelectedNodes } = useGroupNodes(
+    getNodes,
+    dispatch,
+  );
   useClipboard(getNodes, getEdges, dispatch);
   const { contextMenu, onEdgeContextMenu, setEdgePathType } =
     useEdgeContextMenu(getEdges, dispatch);
@@ -853,6 +856,22 @@ function GraphEditorInner({
               }}
             >
               グループ化
+            </button>
+            <button
+              type="button"
+              onClick={ungroupSelectedNodes}
+              style={{
+                padding: '6px 12px',
+                fontSize: 13,
+                cursor: 'pointer',
+                background: '#7c9ef8',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 6,
+                marginLeft: 4,
+              }}
+            >
+              グループ解除
             </button>
             <button
               type="button"

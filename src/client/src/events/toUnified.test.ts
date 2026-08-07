@@ -31,15 +31,15 @@ describe('graphEventToOps: 複合イベントの分解', () => {
       children: [
         {
           nodeId: childA,
-          originalParentId: undefined,
-          originalPosition: { x: 5, y: 5 },
-          newPosition: { x: 10, y: 10 },
+          outerParentId: undefined,
+          outerPosition: { x: 5, y: 5 },
+          innerPosition: { x: 10, y: 10 },
         },
         {
           nodeId: childB,
-          originalParentId: undefined,
-          originalPosition: { x: 6, y: 6 },
-          newPosition: { x: 20, y: 20 },
+          outerParentId: undefined,
+          outerPosition: { x: 6, y: 6 },
+          innerPosition: { x: 20, y: 20 },
         },
       ],
     };
@@ -153,9 +153,9 @@ describe('graphEventToOps: 全 19 イベント型を網羅する', () => {
       children: [
         {
           nodeId: nid(),
-          originalParentId: undefined,
-          originalPosition: { x: 0, y: 0 },
-          newPosition: { x: 0, y: 0 },
+          outerParentId: undefined,
+          outerPosition: { x: 0, y: 0 },
+          innerPosition: { x: 0, y: 0 },
         },
       ],
     },

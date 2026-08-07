@@ -152,22 +152,31 @@ stale の可能性がある」と認めており、その前提が正しいな�
 - `NODES_UNGROUPED` を dispatch する。受け皿 (`applyEvent` / `invertEvent` / `toUnified`)
   は既に実装済みなので、**配線とペイロード構築だけ**が新規である
 
-**ペイロードは解除時点の実状態から構築する。** ここが現状の隠れた不具合の要でもある。
-現在 `invertEvent(NODES_GROUPED)` は**グループ化した時点の** `originalPosition` を
-そのまま使い回している。グループ化した後にグループを動かしていると、
-undo でも子は元の (古い) 絶対位置に飛ぶ。既存テスト
-(`applyEvent.test.ts:215-259`) は親を `(0, 0)` に置いているためこの欠陥を検出できない。
-
-解除時に構築すべき値:
+**ペイロードは解除時点の実状態から構築する。** 解除時に構築すべき値:
 
 | フィールド | 値 |
 |---|---|
-| `originalParentId` | 解除されるグループの**現在の** `parentId` (= 一段上のレベル。トップレベルなら `undefined`) |
-| `originalPosition` | 子の現在の絶対座標 − 新しい親の絶対座標 (新しい親が無ければ絶対座標そのもの) |
+| `outerParentId` | 解除されるグループの**現在の** `parentId` (= 一段上のレベル。トップレベルなら `undefined`) |
+| `outerPosition` | 子の現在の絶対座標 − 新しい親の絶対座標 (新しい親が無ければ絶対座標そのもの) |
 
-`originalParentId` / `originalPosition` という名前は「グループ化前の状態」を意味しており、
-独立した解除操作では意味がずれる。**`newParentId` / `newPosition` 相当の命名に見直す**
-(型は `src/client/src/events/GraphEvent.ts:90-102`)。
+`originalParentId` / `originalPosition` / `newPosition` という名前は
+「グループ化前 / 後の状態」を意味しており、独立した解除操作では意味がずれる。
+S3a で `GroupChildPlacement` 型に切り出し、操作の向きに依存しない名前へ変えた
+(型は `src/client/src/events/GraphEvent.ts`)。
+
+| 旧 | 新 | 意味 |
+|---|---|---|
+| `originalParentId` | `outerParentId` | グループの外に居るときの親 |
+| `originalPosition` | `outerPosition` | 上記の親から見た相対座標 (親が無ければ絶対座標) |
+| `newPosition` | `innerPosition` | グループの子としての位置 (グループから見た相対座標) |
+
+〔S3a 実装時の訂正〕本節は当初「`invertEvent(NODES_GROUPED)` がグループ化時点の
+`originalPosition` を使い回すため、グループ化後にグループを動かすと undo で子が飛ぶ」と
+書いていたが、これは**成立しない**。undo は `useEventStore` の LIFO スタックで、
+グループ化の後に発生したグループの `NODE_MOVED` が**先に**取り消される。
+`NODES_GROUPED` の逆が適用される時点でグループは元の位置に戻っている。
+`MAX_UNDO_STACK` の切り捨ても古い側から落ちるので順序は崩れない。
+したがって invertEvent 側の修正は不要で、**明示的な解除だけが実状態からの構築を要する**。
 
 **不変条件**: どのイベントを適用した後も、**存在しない親を指すノードが残ってはならない**。
 これを `applyEvent` のテストで固定する。
@@ -272,7 +281,8 @@ pane と同じ `NodeTypeMenu` を経由させる。
 |---|---|---|---|
 | **S1** | D4: 座標モジュール新設 + 既存 4 箇所の置き換え | ANA-108 | **振る舞いを変えない**リファクタが主。単体テストで座標変換を固定してから置き換える |
 | **S2** | D3: 最深一致のドロップ先解決、ハイライトと確定で共用 | ANA-109 | S1 の `innermostGroupAt` に依存 |
-| **S3** | D1 + D2: Ungroup の一級操作化、delete を子孫カスケード削除に変更、op-log 側の整合 | ANA-111, ANA-112 | `GraphEvent` のフィールド名見直しと operation-manual の書き換えを含む |
+| **S3a** | D1: Ungroup の一級操作化、`GroupChildPlacement` の命名見直し、孤児を残さない不変条件 | ANA-111 の一部 | 実装時に S3 を 2 つに割った。イベント組み立ては `graph/grouping.ts` に純関数として切り出す |
+| **S3b** | D2: delete を子孫カスケード削除に変更、op-log (`node.remove`) 側の整合、operation-manual の書き換え | ANA-111, ANA-112 | |
 | **S4** | D5: ノード生成経路の一本化 | ANA-110 | 他スライスから独立。先に入れてもよい |
 
 S1 → S2 → S3 の順に依存する。S4 はいつでもよい。

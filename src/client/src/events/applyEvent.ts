@@ -107,7 +107,7 @@ export function applyEvent(
           ...n,
           parentId: event.parentId,
           selected: false,
-          position: child.newPosition,
+          position: child.innerPosition,
         };
       });
       const firstChildIdx = updatedNodes.findIndex((n) =>
@@ -126,16 +126,29 @@ export function applyEvent(
 
     case 'NODES_UNGROUPED': {
       const childMap = new Map(event.children.map((c) => [c.nodeId, c]));
+      const group = nodes.find((n) => n.id === event.parentId);
       return {
         nodes: nodes
           .filter((n) => n.id !== event.parentId)
           .map((n) => {
             const child = childMap.get(n.id as typeof event.parentId);
-            if (!child) return n;
+            if (child) {
+              return {
+                ...n,
+                parentId: child.outerParentId,
+                position: child.outerPosition,
+              };
+            }
+            // 不変条件: 消えるグループを指したままのノード (孤児) を残さない。
+            // イベントに載っていない子も, グループの位置ぶんずらして一段上へ移す
+            if (!group || n.parentId !== event.parentId) return n;
             return {
               ...n,
-              parentId: child.originalParentId,
-              position: child.originalPosition,
+              parentId: group.parentId,
+              position: {
+                x: n.position.x + group.position.x,
+                y: n.position.y + group.position.y,
+              },
             };
           }),
         edges,

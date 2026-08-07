@@ -176,8 +176,8 @@ export function graphEventToOps(event: GraphEvent): Op[] {
         });
         ops.push(
           nodeSetLayoutOp(child.nodeId, {
-            x: child.newPosition.x,
-            y: child.newPosition.y,
+            x: child.innerPosition.x,
+            y: child.innerPosition.y,
           }),
         );
       }
@@ -189,14 +189,14 @@ export function graphEventToOps(event: GraphEvent): Op[] {
         ops.push({
           kind: 'node.setParent',
           target: child.nodeId,
-          ...(child.originalParentId !== undefined && {
-            parentId: child.originalParentId,
+          ...(child.outerParentId !== undefined && {
+            parentId: child.outerParentId,
           }),
         });
         ops.push(
           nodeSetLayoutOp(child.nodeId, {
-            x: child.originalPosition.x,
-            y: child.originalPosition.y,
+            x: child.outerPosition.x,
+            y: child.outerPosition.y,
           }),
         );
       }

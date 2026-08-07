@@ -5,6 +5,7 @@ import {
   absoluteBoundingBoxOf,
   absoluteCenterOf,
   absolutePositionOf,
+  ancestorsOf,
   depthOf,
   descendantIdsOf,
   groupBoundsOf,
@@ -37,6 +38,32 @@ const middle = node('middle', { x: 50, y: 50 }, 'outer');
 const inner = node('inner', { x: 10, y: 10 }, 'middle');
 const topLevel = node('top', { x: 7, y: 9 });
 const nested = [outer, middle, inner, topLevel];
+
+describe('ancestorsOf', () => {
+  it('祖先を近い順に返す', () => {
+    expect(ancestorsOf(inner, nested).map((n) => n.id)).toEqual([
+      'middle',
+      'outer',
+    ]);
+  });
+
+  it('トップレベルのノードは祖先を持たない', () => {
+    expect(ancestorsOf(topLevel, nested)).toEqual([]);
+  });
+
+  it('親が存在しない孤児ノードはそこで打ち切る', () => {
+    const orphan = node('orphan', { x: 0, y: 0 }, 'missing');
+
+    expect(ancestorsOf(orphan, [orphan])).toEqual([]);
+  });
+
+  it('親子関係が循環していても停止する', () => {
+    const a = node('a', { x: 0, y: 0 }, 'b');
+    const b = node('b', { x: 0, y: 0 }, 'a');
+
+    expect(() => ancestorsOf(a, [a, b])).not.toThrow();
+  });
+});
 
 describe('absolutePositionOf', () => {
   it('トップレベルのノードは自身の position をそのまま返す', () => {
