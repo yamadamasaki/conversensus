@@ -80,6 +80,28 @@ export function invertEvent(event: GraphEvent): GraphEvent {
         parentLayout: event.parentLayout,
         children: event.children,
       };
+    case 'NODES_DELETED':
+      return {
+        ...base,
+        type: 'NODES_RESTORED',
+        category: 'structure',
+        nodes: event.nodes,
+        layouts: event.layouts,
+        edges: event.edges,
+        edgeLayouts: event.edgeLayouts,
+      };
+    case 'NODES_RESTORED':
+      return {
+        ...base,
+        type: 'NODES_DELETED',
+        category: 'structure',
+        nodeIds: event.nodes.map((n) => n.id),
+        edgeIds: event.edges.map((e) => e.id),
+        nodes: event.nodes,
+        layouts: event.layouts,
+        edges: event.edges,
+        edgeLayouts: event.edgeLayouts,
+      };
     case 'NODES_PASTED':
       return {
         ...base,

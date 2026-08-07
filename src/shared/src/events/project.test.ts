@@ -88,6 +88,56 @@ describe('projectBatches', () => {
     expect(g.edges.has(e)).toBe(false);
   });
 
+  test('node.remove は子孫もカスケード削除する (孤児を残さない)', () => {
+    const group = nid();
+    const child = nid();
+    const grandchild = nid();
+    const outsider = nid();
+    const inside = eid();
+    const g = projectBatches([
+      batch(1, [
+        { kind: 'node.add', target: group, content: 'G' },
+        { kind: 'node.add', target: child, content: 'C', parentId: group },
+        {
+          kind: 'node.add',
+          target: grandchild,
+          content: 'GC',
+          parentId: child,
+        },
+        { kind: 'node.add', target: outsider, content: 'O' },
+        {
+          kind: 'edge.add',
+          target: inside,
+          source: grandchild,
+          dest: outsider,
+        },
+      ]),
+      batch(2, [{ kind: 'node.remove', target: group }]),
+    ]);
+
+    expect(g.nodes.has(child)).toBe(false);
+    expect(g.nodes.has(grandchild)).toBe(false);
+    expect(g.nodes.has(outsider)).toBe(true);
+    // 端点を失うエッジも消える
+    expect(g.edges.has(inside)).toBe(false);
+  });
+
+  test('子が親より後に node.add されていても子孫を取りこぼさない', () => {
+    const group = nid();
+    const child = nid();
+    const g = projectBatches([
+      // 子を先に作り、後から setParent で group にぶら下げる
+      batch(1, [
+        { kind: 'node.add', target: child, content: 'C' },
+        { kind: 'node.add', target: group, content: 'G' },
+        { kind: 'node.setParent', target: child, parentId: group },
+      ]),
+      batch(2, [{ kind: 'node.remove', target: group }]),
+    ]);
+
+    expect(g.nodes.has(child)).toBe(false);
+  });
+
   test('node.setLayout は移動 (x/y) と リサイズ (width/height) を部分更新で合成する', () => {
     const a = nid();
     const g = projectBatches([

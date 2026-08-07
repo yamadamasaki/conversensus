@@ -70,6 +70,42 @@ describe('graphEventToOps: 複合イベントの分解', () => {
     expect(g.nodes.get(childA)?.parentId).toBe(parentId);
   });
 
+  test('NODES_DELETED → op-log 経由でも子孫が残らない (applyEvent と一致)', () => {
+    const groupId = nid();
+    const childId = nid();
+    const seed: GraphEvent = {
+      ...makeEventBase('structure'),
+      type: 'NODES_PASTED',
+      nodes: [
+        { id: groupId, content: 'G', nodeType: 'group' },
+        { id: childId, content: 'C', parentId: groupId },
+      ],
+      layouts: [],
+      edges: [],
+      edgeLayouts: [],
+    };
+    // クライアントは子まで列挙して消すが、op-log 側も node.remove だけで
+    // 子孫を落とすので、列挙の有無によらず同じ状態に畳み込まれる
+    const deleteGroupOnly: GraphEvent = {
+      ...makeEventBase('structure'),
+      type: 'NODES_DELETED',
+      nodeIds: [groupId],
+      edgeIds: [],
+      nodes: [{ id: groupId, content: 'G', nodeType: 'group' }],
+      layouts: [],
+      edges: [],
+      edgeLayouts: [],
+    };
+
+    const g = projectBatches([
+      graphEventToBatch(seed, { clock: 1, actor: ACTOR }),
+      graphEventToBatch(deleteGroupOnly, { clock: 2, actor: ACTOR }),
+    ]);
+
+    expect(g.nodes.has(groupId)).toBe(false);
+    expect(g.nodes.has(childId)).toBe(false);
+  });
+
   test('NODE_REPARENTED → setParent + setLayout の 2 op', () => {
     const nodeId = nid();
     const newParent = nid();
@@ -90,7 +126,7 @@ describe('graphEventToOps: 複合イベントの分解', () => {
   });
 });
 
-describe('graphEventToOps: 全 19 イベント型を網羅する', () => {
+describe('graphEventToOps: 全 21 イベント型を網羅する', () => {
   // 各型の最小構成インスタンス。新しい型を追加したらここに足す (網羅性の番人)
   const nodeId = nid();
   const edgeId = eid();
@@ -178,6 +214,24 @@ describe('graphEventToOps: 全 19 イベント型を網羅する', () => {
       edgeLayouts: [],
     },
     {
+      ...makeEventBase('structure'),
+      type: 'NODES_DELETED',
+      nodeIds: [nid()],
+      edgeIds: [eid()],
+      nodes: [],
+      layouts: [],
+      edges: [],
+      edgeLayouts: [],
+    },
+    {
+      ...makeEventBase('structure'),
+      type: 'NODES_RESTORED',
+      nodes: [{ id: nid(), content: 'R' }],
+      layouts: [],
+      edges: [],
+      edgeLayouts: [],
+    },
+    {
       ...makeEventBase('content'),
       type: 'NODE_RELABELED',
       nodeId,
@@ -242,9 +296,9 @@ describe('graphEventToOps: 全 19 イベント型を網羅する', () => {
     },
   ];
 
-  test('19 型すべてを用意している', () => {
+  test('21 型すべてを用意している', () => {
     const types = new Set(events.map((e) => e.type));
-    expect(types.size).toBe(19);
+    expect(types.size).toBe(21);
   });
 
   test('各イベントが 1 つ以上の op に分解される', () => {

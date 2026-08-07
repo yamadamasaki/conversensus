@@ -106,6 +106,32 @@ export type NodesUngroupedEvent = EventBase & {
   parentLayout: NodeLayout;
   children: GroupChildPlacement[];
 };
+/**
+ * 選択したノードとその子孫、および巻き込まれるエッジをまとめて削除する。
+ *
+ * 1 ノード 1 イベントにしないのは、undo を 1 回で戻すためである。
+ * グループとその子を別々のイベントで消すと、undo の途中で「親がまだ復元されて
+ * いないのに子だけ居る」状態 (孤児) が現れてしまう。
+ */
+export type NodesDeletedEvent = EventBase & {
+  category: 'structure';
+  type: 'NODES_DELETED';
+  nodeIds: NodeId[];
+  edgeIds: EdgeId[];
+  nodes: GraphNode[];
+  layouts: NodeLayout[];
+  edges: GraphEdge[];
+  edgeLayouts: EdgeLayout[];
+};
+/** `NODES_DELETED` の逆。削除したノード・エッジを位置ごと復元する */
+export type NodesRestoredEvent = EventBase & {
+  category: 'structure';
+  type: 'NODES_RESTORED';
+  nodes: GraphNode[];
+  layouts: NodeLayout[];
+  edges: GraphEdge[];
+  edgeLayouts: EdgeLayout[];
+};
 export type NodesPastedEvent = EventBase & {
   category: 'structure';
   type: 'NODES_PASTED';
@@ -241,6 +267,8 @@ export type GraphEvent =
   | EdgeReconnectedEvent
   | NodesGroupedEvent
   | NodesUngroupedEvent
+  | NodesDeletedEvent
+  | NodesRestoredEvent
   | NodesPastedEvent
   | NodesPastedUndoEvent
   | NodeRelabeledEvent

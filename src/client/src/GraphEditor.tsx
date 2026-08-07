@@ -48,6 +48,7 @@ import {
   resolveDropTarget,
   toParentRelative,
 } from './graph/coords';
+import { deletionTargets } from './graph/deletion';
 import {
   DEFAULT_EDGE_PATH_TYPE,
   DEFAULT_NODE_STYLE,
@@ -536,28 +537,23 @@ function GraphEditorInner({
 
       const currentNodes = getNodes();
       const currentEdges = getEdges();
-      const selectedNodes = currentNodes.filter((n) => n.selected);
-      const selectedEdges = currentEdges.filter((e) => e.selected);
+      const doomed = deletionTargets(currentNodes, currentEdges);
+      if (doomed.nodes.length === 0 && doomed.edges.length === 0) return;
 
-      for (const node of selectedNodes) {
-        const { nodes: graphNodes } = fromFlowNodes([node]);
-        dispatch({
-          ...makeEventBase('structure'),
-          type: 'NODE_DELETED',
-          nodeId: node.id as NodeId,
-          data: graphNodes[0],
-        });
-      }
-      for (const edge of selectedEdges) {
-        const { edges: graphEdges, edgeLayouts } = fromFlowEdges([edge]);
-        dispatch({
-          ...makeEventBase('structure'),
-          type: 'EDGE_DELETED',
-          edgeId: edge.id as EdgeId,
-          data: graphEdges[0],
-          edgeLayout: edgeLayouts[0],
-        });
-      }
+      // 1 イベントにまとめる。グループと子を別々のイベントで消すと,
+      // undo の途中で親の居ない子が現れてしまう
+      const { nodes: graphNodes, layouts } = fromFlowNodes(doomed.nodes);
+      const { edges: graphEdges, edgeLayouts } = fromFlowEdges(doomed.edges);
+      dispatch({
+        ...makeEventBase('structure'),
+        type: 'NODES_DELETED',
+        nodeIds: doomed.nodes.map((n) => n.id as NodeId),
+        edgeIds: doomed.edges.map((edge) => edge.id as EdgeId),
+        nodes: graphNodes,
+        layouts,
+        edges: graphEdges,
+        edgeLayouts,
+      });
     },
     [getNodes, getEdges, dispatch],
   );

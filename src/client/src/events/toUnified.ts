@@ -203,6 +203,7 @@ export function graphEventToOps(event: GraphEvent): Op[] {
       ops.push({ kind: 'node.remove', target: event.parentId });
       return ops;
     }
+    case 'NODES_RESTORED':
     case 'NODES_PASTED': {
       const ops: Op[] = [];
       event.nodes.forEach((node, i) => {
@@ -229,6 +230,7 @@ export function graphEventToOps(event: GraphEvent): Op[] {
       });
       return ops;
     }
+    case 'NODES_DELETED':
     case 'NODES_PASTED_UNDO': {
       const ops: Op[] = [];
       for (const edgeId of event.edgeIds)

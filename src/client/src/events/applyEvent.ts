@@ -155,6 +155,8 @@ export function applyEvent(
       };
     }
 
+    // 復元と貼り付けは「ノードとエッジをまとめて足す」点で同じ操作である
+    case 'NODES_RESTORED':
     case 'NODES_PASTED': {
       const newNodes = toFlowNodes(event.nodes, event.layouts);
       const newEdges = toFlowEdges(event.edges, event.edgeLayouts);
@@ -164,6 +166,8 @@ export function applyEvent(
       };
     }
 
+    // 削除と貼り付けの取り消しは「指定した id をまとめて消す」点で同じ操作である
+    case 'NODES_DELETED':
     case 'NODES_PASTED_UNDO': {
       const nodeIdSet = new Set(event.nodeIds as string[]);
       const edgeIdSet = new Set(event.edgeIds as string[]);
