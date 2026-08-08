@@ -44,14 +44,17 @@ export function SettingsPopup({
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
-  // クリック外で保存 / Escape で破棄してポップアップを閉じる (マウント時に1回だけ登録)
+  // 外クリック / Escape はどちらも**破棄して閉じる** (ANA-126, マウント時に1回だけ登録)。
+  //
+  // 以前は外クリックが「保存して閉じる」だった。保存の口が 3 つ (ボタン・Enter・外クリック)
+  // で破棄が Escape だけという非対称が「保存ボタンは何のためにあるのか」を分からなく
+  // していた原因である (設計 `step1-refinement-ana118-file-deletion.md` D4)。
+  // 保存 = ボタン / Enter、破棄 = 外クリック / Escape の 2 対 2 に揃える。
+  // 操作マニュアル (`operation-manual-for-dev.md` のファイル管理) は元からこの仕様で,
+  // 実装だけがずれていた。
   useEffect(() => {
     const mouseHandler = (e: MouseEvent) => {
       if (popupRef.current && !popupRef.current.contains(e.target as Node)) {
-        onSaveRef.current(
-          draftNameRef.current.trim() || nameRef.current,
-          draftDescRef.current,
-        );
         onCloseRef.current();
       }
     };
