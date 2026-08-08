@@ -44,6 +44,12 @@ import { EventDispatchContext } from './EventDispatchContext';
 import { type GraphEvent, makeEventBase } from './events/GraphEvent';
 import { GroupNode } from './GroupNode';
 import {
+  absolutePositionOf,
+  resolveDropTarget,
+  toParentRelative,
+} from './graph/coords';
+import { deletionTargets } from './graph/deletion';
+import {
   DEFAULT_EDGE_PATH_TYPE,
   DEFAULT_NODE_STYLE,
   fromFlowEdges,
@@ -64,59 +70,15 @@ import { useClipboard } from './hooks/useClipboard';
 import { useEdgeContextMenu } from './hooks/useEdgeContextMenu';
 import { type UndoState, useEventStore } from './hooks/useEventStore';
 import { useGroupNodes } from './hooks/useGroupNodes';
-import { usePaneDoubleClick } from './hooks/usePaneDoubleClick';
+import { useNodeTypeMenu } from './hooks/useNodeTypeMenu';
 import { ImageNode } from './ImageNode';
+import { NodeCreationContext } from './NodeCreationContext';
 import type { NodeTypeOption } from './NodeTypeMenu';
 import { NodeTypeMenu } from './NodeTypeMenu';
 
 const RF_INIT_DELAY_MS = 150;
 const DROP_TARGET_ATTR = 'data-drop-target'; // グループへ追加しようとしている
 const LEAVING_GROUP_ATTR = 'data-leaving-group'; // グループを出ようとしている
-
-// React Flow v12 では positionAbsolute が Node 型から除外されたため型キャストで取得する
-function getAbsPos(node: Node): { x: number; y: number } {
-  return (
-    (node as Node & { positionAbsolute?: { x: number; y: number } })
-      .positionAbsolute ?? node.position
-  );
-}
-
-// measured と style の大きい方を採用することで recalculateParentBounds 後の
-// 非同期 DOM 再計測とのズレに対して安定した境界値を返す
-function getGroupBounds(g: Node) {
-  const styleW = typeof g.style?.width === 'number' ? g.style.width : 0;
-  const styleH = typeof g.style?.height === 'number' ? g.style.height : 0;
-  return {
-    x: getAbsPos(g).x,
-    y: getAbsPos(g).y,
-    w: Math.max(g.measured?.width ?? 0, styleW) || 300,
-    h: Math.max(g.measured?.height ?? 0, styleH) || 200,
-  };
-}
-
-function pointInGroup(
-  cx: number,
-  cy: number,
-  g: Node,
-  bufX = 0,
-  bufY = bufX,
-): boolean {
-  const { x, y, w, h } = getGroupBounds(g);
-  return (
-    cx >= x - bufX && cx <= x + w + bufX && cy >= y - bufY && cy <= y + h + bufY
-  );
-}
-
-function isAncestorOf(
-  candidateId: string,
-  targetId: string,
-  nodes: Node[],
-): boolean {
-  const t = nodes.find((n) => n.id === targetId);
-  if (!t?.parentId) return false;
-  if (t.parentId === candidateId) return true;
-  return isAncestorOf(candidateId, t.parentId, nodes);
-}
 
 function clearDragHighlights(): void {
   for (const attr of [DROP_TARGET_ATTR, LEAVING_GROUP_ATTR]) {
@@ -412,63 +374,26 @@ function GraphEditorInner({
   const onNodeDrag = useCallback(
     (_: React.MouseEvent, node: Node) => {
       const allNodes = getNodes();
-      // positionAbsolute は非同期更新のため stale の可能性がある。
-      // 子ノードは 親.positionAbsolute + node.position(相対) で正確な絶対座標を算出する。
-      const parentInStore = node.parentId
-        ? allNodes.find((n) => n.id === node.parentId)
-        : undefined;
-      const absX = parentInStore
-        ? getAbsPos(parentInStore).x + node.position.x
-        : getAbsPos(node).x;
-      const absY = parentInStore
-        ? getAbsPos(parentInStore).y + node.position.y
-        : getAbsPos(node).y;
-      const nodeW = Number(node.measured?.width ?? DEFAULT_NODE_STYLE.width);
-      const nodeH = Number(node.measured?.height ?? DEFAULT_NODE_STYLE.height);
-      const cx = absX + nodeW / 2;
-      const cy = absY + nodeH / 2;
-
       clearDragHighlights();
 
+      // ドラッグ中の node.position は最新だが、allNodes 内の同じノードは stale で
+      // ありうる。祖先だけを allNodes から辿るため node をそのまま渡す。
+      // 確定時 (onNodeDragStop) と同じ関数で解決し、ハイライトと実際の移動先を揃える。
+      const target = resolveDropTarget(node, allNodes);
       const oldParentId = node.parentId;
+      if (target?.id === oldParentId) return;
+
+      // 親グループから出ようとしている: 元の親を赤でハイライト
       if (oldParentId) {
-        // 子ノードのドラッグ: 親グループの外に出ているなら赤でハイライト
-        const parent = allNodes.find((n) => n.id === oldParentId);
-        if (parent && !pointInGroup(cx, cy, parent)) {
-          document
-            .querySelector(`.react-flow__node[data-id="${oldParentId}"]`)
-            ?.setAttribute(LEAVING_GROUP_ATTR, 'true');
-          // 別グループへ移動しようとしているならそちらもオレンジでハイライト
-          const targetGroup = allNodes
-            .filter(
-              (n) =>
-                n.type === RF_GROUP_NODE_TYPE &&
-                n.id !== node.id &&
-                n.id !== oldParentId,
-            )
-            .find((g) => {
-              if (isAncestorOf(g.id, node.id, allNodes)) return false;
-              return pointInGroup(cx, cy, g);
-            });
-          if (targetGroup) {
-            document
-              .querySelector(`.react-flow__node[data-id="${targetGroup.id}"]`)
-              ?.setAttribute(DROP_TARGET_ATTR, 'true');
-          }
-        }
-      } else {
-        // トップレベルノードのドラッグ: 入ろうとしているグループをハイライト
-        const target = allNodes
-          .filter((n) => n.type === RF_GROUP_NODE_TYPE && n.id !== node.id)
-          .find((g) => {
-            if (isAncestorOf(g.id, node.id, allNodes)) return false;
-            return pointInGroup(cx, cy, g);
-          });
-        if (target) {
-          document
-            .querySelector(`.react-flow__node[data-id="${target.id}"]`)
-            ?.setAttribute(DROP_TARGET_ATTR, 'true');
-        }
+        document
+          .querySelector(`.react-flow__node[data-id="${oldParentId}"]`)
+          ?.setAttribute(LEAVING_GROUP_ATTR, 'true');
+      }
+      // 入ろうとしているグループをオレンジでハイライト
+      if (target) {
+        document
+          .querySelector(`.react-flow__node[data-id="${target.id}"]`)
+          ?.setAttribute(DROP_TARGET_ATTR, 'true');
       }
     },
     [getNodes],
@@ -483,68 +408,16 @@ function GraphEditorInner({
 
       const oldParentId = node.parentId as NodeId | undefined;
 
-      // positionAbsolute は非同期更新のため stale の可能性がある。
-      // 子ノードは 親.positionAbsolute + node.position(相対) で正確な絶対座標を算出する。
-      const parentInStore = oldParentId
-        ? allNodes.find((n) => n.id === oldParentId)
-        : undefined;
-      const absX = parentInStore
-        ? getAbsPos(parentInStore).x + node.position.x
-        : getAbsPos(node).x;
-      const absY = parentInStore
-        ? getAbsPos(parentInStore).y + node.position.y
-        : getAbsPos(node).y;
-      const nodeW = Number(node.measured?.width ?? DEFAULT_NODE_STYLE.width);
-      const nodeH = Number(node.measured?.height ?? DEFAULT_NODE_STYLE.height);
-      const cx = absX + nodeW / 2;
-      const cy = absY + nodeH / 2;
-      let newParentId: NodeId | undefined;
-
-      if (oldParentId) {
-        // 既にグループ内: ノード自身の幅/高さの半分をバッファとして使い
-        // 「ノードがグループをほぼ完全に出た」ときだけ離脱とみなす
-        const currentParent = allNodes.find((n) => n.id === oldParentId);
-        if (
-          currentParent &&
-          pointInGroup(cx, cy, currentParent, nodeW / 2, nodeH / 2)
-        ) {
-          newParentId = oldParentId;
-        } else {
-          // 明らかに親の外: 別グループへの移動か、完全離脱
-          const other = allNodes
-            .filter(
-              (n) =>
-                n.type === RF_GROUP_NODE_TYPE &&
-                n.id !== node.id &&
-                n.id !== oldParentId,
-            )
-            .find((g) => {
-              if (isAncestorOf(g.id, node.id, allNodes)) return false;
-              return pointInGroup(cx, cy, g);
-            });
-          newParentId = other?.id as NodeId | undefined;
-        }
-      } else {
-        // トップレベル: グループへの追加を検出
-        const target = allNodes
-          .filter((n) => n.type === RF_GROUP_NODE_TYPE && n.id !== node.id)
-          .find((g) => {
-            if (isAncestorOf(g.id, node.id, allNodes)) return false;
-            return pointInGroup(cx, cy, g);
-          });
-        newParentId = target?.id as NodeId | undefined;
-      }
+      // ドラッグ中の node.position は最新だが、allNodes 内の同じノードは stale で
+      // ありうる。祖先だけを allNodes から辿るため node をそのまま渡す。
+      const absolute = absolutePositionOf(node, allNodes);
+      // ハイライト (onNodeDrag) と同じ関数でドロップ先を解決する
+      const newParentId = resolveDropTarget(node, allNodes)?.id as
+        | NodeId
+        | undefined;
 
       if (newParentId !== oldParentId) {
-        const targetGroup = newParentId
-          ? allNodes.find((n) => n.id === newParentId)
-          : undefined;
-        const newPosition = targetGroup
-          ? {
-              x: absX - getAbsPos(targetGroup).x,
-              y: absY - getAbsPos(targetGroup).y,
-            }
-          : { x: absX, y: absY };
+        const newPosition = toParentRelative(absolute, newParentId, allNodes);
         dispatch({
           ...makeEventBase('structure'),
           type: 'NODE_REPARENTED',
@@ -625,6 +498,8 @@ function GraphEditorInner({
       position?: { x: number; y: number },
       nodeType?: NodeTypeOption,
       properties?: Record<string, unknown>,
+      // 生成先のグループ。指定時 position はそのグループから見た相対座標
+      parentId?: NodeId,
     ) => {
       const nodeId = crypto.randomUUID() as NodeId;
       const pos = position ?? {
@@ -637,6 +512,7 @@ function GraphEditorInner({
         ...(nodeType === 'group' ? { nodeType: GROUP_NODE_TYPE } : {}),
         ...(nodeType === 'image' ? { nodeType: IMAGE_NODE_TYPE } : {}),
         ...(properties ? { properties } : {}),
+        ...(parentId ? { parentId } : {}),
       };
       const layout: NodeLayout = {
         nodeId,
@@ -665,28 +541,23 @@ function GraphEditorInner({
 
       const currentNodes = getNodes();
       const currentEdges = getEdges();
-      const selectedNodes = currentNodes.filter((n) => n.selected);
-      const selectedEdges = currentEdges.filter((e) => e.selected);
+      const doomed = deletionTargets(currentNodes, currentEdges);
+      if (doomed.nodes.length === 0 && doomed.edges.length === 0) return;
 
-      for (const node of selectedNodes) {
-        const { nodes: graphNodes } = fromFlowNodes([node]);
-        dispatch({
-          ...makeEventBase('structure'),
-          type: 'NODE_DELETED',
-          nodeId: node.id as NodeId,
-          data: graphNodes[0],
-        });
-      }
-      for (const edge of selectedEdges) {
-        const { edges: graphEdges, edgeLayouts } = fromFlowEdges([edge]);
-        dispatch({
-          ...makeEventBase('structure'),
-          type: 'EDGE_DELETED',
-          edgeId: edge.id as EdgeId,
-          data: graphEdges[0],
-          edgeLayout: edgeLayouts[0],
-        });
-      }
+      // 1 イベントにまとめる。グループと子を別々のイベントで消すと,
+      // undo の途中で親の居ない子が現れてしまう
+      const { nodes: graphNodes, layouts } = fromFlowNodes(doomed.nodes);
+      const { edges: graphEdges, edgeLayouts } = fromFlowEdges(doomed.edges);
+      dispatch({
+        ...makeEventBase('structure'),
+        type: 'NODES_DELETED',
+        nodeIds: doomed.nodes.map((n) => n.id as NodeId),
+        edgeIds: doomed.edges.map((edge) => edge.id as EdgeId),
+        nodes: graphNodes,
+        layouts,
+        edges: graphEdges,
+        edgeLayouts,
+      });
     },
     [getNodes, getEdges, dispatch],
   );
@@ -855,12 +726,15 @@ function GraphEditorInner({
   );
 
   // --- Custom hooks ---
-  const { groupSelectedNodes } = useGroupNodes(getNodes, dispatch);
+  const { groupSelectedNodes, ungroupSelectedNodes } = useGroupNodes(
+    getNodes,
+    dispatch,
+  );
   useClipboard(getNodes, getEdges, dispatch);
   const { contextMenu, onEdgeContextMenu, setEdgePathType } =
     useEdgeContextMenu(getEdges, dispatch);
-  const { onPaneClick, nodeTypeMenu, clearNodeTypeMenu } =
-    usePaneDoubleClick(screenToFlowPosition);
+  const { onPaneClick, openNodeTypeMenu, nodeTypeMenu, clearNodeTypeMenu } =
+    useNodeTypeMenu(screenToFlowPosition, getNodes);
 
   // --- PNG export ---
   const handleExportPng = useCallback(() => {
@@ -906,117 +780,140 @@ function GraphEditorInner({
 
   return (
     <EventDispatchContext.Provider value={{ dispatch, setDragging }}>
-      {/* biome-ignore lint/a11y/noStaticElementInteractions: drop target wrapper */}
-      <div
-        style={{ width: '100%', height: '100%' }}
-        onDragOver={handleDragOver}
-        onDrop={handleDrop}
-      >
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          nodeTypes={nodeTypes}
-          edgeTypes={edgeTypes}
-          onNodesChange={handleNodesChange}
-          onEdgesChange={handleEdgesChange}
-          connectionMode={ConnectionMode.Loose}
-          onConnect={onConnect}
-          onReconnect={onReconnect}
-          onNodeDragStart={onNodeDragStart}
-          onNodeDrag={onNodeDrag}
-          onNodeDragStop={onNodeDragStop}
-          edgesReconnectable
-          onPaneClick={onPaneClick}
-          onEdgeContextMenu={onEdgeContextMenu}
-          zoomOnDoubleClick={false}
-          deleteKeyCode={null}
-          fitView
+      <NodeCreationContext.Provider value={{ openNodeTypeMenu }}>
+        {/* biome-ignore lint/a11y/noStaticElementInteractions: drop target wrapper */}
+        <div
+          style={{ width: '100%', height: '100%' }}
+          onDragOver={handleDragOver}
+          onDrop={handleDrop}
         >
-          <Background />
-          <Controls />
-          <MiniMap />
-          <Panel position="top-right">
-            <button
-              type="button"
-              onClick={undo}
-              style={{
-                padding: '6px 12px',
-                fontSize: 13,
-                cursor: 'pointer',
-                background: '#e0e0e0',
-                color: '#333',
-                border: 'none',
-                borderRadius: 6,
-                marginRight: 4,
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            nodeTypes={nodeTypes}
+            edgeTypes={edgeTypes}
+            onNodesChange={handleNodesChange}
+            onEdgesChange={handleEdgesChange}
+            connectionMode={ConnectionMode.Loose}
+            onConnect={onConnect}
+            onReconnect={onReconnect}
+            onNodeDragStart={onNodeDragStart}
+            onNodeDrag={onNodeDrag}
+            onNodeDragStop={onNodeDragStop}
+            edgesReconnectable
+            onPaneClick={onPaneClick}
+            onEdgeContextMenu={onEdgeContextMenu}
+            zoomOnDoubleClick={false}
+            deleteKeyCode={null}
+            fitView
+          >
+            <Background />
+            <Controls />
+            <MiniMap />
+            <Panel position="top-right">
+              <button
+                type="button"
+                onClick={undo}
+                style={{
+                  padding: '6px 12px',
+                  fontSize: 13,
+                  cursor: 'pointer',
+                  background: '#e0e0e0',
+                  color: '#333',
+                  border: 'none',
+                  borderRadius: 6,
+                  marginRight: 4,
+                }}
+              >
+                Undo
+              </button>
+              <button
+                type="button"
+                onClick={redo}
+                style={{
+                  padding: '6px 12px',
+                  fontSize: 13,
+                  cursor: 'pointer',
+                  background: '#e0e0e0',
+                  color: '#333',
+                  border: 'none',
+                  borderRadius: 6,
+                  marginRight: 8,
+                }}
+              >
+                Redo
+              </button>
+              <button
+                type="button"
+                onClick={groupSelectedNodes}
+                style={{
+                  padding: '6px 12px',
+                  fontSize: 13,
+                  cursor: 'pointer',
+                  background: '#7c9ef8',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: 6,
+                }}
+              >
+                グループ化
+              </button>
+              <button
+                type="button"
+                onClick={ungroupSelectedNodes}
+                style={{
+                  padding: '6px 12px',
+                  fontSize: 13,
+                  cursor: 'pointer',
+                  background: '#7c9ef8',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: 6,
+                  marginLeft: 4,
+                }}
+              >
+                グループ解除
+              </button>
+              <button
+                type="button"
+                onClick={handleExportPng}
+                style={{
+                  padding: '6px 12px',
+                  fontSize: 13,
+                  cursor: 'pointer',
+                  background: '#e0e0e0',
+                  color: '#333',
+                  border: 'none',
+                  borderRadius: 6,
+                  marginLeft: 8,
+                }}
+              >
+                PNG
+              </button>
+            </Panel>
+          </ReactFlow>
+          {nodeTypeMenu && (
+            <NodeTypeMenu
+              position={nodeTypeMenu.screenPos}
+              onSelect={(nodeType) => {
+                addNode(
+                  nodeTypeMenu.position,
+                  nodeType,
+                  undefined,
+                  nodeTypeMenu.containerId,
+                );
+                clearNodeTypeMenu();
               }}
-            >
-              Undo
-            </button>
-            <button
-              type="button"
-              onClick={redo}
-              style={{
-                padding: '6px 12px',
-                fontSize: 13,
-                cursor: 'pointer',
-                background: '#e0e0e0',
-                color: '#333',
-                border: 'none',
-                borderRadius: 6,
-                marginRight: 8,
-              }}
-            >
-              Redo
-            </button>
-            <button
-              type="button"
-              onClick={groupSelectedNodes}
-              style={{
-                padding: '6px 12px',
-                fontSize: 13,
-                cursor: 'pointer',
-                background: '#7c9ef8',
-                color: '#fff',
-                border: 'none',
-                borderRadius: 6,
-              }}
-            >
-              グループ化
-            </button>
-            <button
-              type="button"
-              onClick={handleExportPng}
-              style={{
-                padding: '6px 12px',
-                fontSize: 13,
-                cursor: 'pointer',
-                background: '#e0e0e0',
-                color: '#333',
-                border: 'none',
-                borderRadius: 6,
-                marginLeft: 8,
-              }}
-            >
-              PNG
-            </button>
-          </Panel>
-        </ReactFlow>
-        {nodeTypeMenu && (
-          <NodeTypeMenu
-            position={nodeTypeMenu.screenPos}
-            onSelect={(nodeType) => {
-              addNode(nodeTypeMenu.flowPos, nodeType);
-              clearNodeTypeMenu();
-            }}
-          />
-        )}
-        {contextMenu && (
-          <EdgeContextMenu
-            contextMenu={contextMenu}
-            onSelect={setEdgePathType}
-          />
-        )}
-      </div>
+            />
+          )}
+          {contextMenu && (
+            <EdgeContextMenu
+              contextMenu={contextMenu}
+              onSelect={setEdgePathType}
+            />
+          )}
+        </div>
+      </NodeCreationContext.Provider>
     </EventDispatchContext.Provider>
   );
 }

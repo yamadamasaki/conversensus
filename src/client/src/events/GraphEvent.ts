@@ -74,18 +74,29 @@ export type NodeReparentedEvent = EventBase & {
   oldPosition: Position;
   newPosition: Position;
 };
+/**
+ * グループ化 / 解除で動く子ノードの配置。
+ *
+ * `outer*` はグループの**外**にいるときの状態 (グループ化する前、解除した後) を表す。
+ * `outerPosition` は `outerParentId` から見た相対座標で、親が無ければ絶対座標。
+ * `innerPosition` はグループの子としての位置 (グループから見た相対座標)。
+ *
+ * グループ化はこの子を outer → inner へ、解除は inner → outer へ動かす。
+ * どちらの向きにも同じ組を使うので、名前は操作の向きに依存しない。
+ */
+export type GroupChildPlacement = {
+  nodeId: NodeId;
+  outerParentId: NodeId | undefined;
+  outerPosition: Position;
+  innerPosition: Position;
+};
 export type NodesGroupedEvent = EventBase & {
   category: 'structure';
   type: 'NODES_GROUPED';
   parentId: NodeId;
   parentData: GraphNode;
   parentLayout: NodeLayout;
-  children: Array<{
-    nodeId: NodeId;
-    originalParentId: NodeId | undefined;
-    originalPosition: Position;
-    newPosition: Position;
-  }>;
+  children: GroupChildPlacement[];
 };
 export type NodesUngroupedEvent = EventBase & {
   category: 'structure';
@@ -93,12 +104,33 @@ export type NodesUngroupedEvent = EventBase & {
   parentId: NodeId;
   parentData: GraphNode;
   parentLayout: NodeLayout;
-  children: Array<{
-    nodeId: NodeId;
-    originalParentId: NodeId | undefined;
-    originalPosition: Position;
-    newPosition: Position;
-  }>;
+  children: GroupChildPlacement[];
+};
+/**
+ * 選択したノードとその子孫、および巻き込まれるエッジをまとめて削除する。
+ *
+ * 1 ノード 1 イベントにしないのは、undo を 1 回で戻すためである。
+ * グループとその子を別々のイベントで消すと、undo の途中で「親がまだ復元されて
+ * いないのに子だけ居る」状態 (孤児) が現れてしまう。
+ */
+export type NodesDeletedEvent = EventBase & {
+  category: 'structure';
+  type: 'NODES_DELETED';
+  nodeIds: NodeId[];
+  edgeIds: EdgeId[];
+  nodes: GraphNode[];
+  layouts: NodeLayout[];
+  edges: GraphEdge[];
+  edgeLayouts: EdgeLayout[];
+};
+/** `NODES_DELETED` の逆。削除したノード・エッジを位置ごと復元する */
+export type NodesRestoredEvent = EventBase & {
+  category: 'structure';
+  type: 'NODES_RESTORED';
+  nodes: GraphNode[];
+  layouts: NodeLayout[];
+  edges: GraphEdge[];
+  edgeLayouts: EdgeLayout[];
 };
 export type NodesPastedEvent = EventBase & {
   category: 'structure';
@@ -235,6 +267,8 @@ export type GraphEvent =
   | EdgeReconnectedEvent
   | NodesGroupedEvent
   | NodesUngroupedEvent
+  | NodesDeletedEvent
+  | NodesRestoredEvent
   | NodesPastedEvent
   | NodesPastedUndoEvent
   | NodeRelabeledEvent

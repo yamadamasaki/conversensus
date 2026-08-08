@@ -123,9 +123,9 @@ describe('NODES_GROUPED ↔ NODES_UNGROUPED', () => {
   const children = [
     {
       nodeId: 'n1' as NodeId,
-      originalParentId: undefined,
-      originalPosition: { x: 10, y: 20 },
-      newPosition: { x: 30, y: 40 },
+      outerParentId: undefined,
+      outerPosition: { x: 10, y: 20 },
+      innerPosition: { x: 30, y: 40 },
     },
   ];
   const parentData: GraphNode = {
@@ -227,6 +227,42 @@ describe('NODES_PASTED ↔ NODES_PASTED_UNDO', () => {
     expect(inv.type).toBe('NODES_PASTED');
     expect(inv.nodes).toEqual([graphNode]);
     expect(inv.edges).toEqual([graphEdge]);
+  });
+});
+
+describe('NODES_DELETED ↔ NODES_RESTORED', () => {
+  const deleted: GraphEvent = {
+    ...base,
+    category: 'structure',
+    type: 'NODES_DELETED',
+    nodeIds: ['n1' as NodeId],
+    edgeIds: ['e1' as EdgeId],
+    nodes: [graphNode],
+    layouts: [],
+    edges: [graphEdge],
+    edgeLayouts: [],
+  };
+
+  it('NODES_DELETED の逆は NODES_RESTORED (復元に要るデータを引き継ぐ)', () => {
+    const inv = invertEvent(deleted) as Extract<
+      GraphEvent,
+      { type: 'NODES_RESTORED' }
+    >;
+
+    expect(inv.type).toBe('NODES_RESTORED');
+    expect(inv.nodes).toEqual([graphNode]);
+    expect(inv.edges).toEqual([graphEdge]);
+  });
+
+  it('NODES_RESTORED の逆は NODES_DELETED (id は nodes/edges から収集)', () => {
+    const inv = invertEvent(invertEvent(deleted)) as Extract<
+      GraphEvent,
+      { type: 'NODES_DELETED' }
+    >;
+
+    expect(inv.type).toBe('NODES_DELETED');
+    expect(inv.nodeIds).toEqual(['n1' as NodeId]);
+    expect(inv.edgeIds).toEqual(['e1' as EdgeId]);
   });
 });
 

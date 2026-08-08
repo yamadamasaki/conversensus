@@ -1,20 +1,15 @@
-import type { GraphNode, NodeId, NodeLayout } from '@conversensus/shared';
+import type { NodeId } from '@conversensus/shared';
 import { type NodeProps, NodeResizer, useReactFlow } from '@xyflow/react';
 import { useCallback, useRef } from 'react';
 import { useEventDispatch } from './EventDispatchContext';
 import { makeEventBase } from './events/GraphEvent';
-import { DEFAULT_NODE_STYLE } from './graphTransform';
 import { useInlineEdit } from './hooks/useInlineEdit';
+import { useNodeCreation } from './NodeCreationContext';
 
-export function GroupNode({
-  id,
-  data,
-  selected,
-  positionAbsoluteX,
-  positionAbsoluteY,
-}: NodeProps) {
-  const { screenToFlowPosition, getNode } = useReactFlow();
+export function GroupNode({ id, data, selected }: NodeProps) {
+  const { getNode } = useReactFlow();
   const { dispatch } = useEventDispatch();
+  const { openNodeTypeMenu } = useNodeCreation();
 
   // onResizeStart で現在のサイズを保存
   const preSizeRef = useRef({ width: 0, height: 0 });
@@ -48,45 +43,14 @@ export function GroupNode({
     [dispatch, id],
   );
 
-  // ドラッグのたびに変わる絶対座標を ref で保持し, コールバックの再生成を防ぐ
-  const positionAbsoluteRef = useRef({
-    x: positionAbsoluteX,
-    y: positionAbsoluteY,
-  });
-  positionAbsoluteRef.current = { x: positionAbsoluteX, y: positionAbsoluteY };
-
+  // 本体のダブルクリックは pane と同じ NodeTypeMenu を開く (設計 D5)。
+  // このグループを生成先コンテナとして渡すので, 選ばれたノードは子として作られる
   const onBodyDoubleClick = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
-      const flowPos = screenToFlowPosition({
-        x: e.clientX,
-        y: e.clientY,
-      });
-      const nodeId = crypto.randomUUID() as NodeId;
-      const pos = {
-        x: flowPos.x - positionAbsoluteRef.current.x,
-        y: flowPos.y - positionAbsoluteRef.current.y,
-      };
-      const graphNode: GraphNode = {
-        id: nodeId,
-        content: '',
-        parentId: id as NodeId,
-      };
-      const layout: NodeLayout = {
-        nodeId,
-        x: pos.x,
-        y: pos.y,
-        ...DEFAULT_NODE_STYLE,
-      };
-      dispatch({
-        ...makeEventBase('structure'),
-        type: 'NODE_ADDED',
-        nodeId,
-        data: graphNode,
-        layout,
-      });
+      openNodeTypeMenu({ x: e.clientX, y: e.clientY }, id as NodeId);
     },
-    [id, screenToFlowPosition, dispatch],
+    [id, openNodeTypeMenu],
   );
   const label = String(data.label ?? '');
   const diffType = data.diffType as 'add' | 'update' | undefined;

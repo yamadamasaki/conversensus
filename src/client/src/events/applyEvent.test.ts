@@ -196,9 +196,9 @@ describe('NODES_GROUPED', () => {
       children: [
         {
           nodeId: 'n1' as NodeId,
-          originalParentId: undefined,
-          originalPosition: { x: 10, y: 20 },
-          newPosition: { x: 30, y: 40 },
+          outerParentId: undefined,
+          outerPosition: { x: 10, y: 20 },
+          innerPosition: { x: 30, y: 40 },
         },
       ],
     };
@@ -245,9 +245,9 @@ describe('NODES_UNGROUPED', () => {
       children: [
         {
           nodeId: 'n1' as NodeId,
-          originalParentId: undefined,
-          originalPosition: { x: 10, y: 20 },
-          newPosition: { x: 30, y: 40 },
+          outerParentId: undefined,
+          outerPosition: { x: 10, y: 20 },
+          innerPosition: { x: 30, y: 40 },
         },
       ],
     };
@@ -256,6 +256,114 @@ describe('NODES_UNGROUPED', () => {
     const restored = nodes.find((n) => n.id === 'n1');
     expect(restored?.parentId).toBeUndefined();
     expect(restored?.position).toEqual({ x: 10, y: 20 });
+  });
+
+  // グループの位置を (0,0) にしないのは, 相対座標と絶対座標を取り違える実装が
+  // (0,0) では両者が一致してしまい, テストをすり抜けるためである
+  it('解除 → undo → redo で子の parentId と位置が往復して一致する', () => {
+    const parentNode: Node = {
+      id: 'parent',
+      position: { x: 500, y: 500 },
+      data: { label: 'グループ' },
+      type: 'groupNode',
+    };
+    const childNode: Node = {
+      ...n1,
+      parentId: 'parent',
+      position: { x: 30, y: 40 },
+    };
+    const event: GraphEvent = {
+      ...base,
+      category: 'structure',
+      type: 'NODES_UNGROUPED',
+      parentId: 'parent' as NodeId,
+      parentData: {
+        id: 'parent' as NodeId,
+        content: 'グループ',
+        nodeType: 'group',
+      },
+      parentLayout: { nodeId: 'parent' as NodeId, x: 500, y: 500 },
+      children: [
+        {
+          nodeId: 'n1' as NodeId,
+          outerParentId: undefined,
+          // 子の絶対座標 = グループ (500,500) + 相対 (30,40)
+          outerPosition: { x: 530, y: 540 },
+          innerPosition: { x: 30, y: 40 },
+        },
+      ],
+    };
+
+    const ungrouped = applyEvent(event, [parentNode, childNode], []);
+    const undone = applyEvent(invertEvent(event), ungrouped.nodes, []);
+    const redone = applyEvent(
+      invertEvent(invertEvent(event)),
+      undone.nodes,
+      [],
+    );
+
+    // undo: グループが戻り, 子はグループから見た相対座標に戻る
+    const afterUndo = undone.nodes.find((n) => n.id === 'n1');
+    expect(afterUndo?.parentId).toBe('parent');
+    expect(afterUndo?.position).toEqual({ x: 30, y: 40 });
+    expect(undone.nodes.find((n) => n.id === 'parent')?.position).toEqual({
+      x: 500,
+      y: 500,
+    });
+
+    // redo: 解除直後と同じ状態に戻る
+    const afterRedo = redone.nodes.find((n) => n.id === 'n1');
+    expect(afterRedo?.parentId).toBeUndefined();
+    expect(afterRedo?.position).toEqual({ x: 530, y: 540 });
+    expect(redone.nodes.find((n) => n.id === 'parent')).toBeUndefined();
+  });
+
+  // 不変条件: 消えた親を指したままのノード (孤児) を残さない。
+  // 孤児の相対座標は React Flow では未定義動作で, ANA-111 / ANA-112 の原因である
+  it('children に載っていない子が居ても孤児を残さない', () => {
+    const parentNode: Node = {
+      id: 'parent',
+      position: { x: 0, y: 0 },
+      data: { label: 'グループ' },
+      type: 'groupNode',
+    };
+    const listed: Node = {
+      ...n1,
+      parentId: 'parent',
+      position: { x: 5, y: 5 },
+    };
+    const unlisted: Node = {
+      ...n2,
+      parentId: 'parent',
+      position: { x: 7, y: 7 },
+    };
+    const event: GraphEvent = {
+      ...base,
+      category: 'structure',
+      type: 'NODES_UNGROUPED',
+      parentId: 'parent' as NodeId,
+      parentData: {
+        id: 'parent' as NodeId,
+        content: 'グループ',
+        nodeType: 'group',
+      },
+      parentLayout: { nodeId: 'parent' as NodeId, x: 0, y: 0 },
+      children: [
+        {
+          nodeId: 'n1' as NodeId,
+          outerParentId: undefined,
+          outerPosition: { x: 5, y: 5 },
+          innerPosition: { x: 5, y: 5 },
+        },
+      ],
+    };
+
+    const { nodes } = applyEvent(event, [parentNode, listed, unlisted], []);
+
+    const ids = new Set(nodes.map((n) => n.id));
+    for (const n of nodes) {
+      expect(n.parentId === undefined || ids.has(n.parentId)).toBe(true);
+    }
   });
 });
 
@@ -345,6 +453,83 @@ describe('NODE_REPARENTED', () => {
     const group2Idx = nodes.findIndex((n) => n.id === 'group2');
     const nodeIdx = nodes.findIndex((n) => n.id === 'n1');
     expect(nodeIdx).toBeGreaterThan(group2Idx);
+  });
+});
+
+describe('NODES_DELETED / NODES_RESTORED', () => {
+  const groupNode: Node = {
+    id: 'group',
+    position: { x: 100, y: 100 },
+    data: { label: 'グループ' },
+    type: 'groupNode',
+    style: { width: 200, height: 200 },
+  };
+  const childNode: Node = {
+    ...n1,
+    parentId: 'group',
+    position: { x: 5, y: 5 },
+  };
+  const edgeToChild: Edge = {
+    id: 'e-child',
+    source: 'n1',
+    target: 'n2',
+    type: 'editableLabel',
+    data: {},
+  };
+  const event: GraphEvent = {
+    ...base,
+    category: 'structure',
+    type: 'NODES_DELETED',
+    nodeIds: ['group' as NodeId, 'n1' as NodeId],
+    edgeIds: ['e-child' as EdgeId],
+    nodes: [
+      { id: 'group' as NodeId, content: 'グループ', nodeType: 'group' },
+      { id: 'n1' as NodeId, content: 'ノード1', parentId: 'group' as NodeId },
+    ],
+    layouts: [
+      { nodeId: 'group' as NodeId, x: 100, y: 100, width: 200, height: 200 },
+      { nodeId: 'n1' as NodeId, x: 5, y: 5 },
+    ],
+    edges: [
+      {
+        id: 'e-child' as EdgeId,
+        source: 'n1' as NodeId,
+        target: 'n2' as NodeId,
+      },
+    ],
+    edgeLayouts: [],
+  };
+
+  it('指定したノードとエッジをまとめて削除する', () => {
+    const { nodes, edges } = applyEvent(
+      event,
+      [groupNode, childNode, n2],
+      [edgeToChild],
+    );
+
+    expect(nodes.map((n) => n.id)).toEqual(['n2']);
+    expect(edges).toHaveLength(0);
+  });
+
+  // 1 イベントにまとめているので undo も 1 回で済む。グループと子を別々のイベントに
+  // すると、undo の途中で親の居ない子 (孤児) が現れてしまう
+  it('undo で子とその親子関係・位置が 1 回で戻る', () => {
+    const after = applyEvent(event, [groupNode, childNode, n2], [edgeToChild]);
+    const restored = applyEvent(invertEvent(event), after.nodes, after.edges);
+
+    const child = restored.nodes.find((n) => n.id === 'n1');
+    expect(child?.parentId).toBe('group');
+    expect(child?.position).toEqual({ x: 5, y: 5 });
+    expect(restored.nodes.find((n) => n.id === 'group')?.position).toEqual({
+      x: 100,
+      y: 100,
+    });
+    expect(restored.edges.map((e) => e.id)).toEqual(['e-child']);
+
+    const ids = new Set(restored.nodes.map((n) => n.id));
+    for (const n of restored.nodes) {
+      expect(n.parentId === undefined || ids.has(n.parentId)).toBe(true);
+    }
   });
 });
 

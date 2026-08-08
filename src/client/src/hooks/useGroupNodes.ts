@@ -1,105 +1,56 @@
-import type { GraphNode, NodeId, NodeLayout } from '@conversensus/shared';
 import type { Node } from '@xyflow/react';
 import { useCallback, useEffect } from 'react';
 import type { GraphEvent } from '../events/GraphEvent';
-import { makeEventBase } from '../events/GraphEvent';
 import {
-  DEFAULT_NODE_STYLE,
-  GROUP_NODE_TYPE,
-  GROUP_PADDING,
-  GROUP_TITLE_HEIGHT,
-} from '../graphTransform';
+  buildNodesGroupedEvent,
+  buildNodesUngroupedEvent,
+} from '../graph/grouping';
+import { RF_GROUP_NODE_TYPE } from '../graphTransform';
+
+const GROUP_KEY = 'g';
 
 export function useGroupNodes(
   getNodes: () => Node[],
   dispatch: (event: GraphEvent) => void,
-): { groupSelectedNodes: () => void } {
+): { groupSelectedNodes: () => void; ungroupSelectedNodes: () => void } {
   const groupSelectedNodes = useCallback(() => {
     const ns = getNodes();
     const selected = ns.filter((n) => n.selected);
     if (selected.length < 1) return;
 
-    const sharedParentId = selected.every(
-      (n) => n.parentId === selected[0].parentId,
-    )
-      ? selected[0].parentId
-      : undefined;
+    const event = buildNodesGroupedEvent(selected, ns);
+    if (event) dispatch(event);
+  }, [getNodes, dispatch]);
 
-    const minX = Math.min(...selected.map((n) => n.position.x));
-    const minY = Math.min(...selected.map((n) => n.position.y));
-    const maxX = Math.max(
-      ...selected.map(
-        (n) =>
-          n.position.x +
-          Number(
-            n.measured?.width ?? n.style?.width ?? DEFAULT_NODE_STYLE.width,
-          ),
-      ),
+  // 選択されたグループを解除する。中身は一段上のレベルへ移り、画面上の位置は変わらない。
+  // dispatch した結果は getNodes() に即座には反映されないため、全イベントを
+  // 同じスナップショットから組み立てる。入れ子のグループを同時に選んだ場合に
+  // 消える側を親に指定しないよう、解除するグループの id をまとめて渡す。
+  const ungroupSelectedNodes = useCallback(() => {
+    const ns = getNodes();
+    const groups = ns.filter(
+      (n) => n.selected && n.type === RF_GROUP_NODE_TYPE,
     );
-    const maxY = Math.max(
-      ...selected.map(
-        (n) =>
-          n.position.y +
-          Number(
-            n.measured?.height ?? n.style?.height ?? DEFAULT_NODE_STYLE.height,
-          ),
-      ),
-    );
+    const groupIds = new Set(groups.map((g) => g.id));
 
-    const parentX = minX - GROUP_PADDING;
-    const parentY = minY - GROUP_PADDING - GROUP_TITLE_HEIGHT;
-    const parentWidth = maxX - minX + GROUP_PADDING * 2;
-    const parentHeight = maxY - minY + GROUP_PADDING * 2 + GROUP_TITLE_HEIGHT;
-    const parentId = crypto.randomUUID() as NodeId;
-
-    const parentData: GraphNode = {
-      id: parentId,
-      content: 'グループ',
-      nodeType: GROUP_NODE_TYPE,
-      ...(sharedParentId ? { parentId: sharedParentId as NodeId } : {}),
-    };
-
-    const parentLayout: NodeLayout = {
-      nodeId: parentId,
-      x: parentX,
-      y: parentY,
-      width: parentWidth,
-      height: parentHeight,
-    };
-
-    const children = selected.map((n) => ({
-      nodeId: n.id as NodeId,
-      originalParentId: n.parentId as NodeId | undefined,
-      originalPosition: {
-        x: n.position.x,
-        y: n.position.y,
-      },
-      newPosition: {
-        x: n.position.x - parentX,
-        y: n.position.y - parentY,
-      },
-    }));
-
-    dispatch({
-      ...makeEventBase('structure'),
-      type: 'NODES_GROUPED',
-      parentId,
-      parentData,
-      parentLayout,
-      children,
-    });
+    for (const group of groups) {
+      const event = buildNodesUngroupedEvent(group, ns, groupIds);
+      if (event) dispatch(event);
+    }
   }, [getNodes, dispatch]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'g') {
-        e.preventDefault();
-        groupSelectedNodes();
-      }
+      if (!(e.metaKey || e.ctrlKey)) return;
+      // Shift を伴うと e.key は 'G' になるため、大文字小文字を無視して比べる
+      if (e.key.toLowerCase() !== GROUP_KEY) return;
+      e.preventDefault();
+      if (e.shiftKey) ungroupSelectedNodes();
+      else groupSelectedNodes();
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [groupSelectedNodes]);
+  }, [groupSelectedNodes, ungroupSelectedNodes]);
 
-  return { groupSelectedNodes };
+  return { groupSelectedNodes, ungroupSelectedNodes };
 }

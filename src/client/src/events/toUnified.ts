@@ -176,8 +176,8 @@ export function graphEventToOps(event: GraphEvent): Op[] {
         });
         ops.push(
           nodeSetLayoutOp(child.nodeId, {
-            x: child.newPosition.x,
-            y: child.newPosition.y,
+            x: child.innerPosition.x,
+            y: child.innerPosition.y,
           }),
         );
       }
@@ -189,20 +189,21 @@ export function graphEventToOps(event: GraphEvent): Op[] {
         ops.push({
           kind: 'node.setParent',
           target: child.nodeId,
-          ...(child.originalParentId !== undefined && {
-            parentId: child.originalParentId,
+          ...(child.outerParentId !== undefined && {
+            parentId: child.outerParentId,
           }),
         });
         ops.push(
           nodeSetLayoutOp(child.nodeId, {
-            x: child.originalPosition.x,
-            y: child.originalPosition.y,
+            x: child.outerPosition.x,
+            y: child.outerPosition.y,
           }),
         );
       }
       ops.push({ kind: 'node.remove', target: event.parentId });
       return ops;
     }
+    case 'NODES_RESTORED':
     case 'NODES_PASTED': {
       const ops: Op[] = [];
       event.nodes.forEach((node, i) => {
@@ -229,6 +230,7 @@ export function graphEventToOps(event: GraphEvent): Op[] {
       });
       return ops;
     }
+    case 'NODES_DELETED':
     case 'NODES_PASTED_UNDO': {
       const ops: Op[] = [];
       for (const edgeId of event.edgeIds)

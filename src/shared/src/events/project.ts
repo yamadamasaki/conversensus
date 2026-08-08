@@ -71,6 +71,23 @@ export function projectBatches(batches: Batch[]): ProjectedGraph {
   return g;
 }
 
+// 親子チェーンを辿るループの上限。データ破損で循環参照ができても停止させる
+const MAX_PARENT_HOPS = 100;
+
+/** parentId から親を辿って ancestorId に行き着くか。配列やマップの順序に依存しない */
+function hasAncestor(
+  parentId: NodeId | undefined,
+  ancestorId: NodeId,
+  g: ProjectedGraph,
+): boolean {
+  let current: NodeId | undefined = parentId;
+  for (let hop = 0; current && hop < MAX_PARENT_HOPS; hop++) {
+    if (current === ancestorId) return true;
+    current = g.nodes.get(current)?.parentId;
+  }
+  return false;
+}
+
 function applyOp(g: ProjectedGraph, op: GraphOp): void {
   switch (op.kind) {
     case 'node.add':
@@ -83,11 +100,20 @@ function applyOp(g: ProjectedGraph, op: GraphOp): void {
       });
       break;
     case 'node.remove': {
-      g.nodes.delete(op.target);
-      g.nodeLayouts.delete(op.target);
-      // 接続エッジもカスケード削除する (applyEvent NODE_DELETED と同じ挙動)
+      // 子孫もカスケード削除する。親の居ないノードを残さないための不変条件であり、
+      // クライアント側が子ごとに node.remove を出していても結果は変わらない (冪等)
+      const removed = new Set<NodeId>([op.target]);
+      for (const [id, node] of g.nodes) {
+        if (hasAncestor(node.parentId, op.target, g)) removed.add(id);
+      }
+
+      for (const id of removed) {
+        g.nodes.delete(id);
+        g.nodeLayouts.delete(id);
+      }
+      // 端点を失うエッジもカスケード削除する (applyEvent NODE_DELETED と同じ挙動)
       for (const [edgeId, edge] of g.edges) {
-        if (edge.source === op.target || edge.target === op.target) {
+        if (removed.has(edge.source) || removed.has(edge.target)) {
           g.edges.delete(edgeId);
           g.edgeLayouts.delete(edgeId);
         }
