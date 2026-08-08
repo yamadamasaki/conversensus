@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test';
-import type { Batch, FileId, NodeId } from '@conversensus/shared';
+import type { Batch, NodeId } from '@conversensus/shared';
 
 // zod を先にモックする (./atproto 経由で推移的に読まれる)
 const zodProxy: Record<string, unknown> = new Proxy(() => zodProxy, {
@@ -18,7 +18,7 @@ const { render, screen, fireEvent, act, cleanup } = await import(
 const { SyncStatusIndicator } = await import('./SyncStatusIndicator');
 
 import type { RemoteBatchTarget } from './atproto/remoteSyncQueue';
-import type { RemoteBatch } from './atproto/types';
+import type { RemoteBatch, RemoteFileEntry } from './atproto/types';
 
 const { RemoteSyncQueue } = await import('./atproto/remoteSyncQueue');
 type SyncProvider = import('./sync/syncProvider').SyncProvider;
@@ -47,8 +47,8 @@ class FakeProvider implements SyncProvider, RemoteBatchTarget {
   async pullRemoteForFile(): Promise<RemoteBatch[]> {
     return [];
   }
-  /** ファイル列挙 (Phase 7 p7-3) */
-  async listRemoteFileIds(): Promise<FileId[]> {
+  /** ファイル列挙 (Phase 7 p7-3 / ANA-127 S3) */
+  async listRemoteFiles(): Promise<RemoteFileEntry[]> {
     return [];
   }
 }

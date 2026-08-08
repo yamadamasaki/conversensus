@@ -22,7 +22,7 @@ PDS から materialize し直し、削除が取り消されていた (設計 §2
 ### clock の決め方が本質 (`nextTombstoneClock`)
 
 tombstone の clock は **既存の最大 clock + 1** でなければならない。「一意ならよい」
-のではない。他端末の削除検出は `listBatchFileIds` が各ファイルの**最大 rkey に着地する**
+のではない。他端末の削除検出は `listBatchFileHeads` が各ファイルの**最大 rkey に着地する**
 性質に乗っており (Phase 7 p7-3)、rkey は `v1~<fileId>~<clock12>~<batchId>` で clock 順に
 並ぶ。tombstone が最大 clock を持たないと着地点が tombstone にならず、他端末は本体を
 引くまで削除に気づけない — 毎回の起動で削除済みファイルを転送することになる。

@@ -560,8 +560,10 @@ export function useFileSheetOperations({
 
     const discover = () => {
       discoverRemoteFiles({
-        // 列挙 → 未知ファイルだけ取得 (Phase 7 p7-3)。既知ファイルの batch は落とさない
-        listRemoteFileIds: () => remoteQueue.listRemoteFileIds(),
+        // 列挙 → 未知ファイルだけ取得 (Phase 7 p7-3)。既知ファイルの batch は落とさない。
+        // 列挙は「remote 側で削除済みか」も返す (ANA-127 S3) ので、他端末で削除された
+        // ファイルはここで弾かれ、この端末に materialize されない
+        listRemoteFiles: () => remoteQueue.listRemoteFiles(),
         pullRemoteForFile: (fileId) => remoteQueue.pullRemoteForFile(fileId),
         // **一覧 (`fetchFiles`) ではなく全 file_id を既知集合にする** (ANA-127)。
         // 一覧は削除済みを隠すので、それを既知集合に使うと削除したファイルが
@@ -570,6 +572,14 @@ export function useFileSheetOperations({
         appendReceived: deps.pushReceivedBatches,
       })
         .then((result) => {
+          // 削除で materialize を見送った分は無言にしない (ANA-127 S3)。
+          // 「PDS にはあるのに手元に出てこない」を後から説明できる唯一の記録である
+          if (result.skippedDeletedFiles > 0) {
+            console.info(
+              `[sync] skipped ${result.skippedDeletedFiles} remote file(s) ` +
+                'deleted elsewhere',
+            );
+          }
           if (result.discovered.length === 0) return;
           console.info(
             `[sync] discovered ${result.discovered.length} remote file(s), ` +

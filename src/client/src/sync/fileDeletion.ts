@@ -21,7 +21,7 @@ import { graphEventToBatch } from '../events/toUnified';
 /**
  * tombstone の clock を決める。**既存の最大 clock + 1** でなければならない。
  *
- * 単に「一意であればよい」のではない。remote の削除検出は `listBatchFileIds` が
+ * 単に「一意であればよい」のではない。remote の削除検出は `listBatchFileHeads` が
  * **各ファイルの最大 rkey に着地する**性質に乗っており (Phase 7 p7-3, 設計 §3-1)、
  * rkey は `v1~<fileId>~<clock12>~<batchId>` で clock 順に並ぶ。tombstone が最大 clock を
  * 持たないと着地点が tombstone にならず、他端末は本体を引くまで削除に気づけない。

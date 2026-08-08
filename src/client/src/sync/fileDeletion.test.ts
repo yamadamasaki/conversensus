@@ -25,7 +25,7 @@ describe('nextTombstoneClock', () => {
     expect(nextTombstoneClock([])).toBe(1);
   });
 
-  // 最大 clock + 1 であることが remote の削除検出を支えている: `listBatchFileIds` は
+  // 最大 clock + 1 であることが remote の削除検出を支えている: `listBatchFileHeads` は
   // 各ファイルの**最大 rkey** に着地し、rkey は clock 順に並ぶ (設計 §3-1)。
   // ここが最大でないと他端末は本体を引くまで削除に気づけない。
   test('既存 batch の最大 clock + 1 を返す', () => {

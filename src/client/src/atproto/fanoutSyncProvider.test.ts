@@ -9,7 +9,7 @@ import {
 import type { Cursor, PullResult, SyncProvider } from '../sync/syncProvider';
 import { FanoutSyncProvider } from './fanoutSyncProvider';
 import { type RemoteBatchTarget, RemoteSyncQueue } from './remoteSyncQueue';
-import type { RemoteBatch } from './types';
+import type { RemoteBatch, RemoteFileEntry } from './types';
 
 const FILE = '22222222-2222-4222-8222-222222222222' as FileId;
 
@@ -77,8 +77,10 @@ class FakeProvider implements SyncProvider, RemoteBatchTarget {
     return this.pullRemoteEntries.filter((e) => e.fileId === fileId);
   }
   /** ファイル列挙 (Phase 7 p7-3)。fanout は発見経路に関与しない */
-  async listRemoteFileIds(): Promise<FileId[]> {
-    return [...new Set(this.pullRemoteEntries.map((e) => e.fileId))];
+  async listRemoteFiles(): Promise<RemoteFileEntry[]> {
+    return [...new Set(this.pullRemoteEntries.map((e) => e.fileId))].map(
+      (fileId) => ({ fileId, deleted: false }),
+    );
   }
   get flatPushed(): Batch[] {
     return this.pushed.flat();

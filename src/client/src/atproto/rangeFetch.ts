@@ -5,7 +5,7 @@
  * 設計 `step1-phase7-range-fetch.md` §3.2 / §3.3。
  *
  * - `listByRkeyPrefix`: rkey が prefix で始まるレコードだけを読む (= 1 ファイル分)。
- * - `listBatchFileIds`: 存在する fileId を 1 ファイル 1 リクエストで降順に列挙する。
+ * - `listBatchFileHeads`: 存在する fileId を 1 ファイル 1 リクエストで降順に列挙する。
  *
  * **ページ取得を引数で受ける**のは 2 つの理由からである:
  *
@@ -90,6 +90,19 @@ export async function listByRkeyPrefix(
 }
 
 /**
+ * 列挙で 1 ファイルにつき着地した 1 レコード (ANA-127 S3)。
+ *
+ * `head` は**そのファイルの最大 rkey = 最大 clock の batch レコード**である (下記の走査)。
+ * 列挙は fileId を知るためだけに読んでいたが、着地レコードそのものを返せば
+ * **リクエストを 1 件も増やさずに**「このファイルは削除済みか」を判定できる
+ * (削除は最大 clock の tombstone として置かれる, `sync/fileDeletion.ts`)。
+ *
+ * 解釈 (レコード → Batch → `isFileDeleted`) はここではやらない。このファイルは
+ * cursor の意味論だけを持ち、レコード内容の解釈は `atprotoSyncProvider` に置く。
+ */
+export type BatchFileHead = { fileId: FileId; head: RecordSummary };
+
+/**
  * batch コレクションに存在する fileId を**降順に 1 ファイル 1 リクエストで**列挙する
  * (step1 Phase 7 p7-3, 設計 §3.3)。
  *
@@ -108,11 +121,11 @@ export async function listByRkeyPrefix(
  * 整合を取る責務が生まれるため採らなかった (§3.3)。p7-0 で cursor seek が実機で
  * 成立したので、fallback として設計に温存するだけでよい。
  */
-export async function listBatchFileIds(
+export async function listBatchFileHeads(
   listPage: ListRecordsPage,
   maxRequests: number = MAX_FILE_ENUMERATION_REQUESTS,
-): Promise<FileId[]> {
-  const fileIds: FileId[] = [];
+): Promise<BatchFileHead[]> {
+  const heads: BatchFileHead[] = [];
   const seen = new Set<FileId>();
   let cursor: string | undefined;
   let malformed = 0;
@@ -144,7 +157,7 @@ export async function listBatchFileIds(
       break;
     }
     seen.add(parsed.fileId);
-    fileIds.push(parsed.fileId);
+    heads.push({ fileId: parsed.fileId, head: record });
     cursor = batchRkeyFileCursor(parsed.fileId);
   }
 
@@ -154,12 +167,12 @@ export async function listBatchFileIds(
         "with 'v1~' but does not parse as v1~<fileId>~<clock>~<batchId>",
     );
   }
-  if (fileIds.length >= maxRequests) {
+  if (heads.length >= maxRequests) {
     // 上限に張り付いた = ファイル数 + 1 で収まる前提が崩れている (§3.6 の検知器)
     console.warn(
       `[atproto] file enumeration hit the request cap (${maxRequests}); ` +
         'the file list may be incomplete',
     );
   }
-  return fileIds;
+  return heads;
 }

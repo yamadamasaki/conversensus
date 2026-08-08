@@ -57,7 +57,7 @@ export type MigrateRemoteRkeyDeps = {
    * remote の batch を**全件**取得する。**移行がこの口の唯一の消費者である** (p7-5)。
    *
    * 通常経路がすべてファイル単位の範囲取得へ移った後もここだけ残るのは、探したいものが
-   * **旧 rkey のレコード**だからである。新経路 (`listByFile` / `listFileIds`) は `v1~` で
+   * **旧 rkey のレコード**だからである。新経路 (`listByFile` / `listFileHeads`) は `v1~` で
    * 始まる rkey しか走査しないので、旧レコードは原理的に見つけられない (設計 §3.1)。
    */
   pullAllRemoteForMigration: () => Promise<RemoteBatch[]>;

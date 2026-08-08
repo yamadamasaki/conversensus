@@ -12,11 +12,21 @@
  * (Phase 7 設計 §3.3)。以前は repo 全体の batch を落としてから既知ファイルの分を
  * JS で捨てていたので、既に持っているファイルの履歴を毎回転送していた。今は:
  *
- * 1. `listRemoteFileIds()` で fileId を列挙する (1 ファイル 1 リクエスト・各 1 レコード)。
+ * 1. `listRemoteFiles()` で fileId を列挙する (1 ファイル 1 リクエスト・各 1 レコード)。
  * 2. ローカル既知の fileId を除く。
  * 3. **残った未知ファイルの分だけ** `pullRemoteForFile` で本体を取る。
  *
  * つまり既知ファイルの batch は 1 件も取得しない。
+ *
+ * **ANA-127 S3 で「削除済みファイルを materialize しない」検査を 2 段で足した**
+ * (設計 `step1-refinement-ana118-file-deletion.md` §4 D1 の層 2)。
+ *
+ * - 列挙の着地レコードが tombstone なら本体を引かない (リクエストを増やさない)
+ * - 引いた op-log に `file.remove` があれば書かない (remove-wins の保証)
+ *
+ * 前者だけでは、tombstone より大きい clock の batch が他端末から後続したときに
+ * 着地点が動いてすり抜ける。後者だけでは、削除済みファイルの履歴を起動のたびに
+ * 転送してしまう。両方あって初めて「安く、かつ取りこぼさない」。
  *
  * - **書込口は受信 (a) と同じ marker 経路** (`POST /files/:id/batches/received`)。
  *   plain append だと次の `GET /files/:id/batches` が lazy migration を起動し、
@@ -29,12 +39,12 @@
  *   local pull の max(clock) から seed する (W3a) ので受信分を必ず追い越す。
  */
 
-import type { Batch, FileId } from '@conversensus/shared';
-import type { RemoteBatch } from '../atproto/types';
+import { type Batch, type FileId, isFileDeleted } from '@conversensus/shared';
+import type { RemoteBatch, RemoteFileEntry } from '../atproto/types';
 
 export type DiscoverRemoteDeps = {
-  /** remote に存在する fileId を列挙する (Phase 7 p7-3: batch 本体は伴わない) */
-  listRemoteFileIds: () => Promise<FileId[]>;
+  /** remote に存在するファイルを列挙する (Phase 7 p7-3: batch 本体は伴わない) */
+  listRemoteFiles: () => Promise<RemoteFileEntry[]>;
   /** 未知ファイル 1 つ分の batch を取得する (Phase 7 p7-2 の範囲取得) */
   pullRemoteForFile: (fileId: FileId) => Promise<RemoteBatch[]>;
   /** ローカルに既知の fileId 一覧 (`GET /files` = snapshot と op-log の和集合, 4e-2a) */
@@ -54,6 +64,14 @@ export type DiscoverRemoteResult = {
    * 単位がファイル数に変わった (設計 §5.3)。
    */
   skippedKnownFiles: number;
+  /**
+   * remote 側で削除されていたため materialize しなかったファイル数 (ANA-127 S3)。
+   *
+   * `skippedKnownFiles` と分けているのは、この 2 つが**別の理由**で materialize を
+   * 見送っているからである。既知ファイルは「既に持っている」、削除済みファイルは
+   * 「持ってはいけない」。混ぜると削除の伝播が効いているかを観測できない。
+   */
+  skippedDeletedFiles: number;
 };
 
 /**
@@ -68,19 +86,27 @@ export type DiscoverRemoteResult = {
 export async function discoverRemoteFiles(
   deps: DiscoverRemoteDeps,
 ): Promise<DiscoverRemoteResult> {
-  const [remoteIds, localIds] = await Promise.all([
-    deps.listRemoteFileIds(),
+  const [remoteFiles, localIds] = await Promise.all([
+    deps.listRemoteFiles(),
     deps.listLocalFileIds(),
   ]);
   const known = new Set<FileId>(localIds);
 
   // 列挙の重複は防御的に落とす (列挙側でも検知して warn する, Phase 7 設計 §3.6)
-  const unknown = [...new Set(remoteIds)].filter((id) => !known.has(id));
-  const skippedKnownFiles = new Set(remoteIds).size - unknown.length;
+  const remote = [...new Map(remoteFiles.map((e) => [e.fileId, e])).values()];
+  const unknown = remote.filter((e) => !known.has(e.fileId));
+  const skippedKnownFiles = remote.length - unknown.length;
 
   const discovered: FileId[] = [];
   let appended = 0;
-  for (const fileId of unknown) {
+  let skippedDeletedFiles = 0;
+  for (const { fileId, deleted } of unknown) {
+    // 検査 1: 着地レコードが tombstone なら本体を引かない (ANA-127 S3)。
+    // 削除済みファイルの履歴を起動のたびに転送しないための枝である。
+    if (deleted) {
+      skippedDeletedFiles += 1;
+      continue;
+    }
     const entries = await deps.pullRemoteForFile(fileId);
     // 適用先の権威はボディの fileId (rkey は取得経路の索引にすぎない)。取得が他ファイルを
     // 混ぜても未知の fileId を書かない — 孤児 batch を作らない不変条件 (4d 設計 §1.11 D-4)
@@ -98,9 +124,18 @@ export async function discoverRemoteFiles(
     // batch が 1 件も無いファイルは materialize しない (列挙にだけ現れた壊れた状態)
     if (batches.length === 0) continue;
 
+    // 検査 2: 引いた op-log のどこかに `file.remove` があれば materialize しない
+    // (ANA-127 S3, remove-wins)。tombstone より大きい clock の batch が後から載ると
+    // 着地点は tombstone でなくなるので、検査 1 だけでは削除がすり抜ける。
+    // 引いた batch を見るだけなので**追加のリクエストはゼロ**である。
+    if (isFileDeleted(batches)) {
+      skippedDeletedFiles += 1;
+      continue;
+    }
+
     appended += await deps.appendReceived(fileId, batches);
     discovered.push(fileId);
   }
 
-  return { discovered, appended, skippedKnownFiles };
+  return { discovered, appended, skippedKnownFiles, skippedDeletedFiles };
 }
