@@ -363,6 +363,62 @@ describe('useFileSheetOperations', () => {
       expect(result.current.activeFile).not.toBeNull();
       expect(result.current.files.length).toBe(1);
     });
+
+    // ANA-127 の核心。削除は tombstone なので **op-log は残る** = discovery から見て
+    // 「既知」のままでなければならない。ここが崩れると削除したファイルが未知と判定され、
+    // PDS から materialize されて次回起動で復活する。
+    it('削除しても discovery の既知集合には残る (復活させないため)', async () => {
+      mockSetConfirmState.mockImplementationOnce(
+        (s: { resolve: (ok: boolean) => void }) => {
+          s.resolve(true);
+        },
+      );
+
+      const deps = createInMemoryFileSheetOpsDeps();
+      const { result } = await renderWith({ deps });
+      await act(async () => {
+        await result.current.handleCreate();
+      });
+      const created = result.current.activeFile;
+      if (!created) throw new Error('activeFile should be set');
+
+      await act(async () => {
+        await result.current.handleDeleteFile(created.id);
+      });
+
+      // 一覧からは消える
+      expect(await deps.fetchFiles()).toEqual([]);
+      // が、既知集合には残る
+      expect(await deps.fetchLocalFileIds()).toContain(created.id);
+    });
+
+    it('削除に失敗したら UI からも消さない', async () => {
+      mockSetConfirmState.mockImplementationOnce(
+        (s: { resolve: (ok: boolean) => void }) => {
+          s.resolve(true);
+        },
+      );
+
+      const deps = createInMemoryFileSheetOpsDeps();
+      deps.deleteFile = async () => {
+        throw new Error('daemon down');
+      };
+
+      const { result } = await renderWith({ deps });
+      await act(async () => {
+        await result.current.handleCreate();
+      });
+
+      await act(async () => {
+        await result.current.handleDeleteFile(
+          result.current.activeFile?.id ?? '',
+        );
+      });
+
+      // 消えたように見えて次の起動で戻る、という状態を作らない
+      expect(result.current.files.length).toBe(1);
+      expect(result.current.activeFile).not.toBeNull();
+    });
   });
 
   describe('handleImportFile', () => {

@@ -17,6 +17,8 @@ export function createInMemoryFileSheetOpsDeps(): FileSheetOpsDeps & {
 } {
   const fileStore = new Map<string, GraphFile>();
   const fileList: GraphFileListItem[] = [];
+  /** tombstone を立てた fileId (ANA-127)。fileStore からは消えない */
+  const deletedIds = new Set<string>();
 
   const deps: FileSheetOpsDeps & {
     _files: Map<string, GraphFile>;
@@ -60,7 +62,19 @@ export function createInMemoryFileSheetOpsDeps(): FileSheetOpsDeps & {
       );
     },
 
-    fetchFiles: async () => [...fileList],
+    // 一覧は削除済みを隠す (server の `listOplogFiles` と同じ, ANA-127)
+    fetchFiles: async () => fileList.filter((f) => !deletedIds.has(f.id)),
+
+    // 既知集合は削除済みも含む (server の `listAllFileIds`)。**この非対称が ANA-127 の
+    // 修正そのもの**なので、in-memory 側でも忠実に再現する — ここを一覧と同じにすると
+    // 「削除したファイルを discovery が materialize し直さない」テストが素通りする。
+    //
+    // fileStore と fileList の和を取るのは、materialize (`pushReceivedBatches`) を
+    // 模すテストが fileList にだけ積むためである。実装では op-log の行が唯一の
+    // 出どころなので和は要らない。
+    fetchLocalFileIds: async () => [
+      ...new Set([...fileStore.keys(), ...fileList.map((f) => f.id)]),
+    ],
 
     // 受信 materialize の書き込み口 (Phase 4e-2b)。in-memory では何も書かない。
     pushReceivedBatches: async () => 0,
@@ -83,14 +97,18 @@ export function createInMemoryFileSheetOpsDeps(): FileSheetOpsDeps & {
       return file;
     },
 
-    removeFile: async (id: string) => {
-      fileStore.delete(id);
-      const idx = fileList.findIndex((f) => f.id === id);
-      if (idx >= 0) fileList.splice(idx, 1);
-    },
-
-    atprotoFilesDelete: async (_id: string) => {
-      // no-op in tests
+    // 削除 = tombstone (ANA-127)。**fileStore からは消さない** — 実装側でも op-log の
+    // 行は残り、それが discovery の既知集合になる。実 provider (HTTP) を叩かないよう
+    // `deleteFileByTombstone` ごと差し替える。
+    deleteFile: async (fileId, actor) => {
+      deletedIds.add(fileId);
+      return {
+        id: `tombstone-${fileId}` as Batch['id'],
+        actor,
+        clock: 1,
+        timestamp: 0,
+        ops: [{ kind: 'file.remove' }],
+      };
     },
 
     // rkey 移行 (Phase 7 p7-4) は既定で「移行済」= 走らせない。移行の副作用が

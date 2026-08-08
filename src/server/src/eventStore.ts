@@ -218,6 +218,26 @@ export class EventStore {
   }
 
   /**
+   * op-log に batch を持つ file_id を**すべて**返す (ANA-127)。
+   *
+   * `listOplogFiles` との違いは「表示のための除外を一切しない」ことである。
+   * 削除済み・0 シート・branch 専用 file_id もそのまま含む。用途は 1 つで、
+   * remote からの発見 (`discoverRemoteFiles`) が「この端末が知らない fileId」を
+   * 求めるときの既知集合になる。
+   *
+   * 一覧 (`listOplogFiles`) を既知集合に流用してはいけない — 削除済みファイルが
+   * 「未知」に化けて PDS から materialize され、削除が取り消される (ANA-127 の再発)。
+   */
+  listAllFileIds(): FileId[] {
+    return this.db
+      .query<{ file_id: string }, []>(
+        'SELECT file_id FROM batches GROUP BY file_id ORDER BY MIN(seq)',
+      )
+      .all()
+      .map((row) => row.file_id as FileId);
+  }
+
+  /**
    * op-log に batch を持つファイルの一覧を返す (Phase 4e-2a, 4e 設計 §3.2b)。
    *
    * `GET /files` を snapshot storage と op-log の和集合にするための op-log 側。

@@ -92,6 +92,16 @@ app.get('/files', (c) => {
   return c.json(getEventStore().listOplogFiles());
 });
 
+// GET /files/ids - この端末が op-log を持つ file_id の全集合 (ANA-127)
+//
+// `GET /files` と違い**表示のための除外をしない** — 削除済み (`file.remove`) も含む。
+// 用途は remote からの発見 (`discoverRemoteFiles`) の既知集合で、ここから削除済みが
+// 抜けると「未知ファイル」と判定されて PDS から materialize され、削除が取り消される。
+// **`/files/:id` より先に定義する** — 静的セグメントが param に食われないようにする。
+app.get('/files/ids', (c) => {
+  return c.json(getEventStore().listAllFileIds());
+});
+
 // POST /files - 新規ファイル作成
 app.post('/files', async (c) => {
   const raw = await c.req.json().catch(() => null);

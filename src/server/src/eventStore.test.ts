@@ -520,6 +520,54 @@ describe('EventStore', () => {
     });
   });
 
+  // ANA-127: discovery の既知集合。一覧 (`listOplogFiles`) と違い表示のための除外を
+  // 一切しない。ここから削除済みが抜けると「未知ファイル」と判定されて PDS から
+  // materialize され、削除が取り消される。
+  describe('listAllFileIds (ANA-127)', () => {
+    const structureBatch = (id: string, clock: number): Batch => ({
+      id: id as Batch['id'],
+      actor: 'genesis',
+      clock,
+      timestamp: clock,
+      ops: [
+        { kind: 'file.setName', name: 'F' },
+        { kind: 'sheet.create', target: 'sheet-1' as SheetId, name: 'S1' },
+      ],
+    });
+    const removedBatch = (id: string, clock: number): Batch => ({
+      id: id as Batch['id'],
+      actor: 'local',
+      clock,
+      timestamp: clock,
+      ops: [{ kind: 'file.remove' }],
+    });
+
+    it('op-log が空なら空配列', () => {
+      expect(store.listAllFileIds()).toEqual([]);
+    });
+
+    it('削除済みの file_id も含む (一覧からは消えていても)', () => {
+      store.appendBatch(FILE, structureBatch('b1', 1));
+      store.appendBatch(FILE, removedBatch('b2', 2));
+      expect(store.listOplogFiles()).toEqual([]);
+      expect(store.listAllFileIds()).toEqual([FILE]);
+    });
+
+    it('0 シートの file_id も含む (一覧からは除かれるもの)', () => {
+      store.appendBatch(FILE, addNode('b1', 'n1', 'ノード', 1));
+      expect(store.listOplogFiles()).toEqual([]);
+      expect(store.listAllFileIds()).toEqual([FILE]);
+    });
+
+    it('重複せず初出順で返す', () => {
+      const other = 'file-2' as FileId;
+      store.appendBatch(other, structureBatch('b1', 1));
+      store.appendBatch(FILE, structureBatch('b2', 1));
+      store.appendBatch(other, structureBatch('b3', 2));
+      expect(store.listAllFileIds()).toEqual([other, FILE]);
+    });
+  });
+
   describe('listOplogFiles (Phase 4e-2a)', () => {
     /** file 構造 (file.setName + sheet.create) を持つ batch を作るヘルパ */
     const structure = (

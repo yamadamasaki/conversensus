@@ -58,6 +58,11 @@ Phase 3 の永続モデルは「append-only な操作ログ + projection」。�
     仕様化した pre-W3 増分ログの破棄 (上記 §migrateToOplog) を壊す。**両者を分けるのが
     marker の役割**であり、この 2 本のテストが対で意図を固定する。
   - 受信 0 件では marker を立てない (lazy migration の機会を無意味に奪わない)。
+- **listAllFileIds (ANA-127)**: `GET /files/ids`。**表示のための除外を一切しない** file_id の
+  全集合で、用途は remote からの発見 (`discoverRemoteFiles`) の既知集合ただ 1 つである。
+  `listOplogFiles` との対比そのものがテストの主題なので、同じ状態に両方を当てて
+  「一覧からは消えるが既知集合には残る」ことを 1 つのテストで見る。削除済み・0 シートの
+  どちらも含むこと、重複せず初出順であることを固定する。
 - **listOplogFiles (Phase 4e-2a)**: `GET /files` の一覧を作る。4e-2a では snapshot storage
   との和集合の op-log 側だったが、**Phase 6 p6-2 で `GET /files` の唯一の供給元になった**
   (設計 §3.3)。受信で materialize されたファイルは snapshot を持たないため、

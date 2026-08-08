@@ -9,6 +9,7 @@ import {
   CommitSchema,
   type ConversensusFile,
   type FileId,
+  FileIdSchema,
   type GraphFile,
   type GraphFileListItem,
   GraphFileListItemSchema,
@@ -26,6 +27,19 @@ export async function fetchFiles(): Promise<GraphFileListItem[]> {
   return z.array(GraphFileListItemSchema).parse(await res.json());
 }
 
+/**
+ * この端末が op-log を持つ file_id の全集合 (ANA-127)。
+ *
+ * `fetchFiles` と違い**削除済みも含む**。remote からの発見 (`discoverRemoteFiles`) の
+ * 既知集合はこちらでなければならない — 一覧を使うと削除済みが「未知」に化けて
+ * PDS から materialize され、削除が取り消される。
+ */
+export async function fetchLocalFileIds(): Promise<FileId[]> {
+  const res = await fetch(`${BASE}/files/ids`);
+  if (!res.ok) throw new Error('Failed to fetch local file ids');
+  return z.array(FileIdSchema).parse(await res.json());
+}
+
 // `fetchFile` (GET /files/:id) と `saveFile` (PUT /files/:id) は Phase 6 p6-3 で
 // 撤去した。ファイルの読取は op-log の projection (`fetchBatches` → `projectFile`)、
 // 書込は batch の追記が唯一の口になった (設計 §3.4 / §3.6)。
@@ -40,10 +54,11 @@ export async function createFile(name: string): Promise<GraphFile> {
   return GraphFileSchema.parse(await res.json());
 }
 
-export async function removeFile(id: string): Promise<void> {
-  const res = await fetch(`${BASE}/files/${id}`, { method: 'DELETE' });
-  if (!res.ok) throw new Error('Failed to delete file');
-}
+// `removeFile` (DELETE /files/:id) は ANA-127 で撤去した。通常のファイル削除は
+// op-log の tombstone (`sync/fileDeletion.ts`) になり、物理削除を呼ぶ経路が無くなった。
+// サーバの endpoint 自体は「op-log ごと本当に消す」保守用として残してある (設計 D2) が、
+// **クライアントからは呼ばない** — 呼ぶと tombstone まで消えて ANA-127 が再発する。
+// 消費者のいないラッパーを残すと「書くが読まない二重モデル」になる (Phase 6 の教訓)。
 
 export async function importFile(data: ConversensusFile): Promise<GraphFile> {
   const res = await fetch(`${BASE}/files/import`, {
