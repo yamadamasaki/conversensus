@@ -257,6 +257,15 @@ export type FileDescribedEvent = EventBase & {
   type: 'FILE_DESCRIBED';
   description?: string;
 };
+/**
+ * ファイルの削除 (ANA-127)。**どのファイルかは持たない** — op-log は fileId 単位に
+ * 束ねられているので、この event が流れる先の op-log がそのまま対象になる。
+ * undo スタックには載せない (設計 §7 の非目標)。
+ */
+export type FileDeletedEvent = EventBase & {
+  category: 'file';
+  type: 'FILE_DELETED';
+};
 
 export type GraphEvent =
   | NodeAddedEvent
@@ -285,7 +294,8 @@ export type GraphEvent =
   | SheetRenamedEvent
   | SheetDescribedEvent
   | FileRenamedEvent
-  | FileDescribedEvent;
+  | FileDescribedEvent
+  | FileDeletedEvent;
 
 export function makeEventBase<C extends GraphEvent['category']>(
   category: C,

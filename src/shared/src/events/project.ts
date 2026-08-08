@@ -230,6 +230,12 @@ export function toSheet(
 /** シート/ファイル構造の畳み込み状態。単純 LWW (single-actor 前提, critic H2-new) */
 type FileStructure = {
   file: { name: string; description?: string };
+  /**
+   * ファイルが削除済みか (ANA-127)。**remove-wins で sticky** — 一度立つと後続の op で
+   * 降りない。`sheet.remove` が add-wins (`sheet.create` で復活する) なのと非対称だが、
+   * ファイルには「再作成」に相当する op が無いので add-wins にする意味が無い。
+   */
+  deleted: boolean;
   /** live シート: id → メタ + createClock (reorder reconcile の tiebreak) */
   sheets: Map<
     SheetId,
@@ -243,6 +249,7 @@ type FileStructure = {
 function foldFileStructure(orderedBatches: Batch[]): FileStructure {
   const s: FileStructure = {
     file: { name: '' },
+    deleted: false,
     sheets: new Map(),
     order: null,
   };
@@ -290,6 +297,10 @@ function applyFileOp(s: FileStructure, op: FileOp, clock: number): void {
     case 'file.setDescription':
       if (op.description === undefined) delete s.file.description;
       else s.file.description = op.description;
+      break;
+    case 'file.remove':
+      // sticky: 一度立ったら降ろさない (FileStructure.deleted のコメント参照)
+      s.deleted = true;
       break;
   }
 }
@@ -351,4 +362,23 @@ export function projectFile(batches: Batch[], fileId: FileId): GraphFile {
     }),
     sheets,
   };
+}
+
+/**
+ * op-log にファイル削除 (`file.remove`) が含まれるかを判定する (ANA-127)。
+ *
+ * `projectFile` と別の関数にしてあるのは、**判定したい側が projection を要らない**
+ * からである。ローカルの一覧 (`listOplogFiles`) は projection と併用するが、
+ * 受信側の discovery (`discoverRemoteFiles`) は「materialize するかどうか」を
+ * 決めるだけで、中身を組み立てる必要が無い。`GraphFile` に削除フラグを足さないのも
+ * 同じ理由による — 削除済みファイルは `GraphFile` として表に出てはいけない。
+ *
+ * **順序に依存しない** — remove-wins で sticky (`FileStructure.deleted`) なので、
+ * 存在検査で足りる。したがって `orderBatches` を通す必要が無く、受信した生の
+ * batch 列にもそのまま使える。
+ */
+export function isFileDeleted(batches: readonly Batch[]): boolean {
+  return batches.some((batch) =>
+    batch.ops.some((op) => op.kind === 'file.remove'),
+  );
 }

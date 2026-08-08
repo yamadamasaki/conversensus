@@ -9,7 +9,7 @@ import {
   type SheetId,
   SheetIdSchema,
 } from '../schemas';
-import { projectBatches, projectFile, toSheet } from './project';
+import { isFileDeleted, projectBatches, projectFile, toSheet } from './project';
 import { type Batch, BatchIdSchema, type Op } from './unified';
 
 const nid = (): NodeId => NodeIdSchema.parse(crypto.randomUUID());
@@ -418,5 +418,74 @@ describe('foldFileStructure の現挙動の固定 (Phase 4d-3, 設計 §3.2 / §
     );
     // 同一 clock なので actor 昇順で dev-b が後、その order が全面採用される
     expect(file.sheets.map((s) => s.id)).toEqual([s1, s2]);
+  });
+});
+
+describe('isFileDeleted (ANA-127)', () => {
+  const live = (s1: SheetId): Batch[] => [
+    batch(1, [{ kind: 'file.setName', name: 'F' }]),
+    batch(2, [{ kind: 'sheet.create', target: s1, name: 'S1' }]),
+  ];
+
+  test('file.remove が無ければ false', () => {
+    expect(isFileDeleted(live(sid()))).toBe(false);
+  });
+
+  test('空の op-log は false (削除ではなく「まだ何も無い」)', () => {
+    expect(isFileDeleted([])).toBe(false);
+  });
+
+  test('file.remove があれば true', () => {
+    const s1 = sid();
+    expect(
+      isFileDeleted([...live(s1), batch(3, [{ kind: 'file.remove' }])]),
+    ).toBe(true);
+  });
+
+  test('他の op と同じ batch に混ざっていても検出する', () => {
+    const s1 = sid();
+    expect(
+      isFileDeleted([
+        ...live(s1),
+        batch(3, [
+          { kind: 'file.setName', name: 'F2' },
+          { kind: 'file.remove' },
+        ]),
+      ]),
+    ).toBe(true);
+  });
+
+  // remove-wins (sticky)。並行編集で削除より大きい clock の batch が後から来ても
+  // 復活させない — ファイルには「再作成」に相当する op が無いため (設計 D1)。
+  test('file.remove より後の op があっても true のまま (remove-wins)', () => {
+    const s1 = sid();
+    const s2 = sid();
+    expect(
+      isFileDeleted([
+        ...live(s1),
+        batch(3, [{ kind: 'file.remove' }]),
+        batch(4, [{ kind: 'sheet.create', target: s2, name: 'S2' }]),
+        batch(5, [{ kind: 'file.setName', name: 'まだ編集されている' }]),
+      ]),
+    ).toBe(true);
+  });
+
+  // 順序非依存であること = orderBatches を通さない生の受信列にも使える (設計 §4 D1 層 2)。
+  test('batch の並び順に依存しない', () => {
+    const s1 = sid();
+    const deleted = batch(3, [{ kind: 'file.remove' }]);
+    expect(isFileDeleted([deleted, ...live(s1)])).toBe(true);
+  });
+
+  // 削除済みでも projectFile 自体は従来通り射影する。隠すのは呼び出し側の責務で、
+  // ここを変えると「削除したファイルを復元する」経路まで塞いでしまう。
+  test('projectFile は削除済みでも中身を射影する (隠すのは呼び出し側)', () => {
+    const s1 = sid();
+    const file = projectFile(
+      [...live(s1), batch(3, [{ kind: 'file.remove' }])],
+      fid(),
+    );
+    expect(file.name).toBe('F');
+    expect(file.sheets).toHaveLength(1);
   });
 });

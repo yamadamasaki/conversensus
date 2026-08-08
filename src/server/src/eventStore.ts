@@ -21,6 +21,7 @@ import {
   type CommitId,
   type FileId,
   type GraphFileListItem,
+  isFileDeleted,
   projectBatches,
   projectFile,
   type Sheet,
@@ -228,6 +229,9 @@ export class EventStore {
    * - projection が 0 シートの file_id は除外する — 有効な GraphFile は必ず
    *   1 シート以上持つ (W3d-2 の読取失敗判定と同じ基準)。genesis を持たない
    *   孤児 batch だけの file_id を出すと、開いても描画できない項目が並ぶため。
+   * - **削除済み (`file.remove`) の file_id も除外する** (ANA-127)。batches の行は
+   *   残したまま一覧からだけ落とす — 行を消すと tombstone ごと消えて、次の discovery が
+   *   「未知ファイル」と誤判定して PDS から materialize し直してしまう (設計 D1 の層 1)。
    */
   listOplogFiles(): GraphFileListItem[] {
     const rows = this.db
@@ -238,7 +242,9 @@ export class EventStore {
     const items: GraphFileListItem[] = [];
     for (const row of rows) {
       const fileId = row.file_id as FileId;
-      const projected = projectFile(this.getBatches(fileId), fileId);
+      const batches = this.getBatches(fileId);
+      if (isFileDeleted(batches)) continue;
+      const projected = projectFile(batches, fileId);
       if (projected.sheets.length === 0) continue;
       items.push({
         id: fileId,

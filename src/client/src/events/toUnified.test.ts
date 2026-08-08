@@ -386,6 +386,23 @@ describe('graphEventToOps: file 構造イベント (W3c1)', () => {
     ).toEqual([{ kind: 'file.setDescription', description: 'd' }]);
   });
 
+  // ANA-127: 削除は「どのファイルか」を持たない。batch が既に fileId 単位に束ねられて
+  // いるので、target を足すと op-log の所属と二重の正典になる。
+  test('FILE_DELETED → file.remove (target を持たない)', () => {
+    expect(
+      graphEventToOps({ ...makeEventBase('file'), type: 'FILE_DELETED' }),
+    ).toEqual([{ kind: 'file.remove' }]);
+  });
+
+  test('FILE_DELETED も file 構造 batch (sheetId 無し) になる', () => {
+    const batch = graphEventToBatch(
+      { ...makeEventBase('file'), type: 'FILE_DELETED' },
+      7,
+    );
+    expect(batch.sheetId).toBeUndefined();
+    expect(batch.ops).toEqual([{ kind: 'file.remove' }]);
+  });
+
   test('構造イベントは file 構造 batch (sheetId 無し) になる', () => {
     const batch = graphEventToBatch(
       { ...makeEventBase('file'), type: 'FILE_RENAMED', name: 'F' },

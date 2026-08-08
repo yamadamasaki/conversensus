@@ -559,6 +559,46 @@ describe('EventStore', () => {
       expect(store.listOplogFiles()).toEqual([]);
     });
 
+    // ANA-127: 削除は tombstone であって行の物理削除ではない。一覧から落ちること
+    // **と** batches に行が残ることの両方を固定する — 後者が崩れると discovery が
+    // 「未知ファイル」と誤判定して PDS から materialize し直す (設計 D1 層 1)。
+    describe('削除済みファイルの除外 (ANA-127)', () => {
+      const removed = (id: string, clock: number): Batch => ({
+        id: id as Batch['id'],
+        actor: 'local',
+        clock,
+        timestamp: clock,
+        ops: [{ kind: 'file.remove' }],
+      });
+
+      it('file.remove を持つ file_id は一覧に出さない', () => {
+        store.appendBatch(FILE, structure('b1', 'ファイルA', 1));
+        store.appendBatch(FILE, removed('b2', 2));
+        expect(store.listOplogFiles()).toEqual([]);
+      });
+
+      it('一覧から消えても batches の行は残る (tombstone を失わない)', () => {
+        store.appendBatch(FILE, structure('b1', 'ファイルA', 1));
+        store.appendBatch(FILE, removed('b2', 2));
+        expect(store.getBatches(FILE)).toHaveLength(2);
+      });
+
+      it('削除済みファイルがあっても他のファイルは一覧に残る', () => {
+        const other = 'file-2' as FileId;
+        store.appendBatch(FILE, structure('b1', '消す方', 1));
+        store.appendBatch(FILE, removed('b2', 2));
+        store.appendBatch(other, structure('b3', '残る方', 1));
+        expect(store.listOplogFiles()).toEqual([{ id: other, name: '残る方' }]);
+      });
+
+      it('file.remove の後に編集が来ても復活しない (remove-wins)', () => {
+        store.appendBatch(FILE, structure('b1', 'ファイルA', 1));
+        store.appendBatch(FILE, removed('b2', 2));
+        store.appendBatch(FILE, structure('b3', '後から来た編集', 3));
+        expect(store.listOplogFiles()).toEqual([]);
+      });
+    });
+
     it('初出順 (file_id ごとの最小 seq) で並ぶ', () => {
       const other = 'file-2' as FileId;
       store.appendBatch(other, structure('b1', '後で snapshot になる方', 1));
