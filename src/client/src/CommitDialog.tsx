@@ -1,14 +1,14 @@
-import type { CommitOperation } from '@conversensus/shared';
 import { useEffect, useRef, useState } from 'react';
 import { DIALOG_Z_INDEX } from './ConfirmDialog';
+import { isLayoutOnly, type SheetChange } from './sync/computeOperations';
 
 type Props = {
-  operations: CommitOperation[];
+  changes: SheetChange[];
   onCommit: (message: string) => void;
   onCancel: () => void;
 };
 
-export function CommitDialog({ operations, onCommit, onCancel }: Props) {
+export function CommitDialog({ changes, onCommit, onCancel }: Props) {
   const [message, setMessage] = useState('');
   const composingRef = useRef(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -17,15 +17,24 @@ export function CommitDialog({ operations, onCommit, onCancel }: Props) {
     textareaRef.current?.focus();
   }, []);
 
+  // layout だけの変更は「変更」として数えたうえで、内訳に「移動」として出す。
+  // 画面のハイライトは意味の変更と区別しないので、区別はこの内訳だけに閉じる。
+  const count = (kind: string) =>
+    changes.filter((c) => c.op.op === kind).length;
+  const countMoved = (kind: string) =>
+    changes.filter((c) => c.op.op === kind && isLayoutOnly(c)).length;
+
   const opSummary = {
-    nodeAdd: operations.filter((o) => o.op === 'node.add').length,
-    nodeUpdate: operations.filter((o) => o.op === 'node.update').length,
-    nodeRemove: operations.filter((o) => o.op === 'node.remove').length,
-    edgeAdd: operations.filter((o) => o.op === 'edge.add').length,
-    edgeUpdate: operations.filter((o) => o.op === 'edge.update').length,
-    edgeRemove: operations.filter((o) => o.op === 'edge.remove').length,
+    nodeAdd: count('node.add'),
+    nodeUpdate: count('node.update'),
+    nodeMoved: countMoved('node.update'),
+    nodeRemove: count('node.remove'),
+    edgeAdd: count('edge.add'),
+    edgeUpdate: count('edge.update'),
+    edgeMoved: countMoved('edge.update'),
+    edgeRemove: count('edge.remove'),
   };
-  const hasChanges = operations.length > 0;
+  const hasChanges = changes.length > 0;
 
   const handleBackdropClick = () => onCancel();
 
@@ -75,14 +84,22 @@ export function CommitDialog({ operations, onCommit, onCancel }: Props) {
           {!hasChanges && <span>変更なし</span>}
           {opSummary.nodeAdd > 0 && <div>ノード追加: {opSummary.nodeAdd}</div>}
           {opSummary.nodeUpdate > 0 && (
-            <div>ノード変更: {opSummary.nodeUpdate}</div>
+            <div>
+              ノード変更: {opSummary.nodeUpdate}
+              {opSummary.nodeMoved > 0 &&
+                ` (うち移動のみ: ${opSummary.nodeMoved})`}
+            </div>
           )}
           {opSummary.nodeRemove > 0 && (
             <div>ノード削除: {opSummary.nodeRemove}</div>
           )}
           {opSummary.edgeAdd > 0 && <div>エッジ追加: {opSummary.edgeAdd}</div>}
           {opSummary.edgeUpdate > 0 && (
-            <div>エッジ変更: {opSummary.edgeUpdate}</div>
+            <div>
+              エッジ変更: {opSummary.edgeUpdate}
+              {opSummary.edgeMoved > 0 &&
+                ` (うち経路のみ: ${opSummary.edgeMoved})`}
+            </div>
           )}
           {opSummary.edgeRemove > 0 && (
             <div>エッジ削除: {opSummary.edgeRemove}</div>

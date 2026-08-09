@@ -252,24 +252,26 @@ export default function App() {
             >
               ⎇ {branch.name}
               {branch.status === BRANCH_STATUS.MERGED && ' (merged)'}
-              {branchOps.pendingOps.length > 0
-                ? ` (${branchOps.pendingOps.length} 変更)`
+              {branchOps.pendingChanges.length > 0
+                ? ` (${branchOps.pendingChanges.length} 変更)`
                 : ''}
             </span>
             <button
               type="button"
               onClick={() => branchOps.setCommitDialogOpen(true)}
-              disabled={branchOps.pendingOps.length === 0}
+              disabled={branchOps.pendingChanges.length === 0}
               style={{
                 padding: '6px 16px',
                 fontSize: 13,
                 background:
-                  branchOps.pendingOps.length > 0 ? '#4f6ef7' : '#ccc',
+                  branchOps.pendingChanges.length > 0 ? '#4f6ef7' : '#ccc',
                 color: '#fff',
                 border: 'none',
                 borderRadius: 4,
                 cursor:
-                  branchOps.pendingOps.length > 0 ? 'pointer' : 'not-allowed',
+                  branchOps.pendingChanges.length > 0
+                    ? 'pointer'
+                    : 'not-allowed',
               }}
             >
               コミット
@@ -278,14 +280,14 @@ export default function App() {
               type="button"
               onClick={() => branchOps.handleMergeBranch(branch)}
               disabled={
-                branchOps.pendingOps.length > 0 ||
+                branchOps.pendingChanges.length > 0 ||
                 branchOps.newCommitsSinceMerge === 0
               }
               style={{
                 padding: '6px 16px',
                 fontSize: 13,
                 background:
-                  branchOps.pendingOps.length === 0 &&
+                  branchOps.pendingChanges.length === 0 &&
                   branchOps.newCommitsSinceMerge > 0
                     ? '#f97316'
                     : '#ccc',
@@ -293,7 +295,7 @@ export default function App() {
                 border: 'none',
                 borderRadius: 4,
                 cursor:
-                  branchOps.pendingOps.length === 0 &&
+                  branchOps.pendingChanges.length === 0 &&
                   branchOps.newCommitsSinceMerge > 0
                     ? 'pointer'
                     : 'not-allowed',
@@ -305,7 +307,7 @@ export default function App() {
         )}
       {branchOps.commitDialogOpen && (
         <CommitDialog
-          operations={branchOps.pendingOps}
+          changes={branchOps.pendingChanges}
           onCommit={branchOps.handleCommit}
           onCancel={() => branchOps.setCommitDialogOpen(false)}
         />

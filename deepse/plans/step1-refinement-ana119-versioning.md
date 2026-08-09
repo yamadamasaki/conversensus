@@ -231,6 +231,24 @@ ghost (削除予定の表示) は `toFlowAndGhostNodes` (`graphTransform.ts:391`
 これは「Sheet 比較に戻る」ことではない。**候補集合は op-log の区間から取る**ので layout は
 自動的に入り (ANA-124 は解消), 意味フィールドを人手で列挙する重複も消える。
 
+> **実装 (S2) での確定 (2026-08-09)**: 1 段目の「op 区間から候補を集める」は**実装しない**。
+> `current` は op-log の projection ではなく**編集中のメモリ上の Sheet** で, op-log には
+> tap が非同期に書くため, op 区間を正典にするとハイライトが 1 flush 遅れる。そして
+> **結果は同じになる** — projection は op で決まるので「区間の op に触れられていない target」
+> は値も変わらない。op 区間は候補集合を絞る最適化にすぎない。
+>
+> 代わりに **比較するフィールドを op の語彙 (`OP_CATEGORY`) に対応させる**ことで、
+> 「列挙の網羅性」の問題に対処した。**presentation は比較しない** (ローカル限定で
+> `isSyncable` が false, `toSheet` も Sheet に載せない)。
+>
+> 併せて**正規化**が要る。projection 由来の Sheet と React Flow を往復した Sheet は
+> 「省略」と「既定値の明示」が食い違うので, 素朴に比べると全ノードが「変更」に見える:
+>
+> - node layout: `x ?? 0` / `y ?? 0` / `width ?? 160` / `height ?? 80` (`DEFAULT_NODE_STYLE`)
+> - edge layout: `pathType ?? 'bezier'` (`DEFAULT_EDGE_PATH_TYPE`)
+> - 数値は `Math.round` (op-log が丸めて記録するので, 丸めで消える差は差分ではない)
+> - properties は `undefined` と `{}` を同一視し, キー順に依存しない
+
 ### D2: **ブランチの状態**を一級の概念にし, 基準を状態から決める
 
 ANA-120 の提案をそのまま採る。
@@ -275,8 +293,8 @@ ghost ノードに `connectable: false` を付け, 各ノード実装の ghost �
 
 | # | 内容 | 解消 | 依存 |
 |---|---|---|---|
-| S1 | ghost を接続不可にする | ANA-121 | なし。**先に入れてよい** |
-| S2 | 差分を op-log 区間 + net 比較から導出する (`computeOperations` の置換) | ANA-124 | D1 |
+| S1 | ghost を接続不可にする | ANA-121 | なし。**先に入れてよい** ✅ 完了 |
+| S2 | 差分に layout を含め net 比較にする (`computeSheetChanges`) | ANA-124 | D1 ✅ 完了 |
 | S3 | ブランチ状態を導入し, 基準を状態から決める | ANA-120 | S2 |
 | S4 | merge コミット (message 必須, `commits.kind`) | ANA-122 | D3 |
 | S5 | 複数選択ドラッグの移動が op-log に載らない穴を塞ぐ | ANA-124 の残り | なし |
@@ -293,6 +311,13 @@ S2 で layout を差分に入れても, この分だけは差分に出ないま�
 
 同じ箇所は `NODE_REPARENTED` も単一ノード前提なので, 複数選択してグループへドロップした
 場合も同様に取りこぼす可能性がある。実装前にテストか実機で裏を取ること。
+
+### 実機で確かめたいこと (S2 の後)
+
+`recalculateParentBounds` は `applyEvent` の中だけで走り (`applyEvent.ts:78, 85, 94, 208`),
+**再計算されたグループのサイズは op-log に書かれない**。そのため子を編集した後,
+グループが「変更」として出続ける可能性がある。値としては本当に見た目が変わっているので
+誤検知とは言い切れないが, 実機で確認して不自然なら別課題にする。
 
 ---
 

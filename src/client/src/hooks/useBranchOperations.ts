@@ -23,7 +23,7 @@ import {
   createBranchOnOplog,
   readBranchSheets,
 } from '../sync/branchProjection';
-import { computeOperations } from '../sync/computeOperations';
+import { computeSheetChanges } from '../sync/computeOperations';
 import { mergeBranchOnOplog } from '../sync/mergeBranch';
 import type { SyncProvider } from '../sync/syncProvider';
 import { type TapClock, useEventSyncTap } from './useEventSyncTap';
@@ -51,11 +51,11 @@ type AlertState = {
  * `BranchOplogDeps` にあるので、こちらに残るのは純粋関数だけである。
  */
 export interface BranchOpsDeps {
-  computeOperations: typeof computeOperations;
+  computeSheetChanges: typeof computeSheetChanges;
 }
 
 export const defaultBranchOpsDeps: BranchOpsDeps = {
-  computeOperations,
+  computeSheetChanges,
 };
 
 /**
@@ -176,12 +176,12 @@ export function useBranchOperations({
           new Set<string>(),
         ] as const;
       }
-      const ops = deps.computeOperations(branchOriginalBase, activeSheet);
+      const changes = deps.computeSheetChanges(branchOriginalBase, activeSheet);
       const addN = new Set<string>();
       const updN = new Set<string>();
       const addE = new Set<string>();
       const updE = new Set<string>();
-      for (const op of ops) {
+      for (const { op } of changes) {
         if (op.op === 'node.add') addN.add(op.nodeId);
         else if (op.op === 'node.update') updN.add(op.nodeId);
         else if (op.op === 'edge.add') addE.add(op.edgeId);
@@ -197,10 +197,10 @@ export function useBranchOperations({
       if (isTrunk || !branchOriginalBase || !activeSheet) {
         return [[], [], [], []] as const;
       }
-      const ops = deps.computeOperations(branchOriginalBase, activeSheet);
+      const changes = deps.computeSheetChanges(branchOriginalBase, activeSheet);
       const removedNodeIds = new Set<string>();
       const removedEdgeIds = new Set<string>();
-      for (const op of ops) {
+      for (const { op } of changes) {
         if (op.op === 'node.remove') removedNodeIds.add(op.nodeId);
         if (op.op === 'edge.remove') removedEdgeIds.add(op.edgeId);
       }
@@ -222,7 +222,7 @@ export function useBranchOperations({
    * そのまま数えると、編集して undo した往復が「2 変更」に見えてしまうため。
    * 基準の `lastCommitBase` は op-log モードでは op-log から導出する。
    */
-  const pendingOps = useMemo(() => {
+  const pendingChanges = useMemo(() => {
     if (
       isTrunk ||
       !lastCommitBase ||
@@ -231,7 +231,7 @@ export function useBranchOperations({
         activeBranch?.status !== BRANCH_STATUS.MERGED)
     )
       return [];
-    return deps.computeOperations(lastCommitBase, activeSheet);
+    return deps.computeSheetChanges(lastCommitBase, activeSheet);
   }, [isTrunk, lastCommitBase, activeSheet, activeBranch?.status, deps]);
 
   /**
@@ -543,14 +543,14 @@ export function useBranchOperations({
   const handleCommit = useCallback(
     async (message: string) => {
       if (!activeBranch || !activeSheetId || !activeSheet) return;
-      if (pendingOps.length === 0) return;
+      if (pendingChanges.length === 0) return;
 
       try {
         // 直前の編集の着地を待つ。待たないとその編集がコミット位置に入らず、
         // 再オープン時に「コミット済みのはずの変更」が未コミットとして復活する。
         await branchSettled();
         // コミット = ログ上のラベル付きオフセット。差分そのものは持たない
-        // (`pendingOps` は表示用で、コミットに焼き込むのはログ位置だけ)。
+        // (`pendingChanges` は表示用で、コミットに焼き込むのはログ位置だけ)。
         const branchBatches = await oplogDeps.fetchBatches(
           activeBranch.branchFileId,
         );
@@ -576,7 +576,7 @@ export function useBranchOperations({
       activeBranch,
       activeSheetId,
       activeSheet,
-      pendingOps,
+      pendingChanges,
       setAlertState,
       oplogDeps,
       actor,
@@ -628,7 +628,7 @@ export function useBranchOperations({
     deletedEdges: deletedEdges as GraphEdge[],
     deletedNodeLayouts: deletedNodeLayouts as NodeLayout[],
     deletedEdgeLayouts: deletedEdgeLayouts as EdgeLayout[],
-    pendingOps,
+    pendingChanges,
     /**
      * branch 表示中の編集の宛先。trunk 表示中は null。
      * GraphEditor には trunk 用と使い分けて渡す — branch の編集を trunk の

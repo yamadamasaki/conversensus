@@ -19,12 +19,12 @@ branch のライフサイクル全体の正確性を保証する必要がある�
 ## 表示状態 (経路に依らないもの)
 
 ### 初期状態
-- activeBranch が null、isTrunk が true、pendingOps が空配列
+- activeBranch が null、isTrunk が true、pendingChanges が空配列
 - newCommitsSinceMerge が 0、commitDialogOpen が false
 - diff 関連の Set が空、対象シートの branches が空
 
-### pendingOps の status ゲート
-`pendingOps` は「コミットできる変更があるか」= コミットボタンの有効/無効。
+### pendingChanges の status ゲート
+`pendingChanges` は「コミットできる変更があるか」= コミットボタンの有効/無効。
 - OPEN / MERGED の branch で変更があれば含まれる
 - **CLOSED の branch では空** (閉じた branch にコミットさせない)
 - trunk 表示中は空
@@ -41,7 +41,7 @@ branch のライフサイクル全体の正確性を保証する必要がある�
 - 空の名前では branch を作成しない
 - activeBranch が null のとき handleCommit は早期 return する
 
-`computeOperations` だけを `BranchOpsDeps` から差し替えている
+`computeSheetChanges` だけを `BranchOpsDeps` から差し替えている
 (p6-5b 後に残る唯一の注入点)。**UI の見え方が差分計算の結果だけで決まる**ことを、
 シートを実際に編集せずに固定するため。
 
@@ -73,10 +73,10 @@ deps は `createInMemoryBranchOplogDeps` (batches / branches / commits の in-me
 ### commit — ログ上のオフセット
 - 保存されるのは `{message, at}` であって差分ではない。`at` は branch op-log の先端。
 - 変更が無ければコミットしない。
-- **`pendingOps` は diff 由来のまま** (p5-4 の確定事項)。op-log の未コミット batch を
+- **`pendingChanges` は diff 由来のまま** (p5-4 の確定事項)。op-log の未コミット batch を
   そのまま数えると「編集して undo」の往復が 2 変更に見えるため、表示は正味の差分に、
   コミットの実体はログ位置に、と役割を分ける。テストでは branch 選択**前**に
-  `_setComputeOps` で変更ありの状態を作る (`pendingOps` は useMemo なので選択後に
+  `_setComputeOps` で変更ありの状態を作る (`pendingChanges` は useMemo なので選択後に
   差し込んでも再計算されない)。
 
 ### merge — trunk 先端の後へ再スタンプ

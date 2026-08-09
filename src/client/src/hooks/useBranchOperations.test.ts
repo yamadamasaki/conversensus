@@ -131,7 +131,7 @@ async function renderOplog(
 /**
  * branch を 1 つ作って選択済みにする (以降のテストの共通前提)。
  *
- * `pending` は「表示上の未コミット変更」— `pendingOps` は `computeOperations` の
+ * `pending` は「表示上の未コミット変更」— `pendingChanges` は `computeOperations` の
  * useMemo なので、**branch を選ぶ前**に仕込まないと再計算の契機が来ない。
  */
 async function withOpenBranch(
@@ -180,9 +180,9 @@ describe('useBranchOperations — 表示状態', () => {
       expect(result.current.isTrunk).toBe(true);
     });
 
-    it('pendingOps が空配列', async () => {
+    it('pendingChanges が空配列', async () => {
       const { result } = await renderOplog();
-      expect(result.current.pendingOps).toEqual([]);
+      expect(result.current.pendingChanges).toEqual([]);
     });
 
     it('newCommitsSinceMerge が 0', async () => {
@@ -245,33 +245,33 @@ describe('useBranchOperations — 表示状態', () => {
   });
 
   /**
-   * `pendingOps` は「コミットできる変更があるか」= コミットボタンの有効/無効。
+   * `pendingChanges` は「コミットできる変更があるか」= コミットボタンの有効/無効。
    * status ごとの出し分けを固定する — CLOSED の branch にコミットさせないため。
    */
-  describe('pendingOps (commit 可能な変更の検出)', () => {
+  describe('pendingChanges (commit 可能な変更の検出)', () => {
     const ops = [{ op: 'node.add', nodeId: 'n1', content: 'hi' }];
 
-    it('OPEN branch で変更あり → pendingOps に含まれる', async () => {
+    it('OPEN branch で変更あり → pendingChanges に含まれる', async () => {
       const view = await withOpenBranch(undefined, ops);
-      expect(view.result.current.pendingOps.length).toBe(1);
+      expect(view.result.current.pendingChanges.length).toBe(1);
     });
 
-    it('MERGED branch で変更あり → pendingOps に含まれる', async () => {
+    it('MERGED branch で変更あり → pendingChanges に含まれる', async () => {
       const view = await withOpenBranch(undefined, ops);
       await selectWithStatus(view, 'merged');
-      expect(view.result.current.pendingOps.length).toBe(1);
+      expect(view.result.current.pendingChanges.length).toBe(1);
     });
 
-    it('CLOSED branch → pendingOps 空', async () => {
+    it('CLOSED branch → pendingChanges 空', async () => {
       const view = await withOpenBranch(undefined, ops);
       await selectWithStatus(view, 'closed');
-      expect(view.result.current.pendingOps).toEqual([]);
+      expect(view.result.current.pendingChanges).toEqual([]);
     });
 
-    it('isTrunk 時は pendingOps 空', async () => {
+    it('isTrunk 時は pendingChanges 空', async () => {
       const view = await renderOplog();
       view.deps._setComputeOps(ops);
-      expect(view.result.current.pendingOps).toEqual([]);
+      expect(view.result.current.pendingChanges).toEqual([]);
     });
   });
 
@@ -437,7 +437,7 @@ describe('useBranchOperations — branch 操作 (op-log)', () => {
 
   describe('handleCommit', () => {
     it('コミットはログ上のオフセットとして保存される', async () => {
-      // pendingOps は diff 由来 (表示用) なので、変更ありの状態で選択させる
+      // pendingChanges は diff 由来 (表示用) なので、変更ありの状態で選択させる
       const { result, branch, oplogDeps } = await withOpenBranch(undefined, [
         { op: 'node.update', nodeId: 'n1' },
       ]);
