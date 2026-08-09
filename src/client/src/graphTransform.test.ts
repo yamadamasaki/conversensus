@@ -14,6 +14,7 @@ import {
   fromFlowEdges,
   fromFlowNodes,
   recalculateParentBounds,
+  toFlowAndGhostNodes,
   toFlowEdges,
   toFlowNodes,
 } from './graphTransform';
@@ -63,6 +64,62 @@ describe('toFlowNodes', () => {
   it('レイアウトがない場合は位置が (0, 0) になる', () => {
     const result = toFlowNodes(graphNodes);
     expect(result[0].position).toEqual({ x: 0, y: 0 });
+  });
+});
+
+describe('toFlowAndGhostNodes', () => {
+  const deletedNodes: GraphNode[] = [
+    { id: 'd1' as NodeId, content: '削除予定' },
+  ];
+  const deletedLayouts: NodeLayout[] = [
+    { nodeId: 'd1' as NodeId, x: 50, y: 60 },
+  ];
+
+  it('ghost ノードは接続不可 (connectable: false) になる', () => {
+    const result = toFlowAndGhostNodes(
+      graphNodes,
+      graphLayouts,
+      deletedNodes,
+      deletedLayouts,
+    );
+    const ghost = result.find((n) => n.id === 'ghost-d1');
+    expect(ghost?.connectable).toBe(false);
+  });
+
+  it('ghost ノードは選択・ドラッグもできない', () => {
+    const result = toFlowAndGhostNodes(
+      graphNodes,
+      graphLayouts,
+      deletedNodes,
+      deletedLayouts,
+    );
+    const ghost = result.find((n) => n.id === 'ghost-d1');
+    expect(ghost?.selectable).toBe(false);
+    expect(ghost?.draggable).toBe(false);
+  });
+
+  it('通常のノードは接続可能なまま (connectable を触らない)', () => {
+    const result = toFlowAndGhostNodes(
+      graphNodes,
+      graphLayouts,
+      deletedNodes,
+      deletedLayouts,
+    );
+    const active = result.find((n) => n.id === 'n1');
+    expect(active?.connectable).toBeUndefined();
+  });
+
+  it('ghost ノードは ghost- 接頭辞の id と ghost フラグを持ち、位置は保たれる', () => {
+    const result = toFlowAndGhostNodes(
+      graphNodes,
+      graphLayouts,
+      deletedNodes,
+      deletedLayouts,
+    );
+    const ghost = result.find((n) => n.id === 'ghost-d1');
+    // ghost エッジの端点として座標が要るので、位置は削除前のまま残す
+    expect(ghost?.position).toEqual({ x: 50, y: 60 });
+    expect(ghost?.data.ghost).toBe(true);
   });
 });
 

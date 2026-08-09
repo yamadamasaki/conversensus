@@ -5,9 +5,13 @@ import type { ReactNode } from 'react';
 // EditableNode が @xyflow/react を読み込む前にモックを登録できる
 const mockGetNode = mock((_id: string) => undefined);
 
+// Handle は描画せず, 受け取った props だけを記録する。ghost の接続可否 (ANA-121) は
+// DOM ではなく Handle へ渡した isConnectable で判定する
+// biome-ignore lint/suspicious/noExplicitAny: テスト用スタブ
+const mockHandle = mock((_props: any) => null);
+
 mock.module('@xyflow/react', () => ({
-  // biome-ignore lint/suspicious/noExplicitAny: テスト用スタブ
-  Handle: (_props: any) => null,
+  Handle: mockHandle,
   // biome-ignore lint/suspicious/noExplicitAny: テスト用スタブ
   NodeResizer: (_props: any) => null,
   Position: { Top: 'top', Bottom: 'bottom', Left: 'left', Right: 'right' },
@@ -57,6 +61,7 @@ describe('EditableNode', () => {
     mockGetNode.mockClear();
     mockDispatch.mockClear();
     mockReactMarkdown.mockClear();
+    mockHandle.mockClear();
   });
 
   afterEach(() => {
@@ -118,5 +123,48 @@ describe('EditableNode', () => {
     fireEvent.keyDown(textarea, { key: 'Enter' });
     expect(mockDispatch).not.toHaveBeenCalled();
     expect(screen.getByRole('textbox')).toBeDefined(); // まだ編集中
+  });
+
+  describe('ghost (削除予定表示)', () => {
+    const makeGhostProps = (label = '削除予定'): TestNodeProps => ({
+      ...makeProps(label),
+      data: { label, ghost: true },
+    });
+
+    it('ハンドルをすべて接続不可にする', () => {
+      render(<EditableNode {...makeGhostProps()} />);
+      // ghost からエッジを引けてしまうと, 存在しないノードを指すエッジが
+      // trunk へ載りうる (孤児エッジ)
+      expect(mockHandle).toHaveBeenCalled();
+      for (const [props] of mockHandle.mock.calls) {
+        expect(props.isConnectable).toBe(false);
+      }
+    });
+
+    it('ハンドル自体は消さない (ghost エッジの端点として座標が要る)', () => {
+      render(<EditableNode {...makeGhostProps()} />);
+      const ids = mockHandle.mock.calls.map(([props]) => props.id);
+      expect(ids).toEqual([
+        'source-top',
+        'source-bottom',
+        'source-left',
+        'source-right',
+      ]);
+    });
+
+    it('通常のノードのハンドルは接続可能なまま', () => {
+      render(<EditableNode {...makeProps()} />);
+      expect(mockHandle).toHaveBeenCalled();
+      for (const [props] of mockHandle.mock.calls) {
+        expect(props.isConnectable).toBeUndefined();
+      }
+    });
+
+    it('ダブルクリックしても編集モードにならない', () => {
+      render(<EditableNode {...makeGhostProps()} />);
+      fireEvent.dblClick(screen.getByText('削除予定'));
+      expect(screen.queryByRole('textbox')).toBeNull();
+      expect(mockDispatch).not.toHaveBeenCalled();
+    });
   });
 });

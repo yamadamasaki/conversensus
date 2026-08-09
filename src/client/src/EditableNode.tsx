@@ -67,9 +67,16 @@ export function EditableNode({ id, data, selected }: NodeProps) {
     });
 
   if (ghost) {
+    // ghost のハンドルは ghost エッジの端点として座標を提供するだけで、
+    // ここから新しいエッジを引くことはできない (ANA-121)
     return (
       <>
-        <Handle type="source" position={Position.Top} id="source-top" />
+        <Handle
+          type="source"
+          position={Position.Top}
+          id="source-top"
+          isConnectable={false}
+        />
         <div
           style={{
             padding: '8px 12px',
@@ -99,9 +106,24 @@ export function EditableNode({ id, data, selected }: NodeProps) {
             )}
           </div>
         </div>
-        <Handle type="source" position={Position.Bottom} id="source-bottom" />
-        <Handle type="source" position={Position.Left} id="source-left" />
-        <Handle type="source" position={Position.Right} id="source-right" />
+        <Handle
+          type="source"
+          position={Position.Bottom}
+          id="source-bottom"
+          isConnectable={false}
+        />
+        <Handle
+          type="source"
+          position={Position.Left}
+          id="source-left"
+          isConnectable={false}
+        />
+        <Handle
+          type="source"
+          position={Position.Right}
+          id="source-right"
+          isConnectable={false}
+        />
       </>
     );
   }

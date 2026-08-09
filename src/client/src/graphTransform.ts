@@ -404,6 +404,10 @@ export function toFlowAndGhostNodes(
     style: { ...n.style, opacity: GHOST_OPACITY },
     draggable: false,
     selectable: false,
+    // ghost は「もう存在しないノード」なので、ここを端点にエッジを引かせない。
+    // React Flow で接続を止めるのは connectable であって selectable ではない。
+    // ハンドル自体は消さない — ghost エッジの端点として座標が要るため (ANA-121)。
+    connectable: false,
   }));
   return [...active, ...ghosts];
 }
