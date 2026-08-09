@@ -208,7 +208,8 @@ describe('readBranchSheet', () => {
   // p5-4: hook は「現在 / 分岐点 / 直近コミット時点」を同時に要る。旧経路は分岐点を
   // PDS スナップショットの控えとして React state に抱えていたが、op-log では
   // すべて同じログの切り出しなので保持しない。
-  describe('readBranchSheets (3 時点の切り出し)', () => {
+  // ANA-119 S6 で「最後の merge 時点」を足して 4 時点になった。
+  describe('readBranchSheets (4 時点の切り出し)', () => {
     it('base は branch の編集を 1 件も含まない (分岐点そのもの)', async () => {
       const { deps, meta } = await setup();
       const { base } = await readBranchSheets(meta, SHEET_META, deps);
@@ -260,6 +261,46 @@ describe('readBranchSheet', () => {
         deps,
       );
       expect(fingerprint(atLastCommit)).toBe(fingerprint(base));
+    });
+
+    it('atLastMerge は merge 位置までの branch 編集だけを含む (ANA-119 S6)', async () => {
+      // branch の編集は clock 4 (n1 書き換え) と 5 (n3 追加)。clock 4 まで merge 済み
+      // なら、次の merge の対象は n3 の追加だけ。分岐点を起点にすると n1 の書き換えも
+      // 「まだ merge していない変更」として出てしまう
+      const { deps, meta } = await setup();
+      const { atLastMerge } = await readBranchSheets(meta, SHEET_META, deps, {
+        lastMergeAt: 4,
+      });
+
+      expect(atLastMerge.nodes.map((n) => n.id)).not.toContain('n3');
+      expect(atLastMerge.nodes.find((n) => n.id === 'n1')?.content).toBe(
+        'branch で書き換え',
+      );
+    });
+
+    it('未 merge なら atLastMerge は base に等しい (呼び出し側で場合分けが要らない)', async () => {
+      const { deps, meta } = await setup();
+      const { base, atLastMerge } = await readBranchSheets(
+        meta,
+        SHEET_META,
+        deps,
+      );
+      expect(fingerprint(atLastMerge)).toBe(fingerprint(base));
+    });
+
+    it('atLastCommit と atLastMerge は別々の位置で切り出せる', async () => {
+      // merge は clock 4 まで、その後 n3 を足して commit した状態。
+      // pendingChanges の基準 (直近コミット = 5) と merge 対象の基準 (4) は別物
+      const { deps, meta } = await setup();
+      const { atLastCommit, atLastMerge } = await readBranchSheets(
+        meta,
+        SHEET_META,
+        deps,
+        { lastCommitAt: 5, lastMergeAt: 4 },
+      );
+
+      expect(atLastCommit.nodes.map((n) => n.id)).toContain('n3');
+      expect(atLastMerge.nodes.map((n) => n.id)).not.toContain('n3');
     });
   });
 

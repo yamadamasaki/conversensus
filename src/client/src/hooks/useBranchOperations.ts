@@ -24,7 +24,11 @@ import {
   readBranchSheets,
 } from '../sync/branchProjection';
 import { computeSheetChanges } from '../sync/computeOperations';
-import { mergeBranchOnOplog } from '../sync/mergeBranch';
+import {
+  countCommitsAfter,
+  lastMergeSourceAt,
+  mergeBranchOnOplog,
+} from '../sync/mergeBranch';
 import type { SyncProvider } from '../sync/syncProvider';
 import { type TapClock, useEventSyncTap } from './useEventSyncTap';
 
@@ -172,10 +176,6 @@ export function useBranchOperations({
     null,
   );
   const preBranchFile = useRef<GraphFile | null>(null);
-  // merge 時にその時点の newCommitsSinceMerge を累積保存し、
-  // 再エントリ時に commits.length - 累積値 で真の新規コミット数を計算する。
-  // **base / 直近コミット時点の控えは持たない** — op-log からその都度導出する (p5-4)。
-  const mergedCommitCounts = useRef<Map<string, number>>(new Map());
 
   const isTrunk = !activeBranch || activeBranch.name === TRUNK_PREFIX;
 
@@ -203,7 +203,6 @@ export function useBranchOperations({
     setLastCommitBase(null);
     setBranchOriginalBase(null);
     setNewCommitsSinceMerge(0);
-    mergedCommitCounts.current.clear();
     preBranchFile.current = null;
   }, [activeFile?.id]);
 
@@ -335,13 +334,23 @@ export function useBranchOperations({
         id: sheetId,
         name: '',
       };
-      const commits = await oplogDeps.fetchCommits(meta.branchFileId);
+      // merge 済み branch を再オープンしたときの起点は **trunk の merge コミット**から
+      // 導く (ANA-119 S6)。以前はセッション内の ref に頼っていたので、アプリを開き直すと
+      // merge 済みの内容まで差分に出ていた。
+      const [commits, trunkCommits] = await Promise.all([
+        oplogDeps.fetchCommits(meta.branchFileId),
+        oplogDeps.fetchCommits(meta.trunkFileId),
+      ]);
       const lastCommit = commits[commits.length - 1];
-      const { current, base, atLastCommit } = await readBranchSheets(
+      const lastMergeAt = lastMergeSourceAt(trunkCommits, meta.id);
+      const { current, atLastCommit, atLastMerge } = await readBranchSheets(
         meta,
         { id: sheetMeta.id, name: sheetMeta.name },
         oplogDeps,
-        { ...(lastCommit && { lastCommitAt: lastCommit.at }) },
+        {
+          ...(lastCommit && { lastCommitAt: lastCommit.at }),
+          ...(lastMergeAt !== undefined && { lastMergeAt }),
+        },
       );
 
       // trunk からブランチに入る時のみ trunk の状態を保存
@@ -349,8 +358,10 @@ export function useBranchOperations({
         preBranchFile.current = activeFile;
       }
 
-      // 旧経路と違い base / 直近コミット時点は控えを持たずログから導出する
-      setBranchOriginalBase(base);
+      // 旧経路と違い、どの時点の控えも持たずログから導出する。
+      // merge 対象の起点は「最後の merge 時点」— 未 merge なら分岐点と同じ値になるので
+      // 状態による場合分けが要らない
+      setBranchOriginalBase(atLastMerge);
       setLastCommitBase(
         meta.status === BRANCH_STATUS.OPEN ||
           meta.status === BRANCH_STATUS.MERGED
@@ -361,12 +372,7 @@ export function useBranchOperations({
         ...activeFile,
         sheets: activeFile.sheets.map((s) => (s.id === sheetId ? current : s)),
       });
-      if (meta.status === BRANCH_STATUS.MERGED) {
-        const mergedCount = mergedCommitCounts.current.get(meta.id) ?? 0;
-        setNewCommitsSinceMerge(Math.max(0, commits.length - mergedCount));
-      } else {
-        setNewCommitsSinceMerge(commits.length);
-      }
+      setNewCommitsSinceMerge(countCommitsAfter(commits, lastMergeAt));
       setActiveBranch(meta);
     },
     [activeFile, activeBranch, onSetActiveFile, oplogDeps],
@@ -459,16 +465,13 @@ export function useBranchOperations({
         };
       }
       setActiveBranch(merged);
+      // merge した時点 = branch op-log の先端 = いま画面に出ている内容。
+      // 再オープン時は同じ値を trunk の merge コミット (`sourceAt`) から導き直す (S6)
       setBranchOriginalBase(activeSheet ?? null);
       setLastCommitBase(activeSheet ?? null);
-      // 今回 merge したコミット数を累積
-      mergedCommitCounts.current.set(
-        merged.id,
-        (mergedCommitCounts.current.get(merged.id) ?? 0) + newCommitsSinceMerge,
-      );
       setNewCommitsSinceMerge(0);
     },
-    [activeFile, activeSheet, newCommitsSinceMerge],
+    [activeFile, activeSheet],
   );
 
   const handleMergeBranch = useCallback(

@@ -59,6 +59,25 @@ hook 側では状態遷移を通しで検証する。
 CLOSED の branch は `pendingChanges` が常に空なので「commit 済み」か「無変更」に落ちる。
 未 merge のコミットが無ければ差分は出ない (以前は分岐点基準のハイライトが出続けていた)。
 
+#### merge 済み branch の再オープン (ANA-119 S6)
+
+同一セッション中は `afterMerge` が merge 時点を控えているので正しかったが、**その控えは
+React の state / ref なのでアプリを閉じると消える**。以前は「merge 済みコミット数」も
+セッション内の ref (`mergedCommitCounts`) に積んでいたため、開き直すと起点が元の分岐点に
+戻り、**merge 済みの内容まで差分に出ていた**。S4 で merge が `commits` に `sourceAt` 付きで
+載るようになったので、merge 時点をログから導けるようになった。
+
+**アプリの開き直しをどう再現するか**: in-memory の op-log ストア (`oplogDeps`) を引き継いだ
+まま hook を作り直す (`reuse` オプション)。React の state / ref は消え、ログに書いたものだけが
+残る — これが「アプリを閉じて開く」との差である。
+
+- 🔴 **起点が merge 時点になり、merge 済みの変更は差分に出ない** (`newCommitsSinceMerge` も 0)。
+  **これは S6 の実装を外すと落ちることを確認済み** (`lastMergeSourceAt` の結果を undefined に
+  固定すると、この項目と下の commit の項目が落ちる)
+- 開き直した後の編集は「変更中」として出る (この項目だけは S6 前でも通る — 未コミット変更の
+  基準 `lastCommitBase` は元から直近コミットをログから導いていたため)
+- 開き直した後の commit は「次の merge の対象」になり、差分は **merge 後の編集だけ**を指す
+
 ### ゴースト表示 (deletedNodes / deletedEdges)
 - `node.remove` は base に存在するノードをゴーストとして残し、**ハイライト
   (conflicted) には入れない**

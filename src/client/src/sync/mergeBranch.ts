@@ -35,7 +35,9 @@
 import {
   type Batch,
   BRANCH_STATUS,
+  type BranchId,
   type BranchMeta,
+  COMMIT_KIND,
   type Commit,
   type CommitId,
   type FileId,
@@ -172,4 +174,46 @@ export async function mergeBranchOnOplog(
   }
 
   return { appended, conflicts, trunk, branch, mergeCommit };
+}
+
+/**
+ * trunk の履歴から, この branch を**最後に merge した時点**を求める (ANA-119 S6)。
+ *
+ * 返すのは **branch op-log 側の clock** (`sourceAt`) — merge コミットの `at` は trunk 側の
+ * 位置なので, branch の切り出しには使えない。一度も merge されていなければ undefined。
+ *
+ * これがあると「merge 済み branch を再オープンしたときの起点」をログから導ける。
+ * 以前はセッション内の ref (`mergedCommitCounts`) に頼っていたので, アプリを開き直すと
+ * merge 済みの内容まで差分に出ていた。
+ *
+ * 同じ branch を 2 回以上 merge していることがあるので**最大の `sourceAt`** を採る
+ * (配列の順序に依存しない)。
+ */
+export function lastMergeSourceAt(
+  trunkCommits: Commit[],
+  branchId: BranchId,
+): Lamport | undefined {
+  let last: Lamport | undefined;
+
+  for (const commit of trunkCommits) {
+    if (commit.kind !== COMMIT_KIND.MERGE) continue;
+    if (commit.sourceBranchId !== branchId) continue;
+    if (commit.sourceAt === undefined) continue;
+    if (last === undefined || commit.sourceAt > last) last = commit.sourceAt;
+  }
+
+  return last;
+}
+
+/**
+ * `at` より後に積まれたコミットの数。`at` が無ければ (= 未 merge) 全件。
+ *
+ * 「前回 merge 以降に commit があるか」= 次の merge の対象があるか, の判定に使う。
+ */
+export function countCommitsAfter(
+  commits: Commit[],
+  at: Lamport | undefined,
+): number {
+  if (at === undefined) return commits.length;
+  return commits.filter((c) => c.at > at).length;
 }

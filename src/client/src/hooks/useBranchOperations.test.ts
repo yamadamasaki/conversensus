@@ -89,11 +89,16 @@ async function renderOplog(
      * 返すので、**どの Sheet を起点にしたか**を区別できない。
      */
     realChanges?: boolean;
+    /**
+     * 既存の op-log ストアを引き継いで hook を作り直す = **アプリを開き直す**。
+     * React の ref や state は消えるが、ログに書いたものは残る (ANA-119 S6 の検証用)。
+     */
+    reuse?: ReturnType<typeof createInMemoryBranchOplogDeps>;
   } = {},
 ) {
   const deps = createInMemoryBranchOpsDeps();
-  const oplogDeps = createInMemoryBranchOplogDeps();
-  oplogDeps._batches.set(TRUNK_ID, trunkLog);
+  const oplogDeps = options.reuse ?? createInMemoryBranchOplogDeps();
+  if (!options.reuse) oplogDeps._batches.set(TRUNK_ID, trunkLog);
   if (options.slowBranchPush) {
     // branch tap の push を遅らせ、「record 直後に commit/merge」を再現する。
     // tap の flush は非同期なので、待たない実装ではこの窓で編集を取りこぼす。
@@ -804,6 +809,92 @@ describe('useBranchOperations — 差分状態 (ANA-120)', () => {
       expect(view.result.current.pendingChanges).toEqual([]);
       expect(view.result.current.updatedNodeIds.size).toBe(0);
       expect(view.result.current.deletedNodes).toEqual([]);
+    });
+  });
+
+  /**
+   * merge 済み branch を**開き直した**ときの起点 (ANA-119 S6)。
+   *
+   * 同一セッション中は `afterMerge` が merge 時点を控えているので正しかったが、
+   * その控えは React の state / ref なのでアプリを閉じると消える。以前は
+   * 「merge 済みコミット数」もセッション内の ref に積んでいたため、開き直すと
+   * **起点が元の分岐点に戻り、merge 済みの内容まで差分に出ていた**。
+   *
+   * S4 で merge が `commits` に `sourceAt` 付きで載るようになったので、
+   * merge 時点をログから導けるようになった。
+   */
+  describe('merge 済み branch の再オープン (ANA-119 S6)', () => {
+    /** merge まで済ませた branch と、その op-log ストアを返す */
+    async function mergedBranch() {
+      const { view, base } = await openBranch();
+      await edit(view, relabelNode(base, NODE_A, 'branch で編集'));
+      await commit(view, '編集をコミット');
+      answerMergeReason('branch を取り込む');
+      await act(async () => {
+        await view.result.current.handleMergeBranch(view.branch);
+      });
+      expect(view.result.current.diffState).toBe(BRANCH_DIFF_STATE.UNCHANGED);
+      return view;
+    }
+
+    /** アプリを開き直して同じ branch を選び直す */
+    async function reopen(view: View) {
+      const reopened = await renderOplog(undefined, {
+        realChanges: true,
+        reuse: view.oplogDeps,
+      });
+      const merged = (await view.oplogDeps.fetchBranches(TRUNK_ID)).find(
+        (b) => b.id === view.branch.id,
+      );
+      if (!merged) throw new Error('merge 済み branch が見つからない');
+      await act(async () => {
+        await reopened.result.current.handleSelectBranch(SHEET_ID, merged);
+      });
+      // 画面には branch の projection が載る (開き直した直後は未編集)
+      await edit(reopened, projectedSheet());
+      return reopened;
+    }
+
+    it('🔴 起点が merge 時点になり、merge 済みの変更は差分に出ない', async () => {
+      const view = await mergedBranch();
+      const reopened = await reopen(view);
+
+      expect(reopened.result.current.diffState).toBe(
+        BRANCH_DIFF_STATE.UNCHANGED,
+      );
+      expect(reopened.result.current.updatedNodeIds.size).toBe(0);
+      expect(reopened.result.current.newCommitsSinceMerge).toBe(0);
+    });
+
+    it('開き直した後の編集は「変更中」として出る', async () => {
+      const view = await mergedBranch();
+      const reopened = await reopen(view);
+      await edit(
+        reopened,
+        relabelNode(projectedSheet(), NODE_A, 'merge 後の編集'),
+      );
+
+      expect(reopened.result.current.diffState).toBe(BRANCH_DIFF_STATE.EDITING);
+      expect(reopened.result.current.updatedNodeIds.has(NODE_A)).toBe(true);
+      expect(reopened.result.current.pendingChanges).toHaveLength(1);
+    });
+
+    it('開き直した後の commit は「次の merge の対象」になる', async () => {
+      const view = await mergedBranch();
+      const reopened = await reopen(view);
+      await edit(
+        reopened,
+        relabelNode(projectedSheet(), NODE_A, 'merge 後の編集'),
+      );
+      await commit(reopened, '2 回目');
+
+      // 起点は merge 時点なので、差分は merge 後の編集**だけ**
+      expect(reopened.result.current.diffState).toBe(
+        BRANCH_DIFF_STATE.COMMITTED,
+      );
+      expect(reopened.result.current.newCommitsSinceMerge).toBe(1);
+      expect(reopened.result.current.updatedNodeIds.has(NODE_A)).toBe(true);
+      expect(reopened.result.current.pendingChanges).toEqual([]);
     });
   });
 });

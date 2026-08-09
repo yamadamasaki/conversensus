@@ -87,3 +87,26 @@ clock は再スタンプするが **batch の id は保持する**。同じ bran
   別系列の clock なので、片方だけでは merge 位置を復元できない。
 - **追記が 0 件でも記録は残る** — 「merge した」という事実は追記の有無と独立に起きている。
 - **再 merge でも記録は 1 件ずつ増える**。batch の追記はべき等だが、記録は操作の履歴である。
+
+### merge 時点をログから引く (ANA-119 S6)
+
+`lastMergeSourceAt` / `countCommitsAfter` は merge 記録の**読み手**である。merge 済み
+branch を開き直したときの差分の起点をここから導く。以前はセッション内の ref に
+merge 済みコミット数を積んでいたので、**アプリを開き直すと起点が元の分岐点に戻り、
+merge 済みの内容まで差分に出ていた**。
+
+`lastMergeSourceAt`:
+
+- **一度も merge していなければ undefined**。呼び出し側はこれを「分岐点」として扱う。
+- **🔴 返すのは `at` ではなく `sourceAt`**。`at` は trunk 側の位置なので branch op-log の
+  切り出しには使えない。テストでは両者を別の値 (at=9 / sourceAt=4) にして取り違えを検出する。
+- **他の branch の merge は見ない** — trunk の commits には全 branch の merge が並ぶ。
+- **2 回以上 merge していれば最大の `sourceAt`**。配列順に依存しないよう、テストでは
+  新しい記録を先に置く。
+- **`sourceAt` を持たない古い merge 行は無視する** (S4 以前に書かれた行を想定)。
+  持たない行を「0 まで merge した」と読むと、全編集が未 merge 側に倒れて安全側になる。
+- **`sourceAt` が 0 (空の branch を merge) は undefined と区別する**。`0` は偽値なので、
+  素朴に `??` や truthy 判定で書くと未 merge に化ける。
+
+`countCommitsAfter`: 「前回 merge 以降に commit があるか」= 次の merge の対象があるか。
+基準が無ければ全件 (未 merge)、merge 直後は 0 (= 差分状態が「無変更」になる)。

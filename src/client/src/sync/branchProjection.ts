@@ -96,14 +96,19 @@ export async function createBranchOnOplog(
   return deps.saveBranch(meta);
 }
 
-/** UI が同時に要る 3 つの時点 (p5-4)。1 回の読取から導出する */
+/** UI が同時に要る 4 つの時点 (p5-4, ANA-119 S6)。1 回の読取から導出する */
 export type BranchSheets = {
   /** 現在の branch の内容 (branch batches を全部載せた projection) */
   current: Sheet;
-  /** 分岐点 (base) 時点の内容。UI の diff ハイライトの基準 */
+  /** 分岐点 (base) 時点の内容 */
   base: Sheet;
-  /** 直近コミット時点の内容。未コミット変更 (pendingOps) の基準 */
+  /** 直近コミット時点の内容。未コミット変更 (pendingChanges) の基準 */
   atLastCommit: Sheet;
+  /**
+   * 最後に merge した時点の内容。**次の merge の対象となる差分の基準** (ANA-119 S6)。
+   * 一度も merge していなければ分岐点と同じなので, 呼び出し側は場合分けせずに使える。
+   */
+  atLastMerge: Sheet;
 };
 
 /**
@@ -129,12 +134,14 @@ export async function readBranchSheet(
  * 抱えていたが、op-log では**すべて同じログの切り出し**なので保持しない。
  *
  * @param lastCommitAt 直近コミットが指すログ位置。コミットが無ければ省略 (= 分岐点)
+ * @param lastMergeAt 最後の merge が取り込んだログ位置 (merge コミットの `sourceAt`)。
+ *   未 merge なら省略 (= 分岐点)。**trunk 側の `at` ではない** — branch op-log の clock
  */
 export async function readBranchSheets(
   meta: BranchMeta,
   sheetMeta: { id: SheetId; name: string; description?: string },
   deps: BranchProjectionDeps,
-  options: { lastCommitAt?: Lamport } = {},
+  options: { lastCommitAt?: Lamport; lastMergeAt?: Lamport } = {},
 ): Promise<BranchSheets> {
   const [trunkBatches, branchBatches] = await Promise.all([
     deps.fetchBatches(meta.trunkFileId),
@@ -160,16 +167,17 @@ export async function readBranchSheets(
   // 分岐点 = branch batches を 1 件も載せない状態。branch の発番は base.at の後から
   // 始まる (`EventSyncTap.clockFloor`) ので、clock による切り出しでも同じ結果になる。
   const base = project([]);
+  // 時点の切り出しはどれも同じ形 — 「その clock までの branch batch を載せた projection」。
+  // 位置が無ければ分岐点そのもの (batch を 1 件も載せない) になる
+  const projectUpTo = (at: Lamport | undefined): Sheet =>
+    at === undefined
+      ? base
+      : project(branchForSheet.filter((b) => b.clock <= at));
+
   return {
     current: project(branchForSheet),
     base,
-    atLastCommit:
-      options.lastCommitAt === undefined
-        ? base
-        : project(
-            branchForSheet.filter(
-              (b) => b.clock <= (options.lastCommitAt as Lamport),
-            ),
-          ),
+    atLastCommit: projectUpTo(options.lastCommitAt),
+    atLastMerge: projectUpTo(options.lastMergeAt),
   };
 }

@@ -280,7 +280,7 @@ trunk 側では差分を表示しない (提案どおり)。
 > (同一セッション中は `afterMerge` が merge 時点を起点に差し替えているので正しい)。
 > 再オープン後は merge 済みの内容まで差分に出る。直すには merge 時点をログから導ける
 > ようにする必要があり, S4 (merge を一級の記録にする) で `commits` に merge が載れば
-> 自然に導出できる。
+> 自然に導出できる。→ **S6 で解消 (2026-08-10)**。
 
 ### D3: merge を message を持つ一級の記録にする (ANA-122)
 
@@ -336,9 +336,36 @@ ghost ノードに `connectable: false` を付け, 各ノード実装の ghost �
 | S3 | ブランチ状態を導入し, 基準を状態から決める | ANA-120 | S2 ✅ 完了 |
 | S4 | merge コミット (message 必須, `commits.kind`) | ANA-122 | D3 ✅ 完了 |
 | S5 | 複数選択ドラッグの移動が op-log に載らない穴を塞ぐ | ANA-124 の残り | なし ✅ 完了 |
+| S6 | 再オープン時の merge 基準を trunk の merge コミットから導く | S3 の積み残し | S4 ✅ 完了 |
 | — | ANA-123 は回答のみ (実装変更なし) | ANA-123 | — |
 
-S1 は独立している。S2 → S3 の順に依存する。S4 と S5 は独立。
+S1 は独立している。S2 → S3 の順に依存する。S4 と S5 は独立。S6 は S4 に依存する
+(merge コミットの `sourceAt` が要る)。
+
+### S6 の根拠と実装 (2026-08-10)
+
+S3 が積み残した「merge 済み branch を**再オープン**すると起点が元の分岐点に戻る」問題。
+同一セッション中は `afterMerge` が merge 時点を控えているので正しかったが、**その控えは
+React の state / ref なのでアプリを閉じると消える**。merge 済みコミット数も
+セッション内の ref (`mergedCommitCounts`) に積んでいたため、開き直すと
+**merge 済みの内容まで「次の merge の対象」として差分に出ていた**。
+
+S4 で merge が `commits` に載り `sourceAt` (branch op-log 側の取り込み位置) を持つように
+なったので、merge 時点をログから導ける。
+
+- `lastMergeSourceAt(trunkCommits, branchId)` — trunk の履歴から**最後の merge の
+  `sourceAt`** を引く。`at` は trunk 側の位置なので branch の切り出しには使えない。
+  2 回以上 merge していれば最大値を採る (配列順に依存しない)
+- `readBranchSheets` に `atLastMerge` を追加 (3 時点 → 4 時点)。**未 merge なら分岐点と
+  同じ値**になるので、呼び出し側は「merge 済みか」で場合分けしない
+- `newCommitsSinceMerge` は `countCommitsAfter(branchCommits, lastMergeAt)` で導出。
+  **`mergedCommitCounts` ref は消えた** (D3 が副次効果として予告していたとおり)
+- `afterMerge` の in-memory 更新は残す — merge した直後の値は「いま画面に出ている内容」
+  そのもので、再オープン時に同じ値をログから導き直す。追加の非同期読取を merge の
+  経路に持ち込まない
+
+**確認**: `lastMergeSourceAt` の結果を undefined に固定すると再オープンのテスト 2 件が
+落ちる (= テストが S6 の実装を実際に検証している)。
 
 ### S5 の根拠 (2026-08-09 発見, 要実機確認)
 
@@ -429,6 +456,14 @@ S2 で layout を差分に入れても, この分だけは差分に出ないま�
 ### S5
 
 - 複数ノードを選択してドラッグすると, 全ノード分の移動が op-log に載るテスト
+
+### S6
+
+- merge 済み branch を**開き直す** (hook を作り直し op-log だけ引き継ぐ) と, 起点が
+  merge 時点になり merge 済みの変更が差分に出ないテスト
+- 開き直した後の編集・commit が「merge 後の分」だけを指すテスト
+- `lastMergeSourceAt` が `at` ではなく `sourceAt` を返し, 他 branch の merge を見ず,
+  複数回 merge では最大値を採るテスト
 
 ---
 

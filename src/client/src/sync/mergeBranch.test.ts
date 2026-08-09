@@ -13,7 +13,12 @@ import {
   type NodeId,
   type SheetId,
 } from '@conversensus/shared';
-import { type MergeBranchDeps, mergeBranchOnOplog } from './mergeBranch';
+import {
+  countCommitsAfter,
+  lastMergeSourceAt,
+  type MergeBranchDeps,
+  mergeBranchOnOplog,
+} from './mergeBranch';
 
 const TRUNK = 'trunk-file' as FileId;
 const BRANCH_LOG = 'branch-file' as FileId;
@@ -352,5 +357,100 @@ describe('mergeBranchOnOplog', () => {
       // id は採番のたびに変わるので、2 件が別の記録として残る
       expect(commits[TRUNK]?.[0]?.id).not.toBe(commits[TRUNK]?.[1]?.id);
     });
+  });
+});
+
+/**
+ * merge 済み branch を再オープンしたときの起点をログから導く (ANA-119 S6)。
+ * 以前はセッション内の ref に持っていたので、アプリを開き直すと失われていた。
+ */
+describe('lastMergeSourceAt', () => {
+  const BRANCH = 'branch-1' as BranchId;
+  const OTHER = 'branch-2' as BranchId;
+
+  const commit = (
+    id: string,
+    at: number,
+    extra: Partial<Commit> = {},
+  ): Commit => ({
+    id: id as CommitId,
+    message: id,
+    at,
+    authorActor: ACTOR,
+    kind: COMMIT_KIND.COMMIT,
+    ...extra,
+  });
+
+  const merge = (
+    id: string,
+    at: number,
+    branchId: BranchId,
+    sourceAt: number,
+  ) =>
+    commit(id, at, {
+      kind: COMMIT_KIND.MERGE,
+      sourceBranchId: branchId,
+      sourceAt,
+    });
+
+  it('一度も merge していなければ undefined', () => {
+    expect(lastMergeSourceAt([commit('c1', 3)], BRANCH)).toBeUndefined();
+  });
+
+  it('trunk 側の at ではなく branch 側の sourceAt を返す', () => {
+    // 🔴 両者は別系列の clock。at (=9) を branch の切り出しに使うと全部含んでしまう
+    expect(lastMergeSourceAt([merge('m1', 9, BRANCH, 4)], BRANCH)).toBe(4);
+  });
+
+  it('他の branch の merge は見ない', () => {
+    expect(
+      lastMergeSourceAt([merge('m1', 9, OTHER, 7)], BRANCH),
+    ).toBeUndefined();
+  });
+
+  it('2 回以上 merge していれば最大の sourceAt を採る', () => {
+    // 配列の順序に依存しないよう、新しい方を先に置いて確かめる
+    const commits = [
+      merge('m2', 20, BRANCH, 12),
+      merge('m1', 9, BRANCH, 4),
+      commit('c1', 25),
+    ];
+    expect(lastMergeSourceAt(commits, BRANCH)).toBe(12);
+  });
+
+  it('sourceAt を持たない古い merge 記録は無視する (S4 以前の行)', () => {
+    const legacy = commit('m0', 9, {
+      kind: COMMIT_KIND.MERGE,
+      sourceBranchId: BRANCH,
+    });
+    expect(lastMergeSourceAt([legacy], BRANCH)).toBeUndefined();
+  });
+
+  it('sourceAt が 0 (空の branch を merge した) でも undefined と区別する', () => {
+    expect(lastMergeSourceAt([merge('m1', 3, BRANCH, 0)], BRANCH)).toBe(0);
+  });
+});
+
+describe('countCommitsAfter', () => {
+  const commit = (id: string, at: number): Commit => ({
+    id: id as CommitId,
+    message: id,
+    at,
+    authorActor: ACTOR,
+    kind: COMMIT_KIND.COMMIT,
+  });
+
+  const commits = [commit('c1', 4), commit('c2', 12), commit('c3', 20)];
+
+  it('基準が無ければ (未 merge) 全件', () => {
+    expect(countCommitsAfter(commits, undefined)).toBe(3);
+  });
+
+  it('基準より後の commit だけ数える', () => {
+    expect(countCommitsAfter(commits, 12)).toBe(1);
+  });
+
+  it('merge 直後は 0 (= 差分状態が「無変更」になる)', () => {
+    expect(countCommitsAfter(commits, 20)).toBe(0);
   });
 });
