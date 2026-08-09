@@ -75,3 +75,15 @@ clock は再スタンプするが **batch の id は保持する**。同じ bran
 - **merge 後に branch へ足した編集だけが次の merge で載る** (`br3` のみ、`appended` 1)。
   「べき等 = 何も起きない」ではなく「差分だけ進む」ことを固定する。
 - **branch 側に編集が無ければ追記せず status だけ更新する** (空 branch の merge)。
+
+### merge の記録 (ANA-122)
+
+以前は branch の status が MERGED になるだけで、「いつ・誰が・何のために merge したか」が
+どこにも残らなかった。merge を commit と同じ「ラベル付きオフセット」として記録する。
+
+- **trunk 側の commits に `kind=merge` として残る** — 理由 (message) と実行者 (actor) を
+  持ち、**branch 側の commits には書かない** (merge は trunk の履歴に属する)。
+- **🔴 `at` は追記後の trunk 先端、`sourceAt` は branch op-log の先端**を指す。両者は
+  別系列の clock なので、片方だけでは merge 位置を復元できない。
+- **追記が 0 件でも記録は残る** — 「merge した」という事実は追記の有無と独立に起きている。
+- **再 merge でも記録は 1 件ずつ増える**。batch の追記はべき等だが、記録は操作の履歴である。

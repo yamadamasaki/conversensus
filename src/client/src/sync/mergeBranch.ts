@@ -36,10 +36,13 @@ import {
   type Batch,
   BRANCH_STATUS,
   type BranchMeta,
+  type Commit,
+  type CommitId,
   type FileId,
   type GraphFile,
   type Lamport,
   type MergeConflict,
+  makeMergeCommit,
   mergeBranches,
   projectFile,
   tipClock,
@@ -52,6 +55,10 @@ export type MergeBranchDeps = {
   appendBatches: (fileId: FileId, batches: Batch[]) => Promise<number>;
   /** branch メタを保存する (status を merged にする) */
   saveBranch: (meta: BranchMeta) => Promise<BranchMeta>;
+  /** merge の記録を trunk 側へ保存する (ANA-122) */
+  saveCommit: (fileId: FileId, commit: Commit) => Promise<Commit>;
+  /** merge コミットの id を採番する */
+  newId: () => string;
   /**
    * 自端末 clock の下限を引き上げる (`LamportClock.seed` 相当)。再スタンプの起点を
    * trunk 先端に合わせるため、**`observe` ではなく `seed` の意味論** — `+1` しないので
@@ -75,15 +82,28 @@ export type MergeBranchResult = {
   trunk: GraphFile | undefined;
   /** merged 済みに更新した branch メタ */
   branch: BranchMeta;
+  /** trunk 側に残した merge の記録 (ANA-122) */
+  mergeCommit: Commit;
+};
+
+/** merge それ自体の記録に要るもの (ANA-122)。理由は commit と同様に必須 */
+export type MergeBranchParams = {
+  /** 何のために merge したか。空文字は呼び出し側で弾く */
+  message: string;
+  /** merge を実行した操作主体 `<did>#<deviceId>` */
+  actor: string;
 };
 
 /**
  * branch を trunk へ merge する。
  *
  * べき等: 同じ状態で 2 回呼んでも `appended` が 0 になるだけで trunk は変わらない。
+ * ただし**merge の記録は毎回残る** — 「いつ・誰が・何のために merge したか」は
+ * 追記が 0 件でも起きた事実だからである。
  */
 export async function mergeBranchOnOplog(
   meta: BranchMeta,
+  params: MergeBranchParams,
   deps: MergeBranchDeps,
 ): Promise<MergeBranchResult> {
   const [trunkBatches, branchBatches] = await Promise.all([
@@ -122,6 +142,21 @@ export async function mergeBranchOnOplog(
     status: BRANCH_STATUS.MERGED,
   });
 
+  // merge を trunk 側の一級の記録として残す (ANA-122)。commit と同じ「ラベル付き
+  // オフセット」の形なので、trunk の履歴から commit と merge を一列に引ける。
+  // `at` は追記後の trunk 先端、`sourceAt` は取り込んだ branch op-log の先端 —
+  // **両者は別系列の clock** なので片方だけでは merge 位置を復元できない。
+  const mergeCommit = await deps.saveCommit(
+    meta.trunkFileId,
+    makeMergeCommit(
+      deps.newId() as CommitId,
+      params.message,
+      params.actor,
+      [...trunkBatches, ...restamped],
+      { branchId: meta.id, at: tipClock(branchBatches) },
+    ),
+  );
+
   // 再 projection: 追記後の trunk を読み直して畳む (畳み込みの第 2 実装を作らない)。
   // **ここでの失敗は merge の失敗ではない** — 追記も status 更新も既に成功している。
   // 呼び出し側が「merge に失敗しました」と誤って伝えないよう、trunk を返さない形に
@@ -136,5 +171,5 @@ export async function mergeBranchOnOplog(
     console.warn('[branch] merge 後の trunk 再 projection に失敗:', error);
   }
 
-  return { appended, conflicts, trunk, branch };
+  return { appended, conflicts, trunk, branch, mergeCommit };
 }

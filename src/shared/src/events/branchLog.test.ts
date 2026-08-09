@@ -14,7 +14,9 @@ import {
   type Branch,
   batchesUpTo,
   branchSheet,
+  COMMIT_KIND,
   makeCommit,
+  makeMergeCommit,
   tipClock,
 } from './branchLog';
 import { type Batch, BatchIdSchema, type Op } from './unified';
@@ -44,6 +46,27 @@ describe('tipClock / makeCommit / batchesUpTo', () => {
     const commit = makeCommit(cid(), 'wip', 'did:example:alice', batches);
     expect(commit.at).toBe(5);
     expect(commit.message).toBe('wip');
+    // 種別は既定で通常のコミット。merge だけが別種になる (ANA-122)
+    expect(commit.kind).toBe(COMMIT_KIND.COMMIT);
+    expect(commit.sourceBranchId).toBeUndefined();
+  });
+
+  test('makeMergeCommit は trunk 先端と branch 側の取り込み位置を両方指す', () => {
+    // 🔴 `at` (trunk) と `sourceAt` (branch) は**別系列の clock**。片方だけでは
+    // 「trunk のどこに、branch のどこまでを」取り込んだかを復元できない。
+    const trunkAfterMerge = [batch(2, []), batch(9, [])];
+    const branchId = bid();
+    const merge = makeMergeCommit(
+      cid(),
+      '案A を採用',
+      'did:example:alice',
+      trunkAfterMerge,
+      { branchId, at: 4 },
+    );
+    expect(merge.kind).toBe(COMMIT_KIND.MERGE);
+    expect(merge.at).toBe(9);
+    expect(merge.sourceAt).toBe(4);
+    expect(merge.sourceBranchId).toBe(branchId);
   });
 
   test('batchesUpTo は base コミット時点までの batches を切り出す', () => {

@@ -301,6 +301,24 @@ merge の再スタンプ追記自体は今のままでよい (§2.5 で戦略は
 **commits の並び (最後の merge 以降に commit があるか)** から導けるようになる。D2 の
 「状態を一級にする」と同じ方向である。
 
+> **実装 (S4) での確定 (2026-08-09)**: `Commit` に `kind` (`commit` | `merge`) と
+> `sourceBranchId` に加えて **`sourceAt` を持たせた** (設計時に挙げていなかった)。
+>
+> **理由**: merge コミットは trunk 側に入るので `at` は **trunk の clock** を指す。一方
+> 「その merge が branch のどこまでを取り込んだか」は **branch op-log の clock** で、
+> 両者は別の file_id の別系列である。`sourceBranchId` だけでは「どの branch を」しか
+> 分からず、**「どこまでを」が復元できない**。上に書いた「最後の merge 以降に commit が
+> あるか」は branch 側の位置と比べる話なので, `sourceAt` が無いと導出自体が成立しない。
+>
+> - 互換: `CommitSchema` の `kind` は `.default('commit')`。既存の commit 行 (kind 列が
+>   無い時期のもの) と, branches テーブルへ列展開されている base コミットがそのまま通る
+> - DB: `commits` に `kind` / `source_branch_id` / `source_at` を足し, 既存 DB 向けに
+>   `migrateSheetIdColumn` と同型のべき等 ALTER を入れた
+> - UI: merge は**確認ダイアログをやめて理由の入力ダイアログにした**。理由の入力そのものが
+>   確認であり, 二段構えにして得るものが無い
+> - 追記が 0 件の merge (再 merge・空 branch) でも**記録は残す**。「merge した」事実は
+>   追記の有無と独立に起きている
+
 ### D4: ghost を接続不可にする (ANA-121)
 
 ghost ノードに `connectable: false` を付け, 各ノード実装の ghost 分岐のハンドルを
@@ -316,7 +334,7 @@ ghost ノードに `connectable: false` を付け, 各ノード実装の ghost �
 | S1 | ghost を接続不可にする | ANA-121 | なし。**先に入れてよい** ✅ 完了 |
 | S2 | 差分に layout を含め net 比較にする (`computeSheetChanges`) | ANA-124 | D1 ✅ 完了 |
 | S3 | ブランチ状態を導入し, 基準を状態から決める | ANA-120 | S2 ✅ 完了 |
-| S4 | merge コミット (message 必須, `commits.kind`) | ANA-122 | D3 |
+| S4 | merge コミット (message 必須, `commits.kind`) | ANA-122 | D3 ✅ 完了 |
 | S5 | 複数選択ドラッグの移動が op-log に載らない穴を塞ぐ | ANA-124 の残り | なし |
 | — | ANA-123 は回答のみ (実装変更なし) | ANA-123 | — |
 
@@ -379,6 +397,8 @@ S2 で layout を差分に入れても, この分だけは差分に出ないま�
 
 - message 無しでは merge できないテスト
 - merge 記録が `commits` に `kind='merge'` として残り, 履歴から引けるテスト
+- **`at` (trunk 側) と `sourceAt` (branch 側) の両方を指すテスト** (上の実装確定を参照)
+- 旧スキーマ (kind 列なし) の DB を開いても既存行が読めるテスト
 
 ### S5
 
@@ -434,4 +454,6 @@ S2 で layout を差分に入れても, この分だけは差分に出ないま�
 | 2026-08-09 | 差分ハイライトの色は**実装を正とする** (追加 = 緑 `#16a34a` / 変更 = 橙 `#f97316`) | 仕様書の記述 (追加 = 橙 / 変更 = 緑 `#22c55e`) と実装が逆だった。diff の慣習 (追加は緑) に合う実装側を採り, 仕様書を訂正した。「変更のグリーンが機能していない [バグ]」はこの取り違えである |
 | 2026-08-09 | layout だけの変更は**「変更」と同じ扱いで表示する** | 画面の規則を 1 つに保つ。何が変わったかの内訳は commit ダイアログ側で見せる |
 | 2026-08-09 | merge 理由は **commit と同様に必須** | ANA-122 の記述に合わせ, 仕様書 (「記述できる」= 任意) の側を訂正した |
+| 2026-08-09 | merge コミットに **`sourceAt` (branch 側の取り込み位置) も持たせる** (D3) | merge コミットの `at` は trunk 側の clock で, branch 側とは別系列。`sourceBranchId` だけでは「どの branch を」しか分からず「どこまでを」が復元できない。D3 が副次効果として挙げた「最後の merge 以降に commit があるか」の導出も `sourceAt` 無しでは成立しない |
+| 2026-08-09 | merge の**確認ダイアログをやめ, 理由の入力ダイアログに置き換える** | 理由が必須になった以上, 入力そのものが確認である。二段構えにして得るものが無い |
 | 2026-08-09 | S3 の受入基準「commit 直後にハイライトが消える」は**誤り**として訂正 (§6) | §4 D2 の表とも仕様書とも矛盾していた。commit 後は起点が分岐点へ切り替わり差分は出続ける (= 次の merge の対象)。消えるのは `pendingChanges` の方 |

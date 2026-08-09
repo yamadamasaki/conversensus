@@ -474,26 +474,34 @@ export function useBranchOperations({
   const handleMergeBranch = useCallback(
     async (branch: BranchMeta) => {
       if (!activeSheetId || !activeFile) return;
-      const ok = await new Promise<boolean>((resolve) => {
-        setConfirmState({
-          message: `branch "${branch.name}" を trunk に merge しますか？`,
+      // merge 理由は commit と同様に**必須** (ANA-122)。確認ダイアログは置かない —
+      // 理由の入力そのものが確認であり、二段構えにしても得るものが無い。
+      const message = await new Promise<string>((resolve) => {
+        setInputState({
+          message: `branch "${branch.name}" を trunk に merge します。理由を入力してください:`,
           resolve,
         });
       });
-      if (!ok) return;
+      if (!message.trim()) return;
       try {
         // 🔴 直前の編集が branch op-log に着地するのを待つ。待たないと、その編集が
         // trunk に載らないまま branch だけ MERGED になる (record は非同期に flush する)。
         await branchSettled();
         // branch batches を trunk 先端の後へ再スタンプして trunk op-log へ追記する。
         // 再スタンプの発番は trunk の tap と同じ clock で行う (同 clock の衝突回避)。
-        const result = await mergeBranchOnOplog(branch, {
-          fetchBatches: oplogDeps.fetchBatches,
-          appendBatches: oplogDeps.appendBatches,
-          saveBranch: oplogDeps.saveBranch,
-          seedClock: trunkClock.seed,
-          tick: trunkClock.tick,
-        });
+        const result = await mergeBranchOnOplog(
+          branch,
+          { message: message.trim(), actor },
+          {
+            fetchBatches: oplogDeps.fetchBatches,
+            appendBatches: oplogDeps.appendBatches,
+            saveBranch: oplogDeps.saveBranch,
+            saveCommit: oplogDeps.saveCommit,
+            newId: oplogDeps.newId,
+            seedClock: trunkClock.seed,
+            tick: trunkClock.tick,
+          },
+        );
         if (result.conflicts.length > 0) {
           // 収束は LWW で確定させ、対立は診断ログに残す (可視化は後続 phase)
           console.warn(
@@ -512,10 +520,11 @@ export function useBranchOperations({
     [
       activeSheetId,
       activeFile,
-      setConfirmState,
+      setInputState,
       setAlertState,
       oplogDeps,
       trunkClock,
+      actor,
       afterMerge,
       branchSettled,
     ],

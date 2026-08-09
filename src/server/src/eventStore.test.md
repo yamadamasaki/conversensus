@@ -102,6 +102,11 @@ Phase 3 の永続モデルは「append-only な操作ログ + projection」。�
 - **projectSheet**: 操作ログを projection して Sheet を導出する。node.add → node.setContent
   で LWW の後勝ちが反映されること、空ログでは空 Sheet になること。
 - **saveCommit / getCommits**: at 昇順で読み返す、同一 id は上書き、file_id で分離。
+  - **merge の記録 (ANA-122)**: merge も同じテーブルに入るので、`kind` / `sourceBranchId` /
+    `sourceAt` (取り込んだ branch op-log の位置) まで欠落なく往復すること。commit と merge が
+    **同じ履歴から一列に引ける**ことが D3 の狙いそのものなので、種別の並びも固定する。
+  - **旧スキーマとの互換**: `kind` 列が無い時期の DB を開くと ALTER で列が足され、
+    既存行は `commit` として読める (落ちない・種別が欠けない)。列は既存なら足さない (べき等)。
 - **saveBranch / getBranches (step1 Phase 5)**: ブランチのメタ情報 (`BranchMeta`) の永続化。
   ログ (batches) ではなくメタなので上書き保存であり、観点は `saveCommit/getCommits` と対称に取る:
   - base オフセット (`base.at`) 昇順で読み返す (分岐点の古い順に並ぶ)。

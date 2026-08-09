@@ -109,7 +109,15 @@ deps は `createInMemoryBranchOplogDeps` (batches / branches / commits の in-me
   `_setComputeOps` で変更ありの状態を作る (`pendingChanges` は useMemo なので選択後に
   差し込んでも再計算されない)。
 
-### merge — trunk 先端の後へ再スタンプ
+### merge — trunk 先端の後へ再スタンプ + 一級の記録 (ANA-122)
+
+- **merge 理由は必須**。理由の入力に答えない (空白だけ) と merge は起きず、trunk も
+  branch の status も動かない。以前は確認ダイアログだったが、**理由の入力そのものが
+  確認**なので二段構えにしない。テストは `answerMergeReason` で入力に答える —
+  答えないと Promise が解決せず merge に進まない。
+- **merge の記録が trunk 側の commits に `kind=merge` で残る** (理由・実行者・由来 branch)。
+  branch の status が MERGED になるだけでは「いつ・誰が・何のために」が残らなかった。
+
 - branch batch が **id を保持したまま** trunk op-log に現れ、clock は merge 時点の
   trunk 先端より後になる。id 保持が再 merge のべき等性そのもの (p5-3)。
 - 再スタンプの発番は **trunk の tap と同じ clock** で行う (`trunkClock`)。発番器を

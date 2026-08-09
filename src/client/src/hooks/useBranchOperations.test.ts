@@ -169,6 +169,19 @@ async function withOpenBranch(
   });
   return { ...view, branch };
 }
+/**
+ * merge 理由の入力に答える (ANA-122)。merge は理由が必須なので、
+ * **答えないと入力の Promise が解決せず merge に進まない**。
+ * 空白だけを渡せば入力ダイアログのキャンセルと同じ扱いになる。
+ */
+const answerMergeReason = (reason: string) => {
+  mockSetInputState.mockImplementationOnce(
+    (s: { resolve: (v: string) => void }) => {
+      s.resolve(reason);
+    },
+  );
+};
+
 /** 指定 status に付け替えた branch を選び直す (状態ゲートの検証用) */
 async function selectWithStatus(
   view: Awaited<ReturnType<typeof withOpenBranch>>,
@@ -514,11 +527,7 @@ describe('useBranchOperations — branch 操作 (op-log)', () => {
         trunkBatch('t2', 9, 'n2', 'trunk の後発編集'),
       ]);
 
-      mockSetConfirmState.mockImplementationOnce(
-        (s: { resolve: (ok: boolean) => void }) => {
-          s.resolve(true);
-        },
-      );
+      answerMergeReason('取り込む');
       await act(async () => {
         await result.current.handleMergeBranch(branch);
       });
@@ -531,18 +540,38 @@ describe('useBranchOperations — branch 操作 (op-log)', () => {
       expect(result.current.activeBranch?.status).toBe('merged');
     });
 
-    it('確認でキャンセルすると trunk は変わらない', async () => {
+    /**
+     * merge 理由は commit と同様に必須 (ANA-122)。空のまま進めると
+     * 「いつ・誰が・何のために merge したか」が欠けた記録が残ってしまう。
+     */
+    it('理由を入力しなければ merge しない', async () => {
       const { result, branch, oplogDeps } = await withOpenBranch();
-      mockSetConfirmState.mockImplementationOnce(
-        (s: { resolve: (ok: boolean) => void }) => {
-          s.resolve(false);
-        },
-      );
+      answerMergeReason('   '); // 空白だけ = 入力ダイアログのキャンセルと同じ
       await act(async () => {
         await result.current.handleMergeBranch(branch);
       });
       expect(oplogDeps._batches.get(TRUNK_ID)).toHaveLength(1);
       expect(oplogDeps._branches.get(branch.id)?.status).toBe('open');
+      expect(oplogDeps._commits.get(TRUNK_ID) ?? []).toHaveLength(0);
+    });
+
+    it('merge の記録が trunk 側の commits に kind=merge で残る', async () => {
+      const { result, branch, oplogDeps } = await withOpenBranch();
+      await act(async () => {
+        result.current.branchSyncRecord?.(relabel('branch の編集'), SHEET_ID);
+        await new Promise((r) => setTimeout(r, 10));
+      });
+      answerMergeReason('案 A を採用したため');
+      await act(async () => {
+        await result.current.handleMergeBranch(branch);
+      });
+
+      const commits = oplogDeps._commits.get(TRUNK_ID) ?? [];
+      expect(commits).toHaveLength(1);
+      expect(commits[0]?.kind).toBe('merge');
+      expect(commits[0]?.message).toBe('案 A を採用したため');
+      expect(commits[0]?.authorActor).toBe('did:plc:alice#dev1');
+      expect(commits[0]?.sourceBranchId).toBe(branch.id);
     });
   });
 

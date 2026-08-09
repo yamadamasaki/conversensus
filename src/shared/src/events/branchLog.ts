@@ -34,6 +34,19 @@ export const BRANCH_STATUS = {
 } as const;
 export type BranchStatus = (typeof BRANCH_STATUS)[keyof typeof BRANCH_STATUS];
 
+/**
+ * コミットの種別 (ANA-122)。**merge も一級の記録**にするための区別。
+ *
+ * merge は「branch batches を trunk 先端の後へ再スタンプして追記する」操作なので、
+ * 追記後の trunk 先端を指すオフセットとして commit と同じ形で表せる。種別を分けるのは
+ * 「いつ・誰が・何のために merge したか」を trunk の履歴から commit と一列に引くため。
+ */
+export const COMMIT_KIND = {
+  COMMIT: 'commit',
+  MERGE: 'merge',
+} as const;
+export type CommitKind = (typeof COMMIT_KIND)[keyof typeof COMMIT_KIND];
+
 /** コミット = 操作ログ上のラベル付きオフセット */
 export type Commit = {
   id: CommitId;
@@ -41,6 +54,16 @@ export type Commit = {
   /** このコミットが指すログ位置。clock <= at の batch を含む */
   at: Lamport;
   authorActor: string;
+  kind: CommitKind;
+  /** merge のとき、取り込んだ branch。commit では持たない */
+  sourceBranchId?: BranchId;
+  /**
+   * merge のとき、**branch op-log 側のどこまでを取り込んだか**。`at` は trunk 側の
+   * 位置なので、branch 側の位置は別に持たないと後から辿れない (両者は別の file_id の
+   * ログで clock も別系列)。「最後の merge 以降に branch へ積まれた commit があるか」は
+   * これで判定できる。
+   */
+  sourceAt?: Lamport;
 };
 
 /** ブランチ = base コミットからの分岐 */
@@ -63,6 +86,12 @@ export const CommitSchema = z.object({
   message: z.string(),
   at: z.number().int().nonnegative(),
   authorActor: z.string(),
+  // 既定値を持たせるのは互換のため — `kind` を持たない既存のコミット行や、
+  // branches テーブルへ列展開されている base コミット (種別を持たない) が
+  // そのまま通る。出力側では必須なのでドメイン型 `Commit` と一致する。
+  kind: z.nativeEnum(COMMIT_KIND).default(COMMIT_KIND.COMMIT),
+  sourceBranchId: BranchIdSchema.optional(),
+  sourceAt: z.number().int().nonnegative().optional(),
 });
 
 /**
@@ -104,7 +133,37 @@ export function makeCommit(
   authorActor: string,
   batches: Batch[],
 ): Commit {
-  return { id, message, at: tipClock(batches), authorActor };
+  return {
+    id,
+    message,
+    at: tipClock(batches),
+    authorActor,
+    kind: COMMIT_KIND.COMMIT,
+  };
+}
+
+/**
+ * merge の記録を作る (ANA-122)。**trunk 側**のコミットである。
+ *
+ * @param trunkBatches merge 追記**後**の trunk op-log。`at` はその先端を指す
+ * @param source 取り込んだ branch と、branch op-log 側の取り込み位置
+ */
+export function makeMergeCommit(
+  id: CommitId,
+  message: string,
+  authorActor: string,
+  trunkBatches: Batch[],
+  source: { branchId: BranchId; at: Lamport },
+): Commit {
+  return {
+    id,
+    message,
+    at: tipClock(trunkBatches),
+    authorActor,
+    kind: COMMIT_KIND.MERGE,
+    sourceBranchId: source.branchId,
+    sourceAt: source.at,
+  };
 }
 
 /** base コミット時点までの batches (clock <= base.at) を切り出す */

@@ -246,7 +246,24 @@ describe('API routes', () => {
       const commit = sampleCommit(1, 3);
       const res = await postCommit(created.id, commit);
       expect(res.status).toBe(201);
-      expect(await res.json()).toEqual(commit);
+      // kind を持たない入力は通常のコミットとして補完される (ANA-122 の互換規定)。
+      // merge を一級の記録にした後も、それ以前に書かれたコミットが通ること。
+      expect(await res.json()).toEqual({ ...commit, kind: 'commit' });
+    });
+
+    it('merge の記録は kind と由来 branch を保って往復する', async () => {
+      const created = await (await createFile('ログ')).json();
+      const mergeCommit = {
+        ...sampleCommit(3, 7),
+        kind: 'merge',
+        sourceBranchId: uuid(3100),
+        sourceAt: 4,
+      };
+      await postCommit(created.id, mergeCommit);
+      const body = await (
+        await fetch(new Request(`http://localhost/files/${created.id}/commits`))
+      ).json();
+      expect(body).toEqual([mergeCommit]);
     });
 
     it('保存したコミットを at 昇順で取得できる', async () => {
@@ -316,7 +333,11 @@ describe('API routes', () => {
       const meta = sampleBranch(1, created.id, 3);
       const res = await postBranch(created.id, meta);
       expect(res.status).toBe(201);
-      expect(await res.json()).toEqual(meta);
+      // base は分岐点を指すラベルなので kind は常に commit (ANA-122)
+      expect(await res.json()).toEqual({
+        ...meta,
+        base: { ...meta.base, kind: 'commit' },
+      });
     });
 
     it('保存したブランチを base オフセット昇順で取得できる', async () => {

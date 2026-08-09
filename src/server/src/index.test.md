@@ -217,9 +217,14 @@ branch/commit を op-log 上で成立させるための**メタの器**。batche
 
 ### コミット (`/commits`)
 
-コミット = 操作ログ上のラベル付きオフセット (`{id, message, at, authorActor}`)。
+コミット = 操作ログ上のラベル付きオフセット
+(`{id, message, at, authorActor, kind, sourceBranchId?, sourceAt?}`)。
 
 - **保存と応答**: 201 と保存内容を返す。UI が採番結果をそのまま扱えること。
+  **`kind` を持たない入力は `commit` として補完される** — merge を一級の記録にする
+  (ANA-122) 前に書かれたコミットが、そのまま通り続けるための互換規定。
+- **merge の記録 (ANA-122)**: `kind=merge` と由来 (`sourceBranchId` / `sourceAt`) を
+  保ったまま往復する。「いつ・誰が・何のために merge したか」を trunk の履歴から引ける。
 - **at 昇順で取得**: `Commit.at` は `batchesUpTo` の切り出し位置なので、履歴は
   分岐点の古い順に並ぶ必要がある。
 - **空なら空配列**: コミットの無いファイルでも 200 + `[]` (404 にしない)。
