@@ -328,6 +328,8 @@ export function graphEventToOps(event: GraphEvent): Op[] {
           }),
         },
       ];
+    case 'FILE_DELETED':
+      return [{ kind: 'file.remove' }];
     default:
       return [];
   }

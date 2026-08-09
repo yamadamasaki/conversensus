@@ -3,7 +3,7 @@ import type { FileId } from '@conversensus/shared';
 import { batchRkey } from './batchRkey';
 import {
   type ListRecordsPage,
-  listBatchFileIds,
+  listBatchFileHeads,
   listByRkeyPrefix,
   type RecordPage,
   type RecordSummary,
@@ -150,7 +150,7 @@ describe('listByRkeyPrefix (Phase 7 p7-2)', () => {
   });
 });
 
-describe('listBatchFileIds (Phase 7 p7-3)', () => {
+describe('listBatchFileHeads (Phase 7 p7-3)', () => {
   const FILE_1 = fileId('1');
   const FILE_5 = fileId('5');
   const FILE_9 = fileId('9');
@@ -166,11 +166,25 @@ describe('listBatchFileIds (Phase 7 p7-3)', () => {
     // 一気に飛ばすので、1 ファイル 1 リクエストで済む (各 1 レコードしか転送しない)。
     const pager = fakePager(seedRkeys([FILE_1, FILE_5, FILE_9]), 100);
 
-    const ids = await listBatchFileIds(pager.listPage);
+    const ids = (await listBatchFileHeads(pager.listPage)).map((h) => h.fileId);
 
     expect(ids).toEqual([FILE_9, FILE_5, FILE_1]); // 降順
     // 3 ファイル + 「もう無い」の 1 回
     expect(pager.requests).toBe(4);
+  });
+
+  it('各ファイルの着地レコードは最大 clock の 1 件である (ANA-127 S3 の土台)', async () => {
+    // 削除の検出は「着地レコード = 最大 clock の batch」に乗っている
+    // (tombstone は最大 clock + 1 で置かれる, `sync/fileDeletion.ts`)。
+    // この性質が崩れると、他端末は本体を引くまで削除に気づけない。
+    const pager = fakePager(seedRkeys([FILE_1, FILE_5]), 100);
+
+    const heads = await listBatchFileHeads(pager.listPage);
+
+    expect(heads.map((h) => rkeyOf(h.head))).toEqual([
+      batchRkey(FILE_5, 3, 'b3'),
+      batchRkey(FILE_1, 3, 'b3'),
+    ]);
   });
 
   it('1 リクエスト 1 レコードしか要求しない', async () => {
@@ -181,7 +195,7 @@ describe('listBatchFileIds (Phase 7 p7-3)', () => {
       return { records: [], cursor: undefined };
     };
 
-    await listBatchFileIds(listPage);
+    await listBatchFileHeads(listPage);
     expect(limits).toEqual([1]);
   });
 
@@ -192,7 +206,7 @@ describe('listBatchFileIds (Phase 7 p7-3)', () => {
     for (let i = 0; i < 30; i += 1) rkeys.push(`${i}f2b4dce-old-uuid`);
     const pager = fakePager(rkeys, 100);
 
-    const ids = await listBatchFileIds(pager.listPage);
+    const ids = (await listBatchFileHeads(pager.listPage)).map((h) => h.fileId);
 
     expect(ids).toEqual([FILE_5]);
     // 対象 1 ファイル + 旧 rkey 領域の最大 1 件 = 2 リクエスト。30 件は読まない
@@ -201,7 +215,7 @@ describe('listBatchFileIds (Phase 7 p7-3)', () => {
 
   it('remote が空なら空で返る', async () => {
     const pager = fakePager([], 100);
-    expect(await listBatchFileIds(pager.listPage)).toEqual([]);
+    expect(await listBatchFileHeads(pager.listPage)).toEqual([]);
     expect(pager.requests).toBe(1);
   });
 
@@ -211,7 +225,7 @@ describe('listBatchFileIds (Phase 7 p7-3)', () => {
     const rkeys = [...seedRkeys([FILE_1]), `v1~${FILE_9}~42~broken`];
     const pager = fakePager(rkeys, 100);
 
-    const ids = await listBatchFileIds(pager.listPage);
+    const ids = (await listBatchFileHeads(pager.listPage)).map((h) => h.fileId);
 
     expect(ids).toEqual([FILE_1]);
     // 壊れた 1 件 + FILE_1 + 「もう無い」= 3
@@ -228,7 +242,7 @@ describe('listBatchFileIds (Phase 7 p7-3)', () => {
       return { records: [record(rkey)], cursor: rkey };
     };
 
-    const ids = await listBatchFileIds(listPage, 10);
+    const ids = (await listBatchFileHeads(listPage, 10)).map((h) => h.fileId);
     expect(ids).toEqual([FILE_5]);
     expect(requests).toBe(2); // 2 回目で再着地を検知して停止
   });
@@ -239,7 +253,9 @@ describe('listBatchFileIds (Phase 7 p7-3)', () => {
     const files = ['1', '3', '5', '7', '9', 'b'].map(fileId);
     const pager = fakePager(seedRkeys(files), 100);
 
-    const ids = await listBatchFileIds(pager.listPage, 3);
+    const ids = (await listBatchFileHeads(pager.listPage, 3)).map(
+      (h) => h.fileId,
+    );
 
     expect(ids).toHaveLength(3); // 上限までの分だけ
     expect(pager.requests).toBe(3);

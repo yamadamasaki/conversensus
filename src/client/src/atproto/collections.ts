@@ -16,7 +16,7 @@ import type { AtUri, FileId, Rkey } from '@conversensus/shared';
 import { batchRkeyFileCursor, batchRkeyPrefix } from './batchRkey';
 import { currentDid, getAgent } from './client';
 import {
-  listBatchFileIds,
+  listBatchFileHeads,
   listByRkeyPrefix,
   type RecordPage,
   type RecordSummary,
@@ -180,7 +180,7 @@ export const batches = {
    *
    * 通常経路 (受信・catch-up・発見) はすべて下の範囲取得へ移った。ここが残るのは
    * **旧 rkey のレコードを探せるのが全件走査だけ**だからである — `listByFile` /
-   * `listFileIds` は `v1~` で始まる rkey しか走査しない (§3.1 の分離)。
+   * `listFileHeads` は `v1~` で始まる rkey しか走査しない (§3.1 の分離)。
    */
   listAllForMigration() {
     return listRecords(NSID.batch);
@@ -198,11 +198,14 @@ export const batches = {
     );
   },
   /**
-   * remote に存在する fileId を列挙する (Phase 7 p7-3)。
+   * remote に存在するファイルを列挙する (Phase 7 p7-3)。
    * 1 ファイル 1 リクエスト・各 1 レコードで、**batch 本体を落とさない** (§3.3)。
+   *
+   * 返すのは fileId と**着地した 1 レコード**である (ANA-127 S3)。着地レコードは
+   * そのファイルの最大 clock の batch なので、削除の tombstone がそこに現れる。
    */
-  listFileIds() {
-    return listBatchFileIds((params) => listRecordsPage(NSID.batch, params));
+  listFileHeads() {
+    return listBatchFileHeads((params) => listRecordsPage(NSID.batch, params));
   },
   delete(rkey: string) {
     return deleteRecord(NSID.batch, rkey);

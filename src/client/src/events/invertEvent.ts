@@ -213,6 +213,7 @@ export function invertEvent(event: GraphEvent): GraphEvent {
     case 'SHEET_DESCRIBED':
     case 'FILE_RENAMED':
     case 'FILE_DESCRIBED':
+    case 'FILE_DELETED':
       throw new Error(
         `invertEvent: 構造イベントは反転不可 (undo 対象外): ${event.type}`,
       );

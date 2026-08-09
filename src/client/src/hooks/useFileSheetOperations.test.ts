@@ -363,6 +363,62 @@ describe('useFileSheetOperations', () => {
       expect(result.current.activeFile).not.toBeNull();
       expect(result.current.files.length).toBe(1);
     });
+
+    // ANA-127 の核心。削除は tombstone なので **op-log は残る** = discovery から見て
+    // 「既知」のままでなければならない。ここが崩れると削除したファイルが未知と判定され、
+    // PDS から materialize されて次回起動で復活する。
+    it('削除しても discovery の既知集合には残る (復活させないため)', async () => {
+      mockSetConfirmState.mockImplementationOnce(
+        (s: { resolve: (ok: boolean) => void }) => {
+          s.resolve(true);
+        },
+      );
+
+      const deps = createInMemoryFileSheetOpsDeps();
+      const { result } = await renderWith({ deps });
+      await act(async () => {
+        await result.current.handleCreate();
+      });
+      const created = result.current.activeFile;
+      if (!created) throw new Error('activeFile should be set');
+
+      await act(async () => {
+        await result.current.handleDeleteFile(created.id);
+      });
+
+      // 一覧からは消える
+      expect(await deps.fetchFiles()).toEqual([]);
+      // が、既知集合には残る
+      expect(await deps.fetchLocalFileIds()).toContain(created.id);
+    });
+
+    it('削除に失敗したら UI からも消さない', async () => {
+      mockSetConfirmState.mockImplementationOnce(
+        (s: { resolve: (ok: boolean) => void }) => {
+          s.resolve(true);
+        },
+      );
+
+      const deps = createInMemoryFileSheetOpsDeps();
+      deps.deleteFile = async () => {
+        throw new Error('daemon down');
+      };
+
+      const { result } = await renderWith({ deps });
+      await act(async () => {
+        await result.current.handleCreate();
+      });
+
+      await act(async () => {
+        await result.current.handleDeleteFile(
+          result.current.activeFile?.id ?? '',
+        );
+      });
+
+      // 消えたように見えて次の起動で戻る、という状態を作らない
+      expect(result.current.files.length).toBe(1);
+      expect(result.current.activeFile).not.toBeNull();
+    });
   });
 
   describe('handleImportFile', () => {
@@ -599,9 +655,11 @@ describe('useFileSheetOperations', () => {
         pushRemote: async () => {},
         pullAllRemoteForMigration: async () => entries,
         // 発見は「列挙 → 未知ファイルだけ取得」(Phase 7 p7-3)
-        listRemoteFileIds: async () => [
-          ...new Set(entries.map((e) => e.fileId)),
-        ],
+        listRemoteFiles: async () =>
+          [...new Set(entries.map((e) => e.fileId))].map((fileId) => ({
+            fileId,
+            deleted: false,
+          })),
         pullRemoteForFile: async (fileId: string) =>
           entries.filter((e) => e.fileId === fileId),
       };
@@ -663,7 +721,7 @@ describe('useFileSheetOperations', () => {
     /**
      * 旧 rkey のレコードしか無い remote を模した queue。
      *
-     * **列挙 (`listRemoteFileIds`) は空を返す** — 旧 rkey は `v1~` より小さく新経路の
+     * **列挙 (`listRemoteFiles`) は空を返す** — 旧 rkey は `v1~` より小さく新経路の
      * 走査に現れないので、これが移行前の実際の見え方である。つまり発見だけでは
      * このファイルに到達できず、**移行の全件受信 (`pullAllRemoteForMigration`) だけが拾える**。
      */
@@ -692,7 +750,7 @@ describe('useFileSheetOperations', () => {
           calls.pullAllRemoteForMigration += 1;
           return entries;
         },
-        listRemoteFileIds: async () => [], // 新経路からは見えない
+        listRemoteFiles: async () => [], // 新経路からは見えない
         pullRemoteForFile: async () => [], // 新形式ではまだ 1 件も載っていない
       };
       const queue = new RemoteSyncQueue({
@@ -767,7 +825,7 @@ describe('useFileSheetOperations', () => {
         pullAllRemoteForMigration: async () => {
           throw new Error('offline');
         },
-        listRemoteFileIds: async () => [DISCOVERED],
+        listRemoteFiles: async () => [{ fileId: DISCOVERED, deleted: false }],
         pullRemoteForFile: async () => entries,
       };
       const deps = createInMemoryFileSheetOpsDeps();

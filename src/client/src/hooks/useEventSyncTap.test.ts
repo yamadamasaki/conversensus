@@ -33,7 +33,7 @@ const { renderHook, act, cleanup } = await import('@testing-library/react');
 const { useEventSyncTap } = await import('./useEventSyncTap');
 
 import type { RemoteBatchTarget } from '../atproto/remoteSyncQueue';
-import type { RemoteBatch } from '../atproto/types';
+import type { RemoteBatch, RemoteFileEntry } from '../atproto/types';
 
 const { RemoteSyncQueue } = await import('../atproto/remoteSyncQueue');
 const { GENESIS_ACTOR } = await import('@conversensus/shared');
@@ -101,8 +101,8 @@ class RecordingProvider implements SyncProvider, RemoteBatchTarget {
     );
   }
   /** ファイル列挙 (Phase 7 p7-3)。この hook のテストでは 1 ファイルしか扱わない */
-  async listRemoteFileIds(): Promise<FileId[]> {
-    return [FID];
+  async listRemoteFiles(): Promise<RemoteFileEntry[]> {
+    return [{ fileId: FID, deleted: false }];
   }
 }
 

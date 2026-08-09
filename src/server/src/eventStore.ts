@@ -21,6 +21,7 @@ import {
   type CommitId,
   type FileId,
   type GraphFileListItem,
+  isFileDeleted,
   projectBatches,
   projectFile,
   type Sheet,
@@ -217,6 +218,26 @@ export class EventStore {
   }
 
   /**
+   * op-log に batch を持つ file_id を**すべて**返す (ANA-127)。
+   *
+   * `listOplogFiles` との違いは「表示のための除外を一切しない」ことである。
+   * 削除済み・0 シート・branch 専用 file_id もそのまま含む。用途は 1 つで、
+   * remote からの発見 (`discoverRemoteFiles`) が「この端末が知らない fileId」を
+   * 求めるときの既知集合になる。
+   *
+   * 一覧 (`listOplogFiles`) を既知集合に流用してはいけない — 削除済みファイルが
+   * 「未知」に化けて PDS から materialize され、削除が取り消される (ANA-127 の再発)。
+   */
+  listAllFileIds(): FileId[] {
+    return this.db
+      .query<{ file_id: string }, []>(
+        'SELECT file_id FROM batches GROUP BY file_id ORDER BY MIN(seq)',
+      )
+      .all()
+      .map((row) => row.file_id as FileId);
+  }
+
+  /**
    * op-log に batch を持つファイルの一覧を返す (Phase 4e-2a, 4e 設計 §3.2b)。
    *
    * `GET /files` を snapshot storage と op-log の和集合にするための op-log 側。
@@ -228,6 +249,9 @@ export class EventStore {
    * - projection が 0 シートの file_id は除外する — 有効な GraphFile は必ず
    *   1 シート以上持つ (W3d-2 の読取失敗判定と同じ基準)。genesis を持たない
    *   孤児 batch だけの file_id を出すと、開いても描画できない項目が並ぶため。
+   * - **削除済み (`file.remove`) の file_id も除外する** (ANA-127)。batches の行は
+   *   残したまま一覧からだけ落とす — 行を消すと tombstone ごと消えて、次の discovery が
+   *   「未知ファイル」と誤判定して PDS から materialize し直してしまう (設計 D1 の層 1)。
    */
   listOplogFiles(): GraphFileListItem[] {
     const rows = this.db
@@ -238,7 +262,9 @@ export class EventStore {
     const items: GraphFileListItem[] = [];
     for (const row of rows) {
       const fileId = row.file_id as FileId;
-      const projected = projectFile(this.getBatches(fileId), fileId);
+      const batches = this.getBatches(fileId);
+      if (isFileDeleted(batches)) continue;
+      const projected = projectFile(batches, fileId);
       if (projected.sheets.length === 0) continue;
       items.push({
         id: fileId,

@@ -167,3 +167,21 @@ export type RemoteBatch = {
   fileId: FileId;
   batch: Batch;
 };
+
+/**
+ * remote に存在するファイル 1 件分の列挙結果 (ANA-127 S3)。
+ *
+ * 発見経路 (`discoverRemoteFiles`) が列挙に求めるのは fileId の集合だけだったが、
+ * **削除済みファイルを materialize し直さない**ためには「remote 側で削除されているか」も
+ * 要る。列挙は各ファイルの最大 clock のレコードに着地する (`listBatchFileHeads`) ので、
+ * 削除が最大 clock の tombstone として置かれている限り、**本体を引かずに**判定できる。
+ *
+ * `deleted` は「着地レコードが tombstone だった」という意味であって、
+ * 「op-log のどこにも `file.remove` が無い」ことの証明ではない (tombstone より後に
+ * 別端末の batch が載れば着地点は動く)。取りこぼしは pull 後の `isFileDeleted` が拾う
+ * — 二段構えである理由がこれである (設計 §4 D1 の層 2)。
+ */
+export type RemoteFileEntry = {
+  fileId: FileId;
+  deleted: boolean;
+};

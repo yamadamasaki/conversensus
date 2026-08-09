@@ -12,7 +12,8 @@
  *   rkey が batch の不変属性だけから決まるのでべき等 (`batchRkey.ts`)。
  * - pullRemoteForFile: **1 ファイル分**を rkey prefix の範囲取得で得る (Phase 7 p7-2)。
  *   受信 (`receiveRemoteBatches`) と catch-up の経路はこちらに載る。
- * - listRemoteFileIds: remote に存在する fileId を列挙する (Phase 7 p7-3)。発見経路が使う。
+ * - listRemoteFiles: remote に存在するファイルを列挙する (Phase 7 p7-3)。発見経路が使う。
+ *   削除済みか (ANA-127 の tombstone) も列挙の 1 レコードから判定して返す。
  * - pullAllRemoteForMigration: batch レコードを**全件**取得。**移行 (p7-4) 専用の 1 回限りの口**で、
  *   旧 rkey のレコードを探せる唯一の経路である (新経路は `v1~` しか走査しない)。p7-5 で
  *   他の消費者はすべて上の 2 つへ移り、この名前が用途を型の面に固定している。
@@ -24,15 +25,21 @@
  * 依存 (batch collection) は注入可能にし、PDS 非依存にテストする。
  */
 
-import type { FileId } from '@conversensus/shared';
+import { type FileId, isFileDeleted } from '@conversensus/shared';
 import {
   batchToRecord,
   isBatchRecordValue,
   recordToRemoteBatch,
 } from './batchMapper';
 import { batchIdFromRkey, batchRkey, rkeyFromUri } from './batchRkey';
+import type { BatchFileHead } from './rangeFetch';
 import type { RemoteBatchTarget } from './remoteSyncQueue';
-import type { BatchRecord, RecordResult, RemoteBatch } from './types';
+import type {
+  BatchRecord,
+  RecordResult,
+  RemoteBatch,
+  RemoteFileEntry,
+} from './types';
 
 /** `listRecords` が返すレコード 1 件分 (rkey は uri の末尾にしか無い) */
 type RecordSummary = { uri: string; cid: string; value: unknown };
@@ -48,14 +55,17 @@ export interface BatchCollection {
    * repo 全体 (Phase 4d-4)。**移行 (p7-4) 専用**である (p7-5)。
    *
    * 通常経路がこれを呼ばないのは Phase 7 の目的そのものだが、移行だけは代替が無い —
-   * 旧 rkey (`v1~` で始まらない) のレコードは `listByFile` / `listFileIds` の走査範囲に
+   * 旧 rkey (`v1~` で始まらない) のレコードは `listByFile` / `listFileHeads` の走査範囲に
    * 現れないので、探せるのは全件走査だけである。名前で用途を固定しておく。
    */
   listAllForMigration(): Promise<RecordSummary[]>;
   /** 1 ファイル分だけを rkey prefix の範囲で取得する (Phase 7 p7-2) */
   listByFile(fileId: FileId): Promise<RecordSummary[]>;
-  /** remote に存在する fileId を列挙する (Phase 7 p7-3, batch 本体は落とさない) */
-  listFileIds(): Promise<FileId[]>;
+  /**
+   * remote に存在するファイルを列挙する (Phase 7 p7-3, batch 本体は落とさない)。
+   * 各ファイルの**着地レコード** (最大 clock の batch) を伴う (ANA-127 S3)。
+   */
+  listFileHeads(): Promise<BatchFileHead[]>;
 }
 
 export type AtprotoSyncProviderDeps = {
@@ -130,7 +140,7 @@ export class AtprotoSyncProvider implements RemoteBatchTarget {
    * (§3.4 で subscribe を不採用としたため) ので受容できる。
    *
    * **p7-5 で残った消費者は移行 (`migrateRemoteRkey`) だけになった**。受信・catch-up は
-   * `pullRemoteForFile`、発見は `listRemoteFileIds` へ移っている。移行だけが残るのは
+   * `pullRemoteForFile`、発見は `listRemoteFiles` へ移っている。移行だけが残るのは
    * 代替が無いためで、**旧 rkey のレコードは新経路の走査範囲に現れない** (§3.1 の
    * `v1~` 分離が効くのは新形式の側だけ)。名前で 1 回限りの用途を固定している。
    * 既読位置を持たない契約は新経路でも維持している (上記 3 つの理由は今も有効, §2.2)。
@@ -164,19 +174,31 @@ export class AtprotoSyncProvider implements RemoteBatchTarget {
   }
 
   /**
-   * remote に存在する fileId を列挙する (Phase 7 p7-3)。
+   * remote に存在するファイルを列挙する (Phase 7 p7-3 / ANA-127 S3)。
    *
    * 未知ファイルの発見 (`discoverRemoteFiles`) が必要とするのは、まず **fileId の集合**で
    * ある — batch 本体は未知ファイルの分だけあればよい。rkey が `v1~<fileId>~…` なので
    * **1 ファイル 1 リクエスト・各 1 レコード**で列挙でき、既知ファイルの batch を
    * 落として捨てることが無くなる (設計 §3.3)。
    *
+   * その 1 レコード (着地点 = 最大 clock の batch) を **tombstone かどうかの判定にも
+   * 使う** (ANA-127)。削除は最大 clock の `file.remove` として置かれるので、
+   * 削除済みファイルは**本体を 1 件も引かずに**除外できる。判定は正典と同じ
+   * `isFileDeleted` に通す — remote 側だけ別の規則にしない。
+   *
+   * 着地レコードが壊れていて Batch に翻訳できない場合は `deleted: false` になる
+   * (`toRemoteBatches` が数えて警告する)。取りこぼしは pull 後の検査が拾う。
+   *
    * 旧 rkey のレコードしか無いファイルはここに現れない。それらは移行 (p7-4) が
    * 新 rkey で再 push するまで発見経路の外にある — 移行前に全件受信を 1 回通す順序
    * (§3.4) がその穴を塞ぐ。
    */
-  listRemoteFileIds(): Promise<FileId[]> {
-    return this.batches.listFileIds();
+  async listRemoteFiles(): Promise<RemoteFileEntry[]> {
+    const heads = await this.batches.listFileHeads();
+    return heads.map(({ fileId, head }) => ({
+      fileId,
+      deleted: isFileDeleted(toRemoteBatches([head]).map((e) => e.batch)),
+    }));
   }
 }
 

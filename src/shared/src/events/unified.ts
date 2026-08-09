@@ -166,6 +166,11 @@ export const OpSchema = z.discriminatedUnion('kind', [
     kind: z.literal('file.setDescription'),
     description: z.string().optional(),
   }),
+  /**
+   * ファイルの削除 (ANA-127)。**target を取らない** — batch は既に fileId 単位に
+   * 束ねられているので、自分が載っている op-log のファイルを指す。
+   */
+  z.object({ kind: z.literal('file.remove') }),
 ]);
 export type Op = z.infer<typeof OpSchema>;
 export type OpKind = Op['kind'];
@@ -179,6 +184,7 @@ export const FILE_OP_KINDS = [
   'sheet.reorder',
   'file.setName',
   'file.setDescription',
+  'file.remove',
 ] as const;
 export type FileOpKind = (typeof FILE_OP_KINDS)[number];
 
@@ -211,6 +217,7 @@ export const OP_CATEGORY: Record<OpKind, Category> = {
   'sheet.reorder': 'file',
   'file.setName': 'file',
   'file.setDescription': 'file',
+  'file.remove': 'file',
 };
 
 export function opCategory(op: Op): Category {

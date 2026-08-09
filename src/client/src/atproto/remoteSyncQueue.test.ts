@@ -11,7 +11,7 @@ import {
   type RemoteBatchTarget,
   RemoteSyncQueue,
 } from './remoteSyncQueue';
-import type { RemoteBatch } from './types';
+import type { RemoteBatch, RemoteFileEntry } from './types';
 
 const FILE = '22222222-2222-4222-8222-222222222222' as FileId;
 
@@ -62,9 +62,11 @@ class FakeProvider implements RemoteBatchTarget {
     if (this.leakOtherFiles) return this.pullEntries;
     return this.pullEntries.filter((e) => e.fileId === fileId);
   }
-  /** ファイル列挙 (Phase 7 p7-3)。batch 本体は伴わない */
-  async listRemoteFileIds(): Promise<FileId[]> {
-    return [...new Set(this.pullEntries.map((e) => e.fileId))];
+  /** ファイル列挙 (Phase 7 p7-3 / ANA-127 S3)。batch 本体は伴わない */
+  async listRemoteFiles(): Promise<RemoteFileEntry[]> {
+    return [...new Set(this.pullEntries.map((e) => e.fileId))].map(
+      (fileId) => ({ fileId, deleted: false }),
+    );
   }
   /** `pullEntries` を「全部 FILE のもの」として簡便に設定するヘルパ */
   setPullBatches(batches: Batch[], fileId: FileId = FILE): void {

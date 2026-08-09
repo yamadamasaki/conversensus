@@ -26,7 +26,14 @@ tap は `syncRecord` として注入し、実ネットワーク (LocalServerSync
 - handleCreate: 新規ファイルを作成し activeFile / activeSheetId が設定されること
 - updateFileState: activeFile と files 一覧を更新すること。**永続化は伴わない** (op-log へも emit しない — それは呼び出し側の責務で、ここで emit すると二重記録になる)
 - handleSaveFileSettings: ファイル名と説明を更新し、**変化した項目のみ** op-log へ emit すること (`FILE_RENAMED` / `FILE_DESCRIBED`)
-- handleDeleteFile: 確認後ファイルを削除し activeFile をクリアすること
+- handleDeleteFile: 確認後ファイルを削除し activeFile をクリアすること。
+  **削除は op-log の tombstone であって物理削除ではない** (ANA-127) ので、次の 2 点を
+  併せて固定する:
+  - 一覧 (`fetchFiles`) からは消えるが、**discovery の既知集合 (`fetchLocalFileIds`) には
+    残る**。ここが崩れると削除したファイルが「未知」と判定され、PDS から materialize されて
+    次回起動で復活する — ANA-127 そのものの再発である。
+  - **削除に失敗したら UI からも消さない**。消すと「画面には無いが次の起動で戻る」という
+    最も分かりにくい状態を作る。
 - handleImportFile: インポートしたファイルを active にすること
 - handleExportFile: 開いていないファイルは **op-log の projection** を書き出すこと (p6-3, 設計 §3.4)。server に projection の第 2 実装を作らない判断の帰結で、読取経路が `loadFile` 1 本に揃ったことの固定でもある
 
@@ -111,7 +118,7 @@ GraphEditor の reset effect の依存に加えることで再 seed を発火さ
 **なぜ発見の前か**: p7-1 より前に書かれた旧 rkey のレコードは `v1~` より小さく、
 新経路 (列挙・prefix 取得) の走査に現れない。移行を経ずに発見だけを回すと、
 「PDS にしか無い古い batch」を持つファイルが見えないままになる。テストの fake は
-**`listRemoteFileIds` が空を返す**ことでこの状況を再現している — 発見だけでは
+**`listRemoteFiles` が空を返す**ことでこの状況を再現している — 発見だけでは
 到達できず、移行の全件受信 (`pullAllRemoteForMigration`) だけが拾える形にしてある。
 
 **なぜ marker を deps にしたか**: 移行は「起動時に 1 回」なので、差し替えられないと

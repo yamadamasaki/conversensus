@@ -3,7 +3,7 @@
 ## 何を
 
 `AtprotoSyncProvider` (step1 Phase 4c、ATProto を裏に隠す `SyncProvider` 実装) を
-テストする。`pushRemote` / `pullRemoteForFile` / `listRemoteFileIds` / `createRemote` /
+テストする。`pushRemote` / `pullRemoteForFile` / `listRemoteFiles` / `createRemote` /
 `pullAllRemoteForMigration` が op-log コレクションへの読み書きに正しく翻訳されることを、
 PDS 非依存 (依存注入) で検証する。
 
@@ -160,3 +160,25 @@ rkey の形式と復元が食い違えば、受信した batch が別 id とし�
   `putRecord` と違い**べき等ではない**。実 PDS では 500 が返り、チャンクは原子的に
   巻き戻る (§5.4 の観測③④)。この非対称が `migrateRemoteRkey` に差分計算を強いている
   根拠なので、契約としてテストに残す。`inMemoryBatches.createMany` も同じ性質にしてある。
+
+## listRemoteFiles — ファイル列挙と削除の検出 (Phase 7 p7-3 / ANA-127 S3)
+
+未知ファイルの発見はまず **fileId の集合**を要求する。本体は未知の分だけ取ればよく、
+既知ファイルの履歴を落とさないのが p7-3 の要点である (設計 §3.3)。
+
+ANA-127 でここに **`deleted` (remote 側で削除済みか) を足した**。削除は op-log の
+`file.remove` を**最大 clock**で置く tombstone として表現され (`sync/fileDeletion.ts`)、
+列挙が着地するのは各ファイルの最大 rkey = 最大 clock のレコードである。したがって
+**本体を 1 件も引かずに**削除が分かる — 列挙のリクエスト数は 1 件も増えない。
+
+- **remote に存在する fileId を返す (batch 本体は伴わない)** — 削除が無ければ
+  `deleted` はすべて false。
+- **着地レコードが tombstone のファイルを `deleted` で返す** — 判定は正典と同じ
+  `isFileDeleted` に通す。remote 側だけ別の規則にすると、ローカルで消えているのに
+  remote から復活する / その逆が起きる。
+- **tombstone より大きい clock の batch が後続すると `deleted` にならない** — 着地点が
+  tombstone から外れるため。**これは取りこぼしではなく設計**であり、remove-wins の保証は
+  pull 後の検査 (`discoverRemoteFiles` の 2 段目) が担う。ここで false になることを
+  明示的に固定しておかないと、後から「1 段目で完全に判定できる」と誤読される。
+- **旧 rkey のレコードしか無いファイルは現れない** — 旧 rkey は fileId を持たないので
+  列挙できない。移行 (p7-4) が新 rkey で再 push するまで発見経路の外にある。

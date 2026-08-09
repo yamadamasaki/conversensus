@@ -127,10 +127,24 @@ describe('SettingsPopup', () => {
     expect(mockOnDelete).toHaveBeenCalledTimes(1);
   });
 
-  it('ポップアップ外のクリックで onSave と onClose が呼ばれる', () => {
+  it('ポップアップ外のクリックで保存せずに onClose が呼ばれる (ANA-126)', () => {
+    // 以前は「保存して閉じる」だった。破棄のつもりで外をクリックしたユーザーの操作が
+    // 保存に化けるのを止め、Escape と揃える (保存 = ボタン / Enter, 破棄 = 外 / Escape)。
     renderPopup({ name: 'ファイル', description: '説明' });
+    fireEvent.change(screen.getByRole('textbox', { name: '名前' }), {
+      target: { value: '編集した名前' },
+    });
     fireEvent.mouseDown(document.body);
-    expect(mockOnSave).toHaveBeenCalledWith('ファイル', '説明');
+    expect(mockOnSave).not.toHaveBeenCalled();
     expect(mockOnClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('ポップアップ内のクリックでは閉じない', () => {
+    // 外クリックが破棄になったので、「中を触っただけで編集が消える」ことがないのを
+    // 固定する意味が増した (以前は最悪でも保存されていた)。
+    renderPopup();
+    fireEvent.mouseDown(screen.getByRole('textbox', { name: '名前' }));
+    expect(mockOnClose).not.toHaveBeenCalled();
+    expect(mockOnSave).not.toHaveBeenCalled();
   });
 });

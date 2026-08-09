@@ -15,6 +15,12 @@ const batch = (id: string, clock: number): Batch => ({
   ops: [{ kind: 'node.add', target: id as NodeId, content: id }],
 });
 
+/** ファイル削除の tombstone batch (ANA-127) */
+const tombstone = (id: string, clock: number): Batch => ({
+  ...batch(id, clock),
+  ops: [{ kind: 'file.remove' }],
+});
+
 const envelope = (fileId: FileId, b: Batch): RemoteBatch => ({
   fileId,
   batch: b,
@@ -27,7 +33,12 @@ const envelope = (fileId: FileId, b: Batch): RemoteBatch => ({
  * 取得はそのファイル分だけを返す** (Phase 7 p7-3 の実装と同じ形)。`pulledFor` に
  * 「本体を取得したファイル」が並ぶので、既知ファイルを落としていないことを直接見られる。
  */
-function makeDeps(entries: RemoteBatch[], localIds: FileId[]) {
+function makeDeps(
+  entries: RemoteBatch[],
+  localIds: FileId[],
+  /** 列挙の着地レコードが tombstone だったファイル (ANA-127 S3) */
+  deletedHeads: Set<FileId> = new Set(),
+) {
   const appendCalls: Array<{ fileId: FileId; batches: Batch[] }> = [];
   const pulledFor: FileId[] = [];
   let failOn: FileId | null = null;
@@ -38,7 +49,13 @@ function makeDeps(entries: RemoteBatch[], localIds: FileId[]) {
       failOn = fileId;
     },
     deps: {
-      listRemoteFileIds: async () => [...new Set(entries.map((e) => e.fileId))],
+      listRemoteFiles: async () =>
+        [...new Set(entries.map((e) => e.fileId))].map((fileId) => ({
+          fileId,
+          // 既定は「着地レコードは tombstone ではない」。削除の経路は個別のテストで
+          // deleted を立てるか、entries に file.remove を混ぜて再現する
+          deleted: deletedHeads.has(fileId),
+        })),
       pullRemoteForFile: async (fileId: FileId) => {
         pulledFor.push(fileId);
         return entries.filter((e) => e.fileId === fileId);
@@ -98,6 +115,7 @@ describe('discoverRemoteFiles (Phase 4e-2b)', () => {
       discovered: [],
       appended: 0,
       skippedKnownFiles: 1,
+      skippedDeletedFiles: 0,
     });
     expect(t.pulledFor).toEqual([]);
     expect(t.appendCalls).toHaveLength(0);
@@ -110,6 +128,7 @@ describe('discoverRemoteFiles (Phase 4e-2b)', () => {
       discovered: [],
       appended: 0,
       skippedKnownFiles: 0,
+      skippedDeletedFiles: 0,
     });
   });
 
@@ -121,13 +140,56 @@ describe('discoverRemoteFiles (Phase 4e-2b)', () => {
     };
     const deps = {
       ...t.deps,
-      listRemoteFileIds: async () => [NEW_A],
+      listRemoteFiles: async () => [{ fileId: NEW_A, deleted: false }],
       pullRemoteForFile: async () => [] as RemoteBatch[],
     };
     const result = await discoverRemoteFiles(deps);
 
     expect(result.discovered).toEqual([]);
     expect(result.appended).toBe(0);
+  });
+
+  it('着地レコードが tombstone のファイルは本体を取得しない (ANA-127 S3)', async () => {
+    // 他端末で削除されたファイル。列挙の着地点が tombstone なので、**本体を 1 件も
+    // 引かずに**除外できる。ここで引いてしまうと、削除済みファイルの履歴を起動の
+    // たびに転送することになる (削除の意味が「見えないが毎回運ぶ」になってしまう)。
+    const t = makeDeps(
+      [
+        envelope(NEW_A, batch('a1', 1)),
+        envelope(NEW_A, tombstone('a2', 2)),
+        envelope(NEW_B, batch('b1', 1)),
+      ],
+      [],
+      new Set([NEW_A]),
+    );
+    const result = await discoverRemoteFiles(t.deps);
+
+    expect(result.discovered).toEqual([NEW_B]);
+    expect(result.skippedDeletedFiles).toBe(1);
+    expect(t.pulledFor).toEqual([NEW_B]); // NEW_A は取得すらしない
+    expect(t.appendCalls.map((c) => c.fileId)).toEqual([NEW_B]);
+  });
+
+  it('取得した op-log に file.remove があれば materialize しない (remove-wins)', async () => {
+    // tombstone より大きい clock の batch が他端末から後続すると、着地点は tombstone
+    // ではなくなり検査 1 (着地点) をすり抜ける。引いた後の検査がその受け皿である。
+    // **追加のリクエストは無い** — 既に手元にある batch を見るだけ。
+    const t = makeDeps(
+      [
+        envelope(NEW_A, batch('a1', 1)),
+        envelope(NEW_A, tombstone('a2', 2)),
+        envelope(NEW_A, batch('a3', 3)), // tombstone の後に載った編集
+      ],
+      [],
+      new Set(), // 着地は tombstone ではない
+    );
+    const result = await discoverRemoteFiles(t.deps);
+
+    expect(result.discovered).toEqual([]);
+    expect(result.appended).toBe(0);
+    expect(result.skippedDeletedFiles).toBe(1);
+    expect(t.pulledFor).toEqual([NEW_A]); // 引きはするが
+    expect(t.appendCalls).toHaveLength(0); // 書かない
   });
 
   it('途中のファイルで書き込みが失敗したら throw する (残りは次回契機が拾う)', async () => {

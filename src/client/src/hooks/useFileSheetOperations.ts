@@ -1,5 +1,6 @@
 import {
   type Actor,
+  type Batch,
   type ConversensusFile,
   type FileId,
   type GraphFile,
@@ -13,17 +14,19 @@ import {
   exportFile,
   fetchBatches,
   fetchFiles,
+  fetchLocalFileIds,
   importFile,
   pushReceivedBatches,
-  removeFile,
 } from '../api';
-import { files as atprotoFilesColl } from '../atproto';
+import { FanoutSyncProvider } from '../atproto/fanoutSyncProvider';
 import type { RemoteSyncQueue } from '../atproto/remoteSyncQueue';
 import type { GraphEvent } from '../events/GraphEvent';
 import { makeEventBase } from '../events/GraphEvent';
 import type { PopupTarget } from '../SettingsPopup';
 import { didFromActor } from '../sync/actor';
 import { discoverRemoteFiles } from '../sync/discoverRemoteFiles';
+import { deleteFileByTombstone } from '../sync/fileDeletion';
+import { LocalServerSyncProvider } from '../sync/localServerSyncProvider';
 import {
   hasRkeyMigrated,
   markRkeyMigrated,
@@ -51,8 +54,16 @@ export interface FileSheetOpsDeps {
   importFile: typeof importFile;
   /** 受信 batch の書き込み口 (marker 経路, Phase 4e-2b の materialize 用) */
   pushReceivedBatches: typeof pushReceivedBatches;
-  removeFile: typeof removeFile;
-  atprotoFilesDelete: (id: string) => Promise<void>;
+  /** この端末が op-log を持つ file_id の全集合 (削除済みを含む, ANA-127) */
+  fetchLocalFileIds: typeof fetchLocalFileIds;
+  /**
+   * ファイル削除 = op-log への tombstone 追記 (ANA-127)。
+   *
+   * **tap ではなくここを通る**理由は `sync/fileDeletion.ts` の冒頭にある —
+   * tap は activeFile に束ねられているが、削除は開いていないファイルにも掛かる。
+   * 宛先 provider (local / ログイン中は fanout) はフック側が組み立てて渡す。
+   */
+  deleteFile: typeof deleteFileByTombstone;
   /**
    * rkey 移行の marker (Phase 7 p7-4)。既定は localStorage (DID 単位)。
    *
@@ -71,8 +82,8 @@ export const defaultFileSheetOpsDeps: FileSheetOpsDeps = {
   fetchFiles,
   importFile,
   pushReceivedBatches,
-  removeFile,
-  atprotoFilesDelete: (id: string) => atprotoFilesColl.delete(id),
+  fetchLocalFileIds,
+  deleteFile: deleteFileByTombstone,
   hasRkeyMigrated,
   markRkeyMigrated,
 };
@@ -327,6 +338,24 @@ export function useFileSheetOperations({
     [activeFile, updateFileState, syncRecord],
   );
 
+  /**
+   * 削除対象ファイルへの push 口を組み立てる (ANA-127)。
+   *
+   * tap (`useEventSyncTap`) と同じ組み方 — ローカル正典が成功条件で、ログイン中だけ
+   * fanout で remote キューにも積む。tap を使わないのは、削除が **activeFile 以外にも
+   * 掛かる**ためである (`sync/fileDeletion.ts` 冒頭)。
+   */
+  const pushToFile = useCallback(
+    async (fileId: FileId, batches: Batch[]): Promise<void> => {
+      const local = new LocalServerSyncProvider(fileId);
+      const provider = remoteQueue
+        ? new FanoutSyncProvider({ local, remoteQueue, fileId })
+        : local;
+      await provider.push(batches);
+    },
+    [remoteQueue],
+  );
+
   const handleDeleteFile = useCallback(
     async (id: string) => {
       const target = files.find((f) => f.id === id);
@@ -340,12 +369,13 @@ export function useFileSheetOperations({
         if (!ok) return;
       }
       try {
-        await deps.removeFile(id);
-        try {
-          await deps.atprotoFilesDelete(id);
-        } catch (err) {
-          console.warn('[atproto] file delete failed:', err);
-        }
+        // 削除 = op-log へ tombstone を追記する (ANA-127)。ローカル DB の行は消さない
+        // — 消すと tombstone まで消え、次の discovery が「未知ファイル」と判定して
+        // PDS から materialize し直す (設計 D1)。失敗したら UI からも消さない。
+        await deps.deleteFile(id as FileId, actor, {
+          fetchBatches: deps.fetchBatches,
+          push: pushToFile,
+        });
         setFiles((fs) => fs.filter((f) => f.id !== id));
         if (activeFile?.id === id) {
           setActiveFile(null);
@@ -361,7 +391,7 @@ export function useFileSheetOperations({
         console.error('Failed to delete file:', err);
       }
     },
-    [activeFile, files, setConfirmState, deps],
+    [activeFile, files, setConfirmState, deps, actor, pushToFile],
   );
 
   const handleSaveSheetSettings = useCallback(
@@ -530,14 +560,26 @@ export function useFileSheetOperations({
 
     const discover = () => {
       discoverRemoteFiles({
-        // 列挙 → 未知ファイルだけ取得 (Phase 7 p7-3)。既知ファイルの batch は落とさない
-        listRemoteFileIds: () => remoteQueue.listRemoteFileIds(),
+        // 列挙 → 未知ファイルだけ取得 (Phase 7 p7-3)。既知ファイルの batch は落とさない。
+        // 列挙は「remote 側で削除済みか」も返す (ANA-127 S3) ので、他端末で削除された
+        // ファイルはここで弾かれ、この端末に materialize されない
+        listRemoteFiles: () => remoteQueue.listRemoteFiles(),
         pullRemoteForFile: (fileId) => remoteQueue.pullRemoteForFile(fileId),
-        listLocalFileIds: async () =>
-          (await deps.fetchFiles()).map((f) => f.id),
+        // **一覧 (`fetchFiles`) ではなく全 file_id を既知集合にする** (ANA-127)。
+        // 一覧は削除済みを隠すので、それを既知集合に使うと削除したファイルが
+        // 「未知」に化けて PDS から materialize され、削除が取り消される。
+        listLocalFileIds: deps.fetchLocalFileIds,
         appendReceived: deps.pushReceivedBatches,
       })
         .then((result) => {
+          // 削除で materialize を見送った分は無言にしない (ANA-127 S3)。
+          // 「PDS にはあるのに手元に出てこない」を後から説明できる唯一の記録である
+          if (result.skippedDeletedFiles > 0) {
+            console.info(
+              `[sync] skipped ${result.skippedDeletedFiles} remote file(s) ` +
+                'deleted elsewhere',
+            );
+          }
           if (result.discovered.length === 0) return;
           console.info(
             `[sync] discovered ${result.discovered.length} remote file(s), ` +

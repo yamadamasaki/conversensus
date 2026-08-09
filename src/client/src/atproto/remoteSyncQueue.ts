@@ -24,7 +24,7 @@ import type { FlushResult } from '../sync/outbox';
 import { Outbox } from '../sync/outbox';
 import type { Unsubscribe } from '../sync/syncProvider';
 import { filterBatchesForRemote } from './remoteFilter';
-import type { RemoteBatch } from './types';
+import type { RemoteBatch, RemoteFileEntry } from './types';
 
 /**
  * remote op-log の送信先 (Phase 4d-1)。
@@ -51,7 +51,7 @@ export interface RemoteBatchTarget {
    * 取りこぼしゼロを構造的に保証し、二重取り込みは受信側のべき等性が無害化する。
    *
    * **p7-5 で通常経路の消費者は 0 になった**。受信・catch-up は `pullRemoteForFile`、
-   * 発見は `listRemoteFileIds`。残るのは移行だけで、それは**旧 rkey のレコードを
+   * 発見は `listRemoteFiles`。残るのは移行だけで、それは**旧 rkey のレコードを
    * 新経路では走査できない**ため代替が無い (設計 §3.1)。
    */
   pullAllRemoteForMigration(): Promise<RemoteBatch[]>;
@@ -63,12 +63,13 @@ export interface RemoteBatchTarget {
    */
   pullRemoteForFile(fileId: FileId): Promise<RemoteBatch[]>;
   /**
-   * remote に存在する fileId を列挙する (Phase 7 p7-3)。
+   * remote に存在するファイルを列挙する (Phase 7 p7-3 / ANA-127 S3)。
    *
    * batch 本体を伴わない — 未知ファイルの発見は「まず fileId の集合を知り、
-   * 未知の分だけ本体を取る」形になる (設計 §3.3)。
+   * 未知の分だけ本体を取る」形になる (設計 §3.3)。列挙で読む 1 レコードから
+   * 「remote 側で削除済みか」も分かるので、それを `RemoteFileEntry.deleted` に載せる。
    */
-  listRemoteFileIds(): Promise<FileId[]>;
+  listRemoteFiles(): Promise<RemoteFileEntry[]>;
 }
 
 /** remote キューのセッション内保持上限 (直近 N 件)。溢れは catch-up で回収 (D1) */
@@ -193,11 +194,11 @@ export class RemoteSyncQueue {
   }
 
   /**
-   * remote に存在する fileId を列挙する (Phase 7 p7-3)。未知ファイル発見の入口。
+   * remote に存在するファイルを列挙する (Phase 7 p7-3)。未知ファイル発見の入口。
    * 取得のみを委譲する (書き込みには使わない, §3.3a)。
    */
-  listRemoteFileIds(): Promise<FileId[]> {
-    return this.provider.listRemoteFileIds();
+  listRemoteFiles(): Promise<RemoteFileEntry[]> {
+    return this.provider.listRemoteFiles();
   }
 
   /** 現在の未送信件数 */

@@ -14,6 +14,7 @@ import {
   batchRkeyPrefix,
   parseBatchRkey,
 } from './batchRkey';
+import type { RecordSummary } from './rangeFetch';
 import { NSID } from './types';
 
 /** FILE より rkey が小さいファイルと大きいファイル (prefix 境界の検証用) */
@@ -26,6 +27,12 @@ const batch = (id: string, clock: number, actor = 'did:plc:alice'): Batch => ({
   clock,
   timestamp: clock,
   ops: [{ kind: 'node.add', target: `n${id}` as NodeId, content: id }],
+});
+
+/** ファイル削除の tombstone batch (ANA-127) */
+const tombstone = (id: string, clock: number): Batch => ({
+  ...batch(id, clock),
+  ops: [{ kind: 'file.remove' }],
 });
 
 /**
@@ -110,15 +117,20 @@ function inMemoryBatches() {
       }
       return Promise.resolve(found);
     },
-    listFileIds() {
+    listFileHeads() {
       // 実装は降順 1 件ずつの seek で列挙する (§3.3)。ここでは結果の性質だけを模す:
-      // 新形式 rkey から fileId を取り出し、降順・重複なしで返す
-      const ids = [...records.keys()]
-        .sort()
-        .reverse()
-        .map((rkey) => parseBatchRkey(rkey)?.fileId)
-        .filter((id): id is FileId => id !== undefined);
-      return Promise.resolve([...new Set(ids)]);
+      // 新形式 rkey から fileId を取り出し、降順・重複なしで返す。**着地レコードは
+      // そのファイルの最大 rkey のもの** — 降順なので最初に現れた 1 件がそれである。
+      const heads = new Map<FileId, RecordSummary>();
+      for (const rkey of [...records.keys()].sort().reverse()) {
+        const fileId = parseBatchRkey(rkey)?.fileId;
+        const record = records.get(rkey);
+        if (fileId === undefined || !record || heads.has(fileId)) continue;
+        heads.set(fileId, record);
+      }
+      return Promise.resolve(
+        [...heads].map(([fileId, head]) => ({ fileId, head })),
+      );
     },
     _seed(b, fileId = FILE) {
       seedAt(batchRkey(fileId, b.clock, b.id), b, fileId);
@@ -385,7 +397,7 @@ describe('AtprotoSyncProvider', () => {
     });
   });
 
-  describe('listRemoteFileIds (Phase 7 p7-3)', () => {
+  describe('listRemoteFiles (Phase 7 p7-3 / ANA-127 S3)', () => {
     it('remote に存在する fileId を返す (batch 本体は伴わない)', async () => {
       // 未知ファイルの発見はまず fileId の集合を要求する。本体は未知の分だけ取れば
       // よく、既知ファイルの履歴を落とさないのが p7-3 の要点 (設計 §3.3)。
@@ -395,8 +407,38 @@ describe('AtprotoSyncProvider', () => {
       batches._seed(batch('c', 2));
       const provider = new AtprotoSyncProvider({ batches });
 
-      const ids = await provider.listRemoteFileIds();
-      expect([...ids].sort()).toEqual([FILE_LOWER, FILE].sort());
+      const entries = await provider.listRemoteFiles();
+      expect(entries.map((e) => e.fileId).sort()).toEqual(
+        [FILE_LOWER, FILE].sort(),
+      );
+      expect(entries.every((e) => !e.deleted)).toBe(true);
+    });
+
+    it('着地レコードが tombstone のファイルを deleted で返す (ANA-127)', async () => {
+      // 削除は最大 clock の `file.remove` として置かれる (`sync/fileDeletion.ts`)。
+      // 列挙が着地するのは最大 rkey = 最大 clock のレコードなので、**本体を引かずに**
+      // 削除が分かる。判定は正典と同じ `isFileDeleted` を通す。
+      const batches = inMemoryBatches();
+      batches._seed(batch('a', 1), FILE_LOWER);
+      batches._seed(batch('b', 1));
+      batches._seed(tombstone('t', 2));
+      const provider = new AtprotoSyncProvider({ batches });
+
+      const entries = await provider.listRemoteFiles();
+      expect(entries.find((e) => e.fileId === FILE)?.deleted).toBe(true);
+      expect(entries.find((e) => e.fileId === FILE_LOWER)?.deleted).toBe(false);
+    });
+
+    it('tombstone より大きい clock の batch が後続すると deleted にならない', async () => {
+      // 着地点は最大 clock のレコードなので、他端末の編集が後に載ると tombstone は
+      // 着地点から外れる。ここで false になるのは**取りこぼしではなく設計**であり、
+      // remove-wins の保証は pull 後の検査 (`discoverRemoteFiles`) が担う。
+      const batches = inMemoryBatches();
+      batches._seed(tombstone('t', 2));
+      batches._seed(batch('later', 3));
+      const provider = new AtprotoSyncProvider({ batches });
+
+      expect((await provider.listRemoteFiles())[0]?.deleted).toBe(false);
     });
 
     it('旧 rkey のレコードしか無いファイルは現れない', async () => {
@@ -406,7 +448,7 @@ describe('AtprotoSyncProvider', () => {
       batches._seedLegacy(batch('old', 1));
       const provider = new AtprotoSyncProvider({ batches });
 
-      expect(await provider.listRemoteFileIds()).toEqual([]);
+      expect(await provider.listRemoteFiles()).toEqual([]);
     });
   });
 });

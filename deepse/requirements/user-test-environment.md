@@ -111,19 +111,35 @@ curl -s -X POST http://localhost:3000/files/import \
 
 ### 4.1 個別ファイルを消す
 
-**`DELETE /files/:id` だけで完全に消える** (step1 Phase 6 p6-2 以降). 削除の正典は op-log 側で,
-batches / branches / commits / migration marker と legacy snapshot を 1 トランザクションで消す.
-かつては snapshot しか消しておらず, op-log が残って同じ id の受信で内容が復活しうる穴があった.
+**画面からの削除と `DELETE /files/:id` は別のものである** (ANA-127 以降).
+
+| | 何が起きるか | いつ使うか |
+|---|---|---|
+| 画面の「ファイルを削除」 | op-log に `file.remove` (tombstone) を 1 件**追記**する. 行は消えない | 通常の削除. **PDS 経由で他端末にも伝わる** |
+| `DELETE /files/:id` | batches / branches / commits / migration marker と legacy snapshot を 1 tx で**物理削除**する | 「この端末の op-log ごと無かったことにする」保守用 |
 
 ```shell
 FID=<消したい file_id>
 curl -s -X DELETE http://localhost:3000/files/$FID -o /dev/null -w 'DELETE %{http_code}\n'
-curl -s http://localhost:3000/files   # [] になれば一覧から消えている
+curl -s http://localhost:3000/files       # 一覧から消えている
+curl -s http://localhost:3000/files/ids   # 既知集合からも消えている (物理削除なので)
 ```
 
-> **PDS 上の batch は消えない**. ログイン中の別端末が同じファイルを持っていれば,
-> 次の発見 (`discoverRemoteFiles`) で materialize され直す. ローカルだけを空にしたいなら
-> ログアウトするか, PDS 側のレコードも別途消すこと.
+`GET /files` は tombstone を持つファイルを隠すが, `GET /files/ids` (この端末が op-log を
+持つ file_id の全集合) には**削除済みも現れる**. 画面の削除の後にこの 2 つを見比べると,
+tombstone が残っていること = 「消えたが忘れてはいない」状態を確認できる.
+
+> **どちらの経路でも PDS 上の batch は消えない** (GC は非目標). ただし**復活するかどうかは
+> 経路によって変わる**:
+>
+> - 画面から削除した → PDS の**最大 clock に tombstone が載る** → 他端末の発見
+>   (`discoverRemoteFiles`) は着地レコードを見て materialize しない. 復活しない.
+> - `DELETE /files/:id` だけした (tombstone を作らずに消した) → PDS には元の batch しか
+>   無いので, **次の発見で materialize され直す**. ローカルだけを空にしたいならログアウトするか,
+>   PDS 側のレコードも別途消すこと.
+>
+> つまり「テストデータを綺麗に消したい」なら**画面から削除してから** `DELETE /files/:id` する
+> のが確実である (tombstone が PDS に残り, 物理削除した後も戻ってこない).
 
 ### 4.2 全部まっさらにする
 
