@@ -5,7 +5,12 @@ import {
 } from './testing/inMemoryDeps';
 
 const { renderHook, act, cleanup } = await import('@testing-library/react');
-const { useBranchOperations } = await import('./useBranchOperations');
+const {
+  BRANCH_DIFF_STATE,
+  defaultBranchOpsDeps,
+  resolveBranchDiffState,
+  useBranchOperations,
+} = await import('./useBranchOperations');
 const { LamportClock } = await import('@conversensus/shared');
 
 /** merge の再スタンプ用 clock。本番では trunk の tap のものを渡す */
@@ -77,7 +82,14 @@ const relabel = (to: string) => ({
 
 async function renderOplog(
   trunkLog = [trunkBatch('t1', 3, 'n1', 'trunk')],
-  options: { slowBranchPush?: boolean } = {},
+  options: {
+    slowBranchPush?: boolean;
+    /**
+     * 差分計算を本物にする (差分状態のテスト用)。スタブは基準に関わらず同じ配列を
+     * 返すので、**どの Sheet を起点にしたか**を区別できない。
+     */
+    realChanges?: boolean;
+  } = {},
 ) {
   const deps = createInMemoryBranchOpsDeps();
   const oplogDeps = createInMemoryBranchOplogDeps();
@@ -109,7 +121,7 @@ async function renderOplog(
         setConfirmState: mockSetConfirmState,
         setInputState: mockSetInputState,
         setAlertState: mockSetAlertState,
-        deps,
+        deps: options.realChanges ? defaultBranchOpsDeps : deps,
         oplogDeps,
         actor: 'did:plc:alice#dev1',
         trunkClock: clock,
@@ -566,6 +578,203 @@ describe('useBranchOperations — branch 操作 (op-log)', () => {
       expect(oplogDeps._branches.has(branch.id)).toBe(false);
       expect(oplogDeps._batches.has(branch.branchFileId)).toBe(false);
       expect(result.current.sheetBranches.get(SHEET_ID)).toEqual([]);
+    });
+  });
+});
+
+/**
+ * 差分状態 (ANA-119/120 S3)。
+ *
+ * ここだけ差分計算を**本物**にしてある (`realChanges`)。スタブは基準に関わらず同じ配列を
+ * 返すので、「どの Sheet を起点にしたか」= このスライスの検証対象そのものを区別できない。
+ */
+describe('useBranchOperations — 差分状態 (ANA-120)', () => {
+  const NODE_A = 'a0000000-0000-4000-8000-000000000000';
+  const NODE_B = 'b0000000-0000-4000-8000-000000000000';
+
+  type View = Awaited<ReturnType<typeof withOpenBranch>>;
+  // biome-ignore lint/suspicious/noExplicitAny: テストで branded 型の Sheet を組まない
+  type TestSheet = any;
+
+  /** hook が最後に渡してきた branch の projection */
+  const projectedSheet = (): TestSheet => {
+    const file = mockOnSetActiveFile.mock.calls.at(-1)?.[0] as
+      | import('@conversensus/shared').GraphFile
+      | undefined;
+    const sheet = file?.sheets.find((s) => s.id === SHEET_ID);
+    if (!sheet) throw new Error('branch の projection が取れていない');
+    return sheet;
+  };
+
+  /** activeSheet を差し替える = 画面でシートを編集したのと同じ状態にする */
+  async function edit(view: View, sheet: TestSheet) {
+    await act(async () => {
+      view.rerender({
+        activeFile: mockActiveFile,
+        activeSheetId: SHEET_ID,
+        activeSheet: sheet,
+      });
+    });
+  }
+
+  const relabelNode = (sheet: TestSheet, id: string, content: string) => ({
+    ...sheet,
+    nodes: sheet.nodes.map((n: { id: string }) =>
+      n.id === id ? { ...n, content } : n,
+    ),
+  });
+  const addNode = (sheet: TestSheet, id: string) => ({
+    ...sheet,
+    nodes: [...sheet.nodes, { id, content: '新規' }],
+  });
+  const removeNode = (sheet: TestSheet, id: string) => ({
+    ...sheet,
+    nodes: sheet.nodes.filter((n: { id: string }) => n.id !== id),
+  });
+
+  /** 分岐点に NODE_A が 1 個だけある branch を開き、その projection を画面に載せる */
+  async function openBranch() {
+    const view = await withOpenBranch(
+      [trunkBatch('t1', 3, NODE_A, 'trunk')],
+      [],
+      { realChanges: true },
+    );
+    const base = projectedSheet();
+    await edit(view, base);
+    return { view, base };
+  }
+
+  /** commit する (pendingChanges があること = 変更中であることが前提) */
+  async function commit(view: View, message: string) {
+    await act(async () => {
+      await view.result.current.handleCommit(message);
+    });
+  }
+
+  describe('状態の判定規則 (resolveBranchDiffState)', () => {
+    it('trunk は常に trunk', () => {
+      expect(resolveBranchDiffState(true, true, 3)).toBe(
+        BRANCH_DIFF_STATE.TRUNK,
+      );
+    });
+
+    it('未コミットの変更があれば変更中 (commit の有無に依らない)', () => {
+      expect(resolveBranchDiffState(false, true, 0)).toBe(
+        BRANCH_DIFF_STATE.EDITING,
+      );
+      expect(resolveBranchDiffState(false, true, 2)).toBe(
+        BRANCH_DIFF_STATE.EDITING,
+      );
+    });
+
+    it('変更が無く commit があれば commit 済み', () => {
+      expect(resolveBranchDiffState(false, false, 1)).toBe(
+        BRANCH_DIFF_STATE.COMMITTED,
+      );
+    });
+
+    it('変更も commit も無ければ無変更', () => {
+      expect(resolveBranchDiffState(false, false, 0)).toBe(
+        BRANCH_DIFF_STATE.UNCHANGED,
+      );
+    });
+  });
+
+  describe('起点が状態で切り替わる', () => {
+    it('分岐直後は無変更 — 差分を出さない', async () => {
+      const { view } = await openBranch();
+      expect(view.result.current.diffState).toBe(BRANCH_DIFF_STATE.UNCHANGED);
+      expect(view.result.current.pendingChanges).toEqual([]);
+      expect(view.result.current.updatedNodeIds.size).toBe(0);
+      expect(view.result.current.addedNodeIds.size).toBe(0);
+    });
+
+    it('編集すると変更中になり、分岐点からの差分が出る', async () => {
+      const { view, base } = await openBranch();
+      await edit(view, relabelNode(base, NODE_A, '編集した'));
+
+      expect(view.result.current.diffState).toBe(BRANCH_DIFF_STATE.EDITING);
+      expect(view.result.current.updatedNodeIds.has(NODE_A)).toBe(true);
+      expect(view.result.current.pendingChanges).toHaveLength(1);
+    });
+
+    it('commit すると起点が分岐点へ切り替わる (= 次の merge の対象)', async () => {
+      // 仕様: commit 完了後は分岐点との差分が「同じように」出続ける。
+      // 消えるのは commit 対象 (pendingChanges) の方である。
+      const { view, base } = await openBranch();
+      await edit(view, relabelNode(base, NODE_A, '編集した'));
+      await commit(view, '1 回目');
+
+      expect(view.result.current.diffState).toBe(BRANCH_DIFF_STATE.COMMITTED);
+      expect(view.result.current.pendingChanges).toEqual([]);
+      expect(view.result.current.updatedNodeIds.has(NODE_A)).toBe(true);
+    });
+
+    it('🔴 commit 後に編集すると、commit 済みの変更はハイライトから外れる', async () => {
+      // これが ANA-120 の核心。以前はハイライトが常に分岐点基準だったため、
+      // commit 済みの NODE_B が「変更中」の画面に出続け、commit ダイアログ
+      // (直近コミット基準) と食い違っていた。
+      const { view, base } = await openBranch();
+      const withB = addNode(base, NODE_B);
+      await edit(view, withB);
+      await commit(view, 'B を追加');
+      expect(view.result.current.addedNodeIds.has(NODE_B)).toBe(true); // commit 済み表示
+
+      await edit(view, relabelNode(withB, NODE_A, 'A だけ編集'));
+
+      expect(view.result.current.diffState).toBe(BRANCH_DIFF_STATE.EDITING);
+      expect(view.result.current.addedNodeIds.has(NODE_B)).toBe(false);
+      expect(view.result.current.updatedNodeIds.has(NODE_A)).toBe(true);
+    });
+
+    it('ハイライトと commit ダイアログの内容が同じ差分を指す', async () => {
+      const { view, base } = await openBranch();
+      const withB = addNode(base, NODE_B);
+      await edit(view, withB);
+      await commit(view, 'B を追加');
+      await edit(view, relabelNode(withB, NODE_A, 'A だけ編集'));
+
+      const { pendingChanges, addedNodeIds, updatedNodeIds } =
+        view.result.current;
+      const fromDialog = new Set(
+        pendingChanges.map((c) =>
+          'nodeId' in c.op ? (c.op.nodeId as string) : '',
+        ),
+      );
+      expect(fromDialog).toEqual(new Set([...addedNodeIds, ...updatedNodeIds]));
+    });
+
+    it('ゴースト表示も同じ起点に従う', async () => {
+      // 削除を commit した後は、その削除は「変更中」の差分ではなくなるので
+      // ゴーストも消える (分岐点基準のままだと残り続けていた)。
+      const { view, base } = await openBranch();
+      const withoutA = removeNode(base, NODE_A);
+      await edit(view, withoutA);
+      expect(view.result.current.deletedNodes.map((n) => n.id)).toEqual([
+        NODE_A,
+      ]);
+
+      await commit(view, 'A を削除');
+      expect(view.result.current.deletedNodes.map((n) => n.id)).toEqual([
+        NODE_A,
+      ]); // commit 済み = 分岐点基準
+
+      await edit(view, addNode(withoutA, NODE_B));
+      expect(view.result.current.diffState).toBe(BRANCH_DIFF_STATE.EDITING);
+      expect(view.result.current.deletedNodes).toEqual([]);
+    });
+
+    it('trunk に戻ると状態は trunk になり差分は出ない', async () => {
+      const { view, base } = await openBranch();
+      await edit(view, relabelNode(base, NODE_A, '編集した'));
+      await act(async () => {
+        await view.result.current.handleSelectBranch(SHEET_ID, null);
+      });
+
+      expect(view.result.current.diffState).toBe(BRANCH_DIFF_STATE.TRUNK);
+      expect(view.result.current.pendingChanges).toEqual([]);
+      expect(view.result.current.updatedNodeIds.size).toBe(0);
+      expect(view.result.current.deletedNodes).toEqual([]);
     });
   });
 });

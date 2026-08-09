@@ -14,7 +14,10 @@ import { makeEventBase } from './events/GraphEvent';
 import { GraphEditor } from './GraphEditor';
 import { useActor } from './hooks/useActor';
 import { useAtprotoSession } from './hooks/useAtprotoSession';
-import { useBranchOperations } from './hooks/useBranchOperations';
+import {
+  BRANCH_DIFF_STATE,
+  useBranchOperations,
+} from './hooks/useBranchOperations';
 import type { UndoState } from './hooks/useEventStore';
 import { useFileSheetOperations } from './hooks/useFileSheetOperations';
 import { useRemoteSyncQueue } from './hooks/useRemoteSyncQueue';
@@ -154,6 +157,7 @@ export default function App() {
   // `discoverRemoteFiles` (op-log 経路) に一本化されている (設計 §3.8)。
 
   const branch = branchOps.activeBranch;
+  const canMerge = branchOps.diffState === BRANCH_DIFF_STATE.COMMITTED;
 
   return (
     <div style={{ display: 'flex', height: '100vh', fontFamily: 'sans-serif' }}>
@@ -279,26 +283,17 @@ export default function App() {
             <button
               type="button"
               onClick={() => branchOps.handleMergeBranch(branch)}
-              disabled={
-                branchOps.pendingChanges.length > 0 ||
-                branchOps.newCommitsSinceMerge === 0
-              }
+              // merge できるのは「commit 済み」= 未コミットの編集が無く commit が
+              // 1 件以上ある状態だけ。画面に出ている差分がそのまま merge の対象になる。
+              disabled={!canMerge}
               style={{
                 padding: '6px 16px',
                 fontSize: 13,
-                background:
-                  branchOps.pendingChanges.length === 0 &&
-                  branchOps.newCommitsSinceMerge > 0
-                    ? '#f97316'
-                    : '#ccc',
+                background: canMerge ? '#f97316' : '#ccc',
                 color: '#fff',
                 border: 'none',
                 borderRadius: 4,
-                cursor:
-                  branchOps.pendingChanges.length === 0 &&
-                  branchOps.newCommitsSinceMerge > 0
-                    ? 'pointer'
-                    : 'not-allowed',
+                cursor: canMerge ? 'pointer' : 'not-allowed',
               }}
             >
               merge ↑

@@ -28,6 +28,47 @@ import { mergeBranchOnOplog } from '../sync/mergeBranch';
 import type { SyncProvider } from '../sync/syncProvider';
 import { type TapClock, useEventSyncTap } from './useEventSyncTap';
 
+/**
+ * ブランチの差分状態 (ANA-119/120, S3)。
+ *
+ * **差分の起点は状態から 1 つに決まる。** 以前は「分岐点」基準 (画面のハイライト) と
+ * 「直近コミット」基準 (commit ダイアログ) の 2 つが並列に生きていて、1 回 commit した
+ * 後に編集を続けると **同じ画面で 2 つの異なる差分が同時に意味を持っていた**。
+ * 状態をコードの一級の概念にして, 起点をそこから決めることで食い違いを構造的に無くす。
+ *
+ * 仕様は `deepse/requirements/operation-manual-for-dev.md`「ブランチの作成と利用」。
+ */
+export const BRANCH_DIFF_STATE = {
+  /** trunk 表示中。差分は出さない */
+  TRUNK: 'trunk',
+  /** 分岐直後 / merge 直後。差分は出さない */
+  UNCHANGED: 'unchanged',
+  /** 前回 commit (無ければ分岐点) 以降に編集がある。起点 = 前回 commit = **次の commit の対象** */
+  EDITING: 'editing',
+  /** 編集が無く commit が 1 件以上ある。起点 = 分岐点 = **次の merge の対象** */
+  COMMITTED: 'committed',
+} as const;
+
+export type BranchDiffState =
+  (typeof BRANCH_DIFF_STATE)[keyof typeof BRANCH_DIFF_STATE];
+
+/**
+ * 差分状態を決める。**唯一の判定規則**として切り出してある (hook の外から検証できる)。
+ *
+ * @param hasPendingChanges 直近コミット (無ければ分岐点) 以降に正味の差分があるか
+ * @param commitCount 前回 merge 以降の commit 数
+ */
+export function resolveBranchDiffState(
+  isTrunk: boolean,
+  hasPendingChanges: boolean,
+  commitCount: number,
+): BranchDiffState {
+  if (isTrunk) return BRANCH_DIFF_STATE.TRUNK;
+  if (hasPendingChanges) return BRANCH_DIFF_STATE.EDITING;
+  if (commitCount > 0) return BRANCH_DIFF_STATE.COMMITTED;
+  return BRANCH_DIFF_STATE.UNCHANGED;
+}
+
 type ConfirmState = {
   message: string;
   resolve: (ok: boolean) => void;
@@ -166,61 +207,14 @@ export function useBranchOperations({
     preBranchFile.current = null;
   }, [activeFile?.id]);
 
-  const [addedNodeIds, updatedNodeIds, addedEdgeIds, updatedEdgeIds] =
-    useMemo(() => {
-      if (isTrunk || !branchOriginalBase || !activeSheet) {
-        return [
-          new Set<string>(),
-          new Set<string>(),
-          new Set<string>(),
-          new Set<string>(),
-        ] as const;
-      }
-      const changes = deps.computeSheetChanges(branchOriginalBase, activeSheet);
-      const addN = new Set<string>();
-      const updN = new Set<string>();
-      const addE = new Set<string>();
-      const updE = new Set<string>();
-      for (const { op } of changes) {
-        if (op.op === 'node.add') addN.add(op.nodeId);
-        else if (op.op === 'node.update') updN.add(op.nodeId);
-        else if (op.op === 'edge.add') addE.add(op.edgeId);
-        else if (op.op === 'edge.update') updE.add(op.edgeId);
-        // remove は conflicted に含めない（ゴースト表示用に別途計算）
-      }
-      return [addN, updN, addE, updE] as const;
-    }, [isTrunk, branchOriginalBase, activeSheet, deps]);
-
-  // 削除予定のノード/エッジ（base に存在し current に存在しない）
-  const [deletedNodes, deletedEdges, deletedNodeLayouts, deletedEdgeLayouts] =
-    useMemo(() => {
-      if (isTrunk || !branchOriginalBase || !activeSheet) {
-        return [[], [], [], []] as const;
-      }
-      const changes = deps.computeSheetChanges(branchOriginalBase, activeSheet);
-      const removedNodeIds = new Set<string>();
-      const removedEdgeIds = new Set<string>();
-      for (const { op } of changes) {
-        if (op.op === 'node.remove') removedNodeIds.add(op.nodeId);
-        if (op.op === 'edge.remove') removedEdgeIds.add(op.edgeId);
-      }
-      return [
-        branchOriginalBase.nodes.filter((n) => removedNodeIds.has(n.id)),
-        branchOriginalBase.edges.filter((e) => removedEdgeIds.has(e.id)),
-        (branchOriginalBase.layouts ?? []).filter((l) =>
-          removedNodeIds.has(l.nodeId),
-        ),
-        (branchOriginalBase.edgeLayouts ?? []).filter((l) =>
-          removedEdgeIds.has(l.edgeId),
-        ),
-      ] as const;
-    }, [isTrunk, branchOriginalBase, activeSheet, deps]);
-
   /**
-   * 未コミットの変更。**コミットの実体は「ログ上のラベル付きオフセット」だが、
-   * 表示はあくまで正味の差分**にする (p5-4 の確定事項)。op-log の未コミット batch を
-   * そのまま数えると、編集して undo した往復が「2 変更」に見えてしまうため。
-   * 基準の `lastCommitBase` は op-log モードでは op-log から導出する。
+   * 未コミットの変更 = 直近コミット (無ければ分岐点) からの正味の差分。
+   *
+   * **コミットの実体は「ログ上のラベル付きオフセット」だが、表示はあくまで正味の差分**に
+   * する (p5-4 の確定事項)。op-log の未コミット batch をそのまま数えると、編集して undo した
+   * 往復が「2 変更」に見えてしまうため。基準の `lastCommitBase` は op-log から導出する。
+   *
+   * これが空かどうかが「変更中」かどうかの判定 (= 差分状態の入力) でもある。
    */
   const pendingChanges = useMemo(() => {
     if (
@@ -233,6 +227,69 @@ export function useBranchOperations({
       return [];
     return deps.computeSheetChanges(lastCommitBase, activeSheet);
   }, [isTrunk, lastCommitBase, activeSheet, activeBranch?.status, deps]);
+
+  const diffState = useMemo(
+    () =>
+      resolveBranchDiffState(
+        isTrunk,
+        pendingChanges.length > 0,
+        newCommitsSinceMerge,
+      ),
+    [isTrunk, pendingChanges.length, newCommitsSinceMerge],
+  );
+
+  /** 差分の起点。状態から 1 つに決まる (無変更 / trunk では起点を持たない) */
+  const diffBase = useMemo(() => {
+    if (diffState === BRANCH_DIFF_STATE.EDITING) return lastCommitBase;
+    if (diffState === BRANCH_DIFF_STATE.COMMITTED) return branchOriginalBase;
+    return null;
+  }, [diffState, lastCommitBase, branchOriginalBase]);
+
+  /**
+   * 画面に出す差分。**commit ダイアログと同じ起点から出す** — 変更中は
+   * `pendingChanges` そのもの、commit 済みなら分岐点からの差分 (= 次の merge の対象)。
+   */
+  const changes = useMemo(() => {
+    if (diffState === BRANCH_DIFF_STATE.EDITING) return pendingChanges;
+    if (!diffBase || !activeSheet) return [];
+    return deps.computeSheetChanges(diffBase, activeSheet);
+  }, [diffState, diffBase, activeSheet, pendingChanges, deps]);
+
+  const [addedNodeIds, updatedNodeIds, addedEdgeIds, updatedEdgeIds] =
+    useMemo(() => {
+      const addN = new Set<string>();
+      const updN = new Set<string>();
+      const addE = new Set<string>();
+      const updE = new Set<string>();
+      for (const { op } of changes) {
+        if (op.op === 'node.add') addN.add(op.nodeId);
+        else if (op.op === 'node.update') updN.add(op.nodeId);
+        else if (op.op === 'edge.add') addE.add(op.edgeId);
+        else if (op.op === 'edge.update') updE.add(op.edgeId);
+        // remove は conflicted に含めない（ゴースト表示用に別途計算）
+      }
+      return [addN, updN, addE, updE] as const;
+    }, [changes]);
+
+  // 削除予定のノード/エッジ（起点に存在し current に存在しない）
+  const [deletedNodes, deletedEdges, deletedNodeLayouts, deletedEdgeLayouts] =
+    useMemo(() => {
+      if (!diffBase) return [[], [], [], []] as const;
+      const removedNodeIds = new Set<string>();
+      const removedEdgeIds = new Set<string>();
+      for (const { op } of changes) {
+        if (op.op === 'node.remove') removedNodeIds.add(op.nodeId);
+        if (op.op === 'edge.remove') removedEdgeIds.add(op.edgeId);
+      }
+      return [
+        diffBase.nodes.filter((n) => removedNodeIds.has(n.id)),
+        diffBase.edges.filter((e) => removedEdgeIds.has(e.id)),
+        (diffBase.layouts ?? []).filter((l) => removedNodeIds.has(l.nodeId)),
+        (diffBase.edgeLayouts ?? []).filter((l) =>
+          removedEdgeIds.has(l.edgeId),
+        ),
+      ] as const;
+    }, [diffBase, changes]);
 
   /**
    * branch 状態を捨てて trunk へ戻る。
@@ -618,6 +675,11 @@ export function useBranchOperations({
     commitDialogOpen,
     setCommitDialogOpen,
     isTrunk,
+    /**
+     * 差分状態 (ANA-120)。画面のハイライト・commit・merge の可否はすべてこれで決まる。
+     * merge できるのは `COMMITTED` のときだけ (未コミットの編集を残したまま merge させない)。
+     */
+    diffState,
     addedNodeIds,
     updatedNodeIds,
     addedEdgeIds,
