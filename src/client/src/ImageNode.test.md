@@ -52,3 +52,23 @@ blob 解決の経路は `imageBlobCid && imageBlobMimeType` で閉じている�
 `GroupNode` の ghost 分岐は **`Handle` を 1 つも描画しない**ため、同種の対策は不要である
 (`GroupNode.tsx` は `Handle` を import すらしていない)。ノード単位の `connectable: false` は
 `toFlowAndGhostNodes` が付けるので、そちらは `graphTransform.test.ts` で担保する。
+
+## 画像を落として差し替える (ANA-117 S6)
+
+既存の画像ノードへ画像を落とすと, **そのノードの画像が差し替わり, 新規ノードはできない**
+(設計 D6)。ここは配線 (drop を受けて保存し op を出す) の検証であり, 保存や参照の形は
+`images/imageBlob.test.ts` が持つ。
+
+`images/imageBlob` はモジュールモックしない。bun の `mock.module` はテストファイルを
+またいでグローバルに効くためで, 代わりに **`globalThis.fetch` を差し替えて**
+ローカル blob ストアの応答だけを作る (このファイル内で元に戻せる)。
+同じ理由で `@xyflow/react` のスタブには `MarkerType` も含めてある — 欠けると
+同じ実行の中で `graphTransform` を読む別のテストが解決に失敗する。
+
+- **落とした画像で properties を差し替える op を dispatch する** — `node.setProperties`
+  1 件だけであること (`NODE_ADDED` を出さない) と, 画像以外の properties が残ること。
+  `from` は差し替え前の全体で, undo で欠けない
+- **canvas 側の drop へ伝播させない** — 止めないと「差し替え」と「新規作成」が
+  同時に起きる。伝播の停止そのものを, 親の `onDrop` が呼ばれないことで見る
+- **画像でないファイルは受け取らず canvas へ通す** — ローカル blob ストアも触らない。
+  ノードの上に落ちたからといって, 画像でないものまで奪わない

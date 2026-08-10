@@ -4,9 +4,11 @@ import type { StoredBlob } from '../api';
 import {
   collectImageBlobRefs,
   createPdsBlobUploader,
+  imagePropertiesChange,
   imagePropertiesOf,
   type ResolveImageDeps,
   readImageBlobLocation,
+  replaceImageProperties,
   resolveImageUrl,
   type SaveImageDeps,
   saveImageBlob,
@@ -322,6 +324,69 @@ describe('resolveImageUrl', () => {
     });
 
     await expect(resolveImageUrl(location, deps)).rejects.toThrow(/HTTP 404/);
+  });
+});
+
+describe('replaceImageProperties / imagePropertiesChange', () => {
+  const ref = {
+    $type: 'blob' as const,
+    ref: { $link: CID },
+    mimeType: PNG,
+    size: 3,
+  };
+
+  it('新しい blob ref を image キーに置く', () => {
+    expect(replaceImageProperties(undefined, ref)).toEqual({ image: ref });
+  });
+
+  it('画像以外の properties は残す', () => {
+    // `node.setProperties` は置換意味論なので、差分だけを返すと他が消える
+    const existing = { imageUrl: 'https://example.com/a.png', color: 'red' };
+    expect(replaceImageProperties(existing, ref)).toEqual({
+      imageUrl: 'https://example.com/a.png',
+      color: 'red',
+      image: ref,
+    });
+  });
+
+  it('古い blob ref を上書きする', () => {
+    const existing = {
+      image: { $type: 'blob', ref: { $link: OTHER_CID }, mimeType: PNG },
+    };
+    expect(
+      (replaceImageProperties(existing, ref).image as typeof ref).ref.$link,
+    ).toBe(CID);
+  });
+
+  it('旧形式の画像キーは落とす', () => {
+    // とりわけ imageDataUrl (base64) を持ち回すと、差し替えのたびに base64 が
+    // 新しい op へ載り直してレコード上限 (約 1 MB) に当たる
+    const existing = {
+      imageDataUrl: 'data:image/png;base64,AAAA',
+      imageBlobCid: OTHER_CID,
+      imageBlobMimeType: PNG,
+      imageUrl: 'https://example.com/a.png',
+    };
+    expect(replaceImageProperties(existing, ref)).toEqual({
+      imageUrl: 'https://example.com/a.png',
+      image: ref,
+    });
+  });
+
+  it('元の properties を書き換えない', () => {
+    const existing = { imageDataUrl: 'data:image/png;base64,AAAA' };
+    replaceImageProperties(existing, ref);
+    expect(existing.imageDataUrl).toBe('data:image/png;base64,AAAA');
+  });
+
+  it('from は差し替え前の全体 (undo で欠けないこと)', () => {
+    // invertEvent は from と to を入れ替えるだけなので、片方が差分だと
+    // 元に戻したときに properties が欠ける
+    const existing = { imageUrl: 'https://example.com/a.png' };
+    expect(imagePropertiesChange(existing, ref)).toEqual({
+      from: { imageUrl: 'https://example.com/a.png' },
+      to: { imageUrl: 'https://example.com/a.png', image: ref },
+    });
   });
 });
 

@@ -10,7 +10,18 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useEventDispatch } from './EventDispatchContext';
 import { makeEventBase } from './events/GraphEvent';
 import { useInlineEdit } from './hooks/useInlineEdit';
-import { readImageBlobLocation, resolveImageUrl } from './images/imageBlob';
+import {
+  IMAGE_MIME_PREFIX,
+  imagePropertiesChange,
+  LEGACY_DATA_URL_KEY,
+  readImageBlobLocation,
+  resolveImageUrl,
+  saveImageBlob,
+} from './images/imageBlob';
+import {
+  imageErrorMessage,
+  useReportImageError,
+} from './images/imageErrorContext';
 
 type ImageNodeData = {
   label: string;
@@ -26,7 +37,8 @@ export function ImageNode({ id, data, selected }: NodeProps) {
 
   const imageUrl = (nodeData.properties?.imageUrl as string) ?? '';
   // 旧データの読み取り互換。新規には書かない (設計 D1 / §7)
-  const imageDataUrl = (nodeData.properties?.imageDataUrl as string) ?? '';
+  const imageDataUrl =
+    (nodeData.properties?.[LEGACY_DATA_URL_KEY] as string) ?? '';
   // 新形式の blob ref と旧形式の flat なキーの両方をここで吸収する
   const location = readImageBlobLocation(nodeData.properties);
   // effect の依存は原始値にする — properties のオブジェクトは再レンダリングごとに
@@ -103,6 +115,52 @@ export function ImageNode({ id, data, selected }: NodeProps) {
     };
   }, []);
 
+  // 既存ノードへの画像 drop (ANA-117 S6)。落とされた画像でこのノードを差し替える。
+  //
+  // **canvas の `onDrop` (新規ノード作成) と二重に発火させない** — 落とし先が
+  // ノードの上なら差し替えが利用者の意図なので、ここで伝播を止める。
+  const reportImageError = useReportImageError();
+  const properties = nodeData.properties;
+
+  const replaceImage = useCallback(
+    async (source: Blob) => {
+      try {
+        const ref = await saveImageBlob(source);
+        dispatch({
+          ...makeEventBase('content'),
+          type: 'NODE_PROPERTIES_CHANGED',
+          nodeId: id as NodeId,
+          ...imagePropertiesChange(properties, ref),
+        });
+      } catch (err) {
+        reportImageError(imageErrorMessage(err));
+      }
+    },
+    [dispatch, id, properties, reportImageError],
+  );
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes('Files')) return;
+    // preventDefault しないとブラウザが drop を受け付けない。stopPropagation は
+    // canvas 側の dragover と競合させないため
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'copy';
+  }, []);
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      const file = Array.from(e.dataTransfer.files).find((f) =>
+        f.type.startsWith(IMAGE_MIME_PREFIX),
+      );
+      if (!file) return; // 画像でなければ canvas 側に任せる (伝播を止めない)
+      e.preventDefault();
+      e.stopPropagation();
+      void replaceImage(file);
+    },
+    [replaceImage],
+  );
+
   // URL 入力
   const [editingUrl, setEditingUrl] = useState(false);
   const [urlInput, setUrlInput] = useState(imageUrl);
@@ -114,15 +172,17 @@ export function ImageNode({ id, data, selected }: NodeProps) {
       setEditingUrl(false);
       return;
     }
+    // **差分ではなく全体を載せる** — `node.setProperties` は置換意味論なので、
+    // `{ imageUrl }` だけを載せると同じノードの画像 blob 参照まで消える
     dispatch({
       ...makeEventBase('content'),
       type: 'NODE_PROPERTIES_CHANGED',
       nodeId: id as NodeId,
-      from: { imageUrl },
-      to: { imageUrl: trimmed },
+      from: { ...properties },
+      to: { ...properties, imageUrl: trimmed },
     });
     setEditingUrl(false);
-  }, [urlInput, imageUrl, dispatch, id]);
+  }, [urlInput, imageUrl, properties, dispatch, id]);
 
   // キャプション編集
   const caption = useInlineEdit(label, (value) => {
@@ -236,7 +296,10 @@ export function ImageNode({ id, data, selected }: NodeProps) {
         onResizeEnd={onResizeEnd}
       />
       <Handle type="source" position={Position.Top} id="source-top" />
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: drop to replace the image (ANA-117) */}
       <div
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
         style={{
           width: '100%',
           height: '100%',

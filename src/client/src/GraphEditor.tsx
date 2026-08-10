@@ -68,13 +68,22 @@ import { type UndoState, useEventStore } from './hooks/useEventStore';
 import { useGroupNodes } from './hooks/useGroupNodes';
 import { useNodeTypeMenu } from './hooks/useNodeTypeMenu';
 import { ImageNode } from './ImageNode';
-import { imagePropertiesOf, saveImageBlob } from './images/imageBlob';
+import {
+  IMAGE_MIME_PREFIX,
+  imagePropertiesChange,
+  imagePropertiesOf,
+  saveImageBlob,
+} from './images/imageBlob';
+import {
+  ImageErrorProvider,
+  imageErrorMessage,
+} from './images/imageErrorContext';
+import { pickImagePasteTarget } from './images/pasteTarget';
 import { NodeCreationContext } from './NodeCreationContext';
 import type { NodeTypeOption } from './NodeTypeMenu';
 import { NodeTypeMenu } from './NodeTypeMenu';
 
 const RF_INIT_DELAY_MS = 150;
-const IMAGE_MIME_PREFIX = 'image/';
 const DROP_TARGET_ATTR = 'data-drop-target'; // グループへ追加しようとしている
 const LEAVING_GROUP_ATTR = 'data-leaving-group'; // グループを出ようとしている
 
@@ -559,6 +568,12 @@ function GraphEditorInner({
     [addNode],
   );
 
+  // 貼り付け先の画像ノード (ANA-117 S6)。規則は `images/pasteTarget.ts` が持つ
+  const selectedImageNode = useCallback(
+    () => pickImagePasteTarget(getNodes()),
+    [getNodes],
+  );
+
   // 貼り付けの落とし先。canvas の中央に置く
   const pasteTargetPosition = useCallback(() => {
     const containerEl = document.querySelector('.react-flow');
@@ -571,6 +586,33 @@ function GraphEditorInner({
       y: rect.top + rect.height / 2,
     });
   }, [screenToFlowPosition]);
+
+  /** 貼り付けた画像を「選択中の画像ノードへ差し替え」か「新規ノード」へ振り分ける */
+  const pasteImage = useCallback(
+    async (source: Blob) => {
+      const target = selectedImageNode();
+      if (!target) {
+        await addImageNode(source, pasteTargetPosition());
+        return;
+      }
+      try {
+        const ref = await saveImageBlob(source);
+        dispatch({
+          ...makeEventBase('content'),
+          type: 'NODE_PROPERTIES_CHANGED',
+          nodeId: target.id as NodeId,
+          ...imagePropertiesChange(
+            (target.data as { properties?: Record<string, unknown> })
+              .properties,
+            ref,
+          ),
+        });
+      } catch (err) {
+        setImageError(imageErrorMessage(err));
+      }
+    },
+    [selectedImageNode, addImageNode, pasteTargetPosition, dispatch],
+  );
 
   // クリップボードからの画像貼り付け → ImageNode 作成
   const handlePaste = useCallback(
@@ -587,11 +629,11 @@ function GraphEditorInner({
         e.preventDefault();
         const file = item.getAsFile();
         if (!file) continue;
-        await addImageNode(file, pasteTargetPosition());
+        await pasteImage(file);
         break;
       }
     },
-    [pasteTargetPosition, addImageNode],
+    [pasteImage],
   );
 
   useEffect(() => {
@@ -622,11 +664,11 @@ function GraphEditorInner({
           if (!type.startsWith(IMAGE_MIME_PREFIX)) continue;
           e.preventDefault();
           const source = await item.getType(type);
-          await addImageNode(source, pasteTargetPosition());
+          await pasteImage(source);
         }
       }
     },
-    [pasteTargetPosition, addImageNode],
+    [pasteImage],
   );
 
   useEffect(() => {
@@ -730,146 +772,150 @@ function GraphEditorInner({
 
   return (
     <EventDispatchContext.Provider value={{ dispatch, setDragging }}>
-      <NodeCreationContext.Provider value={{ openNodeTypeMenu }}>
-        {/* biome-ignore lint/a11y/noStaticElementInteractions: drop target wrapper */}
-        <div
-          style={{ width: '100%', height: '100%' }}
-          onDragOver={handleDragOver}
-          onDrop={handleDrop}
-        >
-          <ReactFlow
-            nodes={nodes}
-            edges={edges}
-            nodeTypes={nodeTypes}
-            edgeTypes={edgeTypes}
-            onNodesChange={handleNodesChange}
-            onEdgesChange={handleEdgesChange}
-            connectionMode={ConnectionMode.Loose}
-            onConnect={onConnect}
-            onReconnect={onReconnect}
-            onNodeDragStart={onNodeDragStart}
-            onNodeDrag={onNodeDrag}
-            onNodeDragStop={onNodeDragStop}
-            edgesReconnectable
-            onPaneClick={onPaneClick}
-            onEdgeContextMenu={onEdgeContextMenu}
-            zoomOnDoubleClick={false}
-            deleteKeyCode={null}
-            fitView
+      {/* 画像の失敗はここ 1 つのダイアログに集める。ImageNode は React Flow が
+          描くので props を渡せず, context で降ろす (ANA-117 S6) */}
+      <ImageErrorProvider value={setImageError}>
+        <NodeCreationContext.Provider value={{ openNodeTypeMenu }}>
+          {/* biome-ignore lint/a11y/noStaticElementInteractions: drop target wrapper */}
+          <div
+            style={{ width: '100%', height: '100%' }}
+            onDragOver={handleDragOver}
+            onDrop={handleDrop}
           >
-            <Background />
-            <Controls />
-            <MiniMap />
-            <Panel position="top-right">
-              <button
-                type="button"
-                onClick={undo}
-                style={{
-                  padding: '6px 12px',
-                  fontSize: 13,
-                  cursor: 'pointer',
-                  background: '#e0e0e0',
-                  color: '#333',
-                  border: 'none',
-                  borderRadius: 6,
-                  marginRight: 4,
+            <ReactFlow
+              nodes={nodes}
+              edges={edges}
+              nodeTypes={nodeTypes}
+              edgeTypes={edgeTypes}
+              onNodesChange={handleNodesChange}
+              onEdgesChange={handleEdgesChange}
+              connectionMode={ConnectionMode.Loose}
+              onConnect={onConnect}
+              onReconnect={onReconnect}
+              onNodeDragStart={onNodeDragStart}
+              onNodeDrag={onNodeDrag}
+              onNodeDragStop={onNodeDragStop}
+              edgesReconnectable
+              onPaneClick={onPaneClick}
+              onEdgeContextMenu={onEdgeContextMenu}
+              zoomOnDoubleClick={false}
+              deleteKeyCode={null}
+              fitView
+            >
+              <Background />
+              <Controls />
+              <MiniMap />
+              <Panel position="top-right">
+                <button
+                  type="button"
+                  onClick={undo}
+                  style={{
+                    padding: '6px 12px',
+                    fontSize: 13,
+                    cursor: 'pointer',
+                    background: '#e0e0e0',
+                    color: '#333',
+                    border: 'none',
+                    borderRadius: 6,
+                    marginRight: 4,
+                  }}
+                >
+                  Undo
+                </button>
+                <button
+                  type="button"
+                  onClick={redo}
+                  style={{
+                    padding: '6px 12px',
+                    fontSize: 13,
+                    cursor: 'pointer',
+                    background: '#e0e0e0',
+                    color: '#333',
+                    border: 'none',
+                    borderRadius: 6,
+                    marginRight: 8,
+                  }}
+                >
+                  Redo
+                </button>
+                <button
+                  type="button"
+                  onClick={groupSelectedNodes}
+                  style={{
+                    padding: '6px 12px',
+                    fontSize: 13,
+                    cursor: 'pointer',
+                    background: '#7c9ef8',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: 6,
+                  }}
+                >
+                  グループ化
+                </button>
+                <button
+                  type="button"
+                  onClick={ungroupSelectedNodes}
+                  style={{
+                    padding: '6px 12px',
+                    fontSize: 13,
+                    cursor: 'pointer',
+                    background: '#7c9ef8',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: 6,
+                    marginLeft: 4,
+                  }}
+                >
+                  グループ解除
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExportPng}
+                  style={{
+                    padding: '6px 12px',
+                    fontSize: 13,
+                    cursor: 'pointer',
+                    background: '#e0e0e0',
+                    color: '#333',
+                    border: 'none',
+                    borderRadius: 6,
+                    marginLeft: 8,
+                  }}
+                >
+                  PNG
+                </button>
+              </Panel>
+            </ReactFlow>
+            {nodeTypeMenu && (
+              <NodeTypeMenu
+                position={nodeTypeMenu.screenPos}
+                onSelect={(nodeType) => {
+                  addNode(
+                    nodeTypeMenu.position,
+                    nodeType,
+                    undefined,
+                    nodeTypeMenu.containerId,
+                  );
+                  clearNodeTypeMenu();
                 }}
-              >
-                Undo
-              </button>
-              <button
-                type="button"
-                onClick={redo}
-                style={{
-                  padding: '6px 12px',
-                  fontSize: 13,
-                  cursor: 'pointer',
-                  background: '#e0e0e0',
-                  color: '#333',
-                  border: 'none',
-                  borderRadius: 6,
-                  marginRight: 8,
-                }}
-              >
-                Redo
-              </button>
-              <button
-                type="button"
-                onClick={groupSelectedNodes}
-                style={{
-                  padding: '6px 12px',
-                  fontSize: 13,
-                  cursor: 'pointer',
-                  background: '#7c9ef8',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: 6,
-                }}
-              >
-                グループ化
-              </button>
-              <button
-                type="button"
-                onClick={ungroupSelectedNodes}
-                style={{
-                  padding: '6px 12px',
-                  fontSize: 13,
-                  cursor: 'pointer',
-                  background: '#7c9ef8',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: 6,
-                  marginLeft: 4,
-                }}
-              >
-                グループ解除
-              </button>
-              <button
-                type="button"
-                onClick={handleExportPng}
-                style={{
-                  padding: '6px 12px',
-                  fontSize: 13,
-                  cursor: 'pointer',
-                  background: '#e0e0e0',
-                  color: '#333',
-                  border: 'none',
-                  borderRadius: 6,
-                  marginLeft: 8,
-                }}
-              >
-                PNG
-              </button>
-            </Panel>
-          </ReactFlow>
-          {nodeTypeMenu && (
-            <NodeTypeMenu
-              position={nodeTypeMenu.screenPos}
-              onSelect={(nodeType) => {
-                addNode(
-                  nodeTypeMenu.position,
-                  nodeType,
-                  undefined,
-                  nodeTypeMenu.containerId,
-                );
-                clearNodeTypeMenu();
-              }}
-            />
-          )}
-          {contextMenu && (
-            <EdgeContextMenu
-              contextMenu={contextMenu}
-              onSelect={setEdgePathType}
-            />
-          )}
-          {imageError && (
-            <AlertDialog
-              message={imageError}
-              onClose={() => setImageError(null)}
-            />
-          )}
-        </div>
-      </NodeCreationContext.Provider>
+              />
+            )}
+            {contextMenu && (
+              <EdgeContextMenu
+                contextMenu={contextMenu}
+                onSelect={setEdgePathType}
+              />
+            )}
+            {imageError && (
+              <AlertDialog
+                message={imageError}
+                onClose={() => setImageError(null)}
+              />
+            )}
+          </div>
+        </NodeCreationContext.Provider>
+      </ImageErrorProvider>
     </EventDispatchContext.Provider>
   );
 }

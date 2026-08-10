@@ -101,6 +101,20 @@ CID は S2 で実機 PDS から取得した実在のベクタ (`hello` の CID) 
 - **食い違いで投げた cid は上げ済みにしない**: 再送で上げ直せること。
   「失敗したのに覚えている」と、以後その画像は永久に上がらない
 
+**`replaceImageProperties` / `imagePropertiesChange` (差し替え, S6)**
+
+- **新しい blob ref を image キーに置く / 古い blob ref を上書きする**: 差し替えの本体
+- **画像以外の properties は残す**: `node.setProperties` は**置換**意味論なので
+  (`events/toUnified.ts` の冒頭に既知の制約として書かれている), 差分だけを載せると
+  projection で他の properties が消える。返すのは常に置き換え後の全体である
+- **旧形式の画像キーは落とす**: 新しい画像が古いものを置き換えるので残す意味が無い。
+  とりわけ `imageDataUrl` (base64) を持ち回すと, 差し替えのたびに base64 が新しい op へ
+  載り直してレコード上限 (約 1 MB) に当たる — S3 で止めたことが復活してしまう
+- **元の properties を書き換えない**: 呼び出し側は React の state を渡すので,
+  破壊的に触ると再描画されない変更が生まれる
+- **`from` は差し替え前の全体**: `invertEvent` は from と to を入れ替えるだけなので,
+  片方が差分だと undo で properties が欠ける
+
 ## ここでテストしないこと
 
 - **upload とレコード書込の順序**: 保証しているのは `AtprotoSyncProvider` なので
@@ -108,3 +122,4 @@ CID は S2 で実機 PDS から取得した実在のベクタ (`hello` の CID) 
 - **blob CID の計算**: `shared/blob.ts` のテストが実機 PDS のベクタで固定している
 - **`ImageNode` の描画と Object URL の解放タイミング**: React の effect の話なので
   `ImageNode.test.tsx` の領分
+- **貼り付け先の選び方**: `images/pasteTarget.test.ts` の領分

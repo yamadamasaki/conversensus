@@ -45,8 +45,11 @@ export const IMAGE_PROPERTY_KEY = 'image';
 // 旧形式 (step0 〜 step1 初期) の flat なキー。**読み取りだけ**残す (設計 §7)
 const LEGACY_CID_KEY = 'imageBlobCid';
 const LEGACY_MIME_KEY = 'imageBlobMimeType';
+/** 旧形式の base64 埋め込み。`ImageNode` の表示互換のためだけに読む (D4 の 4) */
+export const LEGACY_DATA_URL_KEY = 'imageDataUrl';
 
-const IMAGE_MIME_PREFIX = 'image/';
+/** 画像かどうかの判定に使う MIME の接頭辞。受け入れ経路が 4 つあるので 1 箇所で持つ */
+export const IMAGE_MIME_PREFIX = 'image/';
 const BYTES_PER_MIB = 1024 * 1024;
 const MIB_FRACTION_DIGITS = 1;
 
@@ -119,6 +122,43 @@ export function readImageBlobLocation(
 /** 参照を `NODE_ADDED` などに載せる properties の形にする */
 export function imagePropertiesOf(ref: ImageBlobRef): Record<string, unknown> {
   return { [IMAGE_PROPERTY_KEY]: ref };
+}
+
+/**
+ * 既存ノードの画像を差し替えたあとの properties を作る (ANA-117 / S6)。
+ *
+ * **差分ではなく置き換え後の全体を返す。** `NODE_PROPERTIES_CHANGED` は差分の形を
+ * しているが、統一 op の `node.setProperties` は**置換**意味論である
+ * (`events/toUnified.ts` の冒頭に既知の制約として書かれている)。差分だけを載せると
+ * projection でその他の properties が消える。
+ *
+ * **旧形式の画像キーは落とす。** 新しい画像が古いものを置き換えるので残す意味が無く、
+ * とりわけ `imageDataUrl` (base64) を持ち回すと、差し替えのたびに base64 が新しい op へ
+ * 載り直してレコード上限 (約 1 MB) に当たる — S3 で止めたことがここで復活してしまう。
+ * 画像以外の properties (`imageUrl` など) はそのまま残す。
+ */
+export function replaceImageProperties(
+  existing: Record<string, unknown> | undefined,
+  ref: ImageBlobRef,
+): Record<string, unknown> {
+  const next = { ...existing };
+  delete next[LEGACY_CID_KEY];
+  delete next[LEGACY_MIME_KEY];
+  delete next[LEGACY_DATA_URL_KEY];
+  return { ...next, ...imagePropertiesOf(ref) };
+}
+
+/**
+ * 画像差し替えの `NODE_PROPERTIES_CHANGED` に載せる from / to。
+ *
+ * `from` は**差し替え前の全体**である。undo (`invertEvent`) は from と to を入れ替える
+ * だけなので、片方が差分だと元に戻したときに properties が欠ける。
+ */
+export function imagePropertiesChange(
+  existing: Record<string, unknown> | undefined,
+  ref: ImageBlobRef,
+): { from: Record<string, unknown>; to: Record<string, unknown> } {
+  return { from: { ...existing }, to: replaceImageProperties(existing, ref) };
 }
 
 export type SaveImageDeps = {
