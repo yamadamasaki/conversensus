@@ -959,3 +959,78 @@ describe('API routes', () => {
     });
   });
 });
+
+// 画像などのバイナリを置く content-addressed なエンドポイント (ANA-116 S2)。
+// cid の計算とサイズ上限の enforcement は **この境界の責務**なので、ここで固定する。
+describe('blob API (ANA-116)', () => {
+  const HELLO = new TextEncoder().encode('hello');
+  // 実機 PDS の uploadBlob が返した値と同じ (shared/blob.test.ts と共通のベクタ)
+  const HELLO_CID =
+    'bafkreibm6jg3ux5qumhcn2b3flc3tyu6dmlb4xa7u5bf44yegnrjhc4yeq';
+
+  const postBlob = (bytes: Uint8Array, mimeType?: string) =>
+    fetch(
+      new Request('http://localhost/blobs', {
+        method: 'POST',
+        ...(mimeType ? { headers: { 'Content-Type': mimeType } } : {}),
+        body: bytes,
+      }),
+    );
+
+  it('POST /blobs は cid・MIME・サイズを返す (cid はサーバが計算する)', async () => {
+    const res = await postBlob(HELLO, 'image/png');
+    expect(res.status).toBe(201);
+    expect(await res.json()).toEqual({
+      cid: HELLO_CID,
+      mimeType: 'image/png',
+      size: HELLO.byteLength,
+    });
+  });
+
+  it('同じ内容を 2 回送っても同じ cid が返る (冪等)', async () => {
+    const first = await (await postBlob(HELLO, 'image/png')).json();
+    const second = await postBlob(HELLO, 'image/png');
+    expect(second.status).toBe(201);
+    expect((await second.json()).cid).toBe(first.cid);
+  });
+
+  it('GET /blobs/:cid が実体を Content-Type 付きで返す', async () => {
+    await postBlob(HELLO, 'image/png');
+    const res = await fetch(new Request(`http://localhost/blobs/${HELLO_CID}`));
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Content-Type')).toBe('image/png');
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(HELLO);
+  });
+
+  it('存在しない cid は 404', async () => {
+    const res = await fetch(new Request(`http://localhost/blobs/${HELLO_CID}`));
+    expect(res.status).toBe(404);
+  });
+
+  it('cid の形をしていなければ 400 (ストアを引く前に弾く)', async () => {
+    const res = await fetch(new Request('http://localhost/blobs/not-a-cid'));
+    expect(res.status).toBe(400);
+  });
+
+  it('Content-Type が無ければ 400 (MIME を推測しない)', async () => {
+    expect((await postBlob(HELLO)).status).toBe(400);
+  });
+
+  it('空のボディは 400', async () => {
+    expect((await postBlob(new Uint8Array(0), 'image/png')).status).toBe(400);
+  });
+
+  it('PDS の上限 (5 MiB) を超えるものは 413 で断る', async () => {
+    // 送信時 (S5) に初めて失敗すると batch が outbox に詰まるので、入口で断る
+    const res = await postBlob(
+      new Uint8Array(5 * 1024 * 1024 + 1),
+      'image/png',
+    );
+    expect(res.status).toBe(413);
+  });
+
+  it('上限ちょうど (5 MiB) は受け付ける', async () => {
+    const res = await postBlob(new Uint8Array(5 * 1024 * 1024), 'image/png');
+    expect(res.status).toBe(201);
+  });
+});

@@ -10,10 +10,13 @@ import {
   ConversensusFileV2Schema,
   ConversensusFileV3Schema,
   CreateFileRequestSchema,
+  computeBlobCid,
   type EdgeId,
   type FileId,
   type GraphFile,
   graphFileToBatches,
+  isBlobCid,
+  MAX_BLOB_SIZE,
   migrateV1toV2,
   migrateV2toV3,
   migrateV3toV4,
@@ -60,6 +63,7 @@ const HTTP_CREATED = 201;
 const HTTP_NO_CONTENT = 204;
 const HTTP_BAD_REQUEST = 400;
 const HTTP_NOT_FOUND = 404;
+const HTTP_PAYLOAD_TOO_LARGE = 413;
 const HTTP_INTERNAL_SERVER_ERROR = 500;
 
 const app = new Hono();
@@ -375,6 +379,54 @@ app.delete('/files/:id', async (c) => {
     return c.json({ error: 'Not found' }, HTTP_NOT_FOUND);
   }
   return c.body(null, HTTP_NO_CONTENT);
+});
+
+// POST /blobs - 画像などのバイナリを格納する (ANA-116 S2)
+//
+// content-addressed なストア: **cid はサーバが計算する**。クライアントの申告を鍵に
+// 使うと、内容と一致しない cid で汚染できてしまうため。クライアントも同じ値を
+// `computeBlobCid` で先に計算できる (CIDv1 / raw / sha-256) ので、往復は要らない。
+//
+// 同じ内容を 2 回送っても行は 1 つ、返る cid も同じ (冪等)。
+// **ファイルには紐づけない** — blob はどのファイル・どのバージョンからも参照されうる。
+app.post('/blobs', async (c) => {
+  const mimeType = c.req.header('content-type');
+  if (!mimeType) {
+    return c.json({ error: 'Content-Type required' }, HTTP_BAD_REQUEST);
+  }
+  const bytes = new Uint8Array(await c.req.arrayBuffer());
+  if (bytes.byteLength === 0) {
+    return c.json({ error: 'Empty body' }, HTTP_BAD_REQUEST);
+  }
+  // PDS の blob 上限。ここで弾いておかないと、送信時 (S5) に初めて失敗して
+  // batch が outbox に詰まる — 作成時点で断るのが利用者にとって分かりやすい。
+  if (bytes.byteLength > MAX_BLOB_SIZE) {
+    return c.json(
+      { error: `Blob too large (max ${MAX_BLOB_SIZE} bytes)` },
+      HTTP_PAYLOAD_TOO_LARGE,
+    );
+  }
+  const cid = await computeBlobCid(bytes);
+  getEventStore().putBlob(cid, bytes, mimeType);
+  return c.json({ cid, mimeType, size: bytes.byteLength }, HTTP_CREATED);
+});
+
+// GET /blobs/:cid - blob の実体を返す
+app.get('/blobs/:cid', (c) => {
+  const cid = c.req.param('cid');
+  if (!isBlobCid(cid)) {
+    return c.json({ error: 'Invalid blob cid' }, HTTP_BAD_REQUEST);
+  }
+  const blob = getEventStore().getBlob(cid);
+  if (!blob) return c.json({ error: 'Not found' }, HTTP_NOT_FOUND);
+  return c.body(blob.bytes as unknown as ArrayBuffer, {
+    headers: {
+      'Content-Type': blob.mimeType,
+      'Content-Length': String(blob.size),
+      // content-addressed なので内容は永久に変わらない
+      'Cache-Control': 'public, max-age=31536000, immutable',
+    },
+  });
 });
 
 // 起動時の一括移行 (step1 Phase 6 p6-0, 設計 §3.1)。
