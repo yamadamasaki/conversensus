@@ -11,7 +11,9 @@
 >
 > **2026-08-10: §4 の方針 (D1/D5) はユーザー確認済 — 「blob 正典 + op-log は参照だけ」,
 > 「未ログイン (ローカルのみ) でも画像が使えること」。S1 の実験は実施済で U1/U2/U4 は確定
-> (§8, §10)。D2 は D2a (batch レコードの ops に blob ref を埋める) に確定。実装 (S2) に進んでよい。**
+> (§8, §10)。D2 は D2a (batch レコードの ops に blob ref を埋める) に確定。
+> **S2 (daemon のローカル blob ストア) は実装済**。旧 S4 は S3 へ統合し, S3 の設計も確定した
+> (§5「S3 の設計」)。次は S3 の実装である。**
 
 ---
 
@@ -242,8 +244,8 @@ push できない**。blob へ逃がせば 5 MiB まで扱えて, しかもレ�
 |---|---|---|
 | ~~**S1**~~ | ~~**実験**: 実機 PDS で U1/U2/U4 を実測する~~ **完了 (2026-08-10, §10)**。D2a / CID 共有 / 上限が確定した | 使い捨てスクリプト (コミットしない) |
 | ~~**S2**~~ | ~~daemon のローカル blob ストア~~ **完了 (commit `7058176`)**。下の「S2 で学んだこと」 | `src/shared/src/blob.ts` (新規), `src/server/src/eventStore.ts`, `index.ts` |
-| **S3** | 作成経路を blob 参照へ切替。3 経路 (drop/paste/Cmd+V) をローカル保存 → `NODE_ADDED`。未ログインで動く。`imageDataUrl` は新規に書かない。サイズ超過を弾く | `GraphEditor.tsx` (判断は新モジュールへ切り出す), `atproto/blob.ts` |
-| **S4** | 表示側の解決順序 (D4)。旧 `imageDataUrl` の読み取り互換を保つ | `ImageNode.tsx` |
+| **S3** | **作成経路と表示経路をまとめて切り替える** (旧 S4 を統合)。3 経路 (drop/paste/Cmd+V) をローカル保存 → `NODE_ADDED`。未ログインで動く。`imageDataUrl` は新規に書かない。サイズ超過を弾く。表示は D4 の解決順序にし, 旧データの読み取り互換を保つ | `images/imageBlob.ts` (新規), `api.ts`, `GraphEditor.tsx`, `ImageNode.tsx`, `atproto/blob.ts` |
+| ~~**S4**~~ | ~~表示側の解決順序 (D4)~~ **S3 に統合した** (下の「S3 の設計」) | — |
 | **S5** | PDS への blob push を同期経路に組み込む (D5 の順序保証)。D2 の結論に従い pin する | `sync/` の push 経路, `atproto/` |
 | **S6** | ANA-117: 既存の画像ノードへの drop / paste | `ImageNode.tsx` |
 
@@ -271,6 +273,67 @@ S1 は**コードを変えない実験**だった。U1 が肯定されたので 
 5. **テストの CID ベクタは実機 PDS から取った。** ここは「PDS と一致すること」自体が
    仕様なので, 推測値や自前実装同士の突き合わせでは意味がない
 
+### S3 の設計 (2026-08-10 確定)
+
+#### なぜ旧 S4 を統合したか
+
+D1 の新形式 (`properties.image`) で**書く**と, 既存の `ImageNode` (flat な
+`imageBlobCid` / `imageBlobMimeType` を読む) では**読めない**。S3 の受入基準は
+「未ログインで drop すると画像ノードができ, **画像が表示される**」なので,
+書き込みだけを切り替えると**この基準を S3 単体で満たせない**。
+加えて `ImageNode` は `imageBlobCid` があると無条件に `currentDid()` を呼ぶが,
+これは未ログインで throw する — **表示側も未ログインに対応していない**。
+書き込みと読み取りは同じ 1 つの約束 (properties の形) の裏表なので, 分けずに 1 スライスにする。
+
+#### モジュール構成と責務
+
+| 置き場 | 責務 |
+|---|---|
+| `src/client/src/images/imageBlob.ts` (新規) | **画像を受け取ってから op になるまでの判断すべて**。`File` / `Blob` → bytes → サイズ検証 → ローカル保存 → blob ref (`properties.image`) の組み立て。`ImageNode` が使う「properties から blob ref を読む」も同じモジュールに置く (書く形と読む形を 1 箇所で決める) |
+| `src/client/src/api.ts` | daemon への HTTP を足すだけ (`putBlob` / `blobObjectUrl`)。既存の薄い fetch ラッパの集合という性格を保つ |
+| `GraphEditor.tsx` | 3 経路のイベント配線と位置決めだけ。判断は持たない。エラーは `AlertDialog` で出す |
+| `ImageNode.tsx` | D4 の解決順序 |
+| `atproto/blob.ts` | PDS 側だけ。`createImageDataUrl` / `isBlobUploadEnabled` を削除し, `uploadImageBlob` は S5 用に残す |
+
+**なぜローカル blob ストアを `atproto/` に置かないか**: ローカルストアは daemon の機能で
+ATProto とは無関係だからである。識別子 (CID) を共有しているだけで, 依存の向きは逆になる。
+
+#### properties の形 (D1 のとおり)
+
+```typescript
+properties: {
+  image: { $type: 'blob', ref: { $link: cid }, mimeType, size },
+}
+```
+
+`z.record(z.string(), z.unknown())` なのでスキーマは通る (確認済)。
+`size` は**必ず書く** — 現行の Cmd+V 経路だけ `imageBlobSize` を落としているが,
+blob ref としては欠かせない。3 経路を 1 関数に寄せることで自然に直る。
+
+#### 表示の解決順序 (D4)
+
+1. メモリキャッシュ (`getCachedBlobUrl`)
+2. **ローカル blob ストア** (`GET /blobs/:cid`)
+3. PDS `getBlob` — **ログイン時のみ**。未ログインでは `currentDid()` を呼ばずに飛ばす
+4. 旧データ互換: flat な `imageBlobCid` / `imageDataUrl` (**読み取りのみ**)
+5. `imageUrl`
+
+**3 で取れた blob は 2 へ書き戻す。** `POST /blobs` は冪等で content-addressed なので
+安全であり, 次回以降オフラインでも表示できる。書き戻しの失敗は表示を妨げない (best effort)。
+
+#### エラーの伝え方
+
+`GraphEditor` にローカル state を持たせ, 既存の `AlertDialog` を描画する。
+`GraphEditorProps` は既に 14 フィールドあり, これ以上増やしたくない。
+出す条件は **5 MiB 超** と **ローカル保存の失敗** の 2 つで, 今のように
+`console.error` で握り潰さない (D7)。サーバの 413 応答の本文も拾って表示する。
+
+#### この時点でやらないこと
+
+- **PDS への upload はしない** (D5)。作成時に PDS を触らないのが要件そのものである
+- 複数画像の同時 drop は**現行どおり 1 枚だけ**扱う (`break`)。仕様変更は本課題の範囲外
+- 旧 flat 形式のデータを新形式へ**書き換えない**。読めれば十分である (§7)
+
 ---
 
 ## 6. 受入基準 (草案)
@@ -286,16 +349,20 @@ S1 は**コードを変えない実験**だった。U1 が肯定されたので 
 - `GET /blobs/:cid` が正しい Content-Type とバイト列を返す
 - 存在しない cid は 404
 
-### S3
+### S3 (旧 S4 を統合)
+
+作成側:
 
 - **未ログインの状態で** canvas に画像を drop すると画像ノードができ, 画像が表示される
+- drop / paste / Cmd+V の 3 経路とも同じ形の properties を書く (`size` を含む)
 - op-log の `node.add` の properties に **base64 が入っていない** (参照のみ)
 - 上限を超える画像を落とすと, ノードを作らずにユーザーへ理由が伝わる
 
-### S4
+表示側:
 
-- 旧データ (`imageDataUrl` を持つノード) がそのまま表示できる
+- 旧データ (`imageDataUrl` / flat な `imageBlobCid` を持つノード) がそのまま表示できる
 - ローカル blob ストアに実体があれば PDS を触らずに表示できる
+- 未ログインでも `currentDid()` を呼ばない (throw させない)
 
 ### S5
 
@@ -342,6 +409,13 @@ S1 は**コードを変えない実験**だった。U1 が肯定されたので 
   このため作成時に PDS を触らない設計とし, PDS への送り出しは同期経路へ寄せた
 - **2026-08-10 D2 (pin 方法)**: S1 の実測により D2a (ops に blob ref を埋める) に確定。
   D2b (専用 image レコード) は不要になった
+- **2026-08-10 S3/S4 の統合**: 書く形 (D1) を変えると既存の読み手が読めなくなり,
+  S3 の受入基準「画像が表示される」を単体で満たせないことが分かったため 1 スライスに統合した。
+  代替案「S3 の受入基準から表示を外す」は, 途中の commit で画像が表示されない状態が
+  残るので退けた
+- **2026-08-10 判断の置き場**: 画像を受け取ってから op になるまでの判断を
+  `images/imageBlob.ts` に集め, `GraphEditor` には配線と位置決めだけを残すことにした。
+  ローカル blob ストアは daemon の機能なので `atproto/` には置かない
 
 ---
 

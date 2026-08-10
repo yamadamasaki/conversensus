@@ -7,11 +7,10 @@ import {
   useReactFlow,
 } from '@xyflow/react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { getCachedBlobUrl, resolveBlobUrl } from './atproto/blob';
-import { currentDid } from './atproto/client';
 import { useEventDispatch } from './EventDispatchContext';
 import { makeEventBase } from './events/GraphEvent';
 import { useInlineEdit } from './hooks/useInlineEdit';
+import { readImageBlobLocation, resolveImageUrl } from './images/imageBlob';
 
 type ImageNodeData = {
   label: string;
@@ -26,10 +25,14 @@ export function ImageNode({ id, data, selected }: NodeProps) {
   const { dispatch } = useEventDispatch();
 
   const imageUrl = (nodeData.properties?.imageUrl as string) ?? '';
-  const imageBlobCid = (nodeData.properties?.imageBlobCid as string) ?? '';
-  const imageBlobMimeType =
-    (nodeData.properties?.imageBlobMimeType as string) ?? '';
+  // 旧データの読み取り互換。新規には書かない (設計 D1 / §7)
   const imageDataUrl = (nodeData.properties?.imageDataUrl as string) ?? '';
+  // 新形式の blob ref と旧形式の flat なキーの両方をここで吸収する
+  const location = readImageBlobLocation(nodeData.properties);
+  // effect の依存は原始値にする — properties のオブジェクトは再レンダリングごとに
+  // 同一性が変わりうるので、そのまま依存に置くと解決が回り続ける
+  const blobCid = location?.cid ?? '';
+  const blobMimeType = location?.mimeType ?? '';
   const label = String(nodeData.label ?? '');
   const diffType = nodeData.diffType as 'add' | 'update' | undefined;
   const ghost = nodeData.ghost === true;
@@ -62,79 +65,48 @@ export function ImageNode({ id, data, selected }: NodeProps) {
     [dispatch, id],
   );
 
-  // Blob URL 解決
-  const [blobUrl, setBlobUrl] = useState<string | null>(null);
-  const blobUrlRef = useRef<string | null>(null);
-  // キャッシュ由来の URL はアンマウント時に revoke しない
-  const blobUrlFromCache = useRef(false);
+  // blob の実体の解決 (設計 D4 の 1〜3)。順序そのものは images/imageBlob.ts が持つ
+  const [resolvedUrl, setResolvedUrl] = useState<string | null>(null);
+  // このノードが作った Object URL。共有キャッシュ由来のものは他のノードも
+  // 表示に使っているので、ここに入れない (revoke すると相手の画像が壊れる)
+  const ownedUrlRef = useRef<string | null>(null);
 
   useEffect(() => {
+    if (!blobCid || !blobMimeType) return;
     let cancelled = false;
-    if (imageBlobCid && imageBlobMimeType) {
-      // 1. アップロード直後のキャッシュ
-      const cached = getCachedBlobUrl(imageBlobCid);
-      if (cached) {
-        if (
-          blobUrlRef.current &&
-          !blobUrlFromCache.current &&
-          blobUrlRef.current.startsWith('blob:')
-        )
-          URL.revokeObjectURL(blobUrlRef.current);
-        blobUrlFromCache.current = true;
-        blobUrlRef.current = cached;
-        setBlobUrl(cached);
-        return;
-      }
-      // 3. PDS getBlob
-      const did = currentDid();
-      resolveBlobUrl(did, imageBlobCid, imageBlobMimeType)
-        .then((url) => {
-          if (cancelled) {
-            URL.revokeObjectURL(url);
-            return;
-          }
-          if (
-            blobUrlRef.current &&
-            !blobUrlFromCache.current &&
-            blobUrlRef.current.startsWith('blob:')
-          )
-            URL.revokeObjectURL(blobUrlRef.current);
-          blobUrlFromCache.current = false;
-          blobUrlRef.current = url;
-          setBlobUrl(url);
-        })
-        .catch((err) => {
-          if (!cancelled)
-            console.error('[ImageNode] blob resolve failed:', err);
-        });
-    }
-    // 2. data URL (blob CID の有無に関わらず常時フォールバック)
-    if (imageDataUrl && blobUrlRef.current !== imageDataUrl) {
-      blobUrlRef.current = imageDataUrl;
-      setBlobUrl(imageDataUrl);
-    }
+
+    resolveImageUrl({ cid: blobCid, mimeType: blobMimeType })
+      .then((resolved) => {
+        // どこにも無ければ旧データ (imageDataUrl / imageUrl) へ落ちる
+        if (!resolved) return;
+        if (cancelled) {
+          if (!resolved.fromCache) URL.revokeObjectURL(resolved.url);
+          return;
+        }
+        if (ownedUrlRef.current) URL.revokeObjectURL(ownedUrlRef.current);
+        ownedUrlRef.current = resolved.fromCache ? null : resolved.url;
+        setResolvedUrl(resolved.url);
+      })
+      .catch((err) => {
+        if (!cancelled) console.error('[ImageNode] blob resolve failed:', err);
+      });
+
     return () => {
       cancelled = true;
     };
-  }, [imageBlobCid, imageBlobMimeType, imageDataUrl]);
+  }, [blobCid, blobMimeType]);
 
-  // アンマウント時に Object URL を解放（キャッシュ由来・data URL は除く）
+  // アンマウント時に自前の Object URL を解放する
   useEffect(() => {
     return () => {
-      if (
-        blobUrlRef.current &&
-        !blobUrlFromCache.current &&
-        blobUrlRef.current.startsWith('blob:')
-      )
-        URL.revokeObjectURL(blobUrlRef.current);
+      if (ownedUrlRef.current) URL.revokeObjectURL(ownedUrlRef.current);
     };
   }, []);
 
   // URL 入力
   const [editingUrl, setEditingUrl] = useState(false);
   const [urlInput, setUrlInput] = useState(imageUrl);
-  const showUrlInput =
-    editingUrl || (!imageUrl && !imageBlobCid && !imageDataUrl);
+  const showUrlInput = editingUrl || (!imageUrl && !blobCid && !imageDataUrl);
 
   const commitUrl = useCallback(() => {
     const trimmed = urlInput.trim();
@@ -171,7 +143,8 @@ export function ImageNode({ id, data, selected }: NodeProps) {
 
   // 画像の読み込みエラー処理
   const [imgError, setImgError] = useState(false);
-  const displayUrl = blobUrl ?? imageUrl;
+  // 解決順序 (設計 D4): blob (1〜3) → 旧 imageDataUrl (4) → imageUrl (5)
+  const displayUrl = resolvedUrl || imageDataUrl || imageUrl;
   // biome-ignore lint/correctness/useExhaustiveDependencies: 表示 URL 変更時にエラー状態をリセット
   useEffect(() => {
     setImgError(false);
@@ -387,7 +360,7 @@ export function ImageNode({ id, data, selected }: NodeProps) {
             <span style={{ fontSize: 11, color: '#999' }}>
               画像を読み込めません
             </span>
-          ) : imageBlobCid && !blobUrl ? (
+          ) : blobCid && !displayUrl ? (
             <span style={{ fontSize: 11, color: '#999' }}>
               画像を読み込み中...
             </span>

@@ -29,14 +29,10 @@ import {
   useReactFlow,
 } from '@xyflow/react';
 import { toPng } from 'html-to-image';
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import '@xyflow/react/dist/style.css';
 import type { GraphFile } from '@conversensus/shared';
-import {
-  cacheBlobUrl,
-  createImageDataUrl,
-  uploadImageBlob,
-} from './atproto/blob';
+import { AlertDialog } from './AlertDialog';
 import { EdgeContextMenu } from './EdgeContextMenu';
 import { EditableLabelEdge } from './EditableLabelEdge';
 import { EditableNode } from './EditableNode';
@@ -72,11 +68,13 @@ import { type UndoState, useEventStore } from './hooks/useEventStore';
 import { useGroupNodes } from './hooks/useGroupNodes';
 import { useNodeTypeMenu } from './hooks/useNodeTypeMenu';
 import { ImageNode } from './ImageNode';
+import { imagePropertiesOf, saveImageBlob } from './images/imageBlob';
 import { NodeCreationContext } from './NodeCreationContext';
 import type { NodeTypeOption } from './NodeTypeMenu';
 import { NodeTypeMenu } from './NodeTypeMenu';
 
 const RF_INIT_DELAY_MS = 150;
+const IMAGE_MIME_PREFIX = 'image/';
 const DROP_TARGET_ATTR = 'data-drop-target'; // グループへ追加しようとしている
 const LEAVING_GROUP_ATTR = 'data-leaving-group'; // グループを出ようとしている
 
@@ -156,6 +154,10 @@ function GraphEditorInner({
       updatedEdgeIds,
     ),
   );
+
+  // 画像の受け入れに失敗した理由 (上限超過・保存失敗)。App へ持ち上げず GraphEditor 内で
+  // 出す — 既に 14 個ある GraphEditorProps をこのために増やす理由が無い
+  const [imageError, setImageError] = useState<string | null>(null);
 
   // 常に最新の file / activeSheetId / onChange / deleted items を参照するための ref
   const fileRef = useRef(file);
@@ -539,6 +541,37 @@ function GraphEditorInner({
     return () => window.removeEventListener('keydown', handleDeleteKey);
   }, [handleDeleteKey]);
 
+  // 画像の受け入れ (ANA-116 S3)。drop / paste / Cmd+V の 3 経路が共有する。
+  //
+  // **判断は `images/imageBlob.ts` にある** — ここが持つのは配線と位置決めだけである。
+  // 保存先はローカル blob ストアで、PDS は触らない (未ログインでも使えるため。設計 D5)。
+  const addImageNode = useCallback(
+    async (source: Blob, position: { x: number; y: number }) => {
+      try {
+        const ref = await saveImageBlob(source);
+        addNode(position, 'image', imagePropertiesOf(ref));
+      } catch (err) {
+        // 握り潰さない (設計 D7)。旧実装は console.error だけだったので、
+        // 上限超過は「落としたのに何も起きない」ようにしか見えなかった
+        setImageError(err instanceof Error ? err.message : String(err));
+      }
+    },
+    [addNode],
+  );
+
+  // 貼り付けの落とし先。canvas の中央に置く
+  const pasteTargetPosition = useCallback(() => {
+    const containerEl = document.querySelector('.react-flow');
+    if (!containerEl) {
+      return { x: 100 + Math.random() * 200, y: 100 + Math.random() * 200 };
+    }
+    const rect = containerEl.getBoundingClientRect();
+    return screenToFlowPosition({
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2,
+    });
+  }, [screenToFlowPosition]);
+
   // クリップボードからの画像貼り付け → ImageNode 作成
   const handlePaste = useCallback(
     async (e: ClipboardEvent) => {
@@ -550,40 +583,15 @@ function GraphEditorInner({
 
       for (let i = 0; i < items.length; i++) {
         const item = items[i];
-        if (!item.type.startsWith('image/')) continue;
+        if (!item.type.startsWith(IMAGE_MIME_PREFIX)) continue;
         e.preventDefault();
         const file = item.getAsFile();
         if (!file) continue;
-        try {
-          const buf = await file.arrayBuffer();
-          const bytes = new Uint8Array(buf);
-          const blobRef = await uploadImageBlob(bytes.slice(), file.type);
-          cacheBlobUrl(blobRef.cid, bytes, blobRef.mimeType);
-          const containerEl = document.querySelector('.react-flow');
-          let pos = {
-            x: 100 + Math.random() * 200,
-            y: 100 + Math.random() * 200,
-          };
-          if (containerEl) {
-            const rect = containerEl.getBoundingClientRect();
-            pos = screenToFlowPosition({
-              x: rect.left + rect.width / 2,
-              y: rect.top + rect.height / 2,
-            });
-          }
-          addNode(pos, 'image', {
-            imageBlobCid: blobRef.cid,
-            imageBlobMimeType: blobRef.mimeType,
-            imageBlobSize: blobRef.size,
-            imageDataUrl: createImageDataUrl(bytes, blobRef.mimeType),
-          });
-        } catch (err) {
-          console.error('[GraphEditor] paste image upload failed:', err);
-        }
+        await addImageNode(file, pasteTargetPosition());
         break;
       }
     },
-    [screenToFlowPosition, addNode],
+    [pasteTargetPosition, addImageNode],
   );
 
   useEffect(() => {
@@ -599,41 +607,26 @@ function GraphEditorInner({
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
 
+      let clipboardItems: ClipboardItems;
       try {
-        const clipboardItems = await navigator.clipboard.read();
-        for (const item of clipboardItems) {
-          for (const type of item.types) {
-            if (!type.startsWith('image/')) continue;
-            const imageBlob = await item.getType(type);
-            const buf = await imageBlob.arrayBuffer();
-            const bytes = new Uint8Array(buf);
-            const blobRef = await uploadImageBlob(bytes.slice(), type);
-            cacheBlobUrl(blobRef.cid, bytes, blobRef.mimeType);
-            const containerEl = document.querySelector('.react-flow');
-            let pos = {
-              x: 100 + Math.random() * 200,
-              y: 100 + Math.random() * 200,
-            };
-            if (containerEl) {
-              const rect = containerEl.getBoundingClientRect();
-              pos = screenToFlowPosition({
-                x: rect.left + rect.width / 2,
-                y: rect.top + rect.height / 2,
-              });
-            }
-            addNode(pos, 'image', {
-              imageBlobCid: blobRef.cid,
-              imageBlobMimeType: blobRef.mimeType,
-              imageDataUrl: createImageDataUrl(bytes, blobRef.mimeType),
-            });
-            e.preventDefault();
-          }
-        }
+        clipboardItems = await navigator.clipboard.read();
       } catch {
-        // clipboard read 失敗（許可がない場合など）は paste イベントに任せる
+        // clipboard read 失敗 (許可がない場合など) は paste イベントに任せる。
+        // **保存の失敗をここで一緒に捨ててはならない** — 旧実装はこの catch が
+        // 広すぎて、上限超過も権限エラーも同じく黙って消えていた
+        return;
+      }
+
+      for (const item of clipboardItems) {
+        for (const type of item.types) {
+          if (!type.startsWith(IMAGE_MIME_PREFIX)) continue;
+          e.preventDefault();
+          const source = await item.getType(type);
+          await addImageNode(source, pasteTargetPosition());
+        }
       }
     },
-    [screenToFlowPosition, addNode],
+    [pasteTargetPosition, addImageNode],
   );
 
   useEffect(() => {
@@ -656,30 +649,15 @@ function GraphEditorInner({
 
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        if (!file.type.startsWith('image/')) continue;
+        if (!file.type.startsWith(IMAGE_MIME_PREFIX)) continue;
         e.preventDefault();
-        try {
-          const buf = await file.arrayBuffer();
-          const bytes = new Uint8Array(buf);
-          const blobRef = await uploadImageBlob(bytes.slice(), file.type);
-          cacheBlobUrl(blobRef.cid, bytes, blobRef.mimeType);
-          const pos = screenToFlowPosition({
-            x: e.clientX,
-            y: e.clientY,
-          });
-          addNode(pos, 'image', {
-            imageBlobCid: blobRef.cid,
-            imageBlobMimeType: blobRef.mimeType,
-            imageBlobSize: blobRef.size,
-            imageDataUrl: createImageDataUrl(bytes, blobRef.mimeType),
-          });
-        } catch (err) {
-          console.error('[GraphEditor] drop image upload failed:', err);
-        }
+        // 落とした位置は React の合成イベントが再利用される前に確定させる
+        const position = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+        await addImageNode(file, position);
         break;
       }
     },
-    [screenToFlowPosition, addNode],
+    [screenToFlowPosition, addImageNode],
   );
 
   // remove タイプの変更は dispatch 経由で処理するためフィルタする
@@ -882,6 +860,12 @@ function GraphEditorInner({
             <EdgeContextMenu
               contextMenu={contextMenu}
               onSelect={setEdgePathType}
+            />
+          )}
+          {imageError && (
+            <AlertDialog
+              message={imageError}
+              onClose={() => setImageError(null)}
             />
           )}
         </div>

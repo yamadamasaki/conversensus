@@ -37,34 +37,27 @@ export function cacheBlobUrl(cid: string, bytes: Uint8Array, mimeType: string) {
   imageCache.set(cid, url);
 }
 
-export function createImageDataUrl(
-  bytes: Uint8Array,
-  mimeType: string,
-): string {
-  const copy = bytes.slice();
-  const base64 = btoa(
-    Array.from(copy)
-      .map((b) => String.fromCharCode(b))
-      .join(''),
-  );
-  return `data:${mimeType};base64,${base64}`;
-}
-
 export function getCachedBlobUrl(cid: string): string | undefined {
   return imageCache.get(cid);
 }
 
-export async function resolveBlobUrl(
+/**
+ * PDS から blob の実体を取る (ANA-116 S3)。
+ *
+ * **URL ではなく `Blob` を返す。** 呼び出し元 (`images/imageBlob.ts`) が中身を
+ * ローカル blob ストアへ書き戻せるようにするためである — URL だけ渡されると
+ * 書き戻しのために取り直す羽目になる。
+ */
+export async function fetchRemoteBlob(
   did: Did,
   cid: string,
   mimeType: string,
-): Promise<string> {
+): Promise<Blob> {
   // com.atproto.sync.getBlob を試す
   try {
     const res = await getAgent().api.com.atproto.sync.getBlob({ did, cid });
     if (res.success) {
-      const blob = new Blob([res.data], { type: mimeType });
-      return URL.createObjectURL(blob);
+      return new Blob([res.data], { type: mimeType });
     }
     console.warn('[blob] sync.getBlob returned success=false');
   } catch (err) {
@@ -81,20 +74,20 @@ export async function resolveBlobUrl(
       `Failed to resolve blob ${cid} (HTTP ${res.status}): ${body}`,
     );
   }
-  const data = await res.arrayBuffer();
-  const blob = new Blob([data], { type: mimeType });
-  return URL.createObjectURL(blob);
+  return new Blob([await res.arrayBuffer()], { type: mimeType });
 }
 
-let _uploadEnabled: boolean | null = null;
-
-export function isBlobUploadEnabled(): boolean {
-  if (_uploadEnabled !== null) return _uploadEnabled;
+/**
+ * ログイン中なら DID を、未ログインなら `undefined` を返す。
+ *
+ * **記憶してはならない** — ログイン状態は実行中に変わる。ANA-116 で撤去した
+ * `isBlobUploadEnabled` は初回の結果をキャッシュしており、未ログインで起動した
+ * セッションではログイン後も false のままだった。
+ */
+export function loggedInDid(): Did | undefined {
   try {
-    currentDid();
-    _uploadEnabled = true;
+    return currentDid();
   } catch {
-    _uploadEnabled = false;
+    return undefined;
   }
-  return _uploadEnabled;
 }
