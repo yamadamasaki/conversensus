@@ -12,8 +12,9 @@
 > **2026-08-10: §4 の方針 (D1/D5) はユーザー確認済 — 「blob 正典 + op-log は参照だけ」,
 > 「未ログイン (ローカルのみ) でも画像が使えること」。S1 の実験は実施済で U1/U2/U4 は確定
 > (§8, §10)。D2 は D2a (batch レコードの ops に blob ref を埋める) に確定。
-> **S2 (daemon のローカル blob ストア) と S3 (作成・表示経路の切替) は実装済**。旧 S4 は
-> S3 へ統合した (§5「S3 の設計」)。次は S5 (PDS への push を同期経路へ組み込む) である。**
+> **S2 (daemon のローカル blob ストア) / S3 (作成・表示経路の切替) / S5 (PDS への
+> blob push) は実装済**。旧 S4 は S3 へ統合した (§5「S3 の設計」)。
+> 残るのは S6 (ANA-117: 既存の画像ノードへの drop / paste) である。**
 
 ---
 
@@ -246,7 +247,7 @@ push できない**。blob へ逃がせば 5 MiB まで扱えて, しかもレ�
 | ~~**S2**~~ | ~~daemon のローカル blob ストア~~ **完了 (commit `7058176`)**。下の「S2 で学んだこと」 | `src/shared/src/blob.ts` (新規), `src/server/src/eventStore.ts`, `index.ts` |
 | ~~**S3**~~ | ~~**作成経路と表示経路をまとめて切り替える** (旧 S4 を統合)。3 経路 (drop/paste/Cmd+V) をローカル保存 → `NODE_ADDED`。未ログインで動く。`imageDataUrl` は新規に書かない。サイズ超過を弾く。表示は D4 の解決順序にし, 旧データの読み取り互換を保つ~~ **完了 (commit `ae531e6`)**。下の「S3 で学んだこと」 | `images/imageBlob.ts` (新規), `api.ts`, `GraphEditor.tsx`, `ImageNode.tsx`, `atproto/blob.ts` |
 | ~~**S4**~~ | ~~表示側の解決順序 (D4)~~ **S3 に統合した** (下の「S3 の設計」) | — |
-| **S5** | PDS への blob push を同期経路に組み込む (D5 の順序保証)。D2 の結論に従い pin する | `sync/` の push 経路, `atproto/` |
+| ~~**S5**~~ | ~~PDS への blob push を同期経路に組み込む (D5 の順序保証)。D2 の結論に従い pin する~~ **完了 (commit `e6a663b`)**。下の「S5 で学んだこと」 | `images/imageBlob.ts`, `atproto/atprotoSyncProvider.ts`, `hooks/useRemoteSyncQueue.ts` |
 | **S6** | ANA-117: 既存の画像ノードへの drop / paste | `ImageNode.tsx` |
 
 S1 は**コードを変えない実験**だった。U1 が肯定されたので D2a で進む (S5 の形が決まった)。
@@ -357,6 +358,42 @@ blob ref としては欠かせない。3 経路を 1 関数に寄せることで
 6. **依存を引数で差し込める形にしてテストした** (`SaveImageDeps` / `ResolveImageDeps`)。
    解決順序は「どこを何番目に見るか」が仕様そのものなので, 各段の呼ばれ方を
    観測できないと固定できない
+
+### S5 で学んだこと (2026-08-11, commit `e6a663b`)
+
+**掛ける場所は `AtprotoSyncProvider`** にした。レコードを書くのはここ 1 箇所
+(`pushRemote` と移行用の `createRemote`) なので, 順序の保証がこのクラスの中で閉じる。
+`RemoteSyncQueue` に掛けると, 移行 (`createRemote` はキューを迂回する) が漏れる。
+
+`uploadBlobs` は**必須の依存**にした。省略できると, 配線を忘れた瞬間に「画像を含む
+batch だけが outbox に詰まり続ける」形で静かに壊れる。既存のテスト 21 箇所は
+`makeProvider` ヘルパ経由で no-op を渡す。
+
+#### 実 PDS で確かめたこと (使い捨てスクリプト, コミットしない)
+
+1. **`listBlobs` は pin 済の blob しか返さない。** upload しただけの blob は現れない。
+   「レコードを書く前に blob が PDS にあること」を `listBlobs` では確かめられない —
+   確かめられるのは**負の対照**である: 上げていない blob を参照するレコードは
+   `Could not find blob` で拒否され, 先に上げた分は通る。この 2 つが対で受入基準 1 になる
+2. **負の対照に実在の CID を使ってはならない。** 最初 `hello` の CID を使ったところ,
+   S1 の実験で既に上げてあったため `Referenced Mimetype does not match stored blob` で
+   落ちた。**別の理由で落ちているのに対照が成立したように見える。** 毎回ランダムな
+   バイト列から `computeBlobCid` で作る
+3. **PDS は blob ref の `mimeType` を実体と突き合わせる。** 上と同じ観測の裏返しで,
+   参照側の mimeType を勝手に決めてはいけない (実装は upload 時と同じ値を使っている)
+4. **SDK が読み戻す ops の blob ref は `BlobRef` クラスのインスタンスである。**
+   `$type` は `original` の下に隠れ, `ref` は CID オブジェクトなので `$link` が無い。
+   したがって `readImageBlobLocation` は**そのままでは読めない**。受信経路は
+   `appendReceived` の body で JSON にしてから daemon へ渡すので, 正典に入る時点では
+   素の形に戻り, 表示は成立する。**受信した ops をメモリ上で直接検査する処理を
+   足すときは, この境界を通してからにすること**
+5. 同じ理由で, 受信した batch を再 push しても `collectImageBlobRefs` は何も拾わない
+   (BlobRef インスタンスは新形式と判定されない)。**害は無い** — その blob は既に
+   PDS にあるのでレコードは通る。ただし「拾えている」と誤解しないこと
+
+受入基準 2 (別端末が PDS 経由で表示できる) は, 未ログインの新しい agent で
+レコードを読み直し → JSON 境界を通して blob ref を復元 → `getBlob` で
+同じバイト列が取れることまで確認した。
 
 ---
 
