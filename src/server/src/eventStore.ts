@@ -17,8 +17,10 @@ import {
   type BranchId,
   type BranchMeta,
   type BranchStatus,
+  COMMIT_KIND,
   type Commit,
   type CommitId,
+  type CommitKind,
   type FileId,
   type GraphFileListItem,
   isFileDeleted,
@@ -49,6 +51,10 @@ type CommitRow = {
   message: string;
   at: number;
   author_actor: string;
+  // ANA-122 で追加。既存 DB の行は NULL なので読み出し側で既定値へ落とす
+  kind: string | null;
+  source_branch_id: string | null;
+  source_at: number | null;
 };
 
 /** branches の 1 行 (base コミットは列へインライン展開する, step1 Phase 5) */
@@ -84,12 +90,17 @@ CREATE TABLE IF NOT EXISTS batches (
 CREATE INDEX IF NOT EXISTS idx_batches_file_order
   ON batches (file_id, clock, timestamp, batch_id);
 
+-- kind / source_* は merge を一級の記録にするための列 (ANA-122)。merge コミットは
+-- trunk 側に入り、source_at で「branch op-log のどこまでを取り込んだか」を指す。
 CREATE TABLE IF NOT EXISTS commits (
-  id           TEXT    PRIMARY KEY,
-  file_id      TEXT    NOT NULL,
-  message      TEXT    NOT NULL,
-  at           INTEGER NOT NULL,
-  author_actor TEXT    NOT NULL
+  id               TEXT    PRIMARY KEY,
+  file_id          TEXT    NOT NULL,
+  message          TEXT    NOT NULL,
+  at               INTEGER NOT NULL,
+  author_actor     TEXT    NOT NULL,
+  kind             TEXT,
+  source_branch_id TEXT,
+  source_at        INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_commits_file ON commits (file_id);
 
@@ -134,6 +145,7 @@ export class EventStore {
     this.db.exec('PRAGMA foreign_keys = ON');
     this.db.run(SCHEMA);
     this.migrateSheetIdColumn();
+    this.migrateCommitKindColumns();
   }
 
   /**
@@ -147,6 +159,26 @@ export class EventStore {
       .all();
     if (!cols.some((c) => c.name === 'sheet_id')) {
       this.db.run('ALTER TABLE batches ADD COLUMN sheet_id TEXT');
+    }
+  }
+
+  /**
+   * ANA-122 マイグレーション: 既存 DB の commits に kind / source_* 列を追加する。
+   * 既存行は NULL のままで、読み出し時に `commit` として扱う (`rowToCommit`)。
+   */
+  private migrateCommitKindColumns(): void {
+    const cols = this.db
+      .query<{ name: string }, []>('PRAGMA table_info(commits)')
+      .all();
+    const existing = new Set(cols.map((c) => c.name));
+    for (const [name, type] of [
+      ['kind', 'TEXT'],
+      ['source_branch_id', 'TEXT'],
+      ['source_at', 'INTEGER'],
+    ] as const) {
+      if (!existing.has(name)) {
+        this.db.run(`ALTER TABLE commits ADD COLUMN ${name} ${type}`);
+      }
     }
   }
 
@@ -281,8 +313,9 @@ export class EventStore {
   saveCommit(fileId: FileId, commit: Commit): void {
     this.db
       .query(
-        `INSERT OR REPLACE INTO commits (id, file_id, message, at, author_actor)
-         VALUES ($id, $file, $msg, $at, $author)`,
+        `INSERT OR REPLACE INTO commits
+           (id, file_id, message, at, author_actor, kind, source_branch_id, source_at)
+         VALUES ($id, $file, $msg, $at, $author, $kind, $sourceBranch, $sourceAt)`,
       )
       .run({
         $id: commit.id,
@@ -290,6 +323,9 @@ export class EventStore {
         $msg: commit.message,
         $at: commit.at,
         $author: commit.authorActor,
+        $kind: commit.kind,
+        $sourceBranch: commit.sourceBranchId ?? null,
+        $sourceAt: commit.sourceAt ?? null,
       });
   }
 
@@ -508,7 +544,7 @@ export class EventStore {
   getCommits(fileId: FileId): Commit[] {
     const rows = this.db
       .query<CommitRow, string>(
-        `SELECT id, message, at, author_actor
+        `SELECT id, message, at, author_actor, kind, source_branch_id, source_at
            FROM commits
           WHERE file_id = ?
           ORDER BY at, id`,
@@ -540,6 +576,12 @@ function rowToCommit(row: CommitRow): Commit {
     message: row.message,
     at: row.at,
     authorActor: row.author_actor,
+    // kind 列を持たない時期に書かれた行は通常のコミットとして読む (ANA-122)
+    kind: (row.kind ?? COMMIT_KIND.COMMIT) as CommitKind,
+    ...(row.source_branch_id !== null && {
+      sourceBranchId: row.source_branch_id as BranchId,
+    }),
+    ...(row.source_at !== null && { sourceAt: row.source_at }),
   };
 }
 
@@ -553,6 +595,9 @@ function rowToBranch(row: BranchRow, trunkFileId: FileId): BranchMeta {
       message: row.base_message,
       at: row.base_at,
       authorActor: row.base_author_actor,
+      // base は「どこで分岐したか」を指すラベルで merge ではない。branches テーブルは
+      // 種別を持たない (持たせても常に commit にしかならない) ので、ここで補う。
+      kind: COMMIT_KIND.COMMIT,
     },
     // status は保存時に BranchMetaSchema で検証済 (API 境界の責務)
     status: row.status as BranchStatus,

@@ -23,10 +23,55 @@ import {
   createBranchOnOplog,
   readBranchSheets,
 } from '../sync/branchProjection';
-import { computeOperations } from '../sync/computeOperations';
-import { mergeBranchOnOplog } from '../sync/mergeBranch';
+import { computeSheetChanges } from '../sync/computeOperations';
+import {
+  countCommitsAfter,
+  lastMergeSourceAt,
+  mergeBranchOnOplog,
+} from '../sync/mergeBranch';
 import type { SyncProvider } from '../sync/syncProvider';
 import { type TapClock, useEventSyncTap } from './useEventSyncTap';
+
+/**
+ * ブランチの差分状態 (ANA-119/120, S3)。
+ *
+ * **差分の起点は状態から 1 つに決まる。** 以前は「分岐点」基準 (画面のハイライト) と
+ * 「直近コミット」基準 (commit ダイアログ) の 2 つが並列に生きていて、1 回 commit した
+ * 後に編集を続けると **同じ画面で 2 つの異なる差分が同時に意味を持っていた**。
+ * 状態をコードの一級の概念にして, 起点をそこから決めることで食い違いを構造的に無くす。
+ *
+ * 仕様は `deepse/requirements/operation-manual-for-dev.md`「ブランチの作成と利用」。
+ */
+export const BRANCH_DIFF_STATE = {
+  /** trunk 表示中。差分は出さない */
+  TRUNK: 'trunk',
+  /** 分岐直後 / merge 直後。差分は出さない */
+  UNCHANGED: 'unchanged',
+  /** 前回 commit (無ければ分岐点) 以降に編集がある。起点 = 前回 commit = **次の commit の対象** */
+  EDITING: 'editing',
+  /** 編集が無く commit が 1 件以上ある。起点 = 分岐点 = **次の merge の対象** */
+  COMMITTED: 'committed',
+} as const;
+
+export type BranchDiffState =
+  (typeof BRANCH_DIFF_STATE)[keyof typeof BRANCH_DIFF_STATE];
+
+/**
+ * 差分状態を決める。**唯一の判定規則**として切り出してある (hook の外から検証できる)。
+ *
+ * @param hasPendingChanges 直近コミット (無ければ分岐点) 以降に正味の差分があるか
+ * @param commitCount 前回 merge 以降の commit 数
+ */
+export function resolveBranchDiffState(
+  isTrunk: boolean,
+  hasPendingChanges: boolean,
+  commitCount: number,
+): BranchDiffState {
+  if (isTrunk) return BRANCH_DIFF_STATE.TRUNK;
+  if (hasPendingChanges) return BRANCH_DIFF_STATE.EDITING;
+  if (commitCount > 0) return BRANCH_DIFF_STATE.COMMITTED;
+  return BRANCH_DIFF_STATE.UNCHANGED;
+}
 
 type ConfirmState = {
   message: string;
@@ -51,11 +96,11 @@ type AlertState = {
  * `BranchOplogDeps` にあるので、こちらに残るのは純粋関数だけである。
  */
 export interface BranchOpsDeps {
-  computeOperations: typeof computeOperations;
+  computeSheetChanges: typeof computeSheetChanges;
 }
 
 export const defaultBranchOpsDeps: BranchOpsDeps = {
-  computeOperations,
+  computeSheetChanges,
 };
 
 /**
@@ -131,10 +176,6 @@ export function useBranchOperations({
     null,
   );
   const preBranchFile = useRef<GraphFile | null>(null);
-  // merge 時にその時点の newCommitsSinceMerge を累積保存し、
-  // 再エントリ時に commits.length - 累積値 で真の新規コミット数を計算する。
-  // **base / 直近コミット時点の控えは持たない** — op-log からその都度導出する (p5-4)。
-  const mergedCommitCounts = useRef<Map<string, number>>(new Map());
 
   const isTrunk = !activeBranch || activeBranch.name === TRUNK_PREFIX;
 
@@ -162,67 +203,19 @@ export function useBranchOperations({
     setLastCommitBase(null);
     setBranchOriginalBase(null);
     setNewCommitsSinceMerge(0);
-    mergedCommitCounts.current.clear();
     preBranchFile.current = null;
   }, [activeFile?.id]);
 
-  const [addedNodeIds, updatedNodeIds, addedEdgeIds, updatedEdgeIds] =
-    useMemo(() => {
-      if (isTrunk || !branchOriginalBase || !activeSheet) {
-        return [
-          new Set<string>(),
-          new Set<string>(),
-          new Set<string>(),
-          new Set<string>(),
-        ] as const;
-      }
-      const ops = deps.computeOperations(branchOriginalBase, activeSheet);
-      const addN = new Set<string>();
-      const updN = new Set<string>();
-      const addE = new Set<string>();
-      const updE = new Set<string>();
-      for (const op of ops) {
-        if (op.op === 'node.add') addN.add(op.nodeId);
-        else if (op.op === 'node.update') updN.add(op.nodeId);
-        else if (op.op === 'edge.add') addE.add(op.edgeId);
-        else if (op.op === 'edge.update') updE.add(op.edgeId);
-        // remove は conflicted に含めない（ゴースト表示用に別途計算）
-      }
-      return [addN, updN, addE, updE] as const;
-    }, [isTrunk, branchOriginalBase, activeSheet, deps]);
-
-  // 削除予定のノード/エッジ（base に存在し current に存在しない）
-  const [deletedNodes, deletedEdges, deletedNodeLayouts, deletedEdgeLayouts] =
-    useMemo(() => {
-      if (isTrunk || !branchOriginalBase || !activeSheet) {
-        return [[], [], [], []] as const;
-      }
-      const ops = deps.computeOperations(branchOriginalBase, activeSheet);
-      const removedNodeIds = new Set<string>();
-      const removedEdgeIds = new Set<string>();
-      for (const op of ops) {
-        if (op.op === 'node.remove') removedNodeIds.add(op.nodeId);
-        if (op.op === 'edge.remove') removedEdgeIds.add(op.edgeId);
-      }
-      return [
-        branchOriginalBase.nodes.filter((n) => removedNodeIds.has(n.id)),
-        branchOriginalBase.edges.filter((e) => removedEdgeIds.has(e.id)),
-        (branchOriginalBase.layouts ?? []).filter((l) =>
-          removedNodeIds.has(l.nodeId),
-        ),
-        (branchOriginalBase.edgeLayouts ?? []).filter((l) =>
-          removedEdgeIds.has(l.edgeId),
-        ),
-      ] as const;
-    }, [isTrunk, branchOriginalBase, activeSheet, deps]);
-
   /**
-   * 未コミットの変更。**コミットの実体は「ログ上のラベル付きオフセット」だが、
-   * 表示はあくまで正味の差分**にする (p5-4 の確定事項)。op-log の未コミット batch を
-   * そのまま数えると、編集して undo した往復が「2 変更」に見えてしまうため。
-   * 基準の `lastCommitBase` は op-log モードでは op-log から導出する。
+   * 未コミットの変更 = 直近コミット (無ければ分岐点) からの正味の差分。
+   *
+   * **コミットの実体は「ログ上のラベル付きオフセット」だが、表示はあくまで正味の差分**に
+   * する (p5-4 の確定事項)。op-log の未コミット batch をそのまま数えると、編集して undo した
+   * 往復が「2 変更」に見えてしまうため。基準の `lastCommitBase` は op-log から導出する。
+   *
+   * これが空かどうかが「変更中」かどうかの判定 (= 差分状態の入力) でもある。
    */
-  const pendingOps = useMemo(() => {
+  const pendingChanges = useMemo(() => {
     if (
       isTrunk ||
       !lastCommitBase ||
@@ -231,8 +224,71 @@ export function useBranchOperations({
         activeBranch?.status !== BRANCH_STATUS.MERGED)
     )
       return [];
-    return deps.computeOperations(lastCommitBase, activeSheet);
+    return deps.computeSheetChanges(lastCommitBase, activeSheet);
   }, [isTrunk, lastCommitBase, activeSheet, activeBranch?.status, deps]);
+
+  const diffState = useMemo(
+    () =>
+      resolveBranchDiffState(
+        isTrunk,
+        pendingChanges.length > 0,
+        newCommitsSinceMerge,
+      ),
+    [isTrunk, pendingChanges.length, newCommitsSinceMerge],
+  );
+
+  /** 差分の起点。状態から 1 つに決まる (無変更 / trunk では起点を持たない) */
+  const diffBase = useMemo(() => {
+    if (diffState === BRANCH_DIFF_STATE.EDITING) return lastCommitBase;
+    if (diffState === BRANCH_DIFF_STATE.COMMITTED) return branchOriginalBase;
+    return null;
+  }, [diffState, lastCommitBase, branchOriginalBase]);
+
+  /**
+   * 画面に出す差分。**commit ダイアログと同じ起点から出す** — 変更中は
+   * `pendingChanges` そのもの、commit 済みなら分岐点からの差分 (= 次の merge の対象)。
+   */
+  const changes = useMemo(() => {
+    if (diffState === BRANCH_DIFF_STATE.EDITING) return pendingChanges;
+    if (!diffBase || !activeSheet) return [];
+    return deps.computeSheetChanges(diffBase, activeSheet);
+  }, [diffState, diffBase, activeSheet, pendingChanges, deps]);
+
+  const [addedNodeIds, updatedNodeIds, addedEdgeIds, updatedEdgeIds] =
+    useMemo(() => {
+      const addN = new Set<string>();
+      const updN = new Set<string>();
+      const addE = new Set<string>();
+      const updE = new Set<string>();
+      for (const { op } of changes) {
+        if (op.op === 'node.add') addN.add(op.nodeId);
+        else if (op.op === 'node.update') updN.add(op.nodeId);
+        else if (op.op === 'edge.add') addE.add(op.edgeId);
+        else if (op.op === 'edge.update') updE.add(op.edgeId);
+        // remove は conflicted に含めない（ゴースト表示用に別途計算）
+      }
+      return [addN, updN, addE, updE] as const;
+    }, [changes]);
+
+  // 削除予定のノード/エッジ（起点に存在し current に存在しない）
+  const [deletedNodes, deletedEdges, deletedNodeLayouts, deletedEdgeLayouts] =
+    useMemo(() => {
+      if (!diffBase) return [[], [], [], []] as const;
+      const removedNodeIds = new Set<string>();
+      const removedEdgeIds = new Set<string>();
+      for (const { op } of changes) {
+        if (op.op === 'node.remove') removedNodeIds.add(op.nodeId);
+        if (op.op === 'edge.remove') removedEdgeIds.add(op.edgeId);
+      }
+      return [
+        diffBase.nodes.filter((n) => removedNodeIds.has(n.id)),
+        diffBase.edges.filter((e) => removedEdgeIds.has(e.id)),
+        (diffBase.layouts ?? []).filter((l) => removedNodeIds.has(l.nodeId)),
+        (diffBase.edgeLayouts ?? []).filter((l) =>
+          removedEdgeIds.has(l.edgeId),
+        ),
+      ] as const;
+    }, [diffBase, changes]);
 
   /**
    * branch 状態を捨てて trunk へ戻る。
@@ -278,13 +334,23 @@ export function useBranchOperations({
         id: sheetId,
         name: '',
       };
-      const commits = await oplogDeps.fetchCommits(meta.branchFileId);
+      // merge 済み branch を再オープンしたときの起点は **trunk の merge コミット**から
+      // 導く (ANA-119 S6)。以前はセッション内の ref に頼っていたので、アプリを開き直すと
+      // merge 済みの内容まで差分に出ていた。
+      const [commits, trunkCommits] = await Promise.all([
+        oplogDeps.fetchCommits(meta.branchFileId),
+        oplogDeps.fetchCommits(meta.trunkFileId),
+      ]);
       const lastCommit = commits[commits.length - 1];
-      const { current, base, atLastCommit } = await readBranchSheets(
+      const lastMergeAt = lastMergeSourceAt(trunkCommits, meta.id);
+      const { current, atLastCommit, atLastMerge } = await readBranchSheets(
         meta,
         { id: sheetMeta.id, name: sheetMeta.name },
         oplogDeps,
-        { ...(lastCommit && { lastCommitAt: lastCommit.at }) },
+        {
+          ...(lastCommit && { lastCommitAt: lastCommit.at }),
+          ...(lastMergeAt !== undefined && { lastMergeAt }),
+        },
       );
 
       // trunk からブランチに入る時のみ trunk の状態を保存
@@ -292,8 +358,10 @@ export function useBranchOperations({
         preBranchFile.current = activeFile;
       }
 
-      // 旧経路と違い base / 直近コミット時点は控えを持たずログから導出する
-      setBranchOriginalBase(base);
+      // 旧経路と違い、どの時点の控えも持たずログから導出する。
+      // merge 対象の起点は「最後の merge 時点」— 未 merge なら分岐点と同じ値になるので
+      // 状態による場合分けが要らない
+      setBranchOriginalBase(atLastMerge);
       setLastCommitBase(
         meta.status === BRANCH_STATUS.OPEN ||
           meta.status === BRANCH_STATUS.MERGED
@@ -304,12 +372,7 @@ export function useBranchOperations({
         ...activeFile,
         sheets: activeFile.sheets.map((s) => (s.id === sheetId ? current : s)),
       });
-      if (meta.status === BRANCH_STATUS.MERGED) {
-        const mergedCount = mergedCommitCounts.current.get(meta.id) ?? 0;
-        setNewCommitsSinceMerge(Math.max(0, commits.length - mergedCount));
-      } else {
-        setNewCommitsSinceMerge(commits.length);
-      }
+      setNewCommitsSinceMerge(countCommitsAfter(commits, lastMergeAt));
       setActiveBranch(meta);
     },
     [activeFile, activeBranch, onSetActiveFile, oplogDeps],
@@ -402,41 +465,46 @@ export function useBranchOperations({
         };
       }
       setActiveBranch(merged);
+      // merge した時点 = branch op-log の先端 = いま画面に出ている内容。
+      // 再オープン時は同じ値を trunk の merge コミット (`sourceAt`) から導き直す (S6)
       setBranchOriginalBase(activeSheet ?? null);
       setLastCommitBase(activeSheet ?? null);
-      // 今回 merge したコミット数を累積
-      mergedCommitCounts.current.set(
-        merged.id,
-        (mergedCommitCounts.current.get(merged.id) ?? 0) + newCommitsSinceMerge,
-      );
       setNewCommitsSinceMerge(0);
     },
-    [activeFile, activeSheet, newCommitsSinceMerge],
+    [activeFile, activeSheet],
   );
 
   const handleMergeBranch = useCallback(
     async (branch: BranchMeta) => {
       if (!activeSheetId || !activeFile) return;
-      const ok = await new Promise<boolean>((resolve) => {
-        setConfirmState({
-          message: `branch "${branch.name}" を trunk に merge しますか？`,
+      // merge 理由は commit と同様に**必須** (ANA-122)。確認ダイアログは置かない —
+      // 理由の入力そのものが確認であり、二段構えにしても得るものが無い。
+      const message = await new Promise<string>((resolve) => {
+        setInputState({
+          message: `branch "${branch.name}" を trunk に merge します。理由を入力してください:`,
           resolve,
         });
       });
-      if (!ok) return;
+      if (!message.trim()) return;
       try {
         // 🔴 直前の編集が branch op-log に着地するのを待つ。待たないと、その編集が
         // trunk に載らないまま branch だけ MERGED になる (record は非同期に flush する)。
         await branchSettled();
         // branch batches を trunk 先端の後へ再スタンプして trunk op-log へ追記する。
         // 再スタンプの発番は trunk の tap と同じ clock で行う (同 clock の衝突回避)。
-        const result = await mergeBranchOnOplog(branch, {
-          fetchBatches: oplogDeps.fetchBatches,
-          appendBatches: oplogDeps.appendBatches,
-          saveBranch: oplogDeps.saveBranch,
-          seedClock: trunkClock.seed,
-          tick: trunkClock.tick,
-        });
+        const result = await mergeBranchOnOplog(
+          branch,
+          { message: message.trim(), actor },
+          {
+            fetchBatches: oplogDeps.fetchBatches,
+            appendBatches: oplogDeps.appendBatches,
+            saveBranch: oplogDeps.saveBranch,
+            saveCommit: oplogDeps.saveCommit,
+            newId: oplogDeps.newId,
+            seedClock: trunkClock.seed,
+            tick: trunkClock.tick,
+          },
+        );
         if (result.conflicts.length > 0) {
           // 収束は LWW で確定させ、対立は診断ログに残す (可視化は後続 phase)
           console.warn(
@@ -455,10 +523,11 @@ export function useBranchOperations({
     [
       activeSheetId,
       activeFile,
-      setConfirmState,
+      setInputState,
       setAlertState,
       oplogDeps,
       trunkClock,
+      actor,
       afterMerge,
       branchSettled,
     ],
@@ -543,14 +612,14 @@ export function useBranchOperations({
   const handleCommit = useCallback(
     async (message: string) => {
       if (!activeBranch || !activeSheetId || !activeSheet) return;
-      if (pendingOps.length === 0) return;
+      if (pendingChanges.length === 0) return;
 
       try {
         // 直前の編集の着地を待つ。待たないとその編集がコミット位置に入らず、
         // 再オープン時に「コミット済みのはずの変更」が未コミットとして復活する。
         await branchSettled();
         // コミット = ログ上のラベル付きオフセット。差分そのものは持たない
-        // (`pendingOps` は表示用で、コミットに焼き込むのはログ位置だけ)。
+        // (`pendingChanges` は表示用で、コミットに焼き込むのはログ位置だけ)。
         const branchBatches = await oplogDeps.fetchBatches(
           activeBranch.branchFileId,
         );
@@ -576,7 +645,7 @@ export function useBranchOperations({
       activeBranch,
       activeSheetId,
       activeSheet,
-      pendingOps,
+      pendingChanges,
       setAlertState,
       oplogDeps,
       actor,
@@ -618,6 +687,11 @@ export function useBranchOperations({
     commitDialogOpen,
     setCommitDialogOpen,
     isTrunk,
+    /**
+     * 差分状態 (ANA-120)。画面のハイライト・commit・merge の可否はすべてこれで決まる。
+     * merge できるのは `COMMITTED` のときだけ (未コミットの編集を残したまま merge させない)。
+     */
+    diffState,
     addedNodeIds,
     updatedNodeIds,
     addedEdgeIds,
@@ -628,7 +702,7 @@ export function useBranchOperations({
     deletedEdges: deletedEdges as GraphEdge[],
     deletedNodeLayouts: deletedNodeLayouts as NodeLayout[],
     deletedEdgeLayouts: deletedEdgeLayouts as EdgeLayout[],
-    pendingOps,
+    pendingChanges,
     /**
      * branch 表示中の編集の宛先。trunk 表示中は null。
      * GraphEditor には trunk 用と使い分けて渡す — branch の編集を trunk の

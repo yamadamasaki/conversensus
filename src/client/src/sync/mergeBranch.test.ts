@@ -4,6 +4,8 @@ import {
   BRANCH_STATUS,
   type BranchId,
   type BranchMeta,
+  COMMIT_KIND,
+  type Commit,
   type CommitId,
   type FileId,
   type GraphFile,
@@ -11,7 +13,12 @@ import {
   type NodeId,
   type SheetId,
 } from '@conversensus/shared';
-import { type MergeBranchDeps, mergeBranchOnOplog } from './mergeBranch';
+import {
+  countCommitsAfter,
+  lastMergeSourceAt,
+  type MergeBranchDeps,
+  mergeBranchOnOplog,
+} from './mergeBranch';
 
 const TRUNK = 'trunk-file' as FileId;
 const BRANCH_LOG = 'branch-file' as FileId;
@@ -66,6 +73,9 @@ const branchMeta = (): BranchMeta => ({
   branchFileId: BRANCH_LOG,
 });
 
+/** merge の記録に要る引数 (ANA-122)。理由は必須 */
+const mergeParams = () => ({ message: '案A を取り込む', actor: ACTOR });
+
 /**
  * file_id → op-log の簡易ストア。`appendBatches` は実際の EventStore と同じく
  * **batch id でべき等** (既存 id は無視して件数に数えない)。
@@ -73,6 +83,9 @@ const branchMeta = (): BranchMeta => ({
 function makeDeps(logs: Record<string, Batch[]>, initialClock = 0) {
   const clock = new LamportClock(initialClock);
   const saved: BranchMeta[] = [];
+  /** file_id ごとに保存されたコミット (merge の記録の宛先を検証する) */
+  const commits: Record<string, Commit[]> = {};
+  let idSeq = 0;
   const deps: MergeBranchDeps = {
     fetchBatches: async (fileId) => [...(logs[fileId] ?? [])],
     appendBatches: async (fileId, batches) => {
@@ -86,12 +99,20 @@ function makeDeps(logs: Record<string, Batch[]>, initialClock = 0) {
       saved.push(meta);
       return meta;
     },
+    saveCommit: async (fileId, commit) => {
+      commits[fileId] = [...(commits[fileId] ?? []), commit];
+      return commit;
+    },
+    newId: () => {
+      idSeq += 1;
+      return `merge-commit-${idSeq}`;
+    },
     seedClock: (floor) => {
       clock.seed(floor);
     },
     tick: () => clock.tick(),
   };
-  return { deps, saved, logs, clock };
+  return { deps, saved, commits, logs, clock };
 }
 
 /** trunk: 分岐点まで (clock 1-2) + 分岐後の編集 (clock 3) */
@@ -116,7 +137,7 @@ describe('mergeBranchOnOplog', () => {
   it('branch batches を trunk 先端の後へ再スタンプして追記する', async () => {
     const logs = { [TRUNK]: trunkLog(), [BRANCH_LOG]: branchLog() };
     const { deps } = makeDeps(logs);
-    const result = await mergeBranchOnOplog(branchMeta(), deps);
+    const result = await mergeBranchOnOplog(branchMeta(), mergeParams(), deps);
 
     expect(result.appended).toBe(2);
     // trunk 先端は clock 3。再スタンプは seed 意味論なのでちょうど 4, 5 になる
@@ -129,7 +150,7 @@ describe('mergeBranchOnOplog', () => {
   it('batch の id は保持する (再 merge のべき等性の土台)', async () => {
     const logs = { [TRUNK]: trunkLog(), [BRANCH_LOG]: branchLog() };
     const { deps } = makeDeps(logs);
-    await mergeBranchOnOplog(branchMeta(), deps);
+    await mergeBranchOnOplog(branchMeta(), mergeParams(), deps);
     // branch op-log 側は元の clock のまま残る (file_id が違うので両立する)
     expect((logs[BRANCH_LOG] ?? []).map((b) => b.clock)).toEqual([3, 4]);
   });
@@ -137,7 +158,7 @@ describe('mergeBranchOnOplog', () => {
   it('timestamp は編集が起きた時刻のまま残す (順序付けは clock)', async () => {
     const logs = { [TRUNK]: trunkLog(), [BRANCH_LOG]: branchLog() };
     const { deps } = makeDeps(logs);
-    await mergeBranchOnOplog(branchMeta(), deps);
+    await mergeBranchOnOplog(branchMeta(), mergeParams(), deps);
     const timestamps = (logs[TRUNK] ?? []).slice(3).map((b) => b.timestamp);
     expect(timestamps).toEqual([3, 4]);
   });
@@ -145,7 +166,7 @@ describe('mergeBranchOnOplog', () => {
   it('trunkAfterBase は追記しない (mergeBranches の merged をそのまま使わない)', async () => {
     const logs = { [TRUNK]: trunkLog(), [BRANCH_LOG]: branchLog() };
     const { deps } = makeDeps(logs);
-    await mergeBranchOnOplog(branchMeta(), deps);
+    await mergeBranchOnOplog(branchMeta(), mergeParams(), deps);
     // 3 (元の trunk) + 2 (branch) のみ。t3 が再スタンプされて二重に入っていない
     expect(logs[TRUNK]).toHaveLength(5);
     expect((logs[TRUNK] ?? []).filter((b) => b.id === 't3')).toHaveLength(1);
@@ -154,7 +175,7 @@ describe('mergeBranchOnOplog', () => {
   it('merge 後の trunk projection は branch の編集を含む', async () => {
     const logs = { [TRUNK]: trunkLog(), [BRANCH_LOG]: branchLog() };
     const { deps } = makeDeps(logs);
-    const result = await mergeBranchOnOplog(branchMeta(), deps);
+    const result = await mergeBranchOnOplog(branchMeta(), mergeParams(), deps);
     const sheet = result.trunk.sheets.find((s) => s.id === SHEET);
     expect(sheet?.nodes.map((n) => n.id).sort()).toEqual(['n1', 'n2']);
   });
@@ -164,14 +185,14 @@ describe('mergeBranchOnOplog', () => {
   it('branch の編集が trunk の後発編集に勝つ (再スタンプの帰結)', async () => {
     const logs = { [TRUNK]: trunkLog(), [BRANCH_LOG]: branchLog() };
     const { deps } = makeDeps(logs);
-    const result = await mergeBranchOnOplog(branchMeta(), deps);
+    const result = await mergeBranchOnOplog(branchMeta(), mergeParams(), deps);
     expect(nodeContent(result.trunk, 'n1')).toBe('branch による編集');
   });
 
   it('並行 content 変更を MergeConflict として検出する', async () => {
     const logs = { [TRUNK]: trunkLog(), [BRANCH_LOG]: branchLog() };
     const { deps } = makeDeps(logs);
-    const result = await mergeBranchOnOplog(branchMeta(), deps);
+    const result = await mergeBranchOnOplog(branchMeta(), mergeParams(), deps);
     expect(result.conflicts).toHaveLength(1);
     const conflict = result.conflicts[0];
     expect(conflict?.target).toBe('n1');
@@ -186,14 +207,14 @@ describe('mergeBranchOnOplog', () => {
       [BRANCH_LOG]: [content('br1', 3, [addNode('n2', 'B')])],
     };
     const { deps } = makeDeps(logs);
-    const result = await mergeBranchOnOplog(branchMeta(), deps);
+    const result = await mergeBranchOnOplog(branchMeta(), mergeParams(), deps);
     expect(result.conflicts).toEqual([]);
   });
 
   it('branch の status を merged にする', async () => {
     const logs = { [TRUNK]: trunkLog(), [BRANCH_LOG]: branchLog() };
     const { deps, saved } = makeDeps(logs);
-    const result = await mergeBranchOnOplog(branchMeta(), deps);
+    const result = await mergeBranchOnOplog(branchMeta(), mergeParams(), deps);
     expect(result.branch.status).toBe(BRANCH_STATUS.MERGED);
     expect(saved).toHaveLength(1);
     expect(saved[0]?.status).toBe(BRANCH_STATUS.MERGED);
@@ -204,10 +225,14 @@ describe('mergeBranchOnOplog', () => {
     it('2 回目の merge は appended 0 で trunk を変えない', async () => {
       const logs = { [TRUNK]: trunkLog(), [BRANCH_LOG]: branchLog() };
       const { deps } = makeDeps(logs);
-      await mergeBranchOnOplog(branchMeta(), deps);
+      await mergeBranchOnOplog(branchMeta(), mergeParams(), deps);
       const afterFirst = JSON.stringify(logs[TRUNK]);
 
-      const second = await mergeBranchOnOplog(branchMeta(), deps);
+      const second = await mergeBranchOnOplog(
+        branchMeta(),
+        mergeParams(),
+        deps,
+      );
       expect(second.appended).toBe(0);
       expect(JSON.stringify(logs[TRUNK])).toBe(afterFirst);
       // projection も不変
@@ -217,8 +242,12 @@ describe('mergeBranchOnOplog', () => {
     it('再 merge では既に merge 済みの batch を対立として数え直さない', async () => {
       const logs = { [TRUNK]: trunkLog(), [BRANCH_LOG]: branchLog() };
       const { deps } = makeDeps(logs);
-      await mergeBranchOnOplog(branchMeta(), deps);
-      const second = await mergeBranchOnOplog(branchMeta(), deps);
+      await mergeBranchOnOplog(branchMeta(), mergeParams(), deps);
+      const second = await mergeBranchOnOplog(
+        branchMeta(),
+        mergeParams(),
+        deps,
+      );
       // 載せるものが無いので新たな対立も無い (自分自身との突き合わせを作らない)
       expect(second.conflicts).toEqual([]);
     });
@@ -226,10 +255,14 @@ describe('mergeBranchOnOplog', () => {
     it('merge 後に branch へ足した編集だけが次の merge で載る', async () => {
       const logs = { [TRUNK]: trunkLog(), [BRANCH_LOG]: branchLog() };
       const { deps } = makeDeps(logs);
-      await mergeBranchOnOplog(branchMeta(), deps);
+      await mergeBranchOnOplog(branchMeta(), mergeParams(), deps);
 
       logs[BRANCH_LOG]?.push(content('br3', 5, [addNode('n3', '追加の編集')]));
-      const second = await mergeBranchOnOplog(branchMeta(), deps);
+      const second = await mergeBranchOnOplog(
+        branchMeta(),
+        mergeParams(),
+        deps,
+      );
       expect(second.appended).toBe(1);
       expect((logs[TRUNK] ?? []).at(-1)?.id).toBe('br3' as Batch['id']);
       const sheet = second.trunk.sheets.find((s) => s.id === SHEET);
@@ -240,7 +273,7 @@ describe('mergeBranchOnOplog', () => {
   it('branch 側に編集が無ければ追記せず status だけ更新する', async () => {
     const logs = { [TRUNK]: trunkLog(), [BRANCH_LOG]: [] };
     const { deps, saved } = makeDeps(logs);
-    const result = await mergeBranchOnOplog(branchMeta(), deps);
+    const result = await mergeBranchOnOplog(branchMeta(), mergeParams(), deps);
     expect(result.appended).toBe(0);
     expect(logs[TRUNK]).toHaveLength(3);
     expect(saved[0]?.status).toBe(BRANCH_STATUS.MERGED);
@@ -253,8 +286,171 @@ describe('mergeBranchOnOplog', () => {
   it('自端末 clock が trunk 先端より進んでいれば下げない', async () => {
     const logs = { [TRUNK]: trunkLog(), [BRANCH_LOG]: branchLog() };
     const { deps } = makeDeps(logs, 10);
-    const result = await mergeBranchOnOplog(branchMeta(), deps);
+    const result = await mergeBranchOnOplog(branchMeta(), mergeParams(), deps);
     expect((logs[TRUNK] ?? []).slice(3).map((b) => b.clock)).toEqual([11, 12]);
     expect(nodeContent(result.trunk, 'n1')).toBe('branch による編集');
+  });
+
+  /**
+   * merge を一級の記録にする (ANA-122)。以前は branch の status が MERGED になるだけで、
+   * 「いつ・誰が・何のために merge したか」がどこにも残らなかった。
+   */
+  describe('merge の記録', () => {
+    it('trunk 側の commits に kind=merge として残る', async () => {
+      const logs = { [TRUNK]: trunkLog(), [BRANCH_LOG]: branchLog() };
+      const { deps, commits } = makeDeps(logs);
+      const result = await mergeBranchOnOplog(
+        branchMeta(),
+        mergeParams(),
+        deps,
+      );
+
+      expect(commits[TRUNK]).toHaveLength(1);
+      const recorded = commits[TRUNK]?.[0];
+      expect(recorded).toEqual(result.mergeCommit);
+      expect(recorded?.kind).toBe(COMMIT_KIND.MERGE);
+      expect(recorded?.message).toBe('案A を取り込む');
+      expect(recorded?.authorActor).toBe(ACTOR);
+      // branch 側の commits には書かない (merge は trunk の履歴に属する)
+      expect(commits[BRANCH_LOG]).toBeUndefined();
+    });
+
+    it('at は追記後の trunk 先端、sourceAt は branch op-log の先端を指す', async () => {
+      // 🔴 両者は**別系列の clock**。片方だけでは「trunk のどこに、branch のどこまでを」
+      // 取り込んだかを復元できない。
+      const logs = { [TRUNK]: trunkLog(), [BRANCH_LOG]: branchLog() };
+      const { deps } = makeDeps(logs);
+      const result = await mergeBranchOnOplog(
+        branchMeta(),
+        mergeParams(),
+        deps,
+      );
+
+      expect(result.mergeCommit.at).toBe(5); // 再スタンプ後の trunk 先端 (4, 5)
+      expect(result.mergeCommit.sourceAt).toBe(4); // branch 側の先端 (3, 4)
+      expect(result.mergeCommit.sourceBranchId).toBe(branchMeta().id);
+    });
+
+    it('追記が 0 件でも記録は残る (merge した事実は起きている)', async () => {
+      const logs = { [TRUNK]: trunkLog(), [BRANCH_LOG]: [] };
+      const { deps, commits } = makeDeps(logs);
+      const result = await mergeBranchOnOplog(
+        branchMeta(),
+        mergeParams(),
+        deps,
+      );
+
+      expect(result.appended).toBe(0);
+      expect(commits[TRUNK]).toHaveLength(1);
+      // 載せたものが無いので trunk 先端は元のまま、branch 側は空なので 0
+      expect(result.mergeCommit.at).toBe(3);
+      expect(result.mergeCommit.sourceAt).toBe(0);
+    });
+
+    it('再 merge でも記録は 1 件ずつ増える', async () => {
+      const logs = { [TRUNK]: trunkLog(), [BRANCH_LOG]: branchLog() };
+      const { deps, commits } = makeDeps(logs);
+      await mergeBranchOnOplog(branchMeta(), mergeParams(), deps);
+      await mergeBranchOnOplog(branchMeta(), mergeParams(), deps);
+
+      expect(commits[TRUNK]).toHaveLength(2);
+      // id は採番のたびに変わるので、2 件が別の記録として残る
+      expect(commits[TRUNK]?.[0]?.id).not.toBe(commits[TRUNK]?.[1]?.id);
+    });
+  });
+});
+
+/**
+ * merge 済み branch を再オープンしたときの起点をログから導く (ANA-119 S6)。
+ * 以前はセッション内の ref に持っていたので、アプリを開き直すと失われていた。
+ */
+describe('lastMergeSourceAt', () => {
+  const BRANCH = 'branch-1' as BranchId;
+  const OTHER = 'branch-2' as BranchId;
+
+  const commit = (
+    id: string,
+    at: number,
+    extra: Partial<Commit> = {},
+  ): Commit => ({
+    id: id as CommitId,
+    message: id,
+    at,
+    authorActor: ACTOR,
+    kind: COMMIT_KIND.COMMIT,
+    ...extra,
+  });
+
+  const merge = (
+    id: string,
+    at: number,
+    branchId: BranchId,
+    sourceAt: number,
+  ) =>
+    commit(id, at, {
+      kind: COMMIT_KIND.MERGE,
+      sourceBranchId: branchId,
+      sourceAt,
+    });
+
+  it('一度も merge していなければ undefined', () => {
+    expect(lastMergeSourceAt([commit('c1', 3)], BRANCH)).toBeUndefined();
+  });
+
+  it('trunk 側の at ではなく branch 側の sourceAt を返す', () => {
+    // 🔴 両者は別系列の clock。at (=9) を branch の切り出しに使うと全部含んでしまう
+    expect(lastMergeSourceAt([merge('m1', 9, BRANCH, 4)], BRANCH)).toBe(4);
+  });
+
+  it('他の branch の merge は見ない', () => {
+    expect(
+      lastMergeSourceAt([merge('m1', 9, OTHER, 7)], BRANCH),
+    ).toBeUndefined();
+  });
+
+  it('2 回以上 merge していれば最大の sourceAt を採る', () => {
+    // 配列の順序に依存しないよう、新しい方を先に置いて確かめる
+    const commits = [
+      merge('m2', 20, BRANCH, 12),
+      merge('m1', 9, BRANCH, 4),
+      commit('c1', 25),
+    ];
+    expect(lastMergeSourceAt(commits, BRANCH)).toBe(12);
+  });
+
+  it('sourceAt を持たない古い merge 記録は無視する (S4 以前の行)', () => {
+    const legacy = commit('m0', 9, {
+      kind: COMMIT_KIND.MERGE,
+      sourceBranchId: BRANCH,
+    });
+    expect(lastMergeSourceAt([legacy], BRANCH)).toBeUndefined();
+  });
+
+  it('sourceAt が 0 (空の branch を merge した) でも undefined と区別する', () => {
+    expect(lastMergeSourceAt([merge('m1', 3, BRANCH, 0)], BRANCH)).toBe(0);
+  });
+});
+
+describe('countCommitsAfter', () => {
+  const commit = (id: string, at: number): Commit => ({
+    id: id as CommitId,
+    message: id,
+    at,
+    authorActor: ACTOR,
+    kind: COMMIT_KIND.COMMIT,
+  });
+
+  const commits = [commit('c1', 4), commit('c2', 12), commit('c3', 20)];
+
+  it('基準が無ければ (未 merge) 全件', () => {
+    expect(countCommitsAfter(commits, undefined)).toBe(3);
+  });
+
+  it('基準より後の commit だけ数える', () => {
+    expect(countCommitsAfter(commits, 12)).toBe(1);
+  });
+
+  it('merge 直後は 0 (= 差分状態が「無変更」になる)', () => {
+    expect(countCommitsAfter(commits, 20)).toBe(0);
   });
 });

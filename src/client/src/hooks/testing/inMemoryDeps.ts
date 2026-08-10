@@ -7,6 +7,7 @@ import {
   type GraphFileListItem,
   graphFileToBatches,
 } from '@conversensus/shared';
+import type { SheetChange } from '../../sync/computeOperations';
 import { INITIAL_CURSOR } from '../../sync/syncProvider';
 import type { BranchOplogDeps, BranchOpsDeps } from '../useBranchOperations';
 import type { FileSheetOpsDeps } from '../useFileSheetOperations';
@@ -196,20 +197,27 @@ export function createInMemoryBranchOplogDeps(): BranchOplogDeps & {
 /**
  * `BranchOpsDeps` の in-memory 実装 (step1 Phase 6 p6-5b で純粋関数だけになった)。
  *
- * `computeOperations` を差し替え可能にしてあるのは、pendingOps / ハイライト /
+ * `computeSheetChanges` を差し替え可能にしてあるのは、pendingChanges / ハイライト /
  * ゴースト表示といった **UI の見え方が差分計算の結果だけで決まる**ことを、シートを
  * 実際に編集せずに固定するため。
  */
 export function createInMemoryBranchOpsDeps(): BranchOpsDeps & {
   _setComputeOps: (ops: CommitOperation[]) => void;
 } {
-  let _computeOps: CommitOperation[] = [];
+  let _changes: SheetChange[] = [];
 
   return {
-    computeOperations: () => _computeOps,
+    computeSheetChanges: () => _changes,
 
+    // 呼び出し側は op だけを与えればよい。カテゴリは op の種別から素直に決まる
+    // (追加・削除は structure、更新は content) ので、テストの記述量を増やさない。
     _setComputeOps: (ops: CommitOperation[]) => {
-      _computeOps = ops;
+      _changes = ops.map((op) => ({
+        op,
+        categories: [
+          op.op.endsWith('.update') ? 'content' : 'structure',
+        ] as SheetChange['categories'],
+      }));
     },
   };
 }

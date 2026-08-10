@@ -43,12 +43,12 @@ import { EditableNode } from './EditableNode';
 import { EventDispatchContext } from './EventDispatchContext';
 import { type GraphEvent, makeEventBase } from './events/GraphEvent';
 import { GroupNode } from './GroupNode';
-import {
-  absolutePositionOf,
-  resolveDropTarget,
-  toParentRelative,
-} from './graph/coords';
 import { deletionTargets } from './graph/deletion';
+import {
+  buildDragStopEvents,
+  draggedNodesOf,
+  resolveDropTargets,
+} from './graph/dragStop';
 import {
   DEFAULT_EDGE_PATH_TYPE,
   DEFAULT_NODE_STYLE,
@@ -372,73 +372,45 @@ function GraphEditorInner({
 
   // ドラッグ中: ビジュアルフィードバック
   const onNodeDrag = useCallback(
-    (_: React.MouseEvent, node: Node) => {
-      const allNodes = getNodes();
+    (_: React.MouseEvent, node: Node, nodes: Node[]) => {
+      const dragged = draggedNodesOf(node, nodes);
       clearDragHighlights();
 
-      // ドラッグ中の node.position は最新だが、allNodes 内の同じノードは stale で
-      // ありうる。祖先だけを allNodes から辿るため node をそのまま渡す。
-      // 確定時 (onNodeDragStop) と同じ関数で解決し、ハイライトと実際の移動先を揃える。
-      const target = resolveDropTarget(node, allNodes);
-      const oldParentId = node.parentId;
-      if (target?.id === oldParentId) return;
+      // 確定時 (onNodeDragStop) と同じ関数で解決し、ハイライトと実際の移動先を揃える
+      const targets = resolveDropTargets(dragged, getNodes());
 
-      // 親グループから出ようとしている: 元の親を赤でハイライト
-      if (oldParentId) {
-        document
-          .querySelector(`.react-flow__node[data-id="${oldParentId}"]`)
-          ?.setAttribute(LEAVING_GROUP_ATTR, 'true');
-      }
-      // 入ろうとしているグループをオレンジでハイライト
-      if (target) {
-        document
-          .querySelector(`.react-flow__node[data-id="${target.id}"]`)
-          ?.setAttribute(DROP_TARGET_ATTR, 'true');
+      for (const draggedNode of dragged) {
+        const target = targets.get(draggedNode.id);
+        const oldParentId = draggedNode.parentId;
+        if (target?.id === oldParentId) continue;
+
+        // 親グループから出ようとしている: 元の親を赤でハイライト
+        if (oldParentId) {
+          document
+            .querySelector(`.react-flow__node[data-id="${oldParentId}"]`)
+            ?.setAttribute(LEAVING_GROUP_ATTR, 'true');
+        }
+        // 入ろうとしているグループをオレンジでハイライト
+        if (target) {
+          document
+            .querySelector(`.react-flow__node[data-id="${target.id}"]`)
+            ?.setAttribute(DROP_TARGET_ATTR, 'true');
+        }
       }
     },
     [getNodes],
   );
 
   const onNodeDragStop = useCallback(
-    (_: React.MouseEvent, node: Node) => {
+    (_: React.MouseEvent, node: Node, nodes: Node[]) => {
       clearDragHighlights();
 
-      const from = preDragPositionsRef.current.get(node.id);
-      const allNodes = getNodes();
-
-      const oldParentId = node.parentId as NodeId | undefined;
-
-      // ドラッグ中の node.position は最新だが、allNodes 内の同じノードは stale で
-      // ありうる。祖先だけを allNodes から辿るため node をそのまま渡す。
-      const absolute = absolutePositionOf(node, allNodes);
-      // ハイライト (onNodeDrag) と同じ関数でドロップ先を解決する
-      const newParentId = resolveDropTarget(node, allNodes)?.id as
-        | NodeId
-        | undefined;
-
-      if (newParentId !== oldParentId) {
-        const newPosition = toParentRelative(absolute, newParentId, allNodes);
-        dispatch({
-          ...makeEventBase('structure'),
-          type: 'NODE_REPARENTED',
-          nodeId: node.id as NodeId,
-          oldParentId,
-          newParentId,
-          oldPosition: from ?? node.position,
-          newPosition,
-        });
-      } else if (
-        from &&
-        (from.x !== node.position.x || from.y !== node.position.y)
-      ) {
-        dispatch({
-          ...makeEventBase('layout'),
-          type: 'NODE_MOVED',
-          nodeId: node.id as NodeId,
-          from,
-          to: { x: node.position.x, y: node.position.y },
-        });
-      }
+      const events = buildDragStopEvents(
+        draggedNodesOf(node, nodes),
+        getNodes(),
+        preDragPositionsRef.current,
+      );
+      for (const event of events) dispatch(event);
     },
     [dispatch, getNodes],
   );

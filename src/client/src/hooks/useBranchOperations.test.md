@@ -19,15 +19,64 @@ branch のライフサイクル全体の正確性を保証する必要がある�
 ## 表示状態 (経路に依らないもの)
 
 ### 初期状態
-- activeBranch が null、isTrunk が true、pendingOps が空配列
+- activeBranch が null、isTrunk が true、pendingChanges が空配列
 - newCommitsSinceMerge が 0、commitDialogOpen が false
 - diff 関連の Set が空、対象シートの branches が空
 
-### pendingOps の status ゲート
-`pendingOps` は「コミットできる変更があるか」= コミットボタンの有効/無効。
+### pendingChanges の status ゲート
+`pendingChanges` は「コミットできる変更があるか」= コミットボタンの有効/無効。
 - OPEN / MERGED の branch で変更があれば含まれる
 - **CLOSED の branch では空** (閉じた branch にコミットさせない)
 - trunk 表示中は空
+
+### 差分状態 (ANA-120)
+
+**なぜここだけ差分計算を本物にするか**: 他のテストは `computeSheetChanges` をスタブに
+差し替えているが、スタブは**基準に関わらず同じ配列を返す**ので「どの Sheet を起点に
+したか」を区別できない。起点の切り替わりこそがこのスライスの検証対象なので、
+`realChanges` オプションで本物の差分計算を使い、`activeSheet` を rerender で
+差し替えることで画面上の編集を再現する。
+
+判定規則は `resolveBranchDiffState` として hook の外に切り出してあり、4 状態
+(trunk / 無変更 / 変更中 / commit 済み) を単体で固定する。**未コミットの変更があれば
+commit の有無に依らず「変更中」**である点が要 (commit 済みの表示に引きずられない)。
+
+hook 側では状態遷移を通しで検証する。
+
+- 分岐直後 = 無変更 → ハイライトも `pendingChanges` も空
+- 編集 → 変更中。起点は直近コミット (まだ無いので分岐点)
+- commit → **commit 済み。起点が分岐点へ切り替わり、差分は出続ける** (= 次の merge の
+  対象)。消えるのは `pendingChanges` (= 次の commit の対象) の方である。仕様書
+  「ブランチの作成と利用」の表がこの 3 状態を定義している
+- 🔴 **commit 後に編集すると、commit 済みの変更はハイライトから外れる** — これが
+  ANA-120 の核心。以前はハイライトが常に分岐点基準だったため、commit 済みのノードが
+  「変更中」の画面に出続け、commit ダイアログ (直近コミット基準) と食い違っていた
+- ハイライトと commit ダイアログが**同じ集合**を指す (起点が 1 つであることの帰結)
+- ゴースト表示 (削除) も同じ起点に従う — 削除を commit した後に別の編集を始めると
+  ゴーストは消える
+- trunk に戻ると状態は trunk になり差分は一切出ない
+
+CLOSED の branch は `pendingChanges` が常に空なので「commit 済み」か「無変更」に落ちる。
+未 merge のコミットが無ければ差分は出ない (以前は分岐点基準のハイライトが出続けていた)。
+
+#### merge 済み branch の再オープン (ANA-119 S6)
+
+同一セッション中は `afterMerge` が merge 時点を控えているので正しかったが、**その控えは
+React の state / ref なのでアプリを閉じると消える**。以前は「merge 済みコミット数」も
+セッション内の ref (`mergedCommitCounts`) に積んでいたため、開き直すと起点が元の分岐点に
+戻り、**merge 済みの内容まで差分に出ていた**。S4 で merge が `commits` に `sourceAt` 付きで
+載るようになったので、merge 時点をログから導けるようになった。
+
+**アプリの開き直しをどう再現するか**: in-memory の op-log ストア (`oplogDeps`) を引き継いだ
+まま hook を作り直す (`reuse` オプション)。React の state / ref は消え、ログに書いたものだけが
+残る — これが「アプリを閉じて開く」との差である。
+
+- 🔴 **起点が merge 時点になり、merge 済みの変更は差分に出ない** (`newCommitsSinceMerge` も 0)。
+  **これは S6 の実装を外すと落ちることを確認済み** (`lastMergeSourceAt` の結果を undefined に
+  固定すると、この項目と下の commit の項目が落ちる)
+- 開き直した後の編集は「変更中」として出る (この項目だけは S6 前でも通る — 未コミット変更の
+  基準 `lastCommitBase` は元から直近コミットをログから導いていたため)
+- 開き直した後の commit は「次の merge の対象」になり、差分は **merge 後の編集だけ**を指す
 
 ### ゴースト表示 (deletedNodes / deletedEdges)
 - `node.remove` は base に存在するノードをゴーストとして残し、**ハイライト
@@ -41,7 +90,7 @@ branch のライフサイクル全体の正確性を保証する必要がある�
 - 空の名前では branch を作成しない
 - activeBranch が null のとき handleCommit は早期 return する
 
-`computeOperations` だけを `BranchOpsDeps` から差し替えている
+`computeSheetChanges` だけを `BranchOpsDeps` から差し替えている
 (p6-5b 後に残る唯一の注入点)。**UI の見え方が差分計算の結果だけで決まる**ことを、
 シートを実際に編集せずに固定するため。
 
@@ -73,13 +122,21 @@ deps は `createInMemoryBranchOplogDeps` (batches / branches / commits の in-me
 ### commit — ログ上のオフセット
 - 保存されるのは `{message, at}` であって差分ではない。`at` は branch op-log の先端。
 - 変更が無ければコミットしない。
-- **`pendingOps` は diff 由来のまま** (p5-4 の確定事項)。op-log の未コミット batch を
+- **`pendingChanges` は diff 由来のまま** (p5-4 の確定事項)。op-log の未コミット batch を
   そのまま数えると「編集して undo」の往復が 2 変更に見えるため、表示は正味の差分に、
   コミットの実体はログ位置に、と役割を分ける。テストでは branch 選択**前**に
-  `_setComputeOps` で変更ありの状態を作る (`pendingOps` は useMemo なので選択後に
+  `_setComputeOps` で変更ありの状態を作る (`pendingChanges` は useMemo なので選択後に
   差し込んでも再計算されない)。
 
-### merge — trunk 先端の後へ再スタンプ
+### merge — trunk 先端の後へ再スタンプ + 一級の記録 (ANA-122)
+
+- **merge 理由は必須**。理由の入力に答えない (空白だけ) と merge は起きず、trunk も
+  branch の status も動かない。以前は確認ダイアログだったが、**理由の入力そのものが
+  確認**なので二段構えにしない。テストは `answerMergeReason` で入力に答える —
+  答えないと Promise が解決せず merge に進まない。
+- **merge の記録が trunk 側の commits に `kind=merge` で残る** (理由・実行者・由来 branch)。
+  branch の status が MERGED になるだけでは「いつ・誰が・何のために」が残らなかった。
+
 - branch batch が **id を保持したまま** trunk op-log に現れ、clock は merge 時点の
   trunk 先端より後になる。id 保持が再 merge のべき等性そのもの (p5-3)。
 - 再スタンプの発番は **trunk の tap と同じ clock** で行う (`trunkClock`)。発番器を

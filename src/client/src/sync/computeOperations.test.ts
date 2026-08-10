@@ -1,13 +1,20 @@
 import { describe, expect, it } from 'bun:test';
 import type {
   EdgeId,
+  EdgeLayout,
   GraphEdge,
   GraphNode,
   NodeId,
+  NodeLayout,
   Sheet,
   SheetId,
 } from '@conversensus/shared';
-import { computeOperations } from './computeOperations';
+import { DEFAULT_EDGE_PATH_TYPE, DEFAULT_NODE_STYLE } from '../graphTransform';
+import {
+  computeOperations,
+  computeSheetChanges,
+  isLayoutOnly,
+} from './computeOperations';
 
 const sid = '00000000-0000-0000-0000-000000000001' as SheetId;
 
@@ -269,22 +276,107 @@ describe('computeOperations: 同一シート', () => {
   });
 });
 
-// --- layout のみの変更 ---
+// --- layout の変更 (ANA-124) ---
 
-describe('computeOperations: layout 変更は無視', () => {
-  it('layouts が変わっても ops は空', () => {
+describe('computeSheetChanges: layout も差分に出る', () => {
+  const nodeSheet = (layouts?: NodeLayout[]): Sheet => ({
+    id: sid,
+    name: 'test',
+    nodes: [n('n1')],
+    edges: [],
+    ...(layouts && { layouts }),
+  });
+
+  it('ノードを動かしただけで node.update が出る', () => {
+    const changes = computeSheetChanges(
+      nodeSheet([{ nodeId: 'n1' as NodeId, x: 0, y: 0 }]),
+      nodeSheet([{ nodeId: 'n1' as NodeId, x: 100, y: 200 }]),
+    );
+    expect(changes).toHaveLength(1);
+    expect(changes[0].op).toMatchObject({ op: 'node.update', nodeId: 'n1' });
+  });
+
+  it('layout だけの変更は categories が layout のみになる', () => {
+    const changes = computeSheetChanges(
+      nodeSheet([{ nodeId: 'n1' as NodeId, x: 0, y: 0 }]),
+      nodeSheet([{ nodeId: 'n1' as NodeId, x: 100, y: 200 }]),
+    );
+    expect(changes[0].categories).toEqual(['layout']);
+    expect(isLayoutOnly(changes[0])).toBe(true);
+  });
+
+  it('意味と layout が同時に変わると categories に両方入る', () => {
+    const base: Sheet = {
+      id: sid,
+      name: 'test',
+      nodes: [n('n1', 'old')],
+      edges: [],
+      layouts: [{ nodeId: 'n1' as NodeId, x: 0, y: 0 }],
+    };
+    const current: Sheet = {
+      id: sid,
+      name: 'test',
+      nodes: [n('n1', 'new')],
+      edges: [],
+      layouts: [{ nodeId: 'n1' as NodeId, x: 100, y: 0 }],
+    };
+    const changes = computeSheetChanges(base, current);
+    expect(changes[0].categories).toEqual(['content', 'layout']);
+    expect(isLayoutOnly(changes[0])).toBe(false);
+  });
+
+  it('リサイズ (width/height) も差分に出る', () => {
+    const changes = computeSheetChanges(
+      nodeSheet([{ nodeId: 'n1' as NodeId, x: 0, y: 0, width: 160 }]),
+      nodeSheet([{ nodeId: 'n1' as NodeId, x: 0, y: 0, width: 300 }]),
+    );
+    expect(changes).toHaveLength(1);
+    expect(changes[0].categories).toEqual(['layout']);
+  });
+
+  it('エッジの経路 (pathType) の変更も差分に出る', () => {
+    const edgeSheet = (edgeLayouts?: EdgeLayout[]): Sheet => ({
+      id: sid,
+      name: 'test',
+      nodes: [],
+      edges: [e('e1', 'n1', 'n2')],
+      ...(edgeLayouts && { edgeLayouts }),
+    });
+    const changes = computeSheetChanges(
+      edgeSheet([{ edgeId: 'e1' as EdgeId, pathType: 'bezier' }]),
+      edgeSheet([{ edgeId: 'e1' as EdgeId, pathType: 'step' }]),
+    );
+    expect(changes).toHaveLength(1);
+    expect(changes[0].op).toMatchObject({ op: 'edge.update', edgeId: 'e1' });
+    expect(changes[0].categories).toEqual(['layout']);
+  });
+});
+
+// --- 正規化: 「省略」と「既定値の明示」を同じとみなす ---
+
+describe('computeSheetChanges: 正規化', () => {
+  it('layout の省略と既定値の明示は同じ (往復で入る既定値を差分にしない)', () => {
+    // projection 側は layout を持たず、React Flow を往復した側は x=0 / 既定サイズが入る
     const base: Sheet = { id: sid, name: 'test', nodes: [n('n1')], edges: [] };
     const current: Sheet = {
       id: sid,
       name: 'test',
       nodes: [n('n1')],
       edges: [],
-      layouts: [{ nodeId: 'n1' as NodeId, x: 100, y: 200 }],
+      layouts: [
+        {
+          nodeId: 'n1' as NodeId,
+          x: 0,
+          y: 0,
+          width: DEFAULT_NODE_STYLE.width,
+          height: DEFAULT_NODE_STYLE.height,
+        },
+      ],
     };
-    expect(computeOperations(base, current)).toEqual([]);
+    expect(computeSheetChanges(base, current)).toEqual([]);
   });
 
-  it('edgeLayouts が変わっても ops は空', () => {
+  it('pathType の省略と既定値の明示は同じ', () => {
     const base: Sheet = {
       id: sid,
       name: 'test',
@@ -296,9 +388,154 @@ describe('computeOperations: layout 変更は無視', () => {
       name: 'test',
       nodes: [],
       edges: [e('e1', 'n1', 'n2')],
-      edgeLayouts: [{ edgeId: 'e1' as EdgeId, pathType: 'bezier' }],
+      edgeLayouts: [
+        { edgeId: 'e1' as EdgeId, pathType: DEFAULT_EDGE_PATH_TYPE },
+      ],
     };
-    expect(computeOperations(base, current)).toEqual([]);
+    expect(computeSheetChanges(base, current)).toEqual([]);
+  });
+
+  it('丸めで消える差 (1px 未満) は差分にしない', () => {
+    // op-log は整数へ丸めて記録するので、丸めた後に同じ値なら op としては変化が無い
+    const base: Sheet = {
+      id: sid,
+      name: 'test',
+      nodes: [n('n1')],
+      edges: [],
+      layouts: [{ nodeId: 'n1' as NodeId, x: 100, y: 200 }],
+    };
+    const current: Sheet = {
+      id: sid,
+      name: 'test',
+      nodes: [n('n1')],
+      edges: [],
+      layouts: [{ nodeId: 'n1' as NodeId, x: 100.4, y: 199.7 }],
+    };
+    expect(computeSheetChanges(base, current)).toEqual([]);
+  });
+
+  it('presentation (ラベル位置) は差分にしない', () => {
+    // edge.setLabelOffset は presentation カテゴリ = ローカル限定でバージョン管理外
+    const base: Sheet = {
+      id: sid,
+      name: 'test',
+      nodes: [],
+      edges: [e('e1', 'n1', 'n2')],
+      edgeLayouts: [{ edgeId: 'e1' as EdgeId }],
+    };
+    const current: Sheet = {
+      id: sid,
+      name: 'test',
+      nodes: [],
+      edges: [e('e1', 'n1', 'n2')],
+      edgeLayouts: [
+        { edgeId: 'e1' as EdgeId, labelOffsetX: 40, labelOffsetY: -12 },
+      ],
+    };
+    expect(computeSheetChanges(base, current)).toEqual([]);
+  });
+
+  it('properties の undefined と {} は同じ', () => {
+    const base: Sheet = { id: sid, name: 'test', nodes: [n('n1')], edges: [] };
+    const current: Sheet = {
+      id: sid,
+      name: 'test',
+      nodes: [nWithProps('n1', 'content', {})],
+      edges: [],
+    };
+    expect(computeSheetChanges(base, current)).toEqual([]);
+  });
+
+  it('properties はキーの順序に左右されない', () => {
+    const base: Sheet = {
+      id: sid,
+      name: 'test',
+      nodes: [nWithProps('n1', 'content', { a: 1, b: 2 })],
+      edges: [],
+    };
+    const current: Sheet = {
+      id: sid,
+      name: 'test',
+      nodes: [nWithProps('n1', 'content', { b: 2, a: 1 })],
+      edges: [],
+    };
+    expect(computeSheetChanges(base, current)).toEqual([]);
+  });
+});
+
+// --- net 比較: 同じ値に戻した編集は差分に出ない (ANA-119 §8-1) ---
+
+describe('computeSheetChanges: 同じ値に戻した編集', () => {
+  it('内容を編集して元に戻すと差分に出ない (undo を含む)', () => {
+    // op-log には 2 件の op が積まれているが、基準との net の差は無い
+    const sheet: Sheet = {
+      id: sid,
+      name: 'test',
+      nodes: [n('n1', 'original')],
+      edges: [],
+    };
+    expect(computeSheetChanges(sheet, structuredClone(sheet))).toEqual([]);
+  });
+
+  it('動かして元の位置に戻すと差分に出ない', () => {
+    const layouts = [{ nodeId: 'n1' as NodeId, x: 10, y: 20 }];
+    const base: Sheet = {
+      id: sid,
+      name: 'test',
+      nodes: [n('n1')],
+      edges: [],
+      layouts,
+    };
+    const current: Sheet = {
+      id: sid,
+      name: 'test',
+      nodes: [n('n1')],
+      edges: [],
+      layouts: structuredClone(layouts),
+    };
+    expect(computeSheetChanges(base, current)).toEqual([]);
+  });
+
+  it('同じノードを何度動かしても差分は 1 個に集約される', () => {
+    // 中間の位置は基準にも現在にも残らないので、しきい値を設けなくても 1 個になる
+    const base: Sheet = {
+      id: sid,
+      name: 'test',
+      nodes: [n('n1')],
+      edges: [],
+      layouts: [{ nodeId: 'n1' as NodeId, x: 0, y: 0 }],
+    };
+    const current: Sheet = {
+      id: sid,
+      name: 'test',
+      nodes: [n('n1')],
+      edges: [],
+      layouts: [{ nodeId: 'n1' as NodeId, x: 500, y: 500 }],
+    };
+    expect(computeSheetChanges(base, current)).toHaveLength(1);
+  });
+});
+
+// --- エッジの付け替え (structure) ---
+
+describe('computeSheetChanges: エッジの付け替え', () => {
+  it('source / target が変わると edge.update が出る', () => {
+    const base: Sheet = {
+      id: sid,
+      name: 'test',
+      nodes: [],
+      edges: [e('e1', 'n1', 'n2')],
+    };
+    const current: Sheet = {
+      id: sid,
+      name: 'test',
+      nodes: [],
+      edges: [e('e1', 'n1', 'n3')],
+    };
+    const changes = computeSheetChanges(base, current);
+    expect(changes).toHaveLength(1);
+    expect(changes[0].op).toMatchObject({ op: 'edge.update', edgeId: 'e1' });
+    expect(changes[0].categories).toEqual(['structure']);
   });
 });
 

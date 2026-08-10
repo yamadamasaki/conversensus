@@ -11,7 +11,8 @@ O3 spike で確定した再定義 —「コミット = ログ上のラベル付�
 ## どのように
 
 - **tipClock**: batches 中の最大 clock (ログ先端) を返し、空なら 0 になることを確認する。
-- **makeCommit**: 現在の先端を指すコミット (オフセット) を作ることを確認する。コミットは「どの clock までを含むか」を表す。
+- **makeCommit**: 現在の先端を指すコミット (オフセット) を作ることを確認する。コミットは「どの clock までを含むか」を表す。種別 (`kind`) は既定で `commit` になり、由来 branch は持たない。
+- **makeMergeCommit** (ANA-122): merge それ自体を一級の記録にする。**`at` (trunk 側の先端) と `sourceAt` (取り込んだ branch op-log の先端) の両方を指す**ことを固定する。両者は別の file_id のログで clock も別系列なので、片方だけでは「trunk のどこに、branch のどこまでを」取り込んだかを復元できない。
 - **batchesUpTo**: base コミット時点 (clock <= base.at) までの batches を切り出すことを確認する。ブランチの分岐点を決める。
 - **branchSheet**: base 時点の trunk batches にブランチ側 batches を重ねて projection すると、
   - base より後の trunk 変更は含まれず (分岐後の trunk は見えない)、

@@ -8,6 +8,7 @@ import {
   BRANCH_STATUS,
   type BranchId,
   type BranchMeta,
+  COMMIT_KIND,
   type Commit,
   type CommitId,
   type FileId,
@@ -292,6 +293,7 @@ describe('EventStore', () => {
       message: `commit ${id}`,
       at,
       authorActor: 'local',
+      kind: COMMIT_KIND.COMMIT,
     });
 
     it('保存したコミットを at 昇順で読み返せる', () => {
@@ -316,6 +318,85 @@ describe('EventStore', () => {
       expect(store.getCommits(FILE).map((c) => c.id)).toEqual(['c1']);
       expect(store.getCommits(other).map((c) => c.id)).toEqual(['c2']);
     });
+
+    /**
+     * merge を一級の記録にする (ANA-122)。commit と同じテーブルに並べるので、
+     * **種別と由来 (どの branch のどこまでを取り込んだか) が欠けずに往復する**ことが要。
+     */
+    it('merge の記録は kind / sourceBranchId / sourceAt まで往復する', () => {
+      const mergeCommit: Commit = {
+        ...commit('m1', 9),
+        kind: COMMIT_KIND.MERGE,
+        sourceBranchId: 'b1' as BranchId,
+        sourceAt: 4,
+      };
+      store.saveCommit(FILE, mergeCommit);
+      expect(store.getCommits(FILE)).toEqual([mergeCommit]);
+    });
+
+    it('commit と merge を同じ履歴から一列に引ける', () => {
+      store.saveCommit(FILE, commit('c1', 2));
+      store.saveCommit(FILE, {
+        ...commit('m1', 5),
+        kind: COMMIT_KIND.MERGE,
+        sourceBranchId: 'b1' as BranchId,
+        sourceAt: 3,
+      });
+      expect(store.getCommits(FILE).map((c) => c.kind)).toEqual([
+        'commit',
+        'merge',
+      ]);
+    });
+
+    it('kind 列が無い旧 DB を開くと ALTER で追加され、既存行は commit として読める', () => {
+      const path = join(
+        tmpdir(),
+        `evstore-ana122-${Date.now()}-${Math.random().toString(16).slice(2)}.db`,
+      );
+      try {
+        // ANA-122 以前の旧スキーマ (kind / source_* 列なし)
+        const legacy = new Database(path);
+        legacy.run(
+          `CREATE TABLE commits (
+             id TEXT PRIMARY KEY, file_id TEXT NOT NULL, message TEXT NOT NULL,
+             at INTEGER NOT NULL, author_actor TEXT NOT NULL)`,
+        );
+        legacy
+          .query(
+            `INSERT INTO commits (id, file_id, message, at, author_actor)
+             VALUES ('old', $file, '旧スキーマのコミット', 1, 'local')`,
+          )
+          .run({ $file: FILE });
+        legacy.close();
+
+        const migrated = new EventStore(path);
+        // 既存行は種別を持たないので通常のコミットとして読む (落ちない・欠けない)
+        const old = migrated.getCommits(FILE)[0];
+        expect(old?.kind).toBe(COMMIT_KIND.COMMIT);
+        expect(old?.sourceBranchId).toBeUndefined();
+        // 追加された列に merge の記録を書けるようになっている
+        migrated.saveCommit(FILE, {
+          ...commit('m1', 5),
+          kind: COMMIT_KIND.MERGE,
+          sourceBranchId: 'b1' as BranchId,
+          sourceAt: 3,
+        });
+        expect(migrated.getCommits(FILE).map((c) => c.kind)).toEqual([
+          'commit',
+          'merge',
+        ]);
+        migrated.close();
+
+        // 二度目の起動でも ALTER は走らない (べき等)
+        const reopened = new EventStore(path);
+        expect(reopened.getCommits(FILE)).toHaveLength(2);
+        reopened.close();
+      } finally {
+        rmSync(path, { force: true });
+        rmSync(`${path}-wal`, { force: true });
+        rmSync(`${path}-shm`, { force: true });
+      }
+    });
   });
 
   describe('saveBranch / getBranches (Phase 5)', () => {
@@ -331,6 +412,8 @@ describe('EventStore', () => {
         message: `base of ${id}`,
         at: baseAt,
         authorActor: 'local',
+        // base は分岐点を指すラベルで merge ではない (ANA-122)
+        kind: COMMIT_KIND.COMMIT,
       },
       status: BRANCH_STATUS.OPEN,
       sheetId: SHEET_META.id,
