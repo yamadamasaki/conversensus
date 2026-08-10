@@ -241,7 +241,7 @@ push できない**。blob へ逃がせば 5 MiB まで扱えて, しかもレ�
 | ID | 内容 | 主な変更先 |
 |---|---|---|
 | ~~**S1**~~ | ~~**実験**: 実機 PDS で U1/U2/U4 を実測する~~ **完了 (2026-08-10, §10)**。D2a / CID 共有 / 上限が確定した | 使い捨てスクリプト (コミットしない) |
-| **S2** | daemon のローカル blob ストア (`POST /blobs` / `GET /blobs/:cid` + `blobs` テーブル) | `src/server/src/eventStore.ts`, `index.ts` |
+| ~~**S2**~~ | ~~daemon のローカル blob ストア~~ **完了 (commit `7058176`)**。下の「S2 で学んだこと」 | `src/shared/src/blob.ts` (新規), `src/server/src/eventStore.ts`, `index.ts` |
 | **S3** | 作成経路を blob 参照へ切替。3 経路 (drop/paste/Cmd+V) をローカル保存 → `NODE_ADDED`。未ログインで動く。`imageDataUrl` は新規に書かない。サイズ超過を弾く | `GraphEditor.tsx` (判断は新モジュールへ切り出す), `atproto/blob.ts` |
 | **S4** | 表示側の解決順序 (D4)。旧 `imageDataUrl` の読み取り互換を保つ | `ImageNode.tsx` |
 | **S5** | PDS への blob push を同期経路に組み込む (D5 の順序保証)。D2 の結論に従い pin する | `sync/` の push 経路, `atproto/` |
@@ -251,6 +251,25 @@ S1 は**コードを変えない実験**だった。U1 が肯定されたので 
 実装は **S2 から**である。
 
 旧 `imageDataUrl` データの blob への一括移行は**非目標** (§7)。読み取り互換だけ残す。
+
+### S2 で学んだこと
+
+1. **U3 は SQLite の BLOB 列に決めた。** 上限が 5 MiB と分かっているので無理が無く,
+   DB 1 つで完結するのでリセット手順 (user-test-environment.md) が今のまま通る。
+   代わりに **0x00 を含むバイト列が欠けずに往復すること**をテストで固定した —
+   TEXT 列に落ちていると NUL で切れ, 壊れた画像が静かにできる
+2. **cid の計算は API 境界 (HTTP) の責務にした。** `computeBlobCid` は
+   `crypto.subtle` を使うので非同期だが, `EventStore` のメソッドはすべて同期である。
+   境界で計算して `putBlob(cid, bytes, mimeType)` へ渡す形にすると, 永続層の性質を
+   変えずに済む。`appendBatch` が UUID 検証を境界に委ねているのと同じ方針
+3. **`crypto.subtle.digest` に `Uint8Array` をそのまま渡せない** (型の上で
+   `Uint8Array<ArrayBufferLike>` が `BufferSource` に嵌らない)。**`.buffer` に
+   逃げてはならない** — subarray の `byteOffset` / `byteLength` を落として別の値を返す。
+   キャストで通し, **subarray でも範囲どおりの CID になることをテストで固定**した
+4. **blob をファイルに紐づけない**設計の実効は `deleteFile` のテストで見える。
+   同じ画像が複数のファイル・複数のバージョンから参照されうるので, 道連れにできない
+5. **テストの CID ベクタは実機 PDS から取った。** ここは「PDS と一致すること」自体が
+   仕様なので, 推測値や自前実装同士の突き合わせでは意味がない
 
 ---
 
@@ -307,7 +326,7 @@ S1 は**コードを変えない実験**だった。U1 が肯定されたので 
 |---|---|---|
 | **U1** | PDS は `unknown` フィールド (`ops`) の中にある blob ref を pin するか | **確定: pin する** (§10) |
 | **U2** | blob CID はバイト列から決まるか。ローカルで同じ値を計算できるか | **確定: 決まる。完全に一致する** (§10) |
-| **U3** | ローカル blob の実体を SQLite の BLOB 列に置くか, `DATA_DIR` のファイルに置くか | **未決**。S2 の実装時に決める。上限が 5 MiB と分かったので, SQLite の BLOB 列で無理は無いはず |
+| **U3** | ローカル blob の実体を SQLite の BLOB 列に置くか, `DATA_DIR` のファイルに置くか | **確定: SQLite の BLOB 列** (S2) |
 | **U4** | PDS のレコード上限 / blob 上限の実値 | **確定: blob 5 MiB / レコード 約 1,000,000 バイト** (§10) |
 | **U5** | 参照されなくなった blob をどうするか | **本 PR では非目標**。S6 完了時に別課題として起票するか判断する |
 
