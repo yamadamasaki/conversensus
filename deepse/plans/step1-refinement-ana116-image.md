@@ -10,7 +10,8 @@
 > **置き場を決め直す**ためのものである (ANA-107 / ANA-118 / ANA-119 と同じ進め方)。
 >
 > **2026-08-10: §4 の方針 (D1/D5) はユーザー確認済 — 「blob 正典 + op-log は参照だけ」,
-> 「未ログイン (ローカルのみ) でも画像が使えること」。§8 の未決事項は S1 の実験で確定させる。**
+> 「未ログイン (ローカルのみ) でも画像が使えること」。S1 の実験は実施済で U1/U2/U4 は確定
+> (§8, §10)。D2 は D2a (batch レコードの ops に blob ref を埋める) に確定。実装 (S2) に進んでよい。**
 
 ---
 
@@ -117,39 +118,56 @@ file_migrations の 4 つだけ。**ローカルにバイナリを置く場所�
 
 ### D1: 画像は content-addressed な blob, op-log には参照だけ (確定)
 
-op の properties に載せるのは**参照のみ**とする:
+op の properties に載せるのは**参照のみ**とする。形は **ATProto の blob ref そのもの**である
+(理由は D2):
 
 ```typescript
-// 例。キー名は S3 で確定する
 properties: {
-  imageCid: string;       // blob の識別子 (content-addressed)
-  imageMimeType: string;
-  imageSize: number;
+  image: {
+    $type: 'blob',
+    ref: { $link: cid },   // CIDv1 / raw / sha-256。バイト列から決まる
+    mimeType: string,
+    size: number,
+  },
 }
 ```
 
-- `{cid, mimeType}` の 2 キーだけのオブジェクトにはしない (§3 の罠)
+- `{cid, mimeType}` の 2 キーだけのオブジェクトは**別の意味を持つ**ので使わない (§3 の罠)
 - **`imageDataUrl` は新規に書かない**。既存データを表示する読み取り互換だけ残す (D4)
 - 識別子が content-addressed なので, 同じ画像を 2 回落としても実体は 1 つ (重複排除が自然),
   かつ端末をまたいで同じ識別子になる
 
-**識別子を ATProto の blob CID に揃えられるか**が鍵である。ATProto の blob CID は
-バイト列から決まる (CIDv1 / raw / sha-256) はずで, そうであればローカルで計算した値が
-PDS の返す CID と一致し, **ローカルと PDS で 1 つの識別子を共有できる**。
-一致しない場合は対応表が要る。→ **S1 で実測して確定する (§8 U2)**。
+**識別子は ATProto の blob CID に揃える (S1 で確定)。** blob CID は
+**CIDv1 / raw (0x55) / sha-256 でバイト列から決まる**ことを実測した (§10 U2)。
+ローカルで計算した値と `uploadBlob` の戻り値が完全に一致するので, **ローカル blob ストアと
+PDS で 1 つの識別子を共有できる** — 対応表は要らない。
+アップロードしていない画像にも, 先に確定した CID を付けられる。
 
-### D2: PDS 上で blob を pin する方法 (S1 の実験で確定)
+### D2: PDS 上で blob を pin する方法 → **D2a に確定 (S1 で実証)**
 
-候補は 2 つ:
+**batch レコードの `ops` の中に `{$type:'blob', ref:{$link}, mimeType, size}` を埋める。**
+`ops` は lexicon 上 `unknown` だが, **PDS はその中の blob ref を確かに pin する** —
+レコード書込の前後で `com.atproto.sync.listBlobs` に当該 CID が現れることを実測した (§10 U1)。
+読み戻したレコードでも blob ref の形は保たれていた。
 
-| 案 | 内容 | 利点 | 欠点 |
-|---|---|---|---|
-| **D2a** | batch レコードの `ops` の中に `{$type:'blob', ...}` を埋める | op-log 正典を保てる。record が増えない。branch/merge の再スタンプで同じ blob ref が複数レコードに載るので pin としてはむしろ堅い | PDS が `unknown` 配下の blob ref を pin するかは**未検証** (§8 U1) |
-| **D2b** | 専用の `app.conversensus.graph.image` レコード (blob フィールド 1 つ) を別に作り, op-log は CID で参照する | pin されるのが確実。レコードの寿命を画像単位で管理できる | op-log の外にレコードが復活する (Phase 6 で退役させた形に逆行) |
+これで op-log 正典を保てる (レコード種別が増えない)。branch / merge の再スタンプ追記で
+同じ blob ref が複数のレコードに載るのは, pin としてはむしろ堅い。
 
-**D2a を第一候補**とし, S1 の実験で pin されなければ D2b に落とす。
-なお op に埋める blob ref は §3 の変換規則に従い, ローカル projection 側では
-ただの `properties` として素通ししてよい (Sheet には参照だけが残る)。
+退けた案: 専用の `app.conversensus.graph.image` レコードを別に作る案 (D2b)。
+pin は確実だが, Phase 6 で退役させた「op-log の外のレコード」が復活する。
+U1 が肯定されたので採らない。
+
+したがって op の properties は **blob ref の形そのもの**を持つ:
+
+```typescript
+properties: {
+  image: { $type: 'blob', ref: { $link: cid }, mimeType, size },
+}
+```
+
+ローカル projection 側はこれをただの `properties` として素通しする (Sheet には参照だけが残る)。
+未ログインで作った画像も**同じ形**で書ける — CID がバイト列から決まるので (D1),
+アップロード前に blob ref を完成させられるからである。
 
 ### D3: daemon にローカル blob ストアを置く
 
@@ -183,9 +201,12 @@ GET    /blobs/:cid       → bytes (Content-Type: mimeType)
   `NODE_ADDED` を dispatch する。ここまでログイン不要
 - PDS への `uploadBlob` は **batch を push する経路の前段**で行う。
   「push しようとしている batch の ops が参照する blob のうち, まだ PDS に無いものを先に upload する」
-- 順序が重要である。**blob より先に batch レコードが PDS に載ると, pin される対象が無い状態の
-  レコードができる** (D2a の場合は blob ref が壊れる)。outbox / `remoteSyncQueue` の
-  送信順序に手を入れる箇所になる → S5
+- **順序を守らないと push が失敗する。** blob を上げる前に blob ref を含むレコードを書こうとすると
+  PDS が `Could not find blob: <cid>` で**拒否する**ことを実測した (§10)。
+  壊れたレコードができるより安全だが, 順序を間違えるとその batch は**再送し続けて outbox に
+  詰まったままになる**。`remoteSyncQueue` / outbox の送信経路に手を入れる箇所である → S5
+- **CID は upload 前に確定できる** (D1) ので, 未ログインで作った op も**同じ形のまま**後から
+  push できる。後で書き換える必要は無い
 
 ### D6: ANA-117 — 既存の画像ノードへの drop / paste
 
@@ -196,9 +217,22 @@ paste は「画像ノードが選択されているならそのノードへ, い
 
 ### D7: サイズ上限
 
-PDS の blob サイズ上限を超える画像は保存できない。上限の実値を S1 で確認し, 超えるものは
-**保存前に弾いてユーザーに伝える** (今のように黙って失敗させない)。
-縮小・変換は非目標 (§7)。
+実測値 (§10 U4, ローカル PDS):
+
+| 対象 | 上限 |
+|---|---|
+| blob | **5 MiB (5,242,880 バイト) ちょうど**。+1 バイトで `request entity too large` |
+| レコード (リクエストボディ全体) | **1,000,000 バイト前後** (960KB は通り 1000KB は通らない) |
+
+**この 2 つの差が今回の設計の根拠そのものである。** 現行の base64 方式では画像 1 枚が
+レコード上限 (約 1MB) に直接当たり, base64 は 4/3 に膨らむので **700KB を超える画像は
+push できない**。blob へ逃がせば 5 MiB まで扱えて, しかもレコード側は参照ぶんの数百バイトで済む。
+
+クライアント側は **5 MiB を超える画像を保存前に弾き, 理由をユーザーに伝える**
+(今のように黙って失敗させない)。縮小・変換は非目標 (§7)。
+
+> 上限は PDS の設定値なので, 本番 (Hetzner) と一致するとは限らない。クライアントの定数は
+> 実測値をそのまま使い, 超過時のエラーは PDS の応答も拾って表示する。
 
 ---
 
@@ -206,15 +240,15 @@ PDS の blob サイズ上限を超える画像は保存できない。上限の�
 
 | ID | 内容 | 主な変更先 |
 |---|---|---|
-| **S1** | **実験**: 実機 PDS で (a) `ops` 内の blob ref が pin されるか (b) blob CID がバイト列から決まるか (c) レコード/blob のサイズ上限 を実測する。§8 の U1/U2/U4 を確定させる | 使い捨てスクリプト (コミットしない) |
+| ~~**S1**~~ | ~~**実験**: 実機 PDS で U1/U2/U4 を実測する~~ **完了 (2026-08-10, §10)**。D2a / CID 共有 / 上限が確定した | 使い捨てスクリプト (コミットしない) |
 | **S2** | daemon のローカル blob ストア (`POST /blobs` / `GET /blobs/:cid` + `blobs` テーブル) | `src/server/src/eventStore.ts`, `index.ts` |
 | **S3** | 作成経路を blob 参照へ切替。3 経路 (drop/paste/Cmd+V) をローカル保存 → `NODE_ADDED`。未ログインで動く。`imageDataUrl` は新規に書かない。サイズ超過を弾く | `GraphEditor.tsx` (判断は新モジュールへ切り出す), `atproto/blob.ts` |
 | **S4** | 表示側の解決順序 (D4)。旧 `imageDataUrl` の読み取り互換を保つ | `ImageNode.tsx` |
 | **S5** | PDS への blob push を同期経路に組み込む (D5 の順序保証)。D2 の結論に従い pin する | `sync/` の push 経路, `atproto/` |
 | **S6** | ANA-117: 既存の画像ノードへの drop / paste | `ImageNode.tsx` |
 
-S1 は**コードを変えない実験**である。ここで U1 が否定されると D2b へ切り替わり, S5 の形が
-変わる。S2〜S4 は U1 の結果に依存しないので, S1 が長引くなら先に進めてよい。
+S1 は**コードを変えない実験**だった。U1 が肯定されたので D2a で進む (S5 の形が決まった)。
+実装は **S2 から**である。
 
 旧 `imageDataUrl` データの blob への一括移行は**非目標** (§7)。読み取り互換だけ残す。
 
@@ -269,13 +303,13 @@ S1 は**コードを変えない実験**である。ここで U1 が否定され
 
 ## 8. 未決事項
 
-| ID | 問い | 決め方 |
+| ID | 問い | 状態 |
 |---|---|---|
-| **U1** | PDS は `unknown` フィールド (`ops`) の中にある blob ref を pin するか | S1 の実験。upload → batch レコード書込 → 別セッションで `getBlob` |
-| **U2** | blob CID はバイト列から決まるか (CIDv1 / raw / sha-256)。ローカルで同じ値を計算できるか | S1 の実験。ローカル計算値と `uploadBlob` の戻り値を突き合わせる |
-| **U3** | ローカル blob の実体を SQLite の BLOB 列に置くか, `DATA_DIR` のファイルに置くか | S2 の実装時。リセット手順の単純さと, 数 MB を SQLite に入れたときの実測で決める |
-| **U4** | PDS のレコード上限 / blob 上限の実値 | S1 の実験 |
-| **U5** | 参照されなくなった blob をどうするか | 本 PR では非目標。S6 完了時に別課題として起票するか判断する |
+| **U1** | PDS は `unknown` フィールド (`ops`) の中にある blob ref を pin するか | **確定: pin する** (§10) |
+| **U2** | blob CID はバイト列から決まるか。ローカルで同じ値を計算できるか | **確定: 決まる。完全に一致する** (§10) |
+| **U3** | ローカル blob の実体を SQLite の BLOB 列に置くか, `DATA_DIR` のファイルに置くか | **未決**。S2 の実装時に決める。上限が 5 MiB と分かったので, SQLite の BLOB 列で無理は無いはず |
+| **U4** | PDS のレコード上限 / blob 上限の実値 | **確定: blob 5 MiB / レコード 約 1,000,000 バイト** (§10) |
+| **U5** | 参照されなくなった blob をどうするか | **本 PR では非目標**。S6 完了時に別課題として起票するか判断する |
 
 ---
 
@@ -287,3 +321,50 @@ S1 は**コードを変えない実験**である。ここで U1 が否定され
   data URL)」は差分・同期・解決順序の場合分けが二重になるため退けた
 - **2026-08-10 D5 (未ログイン)**: ローカルのみでも画像を使えることを要件とした。
   このため作成時に PDS を触らない設計とし, PDS への送り出しは同期経路へ寄せた
+- **2026-08-10 D2 (pin 方法)**: S1 の実測により D2a (ops に blob ref を埋める) に確定。
+  D2b (専用 image レコード) は不要になった
+
+---
+
+## 10. S1 実験の結果 (2026-08-10)
+
+ローカル PDS (`infra/pds`, `alice.test`) に対して実測した。スクリプトは使い捨てで残していない。
+
+### U2: blob CID はバイト列から決まる — **一致した**
+
+`CIDv1 / raw (0x55) / sha-256` でローカル計算した CID と `uploadBlob` の戻り値が完全に一致した。
+
+```
+ローカル計算: bafkreic3swyzactei6wdobyc5ebtks7pmrjjycecpzzo7klzmrnscpetbi
+PDS の戻り値: bafkreic3swyzactei6wdobyc5ebtks7pmrjjycecpzzo7klzmrnscpetbi
+```
+
+→ **ローカル blob ストアと PDS で識別子を共有できる。対応表は要らない。**
+さらに**アップロードより先に CID を確定できる**ので, 未ログインで作った op を後から
+そのまま push できる (書き換え不要)。
+
+### U1: `ops` (unknown) 内の blob ref は pin される — **される**
+
+`com.atproto.sync.listBlobs` が, batch レコードを書く前は当該 CID を含まず, 書いた後は含んだ。
+読み戻したレコードでも blob ref の形は保たれていた。
+
+**`BlobRef` インスタンスでも素の JSON でも同じ結果**だった。実装は op-log (SQLite に JSON 文字列)
+から読んだ ops をそのまま push するので, 後者が確認できたことが重要である。
+
+### 副産物: 未 upload の blob を参照するレコードは PDS が拒否する
+
+```
+Could not find blob: bafkreih3y7yip7oqq5zwfc452mc36hxer6lhd53tyouznauzrxvnbjgzva
+```
+
+壊れたレコードができるより安全だが, **順序を間違えるとその batch は再送し続けて outbox に
+詰まったままになる**。D5 の順序保証は「あった方がよい」ではなく**必須**である。
+
+### U4: サイズ上限
+
+| 対象 | 通る | 通らない |
+|---|---|---|
+| blob | 5,242,880 バイト (5 MiB) | 5,242,881 バイト → `request entity too large` |
+| レコード | 960KB | 1000KB → `request entity too large` |
+
+境界から見て, レコードのリクエストボディ上限は **1,000,000 バイト**と思われる。
