@@ -13,6 +13,7 @@ import {
   type BlobCid,
   MAX_BLOB_SIZE,
   type MimeType,
+  type Op,
 } from '@conversensus/shared';
 import { fetchBlob, putBlob, type StoredBlob } from '../api';
 import {
@@ -20,6 +21,7 @@ import {
   fetchRemoteBlob,
   getCachedBlobUrl,
   loggedInDid,
+  uploadImageBlob,
 } from '../atproto/blob';
 
 /**
@@ -208,4 +210,82 @@ export async function resolveImageUrl(
     .then((buf) => deps.put(new Uint8Array(buf), location.mimeType))
     .catch(() => {});
   return { url: URL.createObjectURL(remote), fromCache: false };
+}
+
+// --- PDS への送り出し (ANA-116 S5) ---
+
+/**
+ * op 列が参照している画像 blob を集める (重複は cid で畳む)。
+ *
+ * **新形式 (`properties.image` の blob ref) だけを集める。** 旧 flat 形式
+ * (`imageBlobCid`) は PDS から見ればただの文字列で pin の対象にならないので、
+ * 送信前に upload する意味が無い (旧経路は作成時に upload 済でもある)。
+ */
+export function collectImageBlobRefs(ops: readonly Op[]): ImageBlobRef[] {
+  const byCid = new Map<BlobCid, ImageBlobRef>();
+  for (const op of ops) {
+    const properties = 'properties' in op ? op.properties : undefined;
+    const ref = properties?.[IMAGE_PROPERTY_KEY];
+    if (isImageBlobRef(ref)) byCid.set(ref.ref.$link, ref);
+  }
+  return [...byCid.values()];
+}
+
+export type UploadImageBlobDeps = {
+  local: typeof fetchBlob;
+  upload: typeof uploadImageBlob;
+};
+
+const defaultUploadDeps: UploadImageBlobDeps = {
+  local: fetchBlob,
+  upload: uploadImageBlob,
+};
+
+/**
+ * op が参照する画像 blob を **PDS へ先に上げる**関数を作る (設計 D5)。
+ *
+ * **順序が要件である。** blob を上げる前に blob ref を含むレコードを書こうとすると
+ * PDS は `Could not find blob: <cid>` で拒否する (S1 で実測)。壊れたレコードが
+ * できるより安全だが、順序を間違えるとその batch は再送し続けて outbox に詰まる。
+ *
+ * 上げ済みの cid をセッション内で覚える。ログイン単位で作り直す前提なので
+ * (`useRemoteSyncQueue` が session ごとに provider ごと作り直す)、別 repo の
+ * 上げ済みを引き継ぐことはない。
+ */
+export function createPdsBlobUploader(
+  deps: UploadImageBlobDeps = defaultUploadDeps,
+): (ops: readonly Op[]) => Promise<void> {
+  const uploaded = new Set<BlobCid>();
+
+  return async function uploadImageBlobsForOps(ops) {
+    for (const ref of collectImageBlobRefs(ops)) {
+      const cid = ref.ref.$link;
+      if (uploaded.has(cid)) continue;
+
+      const bytes = await deps.local(cid);
+      if (!bytes) {
+        // ローカルに実体が無い = この端末では上げられない。**数えずに黙って
+        // 進む**のではなく警告する: レコード側は「PDS に既にある」場合だけ通り、
+        // 無ければ push が失敗して未同期のまま残る (どちらもここで判別できない)
+        console.warn(
+          `[image] blob ${cid} is not in the local store; skipping upload. ` +
+            'The record push will fail unless the PDS already has it.',
+        );
+        continue;
+      }
+
+      const stored = await deps.upload(
+        new Uint8Array(await bytes.arrayBuffer()),
+        ref.mimeType,
+      );
+      // CID はバイト列から決まる (S1 U2) ので、食い違いは「別の実体を上げた」ことを
+      // 意味する。そのまま進むと参照先が pin されないレコードができるので止める
+      if (stored.cid !== cid) {
+        throw new Error(
+          `Uploaded blob CID mismatch: expected ${cid}, PDS returned ${stored.cid}`,
+        );
+      }
+      uploaded.add(cid);
+    }
+  };
 }

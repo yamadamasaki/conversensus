@@ -75,10 +75,36 @@ CID は S2 で実機 PDS から取得した実在のベクタ (`hello` の CID) 
 - **PDS の取得自体の失敗は投げる**: 書き戻し (握り潰す) と取得 (投げる) の区別。
   呼び出し元 (`ImageNode`) がログに出す
 
+**`collectImageBlobRefs` (送信前に上げる対象を決める, S5)**
+
+- **`properties.image` の blob ref を集める / 同じ cid は 1 つに畳む**: 同じ画像を
+  貼り直しても upload は 1 回で足りる (実体は content-addressed で 1 つ)
+- **`node.setProperties` も見る**: 差し替え経路 (ANA-117 / S6) で入る op である。
+  「作成時だけ」と決め打つと、差し替えた画像だけ pin されない形で壊れる
+- **`properties` を持たない op / 画像でない properties を無視する**: 走査対象は
+  op の判別共用体全体なので、`properties` の有無で落ちないことを固定する
+- **旧 flat 形式 (`imageBlobCid`) は集めない**: PDS から見ればただの文字列で
+  pin の対象にならないため、先に上げる意味が無い
+
+**`createPdsBlobUploader` (PDS への先出し, D5)**
+
+- **ローカルの実体を PDS へ上げる**: 送るのはローカル blob ストアから読んだバイト列。
+  op に載っているのは参照だけなので、実体の出所はここしかない
+- **同じ cid は 2 回目以降上げない**: flush や再送のたびに実体を往復させない。
+  記憶はセッション単位で、provider ごと作り直されるので別 repo へ持ち越さない
+- **画像を含まない op では PDS を触らない**: 大多数の batch で往復を増やさない
+- **ローカルに実体が無ければ飛ばす (投げない)**: この端末では上げようがない。
+  レコード側は PDS に既にあれば通り、無ければ push が失敗して未同期のまま残る。
+  ここで投げると後者を先取りしてしまう (警告は出す)
+- **PDS が別の cid を返したら投げる**: CID はバイト列から決まる (S1 U2) ので、
+  食い違いは別の実体を上げたことを意味する。進めば参照先が pin されないレコードができる
+- **食い違いで投げた cid は上げ済みにしない**: 再送で上げ直せること。
+  「失敗したのに覚えている」と、以後その画像は永久に上がらない
+
 ## ここでテストしないこと
 
-- **PDS への upload**: 作成時に PDS を触らないのが設計 (D5) であり、upload は
-  push 経路の前段 (S5) の責務である
+- **upload とレコード書込の順序**: 保証しているのは `AtprotoSyncProvider` なので
+  `atprotoSyncProvider.test.ts` の領分である
 - **blob CID の計算**: `shared/blob.ts` のテストが実機 PDS のベクタで固定している
 - **`ImageNode` の描画と Object URL の解放タイミング**: React の effect の話なので
   `ImageNode.test.tsx` の領分

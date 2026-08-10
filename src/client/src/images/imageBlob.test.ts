@@ -1,13 +1,16 @@
 import { beforeEach, describe, expect, it, mock } from 'bun:test';
-import type { Did } from '@conversensus/shared';
+import type { Did, NodeId, Op } from '@conversensus/shared';
 import type { StoredBlob } from '../api';
 import {
+  collectImageBlobRefs,
+  createPdsBlobUploader,
   imagePropertiesOf,
   type ResolveImageDeps,
   readImageBlobLocation,
   resolveImageUrl,
   type SaveImageDeps,
   saveImageBlob,
+  type UploadImageBlobDeps,
 } from './imageBlob';
 
 // 実在の CID ベクタ。CID の長さや文字種を暗黙に前提にする実装を落とせるよう、
@@ -319,5 +322,171 @@ describe('resolveImageUrl', () => {
     });
 
     await expect(resolveImageUrl(location, deps)).rejects.toThrow(/HTTP 404/);
+  });
+});
+
+describe('collectImageBlobRefs', () => {
+  const ref = (cid: string) => ({
+    $type: 'blob' as const,
+    ref: { $link: cid },
+    mimeType: PNG,
+    size: 3,
+  });
+  const addImage = (target: string, cid: string): Op => ({
+    kind: 'node.add',
+    target: target as NodeId,
+    content: '',
+    nodeType: 'image',
+    properties: imagePropertiesOf(ref(cid)),
+  });
+
+  it('properties.image の blob ref を集める', () => {
+    expect(collectImageBlobRefs([addImage('n1', CID)])).toEqual([ref(CID)]);
+  });
+
+  it('同じ cid は 1 つに畳む (同じ画像を貼り直しても upload は 1 回)', () => {
+    expect(
+      collectImageBlobRefs([addImage('n1', CID), addImage('n2', CID)]),
+    ).toEqual([ref(CID)]);
+  });
+
+  it('node.setProperties で差し替えた画像も集める (ANA-117 の経路)', () => {
+    const ops: Op[] = [
+      {
+        kind: 'node.setProperties',
+        target: 'n1' as NodeId,
+        properties: imagePropertiesOf(ref(OTHER_CID)),
+      },
+    ];
+    expect(collectImageBlobRefs(ops)).toEqual([ref(OTHER_CID)]);
+  });
+
+  it('properties を持たない op と画像でない properties は無視する', () => {
+    const ops: Op[] = [
+      { kind: 'node.remove', target: 'n1' as NodeId },
+      { kind: 'node.setLayout', target: 'n1' as NodeId, x: 1, y: 2 },
+      {
+        kind: 'node.add',
+        target: 'n2' as NodeId,
+        content: 'text',
+        properties: { color: 'red' },
+      },
+    ];
+    expect(collectImageBlobRefs(ops)).toEqual([]);
+  });
+
+  it('旧 flat 形式 (imageBlobCid) は集めない', () => {
+    // PDS から見ればただの文字列で pin の対象にならないので、先に上げる意味が無い。
+    // 旧経路は作成時に upload 済でもある
+    const ops: Op[] = [
+      {
+        kind: 'node.add',
+        target: 'n1' as NodeId,
+        content: '',
+        properties: { imageBlobCid: CID, imageBlobMimeType: PNG },
+      },
+    ];
+    expect(collectImageBlobRefs(ops)).toEqual([]);
+  });
+});
+
+describe('createPdsBlobUploader', () => {
+  const imageOp = (cid: string): Op => ({
+    kind: 'node.add',
+    target: 'n1' as NodeId,
+    content: '',
+    nodeType: 'image',
+    properties: imagePropertiesOf({
+      $type: 'blob',
+      ref: { $link: cid },
+      mimeType: PNG,
+      size: 3,
+    }),
+  });
+
+  function uploadDeps(overrides: Partial<UploadImageBlobDeps> = {}) {
+    const local = mock(
+      async (_cid: string) =>
+        new Blob([bytesOf(1, 2, 3)], { type: PNG }) as Blob | undefined,
+    );
+    const upload = mock(async (_bytes: Uint8Array, _mime: string) => ({
+      cid: CID,
+      mimeType: PNG,
+      size: 3,
+    }));
+    return {
+      deps: { local, upload, ...overrides } as UploadImageBlobDeps,
+      local,
+      upload,
+    };
+  }
+
+  it('ローカルの実体を PDS へ上げる', async () => {
+    const { deps, local, upload } = uploadDeps();
+    await createPdsBlobUploader(deps)([imageOp(CID)]);
+
+    expect(local).toHaveBeenCalledWith(CID);
+    expect(Array.from(upload.mock.calls[0][0] as Uint8Array)).toEqual([
+      1, 2, 3,
+    ]);
+    expect(upload.mock.calls[0][1]).toBe(PNG);
+  });
+
+  it('同じ cid は 2 回目以降上げない (セッション内で覚える)', async () => {
+    // flush のたびに同じ画像を上げ直すと、再送のたびに実体を往復させることになる
+    const { deps, upload } = uploadDeps();
+    const uploader = createPdsBlobUploader(deps);
+    await uploader([imageOp(CID)]);
+    await uploader([imageOp(CID)]);
+
+    expect(upload).toHaveBeenCalledTimes(1);
+  });
+
+  it('画像を含まない op では PDS を触らない', async () => {
+    const { deps, local, upload } = uploadDeps();
+    await createPdsBlobUploader(deps)([
+      { kind: 'node.remove', target: 'n1' as NodeId },
+    ]);
+
+    expect(local).not.toHaveBeenCalled();
+    expect(upload).not.toHaveBeenCalled();
+  });
+
+  it('ローカルに実体が無ければ飛ばす (投げない)', async () => {
+    // この端末では上げようがない。レコード側は PDS に既にあれば通り、無ければ
+    // push が失敗して未同期のまま残る — ここで投げると後者を先取りしてしまう
+    const { deps, upload } = uploadDeps({ local: async () => undefined });
+    await createPdsBlobUploader(deps)([imageOp(CID)]);
+
+    expect(upload).not.toHaveBeenCalled();
+  });
+
+  it('PDS が別の cid を返したら投げる', async () => {
+    // CID はバイト列から決まる (S1 U2) ので、食い違いは別の実体を上げたことを意味する。
+    // そのまま進むと参照先が pin されないレコードができる
+    const { deps } = uploadDeps({
+      upload: async () => ({ cid: OTHER_CID, mimeType: PNG, size: 3 }),
+    });
+
+    await expect(createPdsBlobUploader(deps)([imageOp(CID)])).rejects.toThrow(
+      /CID mismatch/,
+    );
+  });
+
+  it('食い違いで投げた cid は上げ済みにしない (再送で上げ直す)', async () => {
+    let returned = OTHER_CID;
+    const upload = mock(async (_bytes: Uint8Array, _mime: string) => ({
+      cid: returned,
+      mimeType: PNG,
+      size: 3,
+    }));
+    const { deps } = uploadDeps({ upload });
+    const uploader = createPdsBlobUploader(deps);
+
+    await expect(uploader([imageOp(CID)])).rejects.toThrow(/CID mismatch/);
+    returned = CID;
+    await uploader([imageOp(CID)]);
+
+    expect(upload).toHaveBeenCalledTimes(2);
   });
 });
