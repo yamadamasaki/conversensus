@@ -12,9 +12,9 @@
 > **2026-08-10: §4 の方針 (D1/D5) はユーザー確認済 — 「blob 正典 + op-log は参照だけ」,
 > 「未ログイン (ローカルのみ) でも画像が使えること」。S1 の実験は実施済で U1/U2/U4 は確定
 > (§8, §10)。D2 は D2a (batch レコードの ops に blob ref を埋める) に確定。
-> **S2 (daemon のローカル blob ストア) / S3 (作成・表示経路の切替) / S5 (PDS への
-> blob push) は実装済**。旧 S4 は S3 へ統合した (§5「S3 の設計」)。
-> 残るのは S6 (ANA-117: 既存の画像ノードへの drop / paste) である。**
+> **全スライス実装済** (S2 ローカル blob ストア / S3 作成・表示経路 / S5 PDS への
+> blob push / S6 既存ノードへの drop・paste)。旧 S4 は S3 へ統合した (§5「S3 の設計」)。
+> 各スライスの「学んだこと」を §5 に残してある。**
 
 ---
 
@@ -248,7 +248,7 @@ push できない**。blob へ逃がせば 5 MiB まで扱えて, しかもレ�
 | ~~**S3**~~ | ~~**作成経路と表示経路をまとめて切り替える** (旧 S4 を統合)。3 経路 (drop/paste/Cmd+V) をローカル保存 → `NODE_ADDED`。未ログインで動く。`imageDataUrl` は新規に書かない。サイズ超過を弾く。表示は D4 の解決順序にし, 旧データの読み取り互換を保つ~~ **完了 (commit `ae531e6`)**。下の「S3 で学んだこと」 | `images/imageBlob.ts` (新規), `api.ts`, `GraphEditor.tsx`, `ImageNode.tsx`, `atproto/blob.ts` |
 | ~~**S4**~~ | ~~表示側の解決順序 (D4)~~ **S3 に統合した** (下の「S3 の設計」) | — |
 | ~~**S5**~~ | ~~PDS への blob push を同期経路に組み込む (D5 の順序保証)。D2 の結論に従い pin する~~ **完了 (commit `e6a663b`)**。下の「S5 で学んだこと」 | `images/imageBlob.ts`, `atproto/atprotoSyncProvider.ts`, `hooks/useRemoteSyncQueue.ts` |
-| **S6** | ANA-117: 既存の画像ノードへの drop / paste | `ImageNode.tsx` |
+| ~~**S6**~~ | ~~ANA-117: 既存の画像ノードへの drop / paste~~ **完了 (commit `096da2c`)**。下の「S6 で学んだこと」 | `ImageNode.tsx`, `images/pasteTarget.ts` (新規), `images/imageErrorContext.ts` (新規), `GraphEditor.tsx` |
 
 S1 は**コードを変えない実験**だった。U1 が肯定されたので D2a で進む (S5 の形が決まった)。
 実装は **S2 から**である。
@@ -394,6 +394,31 @@ batch だけが outbox に詰まり続ける」形で静かに壊れる。既存
 受入基準 2 (別端末が PDS 経由で表示できる) は, 未ログインの新しい agent で
 レコードを読み直し → JSON 境界を通して blob ref を復元 → `getBlob` で
 同じバイト列が取れることまで確認した。
+
+### S6 で学んだこと (2026-08-11, commit `096da2c`)
+
+1. **`node.setProperties` は置換意味論なのに, `NODE_PROPERTIES_CHANGED` は差分の形を
+   している。** `events/toUnified.ts` の冒頭に既知の制約として書かれており, projection は
+   `node.properties = op.properties` で丸ごと置き換える。したがって差し替えの op には
+   **置き換え後の全体**を載せなければならない。`from` も同じで, `invertEvent` は
+   from と to を入れ替えるだけなので片方が差分だと undo で properties が欠ける
+2. **既存の URL 入力 (`commitUrl`) が同じ穴に落ちていた。** `to: { imageUrl }` だけを
+   載せていたので, 画像 blob 参照を持つノードで URL を編集すると**画像が消えた**。
+   S6 で画像ノードが日常的に blob 参照を持つようになるため, ここで直した
+3. **差し替えでは旧形式の画像キーを落とす。** 残す意味が無いだけでなく, `imageDataUrl`
+   (base64) を持ち回すと差し替えのたびに base64 が**新しい op へ載り直す** —
+   S3 で止めたはずのものが復活し, レコード上限 (約 1 MB) に当たる
+4. **貼り付け先は「画像ノードがちょうど 1 つ選択されているとき」だけ。** 複数選択で
+   そのうちの 1 つが差し替わると, どれが変わるか利用者に予測できない。0 個・複数は
+   新規ノードを作る側に倒す。規則を `images/pasteTarget.ts` に切り出したのは,
+   `GraphEditor` を描画せずに境界条件を確かめられるようにするためである
+5. **`ImageNode` へは props を渡せない** (React Flow が `nodeTypes` 経由で描く)。
+   エラー表示は context で降ろし, ダイアログは `GraphEditor` の 1 つに集めた。
+   `GraphEditorProps` を増やさない方針は S3 から変えていない
+6. **`mock.module` のスタブは「使っていない export」も欠かせない。** bun のモジュール
+   モックはテストファイルをまたいでグローバルに効くので, `@xyflow/react` のスタブから
+   `MarkerType` が抜けていると, 同じ実行の中で `graphTransform` を読む別のテストが
+   解決に失敗する。**自分のテストは通るのに他人のテストが落ちる**形で出る
 
 ---
 
