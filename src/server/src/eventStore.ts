@@ -14,6 +14,7 @@
 import { Database } from 'bun:sqlite';
 import {
   type Batch,
+  type BlobCid,
   type BranchId,
   type BranchMeta,
   type BranchStatus,
@@ -24,6 +25,7 @@ import {
   type FileId,
   type GraphFileListItem,
   isFileDeleted,
+  type MimeType,
   projectBatches,
   projectFile,
   type Sheet,
@@ -43,6 +45,13 @@ type BatchRow = {
   ops_json: string;
   // content batch の所属シート。structure (file-level) batch は NULL (W3c2)
   sheet_id: string | null;
+};
+
+/** blobs の 1 行 (bytes は SQLite の BLOB として返る) */
+type BlobRow = {
+  mime_type: string;
+  size: number;
+  bytes: Uint8Array;
 };
 
 /** commits の 1 行 */
@@ -127,6 +136,16 @@ CREATE INDEX IF NOT EXISTS idx_branches_trunk ON branches (trunk_file_id);
 CREATE TABLE IF NOT EXISTS file_migrations (
   file_id        TEXT    PRIMARY KEY,
   schema_version INTEGER NOT NULL
+);
+
+-- 画像などのバイナリ (ANA-116)。content-addressed なので cid が主キーで、
+-- 同じ内容は 1 行しか持たない。**ファイルには紐づけない** — blob は
+-- どのファイル・どのバージョンからも参照されうる共有ストアである。
+CREATE TABLE IF NOT EXISTS blobs (
+  cid        TEXT    PRIMARY KEY,
+  mime_type  TEXT    NOT NULL,
+  size       INTEGER NOT NULL,
+  bytes      BLOB    NOT NULL
 );
 `;
 
@@ -551,6 +570,48 @@ export class EventStore {
       )
       .all(fileId);
     return rows.map((row) => rowToCommit(row));
+  }
+
+  /**
+   * blob を格納する (ANA-116)。
+   *
+   * **cid は呼び出し側が `computeBlobCid` で計算したものを渡す** — 検証を含めた
+   * content-addressed の担保は API 境界 (HTTP) の責務である (`appendBatch` と同じ方針)。
+   * 同じ cid が既にあれば何もしない: 内容が同じであることは cid が保証しているので、
+   * 上書きしても結果は変わらない。
+   *
+   * @returns 新規に格納したら true、既存で無視したら false
+   */
+  putBlob(cid: BlobCid, bytes: Uint8Array, mimeType: MimeType): boolean {
+    const result = this.db
+      .query(
+        `INSERT OR IGNORE INTO blobs (cid, mime_type, size, bytes)
+         VALUES ($cid, $mime, $size, $bytes)`,
+      )
+      .run({
+        $cid: cid,
+        $mime: mimeType,
+        $size: bytes.byteLength,
+        $bytes: bytes,
+      });
+    return result.changes > 0;
+  }
+
+  /** blob を取り出す。無ければ null */
+  getBlob(
+    cid: BlobCid,
+  ): { bytes: Uint8Array; mimeType: MimeType; size: number } | null {
+    const row = this.db
+      .query<BlobRow, string>(
+        'SELECT mime_type, size, bytes FROM blobs WHERE cid = ?',
+      )
+      .get(cid);
+    if (!row) return null;
+    return {
+      bytes: new Uint8Array(row.bytes),
+      mimeType: row.mime_type,
+      size: row.size,
+    };
   }
 
   close(): void {

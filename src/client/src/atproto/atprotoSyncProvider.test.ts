@@ -146,12 +146,24 @@ function inMemoryBatches() {
   return store;
 }
 
+/**
+ * blob の先出し (ANA-116 S5) を no-op にした provider。
+ * 画像を含まない batch の検証はこれで十分で, 先出しの順序そのものは
+ * 「blob 先出し」の describe が専用の記録付き uploader で確かめる。
+ */
+function makeProvider(batches: BatchCollection): AtprotoSyncProvider {
+  return new AtprotoSyncProvider({
+    batches,
+    uploadBlobs: () => Promise.resolve(),
+  });
+}
+
 describe('AtprotoSyncProvider', () => {
   describe('pushRemote', () => {
     it('rkey = v1~<fileId>~<clock>~<batchId> で op-log へ書く (Phase 7 p7-1)', async () => {
       // 範囲取得はこの rkey の辞書順だけで成立するので、書込形式そのものを固定する
       const batches = inMemoryBatches();
-      const provider = new AtprotoSyncProvider({ batches });
+      const provider = makeProvider(batches);
       await provider.pushRemote(
         [batch('1', 1), batch('2', 2)].map((batch) => ({
           fileId: FILE,
@@ -166,7 +178,7 @@ describe('AtprotoSyncProvider', () => {
 
     it('同一 batch の push は上書き (rkey が決定論的なのでべき等、重複しない)', async () => {
       const batches = inMemoryBatches();
-      const provider = new AtprotoSyncProvider({ batches });
+      const provider = makeProvider(batches);
       await provider.pushRemote(
         [batch('1', 1)].map((batch) => ({ fileId: FILE, batch })),
       );
@@ -182,7 +194,7 @@ describe('AtprotoSyncProvider', () => {
       // まとめ書きだけ rkey が違うと、移行したレコードが範囲取得から漏れる。
       // 経路が 2 本になった以上、rkey が一致することを明示的に固定する。
       const batches = inMemoryBatches();
-      const provider = new AtprotoSyncProvider({ batches });
+      const provider = makeProvider(batches);
       await provider.createRemote(
         [batch('1', 1), batch('2', 2)].map((batch) => ({
           fileId: FILE,
@@ -199,7 +211,7 @@ describe('AtprotoSyncProvider', () => {
       // `pushRemote` (putRecord) と決定的に違う点。呼び出し側 (`migrateRemoteRkey`) が
       // 範囲取得で差分を取る責務を負う根拠なので、契約としてテストで残す。
       const batches = inMemoryBatches();
-      const provider = new AtprotoSyncProvider({ batches });
+      const provider = makeProvider(batches);
       const entries = [batch('1', 1)].map((batch) => ({ fileId: FILE, batch }));
       await provider.createRemote(entries);
 
@@ -219,7 +231,7 @@ describe('AtprotoSyncProvider', () => {
       batches._seed(batch('a', 1));
       batches._seed(batch('b', 3));
       batches._seed(batch('c', 2));
-      const provider = new AtprotoSyncProvider({ batches });
+      const provider = makeProvider(batches);
 
       const first = await provider.pullAllRemoteForMigration();
       expect(first.map((e) => e.batch.id)).toEqual(['a', 'c', 'b']);
@@ -235,7 +247,7 @@ describe('AtprotoSyncProvider', () => {
       batches._seed({ ...batch('x', 2), actor: 'dev-b', timestamp: 1 });
       batches._seed({ ...batch('y', 2), actor: 'dev-a', timestamp: 999 });
       batches._seed(batch('z', 1));
-      const provider = new AtprotoSyncProvider({ batches });
+      const provider = makeProvider(batches);
       const entries = await provider.pullAllRemoteForMigration();
       // clock 1 の z → clock 2 は actor 昇順で dev-a(y) → dev-b(x)
       expect(entries.map((e) => e.batch.id)).toEqual(['z', 'y', 'x']);
@@ -246,7 +258,7 @@ describe('AtprotoSyncProvider', () => {
       // レコード自身の fileId でしか適用先を復元できない (§3.1)。
       const batches = inMemoryBatches();
       batches._seed(batch('a', 1));
-      const provider = new AtprotoSyncProvider({ batches });
+      const provider = makeProvider(batches);
       const entries = await provider.pullAllRemoteForMigration();
       expect(entries.map((e) => e.fileId)).toEqual([FILE]);
     });
@@ -261,7 +273,7 @@ describe('AtprotoSyncProvider', () => {
         timestamp: 1,
         ops: [] as unknown[],
       } as never);
-      const provider = new AtprotoSyncProvider({ batches });
+      const provider = makeProvider(batches);
       const entries = await provider.pullAllRemoteForMigration();
       expect(entries.map((e) => e.batch.id)).toEqual(['a']);
     });
@@ -270,7 +282,7 @@ describe('AtprotoSyncProvider', () => {
       // id はレコードボディに無く rkey にしかない。第 4 セグメントが id
       const batches = inMemoryBatches();
       batches._seed(batch('a', 1));
-      const provider = new AtprotoSyncProvider({ batches });
+      const provider = makeProvider(batches);
       const entries = await provider.pullAllRemoteForMigration();
       expect(entries.map((e) => e.batch.id)).toEqual(['a']);
     });
@@ -281,7 +293,7 @@ describe('AtprotoSyncProvider', () => {
       const batches = inMemoryBatches();
       batches._seedLegacy(batch('old', 1));
       batches._seed(batch('new', 2));
-      const provider = new AtprotoSyncProvider({ batches });
+      const provider = makeProvider(batches);
       const entries = await provider.pullAllRemoteForMigration();
       expect(entries.map((e) => e.batch.id)).toEqual(['old', 'new']);
     });
@@ -291,7 +303,7 @@ describe('AtprotoSyncProvider', () => {
       const batches = inMemoryBatches();
       batches._seed(batch('ok', 1));
       batches._seedRkey(`v1~${FILE}~42~short-clock`, batch('bad', 2));
-      const provider = new AtprotoSyncProvider({ batches });
+      const provider = makeProvider(batches);
       const entries = await provider.pullAllRemoteForMigration();
       expect(entries.map((e) => e.batch.id)).toEqual(['ok']);
     });
@@ -306,7 +318,7 @@ describe('AtprotoSyncProvider', () => {
       batches._seed(batch('a', 1));
       batches._seed(batch('b', 2));
       batches._seed(batch('upper', 1), FILE_UPPER);
-      const provider = new AtprotoSyncProvider({ batches });
+      const provider = makeProvider(batches);
 
       const entries = await provider.pullRemoteForFile(FILE);
       expect(entries.map((e) => e.batch.id)).toEqual(['a', 'b']);
@@ -322,7 +334,7 @@ describe('AtprotoSyncProvider', () => {
         batches._seed(batch(`up${i}`, i), FILE_UPPER);
       }
       batches._seed(batch('mine', 1));
-      const provider = new AtprotoSyncProvider({ batches });
+      const provider = makeProvider(batches);
 
       const entries = await provider.pullRemoteForFile(FILE);
       expect(entries.map((e) => e.batch.id)).toEqual(['mine']);
@@ -336,7 +348,7 @@ describe('AtprotoSyncProvider', () => {
       const batches = inMemoryBatches();
       for (let i = 1; i <= 4; i += 1) batches._seedLegacy(batch(`old${i}`, i));
       batches._seed(batch('new', 1));
-      const provider = new AtprotoSyncProvider({ batches });
+      const provider = makeProvider(batches);
 
       const entries = await provider.pullRemoteForFile(FILE);
       expect(entries.map((e) => e.batch.id)).toEqual(['new']);
@@ -350,7 +362,7 @@ describe('AtprotoSyncProvider', () => {
       const batches = inMemoryBatches();
       batches._seed(batch('a', 1));
       batches._seed(batch('b', 2));
-      const provider = new AtprotoSyncProvider({ batches });
+      const provider = makeProvider(batches);
 
       const first = await provider.pullRemoteForFile(FILE);
       const second = await provider.pullRemoteForFile(FILE);
@@ -367,7 +379,7 @@ describe('AtprotoSyncProvider', () => {
       batches._seed({ ...batch('x', 2), actor: 'dev-b' });
       batches._seed({ ...batch('y', 2), actor: 'dev-a' });
       batches._seed(batch('z', 1));
-      const provider = new AtprotoSyncProvider({ batches });
+      const provider = makeProvider(batches);
 
       const entries = await provider.pullRemoteForFile(FILE);
       expect(entries.map((e) => e.batch.id)).toEqual(['z', 'y', 'x']);
@@ -381,7 +393,7 @@ describe('AtprotoSyncProvider', () => {
         `${batchRkeyPrefix(FILE)}42~short-clock`,
         batch('bad', 2),
       );
-      const provider = new AtprotoSyncProvider({ batches });
+      const provider = makeProvider(batches);
 
       const entries = await provider.pullRemoteForFile(FILE);
       expect(entries.map((e) => e.batch.id)).toEqual(['ok']);
@@ -405,7 +417,7 @@ describe('AtprotoSyncProvider', () => {
       batches._seed(batch('a', 1), FILE_LOWER);
       batches._seed(batch('b', 1));
       batches._seed(batch('c', 2));
-      const provider = new AtprotoSyncProvider({ batches });
+      const provider = makeProvider(batches);
 
       const entries = await provider.listRemoteFiles();
       expect(entries.map((e) => e.fileId).sort()).toEqual(
@@ -422,7 +434,7 @@ describe('AtprotoSyncProvider', () => {
       batches._seed(batch('a', 1), FILE_LOWER);
       batches._seed(batch('b', 1));
       batches._seed(tombstone('t', 2));
-      const provider = new AtprotoSyncProvider({ batches });
+      const provider = makeProvider(batches);
 
       const entries = await provider.listRemoteFiles();
       expect(entries.find((e) => e.fileId === FILE)?.deleted).toBe(true);
@@ -436,7 +448,7 @@ describe('AtprotoSyncProvider', () => {
       const batches = inMemoryBatches();
       batches._seed(tombstone('t', 2));
       batches._seed(batch('later', 3));
-      const provider = new AtprotoSyncProvider({ batches });
+      const provider = makeProvider(batches);
 
       expect((await provider.listRemoteFiles())[0]?.deleted).toBe(false);
     });
@@ -446,9 +458,78 @@ describe('AtprotoSyncProvider', () => {
       // 再 push するまで発見経路の外にあり、移行前の 1 回の全件受信 (§3.4) が穴を塞ぐ。
       const batches = inMemoryBatches();
       batches._seedLegacy(batch('old', 1));
-      const provider = new AtprotoSyncProvider({ batches });
+      const provider = makeProvider(batches);
 
       expect(await provider.listRemoteFiles()).toEqual([]);
+    });
+  });
+
+  describe('blob の先出し (ANA-116 S5)', () => {
+    /**
+     * blob upload とレコード書込を**同じ列**に記録する provider。
+     * 順序が要件そのものなので、呼ばれた回数ではなく並びを見る。
+     */
+    function recordingProvider() {
+      const batches = inMemoryBatches();
+      const calls: string[] = [];
+      const put = batches.put.bind(batches);
+      const createMany = batches.createMany.bind(batches);
+      batches.put = (rkey, data) => {
+        calls.push(`put:${rkey}`);
+        return put(rkey, data);
+      };
+      batches.createMany = (entries) => {
+        calls.push(`createMany:${entries.length}`);
+        return createMany(entries);
+      };
+      const provider = new AtprotoSyncProvider({
+        batches,
+        uploadBlobs: (ops) => {
+          calls.push(`upload:${ops.length}`);
+          return Promise.resolve();
+        },
+      });
+      return { provider, calls };
+    }
+
+    it('pushRemote は 1 件目のレコードを書く前に blob を上げる', async () => {
+      // 逆順だと PDS が `Could not find blob` で拒否し、その batch は再送し続けて
+      // outbox に詰まる (S1 で実測)。順序が保証そのものなので並びで固定する
+      const { provider, calls } = recordingProvider();
+      await provider.pushRemote(
+        [batch('1', 1), batch('2', 2)].map((batch) => ({
+          fileId: FILE,
+          batch,
+        })),
+      );
+      expect(calls).toEqual([
+        'upload:2',
+        `put:v1~${FILE}~000000000001~1`,
+        `put:v1~${FILE}~000000000002~2`,
+      ]);
+    });
+
+    it('createRemote (移行) でも先に上げる', async () => {
+      // 移行は「新 rkey でまだ書かれていない batch」を書くので、S5 以降に作った
+      // 画像がそこに混ざりうる。混ざったチャンクは 1 件の失敗で丸ごと巻き戻る
+      const { provider, calls } = recordingProvider();
+      await provider.createRemote([{ fileId: FILE, batch: batch('1', 1) }]);
+      expect(calls).toEqual(['upload:1', 'createMany:1']);
+    });
+
+    it('blob の upload が失敗したらレコードを 1 件も書かない', async () => {
+      // 「blob が無いまま参照だけ載ったレコード」を作らない。失敗した batch は
+      // キューに残り (RemoteSyncQueue の契約)、再送で回復する
+      const batches = inMemoryBatches();
+      const provider = new AtprotoSyncProvider({
+        batches,
+        uploadBlobs: () => Promise.reject(new Error('upload failed')),
+      });
+
+      await expect(
+        provider.pushRemote([{ fileId: FILE, batch: batch('1', 1) }]),
+      ).rejects.toThrow('upload failed');
+      expect(batches._size()).toBe(0);
     });
   });
 });

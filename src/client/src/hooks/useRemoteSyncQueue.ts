@@ -19,6 +19,7 @@ import { batches } from '../atproto';
 import { AtprotoSyncProvider } from '../atproto/atprotoSyncProvider';
 import { RemoteSyncQueue } from '../atproto/remoteSyncQueue';
 import { SYNC_TO_REMOTE } from '../config';
+import { createPdsBlobUploader } from '../images/imageBlob';
 
 export function useRemoteSyncQueue(
   session: AtprotoSession | null,
@@ -29,7 +30,12 @@ export function useRemoteSyncQueue(
     () =>
       session && enabled
         ? new RemoteSyncQueue({
-            provider: new AtprotoSyncProvider({ batches }),
+            provider: new AtprotoSyncProvider({
+              batches,
+              // 画像 blob の先出し (ANA-116 S5)。**session ごとに作り直す**ので
+              // 「上げ済み」の記憶が別 repo へ持ち越されることはない
+              uploadBlobs: createPdsBlobUploader(),
+            }),
           })
         : null,
     // session が変われば別 repo への送信になるのでキューごと作り直す

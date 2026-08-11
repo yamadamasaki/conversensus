@@ -7,11 +7,21 @@ import {
   useReactFlow,
 } from '@xyflow/react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { getCachedBlobUrl, resolveBlobUrl } from './atproto/blob';
-import { currentDid } from './atproto/client';
 import { useEventDispatch } from './EventDispatchContext';
 import { makeEventBase } from './events/GraphEvent';
 import { useInlineEdit } from './hooks/useInlineEdit';
+import {
+  IMAGE_MIME_PREFIX,
+  imagePropertiesChange,
+  LEGACY_DATA_URL_KEY,
+  readImageBlobLocation,
+  resolveImageUrl,
+  saveImageBlob,
+} from './images/imageBlob';
+import {
+  imageErrorMessage,
+  useReportImageError,
+} from './images/imageErrorContext';
 
 type ImageNodeData = {
   label: string;
@@ -26,10 +36,15 @@ export function ImageNode({ id, data, selected }: NodeProps) {
   const { dispatch } = useEventDispatch();
 
   const imageUrl = (nodeData.properties?.imageUrl as string) ?? '';
-  const imageBlobCid = (nodeData.properties?.imageBlobCid as string) ?? '';
-  const imageBlobMimeType =
-    (nodeData.properties?.imageBlobMimeType as string) ?? '';
-  const imageDataUrl = (nodeData.properties?.imageDataUrl as string) ?? '';
+  // 旧データの読み取り互換。新規には書かない (設計 D1 / §7)
+  const imageDataUrl =
+    (nodeData.properties?.[LEGACY_DATA_URL_KEY] as string) ?? '';
+  // 新形式の blob ref と旧形式の flat なキーの両方をここで吸収する
+  const location = readImageBlobLocation(nodeData.properties);
+  // effect の依存は原始値にする — properties のオブジェクトは再レンダリングごとに
+  // 同一性が変わりうるので、そのまま依存に置くと解決が回り続ける
+  const blobCid = location?.cid ?? '';
+  const blobMimeType = location?.mimeType ?? '';
   const label = String(nodeData.label ?? '');
   const diffType = nodeData.diffType as 'add' | 'update' | undefined;
   const ghost = nodeData.ghost === true;
@@ -62,79 +77,94 @@ export function ImageNode({ id, data, selected }: NodeProps) {
     [dispatch, id],
   );
 
-  // Blob URL 解決
-  const [blobUrl, setBlobUrl] = useState<string | null>(null);
-  const blobUrlRef = useRef<string | null>(null);
-  // キャッシュ由来の URL はアンマウント時に revoke しない
-  const blobUrlFromCache = useRef(false);
+  // blob の実体の解決 (設計 D4 の 1〜3)。順序そのものは images/imageBlob.ts が持つ
+  const [resolvedUrl, setResolvedUrl] = useState<string | null>(null);
+  // このノードが作った Object URL。共有キャッシュ由来のものは他のノードも
+  // 表示に使っているので、ここに入れない (revoke すると相手の画像が壊れる)
+  const ownedUrlRef = useRef<string | null>(null);
 
   useEffect(() => {
+    if (!blobCid || !blobMimeType) return;
     let cancelled = false;
-    if (imageBlobCid && imageBlobMimeType) {
-      // 1. アップロード直後のキャッシュ
-      const cached = getCachedBlobUrl(imageBlobCid);
-      if (cached) {
-        if (
-          blobUrlRef.current &&
-          !blobUrlFromCache.current &&
-          blobUrlRef.current.startsWith('blob:')
-        )
-          URL.revokeObjectURL(blobUrlRef.current);
-        blobUrlFromCache.current = true;
-        blobUrlRef.current = cached;
-        setBlobUrl(cached);
-        return;
-      }
-      // 3. PDS getBlob
-      const did = currentDid();
-      resolveBlobUrl(did, imageBlobCid, imageBlobMimeType)
-        .then((url) => {
-          if (cancelled) {
-            URL.revokeObjectURL(url);
-            return;
-          }
-          if (
-            blobUrlRef.current &&
-            !blobUrlFromCache.current &&
-            blobUrlRef.current.startsWith('blob:')
-          )
-            URL.revokeObjectURL(blobUrlRef.current);
-          blobUrlFromCache.current = false;
-          blobUrlRef.current = url;
-          setBlobUrl(url);
-        })
-        .catch((err) => {
-          if (!cancelled)
-            console.error('[ImageNode] blob resolve failed:', err);
-        });
-    }
-    // 2. data URL (blob CID の有無に関わらず常時フォールバック)
-    if (imageDataUrl && blobUrlRef.current !== imageDataUrl) {
-      blobUrlRef.current = imageDataUrl;
-      setBlobUrl(imageDataUrl);
-    }
+
+    resolveImageUrl({ cid: blobCid, mimeType: blobMimeType })
+      .then((resolved) => {
+        // どこにも無ければ旧データ (imageDataUrl / imageUrl) へ落ちる
+        if (!resolved) return;
+        if (cancelled) {
+          if (!resolved.fromCache) URL.revokeObjectURL(resolved.url);
+          return;
+        }
+        if (ownedUrlRef.current) URL.revokeObjectURL(ownedUrlRef.current);
+        ownedUrlRef.current = resolved.fromCache ? null : resolved.url;
+        setResolvedUrl(resolved.url);
+      })
+      .catch((err) => {
+        if (!cancelled) console.error('[ImageNode] blob resolve failed:', err);
+      });
+
     return () => {
       cancelled = true;
     };
-  }, [imageBlobCid, imageBlobMimeType, imageDataUrl]);
+  }, [blobCid, blobMimeType]);
 
-  // アンマウント時に Object URL を解放（キャッシュ由来・data URL は除く）
+  // アンマウント時に自前の Object URL を解放する
   useEffect(() => {
     return () => {
-      if (
-        blobUrlRef.current &&
-        !blobUrlFromCache.current &&
-        blobUrlRef.current.startsWith('blob:')
-      )
-        URL.revokeObjectURL(blobUrlRef.current);
+      if (ownedUrlRef.current) URL.revokeObjectURL(ownedUrlRef.current);
     };
   }, []);
+
+  // 既存ノードへの画像 drop (ANA-117 S6)。落とされた画像でこのノードを差し替える。
+  //
+  // **canvas の `onDrop` (新規ノード作成) と二重に発火させない** — 落とし先が
+  // ノードの上なら差し替えが利用者の意図なので、ここで伝播を止める。
+  const reportImageError = useReportImageError();
+  const properties = nodeData.properties;
+
+  const replaceImage = useCallback(
+    async (source: Blob) => {
+      try {
+        const ref = await saveImageBlob(source);
+        dispatch({
+          ...makeEventBase('content'),
+          type: 'NODE_PROPERTIES_CHANGED',
+          nodeId: id as NodeId,
+          ...imagePropertiesChange(properties, ref),
+        });
+      } catch (err) {
+        reportImageError(imageErrorMessage(err));
+      }
+    },
+    [dispatch, id, properties, reportImageError],
+  );
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes('Files')) return;
+    // preventDefault しないとブラウザが drop を受け付けない。stopPropagation は
+    // canvas 側の dragover と競合させないため
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'copy';
+  }, []);
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      const file = Array.from(e.dataTransfer.files).find((f) =>
+        f.type.startsWith(IMAGE_MIME_PREFIX),
+      );
+      if (!file) return; // 画像でなければ canvas 側に任せる (伝播を止めない)
+      e.preventDefault();
+      e.stopPropagation();
+      void replaceImage(file);
+    },
+    [replaceImage],
+  );
 
   // URL 入力
   const [editingUrl, setEditingUrl] = useState(false);
   const [urlInput, setUrlInput] = useState(imageUrl);
-  const showUrlInput =
-    editingUrl || (!imageUrl && !imageBlobCid && !imageDataUrl);
+  const showUrlInput = editingUrl || (!imageUrl && !blobCid && !imageDataUrl);
 
   const commitUrl = useCallback(() => {
     const trimmed = urlInput.trim();
@@ -142,15 +172,17 @@ export function ImageNode({ id, data, selected }: NodeProps) {
       setEditingUrl(false);
       return;
     }
+    // **差分ではなく全体を載せる** — `node.setProperties` は置換意味論なので、
+    // `{ imageUrl }` だけを載せると同じノードの画像 blob 参照まで消える
     dispatch({
       ...makeEventBase('content'),
       type: 'NODE_PROPERTIES_CHANGED',
       nodeId: id as NodeId,
-      from: { imageUrl },
-      to: { imageUrl: trimmed },
+      from: { ...properties },
+      to: { ...properties, imageUrl: trimmed },
     });
     setEditingUrl(false);
-  }, [urlInput, imageUrl, dispatch, id]);
+  }, [urlInput, imageUrl, properties, dispatch, id]);
 
   // キャプション編集
   const caption = useInlineEdit(label, (value) => {
@@ -171,7 +203,8 @@ export function ImageNode({ id, data, selected }: NodeProps) {
 
   // 画像の読み込みエラー処理
   const [imgError, setImgError] = useState(false);
-  const displayUrl = blobUrl ?? imageUrl;
+  // 解決順序 (設計 D4): blob (1〜3) → 旧 imageDataUrl (4) → imageUrl (5)
+  const displayUrl = resolvedUrl || imageDataUrl || imageUrl;
   // biome-ignore lint/correctness/useExhaustiveDependencies: 表示 URL 変更時にエラー状態をリセット
   useEffect(() => {
     setImgError(false);
@@ -263,7 +296,10 @@ export function ImageNode({ id, data, selected }: NodeProps) {
         onResizeEnd={onResizeEnd}
       />
       <Handle type="source" position={Position.Top} id="source-top" />
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: drop to replace the image (ANA-117) */}
       <div
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
         style={{
           width: '100%',
           height: '100%',
@@ -387,7 +423,7 @@ export function ImageNode({ id, data, selected }: NodeProps) {
             <span style={{ fontSize: 11, color: '#999' }}>
               画像を読み込めません
             </span>
-          ) : imageBlobCid && !blobUrl ? (
+          ) : blobCid && !displayUrl ? (
             <span style={{ fontSize: 11, color: '#999' }}>
               画像を読み込み中...
             </span>

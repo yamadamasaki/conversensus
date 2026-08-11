@@ -779,3 +779,58 @@ describe('EventStore', () => {
     });
   });
 });
+
+// 画像などのバイナリを置く content-addressed ストア (ANA-116 S2)。
+// cid はここでは計算せず呼び出し側から受け取る (API 境界の責務) ため、
+// テストも「渡した cid が鍵になる」ことを前提に書く。
+describe('EventStore の blob ストア (ANA-116)', () => {
+  const CID_A = 'bafkreibm6jg3ux5qumhcn2b3flc3tyu6dmlb4xa7u5bf44yegnrjhc4yeq';
+  const CID_B = 'bafkreig7jg6oy63mykyfwfiumu3qwxbm3qggzffeidwl7bm2ulq6h7l2ta';
+  const HELLO = new TextEncoder().encode('hello');
+
+  it('格納した blob をバイト列・MIME・サイズごと読み返せる', () => {
+    expect(store.putBlob(CID_A, HELLO, 'image/png')).toBe(true);
+    const got = store.getBlob(CID_A);
+    expect(got).not.toBeNull();
+    expect(Array.from(got?.bytes ?? [])).toEqual(Array.from(HELLO));
+    expect(got?.mimeType).toBe('image/png');
+    expect(got?.size).toBe(HELLO.byteLength);
+  });
+
+  it('同じ cid の再格納は false を返し、内容は変わらない (冪等)', () => {
+    store.putBlob(CID_A, HELLO, 'image/png');
+    // 同じ cid = 同じ内容なので、後から来た方を捨てても結果は変わらない
+    expect(store.putBlob(CID_A, new Uint8Array([0]), 'image/jpeg')).toBe(false);
+    const got = store.getBlob(CID_A);
+    expect(Array.from(got?.bytes ?? [])).toEqual(Array.from(HELLO));
+    expect(got?.mimeType).toBe('image/png');
+  });
+
+  it('cid が違えば別の行として共存する', () => {
+    store.putBlob(CID_A, HELLO, 'image/png');
+    store.putBlob(CID_B, new Uint8Array([1, 2, 3]), 'image/jpeg');
+    expect(store.getBlob(CID_A)?.mimeType).toBe('image/png');
+    expect(Array.from(store.getBlob(CID_B)?.bytes ?? [])).toEqual([1, 2, 3]);
+  });
+
+  it('無い cid は null', () => {
+    expect(store.getBlob(CID_A)).toBeNull();
+  });
+
+  it('0x00 を含むバイト列も欠けずに往復する (BLOB 列であることの確認)', () => {
+    // TEXT 列に落とすと NUL で切れる。画像は必ず 0x00 を含むので致命的になる
+    const bytes = new Uint8Array([0, 1, 0, 255, 0]);
+    store.putBlob(CID_A, bytes, 'application/octet-stream');
+    expect(Array.from(store.getBlob(CID_A)?.bytes ?? [])).toEqual([
+      0, 1, 0, 255, 0,
+    ]);
+  });
+
+  it('ファイルを削除しても blob は残る (blob はファイルに紐づかない)', () => {
+    store.appendBatch(FILE, addNode('b1', 'n1', 'a', 1));
+    store.putBlob(CID_A, HELLO, 'image/png');
+    store.deleteFile(FILE);
+    // 別のファイルや過去のバージョンから参照されうるので、道連れにしてはならない
+    expect(store.getBlob(CID_A)).not.toBeNull();
+  });
+});

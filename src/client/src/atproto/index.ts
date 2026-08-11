@@ -10,10 +10,9 @@ export {
 } from './batchMapper';
 export {
   cacheBlobUrl,
-  createImageDataUrl,
+  fetchRemoteBlob,
   getCachedBlobUrl,
-  isBlobUploadEnabled,
-  resolveBlobUrl,
+  loggedInDid,
   uploadImageBlob,
 } from './blob';
 export type { AtprotoSession } from './client';

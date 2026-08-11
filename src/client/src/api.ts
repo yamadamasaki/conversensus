@@ -1,6 +1,7 @@
 import {
   type Batch,
   BatchSchema,
+  type BlobCid,
   type BranchId,
   type BranchMeta,
   BranchMetaSchema,
@@ -15,6 +16,7 @@ import {
   GraphFileListItemSchema,
   GraphFileSchema,
   type Lamport,
+  type MimeType,
 } from '@conversensus/shared';
 import { z } from 'zod';
 
@@ -180,6 +182,52 @@ export async function deleteBranch(
   if (!res.ok && res.status !== HTTP_NOT_FOUND) {
     throw new Error('Failed to delete branch');
   }
+}
+
+const StoredBlobSchema = z.object({
+  cid: z.string(),
+  mimeType: z.string(),
+  size: z.number(),
+});
+export type StoredBlob = z.infer<typeof StoredBlobSchema>;
+
+/**
+ * ローカル blob ストア (daemon) へバイナリを保存する (ANA-116 S3)。
+ *
+ * content-addressed なので**冪等**である — 同じ内容を 2 回送っても実体は 1 つで、
+ * 返る cid も同じになる。cid はサーバが内容から計算した値であり、クライアントの
+ * 申告ではない。
+ */
+export async function putBlob(
+  bytes: Uint8Array,
+  mimeType: MimeType,
+): Promise<StoredBlob> {
+  const res = await fetch(`${BASE}/blobs`, {
+    method: 'POST',
+    headers: { 'Content-Type': mimeType },
+    body: bytes as unknown as BodyInit,
+  });
+  if (!res.ok) {
+    // サーバの理由 (上限超過など) をそのまま呼び出し元へ渡す。ここで潰すと
+    // ユーザーに「なぜ保存できなかったか」が伝わらなくなる
+    const body = await res.text().catch(() => '');
+    throw new Error(`Failed to store blob (HTTP ${res.status}): ${body}`);
+  }
+  return StoredBlobSchema.parse(await res.json());
+}
+
+/**
+ * ローカル blob ストアから実体を取る。**まだこの端末に無い場合は `undefined`** —
+ * 他端末が作った画像では普通に起こることなので、例外にはしない (呼び出し元は
+ * PDS へ進む)。
+ */
+export async function fetchBlob(cid: BlobCid): Promise<Blob | undefined> {
+  const res = await fetch(`${BASE}/blobs/${cid}`);
+  if (res.status === HTTP_NOT_FOUND) return undefined;
+  if (!res.ok) {
+    throw new Error(`Failed to fetch blob ${cid} (HTTP ${res.status})`);
+  }
+  return await res.blob();
 }
 
 export function exportFile(file: GraphFile): void {

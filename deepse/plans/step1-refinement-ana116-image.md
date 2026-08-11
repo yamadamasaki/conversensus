@@ -1,0 +1,587 @@
+# step1 refinement ANA-116/117: 画像の drag & drop — 診断と設計
+
+> 対象: Linear ANA-116「canvas へのイメージの drag & drop による画像ノードの作成」(GitHub #184)
+> とその子課題 ANA-117「画像を画像ノードへの drag & drop で直接イメージとして貼り付けられない」
+> (GitHub #185)。
+>
+> ANA-116 の本文には「step 0 でいろいろ試行錯誤し (主に画像データをどこに持つかという問題),
+> step 0 の最後には実装されていた。step 1 ではアーキテクチャが大きく変わったので, 画像データの
+> 置き場がなくなっているので機能していないのだと思われる」とある。本書はこの見立てを裏取りし,
+> **置き場を決め直す**ためのものである (ANA-107 / ANA-118 / ANA-119 と同じ進め方)。
+>
+> **2026-08-10: §4 の方針 (D1/D5) はユーザー確認済 — 「blob 正典 + op-log は参照だけ」,
+> 「未ログイン (ローカルのみ) でも画像が使えること」。S1 の実験は実施済で U1/U2/U4 は確定
+> (§8, §10)。D2 は D2a (batch レコードの ops に blob ref を埋める) に確定。
+> **全スライス実装済** (S2 ローカル blob ストア / S3 作成・表示経路 / S5 PDS への
+> blob push / S6 既存ノードへの drop・paste)。旧 S4 は S3 へ統合した (§5「S3 の設計」)。
+> 各スライスの「学んだこと」を §5 に残してある。
+> **2026-08-11: 実機 UI で通しの検証も完了** (§5「実機 UI での通し検証」)。**
+
+---
+
+## 1. 結論
+
+**ユーザーの見立てのとおりだった。ただし「機能が消えた」のではなく「置き場だけが消えた」。**
+drag & drop / paste の UI コードは step0 のまま残っている (`GraphEditor.tsx:543-683`)。
+step1 で外れたのは画像バイナリの行き先で, 症状は 3 つに分かれる。
+
+| # | 症状 | 原因 |
+|---|---|---|
+| 1 | 他端末・再起動後に画像が出ない | **blob を pin するレコードが無い**。ATProto の blob はどのレコードからも参照されないと永続化されないが, `lexicons/` の 10 個のレコード定義に blob 型のフィールドが 1 つも無い |
+| 2 | op-log が画像 1 枚で数 MB 肥大する | 代わりに **base64 (`imageDataUrl`) が op の properties に載り**, batch レコードごと PDS へ push されている |
+| 3 | 未ログインだと**ノードすら作られない** | 3 経路とも `uploadImageBlob` を無条件に呼ぶ。セッションが無いと失敗し, `catch` が `console.error` するだけ |
+
+つまり **step1 現在, 画像の実際の置き場は op-log の base64 だけ**である。
+blob は upload されるが誰も参照しないので孤児になる。
+
+**方針: バイナリは blob を正典とし, op-log には参照だけを載せる。**
+step0 が試行錯誤の末に辿り着いた結論 (blob) を, step1 の「op-log が正典」というアーキテクチャに
+載せ直す。ログインしていない環境のために **daemon 側にも content-addressed な blob ストアを置く**。
+
+---
+
+## 2. 診断 (すべてコードで確認済)
+
+### 2.1 blob を pin するレコードが無い
+
+`lexicons/app/conversensus/graph/` には file / sheet / node / edge / nodeLayout / edgeLayout /
+branch / commit / merge / batch の 10 定義があるが, **`blob` 型のフィールドは 1 つも無い**
+(`grep -rl blob lexicons/` が空)。
+
+ANA-93 の `76ae67d feat(atproto): NodeRecord に blob 型 image フィールドを追加` で `node.json` に
+入れた image フィールドは, Phase 6 の snapshot レコード退役と一緒に消えている。
+step1 で PDS へ push されるのは **`app.conversensus.graph.batch` レコードだけ**なので,
+blob を pin する場所が 1 つも残っていない。
+
+ATProto の `uploadBlob` は blob を**一時領域に置くだけ**で, レコードから参照されて初めて永続化
+される。したがって `uploadImageBlob` (`src/client/src/atproto/blob.ts:10`) は成功しても,
+その CID は**どこからも参照されないまま**になる。
+
+### 2.2 base64 が op-log に載り, PDS へ push されている
+
+`e351f4a feat(graph): 画像の data URL 永続化を追加` で入った `createImageDataUrl`
+(`blob.ts:40`) が, 画像バイト列を base64 の data URL にして
+`properties.imageDataUrl` に入れている。これは:
+
+- `node.add` の `properties` に載る (`toUnified.ts:100-113`)
+- `node.add` は structure カテゴリ, `node.setProperties` は content カテゴリで,
+  どちらも `isSyncable` = true (`unified.ts:228`, presentation 以外はすべて同期対象)
+- → **batch レコードの `ops` に丸ごと入って PDS へ push される**
+
+op-log は追記専用で, 全端末が range fetch して projection する。**画像 1 枚ぶんの base64 が
+恒久的に全端末へ配られ続ける**。PDS のレコードサイズ上限にも当たる (実値は §8 U4)。
+
+### 2.3 未ログインだと何も起きない
+
+paste (`GraphEditor.tsx:543`) / Cmd+V (`:596`) / drop (`:652`) の 3 経路とも,
+最初に `uploadImageBlob` を呼ぶ。`getAgent()` はセッションが無くてもエージェント自体は返すので,
+失敗するのは `uploadBlob` の呼び出し時 (認証エラー) である。3 経路とも `try/catch` で囲まれて
+いて **`console.error` するだけ** — `addNode` に到達しないので**ノードが 1 つも作られない**。
+
+ガードとして書かれた `isBlobUploadEnabled()` (`blob.ts:91`) は **`atproto/index.ts` の
+re-export 以外にどこからも呼ばれていない**。ガードが外れた状態である。
+
+### 2.4 daemon 側にも置き場が無い
+
+`src/server/src/index.ts` のルートは files / batches / commits / branches のみで, blob 相当の
+エンドポイントは無い。永続層 (`eventStore.ts`) のテーブルも batches / commits / branches /
+file_migrations の 4 つだけ。**ローカルにバイナリを置く場所がそもそも無い**。
+
+これが 2.2 の base64 が入った理由でもある — 他に置き場が無かった。
+
+### 2.5 ANA-117: 既存の画像ノードへ落とす経路が無い
+
+`onDrop` は React Flow のコンテナに付いていて (`GraphEditor.tsx:760`), **常に新規ノードを作る**。
+`ImageNode.tsx` には `onDrop` も `onPaste` も無い。既存ノードの上に落としても,
+そのノードの画像が差し替わるのではなく重なった位置に別のノードができる。
+
+---
+
+## 3. 前提の確認 (コードで確認済)
+
+1. **`ops` が `unknown` 型でも blob ref は blob として認識される。**
+   `@atproto/lexicon` の `ipldToLex` (`dist/serialize.js:41-67`) は**レキシコン定義を見ずに
+   ツリー全体を再帰的に歩き**, `{$type:'blob', ref, mimeType, size}` に一致した部分オブジェクトを
+   `BlobRef` インスタンスへ変換する。`batch.json` の `ops` は `"type": "unknown"` だが,
+   中に埋めた blob ref は素通しにはならない
+2. **罠: `{cid, mimeType}` だけを持つオブジェクトも blob ref と誤認される。**
+   `untypedJsonBlobRef` (strict) に一致するため。op の properties に**この 2 キーだけの
+   オブジェクトを置いてはならない**。現行の `imageBlobCid` / `imageBlobMimeType` は
+   フラットな別キーなので該当しない
+3. **properties は op-log を最後まで運ばれる。** `node.add` (`project.ts:93-101`) も
+   `node.setProperties` も projection で Sheet のノードへそのまま載り, `graphTransform.ts:151`
+   が React Flow の `data.properties` へ渡す。`ImageNode` はここから読んでいる
+4. **差分計算は properties を比較する** (ANA-119 S2 の `computeSheetChanges`)。
+   参照が小さいほど差分・commit・merge のすべてが軽くなる。base64 は差分比較でも不利
+5. **ローカル永続層は `bun:sqlite`** (`eventStore.ts`), クライアントの API base は
+   `VITE_API_BASE ?? 'http://localhost:3000'` (`api.ts:21`)
+
+---
+
+## 4. 設計方針
+
+### D1: 画像は content-addressed な blob, op-log には参照だけ (確定)
+
+op の properties に載せるのは**参照のみ**とする。形は **ATProto の blob ref そのもの**である
+(理由は D2):
+
+```typescript
+properties: {
+  image: {
+    $type: 'blob',
+    ref: { $link: cid },   // CIDv1 / raw / sha-256。バイト列から決まる
+    mimeType: string,
+    size: number,
+  },
+}
+```
+
+- `{cid, mimeType}` の 2 キーだけのオブジェクトは**別の意味を持つ**ので使わない (§3 の罠)
+- **`imageDataUrl` は新規に書かない**。既存データを表示する読み取り互換だけ残す (D4)
+- 識別子が content-addressed なので, 同じ画像を 2 回落としても実体は 1 つ (重複排除が自然),
+  かつ端末をまたいで同じ識別子になる
+
+**識別子は ATProto の blob CID に揃える (S1 で確定)。** blob CID は
+**CIDv1 / raw (0x55) / sha-256 でバイト列から決まる**ことを実測した (§10 U2)。
+ローカルで計算した値と `uploadBlob` の戻り値が完全に一致するので, **ローカル blob ストアと
+PDS で 1 つの識別子を共有できる** — 対応表は要らない。
+アップロードしていない画像にも, 先に確定した CID を付けられる。
+
+### D2: PDS 上で blob を pin する方法 → **D2a に確定 (S1 で実証)**
+
+**batch レコードの `ops` の中に `{$type:'blob', ref:{$link}, mimeType, size}` を埋める。**
+`ops` は lexicon 上 `unknown` だが, **PDS はその中の blob ref を確かに pin する** —
+レコード書込の前後で `com.atproto.sync.listBlobs` に当該 CID が現れることを実測した (§10 U1)。
+読み戻したレコードでも blob ref の形は保たれていた。
+
+これで op-log 正典を保てる (レコード種別が増えない)。branch / merge の再スタンプ追記で
+同じ blob ref が複数のレコードに載るのは, pin としてはむしろ堅い。
+
+退けた案: 専用の `app.conversensus.graph.image` レコードを別に作る案 (D2b)。
+pin は確実だが, Phase 6 で退役させた「op-log の外のレコード」が復活する。
+U1 が肯定されたので採らない。
+
+したがって op の properties は **blob ref の形そのもの**を持つ:
+
+```typescript
+properties: {
+  image: { $type: 'blob', ref: { $link: cid }, mimeType, size },
+}
+```
+
+ローカル projection 側はこれをただの `properties` として素通しする (Sheet には参照だけが残る)。
+未ログインで作った画像も**同じ形**で書ける — CID がバイト列から決まるので (D1),
+アップロード前に blob ref を完成させられるからである。
+
+### D3: daemon にローカル blob ストアを置く
+
+```
+POST   /blobs            body = bytes, Content-Type = mimeType  → { cid, mimeType, size }
+GET    /blobs/:cid       → bytes (Content-Type: mimeType)
+```
+
+- `bun:sqlite` に `blobs` テーブルを足す (`cid TEXT PRIMARY KEY, mime_type TEXT, size INTEGER, bytes BLOB`)。
+  DB 1 つで完結するのでリセット手順 (user-test-environment.md) が今のまま通る。
+  ファイル実体を `DATA_DIR` に置く案との比較は §8 U3
+- content-addressed なので `POST` は**冪等** — 同じ内容なら同じ cid を返して上書きしない
+- **ファイル (`fileId`) には紐づけない**。blob は content-addressed な共有ストアで,
+  どのファイル・どの端末から参照されてもよい
+
+### D4: 表示側の解決順序
+
+`ImageNode` の解決順を次のとおりにする:
+
+1. メモリキャッシュ (`getCachedBlobUrl`, アップロード直後)
+2. **ローカル blob ストア** (`GET /blobs/:cid`) ← 新規
+3. PDS `getBlob` (他端末が作った画像で, ローカルにまだ無いとき)
+4. `imageDataUrl` (**旧データの読み取り互換のみ**)
+5. `imageUrl` (URL 指定の画像。従来どおり)
+
+3 で取れた blob は 2 へ書き戻してよい (次回以降ローカルで解決できる)。→ S4 で判断。
+
+### D5: 未ログインでも作れる。PDS への送り出しは同期経路に寄せる (確定)
+
+- **作成時に PDS を触らない**。drop / paste はローカル blob ストアへ保存 → 参照を持つ
+  `NODE_ADDED` を dispatch する。ここまでログイン不要
+- PDS への `uploadBlob` は **batch を push する経路の前段**で行う。
+  「push しようとしている batch の ops が参照する blob のうち, まだ PDS に無いものを先に upload する」
+- **順序を守らないと push が失敗する。** blob を上げる前に blob ref を含むレコードを書こうとすると
+  PDS が `Could not find blob: <cid>` で**拒否する**ことを実測した (§10)。
+  壊れたレコードができるより安全だが, 順序を間違えるとその batch は**再送し続けて outbox に
+  詰まったままになる**。`remoteSyncQueue` / outbox の送信経路に手を入れる箇所である → S5
+- **CID は upload 前に確定できる** (D1) ので, 未ログインで作った op も**同じ形のまま**後から
+  push できる。後で書き換える必要は無い
+
+### D6: ANA-117 — 既存の画像ノードへの drop / paste
+
+`ImageNode` に drop ハンドラを付け, 落とされた画像を D3 の経路で保存してから
+`NODE_PROPERTIES_CHANGED` (content) を dispatch する。
+canvas 側の `onDrop` と二重に発火しないよう `stopPropagation` する。
+paste は「画像ノードが選択されているならそのノードへ, いなければ新規ノード」とする。
+
+### D7: サイズ上限
+
+実測値 (§10 U4, ローカル PDS):
+
+| 対象 | 上限 |
+|---|---|
+| blob | **5 MiB (5,242,880 バイト) ちょうど**。+1 バイトで `request entity too large` |
+| レコード (リクエストボディ全体) | **1,000,000 バイト前後** (960KB は通り 1000KB は通らない) |
+
+**この 2 つの差が今回の設計の根拠そのものである。** 現行の base64 方式では画像 1 枚が
+レコード上限 (約 1MB) に直接当たり, base64 は 4/3 に膨らむので **700KB を超える画像は
+push できない**。blob へ逃がせば 5 MiB まで扱えて, しかもレコード側は参照ぶんの数百バイトで済む。
+
+クライアント側は **5 MiB を超える画像を保存前に弾き, 理由をユーザーに伝える**
+(今のように黙って失敗させない)。縮小・変換は非目標 (§7)。
+
+> 上限は PDS の設定値なので, 本番 (Hetzner) と一致するとは限らない。クライアントの定数は
+> 実測値をそのまま使い, 超過時のエラーは PDS の応答も拾って表示する。
+
+---
+
+## 5. 実装スライス (草案)
+
+| ID | 内容 | 主な変更先 |
+|---|---|---|
+| ~~**S1**~~ | ~~**実験**: 実機 PDS で U1/U2/U4 を実測する~~ **完了 (2026-08-10, §10)**。D2a / CID 共有 / 上限が確定した | 使い捨てスクリプト (コミットしない) |
+| ~~**S2**~~ | ~~daemon のローカル blob ストア~~ **完了 (commit `7058176`)**。下の「S2 で学んだこと」 | `src/shared/src/blob.ts` (新規), `src/server/src/eventStore.ts`, `index.ts` |
+| ~~**S3**~~ | ~~**作成経路と表示経路をまとめて切り替える** (旧 S4 を統合)。3 経路 (drop/paste/Cmd+V) をローカル保存 → `NODE_ADDED`。未ログインで動く。`imageDataUrl` は新規に書かない。サイズ超過を弾く。表示は D4 の解決順序にし, 旧データの読み取り互換を保つ~~ **完了 (commit `ae531e6`)**。下の「S3 で学んだこと」 | `images/imageBlob.ts` (新規), `api.ts`, `GraphEditor.tsx`, `ImageNode.tsx`, `atproto/blob.ts` |
+| ~~**S4**~~ | ~~表示側の解決順序 (D4)~~ **S3 に統合した** (下の「S3 の設計」) | — |
+| ~~**S5**~~ | ~~PDS への blob push を同期経路に組み込む (D5 の順序保証)。D2 の結論に従い pin する~~ **完了 (commit `e6a663b`)**。下の「S5 で学んだこと」 | `images/imageBlob.ts`, `atproto/atprotoSyncProvider.ts`, `hooks/useRemoteSyncQueue.ts` |
+| ~~**S6**~~ | ~~ANA-117: 既存の画像ノードへの drop / paste~~ **完了 (commit `096da2c`)**。下の「S6 で学んだこと」 | `ImageNode.tsx`, `images/pasteTarget.ts` (新規), `images/imageErrorContext.ts` (新規), `GraphEditor.tsx` |
+
+S1 は**コードを変えない実験**だった。U1 が肯定されたので D2a で進む (S5 の形が決まった)。
+実装は **S2 から**である。
+
+旧 `imageDataUrl` データの blob への一括移行は**非目標** (§7)。読み取り互換だけ残す。
+
+### S2 で学んだこと
+
+1. **U3 は SQLite の BLOB 列に決めた。** 上限が 5 MiB と分かっているので無理が無く,
+   DB 1 つで完結するのでリセット手順 (user-test-environment.md) が今のまま通る。
+   代わりに **0x00 を含むバイト列が欠けずに往復すること**をテストで固定した —
+   TEXT 列に落ちていると NUL で切れ, 壊れた画像が静かにできる
+2. **cid の計算は API 境界 (HTTP) の責務にした。** `computeBlobCid` は
+   `crypto.subtle` を使うので非同期だが, `EventStore` のメソッドはすべて同期である。
+   境界で計算して `putBlob(cid, bytes, mimeType)` へ渡す形にすると, 永続層の性質を
+   変えずに済む。`appendBatch` が UUID 検証を境界に委ねているのと同じ方針
+3. **`crypto.subtle.digest` に `Uint8Array` をそのまま渡せない** (型の上で
+   `Uint8Array<ArrayBufferLike>` が `BufferSource` に嵌らない)。**`.buffer` に
+   逃げてはならない** — subarray の `byteOffset` / `byteLength` を落として別の値を返す。
+   キャストで通し, **subarray でも範囲どおりの CID になることをテストで固定**した
+4. **blob をファイルに紐づけない**設計の実効は `deleteFile` のテストで見える。
+   同じ画像が複数のファイル・複数のバージョンから参照されうるので, 道連れにできない
+5. **テストの CID ベクタは実機 PDS から取った。** ここは「PDS と一致すること」自体が
+   仕様なので, 推測値や自前実装同士の突き合わせでは意味がない
+
+### S3 の設計 (2026-08-10 確定)
+
+#### なぜ旧 S4 を統合したか
+
+D1 の新形式 (`properties.image`) で**書く**と, 既存の `ImageNode` (flat な
+`imageBlobCid` / `imageBlobMimeType` を読む) では**読めない**。S3 の受入基準は
+「未ログインで drop すると画像ノードができ, **画像が表示される**」なので,
+書き込みだけを切り替えると**この基準を S3 単体で満たせない**。
+加えて `ImageNode` は `imageBlobCid` があると無条件に `currentDid()` を呼ぶが,
+これは未ログインで throw する — **表示側も未ログインに対応していない**。
+書き込みと読み取りは同じ 1 つの約束 (properties の形) の裏表なので, 分けずに 1 スライスにする。
+
+#### モジュール構成と責務
+
+| 置き場 | 責務 |
+|---|---|
+| `src/client/src/images/imageBlob.ts` (新規) | **画像を受け取ってから op になるまでの判断すべて**。`File` / `Blob` → bytes → サイズ検証 → ローカル保存 → blob ref (`properties.image`) の組み立て。`ImageNode` が使う「properties から blob ref を読む」も同じモジュールに置く (書く形と読む形を 1 箇所で決める) |
+| `src/client/src/api.ts` | daemon への HTTP を足すだけ (`putBlob` / `blobObjectUrl`)。既存の薄い fetch ラッパの集合という性格を保つ |
+| `GraphEditor.tsx` | 3 経路のイベント配線と位置決めだけ。判断は持たない。エラーは `AlertDialog` で出す |
+| `ImageNode.tsx` | D4 の解決順序 |
+| `atproto/blob.ts` | PDS 側だけ。`createImageDataUrl` / `isBlobUploadEnabled` を削除し, `uploadImageBlob` は S5 用に残す |
+
+**なぜローカル blob ストアを `atproto/` に置かないか**: ローカルストアは daemon の機能で
+ATProto とは無関係だからである。識別子 (CID) を共有しているだけで, 依存の向きは逆になる。
+
+#### properties の形 (D1 のとおり)
+
+```typescript
+properties: {
+  image: { $type: 'blob', ref: { $link: cid }, mimeType, size },
+}
+```
+
+`z.record(z.string(), z.unknown())` なのでスキーマは通る (確認済)。
+`size` は**必ず書く** — 現行の Cmd+V 経路だけ `imageBlobSize` を落としているが,
+blob ref としては欠かせない。3 経路を 1 関数に寄せることで自然に直る。
+
+#### 表示の解決順序 (D4)
+
+1. メモリキャッシュ (`getCachedBlobUrl`)
+2. **ローカル blob ストア** (`GET /blobs/:cid`)
+3. PDS `getBlob` — **ログイン時のみ**。未ログインでは `currentDid()` を呼ばずに飛ばす
+4. 旧データ互換: flat な `imageBlobCid` / `imageDataUrl` (**読み取りのみ**)
+5. `imageUrl`
+
+**3 で取れた blob は 2 へ書き戻す。** `POST /blobs` は冪等で content-addressed なので
+安全であり, 次回以降オフラインでも表示できる。書き戻しの失敗は表示を妨げない (best effort)。
+
+#### エラーの伝え方
+
+`GraphEditor` にローカル state を持たせ, 既存の `AlertDialog` を描画する。
+`GraphEditorProps` は既に 14 フィールドあり, これ以上増やしたくない。
+出す条件は **5 MiB 超** と **ローカル保存の失敗** の 2 つで, 今のように
+`console.error` で握り潰さない (D7)。サーバの 413 応答の本文も拾って表示する。
+
+#### この時点でやらないこと
+
+- **PDS への upload はしない** (D5)。作成時に PDS を触らないのが要件そのものである
+- 複数画像の同時 drop は**現行どおり 1 枚だけ**扱う (`break`)。仕様変更は本課題の範囲外
+- 旧 flat 形式のデータを新形式へ**書き換えない**。読めれば十分である (§7)
+
+### S3 で学んだこと (2026-08-11, commit `ae531e6`)
+
+1. **`isBlobUploadEnabled` は dead であるだけでなく壊れていた。** 初回の
+   `currentDid()` の結果を module 変数にキャッシュしていたので, 未ログインで起動した
+   セッションでは**ログインしても false のまま**だった。ログイン状態は実行中に変わるので
+   記憶してはならない。撤去して, 毎回問い直す `loggedInDid()` に置き換えた
+2. **Object URL の所有権を型で表した。** 解決結果に `fromCache` を持たせ,
+   「共有キャッシュの持ち物は revoke してはならない」を呼び出し元に伝えている。
+   旧 `ImageNode` はこれを 3 個の ref (`blobUrlRef` / `blobUrlFromCache` /
+   `startsWith('blob:')` 判定) で表現しており, 分岐が絡まっていた
+3. **effect の依存には原始値だけを置く。** `properties` はオブジェクトなので
+   再レンダリングごとに同一性が変わりうる。`readImageBlobLocation` の戻り値を
+   そのまま依存に置くと解決が回り続ける — cid と mimeType に分解してから渡す
+4. **エラーメッセージは MiB だけでは足りなかった。** 上限ぎりぎりの画像で
+   「5.0 MiB, 上限は 5.0 MiB です」と出てしまい, 同じ値に見えて理由が伝わらない。
+   バイト数を併記して直した。**実機で落として初めて分かった** — 単体テストは
+   「投げること」しか見ておらず, 文面の妥当性は人が読むまで分からない
+5. **PDS から取った blob はローカルへ書き戻す** (D4 の 3 → 2)。content-addressed で
+   冪等なので安全である。失敗しても表示は妨げない (best effort) — 書き戻しは
+   次回の高速化であって, 今回の表示の条件ではないため
+6. **依存を引数で差し込める形にしてテストした** (`SaveImageDeps` / `ResolveImageDeps`)。
+   解決順序は「どこを何番目に見るか」が仕様そのものなので, 各段の呼ばれ方を
+   観測できないと固定できない
+
+### S5 で学んだこと (2026-08-11, commit `e6a663b`)
+
+**掛ける場所は `AtprotoSyncProvider`** にした。レコードを書くのはここ 1 箇所
+(`pushRemote` と移行用の `createRemote`) なので, 順序の保証がこのクラスの中で閉じる。
+`RemoteSyncQueue` に掛けると, 移行 (`createRemote` はキューを迂回する) が漏れる。
+
+`uploadBlobs` は**必須の依存**にした。省略できると, 配線を忘れた瞬間に「画像を含む
+batch だけが outbox に詰まり続ける」形で静かに壊れる。既存のテスト 21 箇所は
+`makeProvider` ヘルパ経由で no-op を渡す。
+
+#### 実 PDS で確かめたこと (使い捨てスクリプト, コミットしない)
+
+1. **`listBlobs` は pin 済の blob しか返さない。** upload しただけの blob は現れない。
+   「レコードを書く前に blob が PDS にあること」を `listBlobs` では確かめられない —
+   確かめられるのは**負の対照**である: 上げていない blob を参照するレコードは
+   `Could not find blob` で拒否され, 先に上げた分は通る。この 2 つが対で受入基準 1 になる
+2. **負の対照に実在の CID を使ってはならない。** 最初 `hello` の CID を使ったところ,
+   S1 の実験で既に上げてあったため `Referenced Mimetype does not match stored blob` で
+   落ちた。**別の理由で落ちているのに対照が成立したように見える。** 毎回ランダムな
+   バイト列から `computeBlobCid` で作る
+3. **PDS は blob ref の `mimeType` を実体と突き合わせる。** 上と同じ観測の裏返しで,
+   参照側の mimeType を勝手に決めてはいけない (実装は upload 時と同じ値を使っている)
+4. **SDK が読み戻す ops の blob ref は `BlobRef` クラスのインスタンスである。**
+   `$type` は `original` の下に隠れ, `ref` は CID オブジェクトなので `$link` が無い。
+   したがって `readImageBlobLocation` は**そのままでは読めない**。受信経路は
+   `appendReceived` の body で JSON にしてから daemon へ渡すので, 正典に入る時点では
+   素の形に戻り, 表示は成立する。**受信した ops をメモリ上で直接検査する処理を
+   足すときは, この境界を通してからにすること**
+5. 同じ理由で, 受信した batch を再 push しても `collectImageBlobRefs` は何も拾わない
+   (BlobRef インスタンスは新形式と判定されない)。**害は無い** — その blob は既に
+   PDS にあるのでレコードは通る。ただし「拾えている」と誤解しないこと
+
+受入基準 2 (別端末が PDS 経由で表示できる) は, 未ログインの新しい agent で
+レコードを読み直し → JSON 境界を通して blob ref を復元 → `getBlob` で
+同じバイト列が取れることまで確認した。
+
+### S6 で学んだこと (2026-08-11, commit `096da2c`)
+
+1. **`node.setProperties` は置換意味論なのに, `NODE_PROPERTIES_CHANGED` は差分の形を
+   している。** `events/toUnified.ts` の冒頭に既知の制約として書かれており, projection は
+   `node.properties = op.properties` で丸ごと置き換える。したがって差し替えの op には
+   **置き換え後の全体**を載せなければならない。`from` も同じで, `invertEvent` は
+   from と to を入れ替えるだけなので片方が差分だと undo で properties が欠ける
+2. **既存の URL 入力 (`commitUrl`) が同じ穴に落ちていた。** `to: { imageUrl }` だけを
+   載せていたので, 画像 blob 参照を持つノードで URL を編集すると**画像が消えた**。
+   S6 で画像ノードが日常的に blob 参照を持つようになるため, ここで直した
+3. **差し替えでは旧形式の画像キーを落とす。** 残す意味が無いだけでなく, `imageDataUrl`
+   (base64) を持ち回すと差し替えのたびに base64 が**新しい op へ載り直す** —
+   S3 で止めたはずのものが復活し, レコード上限 (約 1 MB) に当たる
+4. **貼り付け先は「画像ノードがちょうど 1 つ選択されているとき」だけ。** 複数選択で
+   そのうちの 1 つが差し替わると, どれが変わるか利用者に予測できない。0 個・複数は
+   新規ノードを作る側に倒す。規則を `images/pasteTarget.ts` に切り出したのは,
+   `GraphEditor` を描画せずに境界条件を確かめられるようにするためである
+5. **`ImageNode` へは props を渡せない** (React Flow が `nodeTypes` 経由で描く)。
+   エラー表示は context で降ろし, ダイアログは `GraphEditor` の 1 つに集めた。
+   `GraphEditorProps` を増やさない方針は S3 から変えていない
+6. **`mock.module` のスタブは「使っていない export」も欠かせない。** bun のモジュール
+   モックはテストファイルをまたいでグローバルに効くので, `@xyflow/react` のスタブから
+   `MarkerType` が抜けていると, 同じ実行の中で `graphTransform` を読む別のテストが
+   解決に失敗する。**自分のテストは通るのに他人のテストが落ちる**形で出る
+
+### 実機 UI での通し検証 (2026-08-11)
+
+S5 までは使い捨てスクリプト経路で実 PDS を確かめてあったが, **実際の配線
+(`useRemoteSyncQueue` → tap → `AtprotoSyncProvider`) と UI 操作は未確認**だった。
+dev サーバ (`bun run dev:server` / `dev:client`) とローカル PDS で通した結果を残す。
+
+| 経路 | 結果 |
+|---|---|
+| 未ログインでキャンバスへ drop | ノードが作られ画像が表示される (D5) |
+| その op-log | `properties.image` は blob ref のみ。`imageDataUrl` / base64 は 0 件。ファイル全体の op-log が 887 バイト |
+| daemon の blob ストア | `GET /blobs/:cid` が `image/png` を返し, バイト数と PNG マジックが一致 (D3) |
+| 既存ノードへ drop | ノードは増えず `node.setProperties` に置換後の全体が載る (D6) |
+| 画像ノードを 1 つ選択して paste | 同じノード ID の差し替えになる |
+| 選択なしで paste | `node.add` + `node.setLayout` で新規ノード |
+| リロード | blob ストアから復元されて描画される (D4) |
+| 5 MiB 超の drop | ノードは作られず「画像が大きすぎます (8.4 MiB / 8,808,967 バイト)。上限は 5.0 MiB / 5,242,880 バイト です」 (D7) |
+| **ログイン後の push** | 6 枚すべてが PDS に **pin 済** (`listBlobs` に載る) で, `getBlob` のバイト列が op 上の `size` と一致。UI は「クラウド同期済み」 |
+
+**最後の 1 行が D5 の順序保証の実配線での確証である。** 未ログインのうちに作った 6 枚は
+アプリを触ってログインしただけで push が通った — blob をレコードより先に上げていなければ
+PDS が `Could not find blob` で拒否し, batch は outbox に詰まったままになる (§10 の副産物)。
+
+**検証手順として残す 2 点:**
+
+1. **合成 drop は最深要素に当てる。** `.react-flow__node` (外枠) へ `DragEvent` を投げると
+   内側の差し替えハンドラ (`ImageNode` の div) を通らず, 祖先の canvas 側 `onDrop` に流れて
+   **新規ノードが作られる**。実際のカーソルが当たる要素 — `document.elementFromPoint` が
+   返す最深要素 — に投げると差し替えになる。**これを実装のバグと読み違えない**
+2. **重なったノードの中心は他ノードの角と一致しうる。** 新規ノードは前のノードから
+   一定量ずらして置かれるので, ノード中心の `elementFromPoint` が隣のノードを拾うことがある。
+   幅 25% / 高さ 60% のような**内側の点**を使う
+
+**PDS の後始末**: S5 の使い捨て E2E スクリプトが書いた合成ファイル
+(`fileId=99999999-…`, actor `#e2e`) は `sheetId` を持たないため,
+`scripts/inspect-remote-batches.ts` の「sheetId 往復」が 2 件で FAIL する。
+**アプリ経由の batch は全件 PASS** で, 原因はスクリプト側にある。
+
+---
+
+## 6. 受入基準 (草案)
+
+### 共通
+
+- lint / typecheck / test がすべてパスする
+- 変更したモジュールに単体テストと `.test.md` がある
+
+### S2
+
+- 同じバイト列を 2 回 POST しても行が 1 つで, 同じ cid が返る
+- `GET /blobs/:cid` が正しい Content-Type とバイト列を返す
+- 存在しない cid は 404
+
+### S3 (旧 S4 を統合)
+
+作成側:
+
+- **未ログインの状態で** canvas に画像を drop すると画像ノードができ, 画像が表示される
+- drop / paste / Cmd+V の 3 経路とも同じ形の properties を書く (`size` を含む)
+- op-log の `node.add` の properties に **base64 が入っていない** (参照のみ)
+- 上限を超える画像を落とすと, ノードを作らずにユーザーへ理由が伝わる
+
+表示側:
+
+- 旧データ (`imageDataUrl` / flat な `imageBlobCid` を持つノード) がそのまま表示できる
+- ローカル blob ストアに実体があれば PDS を触らずに表示できる
+- 未ログインでも `currentDid()` を呼ばない (throw させない)
+
+### S5
+
+- batch が PDS に載る前に, その batch が参照する blob が PDS に載っている
+- 別端末が PDS 経由でその画像を表示できる (実機 e2e)
+
+### S6
+
+- 既存の画像ノードへ画像を落とすと**そのノードの画像が差し替わり**, 新規ノードはできない
+- 差し替えが op-log に `node.setProperties` として 1 件載る
+
+---
+
+## 7. 非目標
+
+- **画像の縮小・形式変換・EXIF 除去**。上限を超えるものは弾くだけにする
+- **旧 `imageDataUrl` データの blob への移行**。読み取り互換のみ
+- **blob の GC** (参照が消えた blob の削除)。op-log は追記専用で過去のバージョンからも
+  参照され得るため, 削除の判断は別課題とする (§8 U5)
+- **画像以外のファイル添付**
+- PDS 未ログイン時の**端末間**同期 (そもそも同期経路が無い)
+
+---
+
+## 8. 未決事項
+
+| ID | 問い | 状態 |
+|---|---|---|
+| **U1** | PDS は `unknown` フィールド (`ops`) の中にある blob ref を pin するか | **確定: pin する** (§10) |
+| **U2** | blob CID はバイト列から決まるか。ローカルで同じ値を計算できるか | **確定: 決まる。完全に一致する** (§10) |
+| **U3** | ローカル blob の実体を SQLite の BLOB 列に置くか, `DATA_DIR` のファイルに置くか | **確定: SQLite の BLOB 列** (S2) |
+| **U4** | PDS のレコード上限 / blob 上限の実値 | **確定: blob 5 MiB / レコード 約 1,000,000 バイト** (§10) |
+| **U5** | 参照されなくなった blob をどうするか | **本 PR では非目標**。S6 完了時に別課題として起票するか判断する |
+
+---
+
+## 9. 決定記録
+
+- **2026-08-10 D1 (画像の置き場)**: 「blob 正典 + op-log は参照だけ」を採用。
+  代替案「op-log に base64 を載せ続ける (上限付き)」は実装が最小だが, 追記専用ログに
+  バイナリが恒久的に残り全端末へ配られ続けるため退けた。「ハイブリッド (小さい画像は
+  data URL)」は差分・同期・解決順序の場合分けが二重になるため退けた
+- **2026-08-10 D5 (未ログイン)**: ローカルのみでも画像を使えることを要件とした。
+  このため作成時に PDS を触らない設計とし, PDS への送り出しは同期経路へ寄せた
+- **2026-08-10 D2 (pin 方法)**: S1 の実測により D2a (ops に blob ref を埋める) に確定。
+  D2b (専用 image レコード) は不要になった
+- **2026-08-10 S3/S4 の統合**: 書く形 (D1) を変えると既存の読み手が読めなくなり,
+  S3 の受入基準「画像が表示される」を単体で満たせないことが分かったため 1 スライスに統合した。
+  代替案「S3 の受入基準から表示を外す」は, 途中の commit で画像が表示されない状態が
+  残るので退けた
+- **2026-08-10 判断の置き場**: 画像を受け取ってから op になるまでの判断を
+  `images/imageBlob.ts` に集め, `GraphEditor` には配線と位置決めだけを残すことにした。
+  ローカル blob ストアは daemon の機能なので `atproto/` には置かない
+
+---
+
+## 10. S1 実験の結果 (2026-08-10)
+
+ローカル PDS (`infra/pds`, `alice.test`) に対して実測した。スクリプトは使い捨てで残していない。
+
+### U2: blob CID はバイト列から決まる — **一致した**
+
+`CIDv1 / raw (0x55) / sha-256` でローカル計算した CID と `uploadBlob` の戻り値が完全に一致した。
+
+```
+ローカル計算: bafkreic3swyzactei6wdobyc5ebtks7pmrjjycecpzzo7klzmrnscpetbi
+PDS の戻り値: bafkreic3swyzactei6wdobyc5ebtks7pmrjjycecpzzo7klzmrnscpetbi
+```
+
+→ **ローカル blob ストアと PDS で識別子を共有できる。対応表は要らない。**
+さらに**アップロードより先に CID を確定できる**ので, 未ログインで作った op を後から
+そのまま push できる (書き換え不要)。
+
+### U1: `ops` (unknown) 内の blob ref は pin される — **される**
+
+`com.atproto.sync.listBlobs` が, batch レコードを書く前は当該 CID を含まず, 書いた後は含んだ。
+読み戻したレコードでも blob ref の形は保たれていた。
+
+**`BlobRef` インスタンスでも素の JSON でも同じ結果**だった。実装は op-log (SQLite に JSON 文字列)
+から読んだ ops をそのまま push するので, 後者が確認できたことが重要である。
+
+### 副産物: 未 upload の blob を参照するレコードは PDS が拒否する
+
+```
+Could not find blob: bafkreih3y7yip7oqq5zwfc452mc36hxer6lhd53tyouznauzrxvnbjgzva
+```
+
+壊れたレコードができるより安全だが, **順序を間違えるとその batch は再送し続けて outbox に
+詰まったままになる**。D5 の順序保証は「あった方がよい」ではなく**必須**である。
+
+### U4: サイズ上限
+
+| 対象 | 通る | 通らない |
+|---|---|---|
+| blob | 5,242,880 バイト (5 MiB) | 5,242,881 バイト → `request entity too large` |
+| レコード | 960KB | 1000KB → `request entity too large` |
+
+境界から見て, レコードのリクエストボディ上限は **1,000,000 バイト**と思われる。

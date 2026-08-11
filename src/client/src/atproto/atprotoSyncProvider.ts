@@ -25,7 +25,7 @@
  * 依存 (batch collection) は注入可能にし、PDS 非依存にテストする。
  */
 
-import { type FileId, isFileDeleted } from '@conversensus/shared';
+import { type FileId, isFileDeleted, type Op } from '@conversensus/shared';
 import {
   batchToRecord,
   isBatchRecordValue,
@@ -68,15 +68,46 @@ export interface BatchCollection {
   listFileHeads(): Promise<BatchFileHead[]>;
 }
 
+/**
+ * レコードを書く**前に**、その op 列が参照する blob を PDS へ上げる関数 (ANA-116 S5)。
+ *
+ * 実体は `images/imageBlob.ts` の `createPdsBlobUploader`。ここが型でしか知らないのは
+ * 依存の向きのためである — ローカル blob ストア (daemon) は ATProto と無関係なので、
+ * `atproto/` から `images/` や `api.ts` へ降りない。
+ */
+export type BlobUploader = (ops: readonly Op[]) => Promise<void>;
+
 export type AtprotoSyncProviderDeps = {
   batches: BatchCollection;
+  /**
+   * blob の先出し。**必須にしてある** — 省略できると、配線を忘れた瞬間に
+   * 「画像を含む batch だけが outbox に詰まり続ける」形で静かに壊れる。
+   * blob を使わないテストは no-op を渡す。
+   */
+  uploadBlobs: BlobUploader;
 };
 
 export class AtprotoSyncProvider implements RemoteBatchTarget {
   private readonly batches: BatchCollection;
+  private readonly uploadBlobs: BlobUploader;
 
   constructor(deps: AtprotoSyncProviderDeps) {
     this.batches = deps.batches;
+    this.uploadBlobs = deps.uploadBlobs;
+  }
+
+  /**
+   * これから書く batch が参照する blob を PDS へ先に上げる (設計 D5)。
+   *
+   * **レコードを 1 件でも書く前に、送る全 batch 分をまとめて上げる。** 1 件ずつ
+   * 交互にすると、途中で失敗したときに「blob だけ上がって参照が無い」状態が
+   * 増えるうえ、同じ blob を参照する後続の batch で無駄な往復が起きる。
+   * 逆順 (レコードが先) は PDS が `Could not find blob` で拒否するので不可 (S1)。
+   */
+  private async uploadReferencedBlobs(
+    entries: readonly RemoteBatch[],
+  ): Promise<void> {
+    await this.uploadBlobs(entries.flatMap(({ batch }) => batch.ops));
   }
 
   /**
@@ -92,6 +123,7 @@ export class AtprotoSyncProvider implements RemoteBatchTarget {
    * **適用先の権威はボディの `fileId`** — rkey は取得経路の索引にすぎない。
    */
   async pushRemote(entries: readonly RemoteBatch[]): Promise<void> {
+    await this.uploadReferencedBlobs(entries);
     for (const { batch, fileId } of entries) {
       await this.batches.put(
         batchRkey(fileId, batch.clock, batch.id),
@@ -113,6 +145,9 @@ export class AtprotoSyncProvider implements RemoteBatchTarget {
    * 通常の送信 (outbox の再送) は**べき等な `pushRemote` のまま**である。
    */
   async createRemote(entries: readonly RemoteBatch[]): Promise<void> {
+    // 移行でも blob は先に上げる。移行は「ローカル正典のうち新 rkey でまだ
+    // 書かれていない batch」を書くので、S5 以降に作った画像がそこに混ざりうる
+    await this.uploadReferencedBlobs(entries);
     await this.batches.createMany(
       entries.map(({ batch, fileId }) => ({
         rkey: batchRkey(fileId, batch.clock, batch.id),
