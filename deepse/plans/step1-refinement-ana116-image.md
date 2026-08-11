@@ -14,7 +14,8 @@
 > (§8, §10)。D2 は D2a (batch レコードの ops に blob ref を埋める) に確定。
 > **全スライス実装済** (S2 ローカル blob ストア / S3 作成・表示経路 / S5 PDS への
 > blob push / S6 既存ノードへの drop・paste)。旧 S4 は S3 へ統合した (§5「S3 の設計」)。
-> 各スライスの「学んだこと」を §5 に残してある。**
+> 各スライスの「学んだこと」を §5 に残してある。
+> **2026-08-11: 実機 UI で通しの検証も完了** (§5「実機 UI での通し検証」)。**
 
 ---
 
@@ -419,6 +420,43 @@ batch だけが outbox に詰まり続ける」形で静かに壊れる。既存
    モックはテストファイルをまたいでグローバルに効くので, `@xyflow/react` のスタブから
    `MarkerType` が抜けていると, 同じ実行の中で `graphTransform` を読む別のテストが
    解決に失敗する。**自分のテストは通るのに他人のテストが落ちる**形で出る
+
+### 実機 UI での通し検証 (2026-08-11)
+
+S5 までは使い捨てスクリプト経路で実 PDS を確かめてあったが, **実際の配線
+(`useRemoteSyncQueue` → tap → `AtprotoSyncProvider`) と UI 操作は未確認**だった。
+dev サーバ (`bun run dev:server` / `dev:client`) とローカル PDS で通した結果を残す。
+
+| 経路 | 結果 |
+|---|---|
+| 未ログインでキャンバスへ drop | ノードが作られ画像が表示される (D5) |
+| その op-log | `properties.image` は blob ref のみ。`imageDataUrl` / base64 は 0 件。ファイル全体の op-log が 887 バイト |
+| daemon の blob ストア | `GET /blobs/:cid` が `image/png` を返し, バイト数と PNG マジックが一致 (D3) |
+| 既存ノードへ drop | ノードは増えず `node.setProperties` に置換後の全体が載る (D6) |
+| 画像ノードを 1 つ選択して paste | 同じノード ID の差し替えになる |
+| 選択なしで paste | `node.add` + `node.setLayout` で新規ノード |
+| リロード | blob ストアから復元されて描画される (D4) |
+| 5 MiB 超の drop | ノードは作られず「画像が大きすぎます (8.4 MiB / 8,808,967 バイト)。上限は 5.0 MiB / 5,242,880 バイト です」 (D7) |
+| **ログイン後の push** | 6 枚すべてが PDS に **pin 済** (`listBlobs` に載る) で, `getBlob` のバイト列が op 上の `size` と一致。UI は「クラウド同期済み」 |
+
+**最後の 1 行が D5 の順序保証の実配線での確証である。** 未ログインのうちに作った 6 枚は
+アプリを触ってログインしただけで push が通った — blob をレコードより先に上げていなければ
+PDS が `Could not find blob` で拒否し, batch は outbox に詰まったままになる (§10 の副産物)。
+
+**検証手順として残す 2 点:**
+
+1. **合成 drop は最深要素に当てる。** `.react-flow__node` (外枠) へ `DragEvent` を投げると
+   内側の差し替えハンドラ (`ImageNode` の div) を通らず, 祖先の canvas 側 `onDrop` に流れて
+   **新規ノードが作られる**。実際のカーソルが当たる要素 — `document.elementFromPoint` が
+   返す最深要素 — に投げると差し替えになる。**これを実装のバグと読み違えない**
+2. **重なったノードの中心は他ノードの角と一致しうる。** 新規ノードは前のノードから
+   一定量ずらして置かれるので, ノード中心の `elementFromPoint` が隣のノードを拾うことがある。
+   幅 25% / 高さ 60% のような**内側の点**を使う
+
+**PDS の後始末**: S5 の使い捨て E2E スクリプトが書いた合成ファイル
+(`fileId=99999999-…`, actor `#e2e`) は `sheetId` を持たないため,
+`scripts/inspect-remote-batches.ts` の「sheetId 往復」が 2 件で FAIL する。
+**アプリ経由の batch は全件 PASS** で, 原因はスクリプト側にある。
 
 ---
 
