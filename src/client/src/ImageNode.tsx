@@ -12,16 +12,12 @@ import { makeEventBase } from './events/GraphEvent';
 import { useInlineEdit } from './hooks/useInlineEdit';
 import {
   IMAGE_MIME_PREFIX,
-  imagePropertiesChange,
   LEGACY_DATA_URL_KEY,
   readImageBlobLocation,
   resolveImageUrl,
-  saveImageBlob,
 } from './images/imageBlob';
-import {
-  imageErrorMessage,
-  useReportImageError,
-} from './images/imageErrorContext';
+import { useReportImageError } from './images/imageErrorContext';
+import { replaceNodeImage } from './images/replaceNodeImage';
 
 type ImageNodeData = {
   label: string;
@@ -123,19 +119,11 @@ export function ImageNode({ id, data, selected }: NodeProps) {
   const properties = nodeData.properties;
 
   const replaceImage = useCallback(
-    async (source: Blob) => {
-      try {
-        const ref = await saveImageBlob(source);
-        dispatch({
-          ...makeEventBase('content'),
-          type: 'NODE_PROPERTIES_CHANGED',
-          nodeId: id as NodeId,
-          ...imagePropertiesChange(properties, ref),
-        });
-      } catch (err) {
-        reportImageError(imageErrorMessage(err));
-      }
-    },
+    (source: Blob) =>
+      replaceNodeImage(id as NodeId, properties, source, {
+        dispatch,
+        reportError: reportImageError,
+      }),
     [dispatch, id, properties, reportImageError],
   );
 

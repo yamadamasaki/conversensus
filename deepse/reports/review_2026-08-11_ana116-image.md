@@ -300,8 +300,8 @@ R3 は「`imageDataUrl` を持つノードを編集する」という**旧デー
 | R2 | 解決できないと前の画像が残る | correctness | 未対応 |
 | D1 | export/import で画像が失われる | 設計 | 未対応 (仕様を決める) |
 | D2 | blob 1 つが flush 全体を止める | 設計 | 未対応 |
-| Q1 | 差し替え dispatch の重複 | 重複 | 未対応 |
-| Q2 | `imageErrorMessage` の不統一 | 一貫性 | 未対応 |
+| Q1 | 差し替え dispatch の重複 | 重複 | **対応済** (`images/replaceNodeImage.ts` へ集約) |
+| Q2 | `imageErrorMessage` の不統一 | 一貫性 | **対応済** |
 | Q3 | `ImageBlobRef` の名前衝突 | 命名 | 未対応 |
 | Q4 | `commitUrl` の余分な依存 | 後片付け | 未対応 |
 | Q5 | Object URL の捨て漏らし | 資源 | 未対応 |

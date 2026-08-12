@@ -70,7 +70,6 @@ import { useNodeTypeMenu } from './hooks/useNodeTypeMenu';
 import { ImageNode } from './ImageNode';
 import {
   IMAGE_MIME_PREFIX,
-  imagePropertiesChange,
   imagePropertiesOf,
   saveImageBlob,
 } from './images/imageBlob';
@@ -79,6 +78,7 @@ import {
   imageErrorMessage,
 } from './images/imageErrorContext';
 import { pickImagePasteTarget } from './images/pasteTarget';
+import { replaceNodeImage } from './images/replaceNodeImage';
 import { NodeCreationContext } from './NodeCreationContext';
 import type { NodeTypeOption } from './NodeTypeMenu';
 import { NodeTypeMenu } from './NodeTypeMenu';
@@ -562,7 +562,7 @@ function GraphEditorInner({
       } catch (err) {
         // 握り潰さない (設計 D7)。旧実装は console.error だけだったので、
         // 上限超過は「落としたのに何も起きない」ようにしか見えなかった
-        setImageError(err instanceof Error ? err.message : String(err));
+        setImageError(imageErrorMessage(err));
       }
     },
     [addNode],
@@ -595,21 +595,12 @@ function GraphEditorInner({
         await addImageNode(source, pasteTargetPosition());
         return;
       }
-      try {
-        const ref = await saveImageBlob(source);
-        dispatch({
-          ...makeEventBase('content'),
-          type: 'NODE_PROPERTIES_CHANGED',
-          nodeId: target.id as NodeId,
-          ...imagePropertiesChange(
-            (target.data as { properties?: Record<string, unknown> })
-              .properties,
-            ref,
-          ),
-        });
-      } catch (err) {
-        setImageError(imageErrorMessage(err));
-      }
+      await replaceNodeImage(
+        target.id as NodeId,
+        (target.data as { properties?: Record<string, unknown> }).properties,
+        source,
+        { dispatch, reportError: setImageError },
+      );
     },
     [selectedImageNode, addImageNode, pasteTargetPosition, dispatch],
   );
