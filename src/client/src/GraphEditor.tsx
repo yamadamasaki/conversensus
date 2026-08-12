@@ -77,6 +77,7 @@ import {
   ImageErrorProvider,
   imageErrorMessage,
 } from './images/imageErrorContext';
+import { pasteImage as routeImagePaste } from './images/pasteImage';
 import { pickImagePasteTarget } from './images/pasteTarget';
 import { replaceNodeImage } from './images/replaceNodeImage';
 import { NodeCreationContext } from './NodeCreationContext';
@@ -587,21 +588,18 @@ function GraphEditorInner({
     });
   }, [screenToFlowPosition]);
 
-  /** 貼り付けた画像を「選択中の画像ノードへ差し替え」か「新規ノード」へ振り分ける */
+  /** 貼り付けた画像の振り分け。判断は `images/pasteImage.ts` にある */
   const pasteImage = useCallback(
-    async (source: Blob) => {
-      const target = selectedImageNode();
-      if (!target) {
-        await addImageNode(source, pasteTargetPosition());
-        return;
-      }
-      await replaceNodeImage(
-        target.id as NodeId,
-        (target.data as { properties?: Record<string, unknown> }).properties,
-        source,
-        { dispatch, reportError: setImageError },
-      );
-    },
+    (source: Blob) =>
+      routeImagePaste(source, {
+        pickTarget: selectedImageNode,
+        addImageNode: (s) => addImageNode(s, pasteTargetPosition()),
+        replaceImage: (nodeId, properties, s) =>
+          replaceNodeImage(nodeId, properties, s, {
+            dispatch,
+            reportError: setImageError,
+          }),
+      }),
     [selectedImageNode, addImageNode, pasteTargetPosition, dispatch],
   );
 
