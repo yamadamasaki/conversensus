@@ -29,7 +29,7 @@ GraphEvent を React Flow のノード/エッジ配列に適用した結果を�
 | NODES_PASTED_UNDO | 指定 ID のノード/エッジ一括削除 |
 | NODE_RELABELED | data.label 更新 |
 | EDGE_RELABELED | label 更新 |
-| NODE_PROPERTIES_CHANGED | data.properties を更新・既存 properties にマージ |
+| NODE_PROPERTIES_CHANGED | data.properties を `to` で**置き換える** (併合しない)。`to` が空ならすべて消える |
 | NODE_MOVED | position 更新 |
 | NODE_RESIZED | style.width/height 更新 |
 | EDGE_STYLE_CHANGED | data に style マージ・既存 data 保持 |

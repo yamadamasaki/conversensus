@@ -127,10 +127,9 @@ export function imagePropertiesOf(ref: ImageBlobRef): Record<string, unknown> {
 /**
  * 既存ノードの画像を差し替えたあとの properties を作る (ANA-117 / S6)。
  *
- * **差分ではなく置き換え後の全体を返す。** `NODE_PROPERTIES_CHANGED` は差分の形を
- * しているが、統一 op の `node.setProperties` は**置換**意味論である
- * (`events/toUnified.ts` の冒頭に既知の制約として書かれている)。差分だけを載せると
- * projection でその他の properties が消える。
+ * **差分ではなく置き換え後の全体を返す。** `NODE_PROPERTIES_CHANGED` も統一 op の
+ * `node.setProperties` も**置換**意味論である (レビュー R4 で `applyEvent` の併合を
+ * 揃えた)。差分だけを載せるとその他の properties が消える。
  *
  * **旧形式の画像キーは落とす。** 新しい画像が古いものを置き換えるので残す意味が無く、
  * とりわけ `imageDataUrl` (base64) を持ち回すと、差し替えのたびに base64 が新しい op へ
