@@ -384,6 +384,39 @@ R3 は「`imageDataUrl` を持つノードを編集する」という**旧デー
 | その undo | op は `image` **だけ** — `imageUrl` が実際に消える。併合のままなら消えなかった (**R4 の確証**) |
 | 差し替えの undo | 前の画像に戻る (`from` が全体だから) |
 
+### D1 / D2 の実機確認 (2026-08-13)
+
+**端末を分けるために daemon の `DATA_DIR` を分けた** (`PORT` と `VITE_API_BASE` も分けた —
+理由は下の「落とし穴」)。PDS はローカル (`infra/pds`)。
+
+| 見たこと | 結果 |
+|---|---|
+| 画像入りファイルの export | `version: 5` で `blobs` に実体が base64 で入る (3,742 バイト → 4,992 文字) |
+| blob ストアが空の端末で import | **画像が出る**。daemon 側にも実体が入る (`GET /blobs/:cid` が 200 / 3,742 バイト) |
+| その端末の op-log | 847 バイト。**`base64` も `blobs` も含まない** (server が落としている) |
+| 対照: `blobs` を空にした同じファイル | 画像は出ない。**同梱が効いていることの確証** |
+| 旧 v4 ファイル (`imageDataUrl` の base64) の import | ファイルが開き, 旧形式の画像もそのまま出る |
+| 実体がこの端末に無い画像を含む export | 「1 個の画像の実体がこの端末に無いため…」が出て, 参照 2 件に対し同梱 1 件 |
+| **D2**: 実体の無い cid を参照する batch を含む push | `2 sent, the rest stay pending` — 画像 batch だけが残る (ローカル 3 / PDS 2) |
+| その後に作ったファイルの push | **両 batch とも PDS に届く** — 詰まった batch が後続を止めない |
+
+`[image] blob … is not in the local store; skipping upload.` と
+`[sync] remote push partially failed: 2 sent, …: Cannot push batch …` が両方出るので,
+**「どの batch が」「なぜ」残ったかが実機のログから分かる**。
+
+#### 落とし穴: ブラウザの HTTP キャッシュが検証を汚す
+
+daemon は blob を `Cache-Control: public, max-age=31536000, immutable` で返す。
+content-addressed なので**実装としては正しい**が, 検証では
+**blob ストアから実体を消しても Chrome がキャッシュから返す**。
+最初の D1/D2 の試行はこれで「消したのに画像が出る」「上げられないはずの batch が push
+できる」という偽の結果になった。
+
+**回避策**: 端末ごとに daemon の port を変える (`PORT` + `VITE_API_BASE`) か,
+**一度も取得されたことのない cid** を使う (D2 は乱数から `computeBlobCid` で作った
+cid を参照するファイルを import して再現した)。`curl` はこのキャッシュを通らないので,
+**画面と `curl` が食い違ったらキャッシュを疑う**。
+
 ---
 
 ## 9. 対応中に見付かったもの (新しい指摘)
@@ -416,3 +449,18 @@ Q1 で手続きを `replaceNodeImage` に出し, 規則は `pickImagePasteTarget
 **両端はテスト済**である。残るのは `GraphEditor.pasteImage` の
 「target が無ければ `addImageNode`, あれば `replaceNodeImage`」という 2 行の分岐だけ。
 `GraphEditor` を丸ごと描くコストに見合うかは判断が要るので, 未対応のまま残す。
+
+→ **2026-08-13 に対応済**。振り分けを `images/pasteImage.ts` へ出した (上の §8 T2)。
+
+### N4. 実体がどこにも無い画像は「読み込み中」のまま止まる
+
+`src/client/src/ImageNode.tsx:429-433`
+
+D1 の対照実験 (`blobs` を空にしたファイルを import) で出た。実体がローカルにも PDS にも
+無いと `resolveImageUrl` は `undefined` を返し, `displayUrl` が付かないまま
+**「画像を読み込み中...」を出し続ける**。「画像を読み込めません」は `<img>` が
+`onError` を出した場合にしか出ないので, **永久に来ない画像が読み込み中に見える**。
+
+R2 (前の画像を出し続ける) と同じ筋 — 失敗が利用者に伝わらない — だが, 出方が違う
+(古い絵ではなく永遠の進行中)。解決に失敗したことを状態に持てば直る (数行 + テスト)。
+**ANA-116 の指摘そのものではない**ので, 対応するかは別に判断する。
