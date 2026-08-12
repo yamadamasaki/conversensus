@@ -34,6 +34,13 @@ import type { RemoteBatch, RemoteFileEntry } from './types';
  * 添えた `RemoteBatch` になる。この非対称が型に現れるようにしている。
  */
 export interface RemoteBatchTarget {
+  /**
+   * batch をまとめて remote へ書く (べき等)。
+   *
+   * **一部だけ送れたときは `PartialPushError` を投げる契約** (ANA-116 レビュー D2)。
+   * 素の例外は「1 件も送れていない」= 全件保留を意味する。この区別が無いと、
+   * 構造的に送れない 1 件が無関係な batch の送信を止め続ける。
+   */
   pushRemote(entries: readonly RemoteBatch[]): Promise<void>;
   /**
    * **remote にまだ無い** batch をまとめて書く (Phase 7 p7-4 の移行専用)。

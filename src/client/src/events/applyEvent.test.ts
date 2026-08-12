@@ -621,7 +621,9 @@ describe('NODE_PROPERTIES_CHANGED', () => {
     expect(nodes[0].data.label).toBe('ノード1'); // 他の data は保持
   });
 
-  it('既存 properties にマージされる', () => {
+  it('既存 properties を置き換える (併合しない)', () => {
+    // projection (`shared/events/project.ts`) が置換なので、ここも置換にする。
+    // 併合だとキーの削除がローカルでだけ効かず、リロードで絵が変わる
     const n: Node = {
       ...n1,
       data: { ...n1.data, properties: { existing: true } },
@@ -631,11 +633,30 @@ describe('NODE_PROPERTIES_CHANGED', () => {
       category: 'content',
       type: 'NODE_PROPERTIES_CHANGED',
       nodeId: 'n1' as NodeId,
-      from: {},
+      from: { existing: true },
       to: { added: 'yes' },
     };
     const { nodes } = applyEvent(event, [n], []);
-    expect(nodes[0].data.properties).toEqual({ existing: true, added: 'yes' });
+    expect(nodes[0].data.properties).toEqual({ added: 'yes' });
+  });
+
+  it('to が空ならすべての properties が消える (undo で効く)', () => {
+    // 画像を貼った直後の undo は `to: {}` になる。併合だと no-op になってしまい、
+    // 画面から画像が消えない
+    const n: Node = {
+      ...n1,
+      data: { ...n1.data, properties: { image: { $type: 'blob' } } },
+    };
+    const event: GraphEvent = {
+      ...base,
+      category: 'content',
+      type: 'NODE_PROPERTIES_CHANGED',
+      nodeId: 'n1' as NodeId,
+      from: { image: { $type: 'blob' } },
+      to: {},
+    };
+    const { nodes } = applyEvent(event, [n], []);
+    expect(nodes[0].data.properties).toEqual({});
   });
 });
 

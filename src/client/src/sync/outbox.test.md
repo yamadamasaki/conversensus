@@ -20,6 +20,13 @@ flush」を担う中核。次の3点が回帰すると、オフライン編集�
 
 enqueue のべき等性 (同一 BatchId の無視) は、再試行・重複投入で保留が膨れないための保証。
 
+5. **部分成功 (ANA-116 レビュー D2)**: 失敗を「全件保留」だけで表すと、**構造的に送れない
+   1 件が無関係な batch を止め続ける** (例: 参照する画像 blob の実体がこの端末に無く、PDS が
+   `Could not find blob` で拒む batch)。push 側が「どこまで送れたか」を知っているときは
+   `PartialPushError` を投げ、Outbox は**送れた分だけ除去し残りを保留**する。
+   素の例外 (オフライン) は従来どおり全件保留である — この 2 つを混ぜると、
+   オフライン時に「送れていない batch を送信済みとして捨てる」形で静かにデータが失われる。
+
 4. **容量上限 (bounded FIFO, W3d5-3 / critic D1)**: remote 用途では remote が長時間落ちると
    保留が無制限に膨れる。`capacity` を渡すと上限を超えた分を**最古から落とす** (FIFO
    eviction) ことで無制限成長を防ぐ。落ちた batch はローカル正典に残り catch-up で回収でき、
@@ -35,6 +42,11 @@ enqueue のべき等性 (同一 BatchId の無視) は、再試行・重複投�
   保留維持 + `ok: false` を確認。その後 `online = true` にして再 flush し送信成功を確認。
 - **in-flight enqueue**: `RecordingProvider.onPush` フックで push の最中に別 batch を
   enqueue し、スナップショット分のみ除去され新規分が保留に残ることを確認。
+- **flush (部分成功)**: push に `PartialPushError(['1','3'], cause)` を投げさせ、
+  送れた 2 件が消え送れなかった 1 件だけが残ること / `FlushResult` が
+  `{ok:false, flushed:2, error:cause, partial:true}` になること / 部分成功でも
+  in-flight enqueue 分が残ること / **素の例外では `partial` が立たず全件保留のまま**
+  であることを確認する。最後の 1 件が「オフラインとの区別」そのものである。
 - **capacity (bounded FIFO)**: `new Outbox(2)` で上限超過時に最古が落ち直近 N 件が残る /
   eviction された id は再 enqueue できる (ids 集合から除去済み) / 上限内なら `overflowed` は
   false のまま、を確認。既定 (無制限) では eviction が起きず `overflowed=false` を確認。

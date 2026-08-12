@@ -25,7 +25,13 @@
  * 依存 (batch collection) は注入可能にし、PDS 非依存にテストする。
  */
 
-import { type FileId, isFileDeleted, type Op } from '@conversensus/shared';
+import {
+  type BlobCid,
+  type FileId,
+  isFileDeleted,
+  type Op,
+} from '@conversensus/shared';
+import { PartialPushError } from '../sync/outbox';
 import {
   batchToRecord,
   isBatchRecordValue,
@@ -68,6 +74,17 @@ export interface BatchCollection {
   listFileHeads(): Promise<BatchFileHead[]>;
 }
 
+/** blob 先出しの結果 (ANA-116 S5 / レビュー D2) */
+export type BlobUploadResult = {
+  /**
+   * **実体がこの端末に無く上げられなかった** blob の cid。空なら全部上がった。
+   *
+   * これを参照するレコードは PDS が `Could not find blob` で拒むので、呼び出し側は
+   * **その batch を送らずに飛ばせる** = 送れない 1 件が残りを止めない (D2)。
+   */
+  unavailable: readonly BlobCid[];
+};
+
 /**
  * レコードを書く**前に**、その op 列が参照する blob を PDS へ上げる関数 (ANA-116 S5)。
  *
@@ -75,7 +92,7 @@ export interface BatchCollection {
  * 依存の向きのためである — ローカル blob ストア (daemon) は ATProto と無関係なので、
  * `atproto/` から `images/` や `api.ts` へ降りない。
  */
-export type BlobUploader = (ops: readonly Op[]) => Promise<void>;
+export type BlobUploader = (ops: readonly Op[]) => Promise<BlobUploadResult>;
 
 export type AtprotoSyncProviderDeps = {
   batches: BatchCollection;
@@ -99,15 +116,23 @@ export class AtprotoSyncProvider implements RemoteBatchTarget {
   /**
    * これから書く batch が参照する blob を PDS へ先に上げる (設計 D5)。
    *
-   * **レコードを 1 件でも書く前に、送る全 batch 分をまとめて上げる。** 1 件ずつ
-   * 交互にすると、途中で失敗したときに「blob だけ上がって参照が無い」状態が
-   * 増えるうえ、同じ blob を参照する後続の batch で無駄な往復が起きる。
-   * 逆順 (レコードが先) は PDS が `Could not find blob` で拒否するので不可 (S1)。
+   * **レコードを書く前に上げる。** 逆順 (レコードが先) は PDS が
+   * `Could not find blob` で拒否するので不可 (S1)。
+   *
+   * 呼ぶ単位は経路で違う。`pushRemote` は **batch 1 件ずつ** — 失敗境界を batch 単位に
+   * するため (レビュー D2)。`createRemote` は `applyWrites` がチャンク単位で原子的なので
+   * **まとめて**上げる。1 件ずつでも往復が増えないのは、`createPdsBlobUploader` が
+   * 上げ済みの cid をセッション内で覚えているためである。
+   *
+   * @returns 実体がこの端末に無く上げられなかった cid (空なら全部上がった)
    */
   private async uploadReferencedBlobs(
     entries: readonly RemoteBatch[],
-  ): Promise<void> {
-    await this.uploadBlobs(entries.flatMap(({ batch }) => batch.ops));
+  ): Promise<readonly BlobCid[]> {
+    const { unavailable } = await this.uploadBlobs(
+      entries.flatMap(({ batch }) => batch.ops),
+    );
+    return unavailable;
   }
 
   /**
@@ -121,14 +146,50 @@ export class AtprotoSyncProvider implements RemoteBatchTarget {
    * コレクションが **repo 全体で 1 つ**で、レコード自身が適用先ファイルを持たないと
    * 受信側が復元できないため (Phase 4d-1, 設計 §3.1)。rkey にも fileId が入るが、
    * **適用先の権威はボディの `fileId`** — rkey は取得経路の索引にすぎない。
+   *
+   * ## 失敗の境界 (レビュー D2)
+   *
+   * 失敗を 2 種類に分ける。**送れないと分かっている batch で残りを止めない**ためである。
+   *
+   * - **その batch 固有** (参照する blob の実体がこの端末に無い): 上げられないと
+   *   `uploadBlobs` が `unavailable` で教えるので、**PDS を叩かずに飛ばして次へ進む**。
+   *   PDS に既にあれば書けるが、それはここでは判別できない (S5) ので送らない側に倒す。
+   * - **全体的な失敗** (通信不調・認証切れ): 残りを試しても同じ結果なので**打ち切る**。
+   *   オフライン編集中は編集ごとに flush が走るので、全件試すと失敗リクエストが
+   *   保留件数の二乗で増えてしまう。
+   *
+   * どちらも `PartialPushError` で「送れた分」を Outbox へ返すので、**送れた batch は
+   * 保留から消え、送れなかった batch だけが残る**。remote に隙間ができるが、projection は
+   * 対象を欠く op を落とすので壊れず (`project.ts`)、catch-up が後で埋める。
    */
   async pushRemote(entries: readonly RemoteBatch[]): Promise<void> {
-    await this.uploadReferencedBlobs(entries);
+    const sentIds: string[] = [];
+    let skipError: unknown;
+
     for (const { batch, fileId } of entries) {
-      await this.batches.put(
-        batchRkey(fileId, batch.clock, batch.id),
-        batchToRecord(batch, fileId),
-      );
+      try {
+        const unavailable = await this.uploadReferencedBlobs([
+          { batch, fileId },
+        ]);
+        if (unavailable.length > 0) {
+          skipError ??= new Error(
+            `Cannot push batch ${batch.id}: blob(s) ${unavailable.join(', ')} are not in the local store`,
+          );
+          continue;
+        }
+        await this.batches.put(
+          batchRkey(fileId, batch.clock, batch.id),
+          batchToRecord(batch, fileId),
+        );
+        sentIds.push(batch.id);
+      } catch (error) {
+        // 全体的な失敗: ここで打ち切り、送れた分だけを Outbox に伝える
+        throw new PartialPushError(sentIds, error);
+      }
+    }
+
+    if (skipError !== undefined) {
+      throw new PartialPushError(sentIds, skipError);
     }
   }
 
@@ -146,7 +207,9 @@ export class AtprotoSyncProvider implements RemoteBatchTarget {
    */
   async createRemote(entries: readonly RemoteBatch[]): Promise<void> {
     // 移行でも blob は先に上げる。移行は「ローカル正典のうち新 rkey でまだ
-    // 書かれていない batch」を書くので、S5 以降に作った画像がそこに混ざりうる
+    // 書かれていない batch」を書くので、S5 以降に作った画像がそこに混ざりうる。
+    // **`unavailable` を見て飛ばすことはしない** — applyWrites はチャンク単位で
+    // 原子的なので batch 単位の境界が作れず、PDS の拒否がそのまま結果になる
     await this.uploadReferencedBlobs(entries);
     await this.batches.createMany(
       entries.map(({ batch, fileId }) => ({

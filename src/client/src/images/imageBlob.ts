@@ -16,6 +16,8 @@ import {
   type Op,
 } from '@conversensus/shared';
 import { fetchBlob, putBlob, type StoredBlob } from '../api';
+// 型だけ借りる。実装の向き (atproto/ は images/ を知らない) は変えない
+import type { BlobUploader } from '../atproto/atprotoSyncProvider';
 import {
   cacheBlobUrl,
   fetchRemoteBlob,
@@ -127,10 +129,9 @@ export function imagePropertiesOf(ref: ImageBlobRef): Record<string, unknown> {
 /**
  * 既存ノードの画像を差し替えたあとの properties を作る (ANA-117 / S6)。
  *
- * **差分ではなく置き換え後の全体を返す。** `NODE_PROPERTIES_CHANGED` は差分の形を
- * しているが、統一 op の `node.setProperties` は**置換**意味論である
- * (`events/toUnified.ts` の冒頭に既知の制約として書かれている)。差分だけを載せると
- * projection でその他の properties が消える。
+ * **差分ではなく置き換え後の全体を返す。** `NODE_PROPERTIES_CHANGED` も統一 op の
+ * `node.setProperties` も**置換**意味論である (レビュー R4 で `applyEvent` の併合を
+ * 揃えた)。差分だけを載せるとその他の properties が消える。
  *
  * **旧形式の画像キーは落とす。** 新しい画像が古いものを置き換えるので残す意味が無く、
  * とりわけ `imageDataUrl` (base64) を持ち回すと、差し替えのたびに base64 が新しい op へ
@@ -149,16 +150,77 @@ export function replaceImageProperties(
 }
 
 /**
+ * `data:` URL を `Blob` に戻す。読めない形なら `undefined`。
+ *
+ * 旧形式の `imageDataUrl` を blob へ移すためだけに使う (新規に作ることはない)。
+ */
+function parseImageDataUrl(dataUrl: string): Blob | undefined {
+  const match = /^data:([^;,]+);base64,(.*)$/s.exec(dataUrl);
+  if (!match) return undefined;
+  const [, mimeType, base64] = match;
+  try {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+    return new Blob([bytes], { type: mimeType });
+  } catch {
+    // 壊れた base64。呼び出し元は「画像が無い」として扱う
+    return undefined;
+  }
+}
+
+export type MigrateLegacyImageDeps = { save?: typeof saveImageBlob };
+
+/**
+ * op に載せてよい形へ直す。**`imageDataUrl` (base64) を blob 参照へ移す。**
+ *
+ * op に base64 を載せてはならない (レコード上限 約 1 MB に当たる) が, 単に落とすと
+ * 旧データのノードでは**画像そのものが失われる** — 旧形式には blob 参照が無いので
+ * 復元する手掛かりが消える。そこで**触ったノードだけ**その場で移行する。
+ * 設計 §7 の非目標は「旧データの**一括**移行」なので, これとは両立する
+ * (`deepse/reports/review_2026-08-11_ana116-image.md` R3)。
+ *
+ * 移行しても実体はローカル blob ストアに入るだけで PDS は触らない (D5 のまま)。
+ * cid はバイト列から決まるので, 旧形式が指していた cid と一致する。
+ *
+ * base64 が読めない場合は落とすだけにする — 表示できない値を op へ運ぶ理由が無い。
+ */
+export async function migrateLegacyImageProperties(
+  properties: Record<string, unknown> | undefined,
+  deps: MigrateLegacyImageDeps = {},
+): Promise<Record<string, unknown>> {
+  const next = { ...properties };
+  const dataUrl = next[LEGACY_DATA_URL_KEY];
+  if (typeof dataUrl !== 'string' || !dataUrl) return next;
+
+  delete next[LEGACY_DATA_URL_KEY];
+  // 新形式が既にあるなら base64 は表示にも使われない (D4 の解決順序)。捨てるだけでよい
+  if (isImageBlobRef(next[IMAGE_PROPERTY_KEY])) return next;
+
+  const source = parseImageDataUrl(dataUrl);
+  if (!source) return next;
+
+  const ref = await (deps.save ?? saveImageBlob)(source);
+  return { ...next, ...imagePropertiesOf(ref) };
+}
+
+/**
  * 画像差し替えの `NODE_PROPERTIES_CHANGED` に載せる from / to。
  *
  * `from` は**差し替え前の全体**である。undo (`invertEvent`) は from と to を入れ替える
  * だけなので、片方が差分だと元に戻したときに properties が欠ける。
+ *
+ * **from も移行後の形にする。** 旧形式のまま載せると undo の op に base64 が乗り,
+ * 落とすだけにすると undo で画像が失われる。移行した参照を両側に載せれば,
+ * op-log に base64 は入らず undo でも画像が戻る。
  */
-export function imagePropertiesChange(
+export async function imagePropertiesChange(
   existing: Record<string, unknown> | undefined,
   ref: ImageBlobRef,
-): { from: Record<string, unknown>; to: Record<string, unknown> } {
-  return { from: { ...existing }, to: replaceImageProperties(existing, ref) };
+  deps: MigrateLegacyImageDeps = {},
+): Promise<{ from: Record<string, unknown>; to: Record<string, unknown> }> {
+  const migrated = await migrateLegacyImageProperties(existing, deps);
+  return { from: { ...migrated }, to: replaceImageProperties(migrated, ref) };
 }
 
 export type SaveImageDeps = {
@@ -291,13 +353,19 @@ const defaultUploadDeps: UploadImageBlobDeps = {
  * 上げ済みの cid をセッション内で覚える。ログイン単位で作り直す前提なので
  * (`useRemoteSyncQueue` が session ごとに provider ごと作り直す)、別 repo の
  * 上げ済みを引き継ぐことはない。
+ *
+ * **上げられなかった cid は `unavailable` で返す** (レビュー D2)。呼び出し側
+ * (`AtprotoSyncProvider.pushRemote`) はそれを参照する batch を送らずに飛ばせるので、
+ * 解決できない画像 1 つが他の batch の送信を止めずに済む。
+ * 上げ済みの記憶は成功した cid だけなので、後から実体が届けば次回そのまま上がる。
  */
 export function createPdsBlobUploader(
   deps: UploadImageBlobDeps = defaultUploadDeps,
-): (ops: readonly Op[]) => Promise<void> {
+): BlobUploader {
   const uploaded = new Set<BlobCid>();
 
   return async function uploadImageBlobsForOps(ops) {
+    const unavailable: BlobCid[] = [];
     for (const ref of collectImageBlobRefs(ops)) {
       const cid = ref.ref.$link;
       if (uploaded.has(cid)) continue;
@@ -305,12 +373,13 @@ export function createPdsBlobUploader(
       const bytes = await deps.local(cid);
       if (!bytes) {
         // ローカルに実体が無い = この端末では上げられない。**数えずに黙って
-        // 進む**のではなく警告する: レコード側は「PDS に既にある」場合だけ通り、
-        // 無ければ push が失敗して未同期のまま残る (どちらもここで判別できない)
+        // 進む**のではなく呼び出し側へ返す: PDS に既にあれば書けるが、それを
+        // ここでは判別できないので、送らない側に倒す判断は呼び出し側に委ねる
         console.warn(
           `[image] blob ${cid} is not in the local store; skipping upload. ` +
-            'The record push will fail unless the PDS already has it.',
+            'The record push will be skipped unless the PDS already has it.',
         );
+        unavailable.push(cid);
         continue;
       }
 
@@ -327,5 +396,6 @@ export function createPdsBlobUploader(
       }
       uploaded.add(cid);
     }
+    return { unavailable };
   };
 }

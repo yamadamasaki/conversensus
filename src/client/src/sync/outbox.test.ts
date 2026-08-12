@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import type { Batch, NodeId } from '@conversensus/shared';
 import { NullSyncProvider } from './nullSyncProvider';
-import { Outbox } from './outbox';
+import { Outbox, PartialPushError } from './outbox';
 import type { Cursor, PullResult, SyncProvider } from './syncProvider';
 
 const batch = (id: string, clock: number): Batch => ({
@@ -121,6 +121,51 @@ describe('Outbox', () => {
       const result = await outbox.flush((b) => provider.push(b)); // 復帰後に再送
       expect(result).toEqual({ ok: true, flushed: 1 });
       expect(outbox.isEmpty).toBe(true);
+    });
+  });
+
+  /**
+   * 部分成功 (ANA-116 レビュー D2)。素の例外は「全件保留」のままで、
+   * `PartialPushError` を投げたときだけ送れた分が消えることを固定する。
+   * ここが崩れると、送れない 1 件が無関係な batch の送信を止め続ける。
+   */
+  describe('flush (部分成功)', () => {
+    it('PartialPushError なら送れた分だけ除去し残りを保留する', async () => {
+      const outbox = new Outbox<Batch>(batchId);
+      outbox.enqueue([batch('1', 1), batch('2', 2), batch('3', 3)]);
+      const cause = new Error('blob missing');
+      const result = await outbox.flush(() =>
+        Promise.reject(new PartialPushError(['1', '3'], cause)),
+      );
+      expect(result).toEqual({
+        ok: false,
+        flushed: 2,
+        error: cause,
+        partial: true,
+      });
+      // 送れなかった 1 件だけが残る = 次回の flush は他を巻き添えにしない
+      expect(outbox.pending().map((b) => b.id)).toEqual(['2']);
+    });
+
+    it('部分成功でも in-flight enqueue 分は失われない', async () => {
+      const outbox = new Outbox<Batch>(batchId);
+      outbox.enqueue([batch('1', 1), batch('2', 2)]);
+      const result = await outbox.flush(() => {
+        outbox.enqueue([batch('3', 3)]);
+        return Promise.reject(new PartialPushError(['1'], new Error('boom')));
+      });
+      expect(result.flushed).toBe(1);
+      expect(outbox.pending().map((b) => b.id)).toEqual(['2', '3']);
+    });
+
+    it('素の例外は従来どおり全件保留 (partial を立てない)', async () => {
+      const outbox = new Outbox<Batch>(batchId);
+      outbox.enqueue([batch('1', 1), batch('2', 2)]);
+      const result = await outbox.flush(() =>
+        Promise.reject(new Error('offline')),
+      );
+      expect(result.partial).toBeUndefined();
+      expect(outbox.size).toBe(2);
     });
   });
 

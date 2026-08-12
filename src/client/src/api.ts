@@ -5,7 +5,6 @@ import {
   type BranchId,
   type BranchMeta,
   BranchMetaSchema,
-  CONVERSENSUS_FILE_VERSION,
   type Commit,
   CommitSchema,
   type ConversensusFile,
@@ -62,7 +61,13 @@ export async function createFile(name: string): Promise<GraphFile> {
 // **クライアントからは呼ばない** — 呼ぶと tombstone まで消えて ANA-127 が再発する。
 // 消費者のいないラッパーを残すと「書くが読まない二重モデル」になる (Phase 6 の教訓)。
 
-export async function importFile(data: ConversensusFile): Promise<GraphFile> {
+/**
+ * インポートの HTTP 境界。**呼ぶのは `files/fileTransfer.ts` だけ**である —
+ * 同梱 blob をローカルストアへ戻す手順とセットでなければ画像が失われる (D1)。
+ */
+export async function postImportFile(
+  data: Omit<ConversensusFile, 'blobs'>,
+): Promise<GraphFile> {
   const res = await fetch(`${BASE}/files/import`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -230,18 +235,6 @@ export async function fetchBlob(cid: BlobCid): Promise<Blob | undefined> {
   return await res.blob();
 }
 
-export function exportFile(file: GraphFile): void {
-  const data: ConversensusFile = {
-    ...file,
-    version: CONVERSENSUS_FILE_VERSION,
-  };
-  const json = JSON.stringify(data, null, 2);
-  const blob = new Blob([json], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  const safeName = file.name.replace(/[/\\:*?"<>|]/g, '_');
-  a.download = `${safeName}.conversensus`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
+// `exportFile` は `files/fileTransfer.ts` へ移した (ANA-116 D1)。書き出しは
+// 「参照されている画像の実体を集めて同梱する」手順を含むようになり、HTTP の薄い
+// ラッパを集めるこのファイルの役ではなくなった。

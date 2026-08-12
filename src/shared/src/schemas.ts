@@ -157,10 +157,34 @@ export const CommitOperationSchema = z.discriminatedUnion('op', [
 export type CommitOperation = z.infer<typeof CommitOperationSchema>;
 
 // --- Current file format ---
-export const CONVERSENSUS_FILE_VERSION = '4' as const;
+export const CONVERSENSUS_FILE_VERSION = '5' as const;
 
-// .conversensus ファイル形式: GraphFile に version ヘッダを付与
+/**
+ * export ファイルに同梱する画像の実体 (ANA-116 レビュー D1)。
+ *
+ * ノードの properties に載るのは blob 参照 (cid) だけなので、**参照先の実体を運ばないと
+ * 別の端末で開いた瞬間に全画像が失われる**。v4 まで自己完結だった (base64 が
+ * properties に入っていた) 性質を、op-log に base64 を載せないまま取り戻すための欄である。
+ *
+ * `cid` はバイト列から決まる (CIDv1/raw/sha-256) ので、import 側は**検証もできる**。
+ * JSON にバイナリを入れる手段が他に無いので `data` は base64 である
+ * (ファイルは 4/3 に膨らむが、これは配布物であって op-log ではない)。
+ */
+export const ExportedBlobSchema = z.object({
+  cid: z.string(),
+  mimeType: z.string(),
+  /** バイト列の base64 (data URL ではなく本体だけ) */
+  data: z.string(),
+});
+export type ExportedBlob = z.infer<typeof ExportedBlobSchema>;
+
+// .conversensus ファイル形式: GraphFile に version ヘッダと同梱 blob を付与
 export const ConversensusFileSchema = GraphFileSchema.extend({
   version: z.literal(CONVERSENSUS_FILE_VERSION),
+  /**
+   * 参照されている画像の実体。**省略可**である — 画像の無いファイルには付かず、
+   * 実体がこの端末に無い参照は同梱できない (その画像は開いた先で読めない)。
+   */
+  blobs: z.array(ExportedBlobSchema).optional(),
 });
 export type ConversensusFile = z.infer<typeof ConversensusFileSchema>;

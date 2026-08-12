@@ -5,9 +5,12 @@
  * 複合イベント (NODES_GROUPED / NODES_PASTED / NODE_REPARENTED 等) は
  * バッチモデルに従い、複数の基本 Op から成る 1 Batch に分解される。
  *
+ * **NODE_PROPERTIES_CHANGED.to は置換 (full) である** — 統一 op `node.setProperties` と
+ * 同じ意味論に揃えた (レビュー R4, `deepse/reports/review_2026-08-11_ana116-image.md`)。
+ * かつては差分 (delta) の扱いで、ローカル reducer (`applyEvent`) だけが併合していたため
+ * **キーの削除がローカルでのみ効かない**食い違いがあった。発行元は全体を載せること。
+ *
  * 既知の制約 (Phase 2 の配線で解消):
- *   - NODE_PROPERTIES_CHANGED.to は差分 (delta) だが、統一 op `node.setProperties` は
- *     置換 (full) 意味論。忠実な変換には capture 時に full properties が必要。
  *   - NODE_STYLE_CHANGED は現状 presentation 分類だが、実体は width/height の変更なので
  *     統一語彙では layout (`node.setLayout`) に正規化する (D7 の整理)。
  */

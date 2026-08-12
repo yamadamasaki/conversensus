@@ -5,10 +5,6 @@ import {
   type BranchId,
   BranchMetaSchema,
   CommitSchema,
-  ConversensusFileSchema,
-  ConversensusFileV1Schema,
-  ConversensusFileV2Schema,
-  ConversensusFileV3Schema,
   CreateFileRequestSchema,
   computeBlobCid,
   type EdgeId,
@@ -17,10 +13,8 @@ import {
   graphFileToBatches,
   isBlobCid,
   MAX_BLOB_SIZE,
-  migrateV1toV2,
-  migrateV2toV3,
-  migrateV3toV4,
   type NodeId,
+  parseConversensusFile,
   type SheetId,
 } from '@conversensus/shared';
 import { Hono } from 'hono';
@@ -64,6 +58,9 @@ const HTTP_NO_CONTENT = 204;
 const HTTP_BAD_REQUEST = 400;
 const HTTP_NOT_FOUND = 404;
 const HTTP_PAYLOAD_TOO_LARGE = 413;
+const HTTP_UNSUPPORTED_MEDIA_TYPE = 415;
+/** blob ストアが受け付ける MIME の接頭辞。今のところ画像だけ (ANA-116) */
+const IMAGE_MIME_PREFIX = 'image/';
 const HTTP_INTERNAL_SERVER_ERROR = 500;
 
 const app = new Hono();
@@ -150,41 +147,16 @@ app.post('/files', async (c) => {
 app.post('/files/import', async (c) => {
   const raw = await c.req.json().catch(() => null);
 
-  // v4 を試み, 失敗したら v3→v4, v2→v3→v4, v1→v2→v3→v4 とマイグレーション
-  let parsedFile: ReturnType<typeof ConversensusFileSchema.safeParse>;
-  const parsedV4 = ConversensusFileSchema.safeParse(raw);
-  if (parsedV4.success) {
-    parsedFile = parsedV4;
-  } else {
-    const parsedV3 = ConversensusFileV3Schema.safeParse(raw);
-    if (parsedV3.success) {
-      parsedFile = ConversensusFileSchema.safeParse(
-        migrateV3toV4(parsedV3.data),
-      );
-    } else {
-      const parsedV2 = ConversensusFileV2Schema.safeParse(raw);
-      if (parsedV2.success) {
-        parsedFile = ConversensusFileSchema.safeParse(
-          migrateV3toV4(migrateV2toV3(parsedV2.data)),
-        );
-      } else {
-        const parsedV1 = ConversensusFileV1Schema.safeParse(raw);
-        if (parsedV1.success) {
-          parsedFile = ConversensusFileSchema.safeParse(
-            migrateV3toV4(migrateV2toV3(migrateV1toV2(parsedV1.data))),
-          );
-        } else {
-          return c.json({ error: parsedV4.error.flatten() }, HTTP_BAD_REQUEST);
-        }
-      }
-    }
-  }
-
+  // 旧版の解釈は shared に 1 本化した (client の Sidebar も同じ階段を使う, ANA-116 D1)
+  const parsedFile = parseConversensusFile(raw);
   if (!parsedFile.success) {
     return c.json({ error: parsedFile.error.flatten() }, HTTP_BAD_REQUEST);
   }
 
-  const { version: _, ...fileData } = parsedFile.data;
+  // `blobs` (同梱した画像の実体) はここで落とす。**op-log へ base64 を持ち込まない** —
+  // それが ANA-116 でレコード上限に当たった原因そのものである。実体はクライアントが
+  // 送信前にローカル blob ストアへ戻している (`files/fileTransfer.ts`)
+  const { version: _, blobs: _blobs, ...fileData } = parsedFile.data;
   // sheet/node/edge/layout の ID も再生成し, 参照 (source/target/parentId/nodeId) を付け替える
   const data: GraphFile = {
     ...fileData,
@@ -394,6 +366,26 @@ app.post('/blobs', async (c) => {
   if (!mimeType) {
     return c.json({ error: 'Content-Type required' }, HTTP_BAD_REQUEST);
   }
+  // **画像だけを受ける。** 保存した Content-Type は GET でそのまま返るので、
+  // 任意の型を通すと daemon の origin で HTML を配れてしまう (daemon は
+  // `/files/*` と同じ origin で、リリース構成では VPS 上にも居る)。
+  // クライアント側の検査 (`saveImageBlob`) だけに頼らない。
+  if (!mimeType.startsWith(IMAGE_MIME_PREFIX)) {
+    return c.json(
+      { error: `Unsupported Content-Type: ${mimeType}` },
+      HTTP_UNSUPPORTED_MEDIA_TYPE,
+    );
+  }
+  // 本文を読む前に申告された大きさで弾く。読み切ってから 413 を返すと、
+  // 巨大な body をいったん全部メモリに載せることになる (申告は嘘をつけるので、
+  // 読み終わった後の検査も残す)。
+  const declaredLength = Number(c.req.header('content-length') ?? 0);
+  if (declaredLength > MAX_BLOB_SIZE) {
+    return c.json(
+      { error: `Blob too large (max ${MAX_BLOB_SIZE} bytes)` },
+      HTTP_PAYLOAD_TOO_LARGE,
+    );
+  }
   const bytes = new Uint8Array(await c.req.arrayBuffer());
   if (bytes.byteLength === 0) {
     return c.json({ error: 'Empty body' }, HTTP_BAD_REQUEST);
@@ -423,6 +415,10 @@ app.get('/blobs/:cid', (c) => {
     headers: {
       'Content-Type': blob.mimeType,
       'Content-Length': String(blob.size),
+      // POST 側で image/* に絞ってあるが、**保存時の検査を最後の砦にしない** —
+      // 既に入っている行や将来の用途拡張で型が広がっても、ブラウザが中身を
+      // 見て HTML と解釈することは無くなる
+      'X-Content-Type-Options': 'nosniff',
       // content-addressed なので内容は永久に変わらない
       'Cache-Control': 'public, max-age=31536000, immutable',
     },

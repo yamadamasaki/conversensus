@@ -1,7 +1,15 @@
 import type { Did } from '@conversensus/shared';
 import { currentDid, getAgent } from './client';
 
-type ImageBlobRef = {
+/**
+ * `uploadBlob` の戻り値を畳んだ形。**op に載せる blob ref とは別物である** —
+ * あちらは `{$type:'blob', ref:{$link}, …}` で, 名前を揃えると取り違える。
+ *
+ * とりわけ `{cid, mimeType}` の 2 キーの形は `@atproto/lexicon` の `ipldToLex` が
+ * blob ref と誤認するので, **この形を op の properties へ置いてはならない**
+ * (`images/imageBlob.ts` の `ImageBlobRef` を使う)。
+ */
+type UploadedBlob = {
   cid: string;
   mimeType: string;
   size: number;
@@ -10,7 +18,7 @@ type ImageBlobRef = {
 export async function uploadImageBlob(
   bytes: Uint8Array,
   mimeType: string,
-): Promise<ImageBlobRef> {
+): Promise<UploadedBlob> {
   const res = await getAgent().api.com.atproto.repo.uploadBlob(bytes, {
     encoding: mimeType,
   });
@@ -27,10 +35,22 @@ export async function uploadImageBlob(
   };
 }
 
-// アップロード直後の画像をキャッシュし、getBlob せずに即時表示できるようにする
+/**
+ * 保存直後の画像を即時表示するためのキャッシュ (cid → Object URL)。
+ *
+ * **セッション中は捨てない。** content-addressed なので中身が古くなることは無く、
+ * 表示中のノードがどれかをここでは知りようがないため (共有キャッシュの URL を
+ * revoke すると、それを使っている別のノードの画像が壊れる)。
+ * 上限を設けるなら「表示中の参照数」を持つ必要があり、それは別の設計になる。
+ */
 const imageCache = new Map<string, string>();
 
 export function cacheBlobUrl(cid: string, bytes: Uint8Array, mimeType: string) {
+  // **既にあるなら作り直さない。** cid が同じなら中身も同じなので新しい URL に
+  // する意味が無く、作り直すと古い方が孤児になる (差し替えが日常操作になった
+  // ANA-117 以降、画像を受け入れるたびに 1 つずつ増えていた)。
+  // ここで古い方を revoke するのも誤り — 表示中の別ノードがその URL を使っている
+  if (imageCache.has(cid)) return;
   // bytes のコピーを作成（元の ArrayBuffer が uploadBlob で消費される可能性があるため）
   const copy = bytes.slice();
   const url = URL.createObjectURL(new Blob([copy], { type: mimeType }));

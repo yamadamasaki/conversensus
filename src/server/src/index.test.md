@@ -96,6 +96,20 @@ Hono アプリの `fetch` 関数を直接呼び出すことで、実際の HTTP 
 | POST /files/import | ID をすべて再生成し参照を付け替える | 取り込み時の同一性分離 |
 | POST /files/import | 🔴 応答の GraphFile = op-log の projection | 往復性 (p6-1, 設計 §6.3) |
 | POST /files/import | インポートしたファイルが一覧に現れる | 一覧との整合 |
+| POST /files/import | 🔴 同梱された blobs は op-log に入らない | レコード上限の再発防止 (ANA-116 D1) |
+
+### 同梱 blob を落とすこと (ANA-116 D1)
+
+v5 の `.conversensus` は**画像の実体を base64 で同梱する** — 参照だけでは別端末で開いた
+ときに画像が失われるためである。しかし**その base64 を op-log へ流してはならない**。
+それは ANA-116 が直した「レコード上限 (約 1 MB) に当たる」問題そのものの再発になる。
+実体はクライアントが送信前にローカル blob ストアへ戻す (`files/fileTransfer.ts`) ので、
+server は `blobs` を落とすのが正しい。応答に含まれないことと、**op-log の batch に
+base64 が現れないこと**の両方で固定する。
+
+なお旧版の解釈 (v1〜v4 の移行) は `shared` の `parseConversensusFile` に 1 本化した。
+以前は同じ if の連なりが client (`Sidebar`) と server の両方にあり、版を 1 つ足すたびに
+2 箇所直す形だった。
 
 ### import の往復性 (Phase 6 p6-1)
 
@@ -274,6 +288,9 @@ branch/commit を op-log 上で成立させるための**メタの器**。batche
 - **上限 (5 MiB) はここで断る**。通してしまうと、PDS への送信時 (S5) に初めて失敗し、
   その batch は再送し続けて outbox に詰まる。作成時点で断る方が利用者に分かりやすい
 - CID は DB の鍵であり URL パスにも現れるので、**形の検証はストアを引く前に**行う
+- **保存した Content-Type は `GET` でそのまま返る**ので、受け入れる型をここで絞らないと
+  daemon の origin (`/files/*` と同じ) で HTML を配れてしまう。クライアント側の検査
+  (`saveImageBlob`) だけに頼らない (レビュー Q6)
 
 ### どのように
 
@@ -283,4 +300,13 @@ branch/commit を op-log 上で成立させるための**メタの器**。batche
 - `GET /blobs/:cid` が実体を Content-Type 付きで返す
 - 存在しない cid は 404 / cid の形をしていなければ 400 (ストアを引く前に弾く)
 - Content-Type が無ければ 400 (MIME を推測しない) / 空のボディは 400
+- **画像でない Content-Type は 415** / `GET` は `X-Content-Type-Options: nosniff` を付ける
 - **5 MiB + 1 バイトは 413、5 MiB ちょうどは 201** — PDS の実測境界に合わせる
+
+### ここでテストしないこと
+
+- **`Content-Length` の申告だけで弾く早期 return** — 本文を読み切る前に断るための
+  ものだが、`Content-Length` は fetch 仕様の禁止ヘッダで **`Request` から設定できない**
+  ため、この層のテストからは発火させられない。実際のクライアントではブラウザが
+  自動で付ける。読み終わった後の検査は残してあるので、**通ってしまっても最終的な
+  上限は守られる** (上の 413 のケースが押さえている)

@@ -37,6 +37,7 @@ const { render, screen, fireEvent, cleanup, waitFor } = await import(
   '@testing-library/react'
 );
 const { ImageNode } = await import('./ImageNode');
+const { ImageErrorProvider } = await import('./images/imageErrorContext');
 
 // 実在の CID ベクタ ( `[1,2,3]` の CID)。daemon の応答として返す
 const STORED_CID =
@@ -206,6 +207,31 @@ describe('ImageNode', () => {
       expect(onParentDrop).not.toHaveBeenCalled();
     });
 
+    it('保存に失敗したら op を出さずに理由を伝える', async () => {
+      // 設計 D7「握り潰さない」。旧実装は console.error だけで、上限超過は
+      // 「落としたのに何も起きない」ようにしか見えなかった
+      globalThis.fetch = (async () => ({
+        ok: false,
+        status: 413,
+        text: async () => 'Blob too large (max 5242880 bytes)',
+      })) as unknown as typeof fetch;
+      const reportError = mock((_message: string) => {});
+      const { container } = render(
+        <ImageErrorProvider value={reportError}>
+          <ImageNode {...makeProps()} />
+        </ImageErrorProvider>,
+      );
+
+      fireEvent.drop(
+        nodeBody(container.firstElementChild as HTMLElement),
+        dropWith([imageFile()]),
+      );
+
+      await waitFor(() => expect(reportError).toHaveBeenCalled());
+      expect(mockDispatch).not.toHaveBeenCalled();
+      expect(reportError.mock.calls[0][0]).toContain('413');
+    });
+
     it('画像でないファイルは受け取らず canvas へ通す', async () => {
       const store = stubBlobStore();
       const onParentDrop = mock((_e: unknown) => {});
@@ -224,6 +250,136 @@ describe('ImageNode', () => {
       expect(mockDispatch).not.toHaveBeenCalled();
       expect(store.calls).toBe(0); // ローカル blob ストアも触らない
       expect(onParentDrop).toHaveBeenCalled(); // 伝播は止めない
+    });
+  });
+
+  describe('旧形式 (base64) を持つノードの編集 (レビュー R3)', () => {
+    const originalFetch = globalThis.fetch;
+
+    afterEach(() => {
+      globalThis.fetch = originalFetch;
+    });
+
+    /** `imageDataUrl` だけを持つ step0 期のノード */
+    const legacyProps = (): TestNodeProps => ({
+      ...makeProps(),
+      data: {
+        label: '画像ノード',
+        properties: { imageDataUrl: 'data:image/png;base64,AAECAw==' },
+      },
+    });
+
+    it('URL を編集しても op に base64 を載せない', async () => {
+      // 全体を載せる仕様なので、移さないと base64 が op に復活して
+      // レコード上限 (約 1 MB) に当たる
+      stubBlobStore();
+      render(<ImageNode {...legacyProps()} />);
+
+      // 画像があるノードでは URL 入力はダブルクリックで開く
+      fireEvent.dblClick(screen.getByRole('img'));
+      const input = screen.getByPlaceholderText('画像URLを入力');
+      fireEvent.change(input, {
+        target: { value: 'https://example.com/new.png' },
+      });
+      fireEvent.keyDown(input, { key: 'Enter' });
+
+      await waitFor(() => expect(mockDispatch).toHaveBeenCalled());
+      const event = mockDispatch.mock.calls[0][0] as {
+        from: Record<string, unknown>;
+        to: Record<string, unknown>;
+      };
+      expect(JSON.stringify(event)).not.toContain('base64');
+      // 落とすだけだと画像が失われるので、blob 参照へ移してから載せる
+      expect(event.from.image).toEqual({
+        $type: 'blob',
+        ref: { $link: STORED_CID },
+        mimeType: 'image/png',
+        size: 3,
+      });
+      expect(event.to.imageUrl).toBe('https://example.com/new.png');
+      expect(event.to.image).toEqual(event.from.image);
+    });
+  });
+
+  describe('解決できない画像 (レビュー R2)', () => {
+    const originalFetch = globalThis.fetch;
+
+    afterEach(() => {
+      globalThis.fetch = originalFetch;
+    });
+
+    /** `properties.image` だけを持つノード (旧データの imageUrl は持たせない) */
+    const withBlob = (cid: string): TestNodeProps => ({
+      ...makeProps(),
+      data: {
+        label: '画像ノード',
+        properties: {
+          image: {
+            $type: 'blob',
+            ref: { $link: cid },
+            mimeType: 'image/png',
+            size: 3,
+          },
+        },
+      },
+    });
+
+    /** 指定した cid だけ実体を返し、他は 404 にする `GET /blobs/:cid` */
+    function stubBlobFetch(availableCid: string) {
+      globalThis.fetch = (async (url: string) => {
+        if (String(url).endsWith(availableCid)) {
+          return {
+            ok: true,
+            status: 200,
+            blob: async () => new Blob([new Uint8Array([1, 2, 3])]),
+          };
+        }
+        return { ok: false, status: 404 };
+      }) as unknown as typeof fetch;
+      URL.createObjectURL = () => 'blob:stub/resolved';
+      URL.revokeObjectURL = () => undefined;
+    }
+
+    // **この describe だけで使う cid**。差し替えテストで `STORED_CID` を使うと、
+    // 同じファイルの前のテストが `cacheBlobUrl` で温めた共有キャッシュに当たり、
+    // daemon を見ずに解決してしまう (実在の CID ベクタ: [9,9,9] と [7,7,7,7])
+    const AVAILABLE_CID =
+      'bafkreihhictpv4w3mx2ykmki25ozum25prfzjkyqn7s7en54gt647r2fqq';
+    const MISSING_CID =
+      'bafkreifukhmkptdn57pjzmc2bpoawe7jyamgar45q36opw2nbe7ape5tje';
+
+    it('差し替え先が解決できないとき前の画像を出し続けない', async () => {
+      // 「読めない」ではなく「別のものが正しく見える」形の不具合になるので、
+      // 参照が変わった時点で前の画像を捨てる
+      stubBlobFetch(AVAILABLE_CID);
+      const { rerender } = render(<ImageNode {...withBlob(AVAILABLE_CID)} />);
+      await waitFor(() =>
+        expect(screen.getByRole('img').getAttribute('src')).toBe(
+          'blob:stub/resolved',
+        ),
+      );
+
+      // 他端末が差し替えた直後など、実体がまだこの端末に無い参照へ変わる
+      rerender(<ImageNode {...withBlob(MISSING_CID)} />);
+
+      await waitFor(() => expect(screen.queryByRole('img')).toBeNull());
+      expect(screen.getByText('画像を読み込み中...')).toBeDefined();
+    });
+
+    it('画像が消えたとき (参照が外れたとき) も残さない', async () => {
+      stubBlobFetch(AVAILABLE_CID);
+      const { rerender } = render(<ImageNode {...withBlob(AVAILABLE_CID)} />);
+      await waitFor(() => expect(screen.getByRole('img')).toBeDefined());
+
+      // 画像キーごと落ちた properties へ差し替わる (remote の setProperties など)
+      rerender(
+        <ImageNode
+          {...makeProps()}
+          data={{ label: '画像ノード', properties: {} }}
+        />,
+      );
+
+      await waitFor(() => expect(screen.queryByRole('img')).toBeNull());
     });
   });
 });

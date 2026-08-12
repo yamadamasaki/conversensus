@@ -6,6 +6,7 @@ import {
   createPdsBlobUploader,
   imagePropertiesChange,
   imagePropertiesOf,
+  migrateLegacyImageProperties,
   type ResolveImageDeps,
   readImageBlobLocation,
   replaceImageProperties,
@@ -22,6 +23,16 @@ const OTHER_CID = 'bafkreiadsbmmn4waznesyuz3bjgrj33xzqhxrk6mz3ksq7meugrachh3qe';
 const PNG = 'image/png';
 const DID = 'did:plc:testtesttesttesttest' as Did;
 const MAX_BLOB_SIZE = 5 * 1024 * 1024;
+
+/** 旧形式の base64。`AAECAw==` は [0, 1, 2, 3] のバイト列 */
+const DATA_URL = `data:${PNG};base64,AAECAw==`;
+/** 旧形式から移行した先の参照 (差し替え後の `ref` と区別できるよう別の cid にする) */
+const oldRef = {
+  $type: 'blob' as const,
+  ref: { $link: OTHER_CID },
+  mimeType: PNG,
+  size: 4,
+};
 
 // Object URL は自前のスタブに差し替える。テスト環境の実装差に左右されず、
 // 「blob: の URL を返したかどうか」だけを見られるようにするため
@@ -379,14 +390,125 @@ describe('replaceImageProperties / imagePropertiesChange', () => {
     expect(existing.imageDataUrl).toBe('data:image/png;base64,AAAA');
   });
 
-  it('from は差し替え前の全体 (undo で欠けないこと)', () => {
+  it('from は差し替え前の全体 (undo で欠けないこと)', async () => {
     // invertEvent は from と to を入れ替えるだけなので、片方が差分だと
     // 元に戻したときに properties が欠ける
     const existing = { imageUrl: 'https://example.com/a.png' };
-    expect(imagePropertiesChange(existing, ref)).toEqual({
+    expect(await imagePropertiesChange(existing, ref)).toEqual({
       from: { imageUrl: 'https://example.com/a.png' },
       to: { imageUrl: 'https://example.com/a.png', image: ref },
     });
+  });
+
+  it('旧形式の base64 は from / to のどちらにも残さない', async () => {
+    // 落とすだけだと undo で画像が失われるので、from には移行後の参照が載る
+    const existing = { imageDataUrl: DATA_URL, caption: 'a' };
+    const save = mock(async (_source: Blob) => oldRef);
+
+    const change = await imagePropertiesChange(existing, ref, { save });
+
+    expect(change.from).toEqual({ caption: 'a', image: oldRef });
+    expect(change.to).toEqual({ caption: 'a', image: ref });
+    expect(JSON.stringify(change)).not.toContain('base64');
+  });
+});
+
+describe('migrateLegacyImageProperties', () => {
+  const ref = {
+    $type: 'blob' as const,
+    ref: { $link: CID },
+    mimeType: PNG,
+    size: 3,
+  };
+
+  it('base64 を blob へ移して参照に差し替える', async () => {
+    const save = mock(async (_source: Blob) => oldRef);
+
+    const migrated = await migrateLegacyImageProperties(
+      { imageDataUrl: DATA_URL, caption: 'a' },
+      { save },
+    );
+
+    expect(migrated).toEqual({ caption: 'a', image: oldRef });
+    expect(save).toHaveBeenCalledTimes(1);
+  });
+
+  it('移す実体は data URL のバイト列と MIME である', async () => {
+    let received: Blob | undefined;
+    const save = mock(async (source: Blob) => {
+      received = source;
+      return oldRef;
+    });
+
+    await migrateLegacyImageProperties({ imageDataUrl: DATA_URL }, { save });
+
+    expect(received?.type).toBe(PNG);
+    // "AAECAw==" = [0, 1, 2, 3]
+    expect(new Uint8Array(await (received as Blob).arrayBuffer())).toEqual(
+      bytesOf(0, 1, 2, 3),
+    );
+  });
+
+  it('旧形式が無ければ何もしない (保存も呼ばない)', async () => {
+    const save = mock(async (_source: Blob) => oldRef);
+
+    const migrated = await migrateLegacyImageProperties(
+      { caption: 'a', image: ref },
+      { save },
+    );
+
+    expect(migrated).toEqual({ caption: 'a', image: ref });
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it('新形式が既にあれば base64 は捨てるだけ (D4 で新形式が勝つ)', async () => {
+    const save = mock(async (_source: Blob) => oldRef);
+
+    const migrated = await migrateLegacyImageProperties(
+      { imageDataUrl: DATA_URL, image: ref },
+      { save },
+    );
+
+    expect(migrated).toEqual({ image: ref });
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it('読めない base64 は落とすだけ (op へ運ばない)', async () => {
+    const save = mock(async (_source: Blob) => oldRef);
+
+    const migrated = await migrateLegacyImageProperties(
+      { imageDataUrl: 'data:image/png;base64,***', caption: 'a' },
+      { save },
+    );
+
+    expect(migrated).toEqual({ caption: 'a' });
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it('data URL の形でなければ落とすだけ', async () => {
+    const migrated = await migrateLegacyImageProperties({
+      imageDataUrl: 'https://example.com/a.png',
+    });
+
+    expect(migrated).toEqual({});
+  });
+
+  it('元の properties を書き換えない', async () => {
+    const existing = { imageDataUrl: DATA_URL };
+    await migrateLegacyImageProperties(existing, {
+      save: async () => oldRef,
+    });
+    expect(existing.imageDataUrl).toBe(DATA_URL);
+  });
+
+  it('保存が失敗したら投げる (握り潰して base64 を残さない)', async () => {
+    const save = mock(async (_source: Blob) => {
+      throw new Error('画像が大きすぎます');
+    });
+
+    await expect(
+      migrateLegacyImageProperties({ imageDataUrl: DATA_URL }, { save }),
+    ).rejects.toThrow('画像が大きすぎます');
   });
 });
 
@@ -517,13 +639,40 @@ describe('createPdsBlobUploader', () => {
     expect(upload).not.toHaveBeenCalled();
   });
 
-  it('ローカルに実体が無ければ飛ばす (投げない)', async () => {
-    // この端末では上げようがない。レコード側は PDS に既にあれば通り、無ければ
-    // push が失敗して未同期のまま残る — ここで投げると後者を先取りしてしまう
+  it('ローカルに実体が無ければ飛ばし、その cid を unavailable で返す', async () => {
+    // この端末では上げようがない。投げずに返すのは、呼び出し側 (`pushRemote`) が
+    // 「その batch だけ送らない」判断をするため (レビュー D2)。投げると通信不調と
+    // 区別が付かず、残りの batch まで巻き添えになる
     const { deps, upload } = uploadDeps({ local: async () => undefined });
-    await createPdsBlobUploader(deps)([imageOp(CID)]);
+    const result = await createPdsBlobUploader(deps)([imageOp(CID)]);
 
     expect(upload).not.toHaveBeenCalled();
+    expect(result.unavailable).toEqual([CID]);
+  });
+
+  it('全部上がれば unavailable は空', async () => {
+    const { deps } = uploadDeps();
+    const result = await createPdsBlobUploader(deps)([imageOp(CID)]);
+
+    expect(result.unavailable).toEqual([]);
+  });
+
+  it('実体が後から届けば次回は上がる (取りこぼしを記憶しない)', async () => {
+    // 他端末が作った画像は、表示時の解決でローカルへ書き戻される。次の flush で
+    // 上げられるようにするため、上げ済みの記憶は成功した cid だけに限る
+    let present = false;
+    const local = mock(async (_cid: string) =>
+      present
+        ? (new Blob([bytesOf(1, 2, 3)], { type: PNG }) as Blob | undefined)
+        : undefined,
+    );
+    const { deps, upload } = uploadDeps({ local });
+    const uploader = createPdsBlobUploader(deps);
+
+    expect((await uploader([imageOp(CID)])).unavailable).toEqual([CID]);
+    present = true;
+    expect((await uploader([imageOp(CID)])).unavailable).toEqual([]);
+    expect(upload).toHaveBeenCalledTimes(1);
   });
 
   it('PDS が別の cid を返したら投げる', async () => {

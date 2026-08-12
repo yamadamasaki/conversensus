@@ -11,17 +11,16 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   createFile,
-  exportFile,
   fetchBatches,
   fetchFiles,
   fetchLocalFileIds,
-  importFile,
   pushReceivedBatches,
 } from '../api';
 import { FanoutSyncProvider } from '../atproto/fanoutSyncProvider';
 import type { RemoteSyncQueue } from '../atproto/remoteSyncQueue';
 import type { GraphEvent } from '../events/GraphEvent';
 import { makeEventBase } from '../events/GraphEvent';
+import { exportFile, importFile } from '../files/fileTransfer';
 import type { PopupTarget } from '../SettingsPopup';
 import { didFromActor } from '../sync/actor';
 import { discoverRemoteFiles } from '../sync/discoverRemoteFiles';
@@ -491,12 +490,23 @@ export function useFileSheetOperations({
       try {
         const file =
           activeFile?.id === fileId ? activeFile : await loadFile(fileId);
-        deps.exportFile(file);
+        const { missingBlobs } = await deps.exportFile(file);
+        // 同梱できなかった画像は**黙って落とさない** (ANA-116 D1)。実体がこの端末に
+        // 無い画像 (他端末が作って未表示のもの) は書き出しに含められないので、
+        // そのファイルを他の端末で開いてもその画像は出ない
+        if (missingBlobs.length > 0) {
+          await new Promise<void>((resolve) => {
+            setAlertState({
+              message: `${missingBlobs.length} 個の画像の実体がこの端末に無いため, 書き出したファイルには含まれていません。`,
+              resolve,
+            });
+          });
+        }
       } catch (err) {
         console.error('Failed to export file:', err);
       }
     },
-    [activeFile, deps, loadFile],
+    [activeFile, deps, loadFile, setAlertState],
   );
 
   // 初期ファイル読み込み

@@ -70,7 +70,6 @@ import { useNodeTypeMenu } from './hooks/useNodeTypeMenu';
 import { ImageNode } from './ImageNode';
 import {
   IMAGE_MIME_PREFIX,
-  imagePropertiesChange,
   imagePropertiesOf,
   saveImageBlob,
 } from './images/imageBlob';
@@ -78,7 +77,9 @@ import {
   ImageErrorProvider,
   imageErrorMessage,
 } from './images/imageErrorContext';
+import { pasteImage as routeImagePaste } from './images/pasteImage';
 import { pickImagePasteTarget } from './images/pasteTarget';
+import { replaceNodeImage } from './images/replaceNodeImage';
 import { NodeCreationContext } from './NodeCreationContext';
 import type { NodeTypeOption } from './NodeTypeMenu';
 import { NodeTypeMenu } from './NodeTypeMenu';
@@ -562,7 +563,7 @@ function GraphEditorInner({
       } catch (err) {
         // 握り潰さない (設計 D7)。旧実装は console.error だけだったので、
         // 上限超過は「落としたのに何も起きない」ようにしか見えなかった
-        setImageError(err instanceof Error ? err.message : String(err));
+        setImageError(imageErrorMessage(err));
       }
     },
     [addNode],
@@ -587,32 +588,24 @@ function GraphEditorInner({
     });
   }, [screenToFlowPosition]);
 
-  /** 貼り付けた画像を「選択中の画像ノードへ差し替え」か「新規ノード」へ振り分ける */
+  /** 貼り付けた画像の振り分け。判断は `images/pasteImage.ts` にある */
   const pasteImage = useCallback(
-    async (source: Blob) => {
-      const target = selectedImageNode();
-      if (!target) {
-        await addImageNode(source, pasteTargetPosition());
-        return;
-      }
-      try {
-        const ref = await saveImageBlob(source);
-        dispatch({
-          ...makeEventBase('content'),
-          type: 'NODE_PROPERTIES_CHANGED',
-          nodeId: target.id as NodeId,
-          ...imagePropertiesChange(
-            (target.data as { properties?: Record<string, unknown> })
-              .properties,
-            ref,
-          ),
-        });
-      } catch (err) {
-        setImageError(imageErrorMessage(err));
-      }
-    },
+    (source: Blob) =>
+      routeImagePaste(source, {
+        pickTarget: selectedImageNode,
+        addImageNode: (s) => addImageNode(s, pasteTargetPosition()),
+        replaceImage: (nodeId, properties, s) =>
+          replaceNodeImage(nodeId, properties, s, {
+            dispatch,
+            reportError: setImageError,
+          }),
+      }),
     [selectedImageNode, addImageNode, pasteTargetPosition, dispatch],
   );
+
+  // paste イベントで画像を受け取った時刻。**keydown の代替パスとの二重処理を防ぐ**
+  // ためだけに使う (下の `handlePasteKeydown` を参照)
+  const pasteHandledAtRef = useRef(0);
 
   // クリップボードからの画像貼り付け → ImageNode 作成
   const handlePaste = useCallback(
@@ -629,6 +622,9 @@ function GraphEditorInner({
         e.preventDefault();
         const file = item.getAsFile();
         if (!file) continue;
+        // **await より先に記録する** — keydown 側は clipboard.read() の解決を待って
+        // からここを見るので、印を付けるのが await の後だと間に合わないことがある
+        pasteHandledAtRef.current = Date.now();
         await pasteImage(file);
         break;
       }
@@ -643,12 +639,18 @@ function GraphEditorInner({
 
   // Ctrl/Cmd+V で navigator.clipboard.read() を使う代替パス
   // (非編集可能要素では paste イベントが発火しないブラウザがあるため)
+  //
+  // **paste イベントが来た場合はこちらは何もしない。** ここは `clipboard.read()` を
+  // await するので、`e.preventDefault()` を呼べる頃にはブラウザは既に paste を
+  // 配送し終えている — 止められないので「後から見て譲る」形にする
+  // (`deepse/reports/review_2026-08-11_ana116-image.md` の未検証項目)。
   const handlePasteKeydown = useCallback(
     async (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey) || e.key !== 'v') return;
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
 
+      const startedAt = Date.now();
       let clipboardItems: ClipboardItems;
       try {
         clipboardItems = await navigator.clipboard.read();
@@ -659,12 +661,17 @@ function GraphEditorInner({
         return;
       }
 
+      // この Cmd+V で paste イベントが既に画像を受け取っていたら譲る
+      if (pasteHandledAtRef.current >= startedAt) return;
+
       for (const item of clipboardItems) {
         for (const type of item.types) {
           if (!type.startsWith(IMAGE_MIME_PREFIX)) continue;
-          e.preventDefault();
           const source = await item.getType(type);
           await pasteImage(source);
+          // **最初の 1 枚で抜ける** — 1 つの項目が複数の画像表現 (image/png と
+          // image/tiff など) を持つことがあり、回し続けると同じ画像で 2 回作られる
+          return;
         }
       }
     },

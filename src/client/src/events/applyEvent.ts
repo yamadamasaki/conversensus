@@ -268,20 +268,20 @@ export function applyEvent(
         ),
       };
 
+    // **`to` で置き換える (併合しない)。**
+    //
+    // op-log の projection (`shared/events/project.ts` の `node.setProperties`) は
+    // `node.properties = op.properties` で丸ごと置き換える。ここが併合だと
+    // **キーの削除がローカルでだけ効かない** — 画面には残るのにリロードすると消える、
+    // という食い違いになる (`deepse/reports/review_2026-08-11_ana116-image.md` R4)。
+    //
+    // したがって `to` には**置き換え後の全体**を載せる約束である。発行元は
+    // `images/replaceNodeImage.ts` と `ImageNode` の URL 編集で、どちらも全体を載せる。
     case 'NODE_PROPERTIES_CHANGED':
       return {
         nodes: nodes.map((n) =>
           n.id === event.nodeId
-            ? {
-                ...n,
-                data: {
-                  ...n.data,
-                  properties: {
-                    ...(n.data.properties ?? {}),
-                    ...event.to,
-                  },
-                },
-              }
+            ? { ...n, data: { ...n.data, properties: { ...event.to } } }
             : n,
         ),
         edges,

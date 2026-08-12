@@ -923,6 +923,40 @@ describe('API routes', () => {
       expect(list[0].name).toBe('インポートファイル');
     });
 
+    it('🔴 同梱された blobs は op-log に入らない (ANA-116 D1)', async () => {
+      // v5 は画像の実体を base64 で同梱する (別端末で開いても画像が出るようにするため)。
+      // それを**そのまま op-log へ流すとレコード上限に当たる** — ANA-116 が直した
+      // 問題そのものの再発になる。実体はクライアントがローカル blob ストアへ戻すので、
+      // server は落とすのが正しい
+      const res = await fetch(
+        new Request('http://localhost/files/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...validPayload(),
+            version: '5',
+            blobs: [
+              {
+                cid: 'bafkreibm6jg3ux5qumhcn2b3flc3tyu6dmlb4xa7u5bf44yegnrjhc4yeq',
+                mimeType: 'image/png',
+                data: 'AQID',
+              },
+            ],
+          }),
+        }),
+      );
+      expect(res.status).toBe(201);
+      const imported = await res.json();
+      expect(imported).not.toHaveProperty('blobs');
+
+      const batches = await (
+        await fetch(
+          new Request(`http://localhost/files/${imported.id}/batches`),
+        )
+      ).json();
+      expect(JSON.stringify(batches)).not.toContain('AQID');
+    });
+
     it('version フィールドがない場合は 400 を返す', async () => {
       const { version: _, ...noVersion } = validPayload();
       const res = await fetch(
@@ -1010,6 +1044,25 @@ describe('blob API (ANA-116)', () => {
   it('cid の形をしていなければ 400 (ストアを引く前に弾く)', async () => {
     const res = await fetch(new Request('http://localhost/blobs/not-a-cid'));
     expect(res.status).toBe(400);
+  });
+
+  it('画像でない Content-Type は 415 で受け付けない', async () => {
+    // 保存した型は GET でそのまま返るので、任意の型を通すと daemon の origin
+    // (`/files/*` と同じ) で HTML を配れてしまう
+    const res = await postBlob(HELLO, 'text/html');
+    expect(res.status).toBe(415);
+  });
+
+  it('GET は nosniff を付ける (中身から型を推測させない)', async () => {
+    await postBlob(HELLO, 'image/png');
+    const res = await fetch(new Request(`http://localhost/blobs/${HELLO_CID}`));
+    expect(res.headers.get('X-Content-Type-Options')).toBe('nosniff');
+  });
+
+  it('上限を超える本文は 413', async () => {
+    const tooLarge = new Uint8Array(5 * 1024 * 1024 + 1);
+    const res = await postBlob(tooLarge, 'image/png');
+    expect(res.status).toBe(413);
   });
 
   it('Content-Type が無ければ 400 (MIME を推測しない)', async () => {
