@@ -84,6 +84,16 @@ export function ImageNode({ id, data, selected }: NodeProps) {
   const ownedUrlRef = useRef<string | null>(null);
 
   useEffect(() => {
+    // **参照が変わったら、解決できるより先に前の画像を捨てる。**
+    // 残したままだと、解決に失敗したときや画像が消えたときに前の画像が描かれ続ける —
+    // 「読めない」ではなく「別のものが正しく見える」形の不具合になる
+    // (`deepse/reports/review_2026-08-11_ana116-image.md` R2)
+    if (ownedUrlRef.current) {
+      URL.revokeObjectURL(ownedUrlRef.current);
+      ownedUrlRef.current = null;
+    }
+    setResolvedUrl(null);
+
     if (!blobCid || !blobMimeType) return;
     let cancelled = false;
 
@@ -95,7 +105,6 @@ export function ImageNode({ id, data, selected }: NodeProps) {
           if (!resolved.fromCache) URL.revokeObjectURL(resolved.url);
           return;
         }
-        if (ownedUrlRef.current) URL.revokeObjectURL(ownedUrlRef.current);
         ownedUrlRef.current = resolved.fromCache ? null : resolved.url;
         setResolvedUrl(resolved.url);
       })
