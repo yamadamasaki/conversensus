@@ -159,6 +159,25 @@ export 時に警告するか, 非目標として明記するか)。
 
 *(裏取り: `exportFile` の実装を確認。`ConversensusFile` に blob を運ぶ場所は無い。)*
 
+#### 対応 (2026-08-12) — blob を同梱して自己完結に戻す
+
+ユーザー確認済の方針で入れた。**ファイル形式を v5 に上げ, 参照されている画像の実体を
+base64 で `blobs` 欄に同梱する** (`shared/schemas.ts`)。properties は blob 参照のままで,
+**op-log に base64 は戻さない** — 膨らむのは配布物であるファイルだけである。
+
+1. 書き出し・読み込みを `client/files/fileTransfer.ts` に移した。`api.ts` に置けないのは
+   依存の向きのため (HTTP の薄いラッパと画像の読み方の両方に依存するので
+   `api → images → api` の循環になる)
+2. **読み込みは実体を戻してからグラフを送る。** 逆順だと import 直後の描画で解決に失敗し,
+   後から入れても再解決の契機が無い。`blobs` は server へ送らない (server 側でも落とす)
+3. **同梱できなかった画像は利用者に伝える** (`missingBlobs` → alert)。実体がこの端末に
+   無い参照 (他端末が作って未表示の画像) は運べないので, 黙って落とすと D1 の再発になる
+4. **版の解釈を `shared` の `parseConversensusFile` に 1 本化した**。同じ if の連なりが
+   client (`Sidebar`) と server の両方にあり, 版を足すたびに 2 箇所直す形だった
+
+テストは `files/fileTransfer.test.ts` (同梱・順序・base64 の往復・往復シナリオ),
+`shared/migrations.test.ts` (版の階段), `server/index.test.ts` (blobs が op-log に入らない)。
+
 ### D2. 上げられない blob 1 つが flush 全体を止める
 
 `src/client/src/images/imageBlob.ts:305` (`createPdsBlobUploader` の skip) と
@@ -327,7 +346,7 @@ R3 は「`imageDataUrl` を持つノードを編集する」という**旧デー
 | R4 | ローカルは併合 / 正典は置換 | correctness | **対応済** (`applyEvent` を置換に揃えた) |
 | R1 | Cmd+V 経路に break が無い | correctness | **対応済** |
 | R2 | 解決できないと前の画像が残る | correctness | **対応済** (参照が変わった時点で捨てる) |
-| D1 | export/import で画像が失われる | 設計 | 未対応 (仕様を決める) |
+| D1 | export/import で画像が失われる | 設計 | **対応済** (v5 で blob を同梱) |
 | D2 | blob 1 つが flush 全体を止める | 設計 | **対応済** (batch 単位の失敗境界) |
 | Q1 | 差し替え dispatch の重複 | 重複 | **対応済** (`images/replaceNodeImage.ts` へ集約) |
 | Q2 | `imageErrorMessage` の不統一 | 一貫性 | **対応済** |
@@ -341,8 +360,8 @@ R3 は「`imageDataUrl` を持つノードを編集する」という**旧デー
 | T3 | 旧データを入力にしたテスト | テスト | **対応済** (移行の規則と `commitUrl` 経路) |
 | — | Cmd+V の二重発火 | 未検証 | **対応済** (keydown 側が譲る。実機確認は残) |
 
-**2026-08-12 時点で残っているのは D1 / T2 だけ**である (下の §9 も参照)。
-D1 は「blob を同梱して自己完結に戻す」方針をユーザーと確定済 (着手前)。
+**2026-08-12 時点で残っているのは T2 だけ**である (下の §9 も参照)。T2 は
+§9 N3 の通り両端がテスト済で、残るのは `GraphEditor.pasteImage` の 2 行の分岐だけ。
 
 ### 修正後の実機確認 (2026-08-12)
 

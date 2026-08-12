@@ -96,6 +96,20 @@ Hono アプリの `fetch` 関数を直接呼び出すことで、実際の HTTP 
 | POST /files/import | ID をすべて再生成し参照を付け替える | 取り込み時の同一性分離 |
 | POST /files/import | 🔴 応答の GraphFile = op-log の projection | 往復性 (p6-1, 設計 §6.3) |
 | POST /files/import | インポートしたファイルが一覧に現れる | 一覧との整合 |
+| POST /files/import | 🔴 同梱された blobs は op-log に入らない | レコード上限の再発防止 (ANA-116 D1) |
+
+### 同梱 blob を落とすこと (ANA-116 D1)
+
+v5 の `.conversensus` は**画像の実体を base64 で同梱する** — 参照だけでは別端末で開いた
+ときに画像が失われるためである。しかし**その base64 を op-log へ流してはならない**。
+それは ANA-116 が直した「レコード上限 (約 1 MB) に当たる」問題そのものの再発になる。
+実体はクライアントが送信前にローカル blob ストアへ戻す (`files/fileTransfer.ts`) ので、
+server は `blobs` を落とすのが正しい。応答に含まれないことと、**op-log の batch に
+base64 が現れないこと**の両方で固定する。
+
+なお旧版の解釈 (v1〜v4 の移行) は `shared` の `parseConversensusFile` に 1 本化した。
+以前は同じ if の連なりが client (`Sidebar`) と server の両方にあり、版を 1 つ足すたびに
+2 箇所直す形だった。
 
 ### import の往復性 (Phase 6 p6-1)
 

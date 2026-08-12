@@ -923,6 +923,40 @@ describe('API routes', () => {
       expect(list[0].name).toBe('インポートファイル');
     });
 
+    it('🔴 同梱された blobs は op-log に入らない (ANA-116 D1)', async () => {
+      // v5 は画像の実体を base64 で同梱する (別端末で開いても画像が出るようにするため)。
+      // それを**そのまま op-log へ流すとレコード上限に当たる** — ANA-116 が直した
+      // 問題そのものの再発になる。実体はクライアントがローカル blob ストアへ戻すので、
+      // server は落とすのが正しい
+      const res = await fetch(
+        new Request('http://localhost/files/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...validPayload(),
+            version: '5',
+            blobs: [
+              {
+                cid: 'bafkreibm6jg3ux5qumhcn2b3flc3tyu6dmlb4xa7u5bf44yegnrjhc4yeq',
+                mimeType: 'image/png',
+                data: 'AQID',
+              },
+            ],
+          }),
+        }),
+      );
+      expect(res.status).toBe(201);
+      const imported = await res.json();
+      expect(imported).not.toHaveProperty('blobs');
+
+      const batches = await (
+        await fetch(
+          new Request(`http://localhost/files/${imported.id}/batches`),
+        )
+      ).json();
+      expect(JSON.stringify(batches)).not.toContain('AQID');
+    });
+
     it('version フィールドがない場合は 400 を返す', async () => {
       const { version: _, ...noVersion } = validPayload();
       const res = await fetch(

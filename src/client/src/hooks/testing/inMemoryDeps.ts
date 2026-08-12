@@ -47,9 +47,9 @@ export function createInMemoryFileSheetOpsDeps(): FileSheetOpsDeps & {
       return file;
     },
 
-    exportFile: (_file: GraphFile) => {
-      // no-op in tests
-    },
+    // 書き出しはブラウザにファイルを保存させるだけなので no-op。同梱できなかった
+    // 画像 (missingBlobs) の有無は `fileTransfer` 側のテストで見る
+    exportFile: async (_file: GraphFile) => ({ missingBlobs: [] }),
 
     // server の op-log を模す。`POST /files` の genesis 直書き (p6-1) と同じく、
     // 作成済みファイルは必ず genesis を持つ。未知 id は空 op-log。

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import {
   CONVERSENSUS_FILE_VERSION,
   type ConversensusFile,
+  ConversensusFileSchema,
   EdgeIdSchema,
   EdgeLayoutSchema,
   EdgePathTypeSchema,
@@ -21,6 +22,7 @@ import {
 const FILE_VERSION_V1 = '1' as const;
 const FILE_VERSION_V2 = '2' as const;
 const FILE_VERSION_V3 = '3' as const;
+const FILE_VERSION_V4 = '4' as const;
 
 // --- v1 互換スキーマ (マイグレーション専用) ---
 
@@ -141,6 +143,15 @@ export const ConversensusFileV3Schema = GraphFileV3Schema.extend({
 });
 export type ConversensusFileV3 = z.infer<typeof ConversensusFileV3Schema>;
 
+// --- v4 互換スキーマ (マイグレーション専用) ---
+
+// v4 ファイル: グラフの形は v5 と同一で、**違いは同梱 blob の有無だけ** (ANA-116 D1)。
+// v4 の画像は base64 が properties に入っているか、blob 参照だけを持つ (実体は運べない)。
+export const ConversensusFileV4Schema = GraphFileSchema.extend({
+  version: z.literal(FILE_VERSION_V4),
+});
+export type ConversensusFileV4 = z.infer<typeof ConversensusFileV4Schema>;
+
 // --- マイグレーション関数 ---
 
 // v1 → v2: style/エッジレイアウトフィールドを NodeLayout/EdgeLayout に分離
@@ -208,11 +219,18 @@ export function migrateV1toV2(file: ConversensusFileV1): ConversensusFileV2 {
   };
 }
 
+// v4 → v5: 同梱 blob の欄が増えただけ (グラフの形は変わらない, ANA-116 D1)。
+// **旧ファイルに実体は無い**ので `blobs` は付けない — v4 の画像は properties の
+// base64 (自己完結) か、実体を運べない blob 参照のどちらかである。
+export function migrateV4toV5(file: ConversensusFileV4): ConversensusFile {
+  return { ...file, version: CONVERSENSUS_FILE_VERSION };
+}
+
 // v3 → v4: nodeType/parentId をレイアウトからセマンティックノードに移動
-export function migrateV3toV4(file: ConversensusFileV3): ConversensusFile {
+export function migrateV3toV4(file: ConversensusFileV3): ConversensusFileV4 {
   return {
     ...file,
-    version: CONVERSENSUS_FILE_VERSION,
+    version: FILE_VERSION_V4,
     sheets: file.sheets.map((sheet) => {
       // レイアウトから nodeType と parentId を収集
       const nodeMetaMap = new Map<
@@ -281,4 +299,52 @@ export function migrateV2toV3(file: ConversensusFileV2): ConversensusFileV3 {
       };
     }),
   };
+}
+
+// --- 最新形式への解釈 (1 箇所に集める) ---
+
+/** `parseConversensusFile` の結果 (zod の safeParse と同じ形にしてある) */
+export type ParsedConversensusFile =
+  | { success: true; data: ConversensusFile }
+  | { success: false; error: z.ZodError };
+
+/**
+ * `.conversensus` の JSON を**最新形式として解釈する**。旧版なら移行を辿る。
+ *
+ * client (`Sidebar`) と server (`POST /files/import`) の**両方が同じ階段を必要とする**。
+ * 以前は同じ if の連なりが両側に写してあり、版を 1 つ足すたびに 2 箇所直す形だった
+ * (v5 = ANA-116 D1 の同梱 blob でそれに気付いた)。解釈は 1 箇所に置く。
+ *
+ * 失敗時に返すのは**最新スキーマのエラー**である — 旧版として読めなかった理由を並べても
+ * ユーザーの助けにならない (ほとんどは「そもそも壊れている」)。
+ */
+export function parseConversensusFile(raw: unknown): ParsedConversensusFile {
+  const latest = ConversensusFileSchema.safeParse(raw);
+  if (latest.success) return { success: true, data: latest.data };
+
+  const v4 = ConversensusFileV4Schema.safeParse(raw);
+  if (v4.success) return { success: true, data: migrateV4toV5(v4.data) };
+
+  const v3 = ConversensusFileV3Schema.safeParse(raw);
+  if (v3.success) {
+    return { success: true, data: migrateV4toV5(migrateV3toV4(v3.data)) };
+  }
+
+  const v2 = ConversensusFileV2Schema.safeParse(raw);
+  if (v2.success) {
+    return {
+      success: true,
+      data: migrateV4toV5(migrateV3toV4(migrateV2toV3(v2.data))),
+    };
+  }
+
+  const v1 = ConversensusFileV1Schema.safeParse(raw);
+  if (v1.success) {
+    return {
+      success: true,
+      data: migrateV4toV5(migrateV3toV4(migrateV2toV3(migrateV1toV2(v1.data)))),
+    };
+  }
+
+  return { success: false, error: latest.error };
 }

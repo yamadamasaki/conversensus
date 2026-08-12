@@ -5,10 +5,6 @@ import {
   type BranchId,
   BranchMetaSchema,
   CommitSchema,
-  ConversensusFileSchema,
-  ConversensusFileV1Schema,
-  ConversensusFileV2Schema,
-  ConversensusFileV3Schema,
   CreateFileRequestSchema,
   computeBlobCid,
   type EdgeId,
@@ -17,10 +13,8 @@ import {
   graphFileToBatches,
   isBlobCid,
   MAX_BLOB_SIZE,
-  migrateV1toV2,
-  migrateV2toV3,
-  migrateV3toV4,
   type NodeId,
+  parseConversensusFile,
   type SheetId,
 } from '@conversensus/shared';
 import { Hono } from 'hono';
@@ -153,41 +147,16 @@ app.post('/files', async (c) => {
 app.post('/files/import', async (c) => {
   const raw = await c.req.json().catch(() => null);
 
-  // v4 を試み, 失敗したら v3→v4, v2→v3→v4, v1→v2→v3→v4 とマイグレーション
-  let parsedFile: ReturnType<typeof ConversensusFileSchema.safeParse>;
-  const parsedV4 = ConversensusFileSchema.safeParse(raw);
-  if (parsedV4.success) {
-    parsedFile = parsedV4;
-  } else {
-    const parsedV3 = ConversensusFileV3Schema.safeParse(raw);
-    if (parsedV3.success) {
-      parsedFile = ConversensusFileSchema.safeParse(
-        migrateV3toV4(parsedV3.data),
-      );
-    } else {
-      const parsedV2 = ConversensusFileV2Schema.safeParse(raw);
-      if (parsedV2.success) {
-        parsedFile = ConversensusFileSchema.safeParse(
-          migrateV3toV4(migrateV2toV3(parsedV2.data)),
-        );
-      } else {
-        const parsedV1 = ConversensusFileV1Schema.safeParse(raw);
-        if (parsedV1.success) {
-          parsedFile = ConversensusFileSchema.safeParse(
-            migrateV3toV4(migrateV2toV3(migrateV1toV2(parsedV1.data))),
-          );
-        } else {
-          return c.json({ error: parsedV4.error.flatten() }, HTTP_BAD_REQUEST);
-        }
-      }
-    }
-  }
-
+  // 旧版の解釈は shared に 1 本化した (client の Sidebar も同じ階段を使う, ANA-116 D1)
+  const parsedFile = parseConversensusFile(raw);
   if (!parsedFile.success) {
     return c.json({ error: parsedFile.error.flatten() }, HTTP_BAD_REQUEST);
   }
 
-  const { version: _, ...fileData } = parsedFile.data;
+  // `blobs` (同梱した画像の実体) はここで落とす。**op-log へ base64 を持ち込まない** —
+  // それが ANA-116 でレコード上限に当たった原因そのものである。実体はクライアントが
+  // 送信前にローカル blob ストアへ戻している (`files/fileTransfer.ts`)
+  const { version: _, blobs: _blobs, ...fileData } = parsedFile.data;
   // sheet/node/edge/layout の ID も再生成し, 参照 (source/target/parentId/nodeId) を付け替える
   const data: GraphFile = {
     ...fileData,
