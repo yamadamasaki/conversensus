@@ -19,6 +19,32 @@
  * インメモリのデータ構造と flush 契約に集中する。
  */
 
+/**
+ * push が**一部だけ成功した**ことを伝える例外 (ANA-116 レビュー D2)。
+ *
+ * 既定の失敗 (素の例外) は「全件保留」— オフラインのように**どれも送れていない**
+ * 原因ではそれが正しい。しかし 1 件だけが構造的に送れない場合 (例: 参照する画像 blob の
+ * 実体がこの端末に無く、PDS が `Could not find blob` で拒む) は、全件保留にすると
+ * **無関係なファイルの batch まで一緒に再送され続ける**。
+ *
+ * push 側が「どこまで送れたか」を知っているときはこれを投げる。Outbox は
+ * `sentIds` の分だけ除去し、残りを保留に維持する = 失敗の境界が項目単位になる。
+ */
+export class PartialPushError extends Error {
+  /** 送信できた項目の id (`getId` と同じ値) */
+  readonly sentIds: readonly string[];
+
+  constructor(
+    sentIds: readonly string[],
+    /** 送れなかった項目の最初の原因。`FlushResult.error` にはこれが入る */
+    cause: unknown,
+  ) {
+    super('push partially failed', { cause });
+    this.name = 'PartialPushError';
+    this.sentIds = sentIds;
+  }
+}
+
 /** `flush` の結果 */
 export type FlushResult = {
   /** push が成功したか。false = オフライン等で保留継続、または flush 実行中 */
@@ -27,6 +53,11 @@ export type FlushResult = {
   flushed: number;
   /** ok=false のときの原因 (push の reject 理由 / 実行中エラー) */
   error?: unknown;
+  /**
+   * 部分成功 (`PartialPushError`) だったか。`ok=false` かつ `flushed>0` の状態を
+   * 「オフラインで 0 件」と区別できるようにする — 呼び出し側の UI 文言が変わる。
+   */
+  partial?: boolean;
 };
 
 export class Outbox<T> {
@@ -98,6 +129,9 @@ export class Outbox<T> {
    * 成功時は「送信に出したスナップショット分だけ」を id 指定で除去する
    * (in-flight 中に enqueue された新規分は失わない)。
    * 失敗 (オフライン) 時は保留を維持し、次回 flush で再送できる。
+   *
+   * push が `PartialPushError` を投げた場合だけ、**送れた分は除去し残りを保留**する
+   * (項目単位の失敗境界, ANA-116 レビュー D2)。
    */
   async flush(push: (items: T[]) => Promise<void>): Promise<FlushResult> {
     if (this.flushing) {
@@ -113,9 +147,19 @@ export class Outbox<T> {
     this.flushing = true;
     try {
       await push(snapshot);
-      this.remove(snapshot);
+      this.removeIds(snapshot.map((item) => this.getId(item)));
       return { ok: true, flushed: snapshot.length };
     } catch (error) {
+      if (error instanceof PartialPushError) {
+        // 項目単位の失敗境界: 送れた分だけ除去し、送れなかった分は保留に残す
+        this.removeIds(error.sentIds);
+        return {
+          ok: false,
+          flushed: error.sentIds.length,
+          error: error.cause,
+          partial: true,
+        };
+      }
       // オフライン等: 保留を維持し呼び出し側に通知する (再送は次回 flush)
       return { ok: false, flushed: 0, error };
     } finally {
@@ -123,9 +167,9 @@ export class Outbox<T> {
     }
   }
 
-  /** スナップショットに含まれる項目を id 一致で queue から除く */
-  private remove(sent: T[]): void {
-    const sentIds = new Set(sent.map((item) => this.getId(item)));
+  /** 指定 id の項目を queue から除く (in-flight 中に積まれた新規分は残る) */
+  private removeIds(ids: readonly string[]): void {
+    const sentIds = new Set(ids);
     this.queue = this.queue.filter((item) => !sentIds.has(this.getId(item)));
     for (const id of sentIds) this.ids.delete(id);
   }

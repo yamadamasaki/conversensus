@@ -639,13 +639,40 @@ describe('createPdsBlobUploader', () => {
     expect(upload).not.toHaveBeenCalled();
   });
 
-  it('ローカルに実体が無ければ飛ばす (投げない)', async () => {
-    // この端末では上げようがない。レコード側は PDS に既にあれば通り、無ければ
-    // push が失敗して未同期のまま残る — ここで投げると後者を先取りしてしまう
+  it('ローカルに実体が無ければ飛ばし、その cid を unavailable で返す', async () => {
+    // この端末では上げようがない。投げずに返すのは、呼び出し側 (`pushRemote`) が
+    // 「その batch だけ送らない」判断をするため (レビュー D2)。投げると通信不調と
+    // 区別が付かず、残りの batch まで巻き添えになる
     const { deps, upload } = uploadDeps({ local: async () => undefined });
-    await createPdsBlobUploader(deps)([imageOp(CID)]);
+    const result = await createPdsBlobUploader(deps)([imageOp(CID)]);
 
     expect(upload).not.toHaveBeenCalled();
+    expect(result.unavailable).toEqual([CID]);
+  });
+
+  it('全部上がれば unavailable は空', async () => {
+    const { deps } = uploadDeps();
+    const result = await createPdsBlobUploader(deps)([imageOp(CID)]);
+
+    expect(result.unavailable).toEqual([]);
+  });
+
+  it('実体が後から届けば次回は上がる (取りこぼしを記憶しない)', async () => {
+    // 他端末が作った画像は、表示時の解決でローカルへ書き戻される。次の flush で
+    // 上げられるようにするため、上げ済みの記憶は成功した cid だけに限る
+    let present = false;
+    const local = mock(async (_cid: string) =>
+      present
+        ? (new Blob([bytesOf(1, 2, 3)], { type: PNG }) as Blob | undefined)
+        : undefined,
+    );
+    const { deps, upload } = uploadDeps({ local });
+    const uploader = createPdsBlobUploader(deps);
+
+    expect((await uploader([imageOp(CID)])).unavailable).toEqual([CID]);
+    present = true;
+    expect((await uploader([imageOp(CID)])).unavailable).toEqual([]);
+    expect(upload).toHaveBeenCalledTimes(1);
   });
 
   it('PDS が別の cid を返したら投げる', async () => {

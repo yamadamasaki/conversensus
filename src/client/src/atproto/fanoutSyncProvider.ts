@@ -121,7 +121,21 @@ function warnRemoteFailure(error: unknown): void {
   console.warn('[sync] remote push failed:', error);
 }
 
-/** `flush` は失敗を throw せず FlushResult で返すので、そちらも拾う */
+/**
+ * `flush` は失敗を throw せず FlushResult で返すので、そちらも拾う。
+ *
+ * **部分成功は別の文面にする** (ANA-116 レビュー D2)。「送れた分はある」と
+ * 「1 件も送れていない」は原因の種類が違い (前者は特定の batch の問題、後者は通信や認証)、
+ * 同じ文面だと切り分けが実機で効かない。
+ */
 function warnIfNotFlushed(result: FlushResult): void {
-  if (!result.ok) warnRemoteFailure(result.error);
+  if (result.ok) return;
+  if (result.partial) {
+    console.warn(
+      `[sync] remote push partially failed: ${result.flushed} sent, the rest stay pending:`,
+      result.error,
+    );
+    return;
+  }
+  warnRemoteFailure(result.error);
 }

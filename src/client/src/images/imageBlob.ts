@@ -16,6 +16,8 @@ import {
   type Op,
 } from '@conversensus/shared';
 import { fetchBlob, putBlob, type StoredBlob } from '../api';
+// 型だけ借りる。実装の向き (atproto/ は images/ を知らない) は変えない
+import type { BlobUploader } from '../atproto/atprotoSyncProvider';
 import {
   cacheBlobUrl,
   fetchRemoteBlob,
@@ -351,13 +353,19 @@ const defaultUploadDeps: UploadImageBlobDeps = {
  * 上げ済みの cid をセッション内で覚える。ログイン単位で作り直す前提なので
  * (`useRemoteSyncQueue` が session ごとに provider ごと作り直す)、別 repo の
  * 上げ済みを引き継ぐことはない。
+ *
+ * **上げられなかった cid は `unavailable` で返す** (レビュー D2)。呼び出し側
+ * (`AtprotoSyncProvider.pushRemote`) はそれを参照する batch を送らずに飛ばせるので、
+ * 解決できない画像 1 つが他の batch の送信を止めずに済む。
+ * 上げ済みの記憶は成功した cid だけなので、後から実体が届けば次回そのまま上がる。
  */
 export function createPdsBlobUploader(
   deps: UploadImageBlobDeps = defaultUploadDeps,
-): (ops: readonly Op[]) => Promise<void> {
+): BlobUploader {
   const uploaded = new Set<BlobCid>();
 
   return async function uploadImageBlobsForOps(ops) {
+    const unavailable: BlobCid[] = [];
     for (const ref of collectImageBlobRefs(ops)) {
       const cid = ref.ref.$link;
       if (uploaded.has(cid)) continue;
@@ -365,12 +373,13 @@ export function createPdsBlobUploader(
       const bytes = await deps.local(cid);
       if (!bytes) {
         // ローカルに実体が無い = この端末では上げられない。**数えずに黙って
-        // 進む**のではなく警告する: レコード側は「PDS に既にある」場合だけ通り、
-        // 無ければ push が失敗して未同期のまま残る (どちらもここで判別できない)
+        // 進む**のではなく呼び出し側へ返す: PDS に既にあれば書けるが、それを
+        // ここでは判別できないので、送らない側に倒す判断は呼び出し側に委ねる
         console.warn(
           `[image] blob ${cid} is not in the local store; skipping upload. ` +
-            'The record push will fail unless the PDS already has it.',
+            'The record push will be skipped unless the PDS already has it.',
         );
+        unavailable.push(cid);
         continue;
       }
 
@@ -387,5 +396,6 @@ export function createPdsBlobUploader(
       }
       uploaded.add(cid);
     }
+    return { unavailable };
   };
 }

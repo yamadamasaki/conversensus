@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import type { Batch, FileId, NodeId } from '@conversensus/shared';
+import { PartialPushError } from '../sync/outbox';
 
 const FILE = '22222222-2222-4222-8222-222222222222' as FileId;
 
@@ -154,7 +155,7 @@ function inMemoryBatches() {
 function makeProvider(batches: BatchCollection): AtprotoSyncProvider {
   return new AtprotoSyncProvider({
     batches,
-    uploadBlobs: () => Promise.resolve(),
+    uploadBlobs: () => Promise.resolve({ unavailable: [] }),
   });
 }
 
@@ -486,15 +487,16 @@ describe('AtprotoSyncProvider', () => {
         batches,
         uploadBlobs: (ops) => {
           calls.push(`upload:${ops.length}`);
-          return Promise.resolve();
+          return Promise.resolve({ unavailable: [] });
         },
       });
       return { provider, calls };
     }
 
-    it('pushRemote は 1 件目のレコードを書く前に blob を上げる', async () => {
+    it('pushRemote は各 batch のレコードを書く前にその batch の blob を上げる', async () => {
       // 逆順だと PDS が `Could not find blob` で拒否し、その batch は再送し続けて
-      // outbox に詰まる (S1 で実測)。順序が保証そのものなので並びで固定する
+      // outbox に詰まる (S1 で実測)。順序が保証そのものなので並びで固定する。
+      // **batch ごとに交互**なのは失敗境界を batch 単位にしたため (レビュー D2)
       const { provider, calls } = recordingProvider();
       await provider.pushRemote(
         [batch('1', 1), batch('2', 2)].map((batch) => ({
@@ -503,8 +505,9 @@ describe('AtprotoSyncProvider', () => {
         })),
       );
       expect(calls).toEqual([
-        'upload:2',
+        'upload:1',
         `put:v1~${FILE}~000000000001~1`,
+        'upload:1',
         `put:v1~${FILE}~000000000002~2`,
       ]);
     });
@@ -526,10 +529,119 @@ describe('AtprotoSyncProvider', () => {
         uploadBlobs: () => Promise.reject(new Error('upload failed')),
       });
 
-      await expect(
-        provider.pushRemote([{ fileId: FILE, batch: batch('1', 1) }]),
-      ).rejects.toThrow('upload failed');
+      const error = await provider
+        .pushRemote([{ fileId: FILE, batch: batch('1', 1) }])
+        .catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(PartialPushError);
+      expect((error as PartialPushError).sentIds).toEqual([]);
+      expect((error as PartialPushError).cause).toMatchObject({
+        message: 'upload failed',
+      });
       expect(batches._size()).toBe(0);
+    });
+  });
+
+  /**
+   * 失敗境界 (レビュー D2)。**送れないと分かっている 1 件が残りを止めない**ことと、
+   * **全体的な失敗では打ち切る**ことの両方を固定する。前者を守らないと解けない画像 1 つで
+   * 同期全体が止まり、後者を守らないとオフライン編集中に失敗リクエストが保留件数の
+   * 二乗で増える。
+   */
+  describe('失敗の境界 (レビュー D2)', () => {
+    it('上げられない blob を参照する batch は飛ばし、他の batch は送る', async () => {
+      const batches = inMemoryBatches();
+      // 2 件目の batch の blob だけがローカルに無い状況を作る
+      const provider = new AtprotoSyncProvider({
+        batches,
+        uploadBlobs: (ops) =>
+          Promise.resolve({
+            unavailable: ops.some((op) => 'target' in op && op.target === 'n2')
+              ? ['bafkreimissing']
+              : [],
+          }),
+      });
+
+      const error = await provider
+        .pushRemote(
+          [batch('1', 1), batch('2', 2), batch('3', 3)].map((batch) => ({
+            fileId: FILE,
+            batch,
+          })),
+        )
+        .catch((e: unknown) => e);
+
+      // 送れた 2 件は Outbox から消える。送れない 1 件だけが保留に残る
+      expect(error).toBeInstanceOf(PartialPushError);
+      expect((error as PartialPushError).sentIds).toEqual(['1', '3']);
+      expect(batches._rkeys()).toEqual([
+        `v1~${FILE}~000000000001~1`,
+        `v1~${FILE}~000000000003~3`,
+      ]);
+    });
+
+    it('飛ばした batch は PDS を叩かない (無駄なリクエストを出さない)', async () => {
+      const batches = inMemoryBatches();
+      let puts = 0;
+      const put = batches.put.bind(batches);
+      batches.put = (rkey, data) => {
+        puts += 1;
+        return put(rkey, data);
+      };
+      const provider = new AtprotoSyncProvider({
+        batches,
+        uploadBlobs: () => Promise.resolve({ unavailable: ['bafkreimissing'] }),
+      });
+
+      await provider
+        .pushRemote([{ fileId: FILE, batch: batch('1', 1) }])
+        .catch(() => {});
+      expect(puts).toBe(0);
+    });
+
+    it('レコード書込が失敗したら残りを試さず打ち切る (オフラインの巻き添え防止)', async () => {
+      // オフライン中は編集ごとに flush が走るので、全件試すと失敗リクエストが
+      // 保留件数の二乗で増える。1 件目で諦めるのが正しい
+      const batches = inMemoryBatches();
+      let attempts = 0;
+      batches.put = () => {
+        attempts += 1;
+        return Promise.reject(new Error('offline'));
+      };
+      const provider = makeProvider(batches);
+
+      const error = await provider
+        .pushRemote(
+          [batch('1', 1), batch('2', 2), batch('3', 3)].map((batch) => ({
+            fileId: FILE,
+            batch,
+          })),
+        )
+        .catch((e: unknown) => e);
+
+      expect(attempts).toBe(1);
+      expect(error).toBeInstanceOf(PartialPushError);
+      expect((error as PartialPushError).sentIds).toEqual([]);
+    });
+
+    it('途中まで送れていれば、その分だけを送信済みとして返す', async () => {
+      const batches = inMemoryBatches();
+      const put = batches.put.bind(batches);
+      batches.put = (rkey, data) =>
+        rkey.endsWith('~2')
+          ? Promise.reject(new Error('offline'))
+          : put(rkey, data);
+      const provider = makeProvider(batches);
+
+      const error = await provider
+        .pushRemote(
+          [batch('1', 1), batch('2', 2), batch('3', 3)].map((batch) => ({
+            fileId: FILE,
+            batch,
+          })),
+        )
+        .catch((e: unknown) => e);
+
+      expect((error as PartialPushError).sentIds).toEqual(['1']);
     });
   });
 });
