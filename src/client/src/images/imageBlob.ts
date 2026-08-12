@@ -149,16 +149,77 @@ export function replaceImageProperties(
 }
 
 /**
+ * `data:` URL を `Blob` に戻す。読めない形なら `undefined`。
+ *
+ * 旧形式の `imageDataUrl` を blob へ移すためだけに使う (新規に作ることはない)。
+ */
+function parseImageDataUrl(dataUrl: string): Blob | undefined {
+  const match = /^data:([^;,]+);base64,(.*)$/s.exec(dataUrl);
+  if (!match) return undefined;
+  const [, mimeType, base64] = match;
+  try {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+    return new Blob([bytes], { type: mimeType });
+  } catch {
+    // 壊れた base64。呼び出し元は「画像が無い」として扱う
+    return undefined;
+  }
+}
+
+export type MigrateLegacyImageDeps = { save?: typeof saveImageBlob };
+
+/**
+ * op に載せてよい形へ直す。**`imageDataUrl` (base64) を blob 参照へ移す。**
+ *
+ * op に base64 を載せてはならない (レコード上限 約 1 MB に当たる) が, 単に落とすと
+ * 旧データのノードでは**画像そのものが失われる** — 旧形式には blob 参照が無いので
+ * 復元する手掛かりが消える。そこで**触ったノードだけ**その場で移行する。
+ * 設計 §7 の非目標は「旧データの**一括**移行」なので, これとは両立する
+ * (`deepse/reports/review_2026-08-11_ana116-image.md` R3)。
+ *
+ * 移行しても実体はローカル blob ストアに入るだけで PDS は触らない (D5 のまま)。
+ * cid はバイト列から決まるので, 旧形式が指していた cid と一致する。
+ *
+ * base64 が読めない場合は落とすだけにする — 表示できない値を op へ運ぶ理由が無い。
+ */
+export async function migrateLegacyImageProperties(
+  properties: Record<string, unknown> | undefined,
+  deps: MigrateLegacyImageDeps = {},
+): Promise<Record<string, unknown>> {
+  const next = { ...properties };
+  const dataUrl = next[LEGACY_DATA_URL_KEY];
+  if (typeof dataUrl !== 'string' || !dataUrl) return next;
+
+  delete next[LEGACY_DATA_URL_KEY];
+  // 新形式が既にあるなら base64 は表示にも使われない (D4 の解決順序)。捨てるだけでよい
+  if (isImageBlobRef(next[IMAGE_PROPERTY_KEY])) return next;
+
+  const source = parseImageDataUrl(dataUrl);
+  if (!source) return next;
+
+  const ref = await (deps.save ?? saveImageBlob)(source);
+  return { ...next, ...imagePropertiesOf(ref) };
+}
+
+/**
  * 画像差し替えの `NODE_PROPERTIES_CHANGED` に載せる from / to。
  *
  * `from` は**差し替え前の全体**である。undo (`invertEvent`) は from と to を入れ替える
  * だけなので、片方が差分だと元に戻したときに properties が欠ける。
+ *
+ * **from も移行後の形にする。** 旧形式のまま載せると undo の op に base64 が乗り,
+ * 落とすだけにすると undo で画像が失われる。移行した参照を両側に載せれば,
+ * op-log に base64 は入らず undo でも画像が戻る。
  */
-export function imagePropertiesChange(
+export async function imagePropertiesChange(
   existing: Record<string, unknown> | undefined,
   ref: ImageBlobRef,
-): { from: Record<string, unknown>; to: Record<string, unknown> } {
-  return { from: { ...existing }, to: replaceImageProperties(existing, ref) };
+  deps: MigrateLegacyImageDeps = {},
+): Promise<{ from: Record<string, unknown>; to: Record<string, unknown> }> {
+  const migrated = await migrateLegacyImageProperties(existing, deps);
+  return { from: { ...migrated }, to: replaceImageProperties(migrated, ref) };
 }
 
 export type SaveImageDeps = {

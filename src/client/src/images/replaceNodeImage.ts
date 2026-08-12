@@ -45,7 +45,9 @@ export async function replaceNodeImage(
       ...makeEventBase('content'),
       type: 'NODE_PROPERTIES_CHANGED',
       nodeId,
-      ...imagePropertiesChange(properties, ref),
+      // 旧形式の base64 を持つノードはここで blob へ移る (R3)。`save` を共有するので
+      // 移行分もテストでは同じスタブを通る
+      ...(await imagePropertiesChange(properties, ref, { save })),
     });
   } catch (err) {
     deps.reportError(imageErrorMessage(err));

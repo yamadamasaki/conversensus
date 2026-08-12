@@ -294,7 +294,7 @@ R3 は「`imageDataUrl` を持つノードを編集する」という**旧デー
 
 | | 指摘 | 種別 | 状態 |
 |---|---|---|---|
-| R3 | 旧データで base64 が op に復活 | correctness | 未対応 |
+| R3 | 旧データで base64 が op に復活 | correctness | **対応済** (触ったノードだけ blob へ移行) |
 | R4 | ローカルは併合 / 正典は置換 | correctness | 未対応 |
 | R1 | Cmd+V 経路に break が無い | correctness | 未対応 |
 | R2 | 解決できないと前の画像が残る | correctness | 未対応 |

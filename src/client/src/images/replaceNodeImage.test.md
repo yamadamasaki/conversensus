@@ -36,9 +36,16 @@ projection の意味論に直結するので, 壊れても型では気付けな�
 | 同上 | `to` に新しい blob ref が入り, 画像以外の properties が残っている |
 | 同上 | `from` が差し替え前の全体である (undo で欠けない) |
 | 同上 | `reportError` は呼ばれない |
+| 旧形式の base64 を持つノード | `from` / `to` のどちらにも base64 が残らず, `from` は**移行後の参照**になる |
 | 保存が失敗する (上限超過など) | `dispatch` は呼ばれず, `reportError` にそのメッセージが渡る |
 | `Error` 以外が投げられる | 文字列化して `reportError` へ渡す (`imageErrorMessage` の責務) |
 | いずれの失敗でも | `replaceNodeImage` 自体は reject しない |
 
 properties が `undefined` のノード (プロパティを一度も持ったことがない) でも
 落ちないことを, 成功ケースの一種として併せて見る。
+
+旧形式のケースでは `save` が **2 回**呼ばれる (落とした画像の保存と, 旧 base64 の
+blob への移行) ので, 呼ばれた順に別の参照を返すスタブにして **どちらがどちらに
+載るか**を見分けられるようにする。移行そのものの規則は
+`imageBlob.test.ts` の `migrateLegacyImageProperties` が持つので, ここでは
+**`replaceNodeImage` が移行を通していること**だけを確かめる。

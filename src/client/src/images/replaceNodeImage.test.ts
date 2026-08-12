@@ -15,6 +15,14 @@ const NEW_REF: ImageBlobRef = {
   size: 7,
 };
 
+/** 旧形式の base64 を移行した先の参照 */
+const OLD_REF: ImageBlobRef = {
+  $type: 'blob',
+  ref: { $link: 'bafkreiadsbmmn4waznesyuz3bjgrj33xzqhxrk6mz3ksq7meugrachh3qe' },
+  mimeType: PNG,
+  size: 4,
+};
+
 /** 中身は使わない — `save` を差し込むので実体は読まれない */
 const SOURCE = { type: PNG, size: 7 } as unknown as Blob;
 
@@ -75,6 +83,26 @@ describe('replaceNodeImage', () => {
 
     const { from } = propertiesChangedEvent(dispatch);
     expect(from).toEqual(before);
+  });
+
+  it('旧形式の base64 を持つノードでは op に base64 を残さない', async () => {
+    // 1 回目 = 落とした画像の保存, 2 回目 = 旧 base64 の blob への移行
+    const refs = [NEW_REF, OLD_REF];
+    const save = mock(async (_source: Blob) => refs.shift() as ImageBlobRef);
+    const { deps: d, dispatch } = deps(save);
+
+    await replaceNodeImage(
+      NODE_ID,
+      { imageDataUrl: 'data:image/png;base64,AAECAw==', caption: 'a' },
+      SOURCE,
+      d,
+    );
+
+    const { from, to } = propertiesChangedEvent(dispatch);
+    // from は移行後の参照 — 落とすだけだと undo で旧画像が失われる
+    expect(from).toEqual({ caption: 'a', image: OLD_REF });
+    expect(to).toEqual({ caption: 'a', image: NEW_REF });
+    expect(JSON.stringify({ from, to })).not.toContain('base64');
   });
 
   it('properties を持たないノードでも投げられる', async () => {
