@@ -253,6 +253,54 @@ describe('ImageNode', () => {
     });
   });
 
+  describe('旧形式 (base64) を持つノードの編集 (レビュー R3)', () => {
+    const originalFetch = globalThis.fetch;
+
+    afterEach(() => {
+      globalThis.fetch = originalFetch;
+    });
+
+    /** `imageDataUrl` だけを持つ step0 期のノード */
+    const legacyProps = (): TestNodeProps => ({
+      ...makeProps(),
+      data: {
+        label: '画像ノード',
+        properties: { imageDataUrl: 'data:image/png;base64,AAECAw==' },
+      },
+    });
+
+    it('URL を編集しても op に base64 を載せない', async () => {
+      // 全体を載せる仕様なので、移さないと base64 が op に復活して
+      // レコード上限 (約 1 MB) に当たる
+      stubBlobStore();
+      render(<ImageNode {...legacyProps()} />);
+
+      // 画像があるノードでは URL 入力はダブルクリックで開く
+      fireEvent.dblClick(screen.getByRole('img'));
+      const input = screen.getByPlaceholderText('画像URLを入力');
+      fireEvent.change(input, {
+        target: { value: 'https://example.com/new.png' },
+      });
+      fireEvent.keyDown(input, { key: 'Enter' });
+
+      await waitFor(() => expect(mockDispatch).toHaveBeenCalled());
+      const event = mockDispatch.mock.calls[0][0] as {
+        from: Record<string, unknown>;
+        to: Record<string, unknown>;
+      };
+      expect(JSON.stringify(event)).not.toContain('base64');
+      // 落とすだけだと画像が失われるので、blob 参照へ移してから載せる
+      expect(event.from.image).toEqual({
+        $type: 'blob',
+        ref: { $link: STORED_CID },
+        mimeType: 'image/png',
+        size: 3,
+      });
+      expect(event.to.imageUrl).toBe('https://example.com/new.png');
+      expect(event.to.image).toEqual(event.from.image);
+    });
+  });
+
   describe('解決できない画像 (レビュー R2)', () => {
     const originalFetch = globalThis.fetch;
 

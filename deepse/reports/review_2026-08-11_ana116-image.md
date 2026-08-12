@@ -195,7 +195,13 @@ export 時に警告するか, 非目標として明記するか)。
 インラインで書いている (`GraphEditor.tsx:559` 付近)。同じ式のヘルパが
 `images/imageErrorContext.ts` にあるので揃える。
 
-### Q3. `ImageBlobRef` という名前が 2 つある
+### Q3. `ImageBlobRef` という名前が 3 つある
+
+**対応時に判明**: `atproto/types.ts:42` にも同じ形の 3 つめがあった。こちらは
+`NodeRecord.image` からしか参照されておらず, その `NodeRecord` は
+**どこからも使われていない** — op-log 以前の「ノード 1 件 = レコード 1 件」設計の
+名残である (`SheetRecord` / `EdgeRecord` / `FileRecord` も同様に未使用)。
+**削除は本レビューの範囲外**として §9 に新しい指摘として起こした。
 
 - `images/imageBlob.ts` — **ATProto の blob ref そのもの** (`{$type, ref:{$link}, mimeType, size}`)
 - `atproto/blob.ts` — `uploadBlob` の戻り値を畳んだ `{cid, mimeType, size}`
@@ -204,11 +210,10 @@ export 時に警告するか, 非目標として明記するか)。
 (`ipldToLex` が blob ref と誤認する) と警告している以上, この 2 つが同名なのは
 危うい。`atproto/blob.ts` 側を `UploadedBlob` などへ改名する。
 
-### Q4. `commitUrl` の依存に使わなくなった `imageUrl` が残る
+### ~~Q4. `commitUrl` の依存に使わなくなった `imageUrl` が残る~~ — **この指摘は誤り**
 
-`ImageNode.tsx:185` 付近。`from: { imageUrl }` を `from: { ...properties }` に
-直した際の取り残し。依存配列は「何を読んでいるか」の記述なので, ずれていると
-次に読む人を誤らせる。
+`imageUrl` は `if (trimmed === imageUrl) return;` で**読まれている** (変更が無ければ
+op を出さないための比較)。依存配列は正しい。取り下げる。
 
 ### Q5. `cacheBlobUrl` が Object URL を捨て漏らす
 
@@ -302,15 +307,36 @@ R3 は「`imageDataUrl` を持つノードを編集する」という**旧デー
 | D2 | blob 1 つが flush 全体を止める | 設計 | 未対応 |
 | Q1 | 差し替え dispatch の重複 | 重複 | **対応済** (`images/replaceNodeImage.ts` へ集約) |
 | Q2 | `imageErrorMessage` の不統一 | 一貫性 | **対応済** |
-| Q3 | `ImageBlobRef` の名前衝突 | 命名 | 未対応 |
-| Q4 | `commitUrl` の余分な依存 | 後片付け | 未対応 |
-| Q5 | Object URL の捨て漏らし | 資源 | 未対応 |
-| Q6 | daemon が Content-Type を素通し | 堅牢性 | 未対応 |
-| Q7 | サイズ検査前に全部読む | 堅牢性 | 未対応 |
+| Q3 | `ImageBlobRef` の名前衝突 | 命名 | **対応済** (`atproto/blob.ts` を `UploadedBlob` に) |
+| Q4 | `commitUrl` の余分な依存 | — | **取り下げ** (指摘が誤り。`imageUrl` は使われている) |
+| Q5 | Object URL の捨て漏らし | 資源 | **対応済** (同じ cid では作り直さない) |
+| Q6 | daemon が Content-Type を素通し | 堅牢性 | **対応済** (415 + nosniff) |
+| Q7 | サイズ検査前に全部読む | 堅牢性 | **対応済** (Content-Length で早期に断る) |
 | T1 | 失敗経路のテスト | テスト | **対応済** (`ImageNode.test.tsx`) |
 | T2 | 貼り付け振り分けのテスト | テスト | 未対応 |
-| T3 | 旧データを入力にしたテスト | テスト | 未対応 |
+| T3 | 旧データを入力にしたテスト | テスト | **対応済** (移行の規則と `commitUrl` 経路) |
 | — | Cmd+V の二重発火 | 未検証 | **対応済** (keydown 側が譲る。実機確認は残) |
 
-**着手順の目安**: Q1 (重複を潰す) → R3 (1 箇所で直る) → R4 (意味論を揃える) →
-R1/R2 → T1〜T3 → D1/D2 (仕様の判断が要る) → Q2〜Q7。
+**2026-08-12 時点で残っているのは D1 / D2 / T2 だけ**である (下の §9 も参照)。
+D1 / D2 は**仕様の判断が要る**ので相談してから着手する。
+
+---
+
+## 9. 対応中に見付かったもの (新しい指摘)
+
+### N1. ATProto の record 型が丸ごと死んでいる
+
+`src/client/src/atproto/types.ts` の `NodeRecord` / `SheetRecord` / `EdgeRecord` /
+`FileRecord` と, `NodeRecord` からしか参照されない `ImageBlobRef` は
+**どこからも使われていない**。op-log 以前の「ノード 1 件 = レコード 1 件」設計の
+名残で, 今 PDS に書くのは batch レコードだけである。
+
+`ImageBlobRef` が 3 つに増えていた原因でもある (Q3)。削除は素直だが,
+ANA-116 のレビュー範囲を越えるので別途。
+
+### N2. `T2` (貼り付け振り分けのテスト) の位置付けが変わった
+
+Q1 で手続きを `replaceNodeImage` に出し, 規則は `pickImagePasteTarget` にあるので,
+**両端はテスト済**である。残るのは `GraphEditor.pasteImage` の
+「target が無ければ `addImageNode`, あれば `replaceNodeImage`」という 2 行の分岐だけ。
+`GraphEditor` を丸ごと描くコストに見合うかは判断が要るので, 未対応のまま残す。

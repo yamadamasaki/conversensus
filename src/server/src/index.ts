@@ -64,6 +64,9 @@ const HTTP_NO_CONTENT = 204;
 const HTTP_BAD_REQUEST = 400;
 const HTTP_NOT_FOUND = 404;
 const HTTP_PAYLOAD_TOO_LARGE = 413;
+const HTTP_UNSUPPORTED_MEDIA_TYPE = 415;
+/** blob ストアが受け付ける MIME の接頭辞。今のところ画像だけ (ANA-116) */
+const IMAGE_MIME_PREFIX = 'image/';
 const HTTP_INTERNAL_SERVER_ERROR = 500;
 
 const app = new Hono();
@@ -394,6 +397,26 @@ app.post('/blobs', async (c) => {
   if (!mimeType) {
     return c.json({ error: 'Content-Type required' }, HTTP_BAD_REQUEST);
   }
+  // **画像だけを受ける。** 保存した Content-Type は GET でそのまま返るので、
+  // 任意の型を通すと daemon の origin で HTML を配れてしまう (daemon は
+  // `/files/*` と同じ origin で、リリース構成では VPS 上にも居る)。
+  // クライアント側の検査 (`saveImageBlob`) だけに頼らない。
+  if (!mimeType.startsWith(IMAGE_MIME_PREFIX)) {
+    return c.json(
+      { error: `Unsupported Content-Type: ${mimeType}` },
+      HTTP_UNSUPPORTED_MEDIA_TYPE,
+    );
+  }
+  // 本文を読む前に申告された大きさで弾く。読み切ってから 413 を返すと、
+  // 巨大な body をいったん全部メモリに載せることになる (申告は嘘をつけるので、
+  // 読み終わった後の検査も残す)。
+  const declaredLength = Number(c.req.header('content-length') ?? 0);
+  if (declaredLength > MAX_BLOB_SIZE) {
+    return c.json(
+      { error: `Blob too large (max ${MAX_BLOB_SIZE} bytes)` },
+      HTTP_PAYLOAD_TOO_LARGE,
+    );
+  }
   const bytes = new Uint8Array(await c.req.arrayBuffer());
   if (bytes.byteLength === 0) {
     return c.json({ error: 'Empty body' }, HTTP_BAD_REQUEST);
@@ -423,6 +446,10 @@ app.get('/blobs/:cid', (c) => {
     headers: {
       'Content-Type': blob.mimeType,
       'Content-Length': String(blob.size),
+      // POST 側で image/* に絞ってあるが、**保存時の検査を最後の砦にしない** —
+      // 既に入っている行や将来の用途拡張で型が広がっても、ブラウザが中身を
+      // 見て HTML と解釈することは無くなる
+      'X-Content-Type-Options': 'nosniff',
       // content-addressed なので内容は永久に変わらない
       'Cache-Control': 'public, max-age=31536000, immutable',
     },

@@ -1012,6 +1012,25 @@ describe('blob API (ANA-116)', () => {
     expect(res.status).toBe(400);
   });
 
+  it('画像でない Content-Type は 415 で受け付けない', async () => {
+    // 保存した型は GET でそのまま返るので、任意の型を通すと daemon の origin
+    // (`/files/*` と同じ) で HTML を配れてしまう
+    const res = await postBlob(HELLO, 'text/html');
+    expect(res.status).toBe(415);
+  });
+
+  it('GET は nosniff を付ける (中身から型を推測させない)', async () => {
+    await postBlob(HELLO, 'image/png');
+    const res = await fetch(new Request(`http://localhost/blobs/${HELLO_CID}`));
+    expect(res.headers.get('X-Content-Type-Options')).toBe('nosniff');
+  });
+
+  it('上限を超える本文は 413', async () => {
+    const tooLarge = new Uint8Array(5 * 1024 * 1024 + 1);
+    const res = await postBlob(tooLarge, 'image/png');
+    expect(res.status).toBe(413);
+  });
+
   it('Content-Type が無ければ 400 (MIME を推測しない)', async () => {
     expect((await postBlob(HELLO)).status).toBe(400);
   });
