@@ -212,7 +212,7 @@ Playwright WebKit で判定**できない**もの:
 
 | # | 内容 | 器 | 依存 |
 |---|---|---|---|
-| **S0** | E2E の土台。雛形 spec を捨て, `playwright.config.ts` を webkit + chromium に整理し, `webServer` と スクラッチ `DATA_DIR` を設定。`test:e2e` スクリプトと `tests/*.spec.md` の置き方を決める | Playwright | — |
+| **S0** | ✅ **完了 (2026-08-13)** — E2E の土台。§9 参照 | Playwright | — |
 | **S1** | **#51 を赤くしてから直す**。はみ出し検査 (import ボタンがサイドバー内, `elementFromPoint` がボタン自身) を WebKit で失敗させ, `min-width: 0` で緑にする。同じ形の他の行も洗う (D1) | Playwright | S0 |
 | **S2** | 通しスモークを書く。ファイル作成 → ノード作成・編集 → シート追加 → export → import → 画像 drop。**未処理例外とコンソールエラーを 0 に**する (D2) | Playwright | S0 |
 | **S3** | S2 で出た差異への対応。**件数が読めないのでここで一度立ち止まる** — 全部直すか, 使い込みを止めるものだけ直して残りを別課題にするかを判断する (§8 Q3) | Playwright | S2 |
@@ -318,3 +318,42 @@ Tauri 配布の前提にはならない。**放置する** (ユーザー判断, 
 | **Q1** | 範囲は Safari だけか, Firefox も入れるか | ✅ **決着 (2026-08-13): Safari だけ。Firefox は放置** — 理由は §7.1 (どの配布形態にも Gecko は出てこない) |
 | **Q2** | WebKit スモークを CI に載せるか | **既定案: この課題では載せない**。現状 CI には `bun test` すら無く, E2E だけ先に載せるのは順序が逆 |
 | **Q3** | S2 で差異が多数出たらどうするか | **既定案: 使い込みを止めるものだけ本課題で直し, 残りは Linear に子課題として起こす**。ANA-125 は Low で, 目的は「使い込みを始められる状態にすること」 |
+
+---
+
+## 9. 実施記録
+
+### S0. E2E の土台 — 完了 (2026-08-13)
+
+`bun run test:e2e` で **webkit (本命) と chromium (対照)** が回るようになった。
+起動のスモーク 4 件 (2 テスト × 2 エンジン) が緑。
+
+**作ったもの**: `playwright.config.ts` (書き換え) / `tests/smoke.spec.ts` + `tests/smoke.spec.md` /
+`tests/pageProblems.ts` / `tsconfig.e2e.json` / `test:e2e` `test:e2e:webkit` スクリプト。
+雛形の `tests/example.spec.ts` (playwright.dev を開くだけ) は削除した。
+
+**決めたこと**:
+
+1. **専用ポートで自前のサーバを起動する** (daemon `:3100` / client `:5174`,
+   `reuseExistingServer: false`)。利用者が動かしている `:3000` / `:5173` を再利用すると
+   **E2E が利用者の `data/` にファイルを作ってしまう**。
+   加えて**オリジンが分かれると blob の HTTP キャッシュが混ざらない** —
+   `/blobs/:cid` は `immutable` で返るので, 同じオリジンだと消した実体がキャッシュから返る
+   (ANA-116 の実機検証で踏んだ罠)
+2. **データは毎回まっさら**。`DATA_DIR=data-e2e` を**起動コマンドの中で消してから開く**
+   (`rm -rf data-e2e && …`)。`globalSetup` と `webServer` の実行順に依存しない形にした
+3. **画面を合格条件にしない** (D2)。`pageProblems.ts` が未処理例外・コンソールエラー・
+   読み込み失敗を集め, スモークはそれが 0 件であることを見る。
+   失敗と見なさないものは `IGNORED` に集め, **理由を書けるものだけ**を足す (今は vite の HMR だけ)
+4. **リトライしない**。WebKit で落ちたら差そのものが証拠であり, 2 回目で通ることに意味は無い
+5. **CI 関連の設定は書かない** (§8 Q2 で「載せない」と決めたため)。
+   `process.env.CI` の分岐を消したことで, E2E の型検査に node の型が要らなくなった副次効果もある
+
+**土台の穴を 2 つ塞いだ**: `bun run lint` と `bun run typecheck` が `tests/` を見ていなかった。
+Playwright は spec を**型検査せずに実行する**ので, 放置すると型の誤りが実行時まで分からない。
+`biome.json` の `includes` に `tests/` と `playwright.config.ts` を足し,
+`tsconfig.e2e.json` を新設して `typecheck` に繋いだ。
+
+**確認**: `bun run test:e2e` 4 件緑 / `bun test` 1035 件緑 (`bunfig.toml` の `root = "src"` が
+効いており spec を拾わない) / lint / typecheck 緑 / 利用者の `data/` の更新時刻が変わらないこと /
+`data-e2e/` に置いた目印が次の実行で消えること。

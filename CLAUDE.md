@@ -27,6 +27,15 @@ bun run setup   # pre-commit hook をインストール (lint + typecheck が co
 - テストファイルと同じ場所に `foo.test.md` を置き, **何を・なぜ・どのようにテストするか** を記述する
 - テスト実行: `bun test`
 
+### E2E (ブラウザ)
+
+- **エンジンをまたいで壊れるものだけ**を E2E にする (WebKit 適合の検証: ANA-125)
+- `tests/*.spec.ts` に置き, 同じ場所に `tests/*.spec.md` を添える (単体と同じ規約)
+- 実行: `bun run test:e2e` (webkit = 本命 / chromium = 対照)。サーバは Playwright が
+  専用ポートで自前に起動するので, 事前の起動は要らない
+- **画面が正しく見えることを合格条件にしない**。`tests/pageProblems.ts` を併用し,
+  未処理例外・コンソールエラー・読み込み失敗が 0 件であることを見る
+
 ## 開発フロー
 
 - 実装は step ごとにブランチを切って進める

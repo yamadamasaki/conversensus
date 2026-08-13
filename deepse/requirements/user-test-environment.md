@@ -338,6 +338,27 @@ Safari はスクリプトが書いた保存領域の寿命の扱いが Chrome �
 - WebKit 不具合の切り分け (§7.4 の 2 ブラウザ比較)
 - `scripts/inspect-*.ts` による検査 — ブラウザに依存しない
 
+### 7.5 WebKit の自動検証 (Playwright E2E, ANA-125)
+
+**使い込みで見つけたものを機械判定として残す口**である. 設計は
+[`../plans/step1-refinement-ana125-safari.md`](../plans/step1-refinement-ana125-safari.md).
+
+```shell
+bun run test:e2e          # webkit (本命) + chromium (対照)
+bun run test:e2e:webkit   # webkit だけ
+```
+
+- **サーバの起動は要らない**. Playwright が**専用ポートで自前のデーモンとクライアントを
+  起動する** (daemon `:3100` / client `:5174`). §1 で立てた `:3000` / `:5173` は触らない
+- **利用者の `data/` は汚れない**. E2E のデーモンは `DATA_DIR=data-e2e` を使い,
+  **起動のたびに消す**. `data-e2e/` は gitignore 済 (`data-*` のパターン)
+- **ポートを分けているのは意図的である**. 同じオリジンだと `/blobs/:cid` が
+  `immutable` で返るためブラウザの HTTP キャッシュが混ざる (§6 のハマりどころと同じ罠)
+- テストは `tests/*.spec.ts`, 仕様書は同じ場所に `tests/*.spec.md` を置く.
+  `bunfig.toml` が `tests/` を bun のランナーから外しているので `bun test` とは衝突しない
+- **合成イベントで再現しないものは書かない** — トラックパッド由来の挙動・クリップボード・
+  ファイル選択ダイアログ・描画品質は §7.3 のチェックリスト (人間) の領分である
+
 ## 8. Tauri (デスクトップアプリ) で動かす
 
 **この節は Phase 8 (単一バイナリ配布) 用である**. §7 の Safari 使い込みフェイズでは要らない.
