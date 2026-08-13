@@ -24,27 +24,21 @@ import type {
   NodeLayout,
   SheetId,
 } from '@conversensus/shared';
-import { type Batch, BatchIdSchema, type Op } from '@conversensus/shared';
+import {
+  type Batch,
+  BatchIdSchema,
+  nodeSetLayoutOp,
+  type Op,
+} from '@conversensus/shared';
 import type { GraphEvent } from './GraphEvent';
 
 /**
- * 座標・寸法を整数へ丸める (W3d5-7)。
+ * `node.setLayout` op の生成は **shared の `nodeSetLayoutOp` に一本化してある** (ANA-125 S4)。
  *
- * **ATProto のデータモデル (DAG-CBOR) には float 型が無い** — 小数を含む op を載せた batch は
- * PDS の putRecord が 400 (`Expected one of null, boolean, integer, ... got 661.99…`) で弾く。
- * React Flow はドラッグ結果をサブピクセルの小数で返すため、丸めないと **layout op を含む
- * batch が remote へ一切載らない**。
- *
- * 丸めは op 生成時 = ローカル正典に載る値そのものに適用する。remote 側だけで丸めると
- * local と remote で値が食い違い、`recordToBatch` の往復が非可逆になるため (設計 §3.3)。
- * サブピクセル精度は表示上の意味を持たないので、丸めによる情報の損失は無い。
- *
- * width/height は `number | string` (CSS 値) の union。文字列はそのまま通す。
+ * 整数化 (ATProto に float 型が無い) をそこに集約しており、ここで op を直接組むと
+ * 丸めが抜ける。かつてこのファイルにも同じ生成口があり、genesis 側と 2 つに分かれていた
+ * ために genesis だけ丸め漏れが残っていた。
  */
-function roundLayoutValue<T extends number | string | undefined>(value: T): T {
-  return (typeof value === 'number' ? Math.round(value) : value) as T;
-}
-
 function nodeLayoutOp(nodeId: NodeId, layout: NodeLayout | undefined): Op[] {
   if (!layout) return [];
   const { x, y, width, height } = layout;
@@ -56,25 +50,6 @@ function nodeLayoutOp(nodeId: NodeId, layout: NodeLayout | undefined): Op[] {
   )
     return [];
   return [nodeSetLayoutOp(nodeId, { x, y, width, height })];
-}
-
-/**
- * `node.setLayout` op の唯一の生成口。整数化 (`roundLayoutValue`) をここに集約し、
- * 呼び出し側が個別に丸め忘れることを防ぐ。undefined のフィールドは省略する。
- */
-function nodeSetLayoutOp(
-  nodeId: NodeId,
-  layout: Pick<NodeLayout, 'x' | 'y' | 'width' | 'height'>,
-): Op {
-  const { x, y, width, height } = layout;
-  return {
-    kind: 'node.setLayout',
-    target: nodeId,
-    ...(x !== undefined && { x: roundLayoutValue(x) }),
-    ...(y !== undefined && { y: roundLayoutValue(y) }),
-    ...(width !== undefined && { width: roundLayoutValue(width) }),
-    ...(height !== undefined && { height: roundLayoutValue(height) }),
-  };
 }
 
 function edgeLayoutOp(edgeId: EdgeId, layout: EdgeLayout | undefined): Op[] {
