@@ -22,6 +22,7 @@ import { cors } from 'hono/cors';
 import { getEventStore } from './eventStoreServer';
 import { migrateAllFilesToOplog } from './migrateAllToOplog';
 import { W3_SCHEMA_VERSION } from './migrateFileToOplog';
+import { startServer } from './startServer';
 import { deleteFile } from './storage';
 
 /**
@@ -438,11 +439,20 @@ if (import.meta.main) {
         `${migration.failed.length} 件失敗 (${migration.elapsedMs.toFixed(1)}ms)`,
     );
   }
+
+  // **bind を終えてから「起動した」と名乗る** (Phase 8 S1)。
+  // 以前は `export default { port, fetch }` を bun に渡して起動を任せており、
+  // メッセージはモジュール評価の時点で出ていたので、ポートが埋まっていると
+  // 「起動した」と言ってから落ちていた。`startServer` は実際に掴んだポートを返すので、
+  // その値を使うこのメッセージは bind の後にしか組めない。
+  const server = startServer({ port: SERVER_PORT, fetch: app.fetch });
+  console.log(`server running on http://localhost:${server.port}`);
 }
 
-export default {
-  port: SERVER_PORT,
-  fetch: app.fetch,
-};
-
-console.log(`server running on http://localhost:${SERVER_PORT}`);
+/**
+ * テストが実 HTTP ハンドラを叩くための口。
+ *
+ * **`export default` にはしない** — 既定エクスポートがサーバ設定の形をしていると
+ * bun が入口で自動的に待受を始めてしまい、上の `startServer` と二重に bind する。
+ */
+export { app };

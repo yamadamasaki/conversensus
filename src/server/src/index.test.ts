@@ -4,12 +4,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { FileId, SheetId } from '@conversensus/shared';
 import { projectFile } from '@conversensus/shared';
-import server from './index';
+import { app } from './index';
 import { listSnapshotIds } from './storage';
 import { writeLegacySnapshot } from './testing/legacySnapshot';
 
 let tmpDir: string;
-const fetch = server.fetch;
+const fetch = app.fetch;
 
 beforeEach(async () => {
   tmpDir = await mkdtemp(join(tmpdir(), 'conversensus-api-test-'));
