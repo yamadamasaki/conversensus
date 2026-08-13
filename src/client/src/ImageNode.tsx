@@ -79,6 +79,15 @@ export function ImageNode({ id, data, selected }: NodeProps) {
 
   // blob の実体の解決 (設計 D4 の 1〜3)。順序そのものは images/imageBlob.ts が持つ
   const [resolvedUrl, setResolvedUrl] = useState<string | null>(null);
+  /**
+   * 解決が**空で終わった**か (ANA-116 レビュー §9 N4)。
+   *
+   * 実体がローカルにも PDS にも無い参照は永久に解決しない。これを持たないと
+   * 「画像を読み込み中...」を出し続け, **待てばそのうち出るという嘘**になる。
+   * `<img>` が生まれないので `onError` (= `imgError`) も来ない —
+   * **失敗を伝える経路がここにしか無い**。
+   */
+  const [resolveFailed, setResolveFailed] = useState(false);
   // このノードが作った Object URL。共有キャッシュ由来のものは他のノードも
   // 表示に使っているので、ここに入れない (revoke すると相手の画像が壊れる)
   const ownedUrlRef = useRef<string | null>(null);
@@ -93,23 +102,31 @@ export function ImageNode({ id, data, selected }: NodeProps) {
       ownedUrlRef.current = null;
     }
     setResolvedUrl(null);
+    setResolveFailed(false);
 
     if (!blobCid || !blobMimeType) return;
     let cancelled = false;
 
     resolveImageUrl({ cid: blobCid, mimeType: blobMimeType })
       .then((resolved) => {
-        // どこにも無ければ旧データ (imageDataUrl / imageUrl) へ落ちる
-        if (!resolved) return;
         if (cancelled) {
-          if (!resolved.fromCache) URL.revokeObjectURL(resolved.url);
+          if (resolved && !resolved.fromCache)
+            URL.revokeObjectURL(resolved.url);
+          return;
+        }
+        // どこにも無ければ旧データ (imageDataUrl / imageUrl) へ落ちる。
+        // それも無ければ表示できるものが無いので, 失敗として記録する (N4)
+        if (!resolved) {
+          setResolveFailed(true);
           return;
         }
         ownedUrlRef.current = resolved.fromCache ? null : resolved.url;
         setResolvedUrl(resolved.url);
       })
       .catch((err) => {
-        if (!cancelled) console.error('[ImageNode] blob resolve failed:', err);
+        if (cancelled) return;
+        console.error('[ImageNode] blob resolve failed:', err);
+        setResolveFailed(true);
       });
 
     return () => {
@@ -423,7 +440,9 @@ export function ImageNode({ id, data, selected }: NodeProps) {
                 }}
               />
             </div>
-          ) : imgError ? (
+          ) : /* 解決が空で終わった参照もここに来る (N4)。`<img>` が生まれないので
+                `onError` は来ず, 分けておかないと「読み込み中」で止まる */
+          imgError || (!displayUrl && resolveFailed) ? (
             <span style={{ fontSize: 11, color: '#999' }}>
               画像を読み込めません
             </span>
