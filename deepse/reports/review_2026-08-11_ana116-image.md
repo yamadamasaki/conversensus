@@ -421,7 +421,14 @@ cid を参照するファイルを import して再現した)。`curl` はこの
 
 ## 9. 対応中に見付かったもの (新しい指摘)
 
-### N1. ATProto の record 型が丸ごと死んでいる
+### N1. ATProto の record 型が丸ごと死んでいる — **対応済 (2026-08-14, commit `8d4a035`)**
+
+> 削除した。**名指しした 4 型 + `ImageBlobRef` 以外も同じ vintage の死骸で全て未参照**
+> だったので一緒に消した (`NodeLayoutRecord` / `EdgeLayoutRecord` / `BranchRecord` /
+> `CommitRecord` / `MergeRecord` / `StrongRef`)。半分だけ消すと残りが「生きているもの」に
+> 見えるためである。`NSID` 定数と `lexicons/` は残した — 型を消しても PDS 上の既存レコードは
+> 消えないし, `NSID.file` は step0 の legacy レコードを消す経路がまだ使う。
+
 
 `src/client/src/atproto/types.ts` の `NodeRecord` / `SheetRecord` / `EdgeRecord` /
 `FileRecord` と, `NodeRecord` からしか参照されない `ImageBlobRef` は
@@ -452,7 +459,14 @@ Q1 で手続きを `replaceNodeImage` に出し, 規則は `pickImagePasteTarget
 
 → **2026-08-13 に対応済**。振り分けを `images/pasteImage.ts` へ出した (上の §8 T2)。
 
-### N4. 実体がどこにも無い画像は「読み込み中」のまま止まる
+### N4. 実体がどこにも無い画像は「読み込み中」のまま止まる — **対応済 (2026-08-14, commit `03d3b46`)**
+
+> 「解決が空で終わった」を状態に持ち, 進行中と区別するようにした。
+> **判断は `displayUrl` が無いときだけ効かせる** — 旧形式 (`imageDataUrl` / `imageUrl`) を
+> 持つノードは blob の解決に失敗してもそちらで表示できるので, 失敗を出すと嘘になる。
+> 既存のテストが「読み込み中に落ちること」を固定していたので, まずそれを書き換えて
+> 赤くしてから直した。
+
 
 `src/client/src/ImageNode.tsx:429-433`
 
