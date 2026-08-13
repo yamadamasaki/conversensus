@@ -5,6 +5,9 @@
 > このドキュメントは「コードの仕切り直し」ではなく「**仕様の仕切り直し**」を記述する。既存資産 (React Flow エディタ, Zod スキーマ, イベントソーシング, ATProto レコードモデル, テスト群) は継続利用する。
 >
 > **step1 の完了基準 = リリース可能であること** (2026-07-27 確定)。配布形態は Tauri v2 (B1) 単一バイナリまでを step1 リリースの到達点とする (§7・O2)。branch/commit/merge の op-log 化 (旧「step2」) は新機能ではなく D4 の branch subsystem への適用＝step1 の後始末であり、**step1 Phase 5 として step1 内で完了させる** (実装順序と gating は [`../plans/step1-implementation.md`](../plans/step1-implementation.md) §2)。
+>
+> 記号の凡例 (D = 決定 / O = 未決 / B = 配布形態の選択肢):
+> [`../conventions.md`](../conventions.md)
 
 ---
 

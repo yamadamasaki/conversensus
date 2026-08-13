@@ -19,6 +19,9 @@
 >   2026-08-07 にすべて **Canceled**
 > - 日常のドライバを Safari にする「使い込みフェイズ」が計画済
 >   (`../requirements/user-test-environment.md` §7)
+>
+> 記号の凡例 (D = 設計方針 / S = スライス / U = 未決事項 / Q = 訊きたいこと):
+> [`../conventions.md`](../conventions.md)
 
 ---
 
