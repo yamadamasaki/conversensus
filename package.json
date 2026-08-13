@@ -9,12 +9,14 @@
   "scripts": {
     "dev:server": "bun run --watch src/server/src/index.ts",
     "dev:client": "bun run --cwd src/client dev",
-    "typecheck": "bun run --cwd src/client tsc --noEmit -p tsconfig.app.json && bun run --cwd src/server tsc --noEmit -p tsconfig.json",
-    "lint": "bun --bun biome check src/",
-    "lint:fix": "bun --bun biome check --write src/",
+    "typecheck": "bun run --cwd src/client tsc --noEmit -p tsconfig.app.json && bun run --cwd src/server tsc --noEmit -p tsconfig.json && bun run --cwd src/client tsc --noEmit -p ../../tsconfig.e2e.json",
+    "lint": "bun --bun biome check src/ tests/ playwright.config.ts",
+    "lint:fix": "bun --bun biome check --write src/ tests/ playwright.config.ts",
     "setup": "cp scripts/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit && echo 'pre-commit hook installed'",
     "test": "bun test",
-    "clear-pds-data": "bun run --cwd src/client scripts/clear-pds-data.ts"
+    "clear-pds-data": "bun run --cwd src/client scripts/clear-pds-data.ts",
+    "test:e2e": "playwright test",
+    "test:e2e:webkit": "playwright test --project=webkit"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.7",

@@ -300,13 +300,23 @@ bun run dev:client   # :5173
 GitHub issue **#51「non-chrome web ブラウザに対応する」** に「少なくとも safari では動いていない.
 import ボタンが, はみ出して表示されているし, クリックしても実行されていない」と報告済みである.
 
-| 箇所 | コード | 症状 |
-|------|--------|------|
-| import ボタン | `src/client/src/Sidebar.tsx:199` (`<input type="file">` + `FileReader`) | はみ出して表示され, クリックしても実行されない (#51) |
-| 貼り付け (Cmd+V) | `src/client/src/GraphEditor.tsx:760` (`navigator.clipboard.read()`) | 未報告だが, Safari はユーザー操作の要件と対応フォーマットが Chrome と違うので挙動差が出うる |
+**2026-08-13 (ANA-125) に, ここに挙がっていたものは全部直した.** 記録として残す —
+同じ形の不具合が出たときの見分け方になるからである.
 
-これらは **Tauri 化したときにそのまま持ち越される不具合**である (同じ WebKit なので).
+| 箇所 | 症状 | 状態 |
+|------|------|------|
+| import ボタン | はみ出して表示され, クリックしても実行されない (#51) | ✅ 直した (`eff8372`). flex の `min-width: auto` で入力欄が縮まないため. **Chromium でも溢れており**, WebKit でだけサイドバーの端を越えて押せなくなっていた |
+| 貼り付け (Cmd+V) | Safari は権限とフォーマットの要件が Chrome と違うので挙動差が出うる | ✅ **実 Safari で確認済み, 問題なし** (2026-08-13). 画像の貼り付けも, 選択中の画像ノードへの差し替えも動く |
+| ノードのサイズ変更 | `ResizeObserver loop completed with undelivered notifications.` が未処理例外として数百件出てコンソールが埋まる (**WebKit のみ**) | ✅ 直した (`c4bac9b`). 出所は `@xyflow/react` の中で直す場所が無いため, **そのメッセージだけ**握り潰している |
+| トラックパッドのタップ | 掴んだ先 (ノード or 画面全体) がカーソルに付いて動き続け, もう一度クリックするまで止まらない (**WebKit のみ**) | ✅ 直した (`d7dca2e`). WebKit はタップを `buttons=0` で配送し, `mouseup` を `mousedown` より先に配送することがある. 移動の `buttons` が 0 ならドラッグを打ち切る |
+| import した後の同期 | どのファイルで何をしても `putRecord` が 400 (`got 740.5`) になり, **remote 送信が全部止まる** (ブラウザ非依存) | ✅ 直した (`2f1e6a3`). ATProto に float 型が無く, genesis 経路が座標を丸めていなかった |
+
+**WebKit で見つかるものは Tauri (WKWebView) にそのまま持ち越される** (同じエンジンなので).
 使い込みフェイズで潰しておけば, Phase 8 は配布の作業だけになる.
+
+**見送っているもの**: 文字のボケ (ANA-104). `textarea` の編集中がほとんどで, 何か操作すると
+解消する. 直せなくはないが自動判定できず保守負債になるため見送った
+(根拠と再開条件は [`../plans/step1-refinement-ana125-safari.md`](../plans/step1-refinement-ana125-safari.md) §7.1).
 
 ### 7.4 見つけたものをどこへ書くか
 
@@ -337,6 +347,27 @@ Safari はスクリプトが書いた保存領域の寿命の扱いが Chrome �
 - アシスタント (Chrome MCP) による自動検証 — 現状 Chrome にしか接続できない
 - WebKit 不具合の切り分け (§7.4 の 2 ブラウザ比較)
 - `scripts/inspect-*.ts` による検査 — ブラウザに依存しない
+
+### 7.5 WebKit の自動検証 (Playwright E2E, ANA-125)
+
+**使い込みで見つけたものを機械判定として残す口**である. 設計は
+[`../plans/step1-refinement-ana125-safari.md`](../plans/step1-refinement-ana125-safari.md).
+
+```shell
+bun run test:e2e          # webkit (本命) + chromium (対照)
+bun run test:e2e:webkit   # webkit だけ
+```
+
+- **サーバの起動は要らない**. Playwright が**専用ポートで自前のデーモンとクライアントを
+  起動する** (daemon `:3100` / client `:5174`). §1 で立てた `:3000` / `:5173` は触らない
+- **利用者の `data/` は汚れない**. E2E のデーモンは `DATA_DIR=data-e2e` を使い,
+  **起動のたびに消す**. `data-e2e/` は gitignore 済 (`data-*` のパターン)
+- **ポートを分けているのは意図的である**. 同じオリジンだと `/blobs/:cid` が
+  `immutable` で返るためブラウザの HTTP キャッシュが混ざる (§6 のハマりどころと同じ罠)
+- テストは `tests/*.spec.ts`, 仕様書は同じ場所に `tests/*.spec.md` を置く.
+  `bunfig.toml` が `tests/` を bun のランナーから外しているので `bun test` とは衝突しない
+- **合成イベントで再現しないものは書かない** — トラックパッド由来の挙動・クリップボード・
+  ファイル選択ダイアログ・描画品質は §7.3 のチェックリスト (人間) の領分である
 
 ## 8. Tauri (デスクトップアプリ) で動かす
 

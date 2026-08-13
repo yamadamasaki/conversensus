@@ -30,6 +30,7 @@ import {
   GENESIS_ACTOR,
   GENESIS_CLOCK_START,
   GENESIS_TIMESTAMP,
+  nodeSetLayoutOp,
   type Op,
 } from './unified';
 
@@ -86,7 +87,12 @@ function makeGenesisBatch(ops: Op[], clock: number, sheetId?: SheetId): Batch {
   };
 }
 
-/** NodeLayout → node.setLayout op (座標・サイズが 1 つでもあれば発行) */
+/**
+ * NodeLayout → node.setLayout op (座標・サイズが 1 つでもあれば発行)
+ *
+ * **生成は `nodeSetLayoutOp` に任せる。** ここで op を直接組むと整数化が抜ける —
+ * 実際に抜けており, import した後 remote 同期が全部止まっていた (ANA-125 S4)。
+ */
 function nodeLayoutToOp(layout: NodeLayout): Op | null {
   const { nodeId, x, y, width, height } = layout;
   if (
@@ -96,14 +102,7 @@ function nodeLayoutToOp(layout: NodeLayout): Op | null {
     height === undefined
   )
     return null;
-  return {
-    kind: 'node.setLayout',
-    target: nodeId,
-    ...(x !== undefined && { x }),
-    ...(y !== undefined && { y }),
-    ...(width !== undefined && { width }),
-    ...(height !== undefined && { height }),
-  };
+  return nodeSetLayoutOp(nodeId, { x, y, width, height });
 }
 
 /** EdgeLayout → edge.setLayout op (経路情報が 1 つでもあれば発行) */

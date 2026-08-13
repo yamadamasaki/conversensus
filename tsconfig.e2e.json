@@ -1,0 +1,26 @@
+{
+  /* E2E (Playwright) 用。Playwright は spec を型検査せずに実行するので,
+     ここで見ないと型の誤りは実行時まで分からない。設定は src/server/tsconfig.json に倣う */
+  "compilerOptions": {
+    "target": "ESNext",
+    /* spec は page.evaluate の中でブラウザの API を使うので DOM が要る。
+       bun の型は要らない (E2E は Playwright のランタイムで動く) */
+    "lib": ["ESNext", "DOM"],
+    "module": "ESNext",
+    "types": [],
+    "skipLibCheck": true,
+
+    "moduleResolution": "bundler",
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "erasableSyntaxOnly": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true
+  },
+  "include": ["tests/**/*.ts", "playwright.config.ts"]
+}

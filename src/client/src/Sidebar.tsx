@@ -160,7 +160,13 @@ export function Sidebar({
             if (e.key === 'Enter') onCreateFile();
           }}
           placeholder="ファイル名"
-          style={{ flex: 1, padding: '4px 6px', fontSize: 13 }}
+          // **`minWidth: 0` が要る** (GitHub #51)。flex アイテムの `min-width` は既定が
+          // `auto` で, `<input>` は `size` 属性由来の固有幅より細くならない。その固有幅は
+          // エンジンごとに違うので, WebKit では行が溢れて import ボタンがサイドバーの外へ
+          // 押し出され, 見えているのに押せなくなっていた。
+          // 同じ行の他のボタンは `overflow: hidden` を持つため既に縮む (自動最小サイズが
+          // 効かない) — 縮まないのはこの入力欄だけである
+          style={{ flex: 1, minWidth: 0, padding: '4px 6px', fontSize: 13 }}
         />
         <button
           type="button"

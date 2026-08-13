@@ -141,6 +141,49 @@ describe('graphFileToBatches (genesis)', () => {
     expect(batches.every((b) => uuidRe.test(b.id))).toBe(true);
   });
 
+  test('小数の座標・サイズは整数へ丸めて op に載せる (ANA-125 S4)', () => {
+    // **ATProto のデータモデルは浮動小数を許さない** (整数のみ)。丸め忘れると
+    // `putRecord` が 400 を返し、outbox の先頭で詰まって以降の送信が全部止まる。
+    // 実機で踏んだ: import (= genesis 経路) した後、どのファイルの操作でも
+    // 「Expected one of null, boolean, integer, ... (got 740.5) at $.record.ops[2].x」
+    // が出続けた。編集経路 (`toUnified.ts`) は丸めていたが genesis 経路が素通しだった。
+    const file = sampleFile();
+    const nodeId = file.sheets[0].nodes[0].id;
+    const withFraction: GraphFile = {
+      ...file,
+      sheets: file.sheets.map((s, i) =>
+        i === 0
+          ? {
+              ...s,
+              layouts: [
+                { nodeId, x: 740.5, y: -12.4, width: 160.6, height: 40.2 },
+              ],
+            }
+          : s,
+      ),
+    };
+
+    const layoutOps = graphFileToBatches(withFraction)
+      .flatMap((b) => b.ops)
+      .filter((op) => op.kind === 'node.setLayout');
+
+    expect(layoutOps).toHaveLength(1);
+    expect(layoutOps[0]).toMatchObject({
+      x: 741,
+      y: -12,
+      width: 161,
+      height: 40,
+    });
+    // 「整数である」を型ではなく値で固定する (丸め漏れが 1 つでもあれば送信が止まる)
+    for (const op of layoutOps) {
+      for (const key of ['x', 'y', 'width', 'height'] as const) {
+        const value = (op as Record<string, unknown>)[key];
+        if (typeof value === 'number')
+          expect(Number.isInteger(value)).toBe(true);
+      }
+    }
+  });
+
   // Phase 4e-0 (C1 見直し): genesis が remote に載るようになったため、
   // 異なる snapshot から genesis した 2 系統が混在しても収束することを固定する
   // (4e 設計 §3.1 / critic MED2)。

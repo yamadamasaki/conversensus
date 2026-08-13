@@ -18,6 +18,7 @@ import { z } from 'zod';
 import {
   EdgeIdSchema,
   EdgePathTypeSchema,
+  type NodeId,
   NodeIdSchema,
   SheetIdSchema,
   StyleSchema,
@@ -174,6 +175,50 @@ export const OpSchema = z.discriminatedUnion('kind', [
 ]);
 export type Op = z.infer<typeof OpSchema>;
 export type OpKind = Op['kind'];
+
+/**
+ * 座標・寸法を整数へ丸める (W3d5-7)。
+ *
+ * **ATProto のデータモデル (DAG-CBOR) には float 型が無い** — 小数を含む op を載せた batch は
+ * PDS の putRecord が 400 (`Expected one of null, boolean, integer, ... got 740.5`) で弾く。
+ * しかも outbox は先頭が詰まると以降が全部止まるので, **1 つの小数が同期を丸ごと殺す**。
+ *
+ * React Flow はドラッグ結果をサブピクセルの小数で返す。サブピクセル精度は表示上の意味を
+ * 持たないので, 丸めによる情報の損失は無い。
+ *
+ * width/height は `number | string` (CSS 値) の union。文字列はそのまま通す。
+ */
+function roundLayoutValue<T extends number | string | undefined>(value: T): T {
+  return (typeof value === 'number' ? Math.round(value) : value) as T;
+}
+
+/**
+ * **`node.setLayout` op の唯一の生成口。**
+ *
+ * 整数化をここに集約し, 呼び出し側が個別に丸め忘れることを防ぐ。
+ * **shared に置いてあるのは生成口が 2 つあったからである** — client の編集経路は
+ * 丸めていたのに genesis (import / 新規作成) が素通しで, import した後に remote 同期が
+ * 全部止まっていた (ANA-125 S4 の実機で発見)。**新しい生成口を作らずここを呼ぶこと。**
+ */
+export function nodeSetLayoutOp(
+  target: NodeId,
+  layout: {
+    x?: number;
+    y?: number;
+    width?: number | string;
+    height?: number | string;
+  },
+): Op {
+  const { x, y, width, height } = layout;
+  return {
+    kind: 'node.setLayout',
+    target,
+    ...(x !== undefined && { x: roundLayoutValue(x) }),
+    ...(y !== undefined && { y: roundLayoutValue(y) }),
+    ...(width !== undefined && { width: roundLayoutValue(width) }),
+    ...(height !== undefined && { height: roundLayoutValue(height) }),
+  };
+}
 
 /** file カテゴリ (シート/ファイル構造) の op kind。content/structure の判別に使う */
 export const FILE_OP_KINDS = [
