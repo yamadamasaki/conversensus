@@ -1,15 +1,30 @@
-import type {
-  AtUri,
-  Batch,
-  Did,
-  FileId,
-  ISODateString,
-} from '@conversensus/shared';
+/**
+ * PDS 上のレコードの型 (ATProto)
+ *
+ * **今 PDS へ書くのは batch レコードだけである。** かつてここには step0 の
+ * 「エンティティ 1 件 = レコード 1 件」設計のレコード型が並んでいたが
+ * (`FileRecord` / `SheetRecord` / `NodeRecord` / `EdgeRecord` / `NodeLayoutRecord` /
+ * `EdgeLayoutRecord` / `BranchRecord` / `CommitRecord` / `MergeRecord`, および
+ * `NodeRecord` からしか参照されていなかった `ImageBlobRef` と `StrongRef`),
+ * step1 の op-log 正典化で**全部死んだ**ので削除した (ANA-116 レビュー §9 N1)。
+ *
+ * `ImageBlobRef` が 3 箇所に増えていた原因でもある — **生きているのは
+ * `images/imageBlob.ts` のもの**である。
+ *
+ * **型を消しても PDS 上の既存レコードは消えない。** 対応する lexicon
+ * (`lexicons/app/conversensus/graph/*.json`) と NSID 定数は残してある。
+ */
 
-// ATProto strongRef: uri (AT-URI) + cid (content hash)
-export type StrongRef = { uri: AtUri; cid: string };
+import type { AtUri, Batch, FileId, ISODateString } from '@conversensus/shared';
 
-// Lexicon NSID 定数
+/**
+ * Lexicon NSID 定数
+ *
+ * **今 PDS へ書くのは `batch` だけである** (`file` は step0 の legacy レコードを
+ * 消すためだけに残っている — `collections.ts` の `files.delete`)。
+ * 残りの NSID は `lexicons/app/conversensus/graph/*.json` と対になっており,
+ * **既存の repo に残っているレコードの名前**なので消していない。
+ */
 export const NSID = {
   file: 'app.conversensus.graph.file',
   sheet: 'app.conversensus.graph.sheet',
@@ -24,105 +39,7 @@ export const NSID = {
   batch: 'app.conversensus.graph.batch',
 } as const;
 
-export type FileRecord = {
-  $type: typeof NSID.file;
-  name: string;
-  description?: string;
-  createdAt: ISODateString;
-};
-
-export type SheetRecord = {
-  $type: typeof NSID.sheet;
-  name: string;
-  description?: string;
-  file?: StrongRef; // 親ファイルへの参照 (後方互換のため optional)
-  createdAt: ISODateString;
-};
-
-export type ImageBlobRef = {
-  $type: 'blob';
-  ref: { $link: string };
-  mimeType: string;
-  size: number;
-};
-
-export type NodeRecord = {
-  $type: typeof NSID.node;
-  sheet: StrongRef;
-  content: string;
-  properties?: unknown;
-  nodeType?: 'group' | 'image';
-  parent?: StrongRef;
-  /** blob 型フィールド。PDS が blob を保持するために必要 */
-  image?: ImageBlobRef;
-  createdAt: ISODateString;
-};
-
-export type EdgeRecord = {
-  $type: typeof NSID.edge;
-  sheet: StrongRef;
-  source: StrongRef;
-  target: StrongRef;
-  label?: string;
-  properties?: unknown;
-  createdAt: ISODateString;
-};
-
-export type NodeLayoutRecord = {
-  $type: typeof NSID.nodeLayout;
-  node: StrongRef;
-  x?: number;
-  y?: number;
-  width?: number;
-  height?: number;
-  createdAt: ISODateString;
-};
-
-export type EdgeLayoutRecord = {
-  $type: typeof NSID.edgeLayout;
-  edge: StrongRef;
-  sourceHandle?: string;
-  targetHandle?: string;
-  pathType?: 'bezier' | 'straight' | 'step' | 'smoothstep';
-  labelOffsetX?: number;
-  labelOffsetY?: number;
-  createdAt: ISODateString;
-};
-
 export type RecordResult = { uri: AtUri; cid: string };
-
-export type BranchRecord = {
-  $type: typeof NSID.branch;
-  sheet: StrongRef;
-  name: string;
-  description?: string;
-  authorDid: Did;
-  status: 'creating' | 'open' | 'merged' | 'closed';
-  baseCommit?: StrongRef;
-  createdAt: ISODateString;
-};
-
-export type CommitRecord = {
-  $type: typeof NSID.commit;
-  sheet: StrongRef;
-  branch: StrongRef;
-  message: string;
-  authorDid: Did;
-  parentCommit?: StrongRef;
-  operations: unknown[]; // CommitOperation[] を JSON として格納
-  tree?: StrongRef[]; // commit 時点の Node/Edge レコードへの参照 (snapshot)
-  createdAt: ISODateString;
-};
-
-export type MergeRecord = {
-  $type: typeof NSID.merge;
-  sheet: StrongRef;
-  branch: StrongRef;
-  message: string;
-  authorDid: Did;
-  commit?: StrongRef;
-  createdAt: ISODateString;
-};
 
 /**
  * 統一語彙 Batch の PDS 表現 (step1 Phase 4c, op-log コレクション)。

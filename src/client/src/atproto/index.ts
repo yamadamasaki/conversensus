@@ -21,5 +21,5 @@ export { currentDid, getAgent, login, logout, resumeSession } from './client';
 // commit/merge) を読み書きする経路は退役した。ここに残るのは op-log の batch
 // コレクションと、legacy file レコードの後始末に使う `files` だけ (設計 §3.8)。
 export { batches, files, TRUNK_PREFIX } from './collections';
-export type { BatchRecord, RecordResult, StrongRef } from './types';
+export type { BatchRecord, RecordResult } from './types';
 export { NSID } from './types';

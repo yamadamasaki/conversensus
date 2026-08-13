@@ -363,7 +363,25 @@ describe('ImageNode', () => {
       rerender(<ImageNode {...withBlob(MISSING_CID)} />);
 
       await waitFor(() => expect(screen.queryByRole('img')).toBeNull());
-      expect(screen.getByText('画像を読み込み中...')).toBeDefined();
+      // **「読み込み中」で止めない** (N4)。実体がどこにも無い参照は永久に解決しないので,
+      // 進行中に見せると「待てばそのうち出る」という嘘になる
+      await waitFor(() =>
+        expect(screen.getByText('画像を読み込めません')).toBeDefined(),
+      );
+    });
+
+    it('実体がどこにも無い画像は「読み込めません」を出す (N4)', async () => {
+      // 実体がローカルにも PDS にも無いと解決は空で終わる。`<img>` は生まれないので
+      // `onError` も来ない = **失敗を伝える経路がここにしか無い**
+      stubBlobFetch(AVAILABLE_CID);
+
+      render(<ImageNode {...withBlob(MISSING_CID)} />);
+
+      await waitFor(() =>
+        expect(screen.getByText('画像を読み込めません')).toBeDefined(),
+      );
+      expect(screen.queryByText('画像を読み込み中...')).toBeNull();
+      expect(screen.queryByRole('img')).toBeNull();
     });
 
     it('画像が消えたとき (参照が外れたとき) も残さない', async () => {
