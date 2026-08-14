@@ -30,6 +30,13 @@ async function portFromEnv(): Promise<string> {
   return match[1];
 }
 
+/** `tauri.conf.json` を読む */
+async function tauriConfig(): Promise<{
+  app: { windows: { dragDropEnabled?: boolean }[] };
+}> {
+  return await Bun.file(`${ROOT}src-tauri/tauri.conf.json`).json();
+}
+
 describe('Tauri のデーモンポート', () => {
   test('lib.rs と .env.tauri で一致している', async () => {
     expect(await portFromEnv()).toBe(await portFromRust());
@@ -39,5 +46,20 @@ describe('Tauri のデーモンポート', () => {
     // 開発機では `bun run dev:server` が 3000 を掴んでいることが多く,
     // アプリが同じポートを使うと日常的に衝突して起動できない (計画 §2.3 / D3)
     expect(await portFromRust()).not.toBe('3000');
+  });
+});
+
+describe('Tauri のウィンドウ設定', () => {
+  test('drag & drop は webview に任せる (dragDropEnabled=false)', async () => {
+    // **既定 (true) だと Tauri が OS の drop を横取りし, webview に渡さない。**
+    // 実機で「画像を落としても何も起きない」形で出た (Phase 8 S4)。
+    // 貼り付け (Cmd+V) は横取りされないので動く — その非対称が診断を難しくする。
+    //
+    // 本物のドラッグは合成できない (ANA-125 で確認済み) ので, ここで検査できるのは
+    // **設定が意図どおりであること**だけである。それでも, 誰かが既定へ戻したときに
+    // 気付ける
+    const config = await tauriConfig();
+
+    expect(config.app.windows[0].dragDropEnabled).toBe(false);
   });
 });
