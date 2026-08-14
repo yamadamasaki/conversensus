@@ -22,6 +22,7 @@ import { cors } from 'hono/cors';
 import { getEventStore } from './eventStoreServer';
 import { migrateAllFilesToOplog } from './migrateAllToOplog';
 import { W3_SCHEMA_VERSION } from './migrateFileToOplog';
+import { watchParent } from './parentWatch';
 import { startServer } from './startServer';
 import { deleteFile } from './storage';
 
@@ -49,6 +50,14 @@ const DEFAULT_SERVER_PORT = 3000;
  * データの隔離は `DATA_DIR` (storage.ts) と対で行う。
  */
 const SERVER_PORT = Number(process.env.PORT ?? DEFAULT_SERVER_PORT);
+/**
+ * 親プロセス (Tauri アプリ) の PID。渡されたときだけ生存を見張る (Phase 8 S2)。
+ *
+ * 開発中に手で起動する場合は渡されないので、見張りは働かない。
+ */
+const PARENT_PID = process.env.PARENT_PID
+  ? Number(process.env.PARENT_PID)
+  : null;
 const LOCALHOST_ORIGIN_PREFIX = 'http://localhost:';
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN ?? null;
 const DEFAULT_FILE_NAME = '無題';
@@ -447,6 +456,21 @@ if (import.meta.main) {
   // その値を使うこのメッセージは bind の後にしか組めない。
   const server = startServer({ port: SERVER_PORT, fetch: app.fetch });
   console.log(`server running on http://localhost:${server.port}`);
+
+  // **親 (Tauri アプリ) が異常終了したら道連れに終わる** (Phase 8 S2)。
+  // 正常終了なら Tauri が sidecar を kill するのでここは働かないが、強制終了された
+  // 場合はアプリ側が何も実行できないため、こちらから気付くしかない。残った孤児は
+  // 同じポートを掴んだまま次回の起動を壊す (実測は parentWatch.ts 冒頭)。
+  if (PARENT_PID !== null) {
+    watchParent({
+      pid: PARENT_PID,
+      onGone: () => {
+        console.log(`親プロセス ${PARENT_PID} が居なくなったので終了します`);
+        server.stop();
+        process.exit(0);
+      },
+    });
+  }
 }
 
 /**
