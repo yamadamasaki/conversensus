@@ -94,6 +94,14 @@ export type UseEventSyncTapResult = {
    * merge で trunk に載らないまま branch が MERGED になったりする。
    */
   settled: () => Promise<void>;
+  /**
+   * remote と突き合わせて差分を埋める (送信の catch-up + 受信)。
+   *
+   * ファイルを開いたときと `online` で自動的に走るが, **利用者が明示的に
+   * 呼べるようにも公開している** — 開いている間に他所で起きた変更を取りに行く手段が
+   * 他に無いためである (GitHub #202)。完了を待てるので「同期中…」の表示に使える。
+   */
+  syncNow: () => Promise<void>;
 };
 
 export function useEventSyncTap(
@@ -159,27 +167,40 @@ export function useEventSyncTap(
   );
 
   // catch-up (§3.6): ローカル正典にあって remote に無い batch を回収する。オフライン中に
-  // best-effort push が落とした分をここで拾う。発火は 2 つ:
-  //   - 起動時 (ファイルを開いた時点)
-  //   - 再接続時 (`online` イベント / W3d5-7 確定)
-  // `online` が発火しない障害 (PDS だけ落ちている等) は手動「今すぐ同期」(§3.7) と
-  // 次回起動時 catch-up で回収する。定期リトライは 1 回あたり remote 取得 1 往復の
-  // コストを常時払うことになるため採らず、Jetstream 購読 (Phase 8) へ委ねる。
-  // (Phase 7 p7-2 で 1 回のコストは repo 全件からそのファイルの履歴分に縮んだ。)
+  // best-effort push が落とした分をここで拾う。
   //
   // **受信 (Phase 4d-5) も同じ契機に相乗りする** (§3.4)。送信 catch-up と受信は
   // 「remote と突き合わせて差分を埋める」同じ性質の操作なので、発火経路を分けない。
-  // 送信の失敗が受信を止めないよう、両者は独立に catch する。
-  useEffect(() => {
+  //
+  // 定期取得は採らない — 1 回あたり remote 取得 1 往復のコストを常時払うことになる。
+  // 自動反映は Jetstream 購読へ委ね (GitHub #202)、それまでは**人が要求したときに
+  // 取りに行ける**ようにしておく (契機 3)。
+  /**
+   * remote と突き合わせて差分を埋める (送信の catch-up + 受信)。
+   *
+   * **契機は 3 つある** (§3.4 + ANA-202):
+   *
+   * 1. ファイルを開いたとき (下の effect)
+   * 2. `online` イベント (再接続)
+   * 3. **利用者が「今すぐ同期」を押したとき** (`SyncStatusIndicator`)
+   *
+   * 3 を足したのは, 1 と 2 だけでは**開いている間に他所で起きた変更を取りに行く手段が
+   * 無かった**ためである (GitHub #202)。定期取得は 1 回あたり remote 取得 1 往復の
+   * コストを常時払うので採らず, **人が要求したときだけ**取りに行く。
+   *
+   * 送信と受信は**独立に catch する** — 送信の失敗が受信を止めないようにする。
+   * 呼び出し側が完了を待てるよう Promise を返す (ボタンの「同期中…」表示に使う)。
+   */
+  const syncNow = useCallback(async (): Promise<void> => {
     if (!(provider instanceof FanoutSyncProvider)) return;
     if (!fileId || !remoteQueue || !tap) return;
 
-    const syncBoth = () => {
+    await Promise.all([
       provider
         .catchUpRemote()
         .catch((error) =>
           console.warn('[sync] remote catch-up failed:', error),
-        );
+        ),
       // 受信は fanout を通さない (echo ループ回避, §3.3a)。ローカル正典への直書き。
       receiveRemoteBatches(fileId, {
         // 取得はファイル単位 (Phase 7 p7-2)。repo 全体を落として捨てる形を止めた
@@ -201,13 +222,16 @@ export function useEventSyncTap(
             });
           }
         })
-        .catch((error) => console.warn('[sync] remote receive failed:', error));
-    };
-
-    syncBoth();
-    window.addEventListener('online', syncBoth);
-    return () => window.removeEventListener('online', syncBoth);
+        .catch((error) => console.warn('[sync] remote receive failed:', error)),
+    ]);
   }, [provider, fileId, remoteQueue, tap, appendReceived, onReceived]);
+
+  useEffect(() => {
+    void syncNow();
+    const onOnline = () => void syncNow();
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
+  }, [syncNow]);
 
   // content 経路は sheetId を渡す (W3c2)。structure 経路は省略 → file-level batch。
   const record = useCallback(
@@ -215,5 +239,5 @@ export function useEventSyncTap(
     [tap],
   );
 
-  return { record, clock, settled };
+  return { record, clock, settled, syncNow };
 }

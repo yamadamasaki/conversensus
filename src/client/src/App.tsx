@@ -192,6 +192,7 @@ export default function App() {
         onAtprotoLogin={() => setLoginDialogOpen(true)}
         onAtprotoLogout={atprotoLogout}
         remoteQueue={remoteQueue}
+        onSyncNow={fileOps.syncNow}
       />
       <main style={{ flex: 1 }}>
         {fileOps.activeFile && fileOps.activeSheetId ? (

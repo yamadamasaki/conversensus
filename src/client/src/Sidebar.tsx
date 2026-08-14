@@ -47,6 +47,8 @@ type Props = {
   onAtprotoLogout: () => void;
   /** remote 送信キュー (W3d5-6)。null なら同期ステータスは表示しない */
   remoteQueue: RemoteSyncQueue | null;
+  /** 「今すぐ同期」で走らせる送受信 (#202)。送信だけでは他所の変更が取れない */
+  onSyncNow: () => Promise<void>;
 };
 
 const gearBtnStyle: React.CSSProperties = {
@@ -91,6 +93,7 @@ export function Sidebar({
   onAtprotoLogin,
   onAtprotoLogout,
   remoteQueue,
+  onSyncNow,
 }: Props) {
   const newFileComposingRef = useRef(false);
   const importInputRef = useRef<HTMLInputElement>(null);
@@ -636,7 +639,10 @@ export function Sidebar({
               </button>
             </div>
             {/* remote 同期ステータス (§3.7)。ログイン時のみ意味を持つ */}
-            <SyncStatusIndicator remoteQueue={remoteQueue} />
+            <SyncStatusIndicator
+              remoteQueue={remoteQueue}
+              onSyncNow={onSyncNow}
+            />
           </>
         ) : (
           <button
