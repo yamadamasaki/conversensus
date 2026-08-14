@@ -371,14 +371,48 @@ bun run test:e2e:webkit   # webkit だけ
 
 ## 8. Tauri (デスクトップアプリ) で動かす
 
-**この節は Phase 8 (単一バイナリ配布) 用である**. §7 の Safari 使い込みフェイズでは要らない.
+**Phase 8 (2026-08-14) で, アプリとして単体で動く形になった.** 下の §8.0 が現在の手順で,
+§8.1 以降は spike 当時の記録である.
 
-Phase 8a の spike (2026-08-02) で **Tauri v2 のシェルに conversensus クライアントを載せて
+### 8.0 いまの手順 (Phase 8 S0〜S5)
+
+```shell
+bun run app:dev      # 開発中に動かす (デーモンも自動で立つ)
+bun run app:build    # .app と .dmg を作る
+```
+
+`app:build` は **デーモンのコンパイルと Tauri 用クライアントビルドを自分で走らせる**ので,
+事前の準備は要らない. 出力は `src-tauri/target/release/bundle/` の下.
+
+**知っておくべきこと:**
+
+- **アプリは独立している.** デーモン (57MB のバイナリ) を同梱しており, bun も
+  リポジトリも要らない. `bun run dev:server` を立てておく必要は無い
+- **データは別の場所にある** — `~/Library/Application Support/site.conversensus.app/`.
+  開発中の `data/` とは混ざらない. **アプリは空の状態から始まる**ので,
+  既存のファイルを持ち込みたければ export / import で運ぶ
+- **ポートは 39847** (開発用の 3000 とは分けてある). 開発サーバと同時に動かしてよい
+- **終了するとデーモンも終わる.** 強制終了された場合も, デーモンが親の消失を検知して
+  自分で終わる (残ると次回起動が `EADDRINUSE` で壊れるため)
+- **ログは `~/Library/Logs/site.conversensus.app/`** にある.
+  デーモンの出力もここへ流れるので, 起動しないときはまずこれを見る
+
+**初回起動 (配布物を受け取った場合)**: **署名していない**ので, ダウンロードした
+`.dmg` から入れたアプリは Gatekeeper に止められる. **右クリック → 開く** で一度許可すれば,
+以後は普通に起動できる. 「壊れているので開けません」とは出ない (バンドルを ad-hoc 署名して
+あるため) が, **「開発元を検証できません」は出る** — これは正常である.
+
+> 自分でビルドした `.app` には quarantine 属性が付かないので, 手元では警告自体が出ない.
+> 配った場合の挙動を確かめたいときは `spctl -a -vv -t exec <app>` で判定だけ見られる.
+
+### 8.1 spike 当時の記録 (2026-08-02)
+
+Phase 8a の spike で **Tauri v2 のシェルに conversensus クライアントを載せて
 動かすところまで実測済み**である. そのとき **§1 の手順のままでは動かず, 2 点の追加が要る**
 ことが分かったので, 先に記録しておく. 詳細と根拠は
 [`../plans/step1-phase8a-r1-spike.md`](../plans/step1-phase8a-r1-spike.md) §7.2.
 
-### 8.1 §1 に足りない 2 点
+#### §1 に足りない 2 点 (当時)
 
 | 事項 | 必要な対応 |
 |---|---|
@@ -405,13 +439,13 @@ VITE_API_BASE=http://localhost:3000 bun run --cwd src/client build
   **ATProto ログインは本物の PDS で成立してしまうため画面は一見正常に見え, 気づきにくい**
   (spike ではこの切り分けに 40 分を要した).
 
-### 8.2 要らないもの
+#### 要らないもの
 
 - **Info.plist の ATS (App Transport Security) 例外は不要**. `tauri://localhost` (secure context)
   から `http://localhost:3000` への fetch は素で通る. A/B で確認済み
 - **CSP の緩和は不要**. `bun create tauri-app` が生成する `tauri.conf.json` は `"csp": null`
 
-### 8.3 この環境で Tauri の中身を観測する方法
+#### この環境で Tauri の中身を観測する方法
 
 macOS の権限設定により, **`screencapture` (画面収録) も `osascript` (アクセシビリティ) も
 devtools も使えない**ことがある. そのとき使える代替手段:

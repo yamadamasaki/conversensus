@@ -19,9 +19,12 @@ import {
 } from '@conversensus/shared';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { allowedOrigin } from './corsOrigin';
 import { getEventStore } from './eventStoreServer';
 import { migrateAllFilesToOplog } from './migrateAllToOplog';
 import { W3_SCHEMA_VERSION } from './migrateFileToOplog';
+import { watchParent } from './parentWatch';
+import { startServer } from './startServer';
 import { deleteFile } from './storage';
 
 /**
@@ -48,7 +51,14 @@ const DEFAULT_SERVER_PORT = 3000;
  * データの隔離は `DATA_DIR` (storage.ts) と対で行う。
  */
 const SERVER_PORT = Number(process.env.PORT ?? DEFAULT_SERVER_PORT);
-const LOCALHOST_ORIGIN_PREFIX = 'http://localhost:';
+/**
+ * 親プロセス (Tauri アプリ) の PID。渡されたときだけ生存を見張る (Phase 8 S2)。
+ *
+ * 開発中に手で起動する場合は渡されないので、見張りは働かない。
+ */
+const PARENT_PID = process.env.PARENT_PID
+  ? Number(process.env.PARENT_PID)
+  : null;
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN ?? null;
 const DEFAULT_FILE_NAME = '無題';
 const DEFAULT_SHEET_NAME = 'Sheet 1';
@@ -68,11 +78,9 @@ const app = new Hono();
 app.use(
   '*',
   cors({
-    origin: (origin) => {
-      if (origin?.startsWith(LOCALHOST_ORIGIN_PREFIX)) return origin;
-      if (ALLOWED_ORIGIN && origin === ALLOWED_ORIGIN) return ALLOWED_ORIGIN;
-      return null;
-    },
+    // 判断は `corsOrigin.ts` にある (ここに直書きすると検査できない —
+    // `Origin` は禁止ヘッダで、テストから付けられないため)
+    origin: (origin) => allowedOrigin(origin, ALLOWED_ORIGIN),
   }),
 );
 
@@ -438,11 +446,35 @@ if (import.meta.main) {
         `${migration.failed.length} 件失敗 (${migration.elapsedMs.toFixed(1)}ms)`,
     );
   }
+
+  // **bind を終えてから「起動した」と名乗る** (Phase 8 S1)。
+  // 以前は `export default { port, fetch }` を bun に渡して起動を任せており、
+  // メッセージはモジュール評価の時点で出ていたので、ポートが埋まっていると
+  // 「起動した」と言ってから落ちていた。`startServer` は実際に掴んだポートを返すので、
+  // その値を使うこのメッセージは bind の後にしか組めない。
+  const server = startServer({ port: SERVER_PORT, fetch: app.fetch });
+  console.log(`server running on http://localhost:${server.port}`);
+
+  // **親 (Tauri アプリ) が異常終了したら道連れに終わる** (Phase 8 S2)。
+  // 正常終了なら Tauri が sidecar を kill するのでここは働かないが、強制終了された
+  // 場合はアプリ側が何も実行できないため、こちらから気付くしかない。残った孤児は
+  // 同じポートを掴んだまま次回の起動を壊す (実測は parentWatch.ts 冒頭)。
+  if (PARENT_PID !== null) {
+    watchParent({
+      pid: PARENT_PID,
+      onGone: () => {
+        console.log(`親プロセス ${PARENT_PID} が居なくなったので終了します`);
+        server.stop();
+        process.exit(0);
+      },
+    });
+  }
 }
 
-export default {
-  port: SERVER_PORT,
-  fetch: app.fetch,
-};
-
-console.log(`server running on http://localhost:${SERVER_PORT}`);
+/**
+ * テストが実 HTTP ハンドラを叩くための口。
+ *
+ * **`export default` にはしない** — 既定エクスポートがサーバ設定の形をしていると
+ * bun が入口で自動的に待受を始めてしまい、上の `startServer` と二重に bind する。
+ */
+export { app };

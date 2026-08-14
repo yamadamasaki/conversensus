@@ -36,12 +36,12 @@ import {
   type SheetId,
 } from '@conversensus/shared';
 import { getEventStore } from './eventStoreServer';
-import server from './index';
+import { app } from './index';
 import { migrateAllFilesToOplog } from './migrateAllToOplog';
 import { readFile } from './storage';
 import { writeLegacySnapshot } from './testing/legacySnapshot';
 
-const fetch = server.fetch;
+const fetch = app.fetch;
 let tmpDir: string;
 
 beforeEach(async () => {
