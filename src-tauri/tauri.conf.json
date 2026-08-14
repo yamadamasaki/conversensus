@@ -39,6 +39,9 @@
     ],
     "externalBin": [
       "binaries/conversensusd"
-    ]
+    ],
+    "macOS": {
+      "signingIdentity": "-"
+    }
   }
 }
