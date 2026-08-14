@@ -61,24 +61,74 @@ const batch = (id: string): Batch => ({
   ops: [{ kind: 'node.add', target: id as NodeId, content: id }],
 });
 
+/** `syncNow` (送信 catch-up + 受信) のスタブ。呼ばれた回数を数える */
+function fakeSyncNow() {
+  const calls = { count: 0 };
+  return {
+    calls,
+    fn: async () => {
+      calls.count += 1;
+    },
+  };
+}
+
 afterEach(cleanup);
 
 describe('SyncStatusIndicator', () => {
   it('未ログイン (remoteQueue=null) では何も描画しない', () => {
-    const { container } = render(<SyncStatusIndicator remoteQueue={null} />);
+    const { container } = render(
+      <SyncStatusIndicator remoteQueue={null} onSyncNow={fakeSyncNow().fn} />,
+    );
     expect(container.textContent).toBe('');
   });
 
-  it('未送信 0 件なら「クラウド同期済み」で同期ボタンを出さない', () => {
+  it('未送信 0 件でも「今すぐ同期」を出す (#202)', () => {
+    // **送るものが無くても押せる必要がある。** 受信 (他所の変更を取りに行く) は
+    // ここにしか口が無く、送信は普通は即成功するので、
+    // 「未送信があるときだけ出す」だと正常なほどボタンに出会わない
     const queue = new RemoteSyncQueue({ provider: new FakeProvider() });
-    render(<SyncStatusIndicator remoteQueue={queue} />);
+    render(
+      <SyncStatusIndicator remoteQueue={queue} onSyncNow={fakeSyncNow().fn} />,
+    );
     expect(screen.getByText('クラウド同期済み')).toBeTruthy();
-    expect(screen.queryByRole('button')).toBeNull();
+    expect(screen.getByRole('button', { name: '今すぐ同期' })).toBeTruthy();
+  });
+
+  it('未送信が無くても押せば受信が走る (#202)', async () => {
+    const queue = new RemoteSyncQueue({ provider: new FakeProvider() });
+    const sync = fakeSyncNow();
+    render(<SyncStatusIndicator remoteQueue={queue} onSyncNow={sync.fn} />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '今すぐ同期' }));
+    });
+
+    expect(sync.calls.count).toBe(1);
+  });
+
+  it('送信が失敗しても受信は試す', async () => {
+    // 落ちている理由が別かもしれない。送信の失敗で受信まで止めない
+    const provider = new FakeProvider();
+    provider.online = false;
+    const queue = new RemoteSyncQueue({ provider });
+    const sync = fakeSyncNow();
+    render(<SyncStatusIndicator remoteQueue={queue} onSyncNow={sync.fn} />);
+    await act(async () => {
+      queue.enqueue([batch('1')]);
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '今すぐ同期' }));
+    });
+
+    expect(sync.calls.count).toBe(1);
   });
 
   it('未送信があれば件数を表示する', async () => {
     const queue = new RemoteSyncQueue({ provider: new FakeProvider() });
-    render(<SyncStatusIndicator remoteQueue={queue} />);
+    render(
+      <SyncStatusIndicator remoteQueue={queue} onSyncNow={fakeSyncNow().fn} />,
+    );
     // 購読済みなので、後から積まれた分も表示に反映される
     await act(async () => {
       queue.enqueue([batch('1'), batch('2')]);
@@ -91,7 +141,9 @@ describe('SyncStatusIndicator', () => {
       provider: new FakeProvider(),
       capacity: 2,
     });
-    render(<SyncStatusIndicator remoteQueue={queue} />);
+    render(
+      <SyncStatusIndicator remoteQueue={queue} onSyncNow={fakeSyncNow().fn} />,
+    );
     await act(async () => {
       queue.enqueue([batch('1'), batch('2'), batch('3')]);
     });
@@ -101,7 +153,8 @@ describe('SyncStatusIndicator', () => {
   it('「今すぐ同期」で flush され、成功すると同期済みに戻る', async () => {
     const provider = new FakeProvider();
     const queue = new RemoteSyncQueue({ provider });
-    render(<SyncStatusIndicator remoteQueue={queue} />);
+    const sync = fakeSyncNow();
+    render(<SyncStatusIndicator remoteQueue={queue} onSyncNow={sync.fn} />);
     await act(async () => {
       queue.enqueue([batch('1')]);
     });
@@ -111,6 +164,7 @@ describe('SyncStatusIndicator', () => {
     });
 
     expect(provider.pushed.map((b) => b.id)).toEqual(['1']);
+    expect(sync.calls.count).toBe(1); // 送信と受信の両方を行う
     expect(screen.getByText('クラウド同期済み')).toBeTruthy();
   });
 
@@ -118,7 +172,9 @@ describe('SyncStatusIndicator', () => {
     const provider = new FakeProvider();
     provider.online = false;
     const queue = new RemoteSyncQueue({ provider });
-    render(<SyncStatusIndicator remoteQueue={queue} />);
+    render(
+      <SyncStatusIndicator remoteQueue={queue} onSyncNow={fakeSyncNow().fn} />,
+    );
     await act(async () => {
       queue.enqueue([batch('1')]);
     });

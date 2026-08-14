@@ -188,17 +188,18 @@ export function useFileSheetOperations({
   // 操作ログ tap をファイル単位で保持する (W3c1)。content (GraphEditor) と
   // structure (以下の構造ハンドラ) の両方が単一の tap = 単一 Lamport 発番源を共有する。
   // remote キューがあれば tap は fanout (ローカル正典 + remote) になる (W3d5-5)。
-  const { record: internalSyncRecord, clock: trunkClock } = useEventSyncTap(
-    activeFile?.id ?? null,
-    {
-      remoteQueue,
-      actor,
-      // 受信 (a) の書き込み口も discovery (4e-2b) と同じ deps 抽象を通す。
-      // 既定は api の pushReceivedBatches なので挙動は変わらない (deps は安定参照)。
-      appendReceived: deps.pushReceivedBatches,
-      onReceived: handleReceived,
-    },
-  );
+  const {
+    record: internalSyncRecord,
+    clock: trunkClock,
+    syncNow,
+  } = useEventSyncTap(activeFile?.id ?? null, {
+    remoteQueue,
+    actor,
+    // 受信 (a) の書き込み口も discovery (4e-2b) と同じ deps 抽象を通す。
+    // 既定は api の pushReceivedBatches なので挙動は変わらない (deps は安定参照)。
+    appendReceived: deps.pushReceivedBatches,
+    onReceived: handleReceived,
+  });
   const syncRecord = syncRecordOverride ?? internalSyncRecord;
 
   // trunk 読取 (Phase 6 p6-3 で op-log 単独へ, 設計 §3.6)。
@@ -637,5 +638,8 @@ export function useFileSheetOperations({
     // するときに使う — 発番器を分けると同 (clock, actor) の batch が生まれる。
     trunkClock,
     receiveEpoch,
+    // 「今すぐ同期」(SyncStatusIndicator) の口。開いている間に他所で起きた変更を
+    // 取りに行く手段がこれしかない (GitHub #202)
+    syncNow,
   };
 }
