@@ -6,7 +6,7 @@
   "build": {
     "frontendDist": "../src/client/dist",
     "devUrl": "http://localhost:5173",
-    "beforeBuildCommand": "bun run build:daemon",
+    "beforeBuildCommand": "bun run build:daemon && bun run build:client:tauri",
     "beforeDevCommand": "bun run build:daemon"
   },
   "app": {

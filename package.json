@@ -10,6 +10,7 @@
     "dev:server": "bun run --watch src/server/src/index.ts",
     "dev:client": "bun run --cwd src/client dev",
     "build:daemon": "bun run scripts/build-daemon.ts",
+    "build:client:tauri": "bun run --cwd src/client build:tauri",
     "app:dev": "tauri dev",
     "app:build": "tauri build",
     "typecheck": "bun run --cwd src/client tsc --noEmit -p tsconfig.app.json && bun run --cwd src/server tsc --noEmit -p tsconfig.json && bun run --cwd src/client tsc --noEmit -p ../../tsconfig.e2e.json",

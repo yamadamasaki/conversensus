@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "bunx vite",
     "build": "tsc -b && bunx --bun vite build",
+    "build:tauri": "tsc -b && bunx --bun vite build --mode tauri",
     "preview": "bunx vite preview"
   },
   "dependencies": {

@@ -19,6 +19,7 @@ import {
 } from '@conversensus/shared';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { allowedOrigin } from './corsOrigin';
 import { getEventStore } from './eventStoreServer';
 import { migrateAllFilesToOplog } from './migrateAllToOplog';
 import { W3_SCHEMA_VERSION } from './migrateFileToOplog';
@@ -58,7 +59,6 @@ const SERVER_PORT = Number(process.env.PORT ?? DEFAULT_SERVER_PORT);
 const PARENT_PID = process.env.PARENT_PID
   ? Number(process.env.PARENT_PID)
   : null;
-const LOCALHOST_ORIGIN_PREFIX = 'http://localhost:';
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN ?? null;
 const DEFAULT_FILE_NAME = '無題';
 const DEFAULT_SHEET_NAME = 'Sheet 1';
@@ -78,11 +78,9 @@ const app = new Hono();
 app.use(
   '*',
   cors({
-    origin: (origin) => {
-      if (origin?.startsWith(LOCALHOST_ORIGIN_PREFIX)) return origin;
-      if (ALLOWED_ORIGIN && origin === ALLOWED_ORIGIN) return ALLOWED_ORIGIN;
-      return null;
-    },
+    // 判断は `corsOrigin.ts` にある (ここに直書きすると検査できない —
+    // `Origin` は禁止ヘッダで、テストから付けられないため)
+    origin: (origin) => allowedOrigin(origin, ALLOWED_ORIGIN),
   }),
 );
 
