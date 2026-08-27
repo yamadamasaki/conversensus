@@ -17,33 +17,27 @@ step 2 ではやらないが, step 3 (あるいはそれ以降) で実現した�
 
 したがって, 招待した側も招待された側も, その File に対する変更履歴を取り込み, その変更を自分のグラフに反映させることになる.
 
-招待自体は, owner 以外には, とりあえずすでに招待されているアカウントならば誰でもできる, で良い.
+[participation](deepse/requirements/spec/participation.md) を参照
 
 ATProto/PDS での方法としては,
 
 - 手動 (現在の実装)
-- 定期的なポーリング
-- Firehose による streaming
+- 定期的なポーリング (step 2)
+- Firehose による streaming (step 3)
 
 がある.
 
-最終的にはリアルタイム同期を File ごとに, あるいは一時的にでも選択できる必要はある (→ step 3) が, まずは定期的なポーリングでも良い.
+最終的にはリアルタイム同期を File ごとに, あるいは一時的にでも選択できる必要はある (→ step 3) が, まずは定期的なポーリングで良い.
 
 また, step 2 では招待できるアカウントは特定の一つの PDS に属している (step 1 の実装と同じ) ものとする. それ以外のアカウントの招待は無効とする (不特定の PDS に属するアカウントの招待は → step 3).
+
+[merging](deepse/requirements/spec/merging.md) を参照
 
 ### 設計の視点
 
 - DID ごとの rkey cursor を用いることによって効率化できる
 - 上記の三つの同期方法の選択は, 排他的なものとは限らない
-- File の op-log に以下の batch があれば, その projection で期間付きの名簿ができるのではないか?
-  - (invite, DID): DID アカウントを File に招待する
-    - invite を owner (とは?) に限るかどうか
-  - (accept, invite batchId): 私に対する invite batch を受け入れる
-  - (resign, accept batchId): 私が出した accept batch を脱退する
-  - (resign, invite batchId): 私が出した invite batch を取り消す
-  - それぞれ主体と batch の対象が一致しなければ無効
-  - これは非効率?
-- 他のアカウント上にある blob (現時点では画像のみだが) の取り込みの検討が必要
+- 他のアカウント上にある blob (現時点では画像のみだが) の取り込みの検討が必要. step 2 では step 1 (PDS 内の blob を利用) を踏襲する
 
 ## 衝突回避/合意形成/概念創発/ネガティブ・ケイパビリティ (保留, 分化, ...)
 
@@ -96,74 +90,20 @@ template は, 以下の状態がある.
 - 一つの sheet に複数の template を適用可能か (とりあえず 1)
 - sheet を作成後に template を追加/削除できるか (とりあえず不可)
 
-## hyperlink
+## ~~hyperlink~~
 
-対話グラフでは, 元のグラフの要素 (node, edge など) を参照する必要があるだろう.
-
-File, Sheet, Branch, Node, Edge, Commit, Merge に対する URI を定義したい. そのベースとなるのは, すでに存在する DID, rkey, nodeId, edgeId などである.
-
-また, グラフ内からそれらの要素を参照したい. 例えば, cursor-on で吹き出しで表示, ダブル・クリックで sheet に飛ぶ, など.
-
-markdown ノードにリンクを書けて, そこから参照先に飛べるのがいちばん良い. 無理ならばリンク・ノードのようなものを追加する必要があるか?
-
-### 設計の視点
-
-基本的には, これはある projection (snapshot) に対する URI となる. また, あるアカウントにおいて参照先が存在したとしても, 別のアカウントにおいても存在するとは限らない
+一つの File の内部に限定すれば, hyperlink は不要なので step 2 では要らない (→ step 3)
 
 ## properties
 
 "labeled property graph" である割には, プロパティは今は多分画像の指定くらいにしか使われていない.
 
-プロパティは, conversensus 自身が今後とも使うし, template などのような機能拡張にも有用だし, ユーザがグラフのコンテンツとして使うこともあるだろう. step 2 では以下を行う.
+プロパティは, conversensus 自身が今後とも使うし, template などのような機能拡張にも有用だし, ユーザがグラフのコンテンツとして使うこともあるだろう.
 
-- key スキーマの定義
-  - step 0 で key スキーマを定義したが, 記録に残っていないし, 使われていない
-  - 例えば, システムが利用するキーの値はユーザは変更できるべきではない, template などの間でキーが衝突するかもしれない
-  - したがって, 階層的なスキーマ定義が必要
-  - 既存のプロパティの移行が必要になる
-- property の semantics
-  - property は以下の要素からなる
-    - key (上記 key スキーマに従う文字列)
-    - type
-      - key/value とも単なる文字列とするのも一つの案ではあるが, template などの拡張機能や, 将来グラフを実行可能とするためには型があった方が望ましいのでは?
-      - 提案としては
-        - 原始型 - typescript/javascript から
-        - 標準的な型 - URL, ISODate, JSON など (どこから持ってくる? ECMAScript, WHATWG, Node?)
-        - conversensus 固有 - 要素の種類
-        - 拡張機能が提供する型 (→ step 3)
-        - ユーザが定義する型 (→ step 3)
-        - 型から作る型 (→ ?)
-        - template も型 (→ ?)
-        - function (→ ?)
-    - value (エディタは type を充たすことを確認する)
-    - visual map (→ step 3)
-- property editor
-  - ユーザがグラフのコンテンツの一部としてプロパティを使う場合にはエディタが必要だろう
-  - edge, node の右クリック・メニューでプロパティ・エディタをポップアップできる
-    - ノード間でプロパティを比較したいこともあるだろう. その場合のために, graph ではない view (例えば table) を提供したい (→ step 3)
-  - システム・キーはキーも値も変更不可, 拡張キーはキーが変更不可 (場合によっては値も), カスタム・キーはどちらも自由に変更可
-  - export (→ step 3)
-- property の一部をコンテンツとして扱う table という種類の node も考えられる (→ step 3)
+step 2 では以下に述べるような形で property editor を実現する.
+
+deepse/requirements/spec/property editor.md を参照
 
 ## 検索する
 
-- 検索範囲
-  - PDS (自分の repo)
-  - File
-  - Sheet
-- 検索対象
-  - ラベル
-  - node のコンテンツ
-  - node, edge のプロパティ
-- 検索
-  - 全文一致
-  - 部分一致
-  - 大小文字の区別
-  - 正規表現
-- 検索方法
-  - SQLite のクエリの範囲?
-  - 自前で index?
-  - Cypher (→ step 3)
-- 検索結果
-  - 結果一覧のポップアップ・ダイアログ?
-  - Sheet 内ならばページ内でハイライト, プロパティなど不可視部分ならばポップアップ?
+deepse/requirements/spec/searching.md を参照
