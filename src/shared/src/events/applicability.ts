@@ -60,9 +60,11 @@ export type ApplicabilityReport = {
 const REQUIRES_TARGET: Partial<Record<Op['kind'], 'node' | 'edge'>> = {
   'node.setParent': 'node',
   'node.setContent': 'node',
+  'node.setProperty': 'node',
   'node.setProperties': 'node',
   'edge.reconnect': 'edge',
   'edge.setLabel': 'edge',
+  'edge.setProperty': 'edge',
   'edge.setProperties': 'edge',
 };
 

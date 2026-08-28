@@ -1,3 +1,8 @@
+import {
+  applyPropertyChanges,
+  diffProperties,
+  type Properties,
+} from '@conversensus/shared';
 import type { Edge, Node } from '@xyflow/react';
 import {
   recalculateParentBounds,
@@ -268,20 +273,28 @@ export function applyEvent(
         ),
       };
 
-    // **`to` で置き換える (併合しない)。**
+    // **from → to の差分を当てる (`to` で丸ごと置き換えない)。**
     //
-    // op-log の projection (`shared/events/project.ts` の `node.setProperties`) は
-    // `node.properties = op.properties` で丸ごと置き換える。ここが併合だと
-    // **キーの削除がローカルでだけ効かない** — 画面には残るのにリロードすると消える、
-    // という食い違いになる (`deepse/reports/review_2026-08-11_ana116-image.md` R4)。
+    // ここと op-log の projection が違う畳み込みをすると、画面には残るのにリロードすると
+    // 消える、という食い違いになる (`deepse/reports/review_2026-08-11_ana116-image.md` R4)。
+    // op はプロパティ 1 つを単位にした `node.setProperty` に落ちるので (ANA-208)、
+    // ローカルもキー単位で当てて揃える — **同じ `diffProperties` を通す**のがその担保である。
     //
-    // したがって `to` には**置き換え後の全体**を載せる約束である。発行元は
-    // `images/replaceNodeImage.ts` と `ImageNode` の URL 編集で、どちらも全体を載せる。
+    // `to` に**置き換え後の全体**を載せる発行元の約束は変わらない。差分はここで採る。
     case 'NODE_PROPERTIES_CHANGED':
       return {
         nodes: nodes.map((n) =>
           n.id === event.nodeId
-            ? { ...n, data: { ...n.data, properties: { ...event.to } } }
+            ? {
+                ...n,
+                data: {
+                  ...n.data,
+                  properties: applyPropertyChanges(
+                    n.data.properties as Properties | undefined,
+                    diffProperties(event.from, event.to),
+                  ),
+                },
+              }
             : n,
         ),
         edges,

@@ -153,6 +153,79 @@ describe('projectBatches', () => {
     });
   });
 
+  test('node.setProperty は触ったプロパティだけを畳み込む (#208)', () => {
+    const a = nid();
+    const g = projectBatches([
+      batch(1, [
+        { kind: 'node.add', target: a, content: 'A', properties: { keep: 1 } },
+      ]),
+      batch(2, [
+        { kind: 'node.setProperty', target: a, name: 'foo', value: 2 },
+      ]),
+      batch(3, [
+        { kind: 'node.setProperty', target: a, name: 'foo', value: 3 },
+      ]),
+    ]);
+    expect(g.nodes.get(a)?.properties).toEqual({ keep: 1, foo: 3 });
+  });
+
+  test('node.setProperty の値の省略はそのプロパティの削除である', () => {
+    const a = nid();
+    const g = projectBatches([
+      batch(1, [
+        {
+          kind: 'node.add',
+          target: a,
+          content: 'A',
+          properties: { keep: 1, gone: 2 },
+        },
+      ]),
+      batch(2, [{ kind: 'node.setProperty', target: a, name: 'gone' }]),
+    ]);
+    expect(g.nodes.get(a)?.properties).toEqual({ keep: 1 });
+  });
+
+  test('旧形式の node.setProperties も読む (置換のまま)', () => {
+    // 既存の op-log には置換の op が積まれている。新規には発行しないが、読めなくなると
+    // 過去のグラフが再現できない (#208)
+    const a = nid();
+    const g = projectBatches([
+      batch(1, [
+        { kind: 'node.add', target: a, content: 'A', properties: { old: 1 } },
+      ]),
+      batch(2, [
+        { kind: 'node.setProperties', target: a, properties: { new: 2 } },
+      ]),
+      batch(3, [
+        { kind: 'node.setProperty', target: a, name: 'added', value: 3 },
+      ]),
+    ]);
+    expect(g.nodes.get(a)?.properties).toEqual({ new: 2, added: 3 });
+  });
+
+  test('edge.setProperty も同じ規則で畳み込む', () => {
+    const a = nid();
+    const b = nid();
+    const e = eid();
+    const g = projectBatches([
+      batch(1, [
+        { kind: 'node.add', target: a, content: 'A' },
+        { kind: 'node.add', target: b, content: 'B' },
+        {
+          kind: 'edge.add',
+          target: e,
+          source: a,
+          dest: b,
+          properties: { keep: 1 },
+        },
+      ]),
+      batch(2, [
+        { kind: 'edge.setProperty', target: e, name: 'foo', value: 2 },
+      ]),
+    ]);
+    expect(g.edges.get(e)?.properties).toEqual({ keep: 1, foo: 2 });
+  });
+
   test('presentation op は presentation マップに入り、意味的な状態に影響しない', () => {
     const e = eid();
     const a = nid();

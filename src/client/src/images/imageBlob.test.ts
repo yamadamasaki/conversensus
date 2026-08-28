@@ -4,6 +4,7 @@ import type { StoredBlob } from '../api';
 import {
   collectImageBlobRefs,
   createPdsBlobUploader,
+  IMAGE_PROPERTY_KEY,
   imagePropertiesChange,
   imagePropertiesOf,
   migrateLegacyImageProperties,
@@ -351,7 +352,7 @@ describe('replaceImageProperties / imagePropertiesChange', () => {
   });
 
   it('画像以外の properties は残す', () => {
-    // `node.setProperties` は置換意味論なので、差分だけを返すと他が消える
+    // from/to は全体を載せる契約なので、部分的に返すと他が「削除された」と読まれる
     const existing = { imageUrl: 'https://example.com/a.png', color: 'red' };
     expect(replaceImageProperties(existing, ref)).toEqual({
       imageUrl: 'https://example.com/a.png',
@@ -537,7 +538,21 @@ describe('collectImageBlobRefs', () => {
     ).toEqual([ref(CID)]);
   });
 
-  it('node.setProperties で差し替えた画像も集める (ANA-117 の経路)', () => {
+  it('node.setProperty で差し替えた画像も集める (ANA-117 の経路)', () => {
+    // 差し替えはキー単位の op に落ちる (#208)。ここを見落とすと、差し替えた画像だけ
+    // PDS へ upload されない
+    const ops: Op[] = [
+      {
+        kind: 'node.setProperty',
+        target: 'n1' as NodeId,
+        name: IMAGE_PROPERTY_KEY,
+        value: ref(OTHER_CID),
+      },
+    ];
+    expect(collectImageBlobRefs(ops)).toEqual([ref(OTHER_CID)]);
+  });
+
+  it('旧形式の node.setProperties も引き続き集める', () => {
     const ops: Op[] = [
       {
         kind: 'node.setProperties',
@@ -546,6 +561,19 @@ describe('collectImageBlobRefs', () => {
       },
     ];
     expect(collectImageBlobRefs(ops)).toEqual([ref(OTHER_CID)]);
+  });
+
+  it('画像でない setProperty は無視する', () => {
+    const ops: Op[] = [
+      {
+        kind: 'node.setProperty',
+        target: 'n1' as NodeId,
+        name: 'color',
+        value: 'red',
+      },
+      { kind: 'node.setProperty', target: 'n1' as NodeId, name: 'gone' },
+    ];
+    expect(collectImageBlobRefs(ops)).toEqual([]);
   });
 
   it('properties を持たない op と画像でない properties は無視する', () => {

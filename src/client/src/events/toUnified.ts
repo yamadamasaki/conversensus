@@ -5,10 +5,14 @@
  * 複合イベント (NODES_GROUPED / NODES_PASTED / NODE_REPARENTED 等) は
  * バッチモデルに従い、複数の基本 Op から成る 1 Batch に分解される。
  *
- * **NODE_PROPERTIES_CHANGED.to は置換 (full) である** — 統一 op `node.setProperties` と
- * 同じ意味論に揃えた (レビュー R4, `deepse/reports/review_2026-08-11_ana116-image.md`)。
- * かつては差分 (delta) の扱いで、ローカル reducer (`applyEvent`) だけが併合していたため
- * **キーの削除がローカルでのみ効かない**食い違いがあった。発行元は全体を載せること。
+ * **NODE_PROPERTIES_CHANGED の from/to は置換 (full) である** — 発行元は差分ではなく
+ * 置き換え後の全体を載せること (レビュー R4, `deepse/reports/review_2026-08-11_ana116-image.md`)。
+ *
+ * 一方で統一 op は**プロパティ 1 つ**を単位にする (`node.setProperty`, ANA-208)。
+ * 全体を置換する op だと、別々のプロパティを触っただけの二人が競合になり、負けた側の
+ * プロパティが丸ごと消えるためである。したがって全体 → 差分の変換をここで行う。
+ * ローカル reducer (`applyEvent`) も同じ `diffProperties` を通すので、画面の状態と
+ * op-log の projection はずれない (R4 で揃えた不変条件はそのまま維持される)。
  *
  * 既知の制約 (Phase 2 の配線で解消):
  *   - NODE_STYLE_CHANGED は現状 presentation 分類だが、実体は width/height の変更なので
@@ -27,6 +31,7 @@ import type {
 import {
   type Batch,
   BatchIdSchema,
+  diffProperties,
   nodeSetLayoutOp,
   type Op,
 } from '@conversensus/shared';
@@ -224,21 +229,19 @@ export function graphEventToOps(event: GraphEvent): Op[] {
     case 'EDGE_RELABELED':
       return [{ kind: 'edge.setLabel', target: event.edgeId, label: event.to }];
     case 'NODE_PROPERTIES_CHANGED':
-      return [
-        {
-          kind: 'node.setProperties',
-          target: event.nodeId,
-          properties: event.to,
-        },
-      ];
+      return diffProperties(event.from, event.to).map((change) => ({
+        kind: 'node.setProperty',
+        target: event.nodeId,
+        name: change.name,
+        ...(change.value !== undefined && { value: change.value }),
+      }));
     case 'EDGE_PROPERTIES_CHANGED':
-      return [
-        {
-          kind: 'edge.setProperties',
-          target: event.edgeId,
-          properties: event.to,
-        },
-      ];
+      return diffProperties(event.from, event.to).map((change) => ({
+        kind: 'edge.setProperty',
+        target: event.edgeId,
+        name: change.name,
+        ...(change.value !== undefined && { value: change.value }),
+      }));
     case 'NODE_MOVED':
       return [nodeSetLayoutOp(event.nodeId, { x: event.to.x, y: event.to.y })];
     case 'NODE_RESIZED':

@@ -129,9 +129,10 @@ export function imagePropertiesOf(ref: ImageBlobRef): Record<string, unknown> {
 /**
  * 既存ノードの画像を差し替えたあとの properties を作る (ANA-117 / S6)。
  *
- * **差分ではなく置き換え後の全体を返す。** `NODE_PROPERTIES_CHANGED` も統一 op の
- * `node.setProperties` も**置換**意味論である (レビュー R4 で `applyEvent` の併合を
- * 揃えた)。差分だけを載せるとその他の properties が消える。
+ * **差分ではなく置き換え後の全体を返す。** `NODE_PROPERTIES_CHANGED` の from/to は
+ * 置き換え後の**全体**を載せる契約である (レビュー R4)。統一 op はキー単位に割られるが
+ * (`node.setProperty`, #208)、その差分は from/to の差から採るので、ここが部分的な
+ * properties を返すと「載っていないキー = 削除された」と読まれて他の properties が消える。
  *
  * **旧形式の画像キーは落とす。** 新しい画像が古いものを置き換えるので残す意味が無く、
  * とりわけ `imageDataUrl` (base64) を持ち回すと、差し替えのたびに base64 が新しい op へ
@@ -326,11 +327,25 @@ export async function resolveImageUrl(
 export function collectImageBlobRefs(ops: readonly Op[]): ImageBlobRef[] {
   const byCid = new Map<BlobCid, ImageBlobRef>();
   for (const op of ops) {
-    const properties = 'properties' in op ? op.properties : undefined;
-    const ref = properties?.[IMAGE_PROPERTY_KEY];
-    if (isImageBlobRef(ref)) byCid.set(ref.ref.$link, ref);
+    for (const ref of imageRefsIn(op)) byCid.set(ref.ref.$link, ref);
   }
   return [...byCid.values()];
+}
+
+/**
+ * 1 つの op が載せている画像参照。properties を丸ごと持つ op (`node.add` など) と、
+ * プロパティ 1 つだけを持つ op (`node.setProperty`, ANA-208) の両方を見る。
+ */
+function imageRefsIn(op: Op): ImageBlobRef[] {
+  const value =
+    op.kind === 'node.setProperty' || op.kind === 'edge.setProperty'
+      ? op.name === IMAGE_PROPERTY_KEY
+        ? op.value
+        : undefined
+      : 'properties' in op
+        ? op.properties?.[IMAGE_PROPERTY_KEY]
+        : undefined;
+  return isImageBlobRef(value) ? [value] : [];
 }
 
 export type UploadImageBlobDeps = {

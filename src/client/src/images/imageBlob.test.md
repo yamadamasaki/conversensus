@@ -79,10 +79,13 @@ CID は S2 で実機 PDS から取得した実在のベクタ (`hello` の CID) 
 
 - **`properties.image` の blob ref を集める / 同じ cid は 1 つに畳む**: 同じ画像を
   貼り直しても upload は 1 回で足りる (実体は content-addressed で 1 つ)
-- **`node.setProperties` も見る**: 差し替え経路 (ANA-117 / S6) で入る op である。
-  「作成時だけ」と決め打つと、差し替えた画像だけ pin されない形で壊れる
+- **`node.setProperty` も見る**: 差し替え経路 (ANA-117 / S6) で入る op である。
+  「作成時だけ」と決め打つと、差し替えた画像だけ pin されない形で壊れる。
+  プロパティのキー単位化 (#208) で op の形が変わった箇所なので、**旧形式の
+  `node.setProperties` も引き続き集める**ことを別のテストで固定する
 - **`properties` を持たない op / 画像でない properties を無視する**: 走査対象は
-  op の判別共用体全体なので、`properties` の有無で落ちないことを固定する
+  op の判別共用体全体なので、`properties` の有無で落ちないことを固定する。
+  画像でない `setProperty` (値つき・値なしの両方) も拾わない
 - **旧 flat 形式 (`imageBlobCid`) は集めない**: PDS から見ればただの文字列で
   pin の対象にならないため、先に上げる意味が無い
 
@@ -109,9 +112,10 @@ CID は S2 で実機 PDS から取得した実在のベクタ (`hello` の CID) 
 **`replaceImageProperties` / `imagePropertiesChange` (差し替え, S6)**
 
 - **新しい blob ref を image キーに置く / 古い blob ref を上書きする**: 差し替えの本体
-- **画像以外の properties は残す**: `node.setProperties` は**置換**意味論なので
-  (`events/toUnified.ts` の冒頭に既知の制約として書かれている), 差分だけを載せると
-  projection で他の properties が消える。返すのは常に置き換え後の全体である
+- **画像以外の properties は残す**: `NODE_PROPERTIES_CHANGED` の from/to は
+  **置き換え後の全体**を載せる契約である (`events/toUnified.ts` の冒頭)。op に落ちる
+  差分はその差から採るので (#208), 部分的な properties を返すと「載っていないキー =
+  削除された」と読まれて他の properties が消える。返すのは常に全体である
 - **旧形式の画像キーは落とす**: 新しい画像が古いものを置き換えるので残す意味が無い。
   とりわけ `imageDataUrl` (base64) を持ち回すと, 差し替えのたびに base64 が新しい op へ
   載り直してレコード上限 (約 1 MB) に当たる — S3 で止めたことが復活してしまう

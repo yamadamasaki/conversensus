@@ -188,8 +188,9 @@ export function ImageNode({ id, data, selected }: NodeProps) {
     const trimmed = urlInput.trim();
     setEditingUrl(false);
     if (trimmed === imageUrl) return;
-    // **差分ではなく全体を載せる** — `node.setProperties` は置換意味論なので、
-    // `{ imageUrl }` だけを載せると同じノードの画像 blob 参照まで消える。
+    // **差分ではなく全体を載せる** — `NODE_PROPERTIES_CHANGED` の from/to は全体を
+    // 載せる契約で、op に落ちる差分はその差から採る (#208)。`{ imageUrl }` だけを
+    // 載せると、他のキーが「削除された」と読まれて画像 blob 参照まで消える。
     // **旧形式の base64 を持つノードはここで blob へ移す** — 全体を載せる以上、
     // 移さないと base64 が op に乗ってレコード上限に当たる (レビュー R3)
     void migrateLegacyImageProperties(properties)

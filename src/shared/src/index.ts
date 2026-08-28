@@ -8,6 +8,7 @@ export * from './events/fromCommitOperation';
 export * from './events/genesis';
 export * from './events/merge';
 export * from './events/project';
+export * from './events/properties';
 export * from './events/unified';
 export * from './migrations';
 export * from './schemas';

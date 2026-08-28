@@ -621,9 +621,8 @@ describe('NODE_PROPERTIES_CHANGED', () => {
     expect(nodes[0].data.label).toBe('ノード1'); // 他の data は保持
   });
 
-  it('既存 properties を置き換える (併合しない)', () => {
-    // projection (`shared/events/project.ts`) が置換なので、ここも置換にする。
-    // 併合だとキーの削除がローカルでだけ効かず、リロードで絵が変わる
+  it('from が現在の properties と一致していれば to のとおりになる', () => {
+    // 発行元は from/to に置き換え後の全体を載せる約束なので、通常はこの経路になる
     const n: Node = {
       ...n1,
       data: { ...n1.data, properties: { existing: true } },
@@ -640,8 +639,28 @@ describe('NODE_PROPERTIES_CHANGED', () => {
     expect(nodes[0].data.properties).toEqual({ added: 'yes' });
   });
 
-  it('to が空ならすべての properties が消える (undo で効く)', () => {
-    // 画像を貼った直後の undo は `to: {}` になる。併合だと no-op になってしまい、
+  it('from が知らないプロパティは残る (#208)', () => {
+    // op は `node.setProperty` に落ちるので、projection は from が知らないプロパティを
+    // 保つ。ここが `to` での丸ごと置換だと**ローカルでだけ消える**ことになり、
+    // R4 で揃えた「画面と projection が一致する」不変条件が逆向きに破れる
+    const n: Node = {
+      ...n1,
+      data: { ...n1.data, properties: { mine: 1, theirs: 2 } },
+    };
+    const event: GraphEvent = {
+      ...base,
+      category: 'content',
+      type: 'NODE_PROPERTIES_CHANGED',
+      nodeId: 'n1' as NodeId,
+      from: { mine: 1 },
+      to: { mine: 5 },
+    };
+    const { nodes } = applyEvent(event, [n], []);
+    expect(nodes[0].data.properties).toEqual({ mine: 5, theirs: 2 });
+  });
+
+  it('to が空なら from にあったプロパティが消える (undo で効く)', () => {
+    // 画像を貼った直後の undo は `to: {}` になる。差分が削除にならないと no-op になり、
     // 画面から画像が消えない
     const n: Node = {
       ...n1,
