@@ -507,8 +507,16 @@ export function useBranchOperations({
         );
         if (result.conflicts.length > 0) {
           // 収束は LWW で確定させ、対立は診断ログに残す (可視化は後続 phase)
+          const byCategory = result.conflicts.reduce<Record<string, number>>(
+            (acc, c) => {
+              acc[c.category] = (acc[c.category] ?? 0) + 1;
+              return acc;
+            },
+            {},
+          );
           console.warn(
-            `[branch] merge: ${result.conflicts.length} 件の content 対立を LWW で確定`,
+            `[branch] merge: ${result.conflicts.length} 件の対立を LWW で確定`,
+            byCategory,
             result.conflicts,
           );
         }
