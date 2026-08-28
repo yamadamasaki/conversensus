@@ -4,6 +4,7 @@ dialogue to resolve (DTR) graph は, 基本的には LPG であるが, 以下の
 
 1. explicit merge で content に競合が生じた場合 → 強制的に起動
 2. explicit merge で structure に競合が生じた場合 → とりあえず merge されるが, 競合が通知されるので, そこから手動で選択的に起動
+  1. structure の競合の定義と, 決着までの間の既定の振舞い (add-wins) は [merging](./merging.md) を参照
   1. (1) と (2) は同時に起こる場合がある. その時には, 強制的に起動し, その中で (2) も通知される
 3. implicit merge で競合が生じた場合 → とりあえず fork (暫定的な branch) されるが, 競合が通知されるので, そこから手動で選択的に起動
 
@@ -82,6 +83,3 @@ dialogue graph から競合対象の要素を指したい場合, 各要素は id
 
 DtR graph は, Sheet の branch と同じレベルで, 左サイドバーのブラウザに表示される. ただし, 通常の branch とは異なることをユーザが認知できるべきである.
 
-## 未決
-
-- structure の競合とは何か. 現在の merge は content の並行変更しか対立として検出しておらず, structure は projection に委ねている. (2) を成立させるには, structure の競合の定義が先に要る
