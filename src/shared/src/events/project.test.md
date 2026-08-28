@@ -14,6 +14,8 @@ projection は step1 §4 の「集約は projection (導出ビュー)」を実�
 - **LWW (投入順非依存)**: 同一ノードへの content 変更を、投入順を入れ替えて渡しても clock 昇順で解決され、clock 最大が勝つことを確認する。決定論的なマージの土台。
 - **カスケード削除**: node.remove が接続エッジも削除する (現行 `applyEvent` の NODE_DELETED と同じ挙動) ことを確認する。
 - **layout の部分更新**: 移動 (x/y) と リサイズ (width/height) を別々の setLayout で与えても合成されることを確認する。滑らかな移動・リサイズを独立イベントとして扱うため。
+- **プロパティのキー単位の畳み込み (#208)**: `node.setProperty` / `edge.setProperty` が触ったプロパティだけを書き換え、他は残すことを確認する。全体を置換していた頃は、別のプロパティを触っただけで他が消えていた (`spec/merging.md`「op の粒度」)。値を省いた op がそのプロパティの削除になることも固定する — 削除の表現はこれ一つしかないので、ここが崩れると「消したのに残る」になる。
+- **旧形式 (`setProperties`) も読む**: 既存の op-log には置換の op が積まれている。新規には発行しないが、読めなくなると過去のグラフが再現できない。旧形式の置換の後にキー単位の op が重なる順序まで確認する。
 - **presentation の分離**: presentation op (edge.setStyle 等) は presentation マップに入り、意味的な状態 (edges の properties 等) に影響しないことを確認する (D7: presentation はローカル限定)。
 - **toSheet**: projection が既存の `Sheet` 形式へ変換されることを確認する (現行資産との接続点)。
 

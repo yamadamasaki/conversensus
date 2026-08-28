@@ -21,9 +21,14 @@
 
 - **layout 値の整数化 (W3d5-7)**: `node.setLayout` の `x`/`y`/`width`/`height` が整数へ丸められることを固定する。**ATProto のデータモデル (DAG-CBOR) には float 型が無く**、小数を含む op を載せた batch は PDS の `putRecord` が 400 (`Expected one of null, boolean, integer, … got 661.99…`) で弾く。React Flow はドラッグ結果をサブピクセルの小数で返すため、丸めが無いと **layout op を含む batch が remote へ一切載らない** — W3d5-7 の実機検証で実際にこれが起きた。丸めは op 生成時 (= ローカル正典に載る値) に掛ける: remote 側だけで丸めると local と remote で値が食い違い `recordToBatch` の往復が非可逆になるため。`width`/`height` は `number | string` の union なので、CSS 値 (`'100%'`) はそのまま通ることも合わせて固定する。
 
-## 既知の制約 (テスト対象外・Phase 2 で解消)
+- **プロパティは from → to の差分に割る (#208)**: `NODE_PROPERTIES_CHANGED` / `EDGE_PROPERTIES_CHANGED` は from/to に**置き換え後の全体**を載せる契約のままだが、統一 op は**プロパティ 1 つ**を単位にする (`node.setProperty`)。全体を置換する op だと、別のプロパティを触っただけの二人が競合になり、負けた側のプロパティが消えるためである (`spec/merging.md`「op の粒度」)。
 
-- `NODE_PROPERTIES_CHANGED.to` は差分だが統一 op は置換意味論。忠実変換には capture 時の full properties が必要。
+  - 変わったプロパティごとに op が 1 つ出て、**触っていないプロパティは op にならない**ことを確認する。これが「触っていないプロパティが消えない」ことの担保である。
+  - 消えたプロパティは **`value` フィールドを持たない** op になることを、キーの有無で確認する。ATProto に載せる以上、削除は `undefined` ではなく「フィールドが無い」で表すしかない。
+  - 何も変わっていなければ op を出さない。空 op の batch は remote へ送る前に落とされる (`atproto/remoteFilter.ts`)。
+
+## 既知の制約 (テスト対象外)
+
 - `NODE_STYLE_CHANGED` は width/height 変更の実体を持つため layout に正規化している。
 
 ## graphEventToBatch の actor (Phase 4d-2)

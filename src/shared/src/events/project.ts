@@ -19,6 +19,7 @@ import type {
   SheetId,
   Style,
 } from '../schemas';
+import { applyPropertyChange } from './properties';
 import { type Batch, type FileOp, type GraphOp, isFileOp } from './unified';
 
 export type ProjectedGraph = {
@@ -154,14 +155,25 @@ function applyOp(g: ProjectedGraph, op: GraphOp): void {
       if (node) node.content = op.content;
       break;
     }
-    case 'node.setProperties': {
+    case 'node.setProperty': {
       const node = g.nodes.get(op.target);
-      if (node) node.properties = op.properties;
+      if (node) node.properties = applyPropertyChange(node.properties, op);
       break;
     }
     case 'edge.setLabel': {
       const edge = g.edges.get(op.target);
       if (edge) edge.label = op.label;
+      break;
+    }
+    case 'edge.setProperty': {
+      const edge = g.edges.get(op.target);
+      if (edge) edge.properties = applyPropertyChange(edge.properties, op);
+      break;
+    }
+    // 旧形式 (置換)。既存の op-log に積まれているので読む。新規には発行しない (ANA-208)
+    case 'node.setProperties': {
+      const node = g.nodes.get(op.target);
+      if (node) node.properties = op.properties;
       break;
     }
     case 'edge.setProperties': {

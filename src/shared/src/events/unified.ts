@@ -12,6 +12,13 @@
  * カテゴリと同期 (step1 §4, D7):
  *   - structure / content / layout = 同期対象
  *   - presentation                 = ローカル限定 (システムがルールで導出、再導出可能)
+ *
+ * プロパティの粒度 (ANA-208, `deepse/requirements/spec/merging.md`「op の粒度」):
+ *   properties を触る op は**キー 1 つを単位**とする (`*.setProperty`)。全体を置換する
+ *   `*.setProperties` だと、A が `foo` を B が `bar` を編集しただけで競合になり、しかも
+ *   負けた側のキーが丸ごと消える — ユーザから見ると**触っていないプロパティが消える**。
+ *   `*.setProperties` は既存の op-log に積まれているので **projection では読むが、
+ *   新規には発行しない**。
  */
 
 import { z } from 'zod';
@@ -53,6 +60,14 @@ export type Category = (typeof EVENT_CATEGORIES)[number];
 
 const NodePropertiesSchema = z.record(z.string(), z.unknown());
 
+/**
+ * プロパティの名前。規約は `deepse/requirements/spec/propertyEditor.md`「名前」。
+ *
+ * TS 組み込みの `PropertyKey` を隠さないよう `PropertyName` と呼ぶ (spec の語彙とも揃う)。
+ */
+export const PropertyNameSchema = z.string().min(1);
+export type PropertyName = z.infer<typeof PropertyNameSchema>;
+
 export const OpSchema = z.discriminatedUnion('kind', [
   // structure
   z.object({
@@ -93,14 +108,28 @@ export const OpSchema = z.discriminatedUnion('kind', [
     content: z.string(),
   }),
   z.object({
-    kind: z.literal('node.setProperties'),
+    kind: z.literal('node.setProperty'),
     target: NodeIdSchema,
-    properties: NodePropertiesSchema,
+    name: PropertyNameSchema,
+    /** 省略はそのプロパティの**削除**を意味する (JSON に undefined は載らないので曖昧さは無い) */
+    value: z.unknown().optional(),
   }),
   z.object({
     kind: z.literal('edge.setLabel'),
     target: EdgeIdSchema,
     label: z.string(),
+  }),
+  z.object({
+    kind: z.literal('edge.setProperty'),
+    target: EdgeIdSchema,
+    name: PropertyNameSchema,
+    value: z.unknown().optional(),
+  }),
+  // content (旧形式)。**読むだけで、新規には発行しない** — 下の「プロパティの粒度」を見よ
+  z.object({
+    kind: z.literal('node.setProperties'),
+    target: NodeIdSchema,
+    properties: NodePropertiesSchema,
   }),
   z.object({
     kind: z.literal('edge.setProperties'),
@@ -247,8 +276,10 @@ export const OP_CATEGORY: Record<OpKind, Category> = {
   'edge.remove': 'structure',
   'edge.reconnect': 'structure',
   'node.setContent': 'content',
+  'node.setProperty': 'content',
   'node.setProperties': 'content',
   'edge.setLabel': 'content',
+  'edge.setProperty': 'content',
   'edge.setProperties': 'content',
   'node.setLayout': 'layout',
   'edge.setLayout': 'layout',
@@ -283,8 +314,10 @@ export function isFileOp(op: Op): op is FileOp {
 export type ContentOp = Extract<Op, { kind: ContentOpKind }>;
 type ContentOpKind =
   | 'node.setContent'
+  | 'node.setProperty'
   | 'node.setProperties'
   | 'edge.setLabel'
+  | 'edge.setProperty'
   | 'edge.setProperties';
 
 /**

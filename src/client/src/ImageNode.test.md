@@ -65,7 +65,7 @@ blob 解決の経路は `imageBlobCid && imageBlobMimeType` で閉じている�
 同じ理由で `@xyflow/react` のスタブには `MarkerType` も含めてある — 欠けると
 同じ実行の中で `graphTransform` を読む別のテストが解決に失敗する。
 
-- **落とした画像で properties を差し替える op を dispatch する** — `node.setProperties`
+- **落とした画像で properties を差し替える op を dispatch する** — `NODE_PROPERTIES_CHANGED`
   1 件だけであること (`NODE_ADDED` を出さない) と, 画像以外の properties が残ること。
   `from` は差し替え前の全体で, undo で欠けない
 - **canvas 側の drop へ伝播させない** — 止めないと「差し替え」と「新規作成」が
@@ -103,7 +103,7 @@ blob 参照が変わったのに実体を引けないとき, **前の画像を�
   `onError` は来ない — **失敗を伝える経路がこの状態しか無い**。
   だから「解決が空で終わった」を状態に持ち, 進行中と区別する
 - **画像が消えた (参照が外れた) ときも残さない** — `properties` から画像キーごと
-  落ちる経路 (remote の `setProperties` など)。解決の effect は早期 return するので,
+  落ちる経路 (remote が画像プロパティを消した場合など)。解決の effect は早期 return するので,
   **捨てる処理をその return より前に置く**ことが要点である
 
 「読み込み中」と「読み込めません」を分ける判断は **`displayUrl` が無いときだけ**効かせる。

@@ -126,6 +126,66 @@ describe('graphEventToOps: 複合イベントの分解', () => {
   });
 });
 
+describe('graphEventToOps: プロパティは from → to の差分に割る (#208)', () => {
+  const nodeId = nid();
+  const edgeId = eid();
+
+  test('変わったプロパティごとに node.setProperty を 1 つ出す', () => {
+    const ops = graphEventToOps({
+      ...makeEventBase('content'),
+      type: 'NODE_PROPERTIES_CHANGED',
+      nodeId,
+      from: { keep: 1, changed: 'a' },
+      to: { keep: 1, changed: 'b', added: 2 },
+    });
+    // 触っていない `keep` は op にならない — これが「触っていないプロパティが
+    // 消えない」ことの担保である
+    expect(ops).toEqual([
+      { kind: 'node.setProperty', target: nodeId, name: 'changed', value: 'b' },
+      { kind: 'node.setProperty', target: nodeId, name: 'added', value: 2 },
+    ]);
+  });
+
+  test('消えたプロパティは value を持たない op になる (= 削除)', () => {
+    const ops = graphEventToOps({
+      ...makeEventBase('content'),
+      type: 'NODE_PROPERTIES_CHANGED',
+      nodeId,
+      from: { gone: 1 },
+      to: {},
+    });
+    expect(ops).toEqual([
+      { kind: 'node.setProperty', target: nodeId, name: 'gone' },
+    ]);
+    // ATProto へ載せるので、削除は「キーがある/無い」で表す
+    expect('value' in ops[0]).toBe(false);
+  });
+
+  test('EDGE_PROPERTIES_CHANGED も同じ規則で割る', () => {
+    const ops = graphEventToOps({
+      ...makeEventBase('content'),
+      type: 'EDGE_PROPERTIES_CHANGED',
+      edgeId,
+      from: {},
+      to: { k: 1 },
+    });
+    expect(ops).toEqual([
+      { kind: 'edge.setProperty', target: edgeId, name: 'k', value: 1 },
+    ]);
+  });
+
+  test('何も変わっていなければ op を出さない', () => {
+    const ops = graphEventToOps({
+      ...makeEventBase('content'),
+      type: 'NODE_PROPERTIES_CHANGED',
+      nodeId,
+      from: { k: 1 },
+      to: { k: 1 },
+    });
+    expect(ops).toEqual([]);
+  });
+});
+
 describe('graphEventToOps: 全 21 イベント型を網羅する', () => {
   // 各型の最小構成インスタンス。新しい型を追加したらここに足す (網羅性の番人)
   const nodeId = nid();

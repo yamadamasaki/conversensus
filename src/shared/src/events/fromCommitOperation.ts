@@ -4,6 +4,11 @@
  * 既存の同期語彙 `CommitOperation` (6 種) が統一語彙の部分集合であることを示す。
  * 1 つの `node.update` / `edge.update` は複数の Op (setContent + setProperties + setParent)
  * に展開されうる。
+ *
+ * **ここだけは旧形式の `*.setProperties` を出す。** properties はキー単位の op に
+ * 移したが (#208)、`CommitOperation` の `properties` は「全体をこれで置き換える」という
+ * 意味であって、キー単位へ割るには変更前の properties が要る — この関数は 1 つの op しか
+ * 見ないので持っていない。旧語彙の写像は旧形式のまま置き, projection が両方を読む。
  */
 
 import type { CommitOperation, EdgeId, NodeId } from '../schemas';

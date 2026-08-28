@@ -183,7 +183,7 @@ describe('ImageNode', () => {
         mimeType: 'image/png',
         size: 3,
       });
-      // 画像以外の properties は残る (setProperties は置換意味論)
+      // 画像以外の properties は残る (from/to は全体を載せる契約)
       expect(event.to.imageUrl).toBe('https://example.com/a.png');
       expect(event.from).toEqual({ imageUrl: 'https://example.com/a.png' });
     });
@@ -389,7 +389,7 @@ describe('ImageNode', () => {
       const { rerender } = render(<ImageNode {...withBlob(AVAILABLE_CID)} />);
       await waitFor(() => expect(screen.getByRole('img')).toBeDefined());
 
-      // 画像キーごと落ちた properties へ差し替わる (remote の setProperties など)
+      // 画像キーごと落ちた properties へ差し替わる (remote の削除など)
       rerender(
         <ImageNode
           {...makeProps()}

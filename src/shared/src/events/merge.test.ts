@@ -117,6 +117,157 @@ describe('mergeBranches', () => {
   });
 });
 
+describe('mergeBranches — プロパティはキー単位で判定する (#208)', () => {
+  test('別々のプロパティを編集しただけなら対立にせず、どちらも残す', () => {
+    const a = nid();
+    const trunkAfterBase = [
+      batch(2, [
+        { kind: 'node.setProperty', target: a, name: 'foo', value: 1 },
+      ]),
+    ];
+    const branchBatches = [
+      batch(3, [
+        { kind: 'node.setProperty', target: a, name: 'bar', value: 2 },
+      ]),
+    ];
+    const { merged, conflicts } = mergeBranches(trunkAfterBase, branchBatches);
+    expect(conflicts).toHaveLength(0);
+
+    // 触っていないプロパティが消えない — これがキー単位化の目的である
+    const base = [batch(1, [{ kind: 'node.add', target: a, content: 'init' }])];
+    const g = projectBatches([...base, ...merged]);
+    expect(g.nodes.get(a)?.properties).toEqual({ foo: 1, bar: 2 });
+  });
+
+  test('同じプロパティの並行変更は対立にし、どのプロパティかを載せる', () => {
+    const a = nid();
+    const trunkAfterBase = [
+      batch(
+        2,
+        [{ kind: 'node.setProperty', target: a, name: 'foo', value: 'trunk' }],
+        'alice',
+      ),
+    ];
+    const branchBatches = [
+      batch(
+        3,
+        [{ kind: 'node.setProperty', target: a, name: 'foo', value: 'branch' }],
+        'bob',
+      ),
+    ];
+    const { merged, conflicts } = mergeBranches(trunkAfterBase, branchBatches);
+
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0].category).toBe('content');
+    expect(conflicts[0].target).toBe(a);
+    // DtR graph は「どのプロパティで揉めたか」を示す必要がある
+    expect(conflicts[0].propertyName).toBe('foo');
+
+    const base = [batch(1, [{ kind: 'node.add', target: a, content: 'init' }])];
+    const g = projectBatches([...base, ...merged]);
+    expect(g.nodes.get(a)?.properties).toEqual({ foo: 'branch' }); // LWW
+  });
+
+  test('同じ値への並行変更は対立にしない', () => {
+    const a = nid();
+    const { conflicts } = mergeBranches(
+      [
+        batch(2, [
+          { kind: 'node.setProperty', target: a, name: 'foo', value: 1 },
+        ]),
+      ],
+      [
+        batch(3, [
+          { kind: 'node.setProperty', target: a, name: 'foo', value: 1 },
+        ]),
+      ],
+    );
+    expect(conflicts).toHaveLength(0);
+  });
+
+  test('片方の削除ともう片方の変更は同じプロパティなら対立にする', () => {
+    const a = nid();
+    const { conflicts } = mergeBranches(
+      [batch(2, [{ kind: 'node.setProperty', target: a, name: 'foo' }])],
+      [
+        batch(3, [
+          { kind: 'node.setProperty', target: a, name: 'foo', value: 2 },
+        ]),
+      ],
+    );
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0].propertyName).toBe('foo');
+  });
+
+  test('edge のプロパティも同じ規則で判定する', () => {
+    const e = eid();
+    const { conflicts } = mergeBranches(
+      [
+        batch(2, [
+          { kind: 'edge.setProperty', target: e, name: 'foo', value: 1 },
+        ]),
+      ],
+      [
+        batch(3, [
+          { kind: 'edge.setProperty', target: e, name: 'bar', value: 2 },
+        ]),
+      ],
+    );
+    expect(conflicts).toHaveLength(0);
+  });
+
+  test('旧形式 (setProperties) もプロパティごとに割って比べる', () => {
+    // 移行期は既存ログの置換 op と新形式が同じマージに混ざる。
+    // 旧形式を op まるごとで比べると、別プロパティを触っただけで対立になってしまう
+    const a = nid();
+    const { conflicts } = mergeBranches(
+      [
+        batch(2, [
+          { kind: 'node.setProperties', target: a, properties: { foo: 1 } },
+        ]),
+      ],
+      [
+        batch(3, [
+          { kind: 'node.setProperty', target: a, name: 'bar', value: 2 },
+        ]),
+      ],
+    );
+    expect(conflicts).toHaveLength(0);
+  });
+
+  test('旧形式と新形式が同じプロパティを触れば対立になる', () => {
+    const a = nid();
+    const { conflicts } = mergeBranches(
+      [
+        batch(2, [
+          { kind: 'node.setProperties', target: a, properties: { foo: 1 } },
+        ]),
+      ],
+      [
+        batch(3, [
+          { kind: 'node.setProperty', target: a, name: 'foo', value: 2 },
+        ]),
+      ],
+    );
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0].propertyName).toBe('foo');
+  });
+
+  test('プロパティの対立は content の対立と混ざらない', () => {
+    // 同じノードの content とプロパティは別の単位である
+    const a = nid();
+    const { conflicts } = mergeBranches(
+      [batch(2, [{ kind: 'node.setContent', target: a, content: 'trunk' }])],
+      [
+        batch(3, [
+          { kind: 'node.setProperty', target: a, name: 'foo', value: 1 },
+        ]),
+      ],
+    );
+    expect(conflicts).toHaveLength(0);
+  });
+});
+
 describe('mergeBranches — structure の競合', () => {
   describe('削除依存 (非対称)', () => {
     test('S1: trunk が消したノードに branch が edge を張ると競合する', () => {
