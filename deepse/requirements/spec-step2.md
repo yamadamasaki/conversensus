@@ -17,7 +17,7 @@ step 2 ではやらないが, step 3 (あるいはそれ以降) で実現した�
 
 したがって, 招待した側も招待された側も, その File に対する変更履歴を取り込み, その変更を自分のグラフに反映させることになる.
 
-[participation](deepse/requirements/spec/participation.md) を参照
+[participation](./spec/participation.md) を参照
 
 ATProto/PDS での方法としては,
 
@@ -31,7 +31,7 @@ ATProto/PDS での方法としては,
 
 また, step 2 では招待できるアカウントは特定の一つの PDS に属している (step 1 の実装と同じ) ものとする. それ以外のアカウントの招待は無効とする (不特定の PDS に属するアカウントの招待は → step 3).
 
-[merging](deepse/requirements/spec/merging.md) を参照
+[merging](./spec/merging.md) を参照
 
 ### 設計の視点
 
@@ -41,54 +41,11 @@ ATProto/PDS での方法としては,
 
 ## 衝突回避/合意形成/概念創発/ネガティブ・ケイパビリティ (保留, 分化, ...)
 
-- 現在は LWW ポリシで merge しているが, merge 時に衝突があったことをユーザに通知する
-  - Sheet 上で, 衝突と差分を視覚的にわかるようにする
-- ある Sheet にリンクして対話グラフを作成できる
-  - トリガとしては以下の二つ
-    - merge 失敗
-    - 手動起動
-  - 対話グラフは, 特殊な branch と考えることができるかもしれない. 最終的には元の sheet に統合される (特殊な merge)
-  - 対話グラフは, 以下のような内容を持つ
-    - 元になった sheet の merge 内容
-    - 衝突している部分
-    - 対話に用いるグラフ
-    - 対話グラフを定義する template (後述)
+[dialogue to resolve (DtR) graph](./spec/dialogueToResolveGraph.md) を参照
 
 ## template
 
-template は, あるグラフに対して以下を定義するものである.
-
-- node の種類
-  - ラベル (今は markdown node は label を持たないので, 追加する必要がある)
-  - プロパティの定義
-- edge の種類
-  - ラベル
-  - プロパティの定義
-- node と edge の間の関係/制約
-  - どの種類の edge, node が接続可能か
-  - 多重度
-- プロパティと視覚属性の間の対応付け
-
-template は, 以下の状態がある.
-
-- template 定義
-  - 最初は, アプリケーション内に作り込んでも良い
-  - 将来的には, template 自体をグラフとして, ユーザが定義できて欲しい (→ step 3)
-- template 適用
-  - 最初は, 対話グラフに対して作り込まれた特定の template が最初から適用されていても良い
-  - 将来的には, sheet 作成時, あるいは編集中 (後述) にユーザが適用する template を指定する (→ step 3)
-- template 実行
-  - リンクされている sheet に対して, 編集中に UI がその定義に基づいて動作する. 例えば,
-    - node, edge の label を選択するメニュー
-    - プロパティ・エディタの動作 (後述)
-    - edge 接続の受け入れ/拒否 (警告)
-
-対話グラフでは, 例えば toulmin model に対応する template をリンクして, 論証分析に基づく対話を促進する.
-
-以下を検討する必要がある (→ step 3).
-
-- 一つの sheet に複数の template を適用可能か (とりあえず 1)
-- sheet を作成後に template を追加/削除できるか (とりあえず不可)
+[template](./spec/template.md) を参照
 
 ## ~~hyperlink~~
 
@@ -102,8 +59,8 @@ template は, 以下の状態がある.
 
 step 2 では以下に述べるような形で property editor を実現する.
 
-deepse/requirements/spec/property editor.md を参照
+[property editor](./spec/propertyEditor.md) を参照
 
 ## 検索する
 
-deepse/requirements/spec/searching.md を参照
+[searching](./spec/searching.md) を参照
