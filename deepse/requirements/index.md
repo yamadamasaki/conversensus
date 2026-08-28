@@ -1,8 +1,15 @@
 # deepSE requirements
 
 - [summary](summary.md)
-- [vision](vision.md)
 - [ontology](ontology.md)
 - [usecase](usecase.md)
 - [roadmap](roadmap.md)
-- [application specification](app-spec.md)
+- [step 2 の要件仕様](spec-step2.md)
+  - [participation](spec/participation.md)
+  - [merging](spec/merging.md)
+  - [dialogue to resolve (DtR) graph](spec/dialogueToResolveGraph.md)
+  - [template](spec/template.md)
+  - [property editor](spec/propertyEditor.md)
+  - [searching](spec/searching.md)
+- [開発者向け操作マニュアル](operation-manual-for-dev.md)
+- [テスト環境](user-test-environment.md)

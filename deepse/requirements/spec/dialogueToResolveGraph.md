@@ -5,7 +5,7 @@ dialogue to resolve (DTR) graph は, 基本的には LPG であるが, 以下の
 1. explicit merge で content に競合が生じた場合 → 強制的に起動
 2. explicit merge で structure に競合が生じた場合 → とりあえず merge されるが, 競合が通知されるので, そこから手動で選択的に起動
   1. (1) と (2) は同時に起こる場合がある. その時には, 強制的に起動し, その中で (2) も通知される
-3. implicit merge (LWW) で競合が生じた場合 → とりあえず fork (暫定的な branch) されるが, 競合が通知されるので, そこから手動で選択的に起動
+3. implicit merge で競合が生じた場合 → とりあえず fork (暫定的な branch) されるが, 競合が通知されるので, そこから手動で選択的に起動
 
 git/github で言えば conflict resolution で, それぞれのサービス/ツールでサポートしているような機能に相当する.
 
@@ -40,6 +40,8 @@ merge 先となる現時点での trunk の上に, trunk と merge 対象であ�
 - node の 内容
 - node の property
 
+なお, 現時点で node は label を持たない. node の label は [template](./template.md) で追加されるものなので, resolve graph の実装は template の label 追加に依存する.
+
 conversensus 側で解決したが, ユーザの意図に合わない可能性があるもの.
 
 - edge の接続先 (source, target)
@@ -57,6 +59,7 @@ DtR graph は, dialogue graph, resolve graph の他に以下の操作が可能�
   - デフォルトの呼び出し対象の actor は
     - explicit merge の場合は, 共同作業者全員
     - implicit merge の場合は, 自分だけ
+      - explicit merge と違い, 全員が集まる必要はない. 誰を呼ぶかは場合によるので, まずは自分だけが入っていればよい, という判断である
       - あるいは競合している操作を行った actor たち
     - 起動された resolve graph を見て, 対象を追加/削除できる
 - 呼び出された actor ごとのこの解決に対する承認
@@ -65,11 +68,20 @@ DtR graph は, dialogue graph, resolve graph の他に以下の操作が可能�
     - branch を切り, 変更を加えながら commit を繰り返し, merge 前の最後の commit の状態に戻る
 - 更新した DtR graph の再 merge
   - 呼び出された actor 全員が承認したら (そして, その後の変更がなければ), 再 merge が可能になる
+  - 承認しない actor がいたら, **普通はそのまま (保留) である**. 呼び出し対象から外して先に進むこともできるが, それは「外して進もう」と判断した場合の選択であって, 既定の振舞いではない
   - 再 merge で, 再び競合が起きる可能性もある. その場合は, このプロセスが繰り返される
 - 分岐 (→ step 3)
   - この merge 直前の状態を新たな File として分岐 (fork) する
 - 保留
   - キャンセルも, 再 merge も, 分岐もされないまま放置する
-  - その間も, 元の trunk は (branch/commit/merge を含め) 操作を積み重ねて進んでいく可能性がある
+  - 保留の間, trunk には merge されない. branch はそのまま生き続ける
+  - その間も, 元の trunk は (branch/commit/merge を含め) 操作を積み重ねて進んでいく可能性がある. したがって保留が長引くほど再 merge は難しくなる
+  - 左サイドバーで「未決着の merge がある」ことが見えるべきである
+
+dialogue graph から競合対象の要素を指したい場合, 各要素は id を持っているので, 少なくとも File の中では参照できる. URI のような仕組みは step 2 では要らない (→ step 3).
 
 DtR graph は, Sheet の branch と同じレベルで, 左サイドバーのブラウザに表示される. ただし, 通常の branch とは異なることをユーザが認知できるべきである.
+
+## 未決
+
+- structure の競合とは何か. 現在の merge は content の並行変更しか対立として検出しておらず, structure は projection に委ねている. (2) を成立させるには, structure の競合の定義が先に要る
