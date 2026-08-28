@@ -19,7 +19,8 @@ DtR graph は実際には二つのグラフから成る.
 DtR graph は, 以下のような操作に紐づけられ, 不変レコードとして永続化され, 参照可能となる.
 
 - (1), (2) の場合には, この競合を引き起こした merge 操作 (op-log) に
-- (3) の場合には, この競合を引き起こした merge 操作 (もし implicit merge を batch として op-log に書き込まないのならば, 特別なcollection が必要かもしれない) に
+- (3) の場合には, この競合によって作られた fork に
+  - implicit merge そのものは op-log に書かない (冪等な導出なので記録すべきものがない) が, その競合が作る fork は判断の記録なので書く. → [merging](./merging.md) の「記録するもの / しないもの」
 
 ## dialogue graph
 

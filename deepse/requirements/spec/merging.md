@@ -75,6 +75,33 @@ layout も競合判定の対象とする. ただし **検出して通知する�
 | structure | 通知し, そこから手動で選択的に DtR graph を起動 |
 | layout | 通知のみ. DtR graph は起動しない |
 
+## 記録するもの / しないもの
+
+**implicit merge は op-log に書かない.**
+
+implicit merge は冪等な導出である. 「参加者たちの op-log を読んで畳み込む」という操作は, 同じ入力なら誰がやっても同じ結果になるので, 結果を書き戻す必要がない. むしろ書くと害がある.
+
+- a が implicit merge の結果を op-log に書くと, b はそれを読んでまた畳み込む. 同じ操作が参加者の数だけ増殖する
+- 「a の op-log には a が意図した操作だけが載っている」という性質が壊れる
+- 「参加していた期間の op-log だけを同期する」(→ [participation](./participation.md)) が意味をなさなくなる. a のログに b の操作が入っていると, 期間で切れない
+
+つまり implicit merge は同期のたびにその場で導出するものであって, 記録すべきものはない.
+
+**DtR graph は op-log (batch) に書く.**
+
+DtR graph は導出ではなく, **人間が下した判断**である. 同じ入力から自動的には再現できないので, 記録しなければならない. そして DtR graph は対話グラフと resolve グラフという**グラフそのもの**であり, conversensus のグラフは op-log で表現されている. ユーザから特殊な branch として見えることとも一致する.
+
+**implicit merge の競合で作られる fork も op-log に書く.** implicit merge 自体は書かないが, その副産物である fork は書く. fork は「この競合を保留した」という判断の記録であって導出結果ではないからである. 同期のたびに再計算すると, ユーザが解決したはずの fork が毎回復活してしまう.
+
+したがって collection は二つで済む.
+
+| | 置き場 |
+| --- | --- |
+| 名簿 | participation collection (新設) |
+| グラフ / branch / commit / explicit merge | batch collection (現行) |
+| DtR graph, implicit merge が作る fork | batch collection (現行) |
+| implicit merge そのもの | 書かない |
+
 ## step 2 の方針
 
 step 2 では, 以下のようにする. これは, ある種の実験である.
