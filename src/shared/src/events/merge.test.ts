@@ -116,3 +116,192 @@ describe('mergeBranches', () => {
     expect(conflicts).toHaveLength(0);
   });
 });
+
+describe('mergeBranches — structure の競合', () => {
+  describe('削除依存 (非対称)', () => {
+    test('S1: trunk が消したノードに branch が edge を張ると競合する', () => {
+      const removed = nid();
+      const other = nid();
+      const e = eid();
+      const trunkAfterBase = [
+        batch(2, [{ kind: 'node.remove', target: removed }], 'alice'),
+      ];
+      const branchBatches = [
+        batch(
+          3,
+          [{ kind: 'edge.add', target: e, source: other, dest: removed }],
+          'bob',
+        ),
+      ];
+      const { conflicts } = mergeBranches(trunkAfterBase, branchBatches);
+
+      expect(conflicts).toHaveLength(1);
+      expect(conflicts[0]).toMatchObject({
+        target: removed, // 競合の主題は「消された要素」であって edge ではない
+        category: 'structure',
+        kind: 'removeDependency',
+      });
+      // ours は常に trunk 側 = 削除した側
+      expect(conflicts[0].ours.op.kind).toBe('node.remove');
+      expect(conflicts[0].theirs.op.kind).toBe('edge.add');
+    });
+
+    test('S2: trunk が消したノードの内容を branch が編集すると競合する', () => {
+      const removed = nid();
+      const trunkAfterBase = [
+        batch(2, [{ kind: 'node.remove', target: removed }]),
+      ];
+      const branchBatches = [
+        batch(3, [
+          { kind: 'node.setContent', target: removed, content: 'edited' },
+        ]),
+      ];
+      const { conflicts } = mergeBranches(trunkAfterBase, branchBatches);
+
+      expect(conflicts).toHaveLength(1);
+      expect(conflicts[0]).toMatchObject({
+        target: removed,
+        category: 'structure',
+        kind: 'removeDependency',
+      });
+    });
+
+    test('S4: trunk が消したグループに branch がノードを入れると競合する', () => {
+      const group = nid();
+      const n = nid();
+      const trunkAfterBase = [
+        batch(2, [{ kind: 'node.remove', target: group }]),
+      ];
+      const branchBatches = [
+        batch(3, [{ kind: 'node.setParent', target: n, parentId: group }]),
+      ];
+      const { conflicts } = mergeBranches(trunkAfterBase, branchBatches);
+
+      // setParent の前提は [n, group] だが、消えているのは group だけ
+      expect(conflicts).toHaveLength(1);
+      expect(conflicts[0]).toMatchObject({
+        target: group,
+        category: 'structure',
+        kind: 'removeDependency',
+      });
+    });
+
+    test('branch 側が削除した場合も拾う (ours/theirs は trunk/branch のまま)', () => {
+      const removed = nid();
+      const trunkAfterBase = [
+        batch(2, [
+          { kind: 'node.setContent', target: removed, content: 'edited' },
+        ]),
+      ];
+      const branchBatches = [
+        batch(3, [{ kind: 'node.remove', target: removed }]),
+      ];
+      const { conflicts } = mergeBranches(trunkAfterBase, branchBatches);
+
+      expect(conflicts).toHaveLength(1);
+      expect(conflicts[0]).toMatchObject({
+        target: removed,
+        category: 'structure',
+        kind: 'removeDependency',
+      });
+      // 削除したのは branch 側なので、ours (trunk) が編集、theirs (branch) が削除
+      expect(conflicts[0].ours.op.kind).toBe('node.setContent');
+      expect(conflicts[0].theirs.op.kind).toBe('node.remove');
+    });
+
+    test('両側が同じノードを消しても競合にしない (どちらも消したいだけ)', () => {
+      const removed = nid();
+      const trunkAfterBase = [
+        batch(2, [{ kind: 'node.remove', target: removed }]),
+      ];
+      const branchBatches = [
+        batch(3, [{ kind: 'node.remove', target: removed }]),
+      ];
+      const { conflicts } = mergeBranches(trunkAfterBase, branchBatches);
+      expect(conflicts).toHaveLength(0);
+    });
+
+    test('消えたノードを動かしただけ (layout) は競合にしない', () => {
+      const removed = nid();
+      const trunkAfterBase = [
+        batch(2, [{ kind: 'node.remove', target: removed }]),
+      ];
+      const branchBatches = [
+        batch(3, [{ kind: 'node.setLayout', target: removed, x: 5, y: 5 }]),
+      ];
+      const { conflicts } = mergeBranches(trunkAfterBase, branchBatches);
+      // layout の競合は「通知のみで DtR を起動しない」ので削除依存には混ぜない
+      expect(conflicts).toHaveLength(0);
+    });
+  });
+
+  describe('並行変更 (対称)', () => {
+    test('S3: 同じ edge の端点を別々に付け替えると競合する', () => {
+      const a = nid();
+      const b = nid();
+      const c = nid();
+      const e = eid();
+      const trunkAfterBase = [
+        batch(2, [{ kind: 'edge.reconnect', target: e, source: a, dest: b }]),
+      ];
+      const branchBatches = [
+        batch(3, [{ kind: 'edge.reconnect', target: e, source: a, dest: c }]),
+      ];
+      const { conflicts } = mergeBranches(trunkAfterBase, branchBatches);
+
+      expect(conflicts).toHaveLength(1);
+      expect(conflicts[0]).toMatchObject({
+        target: e,
+        category: 'structure',
+        kind: 'parallelChange',
+      });
+    });
+
+    test('S5: 同じノードを別々のグループに入れると競合する', () => {
+      const n = nid();
+      const g = nid();
+      const h = nid();
+      const trunkAfterBase = [
+        batch(2, [{ kind: 'node.setParent', target: n, parentId: g }]),
+      ];
+      const branchBatches = [
+        batch(3, [{ kind: 'node.setParent', target: n, parentId: h }]),
+      ];
+      const { conflicts } = mergeBranches(trunkAfterBase, branchBatches);
+
+      expect(conflicts).toHaveLength(1);
+      expect(conflicts[0]).toMatchObject({
+        target: n,
+        category: 'structure',
+        kind: 'parallelChange',
+      });
+    });
+
+    test('同じ値への並行変更は競合にしない', () => {
+      const n = nid();
+      const g = nid();
+      const trunkAfterBase = [
+        batch(2, [{ kind: 'node.setParent', target: n, parentId: g }]),
+      ];
+      const branchBatches = [
+        batch(3, [{ kind: 'node.setParent', target: n, parentId: g }]),
+      ];
+      const { conflicts } = mergeBranches(trunkAfterBase, branchBatches);
+      expect(conflicts).toHaveLength(0);
+    });
+
+    test('別々のノードのグループ変更は競合しない', () => {
+      const n1 = nid();
+      const n2 = nid();
+      const g = nid();
+      const trunkAfterBase = [
+        batch(2, [{ kind: 'node.setParent', target: n1, parentId: g }]),
+      ];
+      const branchBatches = [
+        batch(3, [{ kind: 'node.setParent', target: n2, parentId: g }]),
+      ];
+      const { conflicts } = mergeBranches(trunkAfterBase, branchBatches);
+      expect(conflicts).toHaveLength(0);
+    });
+  });
+});
