@@ -4,6 +4,11 @@
 > 入力: [step2 要件仕様](../requirements/spec-step2.md) と `../requirements/spec/` 配下 5 本
 > (participation / merging / dialogueToResolveGraph / propertyEditor / searching / template)。
 > 仕様は 2026-08-28 のレビューで決着済み。本計画はそれを実装の順序に落とすものである。
+>
+> **フェーズを横断する判断は [step2 アーキテクチャ](../architecture/step2.md) にある。**
+> 本計画は Phase の分割と順序を扱い、アーキテクチャは「あるフェーズで決めて別のフェーズが
+> 支払う」判断 (多アクタの読み取りモデル、projection の 2 段構え、collection の割り当て、
+> 競合の扱いが step1 から変わる点) を扱う。
 
 step2 の目標は **共同作業できるようにすること**である。step1 が「1 人が複数端末で使う」までを
 op-log の正典化で成立させたのに対し、step2 は **複数の actor が別々の repo に op-log を持ち、
@@ -107,6 +112,10 @@ Phase 6 が step2 で最大である。着手時に単独の設計文書へ分�
 - **`collections.ts` の repo 引数化**: `currentDid()` を既定値にしたまま repo を引数で
   受けられるようにする。**この Phase では呼び出し側を変えない**ので観測される振舞いは同じ。
   Phase 2 の変更を「誰の repo か」の一点に絞るための準備である
+- **[architecture/step2.md](../architecture/step2.md) を確定させる** (横断する判断のみ)。
+  step1 アーキテクチャからの差分がここに集まる
+- **U6 を PoC スライスで潰すかを判断する**。Phase 1 で participation collection を切る時点で
+  「collection は 2 つで済む」を前提にするので、崩れると後戻りが大きい
 - Phase 1 の設計 (participation の lexicon と op) を書き出す
 
 **Exit**: 2 アカウントで手動同期が回ることを実機で確認 / 既存テストが緑のまま。
@@ -248,7 +257,7 @@ step2 で最大。**着手時に単独の設計文書へ分割する。**現時�
 | **U3** | **ポーリング間隔と、その間の一貫性**。畳み込みは冪等なので正しさは崩れないが、間隔が長いと「相手の編集が見えるまでの遅れ」がそのまま UX になる | Phase 2 |
 | **U4** | **implicit merge の畳み込みコスト**。書かないと決めた以上、同期のたびに全参加者のログを畳む。DID ごとの cursor で取得は減るが、projection は毎回全量になる | Phase 2 |
 | **U5** | **fork がどこまで branch と同じか**。fork を branch として書くなら、branch の UI と操作 (commit / merge / close) がそのまま効くのか、別扱いが要るのか | Phase 3 |
-| **U6** | **DtR graph が既存の branch/commit モデルに乗るか**。乗らないなら batch collection 上に別の構造が要る (collection は 2 つで済む、という仕様の判断に影響する) | Phase 6 |
+| **U6** | **DtR graph が既存の branch/commit モデルに乗るか**。乗らないなら batch collection 上に別の構造が要る (collection は 2 つで済む、という仕様の判断に影響する)。**Phase 6 を待たず最小の PoC スライスで先に潰す候補** ([architecture/step2.md](../architecture/step2.md) §8) | Phase 0 or 1 で判断 / Phase 6 |
 | **U7** | **resolve graph の UI**。仕様は「trunk の上に競合を表示する」までしか決めていない。競合の種類が 5 つ (edge label / edge property / node label / node 内容 / node property) あり、それぞれの見せ方は設計と並行して考えるとしている | Phase 6 |
 
 ## 6. step2 でやらないこと (仕様より)
