@@ -14,6 +14,7 @@ import {
   MAX_BLOB_SIZE,
   type MimeType,
   type Op,
+  SYSTEM_PROPERTY_PREFIX,
 } from '@conversensus/shared';
 import { fetchBlob, putBlob, type StoredBlob } from '../api';
 // 型だけ借りる。実装の向き (atproto/ は images/ を知らない) は変えない
@@ -41,10 +42,32 @@ export type ImageBlobRef = {
   size: number;
 };
 
-/** 画像の参照を置く properties のキー */
-export const IMAGE_PROPERTY_KEY = 'image';
+/**
+ * 画像の参照を置く properties のキー。**システムのプロパティなので名前空間を持つ**
+ * (#137 / `deepse/requirements/spec/propertyEditor.md`)。`.` を含まない名前は規約上
+ * すべて custom (グラフの編集者のもの) になり、property editor でユーザに見えてしまう。
+ */
+export const IMAGE_PROPERTY_KEY = `${SYSTEM_PROPERTY_PREFIX}image`;
 
-// 旧形式 (step0 〜 step1 初期) の flat なキー。**読み取りだけ**残す (設計 §7)
+/**
+ * 名前空間化する前の画像キー。**読み取りだけ**残す (#137)。
+ *
+ * projection と reducer は `canonicalProperties` で新名へ寄せるので、そこを通った
+ * properties にこの名前は現れない。ここで見るのは、寄せる前の properties を渡され得る
+ * 経路 (op を直に読む `imageRefsIn` など) のためである。
+ */
+const LEGACY_IMAGE_KEY = 'image';
+
+/**
+ * 画像の URL を置く properties のキー。`IMAGE_PROPERTY_KEY` (blob 参照) とは別物で、
+ * 「外部の URL をそのまま指す」古典的な画像ノードのためのものである。
+ * こちらもシステムのプロパティなので名前空間を持つ (#137)。
+ */
+export const IMAGE_URL_PROPERTY_KEY = `${SYSTEM_PROPERTY_PREFIX}imageUrl`;
+
+// さらに古い形式 (step0 〜 step1 初期) の flat なキー。**読み取りだけ**残す (設計 §7)。
+// こちらは 2 キーから 1 構造体への変換なので名前の付け替えでは吸収できず、#137 の
+// 対応表にも載せていない
 const LEGACY_CID_KEY = 'imageBlobCid';
 const LEGACY_MIME_KEY = 'imageBlobMimeType';
 /** 旧形式の base64 埋め込み。`ImageNode` の表示互換のためだけに読む (D4 の 4) */
@@ -103,7 +126,7 @@ export function readImageBlobLocation(
 ): ImageBlobLocation | undefined {
   if (!properties) return undefined;
 
-  const ref = properties[IMAGE_PROPERTY_KEY];
+  const ref = properties[IMAGE_PROPERTY_KEY] ?? properties[LEGACY_IMAGE_KEY];
   if (isImageBlobRef(ref)) {
     return { cid: ref.ref.$link, mimeType: ref.mimeType };
   }
@@ -144,6 +167,7 @@ export function replaceImageProperties(
   ref: ImageBlobRef,
 ): Record<string, unknown> {
   const next = { ...existing };
+  delete next[LEGACY_IMAGE_KEY];
   delete next[LEGACY_CID_KEY];
   delete next[LEGACY_MIME_KEY];
   delete next[LEGACY_DATA_URL_KEY];
@@ -196,7 +220,11 @@ export async function migrateLegacyImageProperties(
 
   delete next[LEGACY_DATA_URL_KEY];
   // 新形式が既にあるなら base64 は表示にも使われない (D4 の解決順序)。捨てるだけでよい
-  if (isImageBlobRef(next[IMAGE_PROPERTY_KEY])) return next;
+  if (
+    isImageBlobRef(next[IMAGE_PROPERTY_KEY]) ||
+    isImageBlobRef(next[LEGACY_IMAGE_KEY])
+  )
+    return next;
 
   const source = parseImageDataUrl(dataUrl);
   if (!source) return next;
@@ -320,7 +348,8 @@ export async function resolveImageUrl(
 /**
  * op 列が参照している画像 blob を集める (重複は cid で畳む)。
  *
- * **新形式 (`properties.image` の blob ref) だけを集める。** 旧 flat 形式
+ * **blob ref を持つ形式だけを集める** (新名 `app.conversensus.image` と、名前空間化
+ * する前の `image` の両方)。さらに古い flat 形式
  * (`imageBlobCid`) は PDS から見ればただの文字列で pin の対象にならないので、
  * 送信前に upload する意味が無い (旧経路は作成時に upload 済でもある)。
  */
@@ -339,13 +368,22 @@ export function collectImageBlobRefs(ops: readonly Op[]): ImageBlobRef[] {
 function imageRefsIn(op: Op): ImageBlobRef[] {
   const value =
     op.kind === 'node.setProperty' || op.kind === 'edge.setProperty'
-      ? op.name === IMAGE_PROPERTY_KEY
+      ? isImageName(op.name)
         ? op.value
         : undefined
       : 'properties' in op
-        ? op.properties?.[IMAGE_PROPERTY_KEY]
+        ? (op.properties?.[IMAGE_PROPERTY_KEY] ??
+          op.properties?.[LEGACY_IMAGE_KEY])
         : undefined;
   return isImageBlobRef(value) ? [value] : [];
+}
+
+/**
+ * 画像を指すプロパティ名か。**op を直に読むので新旧の両方を見る** (#137) —
+ * 取り逃すと、旧名で書かれた画像が PDS へ送る前の upload から漏れて pin されない。
+ */
+function isImageName(name: string): boolean {
+  return name === IMAGE_PROPERTY_KEY || name === LEGACY_IMAGE_KEY;
 }
 
 export type UploadImageBlobDeps = {

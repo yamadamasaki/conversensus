@@ -10,12 +10,16 @@ import {
   SheetIdSchema,
 } from '../schemas';
 import { isFileDeleted, projectBatches, projectFile, toSheet } from './project';
+import { SYSTEM_PROPERTY_PREFIX } from './properties';
 import { type Batch, BatchIdSchema, type Op } from './unified';
 
 const nid = (): NodeId => NodeIdSchema.parse(crypto.randomUUID());
 const eid = (): EdgeId => EdgeIdSchema.parse(crypto.randomUUID());
 const sid = (): SheetId => SheetIdSchema.parse(crypto.randomUUID());
 const fid = (): FileId => FileIdSchema.parse(crypto.randomUUID());
+
+const IMAGE = `${SYSTEM_PROPERTY_PREFIX}image`;
+const IMAGE_URL = `${SYSTEM_PROPERTY_PREFIX}imageUrl`;
 
 function batch(clock: number, ops: Op[], timestamp = clock): Batch {
   return {
@@ -183,6 +187,46 @@ describe('projectBatches', () => {
       batch(2, [{ kind: 'node.setProperty', target: a, name: 'gone' }]),
     ]);
     expect(g.nodes.get(a)?.properties).toEqual({ keep: 1 });
+  });
+
+  test('旧名のプロパティは projection で新名へ寄る (#137)', () => {
+    // op-log は書き換えられないので、旧名の op はログに残り続ける。読む側で寄せることで
+    // projection されたグラフには新名しか現れない
+    const a = nid();
+    const g = projectBatches([
+      batch(1, [
+        {
+          kind: 'node.add',
+          target: a,
+          content: 'A',
+          properties: { image: 'blob-ref', 期限: '明日' },
+        },
+      ]),
+      batch(2, [
+        { kind: 'node.setProperty', target: a, name: 'imageUrl', value: 'u' },
+      ]),
+    ]);
+    expect(g.nodes.get(a)?.properties).toEqual({
+      [IMAGE]: 'blob-ref',
+      [IMAGE_URL]: 'u',
+      期限: '明日',
+    });
+  });
+
+  test('旧名の op が新名で書かれたプロパティを上書きする (#137)', () => {
+    // 移行期には端末ごとに新旧の名前が混じる。別プロパティと見なすと、片方の編集が
+    // 相手から見えないまま両方が残ってしまう
+    const a = nid();
+    const g = projectBatches([
+      batch(1, [{ kind: 'node.add', target: a, content: 'A' }]),
+      batch(2, [
+        { kind: 'node.setProperty', target: a, name: IMAGE_URL, value: 'new' },
+      ]),
+      batch(3, [
+        { kind: 'node.setProperty', target: a, name: 'imageUrl', value: 'old' },
+      ]),
+    ]);
+    expect(g.nodes.get(a)?.properties).toEqual({ [IMAGE_URL]: 'old' });
   });
 
   test('旧形式の node.setProperties も読む (置換のまま)', () => {

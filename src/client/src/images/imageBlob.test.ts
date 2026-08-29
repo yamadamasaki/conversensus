@@ -5,6 +5,7 @@ import {
   collectImageBlobRefs,
   createPdsBlobUploader,
   IMAGE_PROPERTY_KEY,
+  IMAGE_URL_PROPERTY_KEY,
   imagePropertiesChange,
   imagePropertiesOf,
   migrateLegacyImageProperties,
@@ -99,14 +100,31 @@ function resolveDeps(overrides: Partial<ResolveImageDeps> = {}) {
 describe('readImageBlobLocation', () => {
   it('新形式の blob ref から cid と mimeType を読む', () => {
     const props = {
-      image: { $type: 'blob', ref: { $link: CID }, mimeType: PNG, size: 3 },
+      [IMAGE_PROPERTY_KEY]: {
+        $type: 'blob',
+        ref: { $link: CID },
+        mimeType: PNG,
+        size: 3,
+      },
     };
     expect(readImageBlobLocation(props)).toEqual({ cid: CID, mimeType: PNG });
   });
 
   it('size が無くても読める (読み取りは書き込みより緩い)', () => {
     const props = {
-      image: { $type: 'blob', ref: { $link: CID }, mimeType: PNG },
+      [IMAGE_PROPERTY_KEY]: {
+        $type: 'blob',
+        ref: { $link: CID },
+        mimeType: PNG,
+      },
+    };
+    expect(readImageBlobLocation(props)).toEqual({ cid: CID, mimeType: PNG });
+  });
+
+  it('名前空間化する前の image キーも読む (#137)', () => {
+    // projection を経ない properties を渡され得る経路のための互換読み
+    const props = {
+      image: { $type: 'blob', ref: { $link: CID }, mimeType: PNG, size: 3 },
     };
     expect(readImageBlobLocation(props)).toEqual({ cid: CID, mimeType: PNG });
   });
@@ -118,7 +136,12 @@ describe('readImageBlobLocation', () => {
 
   it('新形式があれば旧形式より優先する', () => {
     const props = {
-      image: { $type: 'blob', ref: { $link: CID }, mimeType: PNG, size: 3 },
+      [IMAGE_PROPERTY_KEY]: {
+        $type: 'blob',
+        ref: { $link: CID },
+        mimeType: PNG,
+        size: 3,
+      },
       imageBlobCid: OTHER_CID,
       imageBlobMimeType: 'image/jpeg',
     };
@@ -129,18 +152,26 @@ describe('readImageBlobLocation', () => {
     expect(readImageBlobLocation(undefined)).toBeUndefined();
     expect(readImageBlobLocation({})).toBeUndefined();
     expect(
-      readImageBlobLocation({ imageUrl: 'https://example.com/a.png' }),
+      readImageBlobLocation({
+        [IMAGE_URL_PROPERTY_KEY]: 'https://example.com/a.png',
+      }),
     ).toBeUndefined();
   });
 
   it('$type が blob でないオブジェクトは blob ref として読まない', () => {
-    const props = { image: { ref: { $link: CID }, mimeType: PNG } };
+    const props = {
+      [IMAGE_PROPERTY_KEY]: { ref: { $link: CID }, mimeType: PNG },
+    };
     expect(readImageBlobLocation(props)).toBeUndefined();
   });
 
   it('$link が空文字なら読まない', () => {
     const props = {
-      image: { $type: 'blob', ref: { $link: '' }, mimeType: PNG },
+      [IMAGE_PROPERTY_KEY]: {
+        $type: 'blob',
+        ref: { $link: '' },
+        mimeType: PNG,
+      },
     };
     expect(readImageBlobLocation(props)).toBeUndefined();
   });
@@ -232,7 +263,7 @@ describe('saveImageBlob', () => {
       mimeType: PNG,
       size: 3,
     };
-    expect(imagePropertiesOf(ref)).toEqual({ image: ref });
+    expect(imagePropertiesOf(ref)).toEqual({ [IMAGE_PROPERTY_KEY]: ref });
   });
 });
 
@@ -348,25 +379,35 @@ describe('replaceImageProperties / imagePropertiesChange', () => {
   };
 
   it('新しい blob ref を image キーに置く', () => {
-    expect(replaceImageProperties(undefined, ref)).toEqual({ image: ref });
+    expect(replaceImageProperties(undefined, ref)).toEqual({
+      [IMAGE_PROPERTY_KEY]: ref,
+    });
   });
 
   it('画像以外の properties は残す', () => {
     // from/to は全体を載せる契約なので、部分的に返すと他が「削除された」と読まれる
-    const existing = { imageUrl: 'https://example.com/a.png', color: 'red' };
-    expect(replaceImageProperties(existing, ref)).toEqual({
-      imageUrl: 'https://example.com/a.png',
+    const existing = {
+      [IMAGE_URL_PROPERTY_KEY]: 'https://example.com/a.png',
       color: 'red',
-      image: ref,
+    };
+    expect(replaceImageProperties(existing, ref)).toEqual({
+      [IMAGE_URL_PROPERTY_KEY]: 'https://example.com/a.png',
+      color: 'red',
+      [IMAGE_PROPERTY_KEY]: ref,
     });
   });
 
   it('古い blob ref を上書きする', () => {
     const existing = {
-      image: { $type: 'blob', ref: { $link: OTHER_CID }, mimeType: PNG },
+      [IMAGE_PROPERTY_KEY]: {
+        $type: 'blob',
+        ref: { $link: OTHER_CID },
+        mimeType: PNG,
+      },
     };
     expect(
-      (replaceImageProperties(existing, ref).image as typeof ref).ref.$link,
+      (replaceImageProperties(existing, ref)[IMAGE_PROPERTY_KEY] as typeof ref)
+        .ref.$link,
     ).toBe(CID);
   });
 
@@ -377,11 +418,13 @@ describe('replaceImageProperties / imagePropertiesChange', () => {
       imageDataUrl: 'data:image/png;base64,AAAA',
       imageBlobCid: OTHER_CID,
       imageBlobMimeType: PNG,
-      imageUrl: 'https://example.com/a.png',
+      // 名前空間化する前の画像キー (#137)。新名で置くので、これも残してはならない
+      image: { $type: 'blob', ref: { $link: OTHER_CID }, mimeType: PNG },
+      [IMAGE_URL_PROPERTY_KEY]: 'https://example.com/a.png',
     };
     expect(replaceImageProperties(existing, ref)).toEqual({
-      imageUrl: 'https://example.com/a.png',
-      image: ref,
+      [IMAGE_URL_PROPERTY_KEY]: 'https://example.com/a.png',
+      [IMAGE_PROPERTY_KEY]: ref,
     });
   });
 
@@ -394,10 +437,13 @@ describe('replaceImageProperties / imagePropertiesChange', () => {
   it('from は差し替え前の全体 (undo で欠けないこと)', async () => {
     // invertEvent は from と to を入れ替えるだけなので、片方が差分だと
     // 元に戻したときに properties が欠ける
-    const existing = { imageUrl: 'https://example.com/a.png' };
+    const existing = { [IMAGE_URL_PROPERTY_KEY]: 'https://example.com/a.png' };
     expect(await imagePropertiesChange(existing, ref)).toEqual({
-      from: { imageUrl: 'https://example.com/a.png' },
-      to: { imageUrl: 'https://example.com/a.png', image: ref },
+      from: { [IMAGE_URL_PROPERTY_KEY]: 'https://example.com/a.png' },
+      to: {
+        [IMAGE_URL_PROPERTY_KEY]: 'https://example.com/a.png',
+        [IMAGE_PROPERTY_KEY]: ref,
+      },
     });
   });
 
@@ -408,8 +454,8 @@ describe('replaceImageProperties / imagePropertiesChange', () => {
 
     const change = await imagePropertiesChange(existing, ref, { save });
 
-    expect(change.from).toEqual({ caption: 'a', image: oldRef });
-    expect(change.to).toEqual({ caption: 'a', image: ref });
+    expect(change.from).toEqual({ caption: 'a', [IMAGE_PROPERTY_KEY]: oldRef });
+    expect(change.to).toEqual({ caption: 'a', [IMAGE_PROPERTY_KEY]: ref });
     expect(JSON.stringify(change)).not.toContain('base64');
   });
 });
@@ -430,7 +476,7 @@ describe('migrateLegacyImageProperties', () => {
       { save },
     );
 
-    expect(migrated).toEqual({ caption: 'a', image: oldRef });
+    expect(migrated).toEqual({ caption: 'a', [IMAGE_PROPERTY_KEY]: oldRef });
     expect(save).toHaveBeenCalledTimes(1);
   });
 
@@ -454,11 +500,11 @@ describe('migrateLegacyImageProperties', () => {
     const save = mock(async (_source: Blob) => oldRef);
 
     const migrated = await migrateLegacyImageProperties(
-      { caption: 'a', image: ref },
+      { caption: 'a', [IMAGE_PROPERTY_KEY]: ref },
       { save },
     );
 
-    expect(migrated).toEqual({ caption: 'a', image: ref });
+    expect(migrated).toEqual({ caption: 'a', [IMAGE_PROPERTY_KEY]: ref });
     expect(save).not.toHaveBeenCalled();
   });
 
@@ -466,11 +512,11 @@ describe('migrateLegacyImageProperties', () => {
     const save = mock(async (_source: Blob) => oldRef);
 
     const migrated = await migrateLegacyImageProperties(
-      { imageDataUrl: DATA_URL, image: ref },
+      { imageDataUrl: DATA_URL, [IMAGE_PROPERTY_KEY]: ref },
       { save },
     );
 
-    expect(migrated).toEqual({ image: ref });
+    expect(migrated).toEqual({ [IMAGE_PROPERTY_KEY]: ref });
     expect(save).not.toHaveBeenCalled();
   });
 
@@ -530,6 +576,27 @@ describe('collectImageBlobRefs', () => {
 
   it('properties.image の blob ref を集める', () => {
     expect(collectImageBlobRefs([addImage('n1', CID)])).toEqual([ref(CID)]);
+  });
+
+  it('名前空間化する前の image キーも集める (#137)', () => {
+    // ここは raw の op を見るので projection の正規化を経ない。取り逃すと旧名で
+    // 書かれた画像だけ PDS へ upload されず、pin されないまま参照が残る
+    const ops: Op[] = [
+      {
+        kind: 'node.add',
+        target: 'n1' as NodeId,
+        content: '',
+        nodeType: 'image',
+        properties: { image: ref(CID) },
+      },
+      {
+        kind: 'node.setProperty',
+        target: 'n2' as NodeId,
+        name: 'image',
+        value: ref(OTHER_CID),
+      },
+    ];
+    expect(collectImageBlobRefs(ops)).toEqual([ref(CID), ref(OTHER_CID)]);
   });
 
   it('同じ cid は 1 つに畳む (同じ画像を貼り直しても upload は 1 回)', () => {

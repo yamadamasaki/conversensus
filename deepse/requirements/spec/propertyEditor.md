@@ -65,6 +65,8 @@ step 3 以降は, JSON, Node, Edge, File, Sheet, RDF schema などを追加す�
 | `imageUrl` | `app.conversensus.imageUrl` |
 | `imageBlobCid` / `imageBlobMimeType` / `imageDataUrl` | 読み取りのみなので, そのまま (新規には書かない) |
 
+移行は済んでいる (issue #137). op-log は追記のみで書き換えられないので, 旧名の op はログに残り続ける. **読む側で新名へ寄せる**ことで, projection されたグラフには新名しか現れない — 対応表と正規化は `src/shared/src/events/properties.ts` の `canonicalPropertyName` / `canonicalProperties` にあり, projection (`project.ts`), ローカル reducer (`applyEvent.ts`), マージの競合単位 (`merge.ts`) がそこを通る.
+
 ## Property Editor
 
 node と edge はプロパティを持ち得る/追加できる. node/edge の右クリックでメニューを選択すると, property editor がポップアップする (例えば右サイドバーに表示されるのでもいい. その場合には, アイコンの表示がなくても, node/edge を選択すればプロパティやその他の node/edge に関する情報が表示されるのでもいい).

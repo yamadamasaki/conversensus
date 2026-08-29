@@ -12,6 +12,7 @@ import { makeEventBase } from './events/GraphEvent';
 import { useInlineEdit } from './hooks/useInlineEdit';
 import {
   IMAGE_MIME_PREFIX,
+  IMAGE_URL_PROPERTY_KEY,
   LEGACY_DATA_URL_KEY,
   migrateLegacyImageProperties,
   readImageBlobLocation,
@@ -35,7 +36,10 @@ export function ImageNode({ id, data, selected }: NodeProps) {
   const { getNode } = useReactFlow();
   const { dispatch } = useEventDispatch();
 
-  const imageUrl = (nodeData.properties?.imageUrl as string) ?? '';
+  // 新名を読む。projection / reducer が `canonicalProperties` で寄せているので、
+  // ここに旧名 (`imageUrl`) が現れることはない (#137)
+  const imageUrl =
+    (nodeData.properties?.[IMAGE_URL_PROPERTY_KEY] as string) ?? '';
   // 旧データの読み取り互換。新規には書かない (設計 D1 / §7)
   const imageDataUrl =
     (nodeData.properties?.[LEGACY_DATA_URL_KEY] as string) ?? '';
@@ -200,7 +204,7 @@ export function ImageNode({ id, data, selected }: NodeProps) {
           type: 'NODE_PROPERTIES_CHANGED',
           nodeId: id as NodeId,
           from: { ...migrated },
-          to: { ...migrated, imageUrl: trimmed },
+          to: { ...migrated, [IMAGE_URL_PROPERTY_KEY]: trimmed },
         });
       })
       .catch((err) => reportImageError(imageErrorMessage(err)));

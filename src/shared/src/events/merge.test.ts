@@ -7,10 +7,13 @@ import {
 } from '../schemas';
 import { mergeBranches } from './merge';
 import { projectBatches } from './project';
+import { SYSTEM_PROPERTY_PREFIX } from './properties';
 import { type Batch, BatchIdSchema, type Op } from './unified';
 
 const nid = (): NodeId => NodeIdSchema.parse(crypto.randomUUID());
 const eid = (): EdgeId => EdgeIdSchema.parse(crypto.randomUUID());
+
+const IMAGE_URL = `${SYSTEM_PROPERTY_PREFIX}imageUrl`;
 
 function batch(clock: number, ops: Op[], actor = 'local'): Batch {
   return {
@@ -69,6 +72,46 @@ describe('mergeBranches', () => {
     const base = [batch(1, [{ kind: 'node.add', target: a, content: 'A' }])];
     const g = projectBatches([...base, ...merged]);
     expect(g.nodeLayouts.get(a)).toMatchObject({ x: 99, y: 99 }); // clock 最大が勝つ
+  });
+
+  test('旧名と新名の並行変更は 1 件の対立になる (#137)', () => {
+    // 移行期には片方の端末が旧名 (`imageUrl`)、もう片方が新名を書き得る。寄せずに
+    // 比べると別プロパティと見なして競合を取り逃す
+    const a = nid();
+    const { conflicts } = mergeBranches(
+      [
+        batch(
+          2,
+          [
+            {
+              kind: 'node.setProperty',
+              target: a,
+              name: 'imageUrl',
+              value: 'trunk',
+            },
+          ],
+          'alice',
+        ),
+      ],
+      [
+        batch(
+          3,
+          [
+            {
+              kind: 'node.setProperty',
+              target: a,
+              name: IMAGE_URL,
+              value: 'branch',
+            },
+          ],
+          'bob',
+        ),
+      ],
+    );
+
+    expect(conflicts).toHaveLength(1);
+    // DtR graph が指すのは新名である — 旧名は同じプロパティの古い綴りに過ぎない
+    expect(conflicts[0].propertyName).toBe(IMAGE_URL);
   });
 
   test('同じ値への並行変更は対立にしない', () => {
