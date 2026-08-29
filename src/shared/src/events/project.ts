@@ -19,7 +19,7 @@ import type {
   SheetId,
   Style,
 } from '../schemas';
-import { applyPropertyChange } from './properties';
+import { applyPropertyChange, canonicalProperties } from './properties';
 import { type Batch, type FileOp, type GraphOp, isFileOp } from './unified';
 
 export type ProjectedGraph = {
@@ -95,7 +95,9 @@ function applyOp(g: ProjectedGraph, op: GraphOp): void {
       g.nodes.set(op.target, {
         id: op.target,
         content: op.content,
-        ...(op.properties && { properties: op.properties }),
+        ...(op.properties && {
+          properties: canonicalProperties(op.properties),
+        }),
         ...(op.nodeType && { nodeType: op.nodeType }),
         ...(op.parentId !== undefined && { parentId: op.parentId }),
       });
@@ -135,7 +137,9 @@ function applyOp(g: ProjectedGraph, op: GraphOp): void {
         source: op.source,
         target: op.dest,
         ...(op.label !== undefined && { label: op.label }),
-        ...(op.properties && { properties: op.properties }),
+        ...(op.properties && {
+          properties: canonicalProperties(op.properties),
+        }),
       });
       break;
     case 'edge.remove':
@@ -173,12 +177,12 @@ function applyOp(g: ProjectedGraph, op: GraphOp): void {
     // 旧形式 (置換)。既存の op-log に積まれているので読む。新規には発行しない (ANA-208)
     case 'node.setProperties': {
       const node = g.nodes.get(op.target);
-      if (node) node.properties = op.properties;
+      if (node) node.properties = canonicalProperties(op.properties);
       break;
     }
     case 'edge.setProperties': {
       const edge = g.edges.get(op.target);
-      if (edge) edge.properties = op.properties;
+      if (edge) edge.properties = canonicalProperties(op.properties);
       break;
     }
     case 'node.setLayout': {

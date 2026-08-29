@@ -16,6 +16,64 @@ import type { PropertyName } from './unified';
 
 export type Properties = Record<string, unknown>;
 
+/**
+ * システムのプロパティ名の接頭辞 (ANA-99 / #137)
+ *
+ * 名前の判定規則は **「`.` を含むか否か」の一点**である
+ * (`deepse/requirements/spec/propertyEditor.md`「名前」)。`.` を含まない名前は
+ * すべて custom (グラフの編集者のもの) なので、システムが使う名前は逆順ドメインの
+ * 接頭辞を持たなければならない。
+ */
+export const SYSTEM_PROPERTY_PREFIX = 'app.conversensus.';
+
+/**
+ * 旧名 → 新名。**step0〜step1 で `.` 無しの名前で書かれてしまったもの**だけを載せる。
+ *
+ * op-log は追記のみで書き換えられないので、旧名の op はログに残り続ける。
+ * ここを通して読む側で新名へ寄せる (issue #137 の方針)。
+ *
+ * `imageBlobCid` / `imageBlobMimeType` / `imageDataUrl` は載せない — これらは既に
+ * 新規には書かれておらず、しかも `imageBlobCid` + `imageBlobMimeType` →
+ * `app.conversensus.image` は 2 キーから 1 構造体への変換であって名前の付け替えでは
+ * ない。その互換読みは `imageBlob.ts` の `readImageBlobLocation` が持つ。
+ */
+const LEGACY_PROPERTY_NAMES: Readonly<Record<string, PropertyName>> = {
+  image: `${SYSTEM_PROPERTY_PREFIX}image`,
+  imageUrl: `${SYSTEM_PROPERTY_PREFIX}imageUrl`,
+};
+
+/** 旧名なら新名を、そうでなければそのままを返す */
+export function canonicalPropertyName(name: PropertyName): PropertyName {
+  return LEGACY_PROPERTY_NAMES[name] ?? name;
+}
+
+/**
+ * properties のキーをすべて新名へ寄せる。
+ *
+ * 新旧が両方載っている場合は**新名が勝つ**。移行期には「旧名のまま残っている値」の上に
+ * 新名で書き足す経路があり (画像 URL の編集など)、そこで新しい方が旧い方に上書きされて
+ * しまうと編集が消えるためである。
+ */
+export function canonicalProperties(
+  properties: Properties | undefined,
+): Properties | undefined {
+  if (!properties) return properties;
+  const legacyNames = Object.keys(properties).filter(
+    (name) => name in LEGACY_PROPERTY_NAMES,
+  );
+  if (legacyNames.length === 0) return properties;
+
+  const next: Properties = {};
+  // 新名を先に置き、旧名は行き先が空いているときだけ入れる (新名が勝つ)
+  for (const [name, value] of Object.entries(properties))
+    if (!(name in LEGACY_PROPERTY_NAMES)) next[name] = value;
+  for (const name of legacyNames) {
+    const canonical = LEGACY_PROPERTY_NAMES[name];
+    if (!(canonical in next)) next[canonical] = properties[name];
+  }
+  return next;
+}
+
 /** プロパティ 1 つの変更。`value` の省略はそのプロパティの**削除** */
 export type PropertyChange = { name: PropertyName; value?: unknown };
 
@@ -32,13 +90,18 @@ function sameValue(a: unknown, b: unknown): boolean {
  *
  * `to` に無く `from` にあるキーは削除 (`value` を省略) になる。`undefined` と `{}` は
  * どちらも「プロパティが無い」として同じに扱う。
+ *
+ * **両側を新名へ寄せてから比べる** (#137)。旧名のまま残っているノードに新名で書き足す
+ * 経路があり、寄せずに比べると「旧名の削除 + 新名の追加」という 2 件の変更になって
+ * しまう。同じプロパティの変更は 1 件の op であるべきで、そうでないと merge の
+ * 競合単位も割れる。
  */
 export function diffProperties(
   from: Properties | undefined,
   to: Properties | undefined,
 ): PropertyChange[] {
-  const before = from ?? {};
-  const after = to ?? {};
+  const before = canonicalProperties(from) ?? {};
+  const after = canonicalProperties(to) ?? {};
   const changes: PropertyChange[] = [];
 
   for (const name of Object.keys(after))
@@ -51,14 +114,20 @@ export function diffProperties(
   return changes;
 }
 
-/** 変更を 1 つ当てた properties を返す (元は変更しない)。値の省略はキーの削除 */
+/**
+ * 変更を 1 つ当てた properties を返す (元は変更しない)。値の省略はキーの削除。
+ *
+ * **変更の名前も当てる先も新名へ寄せる** (#137)。旧名の op-log と旧名を持つノードの
+ * どちらから来ても、結果のグラフには新名しか現れない。
+ */
 export function applyPropertyChange(
   properties: Properties | undefined,
   change: PropertyChange,
 ): Properties {
-  const next = { ...properties };
-  if (change.value === undefined) delete next[change.name];
-  else next[change.name] = change.value;
+  const next = { ...canonicalProperties(properties) };
+  const name = canonicalPropertyName(change.name);
+  if (change.value === undefined) delete next[name];
+  else next[name] = change.value;
   return next;
 }
 

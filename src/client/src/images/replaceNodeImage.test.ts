@@ -1,7 +1,11 @@
 import { describe, expect, it, mock } from 'bun:test';
 import type { NodeId } from '@conversensus/shared';
 import type { GraphEvent } from '../events/GraphEvent';
-import type { ImageBlobRef } from './imageBlob';
+import {
+  IMAGE_PROPERTY_KEY,
+  IMAGE_URL_PROPERTY_KEY,
+  type ImageBlobRef,
+} from './imageBlob';
 import { replaceNodeImage } from './replaceNodeImage';
 
 const CID = 'bafkreibm6jg3ux5qumhcn2b3flc3tyu6dmlb4xa7u5bf44yegnrjhc4yeq';
@@ -62,7 +66,7 @@ describe('replaceNodeImage', () => {
 
     await replaceNodeImage(
       NODE_ID,
-      { caption: 'a', imageUrl: 'https://example.com/x.png' },
+      { caption: 'a', [IMAGE_URL_PROPERTY_KEY]: 'https://example.com/x.png' },
       SOURCE,
       d,
     );
@@ -70,13 +74,13 @@ describe('replaceNodeImage', () => {
     const { to } = propertiesChangedEvent(dispatch);
     expect(to).toEqual({
       caption: 'a',
-      imageUrl: 'https://example.com/x.png',
-      image: NEW_REF,
+      [IMAGE_URL_PROPERTY_KEY]: 'https://example.com/x.png',
+      [IMAGE_PROPERTY_KEY]: NEW_REF,
     });
   });
 
   it('from は差し替え前の全体 (undo で欠けない)', async () => {
-    const before = { caption: 'a', image: { old: true } };
+    const before = { caption: 'a', [IMAGE_PROPERTY_KEY]: { old: true } };
     const { deps: d, dispatch } = deps(savesOk());
 
     await replaceNodeImage(NODE_ID, before, SOURCE, d);
@@ -100,8 +104,8 @@ describe('replaceNodeImage', () => {
 
     const { from, to } = propertiesChangedEvent(dispatch);
     // from は移行後の参照 — 落とすだけだと undo で旧画像が失われる
-    expect(from).toEqual({ caption: 'a', image: OLD_REF });
-    expect(to).toEqual({ caption: 'a', image: NEW_REF });
+    expect(from).toEqual({ caption: 'a', [IMAGE_PROPERTY_KEY]: OLD_REF });
+    expect(to).toEqual({ caption: 'a', [IMAGE_PROPERTY_KEY]: NEW_REF });
     expect(JSON.stringify({ from, to })).not.toContain('base64');
   });
 
@@ -112,7 +116,7 @@ describe('replaceNodeImage', () => {
 
     const { from, to } = propertiesChangedEvent(dispatch);
     expect(from).toEqual({});
-    expect(to).toEqual({ image: NEW_REF });
+    expect(to).toEqual({ [IMAGE_PROPERTY_KEY]: NEW_REF });
   });
 
   it('保存が失敗したら op を投げずに理由を伝える', async () => {

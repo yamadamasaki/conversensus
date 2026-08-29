@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { IMAGE_PROPERTY_KEY, IMAGE_URL_PROPERTY_KEY } from './images/imageBlob';
 
 // bun では mock.module() はホイストされないため, await import() の前に呼ぶことで
 // ImageNode が依存モジュールを読み込む前にモックを登録できる
@@ -76,7 +77,10 @@ function dropWith(files: File[]) {
 type TestNodeProps = any;
 const makeProps = (label = '画像ノード'): TestNodeProps => ({
   id: 'node-1',
-  data: { label, properties: { imageUrl: 'https://example.com/a.png' } },
+  data: {
+    label,
+    properties: { [IMAGE_URL_PROPERTY_KEY]: 'https://example.com/a.png' },
+  },
   type: 'imageNode',
   isConnectable: true,
   selected: false,
@@ -91,7 +95,7 @@ const makeGhostProps = (label = '削除予定の画像'): TestNodeProps => ({
   data: {
     label,
     ghost: true,
-    properties: { imageUrl: 'https://example.com/a.png' },
+    properties: { [IMAGE_URL_PROPERTY_KEY]: 'https://example.com/a.png' },
   },
 });
 
@@ -177,15 +181,19 @@ describe('ImageNode', () => {
       expect(event.nodeId).toBe('node-1');
       // 差し替えなので新規ノードは作らない (NODE_ADDED を出さない)
       expect(mockDispatch).toHaveBeenCalledTimes(1);
-      expect(event.to.image).toEqual({
+      expect(event.to[IMAGE_PROPERTY_KEY]).toEqual({
         $type: 'blob',
         ref: { $link: STORED_CID },
         mimeType: 'image/png',
         size: 3,
       });
       // 画像以外の properties は残る (from/to は全体を載せる契約)
-      expect(event.to.imageUrl).toBe('https://example.com/a.png');
-      expect(event.from).toEqual({ imageUrl: 'https://example.com/a.png' });
+      expect(event.to[IMAGE_URL_PROPERTY_KEY]).toBe(
+        'https://example.com/a.png',
+      );
+      expect(event.from).toEqual({
+        [IMAGE_URL_PROPERTY_KEY]: 'https://example.com/a.png',
+      });
     });
 
     it('canvas 側の drop へ伝播させない (新規ノードとの二重作成を防ぐ)', async () => {
@@ -290,14 +298,18 @@ describe('ImageNode', () => {
       };
       expect(JSON.stringify(event)).not.toContain('base64');
       // 落とすだけだと画像が失われるので、blob 参照へ移してから載せる
-      expect(event.from.image).toEqual({
+      expect(event.from[IMAGE_PROPERTY_KEY]).toEqual({
         $type: 'blob',
         ref: { $link: STORED_CID },
         mimeType: 'image/png',
         size: 3,
       });
-      expect(event.to.imageUrl).toBe('https://example.com/new.png');
-      expect(event.to.image).toEqual(event.from.image);
+      expect(event.to[IMAGE_URL_PROPERTY_KEY]).toBe(
+        'https://example.com/new.png',
+      );
+      expect(event.to[IMAGE_PROPERTY_KEY]).toEqual(
+        event.from[IMAGE_PROPERTY_KEY],
+      );
     });
   });
 
@@ -314,7 +326,7 @@ describe('ImageNode', () => {
       data: {
         label: '画像ノード',
         properties: {
-          image: {
+          [IMAGE_PROPERTY_KEY]: {
             $type: 'blob',
             ref: { $link: cid },
             mimeType: 'image/png',
