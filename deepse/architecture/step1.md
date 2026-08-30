@@ -147,6 +147,8 @@ flowchart LR
 - **同一エンティティへの並行 content 変更**: LWW で暫定確定しつつ、**「対立」としてグラフ上に可視化**する (conversensus の主題: コンフリクト = 合意形成の機会)。密な自動マージ (CRDT) は D2 により当面追わない。
 - **同一エンティティへの並行 layout 変更**: LWW で確定するのみ。可視化はしない (配置の相違は合意形成の対象ではない)。
 
+> **この方針は step2 で改訂されている。→ [§12](#12-step2-での改訂-2026-08-30-追記)**
+
 ---
 
 ## 5. ローカル永続層: 現行サーバの再パッケージ (作り直しではない)
@@ -174,6 +176,9 @@ interface SyncProvider {
   subscribe(onRemote): Unsubscribe          // firehose/jetstream (polling 卒業)
 }
 ```
+
+> **この擬似コードは実装が先行して変わっており、polling の方針も step2 で入れ替わっている。
+> → [§12](#12-step2-での改訂-2026-08-30-追記)**
 
 - 現 `atproto/{collections,sync,mapper,branchState,poller}.ts` を、この provider の**内部実装**として整理する。外の層は provider インターフェースだけに依存する。
 - **オフライン時**: provider 呼び出しをスキップし、操作は outbox に積む。復帰時に flush。UI は常にローカル正典を読むので**編集は途切れない**。
@@ -248,3 +253,28 @@ interim report (4) の拡張群は、正典が操作ログ + projection にな�
 | 同期 | ATProto 直叩き (ブラウザ) | sync-provider 経由・outbox flush・疎な同期 |
 | 計算 | ブラウザ | ローカル (拡張はローカルエンジン) |
 | VPS | アプリ配信 | オプションの PDS/リレー |
+
+---
+
+## 12. step2 での改訂 (2026-08-30 追記)
+
+step1 の記述のうち [step2 アーキテクチャ](./step2.md) が改めたもの。
+**本文は当時の判断の記録として残し、現行の方針はこの表を見る。**
+
+| 箇所 | step1 の記述 | step2 での扱い | 参照 |
+| --- | --- | --- | --- |
+| §4 マージ方針 | add / delete は ATProto MST の OR-Set に委ねる (コンフリクトフリー) | **失効。** これは「エンティティ 1 件 = レコード 1 件」設計を前提とした MST のレベルの話で、op-log 正典化 (Phase 4c) でその設計が消えた時点で層がずれていた (`atproto/types.ts` 冒頭が「step1 の op-log 正典化で全部死んだ」と記録)。step2 は op の意味論のレベルで **structure の競合を検出する** | step2 §5 |
+| §4 マージ方針 / D7 | 並行 layout 変更は LWW で確定するのみ。可視化しない | **改訂。** 検出して**通知する** (DtR graph は起動しない) | step2 §5 |
+| §4 マージ方針 | コンフリクトの可視化対象は content 変更に絞られる | **改訂。** content / structure / layout の 3 段になる | step2 §5 |
+| §4 マージ方針 | 並行 content 変更は LWW で暫定確定 | **改訂。** 決着までの既定を **add-wins** にする (node/edge。sheet は step1 から add-wins) | step2 §5 |
+| §4 イベントの最小要件 | `actor` (DID or `local`) | 実装は `did#deviceId` (端末まで一意)。`orderBatches` の全順序 `(clock, actor, batchId)` がこれに依存する。なお genesis batch の actor は固定値 `GENESIS_ACTOR` (`unified.ts:354`) なので、**作成者の DID は op-log に載っていない** | step2 §2 |
+| §6 / D2 | 手動 polling は避ける。`poller.ts` を Jetstream/firehose 購読へ | **順序を入れ替えた。** step2 は**定期ポーリング**を採る (仕様の決定)。firehose は step3 | step2 §9 |
+| §6 `SyncProvider` 擬似コード | `pull(since: Cursor): Promise<GraphEvent[]>` / `subscribe(onRemote)` | **実装が先行して変わっている。** 運搬単位は `Batch[]`、戻りは `PullResult`、**`subscribe` は step1 Phase 7 p7-5 で撤去済** (`sync/syncProvider.ts`)。step2 は DID ごとの cursor を要するが、**`Cursor` は不透明トークンなのでシグネチャは変えずに済む**。ポーリングの置き場 (provider の外か、`subscribe` を戻すか) は step2 Phase 2 の設計事項 | step2 §2 |
+| §8 拡張機能の土台 | step1 完了後の step2 = 拡張エンジン | **順序が入れ替わった。** step2 は共同作業で、§8 の拡張群のうち作るのは template 1 つだけ | step2 §0 |
+| §8 の表 | ラベル/プロパティのテンプレート・制約 → projection に対する検証関数 | step2 の template 実行は**入力時の UI 支援** (種別メニュー・接続警告) なので、同じ表の「接続制約 → イベント適用時のバリデーション」の行に近い | step2 §7 |
+
+### step2 でも変わらないもの
+
+- §4 の同期対象の分類 (structure / content / layout は同期、presentation はローカル限定)。
+  step2 のプロパティ編集も content に分類される (`unified.ts`)
+- §5 ローカル永続層、§7 配布形態、D1〜D6
