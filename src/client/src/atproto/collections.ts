@@ -8,8 +8,9 @@
  * と NSID はそのまま残る。
  *
  * 残っているのは:
- *   - `batches`: op-log の正典コレクション (Phase 4c 以降の唯一の同期単位)
- *   - `files`:   legacy file レコードの後始末 (ファイル削除時の `delete` のみ)
+ *   - `batches`:   op-log の正典コレクション (Phase 4c 以降のグラフの同期単位)
+ *   - `judgments`: 判断ログ (step2 Phase 1)。名簿と、Phase 6 の DtR 承認
+ *   - `files`:     legacy file レコードの後始末 (ファイル削除時の `delete` のみ)
  */
 
 import type { AtUri, Did, FileId, Rkey } from '@conversensus/shared';
@@ -21,7 +22,12 @@ import {
   type RecordPage,
   type RecordSummary,
 } from './rangeFetch';
-import { type BatchRecord, NSID, type RecordResult } from './types';
+import {
+  type BatchRecord,
+  type JudgmentRecord,
+  NSID,
+  type RecordResult,
+} from './types';
 
 /** trunk を指す表示名。branch 一覧・UI の既定枝として使う */
 export const TRUNK_PREFIX = 'trunk';
@@ -229,5 +235,54 @@ export const batches = {
   },
   delete(rkey: string) {
     return deleteRecord(NSID.batch, rkey);
+  },
+};
+
+// --- Judgment (判断ログ, step2 Phase 1) ---
+
+/**
+ * 判断ログ。名簿の op を置き、Phase 6 で DtR の承認が加わる。
+ *
+ * **rkey は `batches` と同じスキーム** (`batchRkey`) を使う。collection が違うので
+ * 空間は衝突せず、他 actor の repo から**1 ファイル分の名簿だけ**を prefix 範囲取得
+ * できる。相手の repo は自分のより大きいのが普通なので、全部読む形にはできない
+ * (U6-P1 スパイク)。
+ *
+ * **書き込みに repo 引数が無いのは `batches` と同じ理由**である — ATProto の
+ * credential は自分の repo のものしか無い。
+ */
+export const judgments = {
+  /**
+   * rkey は `batchRkey()` だけが組み立てる (`batches.put` と同じ規約)。
+   * `putRecord` はべき等なので、genesis の bootstrap を何度走らせても増えない。
+   */
+  put(
+    rkey: string,
+    data: Omit<JudgmentRecord, '$type'>,
+  ): Promise<RecordResult> {
+    return putRecord(NSID.judgment, rkey, { $type: NSID.judgment, ...data });
+  },
+  /** 1 ファイル分の判断だけを取得する。**他 actor の repo を読むのが本命の用途** */
+  listByFile(fileId: FileId, { repo }: ReadRepo = {}) {
+    return listByRkeyPrefix(
+      (params) => listRecordsPage(NSID.judgment, { ...params, repo }),
+      batchRkeyPrefix(fileId),
+      batchRkeyFileCursor(fileId),
+    );
+  },
+  /**
+   * 判断ログのある fileId を列挙する。
+   *
+   * **Phase 2 の発見経路がこれを使う。**グラフの `batches.listFileHeads` を他 actor の
+   * repo に回すと、共同作業していない File まで materialize してしまう (U6-P1)。
+   * 「名簿を先に読み、グラフを後に読む」ので、絞り込みはこちら側で行う。
+   */
+  listFileHeads({ repo }: ReadRepo = {}) {
+    return listBatchFileHeads((params) =>
+      listRecordsPage(NSID.judgment, { ...params, repo }),
+    );
+  },
+  delete(rkey: string) {
+    return deleteRecord(NSID.judgment, rkey);
   },
 };

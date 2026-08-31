@@ -15,7 +15,13 @@
  * (`lexicons/app/conversensus/graph/*.json`) と NSID 定数は残してある。
  */
 
-import type { AtUri, Batch, FileId, ISODateString } from '@conversensus/shared';
+import type {
+  AtUri,
+  Batch,
+  FileId,
+  ISODateString,
+  JudgmentBatch,
+} from '@conversensus/shared';
 
 /**
  * Lexicon NSID 定数
@@ -37,6 +43,12 @@ export const NSID = {
   merge: 'app.conversensus.graph.merge',
   /** 操作ログ (統一語彙の Batch) を PDS 上の op-log レコードとして持つ (step1 Phase 4c) */
   batch: 'app.conversensus.graph.batch',
+  /**
+   * 判断ログ (step2 Phase 1)。**batch と分ける理由は畳み込みの意味論が違うこと**で、
+   * ここの op は pre 条件を検証して満たさないものを捨てるが、グラフの op は
+   * LWW / add-wins で解決するので「無効な op」という概念がない。
+   */
+  judgment: 'app.conversensus.graph.judgment',
 } as const;
 
 export type RecordResult = { uri: AtUri; cid: string };
@@ -68,6 +80,34 @@ export type BatchRecord = {
    */
   sheetId?: string;
   createdAt: ISODateString;
+};
+
+/**
+ * 判断ログの PDS 表現 (step2 Phase 1)。
+ *
+ * `BatchRecord` と同じ形にしてある。**rkey も同じスキーム** (`v1~<fileId>~…`) を使うが、
+ * collection が違うので rkey 空間は衝突しない。同じにするのは、他 actor の repo から
+ * 1 ファイル分の名簿だけを prefix 範囲取得するためである — 相手の repo は自分のより
+ * 大きいのが普通なので、全部読む形にはできない (U6-P1 スパイク)。
+ *
+ * `sheetId` を持たない — 判断は File 単位であってシート単位ではない。
+ */
+export type JudgmentRecord = {
+  $type: typeof NSID.judgment;
+  /** この判断が属するファイル (UUID)。collection は repo 全体で 1 つなので必須 */
+  fileId: string;
+  actor: string;
+  /** **グラフの op-log と同じ clock 空間である。**独立した採番を作ってはならない */
+  clock: number;
+  timestamp: number;
+  ops: unknown[];
+  createdAt: ISODateString;
+};
+
+/** 判断ログの運搬単位。`RemoteBatch` と同じ非対称 (ローカルは文脈・remote は埋め込み) */
+export type RemoteJudgment = {
+  fileId: FileId;
+  batch: JudgmentBatch;
 };
 
 /**
