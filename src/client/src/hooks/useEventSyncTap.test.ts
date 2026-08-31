@@ -1,16 +1,5 @@
-import { afterEach, describe, expect, it, mock } from 'bun:test';
+import { afterEach, describe, expect, it } from 'bun:test';
 import type { Batch, EdgeId, FileId, NodeId } from '@conversensus/shared';
-
-// zod を先にモックする (../api / ../atproto 経由で推移的に読まれる)
-const zodProxy: Record<string, unknown> = new Proxy(() => zodProxy, {
-  get: () => zodProxy,
-  apply: () => zodProxy,
-}) as unknown as Record<string, unknown>;
-
-mock.module('zod', () => ({
-  z: zodProxy,
-  default: zodProxy,
-}));
 
 /**
  * 受信の書き込み先を記録する (Phase 4d-5)。フックの `appendReceived` オプションへ
@@ -18,8 +7,13 @@ mock.module('zod', () => ({
  * フック側は受信失敗を `.catch` で握るため、これが無いと「何も起きていない」と
  * 「静かに失敗した」を区別できない (W3d5-7 の「400 が無言」の教訓)。
  *
- * `mock.module('../api', ...)` は使わない — bun のモジュールモックはグローバルなので、
- * 他のテストファイルから `../api` の別の export が見えなくなる。
+ * **`mock.module` は使わない** — bun のモジュールモックは**プロセス全体に効く**ので、
+ * 他のテストファイルが同じモジュールの本物の挙動に依存していると壊れる。
+ *
+ * 実際に壊れた (2026-09-01)。このファイルを含む 4 つが「import が重いから」という理由で
+ * `mock.module('zod', ...)` を置いており、**zod を使う無関係なモジュールの実行時挙動まで
+ * 壊れていた** (`safeParse` の結果が proxy を返す)。単体では通り、全体で回したときだけ
+ * 落ちるので原因に辿り着きにくい。4 つとも外しても全テストが通る = **もう不要だった**。
  */
 const receivedWrites: Array<{ fileId: FileId; batches: Batch[] }> = [];
 let receiveFails: Error | null = null;

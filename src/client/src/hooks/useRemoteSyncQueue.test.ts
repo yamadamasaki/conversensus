@@ -1,15 +1,4 @@
-import { afterEach, describe, expect, it, mock } from 'bun:test';
-
-// zod を先にモックする (../atproto 経由で推移的に読まれる)
-const zodProxy: Record<string, unknown> = new Proxy(() => zodProxy, {
-  get: () => zodProxy,
-  apply: () => zodProxy,
-}) as unknown as Record<string, unknown>;
-
-mock.module('zod', () => ({
-  z: zodProxy,
-  default: zodProxy,
-}));
+import { afterEach, describe, expect, it } from 'bun:test';
 
 const { renderHook, cleanup } = await import('@testing-library/react');
 const { useRemoteSyncQueue } = await import('./useRemoteSyncQueue');
