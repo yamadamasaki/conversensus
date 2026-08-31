@@ -12,7 +12,7 @@
  *   - `files`:   legacy file レコードの後始末 (ファイル削除時の `delete` のみ)
  */
 
-import type { AtUri, FileId, Rkey } from '@conversensus/shared';
+import type { AtUri, Did, FileId, Rkey } from '@conversensus/shared';
 import { batchRkeyFileCursor, batchRkeyPrefix } from './batchRkey';
 import { currentDid, getAgent } from './client';
 import {
@@ -39,6 +39,19 @@ const PAGE_LIMIT = 100;
  */
 const APPLY_WRITES_MAX = 200;
 
+/**
+ * 読み出し先の repo (step2 Phase 0)
+ *
+ * 省略すると自分の repo を読む。**Phase 2 の多アクタ同期が、他 actor の op-log を
+ * 読むためにここへ相手の DID を渡す**。Phase 0 の時点では呼び出し側を変えないので、
+ * 観測される振舞いは変わらない。
+ *
+ * **書き込みは引数化しない。**ATProto の credential は自分の repo のものしか無いので、
+ * `repo` を受ける write は型が嘘をつくことになる。「他者の repo は読めるが書けない」
+ * という非対称を、そのまま型の形に出しておく。
+ */
+type ReadRepo = { repo?: Did };
+
 // --- 汎用ヘルパー ---
 
 async function putRecord(
@@ -58,9 +71,10 @@ async function putRecord(
 async function getRecord(
   collection: string,
   rkey: Rkey,
+  { repo }: ReadRepo = {},
 ): Promise<{ uri: AtUri; cid: string; value: unknown }> {
   const res = await getAgent().api.com.atproto.repo.getRecord({
-    repo: currentDid(),
+    repo: repo ?? currentDid(),
     collection,
     rkey,
   });
@@ -77,10 +91,14 @@ async function getRecord(
  */
 async function listRecordsPage(
   collection: string,
-  params: { cursor?: string; reverse?: boolean; limit?: number } = {},
+  params: {
+    cursor?: string;
+    reverse?: boolean;
+    limit?: number;
+  } & ReadRepo = {},
 ): Promise<RecordPage> {
   const res = await getAgent().api.com.atproto.repo.listRecords({
-    repo: currentDid(),
+    repo: params.repo ?? currentDid(),
     collection,
     limit: params.limit ?? PAGE_LIMIT,
     cursor: params.cursor,
@@ -172,8 +190,8 @@ export const batches = {
       })),
     );
   },
-  get(rkey: string) {
-    return getRecord(NSID.batch, rkey);
+  get(rkey: string, options?: ReadRepo) {
+    return getRecord(NSID.batch, rkey, options);
   },
   /**
    * repo 全体の batch レコード (Phase 4d-4) — **移行 (p7-4) 専用** (p7-5)。
@@ -190,9 +208,9 @@ export const batches = {
    * rkey が `v1~<fileId>~…` なので prefix 範囲取得で済み、**repo 全体を読まない**。
    * 旧 rkey (hex UUID) のレコードは `v1~` より小さいので、この走査には現れない (§3.1)。
    */
-  listByFile(fileId: FileId) {
+  listByFile(fileId: FileId, { repo }: ReadRepo = {}) {
     return listByRkeyPrefix(
-      (params) => listRecordsPage(NSID.batch, params),
+      (params) => listRecordsPage(NSID.batch, { ...params, repo }),
       batchRkeyPrefix(fileId),
       batchRkeyFileCursor(fileId),
     );
@@ -204,8 +222,10 @@ export const batches = {
    * 返すのは fileId と**着地した 1 レコード**である (ANA-127 S3)。着地レコードは
    * そのファイルの最大 clock の batch なので、削除の tombstone がそこに現れる。
    */
-  listFileHeads() {
-    return listBatchFileHeads((params) => listRecordsPage(NSID.batch, params));
+  listFileHeads({ repo }: ReadRepo = {}) {
+    return listBatchFileHeads((params) =>
+      listRecordsPage(NSID.batch, { ...params, repo }),
+    );
   },
   delete(rkey: string) {
     return deleteRecord(NSID.batch, rkey);
