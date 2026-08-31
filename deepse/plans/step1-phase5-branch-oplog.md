@@ -320,6 +320,10 @@ Phase 4 が「送信のみ → 受信」と段階を切ったのと同型で、*
 
 **不変条件 (step1 Phase 5 の核心): 「branch file_id の batch は local (daemon EventStore) 専用。remote へ push しない」。**
 
+> **この不変条件は step2 Phase 3 で改訂される。**単一端末前提が消えた時点で失効しており、
+> 共同作業では branch と merge が相手に見えないと DtR も fork も成立しない。
+> → [step2 アーキテクチャ §4.1/§6](../architecture/step2.md)
+
 - **C1 (Critical) 解消**: branch batch を remote へ push しなければ `rkey=batchId` の単一名前空間衝突は起きない。merge は branch batch を trunk file_id へ追記し (trunk は従来どおり remote push される)、**branch file_id 側は一切 push されない**ので、同一 rkey が「branch 記録」と「trunk 記録」の 2 経路で載ることがない。→ merge 追記 batch の id は **保持しても新規採番でもよい** (remote 非互換の懸念が消える。local は `UNIQUE(file_id, batch_id)` で両立)。§3.3 の「id を変えると dedup が壊れる」も cross-device 前提だったので step1 Phase 5 では非問題。
 - **H1/§6.1 解消**: 単一端末・単一 actor では `LamportClock.tick` が単調 (`unified.ts:282`) なので scalar offset (`Commit.at`, `batchesUpTo(clock <= at)`) がそのまま正しい。content-addressed な位置表現への変更は cross-device phase へ先送り。**§6.1 は step1 Phase 5 の未解決点ではなくなり、後続 phase の前提条件へ移動**。
 - **H2 解消**: branch file_id を remote へ出さないので `discoverRemoteFiles` が branch を拾う race が起きない。local の `GET /files`/`listOplogFiles` は **M2 の 0 シート自動除外**で賄える (`branchSheet` が sheet メタを引数から与える設計上、branch op-log は `sheet.create` を持たず 0 シート projection になる, `branchLog.ts:67-74`, `eventStore.ts:207`)。→ **除外の明示実装すら原則不要**。要確認は「branch file_id が本当に 0 シート projection になり listOplogFiles から落ちるか」の 1 点のみ (p5-1 の受入基準)。
