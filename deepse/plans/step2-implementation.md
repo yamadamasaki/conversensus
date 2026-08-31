@@ -476,7 +476,7 @@ test('from と一致する properties に当てると to になる', () => {
 
 | 対象 | 性質 | いつ |
 | --- | --- | --- |
-| `diffProperties` / `applyPropertyChanges` | 往復: `apply(from, diff(from, to)) = to` | パイロット |
+| `diffProperties` / `applyPropertyChanges` | 往復: `apply(from, diff(from, to)) = **canonical(to)**` | **パイロット完了 (2026-08-31)** |
 | `canonicalProperties` (#137) | 冪等: `canonical(canonical(x)) = canonical(x)` | 随時 |
 | `invertEvent` (undo/redo) | `apply(invert(e), apply(e, s)) = s` | 随時 |
 | `orderBatches` | **全順序** (反対称性・推移性・完全性)。多アクタ収束の土台なので、ここが崩れると全部崩れる | Phase 2 まで |
@@ -489,10 +489,32 @@ test('from と一致する properties に当てると to になる', () => {
 
 ### 進め方
 
-1. **パイロット**: `fast-check` を入れ、`properties.test.ts` の往復テストだけを性質に書き換える。
-   `.test.md` との分担がどう変わるかを実物で見る
-2. 良ければ **CLAUDE.md のテスト方針に規約として書く**
+1. ~~**パイロット**~~ **完了 (2026-08-31)。** `fast-check` を入れ、`properties.test.ts` の
+   往復テストを性質に書き換えた
+2. ~~良ければ CLAUDE.md に規約として書く~~ **完了。** CLAUDE.md のテスト方針に
+   「全称命題は性質として書く」を追加した
 3. Phase 2 で projection の収束を性質として書く (必須)
+
+### パイロットの結果 (2026-08-31)
+
+**性質が既存の欠陥を 1 件見つけた。**`applyPropertyChanges` が reduce の初期値を
+`{ ...properties }` と生のまま置いていたため、`applyPropertyChange` が毎回正規化するのに対し
+**変更が 1 件以上あるときだけ結果が正規化される**という非対称になっていた。
+`from = to = { image: 'x' }` で往復が破れる。
+
+**書きたかった命題が、書いていた命題と違っていた。**`.test.md` は往復を
+`apply(from, diff(from, to)) = to` と述べていたが、diff も apply も新名へ寄せる以上、
+正しくは **`= canonical(to)`** である。例ベースの例 (`{a:1,b:2}` → `{a:9,c:3}`) には旧名が
+含まれていなかったので、この食い違いは表に出なかった。
+
+**生成器の設計が結論を決める。**欠陥は `from` と `to` の値が一致する場合にしか現れない。
+`fc.jsonValue()` では 500 回引いても当たらず、値のプールを 5 つに絞ると 194 回目で出た。
+**値の広さより値の衝突の方が効く** — Phase 2 の収束の性質でも同じ判断が要る
+(op の中身より、同じ対象を触る op を引き当てることが効くはずである)。
+
+**`.test.md` の分担は狙いどおり変わった。**コードが一般命題を述べるようになり、md 側は
+「なぜその性質が重要か」と「生成器をどう設計したか」に移った。後者はコードからは読めないので、
+**md に書くことが増えた**のは想定外だが妥当である。
 
 **形式手法との関係**: 名簿の状態機械は Alloy、畳み込みの収束は TLA+ が本来の道具だが、
 step2 では **PBT を常時回す層**として採る。実装そのものを検証する (仕様と実装が乖離しない)

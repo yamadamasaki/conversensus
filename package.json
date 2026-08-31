@@ -26,7 +26,8 @@
     "@biomejs/biome": "^2.4.7",
     "@happy-dom/global-registrator": "^20.8.4",
     "@playwright/test": "^1.62.1",
-    "@tauri-apps/cli": "^2.11.4"
+    "@tauri-apps/cli": "^2.11.4",
+    "fast-check": "^4.9.0"
   },
   "dependencies": {
     "@tauri-apps/plugin-shell": "~2"

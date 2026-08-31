@@ -131,10 +131,19 @@ export function applyPropertyChange(
   return next;
 }
 
-/** 変更の列を順に当てた properties を返す (元は変更しない) */
+/**
+ * 変更の列を順に当てた properties を返す (元は変更しない)
+ *
+ * **初期値も新名へ寄せる** (#137)。`applyPropertyChange` は毎回寄せるので、寄せずに
+ * 始めると「変更が 1 件以上あるときだけ結果が正規化される」という非対称になる。
+ * 変更 0 件は「何も起きない」ではなく「何も変えずに寄せる」である。
+ * (性質検証で見つけた: `from = to = { image: 'x' }` で往復が成り立たなかった)
+ */
 export function applyPropertyChanges(
   properties: Properties | undefined,
   changes: PropertyChange[],
 ): Properties {
-  return changes.reduce(applyPropertyChange, { ...properties });
+  return changes.reduce(applyPropertyChange, {
+    ...canonicalProperties(properties),
+  });
 }
