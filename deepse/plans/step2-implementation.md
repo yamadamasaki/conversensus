@@ -194,16 +194,31 @@ Phase のどこにも入っていなかった。**Phase 3 が負う** (下記 §
   > - **P1**: 新しい `sheetId` を DtR の器としたとき、**他 actor の手元で** ①読める
   >   ②既存 File の projection が壊れない ③**File が勝手に増えない**
   >   (`discoverRemoteFiles` は未知の fileId を新しい File として materialize する)
+  >
+  >   **実施済 (2026-08-31)。判定は Go** → [u6-p1-report](../spikes/u6-p1-report.md)。
+  >   実 PDS で 2 つの DID をまたいで確認した。**ただし Phase 2 の宿題が 1 つ出た** —
+  >   他 actor の repo に `listFileHeads` を回すと**その actor の File が全部見える**
+  >   (実測 23 個)。発見の対象を名簿で絞らないと、相手の無関係な File が materialize される
   > - **P2**: pre 条件つき承認 op を projection に混ぜたとき、`projectBatches` /
   >   `projectFile` に**分岐を足さず routing だけで**分離できるか
   >   (`isFileOp` → `foldFileStructure` の前例と同じ形に置けるか)
-- Phase 1 の設計 (participation の lexicon と op) を書き出す
+  >
+  > **P2 は実施済 (2026-08-31)。判定は Go** → [u6-p2-report](../spikes/u6-p2-report.md)。
+  > 分岐は要らず、**判断の畳み込みの結果を述語にして、グラフの畳み込みに入れる前に落とす**
+  > 形で足りる。依存は一方向 (判断 → グラフ) で循環しない。
+  > **ただし前提が 1 つ増えた** — pre 条件が「この操作より前」である以上、
+  > **判断ログとグラフの op-log は同じ clock 空間を共有しなければならない。**
+  > Phase 1 で participation collection を新設するとき、別の採番を作ってはならない。
+  > **P1 は 2 アカウント環境待ちで未実施。**P2 だけで U6 を確定させてはならない。
+- ~~Phase 1 の設計 (participation の lexicon と op) を書き出す~~ **完了 (2026-08-31)** → [step2-phase1-participation](./step2-phase1-participation.md)
 
 **Exit**: 2 アカウントで手動同期が回ることを実機で確認 / 既存テストが緑のまま。
 
 ### Phase 1: 名簿 (participation)
 
 仕様: [participation](../requirements/spec/participation.md)
+
+**設計: [step2-phase1-participation](./step2-phase1-participation.md) (2026-08-31, Phase 0 で書き出した)**
 
 - **collection を新設する**。グラフの batch collection と分けるのは仕様の決定どおりで、
   決め手は**畳み込みの意味論が違う**こと — 名簿の op は pre 条件を検証して満たさないものを
@@ -249,6 +264,12 @@ Phase のどこにも入っていなかった。**Phase 3 が負う** (下記 §
 - **他者の repo を読む**: Phase 0 で開いた repo 引数を使う。`rangeFetch` の cursor を
   **DID ごと**に持つ
 - **期間フィルタ**: 参加していない期間の batch は畳まない。`remoteFilter` の隣に置く
+- **⚠️ 発見の対象を名簿で絞る** (U6-P1 スパイクの発見)。他 actor の repo に
+  `listFileHeads` を回すと**その actor の File が全部見える** (実測 23 個)。
+  `discoverRemoteFiles` は未知の fileId を新しい File として materialize するので、
+  そのまま繋ぐと**相手の無関係な File が自分のサイドバーに並ぶ**。
+  「名簿を先に読み、グラフを後に読む」の帰結として、**発見の対象は「その File の名簿に
+  自分が載っている File」に限る**。repo 全体の列挙を発見経路に直結してはならない
 - **再参加時の同期義務。** 非参加期間の操作に依存する新しい操作は相手にエラーを起こすので、
   actor が**再度参加する前に標準 projection へ同期しなければならない** (participation.md
   ワークフロー 6-3)。検出と誘導をどう作るかを決める
@@ -442,12 +463,12 @@ step2 では意味を持たない (型が値の従属変数なので「決まっ
 
 | | 内容 | 決める時期 |
 | --- | --- | --- |
-| **U1** | **名簿の食い違いの見せ方と、読み出しのパス数**。a が a' を招待した直後、まだ同期していない b の名簿に a' はいない。仕様はこれを許容すると決めているが、b の画面で「知らないだけ」と分かる必要があるか。加えて、**名簿の読み出しは不動点計算**なので (誰の participation を読むかを名簿が決める)、**何パス回すか**をここで決める。既定は 1 パス、収束まで回すとラウンドトリップが名簿の深さに比例する | Phase 1 |
+| **U1** | **名簿の食い違いの見せ方と、読み出しのパス数**。a が a' を招待した直後、まだ同期していない b の名簿に a' はいない。仕様はこれを許容すると決めているが、b の画面で「知らないだけ」と分かる必要があるか。加えて、**名簿の読み出しは不動点計算**なので (誰の participation を読むかを名簿が決める)、**何パス回すか**をここで決める。**1 パスに確定** (→ [step2-phase1-participation](./step2-phase1-participation.md) §6)。収束まで回すとラウンドトリップが名簿の深さに比例し、しかも遅れて見えることは仕様上の異常ではないので待つ価値がない。**食い違いの見せ方は UI の判断なので未決のまま**だが、projection が `rejected` (捨てた op と理由) を返すので「知らないだけ」と「無効」は区別して見せられる | **決着済 (2026-08-31)** |
 | **U2** | **他アクタの repo にある blob の取り込み**。step2 は step1 踏襲 (PDS 内の blob) と決めたが、他者が貼った画像をどの repo から引くかは未定。**配管は既に他 DID に対応している** — `fetchRemoteBlob(did, cid, mimeType)` は did を引数に取り `com.atproto.sync.getBlob({did, cid})` を叩く。閉じているのは呼び出し側 (`resolveImageUrl` が `deps.did()` = `loggedInDid()` を渡す) だけなので、**問うべきは配管ではなく「その画像を誰が持っているかをどう知るか」である** | Phase 2 |
 | **U3** | **ポーリング間隔と、その間の一貫性**。畳み込みは冪等なので正しさは崩れないが、間隔が長いと「相手の編集が見えるまでの遅れ」がそのまま UX になる。加えて仕様は「**3 つの同期方法の選択は排他的とは限らない**」と述べている — 手動同期とポーリングが cursor を共有して二重適用しないこと、ポーリングを止める / 強制同期する経路をどうするかを決める | Phase 2 |
 | **U4** | **implicit merge の畳み込みコスト**。書かないと決めた以上、同期のたびに全参加者のログを畳む。DID ごとの cursor で取得は減るが、projection は毎回全量になる | Phase 2 |
 | **U5** | **fork がどこまで branch と同じか**。fork を branch として書くなら、branch の UI と操作 (commit / merge / close) がそのまま効くのか、別扱いが要るのか。**U6 と同じ 1 つの問題である** — 器が branch であり、branch は同期されない (事実 5) | **Phase 3** |
-| **U6** | **pre 条件検証つきの判断 op (承認) を、どちらの collection に置くか。** 当初は「DtR が branch/commit モデルに乗るか」と書いていたが、**問いの立て方がずれていた** — DtR のグラフ本体は trunk の fileId 内に sheet scope を切れば乗る。危ないのは承認の畳み込み意味論で、§3 が collection を分けた理由が batch collection の内側で再発する。**判断ログ側 (Phase 1 で広く切る) を既定とし、Phase 0 の P2 スパイクで裏を取る** | **Phase 0 のスパイク → Phase 1 で確定** |
+| **U6** | **pre 条件検証つきの判断 op (承認) を、どちらの collection に置くか。** 当初は「DtR が branch/commit モデルに乗るか」と書いていたが、**問いの立て方がずれていた** — DtR のグラフ本体は trunk の fileId 内に sheet scope を切れば乗る。危ないのは承認の畳み込み意味論で、§3 が collection を分けた理由が batch collection の内側で再発する。**判断ログ側で確定 (2026-08-31)。**P2 スパイクが Go を出した (→ [u6-p2-report](../spikes/u6-p2-report.md))。**新しい前提が 1 つ出た** — 判断ログとグラフの op-log は**同じ clock 空間を共有**しなければならない (pre 条件が「この操作より前」だから)。**P1 も Go (2026-08-31)** → [u6-p1-report](../spikes/u6-p1-report.md)。DtR の器は trunk の fileId 内の新しい sheetId でよい | **確定 (2026-08-31)** |
 | **U8** | ~~承認と名簿の食い違い~~ **決着済 → §5.5 の S1 を見よ** |
 | **U7** | **resolve graph の UI**。仕様は「trunk の上に競合を表示する」までしか決めていない。競合の種類は **7 つ** — 対立として出る 5 つ (edge label / edge property / node label / node 内容 / node property) に加え、**「conversensus 側で解決したが、ユーザの意図に合わない可能性があるもの」2 つ** (edge の接続先、グループの所属関係。merging.md の S3 / S5 に対応) を表示する必要がある。さらに **resolve graph のすべての要素が追加/削除/編集可能**でなければならない (競合を避けるために既存の他の要素を変える必要が生じうるため)。dialogue graph からは要素を **id で指す** (URI は step3) | Phase 6 |
 

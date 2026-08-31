@@ -155,7 +155,47 @@ rm -f data/*.json data/events.db*
 
 `data/` は gitignore 済みなので, 消してもリポジトリには影響しない. 次回 `dev:server` 起動時に `events.db` は自動的に再作成される.
 
-## 5. 2 台目 (device B) を同じマシンで動かす
+## 5. 2 人目 (actor B) — 別アカウントで動かす (step2 Phase 0)
+
+§5 の device B は **同じアカウント (同じ DID) の 2 台目**である. step2 の多アクタ同期は
+**別の DID が別の repo を持つ**構成を要求するので, これとは別に 2 つ目のアカウントが要る.
+
+現状の開発 PDS には既に 2 つある.
+
+| ハンドル | DID | パスワード |
+| --- | --- | --- |
+| `alice.test` | `did:plc:jiceejfkqacmynibpou3kkxk` | `devpassword123` |
+| `bob.test` | `did:plc:ag2ritx6qpujmphxjj2upd53` | 同上 |
+
+DID は `curl -s "http://localhost:2583/xrpc/com.atproto.identity.resolveHandle?handle=bob.test"`
+で確かめられる (PDS を作り直すと変わる).
+
+3 人目以降を足す場合は [`operation-manual-for-dev.md`](./operation-manual-for-dev.md) の
+「アカウントの作成」に従う (招待コードを発行 → `createAccount`).
+
+### 5.0 他 actor の repo を読む
+
+step2 Phase 0 で `collections.ts` の**読み出し**を repo 引数化した. 省略すると自分の repo,
+渡すと相手の repo を読む. **書き込みは引数化していない** — ATProto の credential は自分の
+repo のものしか無いので, 他者の repo へは書けない.
+
+実際に 2 つの DID をまたいで読めることは U6-P1 スパイクで確認済である.
+
+```shell
+bun run src/client/src/spikes/u6/p1.spike.ts
+```
+
+> **⚠️ 相手の repo の File は全部見える.** `listFileHeads` を他 actor の repo に回すと,
+> 共同作業していない File も含めてその actor の File が全部返る (実測 23 個).
+> `discoverRemoteFiles` は未知の fileId を新しい File として materialize するので,
+> **発見経路にそのまま繋いではならない** (→ [u6-p1-report](../spikes/u6-p1-report.md)).
+
+> **⚠️ 1 ページ読みでは届かない.** 相手の repo は自分のより大きいのが普通なので,
+> `listRecords` の 1 ページ (100 件) では目的の batch に届かないことがある.
+> 範囲取得 (`listByFile` / `listByRkeyPrefix`) を使うこと. これは単一端末では効率の話
+> だったが, **多アクタでは正しさの話になる**.
+
+## 6. 2 台目 (device B) を同じマシンで動かす
 
 remote 同期 (step1 W3d5) の検証では, 「別端末が PDS 経由で受け取れるか」を見たいことがある.
 `PORT` と `DATA_DIR` を分ければ, 同じマシン上に **完全に独立した 2 組目のデーモン + クライアント**
@@ -185,10 +225,10 @@ cd src/client && VITE_API_BASE=http://localhost:3001 bunx vite --port 5175 --str
 > 端末間べき等なので, 同一 snapshot 由来なら id が一致し PDS 上で dedup される).
 >
 > 画面反映は Phase 4e-3 で入った — 受信着地後に再 projection が走り, 開いている
-> ファイルへ反映される. ただし**画面は依然として証拠にしない** (§5.1 冒頭の理由).
-> 検証は下の §5.1 / §5.2 のスクリプトで行うこと.
+> ファイルへ反映される. ただし**画面は依然として証拠にしない** (§6.1 冒頭の理由).
+> 検証は下の §6.1 / §6.2 のスクリプトで行うこと.
 
-### 5.1 PDS 上のレコードを直接検査する
+### 6.1 PDS 上のレコードを直接検査する
 
 **「画面に載ったか」では remote 送信を検証できない**. 現状の跨端末伝播は legacy snapshot 経路が
 肩代わりしており, batch op-log が載っていなくても「載ったように見える」偽の確証が起きる
@@ -208,9 +248,9 @@ genesis の検査は Phase 4e-0 で反転した — 旧 C1 (genesis 非 push) �
 `listRecords` は公開エンドポイントなのでログインは要らない. このスクリプトはクライアントの pull と
 同じ mapper (`recordToBatch`) を通すので, **別端末が Batch に戻せること** の確認も兼ねる.
 
-### 5.2 ローカル正典 (受信結果) を検査する
+### 6.2 ローカル正典 (受信結果) を検査する
 
-§5.1 が PDS 側 = **送信**結果を見るのに対し, こちらは端末のローカル op-log = **受信**結果を見る.
+§6.1 が PDS 側 = **送信**結果を見るのに対し, こちらは端末のローカル op-log = **受信**結果を見る.
 受信の検証はこちらが主役になる (step1 Phase 4d).
 
 **「op-log に行が増えた」も証拠にならない**ことに注意する. シート作成 batch を受け取っていない
@@ -239,19 +279,19 @@ bun run scripts/inspect-local-oplog.ts --dump    # 全 batch を clock 順に一
   無くなったが, marker は「op-log がこのファイルの正典である」という宣言として残っており,
   受信経路が marker を立てていることの確認として引き続き有効である.
 
-## 6. 注意点 (ハマりどころ)
+## 7. 注意点 (ハマりどころ)
 
 - **`GET /files/:id/batches` の副作用は無くなった** (step1 Phase 6 p6-1). かつては読取前に lazy migration を発火させたため「素の pre-W3 状態を保ちたいファイルには触れない」注意が要ったが, 移行は**デーモン起動時に一括で**行われるようになったので, curl で観察しても状態は動かない.
 - **snapshot を書く口はもう無い** (Phase 6 p6-5a). `PUT /files/:id` は撤去済みで, `POST /files` / `POST /files/import` も snapshot を作らない. op-log と snapshot に意図的な差を作る検証 (旧 §3) は成立しない.
 - **`data/` はリポジトリ管理外**. テストデータの投入・削除は自由に行ってよい.
 - **`GET /files` は op-log 単独** (Phase 6 p6-2). ファイルが一覧に出ないときは snapshot ではなく op-log を見ること — 構造 op (`sheet.create`) を持たない孤児 batch だけの file_id は一覧に出ない仕様である.
 
-## 7. Safari で使い込む (WebKit 適合の常時検証)
+## 8. Safari で使い込む (WebKit 適合の常時検証)
 
 step1 Phase 7 完了後の「人間が実際に使い込むフェイズ」では, **日常のドライバを Chrome ではなく
 Safari にする** (2026-07-31 のユーザー決定). 追加の環境構築は要らず, ブラウザを変えるだけである.
 
-### 7.1 なぜ Safari か
+### 8.1 なぜ Safari か
 
 配布形態の到達点である **Tauri v2 は, macOS ではネイティブの WKWebView 上で動く**. これは
 Safari と同じ **WebKit** であり, Chrome (Blink) とは描画も JavaScript API も違う.
@@ -267,13 +307,13 @@ Safari と同じ **WebKit** であり, Chrome (Blink) とは描画も JavaScript
 > | 対象 | Chrome (Blink) | Safari (WebKit) | Tauri (WKWebView) |
 > |---|---|---|---|
 > | テキスト描画の鮮明さ | 鮮明 | ぼやける | **ぼやける** |
-> | import ボタン (#51, §7.3) | 正常 | 壊れる | **同じ壊れ方** |
+> | import ボタン (#51, §8.3) | 正常 | 壊れる | **同じ壊れ方** |
 >
 > Safari と Tauri が一致し Chrome だけが違った. **Safari で見つかる壊れ方は Tauri でも起きる**
 > と考えてよい. なお「ぼやけ」は不具合ではなく Blink と WebKit のテキストラスタライズの差である
 > (検証機は非 Retina モニタで `devicePixelRatio: 1` が正しい値だった).
 
-### 7.2 手順
+### 8.2 手順
 
 §1 のとおりサーバを起動し, **Safari で** `http://localhost:5173/` を開くだけである.
 
@@ -295,7 +335,7 @@ bun run dev:client   # :5173
 > W3d5 では PDS への送信が数週間にわたり全滅していたのに, 画面が正常に見えたため
 > 気づけなかった前例がある.
 
-### 7.3 既知の壊れている箇所 (使い込みの前に知っておく)
+### 8.3 既知の壊れている箇所 (使い込みの前に知っておく)
 
 GitHub issue **#51「non-chrome web ブラウザに対応する」** に「少なくとも safari では動いていない.
 import ボタンが, はみ出して表示されているし, クリックしても実行されていない」と報告済みである.
@@ -318,7 +358,7 @@ import ボタンが, はみ出して表示されているし, クリックして
 解消する. 直せなくはないが自動判定できず保守負債になるため見送った
 (根拠と再開条件は [`../plans/step1-refinement-ana125-safari.md`](../plans/step1-refinement-ana125-safari.md) §7.1).
 
-### 7.4 見つけたものをどこへ書くか
+### 8.4 見つけたものをどこへ書くか
 
 CLAUDE.md の Issue ドリブン開発に従い, 使い込みで出た機能追加・不具合は GitHub Issues に書く.
 
@@ -329,7 +369,7 @@ CLAUDE.md の Issue ドリブン開発に従い, 使い込みで出た機能追�
 **切り分けは 2 ブラウザで同じ操作をするのが最も安い**. Chrome で再現しなければ WebKit 固有,
 両方で壊れていればアプリのロジックの問題である.
 
-### 7.5 Safari 固有の観察点 — localStorage
+### 8.5 Safari 固有の観察点 — localStorage
 
 クライアントは localStorage に 3 つの状態を持つ.
 
@@ -342,13 +382,13 @@ Safari はスクリプトが書いた保存領域の寿命の扱いが Chrome �
 消えても移行は差分計算でやり直せる) が, **「昨日までログインしていたのに今日は未ログイン」を
 アプリの不具合と誤診しないこと**. 判別は Web インスペクタの ストレージ タブで行う.
 
-### 7.6 Chrome を使い続けてよい場面
+### 8.6 Chrome を使い続けてよい場面
 
 - アシスタント (Chrome MCP) による自動検証 — 現状 Chrome にしか接続できない
-- WebKit 不具合の切り分け (§7.4 の 2 ブラウザ比較)
+- WebKit 不具合の切り分け (§8.4 の 2 ブラウザ比較)
 - `scripts/inspect-*.ts` による検査 — ブラウザに依存しない
 
-### 7.5 WebKit の自動検証 (Playwright E2E, ANA-125)
+### 8.7 WebKit の自動検証 (Playwright E2E, ANA-125)
 
 **使い込みで見つけたものを機械判定として残す口**である. 設計は
 [`../plans/step1-refinement-ana125-safari.md`](../plans/step1-refinement-ana125-safari.md).
@@ -367,14 +407,14 @@ bun run test:e2e:webkit   # webkit だけ
 - テストは `tests/*.spec.ts`, 仕様書は同じ場所に `tests/*.spec.md` を置く.
   `bunfig.toml` が `tests/` を bun のランナーから外しているので `bun test` とは衝突しない
 - **合成イベントで再現しないものは書かない** — トラックパッド由来の挙動・クリップボード・
-  ファイル選択ダイアログ・描画品質は §7.3 のチェックリスト (人間) の領分である
+  ファイル選択ダイアログ・描画品質は §8.3 のチェックリスト (人間) の領分である
 
-## 8. Tauri (デスクトップアプリ) で動かす
+## 9. Tauri (デスクトップアプリ) で動かす
 
-**Phase 8 (2026-08-14) で, アプリとして単体で動く形になった.** 下の §8.0 が現在の手順で,
-§8.1 以降は spike 当時の記録である.
+**Phase 8 (2026-08-14) で, アプリとして単体で動く形になった.** 下の §9.0 が現在の手順で,
+§9.1 以降は spike 当時の記録である.
 
-### 8.0 いまの手順 (Phase 8 S0〜S5)
+### 9.0 いまの手順 (Phase 8 S0〜S5)
 
 ```shell
 bun run app:dev      # 開発中に動かす (デーモンも自動で立つ)
@@ -405,7 +445,7 @@ bun run app:build    # .app と .dmg を作る
 > 自分でビルドした `.app` には quarantine 属性が付かないので, 手元では警告自体が出ない.
 > 配った場合の挙動を確かめたいときは `spctl -a -vv -t exec <app>` で判定だけ見られる.
 
-### 8.1 spike 当時の記録 (2026-08-02)
+### 9.1 spike 当時の記録 (2026-08-02)
 
 Phase 8a の spike で **Tauri v2 のシェルに conversensus クライアントを載せて
 動かすところまで実測済み**である. そのとき **§1 の手順のままでは動かず, 2 点の追加が要る**
