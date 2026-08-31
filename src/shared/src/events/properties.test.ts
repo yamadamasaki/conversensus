@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import fc from 'fast-check';
 import {
   applyPropertyChange,
   applyPropertyChanges,
@@ -10,6 +11,29 @@ import {
 
 const IMAGE = `${SYSTEM_PROPERTY_PREFIX}image`;
 const IMAGE_URL = `${SYSTEM_PROPERTY_PREFIX}imageUrl`;
+
+/**
+ * 名前は旧名・新名・custom を混ぜる。#137 の正規化が往復の意味そのものに絡むので、
+ * 旧名を引かない生成器では往復の性質を確かめたことにならない。
+ */
+const propertyName = fc.constantFrom(
+  'image',
+  'imageUrl',
+  IMAGE,
+  IMAGE_URL,
+  '期限',
+  'a',
+);
+
+/**
+ * 値は**小さなプールから引く**。`sameValue` が JSON で比べる規則なので JSON 値に限り、
+ * かつプールを小さくして **from と to が同じ値になる場合を引き当てられるようにする**。
+ * 変更が 0 件のときだけ正規化されないという欠陥は、値が一致する場合にしか現れなかった
+ * (`fc.jsonValue()` では 500 回引いても当たらない)。
+ */
+const propertyValue = fc.constantFrom(1, 'x', null, { cid: 'c' }, [1, 2]);
+
+const properties = fc.dictionary(propertyName, propertyValue, { maxKeys: 4 });
 
 describe('diffProperties', () => {
   test('追加されたプロパティを値つきの変更にする', () => {
@@ -61,21 +85,44 @@ describe('applyPropertyChange', () => {
   });
 });
 
-describe('diff → apply の往復', () => {
-  test('from と一致する properties に当てると to になる', () => {
-    const from = { a: 1, b: 2 };
-    const to = { a: 9, c: 3 };
-    expect(applyPropertyChanges(from, diffProperties(from, to))).toEqual(to);
+describe('diff → apply の往復 (性質として書く)', () => {
+  test('∀ from, to. apply(from, diff(from, to)) = canonical(to)', () => {
+    // 右辺が `to` ではなく `canonical(to)` なのがこの関数対の契約である。
+    // diff も apply も新名へ寄せるので、旧名は往復を通ると新名になって出てくる
+    fc.assert(
+      fc.property(properties, properties, (from, to) => {
+        expect(applyPropertyChanges(from, diffProperties(from, to))).toEqual(
+          canonicalProperties(to) ?? {},
+        );
+      }),
+    );
   });
 
-  test('from に無かったプロパティは残る — これがキー単位化の目的である', () => {
-    // 他者が並行して足した `theirs` を、こちらの from/to は知らない。
-    // 全体を置換すると消えるが、キー単位なら触っていないものは残る
-    const current = { mine: 1, theirs: 2 };
-    const changes = diffProperties({ mine: 1 }, { mine: 5 });
-    expect(applyPropertyChanges(current, changes)).toEqual({
-      mine: 5,
-      theirs: 2,
+  test('∀ current, from, to. 差分に現れないキーは変わらない', () => {
+    // これがキー単位化の目的である。`current` には他者が並行して足したプロパティが
+    // 入っていて、こちらの from/to はそれを知らない。全体を置換すると消えるが、
+    // キー単位なら差分に名前が出てこないキーは触られない
+    fc.assert(
+      fc.property(properties, properties, properties, (current, from, to) => {
+        const changes = diffProperties(from, to);
+        const touched = new Set(changes.map((c) => c.name));
+        const before = canonicalProperties(current) ?? {};
+        const after = applyPropertyChanges(current, changes);
+
+        for (const name of Object.keys(before))
+          if (!touched.has(name)) expect(after[name]).toEqual(before[name]);
+      }),
+    );
+  });
+
+  test('変更が 0 件でも結果は正規化される', () => {
+    // 上の性質が見つけた反例をそのまま残す。乱数が毎回ここを引く保証はない。
+    // 欠陥は `applyPropertyChanges` が reduce の初期値を寄せていなかったことで、
+    // 「変更が 1 件以上あるときだけ正規化される」という非対称になっていた
+    const same = { image: 'x', a: 2 };
+    expect(applyPropertyChanges(same, diffProperties(same, same))).toEqual({
+      [IMAGE]: 'x',
+      a: 2,
     });
   });
 });
