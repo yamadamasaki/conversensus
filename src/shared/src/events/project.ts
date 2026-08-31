@@ -20,7 +20,13 @@ import type {
   Style,
 } from '../schemas';
 import { applyPropertyChange, canonicalProperties } from './properties';
-import { type Batch, type FileOp, type GraphOp, isFileOp } from './unified';
+import {
+  type Batch,
+  compareByClockActorId,
+  type FileOp,
+  type GraphOp,
+  isFileOp,
+} from './unified';
 
 export type ProjectedGraph = {
   nodes: Map<NodeId, GraphNode>;
@@ -52,12 +58,7 @@ function emptyGraph(): ProjectedGraph {
  * clock は必ず一意であり、第 2 キーは発動しない (回帰テストで固定)。
  */
 export function orderBatches(batches: Batch[]): Batch[] {
-  return [...batches].sort(
-    (a, b) =>
-      a.clock - b.clock ||
-      a.actor.localeCompare(b.actor) ||
-      a.id.localeCompare(b.id),
-  );
+  return [...batches].sort(compareByClockActorId);
 }
 
 export function projectBatches(batches: Batch[]): ProjectedGraph {

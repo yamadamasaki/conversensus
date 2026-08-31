@@ -39,13 +39,64 @@ export type BatchId = z.infer<typeof BatchIdSchema>;
 
 /**
  * 操作の主体。`<did>#<deviceId>` の複合 (未ログインは `local#<deviceId>`)。
- * 組み立ては client の `sync/actor.ts` が行う (Phase 4d-2)。
  * Lamport の因果順序と重複排除の単位を端末まで一意に識別するための識別子。
+ *
+ * deviceId の採番は端末に依存するので client の `sync/actor.ts` が持つが、
+ * **書式そのものはここが持つ** (step2 Phase 1)。判断ログの畳み込みが actor から
+ * DID を取り出す必要があり、それは shared 側の純粋な計算だからである。
  */
 export type Actor = string;
 
+/** DID と deviceId の区切り。DID にも UUID にも現れない文字を選ぶ */
+export const ACTOR_SEPARATOR = '#';
+
+/** 未ログイン時に DID の位置へ置く値 */
+export const LOCAL_DID = 'local';
+
+/**
+ * DID (未ログインなら null) と deviceId から actor を組み立てる。
+ * 未ログイン → `local#<deviceId>` / ログイン中 → `<did>#<deviceId>`
+ */
+export function composeActor(did: string | null, deviceId: string): Actor {
+  return `${did ?? LOCAL_DID}${ACTOR_SEPARATOR}${deviceId}`;
+}
+
+/**
+ * actor から DID 部分を取り出す (`composeActor` の逆, Phase 7 p7-4)。
+ *
+ * 未ログイン時は `LOCAL_DID` (`'local'`) が返る — 呼び出し側が「本物の DID か」を
+ * 判定できるよう、null に潰さずそのまま返す。DID 自体は `#` を含まないので、
+ * 最初の区切りまでを取れば十分である。
+ */
+export function didFromActor(actor: Actor): string {
+  return actor.split(ACTOR_SEPARATOR)[0] ?? LOCAL_DID;
+}
+
 /** 論理時刻 (Lamport)。LWW の順序付けに使用 */
 export type Lamport = number;
+
+/**
+ * clock → actor → id の全順序 (Phase 4d-3, 設計 §3.2b)
+ *
+ * 第 2 キーが `timestamp` (端末のウォールクロック) だと、端末をまたぐ受信では
+ * ずれ・巻き戻り・タイムゾーン設定ミスが順序を左右する。`actor` は端末一意の
+ * 識別子なので、端末間でも安定した全順序になる。
+ *
+ * **グラフの op-log と判断ログが同じ規則を使う** (step2 Phase 1)。pre 条件が
+ * 「この操作より前」を含むので、2 つのログを同じ物差しで並べられなければならない
+ * (`deepse/spikes/u6-p2-report.md`)。規則が 2 箇所に分かれて食い違うのを防ぐため、
+ * 比較そのものをここに 1 つだけ置く。
+ */
+export function compareByClockActorId(
+  a: { clock: Lamport; actor: Actor; id: string },
+  b: { clock: Lamport; actor: Actor; id: string },
+): number {
+  return (
+    a.clock - b.clock ||
+    a.actor.localeCompare(b.actor) ||
+    a.id.localeCompare(b.id)
+  );
+}
 
 export const EVENT_CATEGORIES = [
   'structure',

@@ -17,17 +17,23 @@
  * そのまま使える。
  */
 
-import type { Actor } from '@conversensus/shared';
+import {
+  ACTOR_SEPARATOR,
+  composeActor,
+  didFromActor,
+  LOCAL_DID,
+} from '@conversensus/shared';
 import { safeLocalStorage } from './safeStorage';
+
+/**
+ * **actor の書式は shared が持つ** (step2 Phase 1)。判断ログの畳み込みが actor から
+ * DID を取り出す必要があり、それは shared 側の純粋な計算だからである。
+ * ここは deviceId の採番 (端末依存) と、従来どおりの窓口を担う。
+ */
+export { ACTOR_SEPARATOR, composeActor, didFromActor, LOCAL_DID };
 
 /** deviceId の保存キー (localStorage) */
 export const DEVICE_ID_STORAGE_KEY = 'conversensus_device_id';
-
-/** 未ログイン時に DID の位置へ置く値 */
-export const LOCAL_DID = 'local';
-
-/** DID と deviceId の区切り。DID にも UUID にも現れない文字を選ぶ */
-export const ACTOR_SEPARATOR = '#';
 
 /** localStorage が使えない環境 (プライベートモード等) のための退避先 */
 let fallbackDeviceId: string | undefined;
@@ -53,23 +59,4 @@ export function getDeviceId(storage?: Storage): string {
   const generated = crypto.randomUUID();
   store.setItem(DEVICE_ID_STORAGE_KEY, generated);
   return generated;
-}
-
-/**
- * DID (未ログインなら null) と deviceId から actor を組み立てる。
- * 未ログイン → `local#<deviceId>` / ログイン中 → `<did>#<deviceId>`
- */
-export function composeActor(did: string | null, deviceId: string): Actor {
-  return `${did ?? LOCAL_DID}${ACTOR_SEPARATOR}${deviceId}`;
-}
-
-/**
- * actor から DID 部分を取り出す (`composeActor` の逆, Phase 7 p7-4)。
- *
- * 未ログイン時は `LOCAL_DID` (`'local'`) が返る — 呼び出し側が「本物の DID か」を
- * 判定できるよう、null に潰さずそのまま返す。DID 自体は `#` を含まないので、
- * 最初の区切りまでを取れば十分である。
- */
-export function didFromActor(actor: Actor): string {
-  return actor.split(ACTOR_SEPARATOR)[0] ?? LOCAL_DID;
 }
