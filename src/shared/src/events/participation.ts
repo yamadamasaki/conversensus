@@ -223,3 +223,23 @@ export function wasParticipatingAt(
     (p) => p.from <= clock && (p.to === undefined || clock < p.to),
   );
 }
+
+/**
+ * 判断 batch 列に現れる**招待先の DID** を集める。
+ *
+ * `foldParticipation` の `isLocalDid` は**同期**の述語である。「その DID がこの PDS に
+ * 属するか」の判定はネットワークを伴うので、畳み込みの中では待てない。そこで
+ * **畳む前にまとめて解決しておく**ための材料をここで取り出す。
+ *
+ * 畳み込みを同期に保つのは、それが決定論の土台だからである — 非同期にすると、
+ * 「あらゆる配送順で同じ名簿になる」の検証に解決の順序まで入り込む。
+ */
+export function collectInviteTargets(
+  batches: readonly JudgmentBatch[],
+): Set<Did> {
+  const targets = new Set<Did>();
+  for (const batch of batches)
+    for (const op of batch.ops)
+      if (op.kind === 'participation.invite') targets.add(op.target);
+  return targets;
+}
