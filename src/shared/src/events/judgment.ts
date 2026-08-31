@@ -19,7 +19,8 @@
  */
 
 import { z } from 'zod';
-import { BatchIdSchema } from './unified';
+import { deterministicUuid } from './genesis';
+import { type Actor, BatchIdSchema, type Lamport } from './unified';
 
 /**
  * 判断の主体・対象となる DID。
@@ -93,3 +94,40 @@ export const JudgmentBatchSchema = z.object({
   ops: z.array(JudgmentOpSchema).min(1),
 });
 export type JudgmentBatch = z.infer<typeof JudgmentBatchSchema>;
+
+/**
+ * 判断ログの genesis に与える clock。**あらゆるグラフ op より前**である。
+ *
+ * 「file を作った actor が自動的に参加する」以上、参加は File の存在そのものと同時に
+ * 始まる。genesis に後の clock を与えると、**その actor 自身の過去の op が参加期間の
+ * 外に落ちる** — Phase 2 の「参加していた期間の op-log だけを同期する」で消えてしまう。
+ *
+ * 0 を使えるのは `LamportClock.tick()` が 1 から始まり、グラフの genesis も
+ * `GENESIS_CLOCK_START = 1` だからである。**0 は誰にも割り当てられない。**
+ */
+export const JUDGMENT_GENESIS_CLOCK: Lamport = 0;
+
+/**
+ * 判断ログの genesis batch を組み立てる (step2 Phase 1)。
+ *
+ * **id は fileId と actor から決定論的に導く。**rkey は batch の id から決まるので、
+ * 乱数だと bootstrap を 2 度走らせただけでレコードが 2 つになり、畳み込みが 2 つ目を
+ * `duplicateGenesis` で捨てる — 結果は正しいが、消えないゴミが残る。
+ *
+ * `timestamp` も 0 に固定する。決定論のためであり、グラフの `GENESIS_TIMESTAMP` と
+ * 同じ理由である (timestamp は表示用で順序付けには使わない)。
+ */
+export function participationGenesisBatch(
+  fileId: string,
+  actor: Actor,
+): JudgmentBatch {
+  return {
+    id: BatchIdSchema.parse(
+      deterministicUuid(`participation.genesis:${fileId}:${actor}`),
+    ),
+    actor,
+    clock: JUDGMENT_GENESIS_CLOCK,
+    timestamp: 0,
+    ops: [{ kind: 'participation.genesis' }],
+  };
+}

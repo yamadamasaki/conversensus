@@ -13,7 +13,19 @@
 
 import { AtpAgent } from '@atproto/api';
 
+/**
+ * 消す対象。
+ *
+ * **`batch` が長く抜けていた** — step1 Phase 4c で op-log が正典になったのに、ここは
+ * step0 の snapshot collection しか並んでいなかった。「全部まっさらにする」つもりで
+ * 走らせてもグラフが remote に残り続ける。step2 の多アクタ検証では、消し残した他 actor の
+ * batch がそのまま名簿と projection に効くので、取り違えの元になる (2026-08-31 に追加)。
+ */
 const COLLECTIONS = [
+  /** op-log の正典 (step1 Phase 4c) */
+  'app.conversensus.graph.batch',
+  /** 判断ログ = 名簿 (step2 Phase 1) */
+  'app.conversensus.graph.judgment',
   'app.conversensus.graph.file',
   'app.conversensus.graph.sheet',
   'app.conversensus.graph.node',

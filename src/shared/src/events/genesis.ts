@@ -50,8 +50,12 @@ function stableStringify(value: unknown): string {
  * genesis のべき等性 (同一端末の再 genesis 吸収と、同一 snapshot からの端末間 dedup,
  * 4e 設計 §1.2) のためのもので、暗号学的ハッシュではない。
  * hash 入力は ops の内容 (branded UUID を含む) のみ。actor/timestamp は含めない (§3.4)。
+ *
+ * **判断ログの genesis も同じべき等性を要求する** (step2 Phase 1) ので export してある。
+ * rkey は batch の id から決まるので、id が乱数だと bootstrap を 2 度走らせただけで
+ * レコードが 2 つになる。
  */
-function deterministicUuid(input: string): string {
+export function deterministicUuid(input: string): string {
   // FNV-1a を種にして 16 バイトを撹拌生成する
   let h = 0x811c9dc5;
   for (let i = 0; i < input.length; i++) {
