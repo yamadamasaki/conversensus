@@ -4,7 +4,7 @@
   "defs": {
     "main": {
       "type": "record",
-      "description": "An operation-log batch (unified vocabulary Batch). rkey = BatchId (UUID). A batch is one user operation = the undo/redo unit; its ops are the sync/merge resolution units. clock/timestamp/ops are stored losslessly so the record mirrors the canonical operation-log model (step1 Phase 4c / W3d5).",
+      "description": "An operation-log batch (unified vocabulary Batch). rkey = v1~<fileId>~<clock, 12-digit zero-padded>~<BatchId> (step1 Phase 7 p7-1); records written before that scheme use the bare BatchId and are left in place. A batch is one user operation = the undo/redo unit; its ops are the sync/merge resolution units. clock/timestamp/ops are stored losslessly so the record mirrors the canonical operation-log model (step1 Phase 4c / W3d5).",
       "key": "any",
       "record": {
         "type": "object",
@@ -16,7 +16,7 @@
           },
           "actor": {
             "type": "string",
-            "description": "Lamport actor. Either the author DID or the reserved 'genesis' actor. NOTE: genesis-actor batches are never pushed to remote (W3d5 §3.5)."
+            "description": "Lamport actor. Either the author DID (did#deviceId) or the reserved 'genesis' actor. The genesis actor is a device-independent constant so that a genesis batch derived from the same snapshot is byte-identical on every device; its id is content-addressed from the ops alone, excluding actor/timestamp/clock (step1 Phase 4e-0). NOTE: genesis-actor batches ARE pushed to remote. The earlier invariant that excluded them (W3d5 §3.5, critic C1) was reversed in Phase 4e-0 once the receive path landed in Phase 4d."
           },
           "clock": {
             "type": "integer",
