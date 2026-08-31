@@ -197,6 +197,14 @@ Phase のどこにも入っていなかった。**Phase 3 が負う** (下記 §
   > - **P2**: pre 条件つき承認 op を projection に混ぜたとき、`projectBatches` /
   >   `projectFile` に**分岐を足さず routing だけで**分離できるか
   >   (`isFileOp` → `foldFileStructure` の前例と同じ形に置けるか)
+  >
+  > **P2 は実施済 (2026-08-31)。判定は Go** → [u6-p2-report](../spikes/u6-p2-report.md)。
+  > 分岐は要らず、**判断の畳み込みの結果を述語にして、グラフの畳み込みに入れる前に落とす**
+  > 形で足りる。依存は一方向 (判断 → グラフ) で循環しない。
+  > **ただし前提が 1 つ増えた** — pre 条件が「この操作より前」である以上、
+  > **判断ログとグラフの op-log は同じ clock 空間を共有しなければならない。**
+  > Phase 1 で participation collection を新設するとき、別の採番を作ってはならない。
+  > **P1 は 2 アカウント環境待ちで未実施。**P2 だけで U6 を確定させてはならない。
 - Phase 1 の設計 (participation の lexicon と op) を書き出す
 
 **Exit**: 2 アカウントで手動同期が回ることを実機で確認 / 既存テストが緑のまま。
@@ -438,7 +446,7 @@ step2 では意味を持たない (型が値の従属変数なので「決まっ
 | **U3** | **ポーリング間隔と、その間の一貫性**。畳み込みは冪等なので正しさは崩れないが、間隔が長いと「相手の編集が見えるまでの遅れ」がそのまま UX になる。加えて仕様は「**3 つの同期方法の選択は排他的とは限らない**」と述べている — 手動同期とポーリングが cursor を共有して二重適用しないこと、ポーリングを止める / 強制同期する経路をどうするかを決める | Phase 2 |
 | **U4** | **implicit merge の畳み込みコスト**。書かないと決めた以上、同期のたびに全参加者のログを畳む。DID ごとの cursor で取得は減るが、projection は毎回全量になる | Phase 2 |
 | **U5** | **fork がどこまで branch と同じか**。fork を branch として書くなら、branch の UI と操作 (commit / merge / close) がそのまま効くのか、別扱いが要るのか。**U6 と同じ 1 つの問題である** — 器が branch であり、branch は同期されない (事実 5) | **Phase 3** |
-| **U6** | **pre 条件検証つきの判断 op (承認) を、どちらの collection に置くか。** 当初は「DtR が branch/commit モデルに乗るか」と書いていたが、**問いの立て方がずれていた** — DtR のグラフ本体は trunk の fileId 内に sheet scope を切れば乗る。危ないのは承認の畳み込み意味論で、§3 が collection を分けた理由が batch collection の内側で再発する。**判断ログ側 (Phase 1 で広く切る) を既定とし、Phase 0 の P2 スパイクで裏を取る** | **Phase 0 のスパイク → Phase 1 で確定** |
+| **U6** | **pre 条件検証つきの判断 op (承認) を、どちらの collection に置くか。** 当初は「DtR が branch/commit モデルに乗るか」と書いていたが、**問いの立て方がずれていた** — DtR のグラフ本体は trunk の fileId 内に sheet scope を切れば乗る。危ないのは承認の畳み込み意味論で、§3 が collection を分けた理由が batch collection の内側で再発する。**判断ログ側で確定 (2026-08-31)。**P2 スパイクが Go を出した (→ [u6-p2-report](../spikes/u6-p2-report.md))。**新しい前提が 1 つ出た** — 判断ログとグラフの op-log は**同じ clock 空間を共有**しなければならない (pre 条件が「この操作より前」だから)。P1 は 2 アカウント環境待ち | **Phase 0 のスパイク → Phase 1 で確定** |
 | **U8** | ~~承認と名簿の食い違い~~ **決着済 → §5.5 の S1 を見よ** |
 | **U7** | **resolve graph の UI**。仕様は「trunk の上に競合を表示する」までしか決めていない。競合の種類は **7 つ** — 対立として出る 5 つ (edge label / edge property / node label / node 内容 / node property) に加え、**「conversensus 側で解決したが、ユーザの意図に合わない可能性があるもの」2 つ** (edge の接続先、グループの所属関係。merging.md の S3 / S5 に対応) を表示する必要がある。さらに **resolve graph のすべての要素が追加/削除/編集可能**でなければならない (競合を避けるために既存の他の要素を変える必要が生じうるため)。dialogue graph からは要素を **id で指す** (URI は step3) | Phase 6 |
 
