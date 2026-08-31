@@ -15,8 +15,11 @@
  */
 
 import type { BatchId, Did, FileId, JudgmentBatch } from '@conversensus/shared';
+import type { ReadRosterOptions, ReadRosterResult } from '../sync/readRoster';
+import { readRoster } from '../sync/readRoster';
 import { batchIdFromRkey, batchRkey } from './batchRkey';
 import { judgments } from './collections';
+import { buildLocalDidPredicate } from './identity';
 import {
   isJudgmentRecordValue,
   judgmentToRecord,
@@ -87,4 +90,23 @@ function toJudgmentBatches(
     );
   }
   return batches;
+}
+
+/**
+ * 名簿を読む。`readRoster` に本物の依存を束ねただけの入口である。
+ *
+ * 起点 (`seed`) は呼び出し側が決める — 既に参加している File なら自分自身、
+ * まだ参加していない File なら参加コードが指す招待者である
+ * (`deepse/architecture/step2.md` §2)。
+ */
+export function loadRoster(
+  options: ReadRosterOptions,
+): Promise<ReadRosterResult> {
+  return readRoster(
+    {
+      fetchJudgments: (fileId, repo) => fetchJudgments(fileId, repo),
+      buildLocalDidPredicate: (dids) => buildLocalDidPredicate(dids),
+    },
+    options,
+  );
 }
