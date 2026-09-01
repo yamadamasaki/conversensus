@@ -29,7 +29,10 @@ const invite = (target: string): JudgmentOp => ({
   kind: 'participation.invite',
   target,
 });
-const accept = (): JudgmentOp => ({ kind: 'participation.accept' });
+const accept = (inviter = A): JudgmentOp => ({
+  kind: 'participation.accept',
+  inviter,
+});
 const revoke = (target: string): JudgmentOp => ({
   kind: 'participation.revoke',
   target,
@@ -146,6 +149,33 @@ describe('1 パスで止める', () => {
     });
     await readRoster(deps, { fileId: FILE, seed: A, passes: 3 });
     expect(deps.reads.sort()).toEqual([A, B]);
+  });
+});
+
+describe('招待された側の起点', () => {
+  test('自分の repo には承認しか無いので、承認が指す招待者を辿る', async () => {
+    // **実機で発覚した穴。**起点を自分自身にすると、bob の repo には accept しか無く
+    // genesis も invite も alice の repo にあるので辿る先が無い。accept の inviter が
+    // 「自分 → 招待者」の辺になる
+    const deps = makeDeps({
+      [A]: [jb(A, 1, [genesis()]), jb(A, 2, [invite(B)])],
+      [B]: [jb(B, 3, [accept(A)])],
+    });
+    const r = await readRoster(deps, { fileId: FILE, seed: B });
+
+    expect([...r.participation.participating].sort()).toEqual([A, B]);
+    expect(deps.reads.sort()).toEqual([A, B]);
+  });
+
+  test('承認が pre 条件で捨てられても、招待者は辿る', async () => {
+    // 起点が自分のとき、最初の畳み込みでは招待が見えないので承認は必ず捨てられる。
+    // 畳み込みの結果から辿ると、そこで止まってしまう
+    const deps = makeDeps({
+      [B]: [jb(B, 3, [accept(A)])],
+      [A]: [jb(A, 1, [genesis()]), jb(A, 2, [invite(B)])],
+    });
+    await readRoster(deps, { fileId: FILE, seed: B });
+    expect(deps.reads).toContain(A);
   });
 });
 

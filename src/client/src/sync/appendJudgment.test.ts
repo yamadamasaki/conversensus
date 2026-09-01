@@ -83,7 +83,12 @@ describe('appendJudgment', () => {
     graphClock.seed(5); // グラフ側が clock 5 まで進んでいる
     const { deps, written } = makeDeps(graphClock);
 
-    await appendJudgment(deps, FILE, [{ kind: 'participation.accept' }], []);
+    await appendJudgment(
+      deps,
+      FILE,
+      [{ kind: 'participation.accept', inviter: 'did:plc:alice' }],
+      [],
+    );
     expect(written[0]?.clock).toBe(6);
   });
 
@@ -97,7 +102,7 @@ describe('appendJudgment', () => {
     await appendJudgment(
       deps,
       FILE,
-      [{ kind: 'participation.accept' }],
+      [{ kind: 'participation.accept', inviter: 'did:plc:alice' }],
       [jb(1), jb(9)],
     );
     expect(written[0]?.clock).toBe(10);
@@ -112,7 +117,7 @@ describe('appendJudgment', () => {
     await appendJudgment(
       deps,
       FILE,
-      [{ kind: 'participation.accept' }],
+      [{ kind: 'participation.accept', inviter: 'did:plc:alice' }],
       [jb(2)],
     );
     expect(written[0]?.clock).toBe(21);
@@ -120,7 +125,12 @@ describe('appendJudgment', () => {
 
   test('連続して書くと clock が単調に増える', async () => {
     const { deps, written } = makeDeps();
-    await appendJudgment(deps, FILE, [{ kind: 'participation.accept' }], []);
+    await appendJudgment(
+      deps,
+      FILE,
+      [{ kind: 'participation.accept', inviter: 'did:plc:alice' }],
+      [],
+    );
     await appendJudgment(
       deps,
       FILE,

@@ -77,12 +77,25 @@ export type ReadRosterResult = {
  * **participating だけでは足りない。**招待された actor の「承認」op はその actor 自身の
  * repo にあるので、承認を見つけるには**まだ参加していない被招待者の repo も読む**必要が
  * ある。読んでみて承認が無ければ、その actor は invited のままである。
+ *
+ * **承認が指す招待者も足りない。**招待された側が自分を起点にすると、自分の repo には
+ * 承認しか無く、genesis も invite も招待者の repo にあるので**辿る先が無い**
+ * (実機で発覚)。`accept` が持つ `inviter` が「自分 → 招待者」の辺になる。
+ * これは**畳み込みの結果ではなく生の op から取る** — 承認が pre 条件で捨てられる場合
+ * (まだ招待が見えていない場合がまさにそれである) でも、読みには行かなければならない。
  */
-function reposToExpand(participation: Participation): Set<Did> {
-  return new Set([
+function reposToExpand(
+  participation: Participation,
+  batches: readonly JudgmentBatch[],
+): Set<Did> {
+  const next = new Set<Did>([
     ...participation.participating,
     ...participation.invited.keys(),
   ]);
+  for (const batch of batches)
+    for (const op of batch.ops)
+      if (op.kind === 'participation.accept') next.add(op.inviter);
+  return next;
 }
 
 export async function readRoster(
@@ -129,7 +142,7 @@ export async function readRoster(
   let participation = await fold();
 
   for (let pass = 0; pass < passes; pass += 1) {
-    const next = reposToExpand(participation);
+    const next = reposToExpand(participation, batches);
     if ([...next].every((did) => visited.has(did))) break; // 広がりが止まった
     await readAll(next);
     participation = await fold();

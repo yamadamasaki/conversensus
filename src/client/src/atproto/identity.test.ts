@@ -29,7 +29,7 @@ describe('collectInviteTargets — 畳む前に解決するための材料', () 
     const targets = collectInviteTargets([
       jb(A, 1, [{ kind: 'participation.genesis' }]),
       jb(A, 2, [{ kind: 'participation.invite', target: B }]),
-      jb(B, 3, [{ kind: 'participation.accept' }]),
+      jb(B, 3, [{ kind: 'participation.accept', inviter: 'did:plc:alice' }]),
       jb(A, 4, [{ kind: 'participation.revoke', target: B }]),
     ]);
     // revoke の target は招待先ではないので含まない (PDS 所属を問う必要が無い)

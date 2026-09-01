@@ -62,8 +62,24 @@ export const JudgmentOpSchema = z.discriminatedUnion('kind', [
     kind: z.literal('participation.invite'),
     target: JudgmentDidSchema,
   }),
-  /** 発行者が自分への招待を承認する */
-  z.object({ kind: z.literal('participation.accept') }),
+  /**
+   * 発行者が自分への招待を承認する。
+   *
+   * **`inviter` は「どこを読めば招待が見つかるか」の道しるべである。**
+   *
+   * これが無いと、被招待者の手元から名簿が作れない。承認は自分の repo にあるが、
+   * genesis も invite も招待者の repo にあるので、**自分を起点にしても辿る先が無い**
+   * (実機で発覚: 招待された側の名簿が空になった)。不動点計算に「自分 → 招待者」の辺が
+   * 要る。
+   *
+   * **pre 条件には使わない。**承認が有効かどうかは「招待済の集合に居るか」だけで決まる。
+   * ここを検証に使うと、再招待で招待者が変わったときに正当な承認が落ちる。
+   * あくまで読む先を示すだけの値である。
+   */
+  z.object({
+    kind: z.literal('participation.accept'),
+    inviter: JudgmentDidSchema,
+  }),
   /** 発行者が自分の参加を取りやめる */
   z.object({ kind: z.literal('participation.resign') }),
   /** 発行者が `target` の招待/参加を取り消す */

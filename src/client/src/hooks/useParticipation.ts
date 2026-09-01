@@ -134,8 +134,15 @@ export function useParticipation({
   const act = useCallback(
     async (fileId: FileId, action: RosterAction, did: Did) => {
       switch (action) {
-        case 'accept':
-          return write(fileId, [{ kind: 'participation.accept' }]);
+        case 'accept': {
+          // 承認は「どこを読めば招待が見つかるか」を伴う。招待者は一覧の行が持っている
+          const inviter = state.rows.find((r) => r.did === did)?.inviter;
+          if (!inviter) {
+            setState((s) => ({ ...s, error: '招待者が分からない' }));
+            return;
+          }
+          return write(fileId, [{ kind: 'participation.accept', inviter }]);
+        }
         case 'resign':
           return write(fileId, [{ kind: 'participation.resign' }]);
         case 'revoke':
@@ -150,7 +157,7 @@ export function useParticipation({
           return;
       }
     },
-    [write],
+    [state.rows, write],
   );
 
   /**
@@ -197,7 +204,9 @@ export function useParticipation({
           return null;
         }
         knownRef.current = seen.batches;
-        await write(fileId as FileId, [{ kind: 'participation.accept' }]);
+        await write(fileId as FileId, [
+          { kind: 'participation.accept', inviter },
+        ]);
         return fileId as FileId;
       } catch (error) {
         setState((s) => ({ ...s, busy: false, error: describe(error) }));

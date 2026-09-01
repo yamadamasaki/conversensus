@@ -27,7 +27,10 @@ const invite = (target: string): JudgmentOp => ({
   kind: 'participation.invite',
   target,
 });
-const accept = (): JudgmentOp => ({ kind: 'participation.accept' });
+const accept = (inviter = A): JudgmentOp => ({
+  kind: 'participation.accept',
+  inviter,
+});
 const resign = (): JudgmentOp => ({ kind: 'participation.resign' });
 const revoke = (target: string): JudgmentOp => ({
   kind: 'participation.revoke',

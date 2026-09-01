@@ -86,7 +86,10 @@ async function main() {
   ]);
   written.push([
     bob,
-    await put(bob, jb(bobDid, 2, [{ kind: 'participation.accept' }])),
+    await put(
+      bob,
+      jb(bobDid, 2, [{ kind: 'participation.accept', inviter: aliceDid }]),
+    ),
   ]);
 
   /** bob のセッションで、指定 repo の判断ログを読む */
