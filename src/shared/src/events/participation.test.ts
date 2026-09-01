@@ -204,6 +204,58 @@ describe('取り消しと参加取りやめ', () => {
     expect(reasons(r)).toEqual(['issuerNotParticipating']);
   });
 
+  test('外れた理由を覚える — 外から見て revoke と resign は区別がつかない', () => {
+    // 仕様の UI 一覧が revoked と resigned を別の状態として並べるので、
+    // 畳み込みが覚えていなければ画面に出せない
+    const r = foldParticipation(
+      [
+        jb(A, 1, [genesis()]),
+        jb(A, 2, [invite(B)]),
+        jb(B, 3, [accept()]),
+        jb(A, 4, [invite(C)]),
+        jb(C, 5, [accept()]),
+        jb(A, 6, [revoke(B)]),
+        jb(C, 7, [resign()]),
+      ],
+      deps,
+    );
+    expect(r.departed.get(B)).toBe('revoked');
+    expect(r.departed.get(C)).toBe('resigned');
+  });
+
+  test('再参加すると外れた記録は消える — 履歴ではなく現在の状態である', () => {
+    const r = foldParticipation(
+      [
+        jb(A, 1, [genesis()]),
+        jb(A, 2, [invite(B)]),
+        jb(B, 3, [accept()]),
+        jb(B, 4, [resign()]),
+        jb(A, 5, [invite(B)]),
+        jb(B, 6, [accept()]),
+      ],
+      deps,
+    );
+    expect(r.departed.has(B)).toBe(false);
+    expect([...r.participating].sort()).toEqual([A, B]);
+    // 履歴の方には残る
+    expect(r.history.get(B)).toEqual([{ from: 3, to: 4 }, { from: 6 }]);
+  });
+
+  test('再招待された時点で「外れている」ではなくなる', () => {
+    // 承認する前でも、招待中は revoked の表示ではなく sent であるべきである
+    const r = foldParticipation(
+      [
+        jb(A, 1, [genesis()]),
+        jb(A, 2, [invite(B)]),
+        jb(A, 3, [revoke(B)]),
+        jb(A, 4, [invite(B)]),
+      ],
+      deps,
+    );
+    expect(r.departed.has(B)).toBe(false);
+    expect(r.invited.get(B)).toBe(A);
+  });
+
   test('参加を取りやめると名簿から外れる', () => {
     const r = foldParticipation(
       [
@@ -294,6 +346,9 @@ const same = (
   expect([...x.participating].sort()).toEqual([...y.participating].sort());
   expect([...x.invited.entries()].sort()).toEqual(
     [...y.invited.entries()].sort(),
+  );
+  expect([...x.departed.entries()].sort()).toEqual(
+    [...y.departed.entries()].sort(),
   );
   expect([...x.history.entries()].sort()).toEqual(
     [...y.history.entries()].sort(),

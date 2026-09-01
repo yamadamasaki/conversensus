@@ -70,11 +70,24 @@ export type RejectedJudgment = {
   reason: RejectReason;
 };
 
+/**
+ * 名簿から外れた理由。**取り消されたのか自分で降りたのかは、外から見て区別がつかない。**
+ * 仕様の UI 一覧が `revoked` と `resigned` を別の状態として並べるので、畳み込みが
+ * 覚えていなければ画面に出せない (op を後から探し直すと、pre 条件で捨てた取り消しまで
+ * 拾ってしまう)。
+ */
+export type DepartureReason = 'revoked' | 'resigned';
+
 export type Participation = {
   /** 現在参加している DID */
   participating: ReadonlySet<Did>;
   /** 招待済・未承認。**値は招待者の DID** — UI の一覧が「誰が招待したか」を出すため */
   invited: ReadonlyMap<Did, Did>;
+  /**
+   * 名簿から外れた DID と、その理由。**再参加すると消える** — 「今どういう状態か」を
+   * 表すものであって、履歴ではない (履歴は `history` が持つ)。
+   */
+  departed: ReadonlyMap<Did, DepartureReason>;
   /** DID ごとの参加期間。Phase 2 の同期フィルタが使う */
   history: ReadonlyMap<Did, readonly ParticipationPeriod[]>;
   /** 捨てた op と理由。**`invalid` の表示元** */
@@ -103,6 +116,7 @@ export function foldParticipation(
 ): Participation {
   const participating = new Set<Did>();
   const invited = new Map<Did, Did>();
+  const departed = new Map<Did, DepartureReason>();
   const history = new Map<Did, ParticipationPeriod[]>();
   const rejected: RejectedJudgment[] = [];
   let genesisSeen = false;
@@ -144,6 +158,7 @@ export function foldParticipation(
           }
           genesisSeen = true;
           participating.add(issuer);
+          departed.delete(issuer);
           openPeriod(issuer, batch.clock);
           break;
 
@@ -163,6 +178,7 @@ export function foldParticipation(
           // 既に招待済でも捨てない。**招待者を上書きする** — 参加コードの再発行は
           // 正当な操作で、名簿の結果も変わらないためである
           invited.set(op.target, issuer);
+          departed.delete(op.target);
           break;
 
         case 'participation.accept':
@@ -172,6 +188,7 @@ export function foldParticipation(
           }
           invited.delete(issuer);
           participating.add(issuer);
+          departed.delete(issuer);
           openPeriod(issuer, batch.clock);
           break;
 
@@ -181,6 +198,7 @@ export function foldParticipation(
             break;
           }
           participating.delete(issuer);
+          departed.set(issuer, 'resigned');
           closePeriod(issuer, batch.clock);
           break;
 
@@ -194,6 +212,7 @@ export function foldParticipation(
             break;
           }
           invited.delete(op.target);
+          departed.set(op.target, 'revoked');
           // 招待済のまま取り消された場合は期間が開いていないので閉じない
           if (participating.delete(op.target))
             closePeriod(op.target, batch.clock);
@@ -202,7 +221,7 @@ export function foldParticipation(
     }
   }
 
-  return { participating, invited, history, rejected };
+  return { participating, invited, departed, history, rejected };
 }
 
 /**
