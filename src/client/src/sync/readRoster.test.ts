@@ -129,6 +129,16 @@ describe('1 パスで止める', () => {
     expect(deps.reads).toEqual([A]);
   });
 
+  test('読んだ判断 batch をそのまま返す — clock の seed に要る', async () => {
+    // 呼び出し側が取り直すと二重に読むうえ、その間に増えた分とずれる
+    const deps = makeDeps({
+      [A]: [jb(A, 1, [genesis()]), jb(A, 2, [invite(B)])],
+      [B]: [jb(B, 3, [accept()])],
+    });
+    const r = await readRoster(deps, { fileId: FILE, seed: A });
+    expect(r.batches.map((b) => b.clock).sort()).toEqual([1, 2, 3]);
+  });
+
   test('同じ repo を 2 度読まない', async () => {
     const deps = makeDeps({
       [A]: [jb(A, 1, [genesis()]), jb(A, 2, [invite(B)])],

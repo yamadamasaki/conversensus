@@ -51,6 +51,14 @@ export type ReadRosterOptions = {
 
 export type ReadRosterResult = {
   participation: Participation;
+  /**
+   * 読み込んだ判断 batch そのもの。
+   *
+   * **clock の seed に要る** — 次に判断を書くとき、判断ログの最大 clock まで引き上げて
+   * から発番しないとグラフ側の clock と衝突する (`appendJudgment`)。呼び出し側が
+   * 取り直すと二重に読むうえ、その間に増えた分とずれる。
+   */
+  batches: JudgmentBatch[];
   /** 実際に読んだ repo */
   readRepos: Did[];
   /**
@@ -127,5 +135,5 @@ export async function readRoster(
     participation = await fold();
   }
 
-  return { participation, readRepos, unreadable };
+  return { participation, batches, readRepos, unreadable };
 }

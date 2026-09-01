@@ -1,5 +1,6 @@
 import {
   BRANCH_STATUS,
+  type FileId,
   type GraphFile,
   type Sheet,
   type SheetId,
@@ -20,8 +21,11 @@ import {
 } from './hooks/useBranchOperations';
 import type { UndoState } from './hooks/useEventStore';
 import { useFileSheetOperations } from './hooks/useFileSheetOperations';
+import { useParticipation } from './hooks/useParticipation';
 import { useRemoteSyncQueue } from './hooks/useRemoteSyncQueue';
 import { InputDialog } from './InputDialog';
+import { InvitationDialog } from './InvitationDialog';
+import { ParticipateDialog } from './ParticipateDialog';
 import { FLOATING_UI_Z_INDEX } from './SettingsPopup';
 import { Sidebar } from './Sidebar';
 import { generateId } from './uuid';
@@ -53,6 +57,9 @@ export default function App() {
 
   // remote (ATProto) 送信キュー。未ログイン時は null → tap は local-only (W3d5-5)
   const remoteQueue = useRemoteSyncQueue(atprotoSession);
+  /** 共同作業者ダイアログの対象 File (step2 Phase 1)。null なら閉じている */
+  const [invitationFileId, setInvitationFileId] = useState<FileId | null>(null);
+  const [participateOpen, setParticipateOpen] = useState(false);
 
   // batch の操作主体 `<did>#<deviceId>`。端末まで一意にすることで、受信時に因果順序と
   // 重複排除の単位を識別できる (Phase 4d-2)
@@ -153,6 +160,18 @@ export default function App() {
   ]);
 
   // Phase 6 p6-4: セッション確立後の PDS legacy file レコード同期 (`loadAtprotoFiles`)
+  /**
+   * 名簿の操作 (step2 Phase 1)。
+   *
+   * **clock は `fileOps.trunkClock` を渡す。**判断ログとグラフの op-log は同じ clock 空間を
+   * 共有しなければならない — pre 条件が「この操作より前」を含むので、別空間にすると
+   * 承認が済んでいるのに正当な再 merge が落ちる (U6-P2 スパイク)。
+   */
+  const participation = useParticipation({
+    actor,
+    clock: fileOps.trunkClock,
+  });
+
   // は撤去した。リモートのファイル発見は `useFileSheetOperations` 内の
   // `discoverRemoteFiles` (op-log 経路) に一本化されている (設計 §3.8)。
 
@@ -193,7 +212,58 @@ export default function App() {
         onAtprotoLogout={atprotoLogout}
         remoteQueue={remoteQueue}
         onSyncNow={fileOps.syncNow}
+        // 名簿は DID 単位なので、ログイン中でなければ何も出せない
+        onOpenInvitation={
+          atprotoSession
+            ? (fileId) => {
+                setInvitationFileId(fileId as FileId);
+                participation.refresh(fileId as FileId);
+              }
+            : undefined
+        }
+        onOpenParticipate={
+          atprotoSession ? () => setParticipateOpen(true) : undefined
+        }
       />
+      {invitationFileId && (
+        <InvitationDialog
+          fileName={
+            fileOps.files.find((f) => f.id === invitationFileId)?.name ?? ''
+          }
+          rows={participation.state.rows}
+          unreadable={participation.state.unreadable}
+          busy={participation.state.busy}
+          error={participation.state.error}
+          codeFor={(did) => participation.codeFor(invitationFileId, did)}
+          onGenerate={(handle) =>
+            participation.invite(invitationFileId, handle)
+          }
+          onAction={(action, did) =>
+            participation.act(invitationFileId, action, did)
+          }
+          onClose={() => {
+            setInvitationFileId(null);
+            participation.reset();
+          }}
+        />
+      )}
+      {participateOpen && (
+        <ParticipateDialog
+          busy={participation.state.busy}
+          error={participation.state.error}
+          onSubmit={(code) => {
+            participation.participate(code).then((fileId) => {
+              if (!fileId) return;
+              setParticipateOpen(false);
+              participation.reset();
+            });
+          }}
+          onCancel={() => {
+            setParticipateOpen(false);
+            participation.reset();
+          }}
+        />
+      )}
       <main style={{ flex: 1 }}>
         {fileOps.activeFile && fileOps.activeSheetId ? (
           <GraphEditor
