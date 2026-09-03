@@ -17,12 +17,16 @@ import type {
   FileId,
   JudgmentBatch,
   JudgmentOp,
+  RejectedJudgment,
+  RejectReason,
 } from '@conversensus/shared';
 import { didFromActor } from '@conversensus/shared';
 import { useCallback, useRef, useState } from 'react';
+import { fetchBatches } from '../api';
 import { resolveHandle } from '../atproto/identity';
 import { loadRoster, putJudgment } from '../atproto/judgmentStore';
 import { appendJudgment } from '../sync/appendJudgment';
+import { ensureOwnGenesis } from '../sync/ensureOwnGenesis';
 import type { DecodeFailure } from '../sync/participationCode';
 import {
   decodeParticipationCode,
@@ -36,6 +40,14 @@ export type ParticipationState = {
   rows: RosterRow[];
   /** 読めなかった repo。名簿が欠けている可能性を画面に出すために持つ */
   unreadable: Did[];
+  /**
+   * 畳み込みが捨てた判断の要約。**空でなければ画面に出す。**
+   *
+   * 捨てられた承認は `invalid` の行になるが、**捨てられた招待は行を持たない** —
+   * 招待された人は名簿のどこにも現れないからである。理由を出さないと
+   * 「招待したのに表が空のまま」が原因不明のまま残る (2026-09-03 に実際に起きた)。
+   */
+  rejectedNote: string | null;
   /** 今わかっている判断ログ。**clock の seed に使うので捨ててはならない** */
   known: JudgmentBatch[];
   busy: boolean;
@@ -45,6 +57,7 @@ export type ParticipationState = {
 const EMPTY: ParticipationState = {
   rows: [],
   unreadable: [],
+  rejectedNote: null,
   known: [],
   busy: false,
   error: null,
@@ -76,11 +89,24 @@ export function useParticipation({
     async (fileId: FileId) => {
       setState((s) => ({ ...s, busy: true, error: null }));
       try {
-        const result = await loadRoster({ fileId, seed: viewer });
+        let result = await loadRoster({ fileId, seed: viewer });
+        // **起点が無ければ置いてから畳む。**起点の無い File では招待が 1 件残らず
+        // `issuerNotParticipating` で捨てられ、名簿が永久に空になる。自分だけで
+        // 書かれた File なら起点は自分にあるので、その場で置いて読み直す
+        if (
+          await ensureOwnGenesis(
+            { fetchBatches, putJudgment, actor },
+            fileId,
+            result.batches,
+          )
+        ) {
+          result = await loadRoster({ fileId, seed: viewer });
+        }
         knownRef.current = result.batches;
         setState({
           rows: rosterRows(result.participation, viewer),
           unreadable: result.unreadable.map((u) => u.did),
+          rejectedNote: describeRejected(result.participation.rejected),
           known: result.batches,
           busy: false,
           error: null,
@@ -89,7 +115,7 @@ export function useParticipation({
         setState((s) => ({ ...s, busy: false, error: describe(error) }));
       }
     },
-    [viewer],
+    [viewer, actor],
   );
 
   const write = useCallback(
@@ -236,6 +262,34 @@ export function useParticipation({
   }, []);
 
   return { state, refresh, invite, act, participate, codeFor, reset };
+}
+
+/** 判断を捨てた理由を、何が起きたか分かる文にする */
+const REJECT_REASON_LABEL: Record<RejectReason, string> = {
+  issuerNotParticipating: '発行者が参加者でない',
+  issuerNotInvited: '発行者が招待されていない',
+  targetNotInRoster: '対象が名簿にいない',
+  targetAlreadyParticipating: '対象は既に参加者',
+  targetForeignPds: '対象が別の PDS のアカウント',
+  duplicateGenesis: '起点が二重',
+};
+
+/**
+ * 捨てた判断の要約。1 件も無ければ `null`。
+ *
+ * 理由ごとにまとめる — 同じ理由で 10 件落ちたときに 10 行出しても読めない。
+ */
+function describeRejected(
+  rejected: readonly RejectedJudgment[],
+): string | null {
+  if (rejected.length === 0) return null;
+  const counts = new Map<RejectReason, number>();
+  for (const r of rejected)
+    counts.set(r.reason, (counts.get(r.reason) ?? 0) + 1);
+  const parts = [...counts].map(
+    ([reason, n]) => `${n} 件 (${REJECT_REASON_LABEL[reason]})`,
+  );
+  return `名簿に反映できなかった判断がある: ${parts.join(', ')}`;
 }
 
 /** 復号の失敗理由を、ユーザにしてもらうことが分かる文にする */

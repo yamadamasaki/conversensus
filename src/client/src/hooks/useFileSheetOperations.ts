@@ -5,6 +5,8 @@ import {
   type FileId,
   type GraphFile,
   type GraphFileListItem,
+  LOCAL_DID,
+  participationGenesisBatch,
   projectFile,
   type SheetId,
 } from '@conversensus/shared';
@@ -288,10 +290,28 @@ export function useFileSheetOperations({
       setActiveSheetId((file.sheets[0]?.id ?? null) as SheetId | null);
       setExpandedFileIds((prev) => new Set([...prev, created.id]));
       setNewFileName('');
+      // 名簿の起点を置く (step2 Phase 1)。**作成のこの瞬間だけが「誰が作ったか」を
+      // 知っている** — グラフの op-log に作成者は載らない (計画の事実 7)。起点が無い
+      // File では招待が 1 件残らず pre 条件で捨てられ、名簿が永久に空になる。
+      //
+      // ログイン前は DID が無いので置けない。その File は次に名簿を開いたときに
+      // `ensureOwnGenesis` が拾う。**失敗しても File の作成は成功として扱う** —
+      // 同じ理由で拾い直せるので、ここで巻き戻す筋合いが無い
+      if (didFromActor(actor) !== LOCAL_DID) {
+        putJudgment(
+          created.id as FileId,
+          participationGenesisBatch(created.id, actor),
+        ).catch((err) =>
+          console.warn(
+            '[participation] 起点を置けなかった (次に名簿を開いたとき置き直す):',
+            err,
+          ),
+        );
+      }
     } catch (err) {
       console.error('Failed to create file:', err);
     }
-  }, [newFileName, deps, loadFile]);
+  }, [newFileName, deps, loadFile, actor]);
 
   /**
    * 画面 state を進める (Phase 6 p6-3, 設計 §3.6)。**永続化はしない**。

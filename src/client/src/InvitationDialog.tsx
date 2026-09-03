@@ -39,6 +39,11 @@ type Props = {
    * 黙って隠すと「招待したのに相手が出てこない」が理由不明のまま残る
    */
   unreadable: Did[];
+  /**
+   * 畳み込みが捨てた判断の要約。**空でなければ出す。**捨てられた招待は行を持たない
+   * ので、これが無いと「招待したのに表が空のまま」が原因不明のまま残る
+   */
+  rejectedNote?: string | null;
   /** 招待済の行に出す参加コード。無ければ copy ボタンを出さない */
   codeFor: (did: Did) => string | null;
   onGenerate: (handle: string) => void;
@@ -52,6 +57,7 @@ export function InvitationDialog({
   fileName,
   rows,
   unreadable,
+  rejectedNote = null,
   codeFor,
   onGenerate,
   onAction,
@@ -129,6 +135,15 @@ export function InvitationDialog({
           >
             {unreadable.length}{' '}
             人分の記録が読めなかった。名簿が欠けている可能性がある。
+          </p>
+        )}
+
+        {rejectedNote && (
+          <p
+            role="status"
+            style={{ margin: '0 0 12px', fontSize: 12, color: '#a60' }}
+          >
+            {rejectedNote}
           </p>
         )}
 

@@ -232,6 +232,7 @@ export default function App() {
           }
           rows={participation.state.rows}
           unreadable={participation.state.unreadable}
+          rejectedNote={participation.state.rejectedNote}
           busy={participation.state.busy}
           error={participation.state.error}
           codeFor={(did) => participation.codeFor(invitationFileId, did)}
