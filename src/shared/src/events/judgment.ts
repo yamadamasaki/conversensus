@@ -1,0 +1,149 @@
+/**
+ * 判断ログの語彙 (step2 Phase 1)
+ *
+ * 設計: `deepse/plans/step2-phase1-participation.md`
+ * 仕様: `deepse/requirements/spec/participation.md`
+ *
+ * グラフの op-log とは**別の collection** に置く。理由は畳み込みの意味論が違うことで、
+ * ここの op は **pre 条件を検証して満たさないものを捨てる**が、グラフの op は
+ * LWW / add-wins で解決するので「無効な op」という概念がない
+ * (`deepse/architecture/step2.md` §3)。
+ *
+ * **「名簿」ではなく「判断ログ」として広く切ってある。** DtR の承認 (Phase 6) も同じ
+ * 「検証して捨てる」畳み込みなので、名簿専用に切ると 3 つ目の collection が要る。
+ * `dtr.*` の op はこの union に後から加わる。
+ *
+ * **clock 空間はグラフの op-log と共有する。** pre 条件が「この操作より前」を含む以上、
+ * 2 つのログを同じ物差しで並べられなければならない (`deepse/spikes/u6-p2-report.md` の
+ * 検証 5)。ここに独立した採番を作ってはならない。
+ */
+
+import { z } from 'zod';
+import { deterministicUuid } from './genesis';
+import { type Actor, BatchIdSchema, type Lamport } from './unified';
+
+/**
+ * 判断の主体・対象となる DID。
+ *
+ * `schemas.ts` の `Did` は `string` のエイリアスだが、ここでは**空でないこと**だけ
+ * 課す。DID の書式そのものを検証しないのは、`did:plc:` / `did:web:` など方式が
+ * 複数あり、しかも「自分の PDS に属するか」は書式では決まらないためである
+ * (それは pre 条件として `foldParticipation` が判定する)。
+ */
+export const JudgmentDidSchema = z.string().min(1);
+
+/**
+ * 判断 op
+ *
+ * **取り消し (`revoke`) は承認の前後を問わず 1 つの op である** (仕様の決定)。
+ * 招待の取り消しと参加の取り消しを別の op にすると、境界に「どちらでもない」状態が
+ * 生まれる。
+ *
+ * **招待を断る op は無い** (仕様)。承認しなければよい。
+ *
+ * `target` を持つのは他者に働きかける 2 つだけで、残りは**発行者自身**が対象である
+ * (発行者は batch の `actor` から DID を取り出して決まる)。
+ */
+export const JudgmentOpSchema = z.discriminatedUnion('kind', [
+  /**
+   * この File の最初の参加者を宣言する (事実 7 の答え)。
+   *
+   * `file.create` op が無く genesis batch の actor は固定値なので、**作成者の DID が
+   * グラフの op-log のどこにも載っていない**。名簿の起点は名簿の中に置く —
+   * グラフ側から取り出そうとすると、判断の畳み込みがグラフの畳み込みに依存して
+   * 一方向性が崩れる (`deepse/spikes/u6-p2-report.md`)。
+   *
+   * 自己申告でよいのは、名簿の読み出しに起点があり、**起点と繋がっていない genesis は
+   * そもそも読まれない**からである (`deepse/architecture/step2.md` §2)。
+   */
+  z.object({ kind: z.literal('participation.genesis') }),
+  /** 発行者が `target` を招待する */
+  z.object({
+    kind: z.literal('participation.invite'),
+    target: JudgmentDidSchema,
+  }),
+  /**
+   * 発行者が自分への招待を承認する。
+   *
+   * **`inviter` は「どこを読めば招待が見つかるか」の道しるべである。**
+   *
+   * これが無いと、被招待者の手元から名簿が作れない。承認は自分の repo にあるが、
+   * genesis も invite も招待者の repo にあるので、**自分を起点にしても辿る先が無い**
+   * (実機で発覚: 招待された側の名簿が空になった)。不動点計算に「自分 → 招待者」の辺が
+   * 要る。
+   *
+   * **pre 条件には使わない。**承認が有効かどうかは「招待済の集合に居るか」だけで決まる。
+   * ここを検証に使うと、再招待で招待者が変わったときに正当な承認が落ちる。
+   * あくまで読む先を示すだけの値である。
+   */
+  z.object({
+    kind: z.literal('participation.accept'),
+    inviter: JudgmentDidSchema,
+  }),
+  /** 発行者が自分の参加を取りやめる */
+  z.object({ kind: z.literal('participation.resign') }),
+  /** 発行者が `target` の招待/参加を取り消す */
+  z.object({
+    kind: z.literal('participation.revoke'),
+    target: JudgmentDidSchema,
+  }),
+]);
+export type JudgmentOp = z.infer<typeof JudgmentOpSchema>;
+export type JudgmentOpKind = JudgmentOp['kind'];
+
+/**
+ * 判断 batch。**グラフの `Batch` と同じ形にしてある。**
+ *
+ * op 単位のレコードにしないのは、(1)「招待して同時に別の誰かを取り消す」のような
+ * 複数 op の原子性が要ること、(2) clock を batch が持つのでグラフ側の batch と
+ * 同じ規則 (`compareByClockActorId`) で並べられること、による。
+ *
+ * `sheetId` を持たない — 判断は File 単位であってシート単位ではない。
+ * fileId を持たないのもグラフ側と同じで、**rkey が運ぶ** (`v1~<fileId>~…`)。
+ */
+export const JudgmentBatchSchema = z.object({
+  id: BatchIdSchema,
+  actor: z.string(),
+  clock: z.number().int().nonnegative(),
+  /** wall clock (表示用。順序付けには使わない) */
+  timestamp: z.number().int().nonnegative(),
+  ops: z.array(JudgmentOpSchema).min(1),
+});
+export type JudgmentBatch = z.infer<typeof JudgmentBatchSchema>;
+
+/**
+ * 判断ログの genesis に与える clock。**あらゆるグラフ op より前**である。
+ *
+ * 「file を作った actor が自動的に参加する」以上、参加は File の存在そのものと同時に
+ * 始まる。genesis に後の clock を与えると、**その actor 自身の過去の op が参加期間の
+ * 外に落ちる** — Phase 2 の「参加していた期間の op-log だけを同期する」で消えてしまう。
+ *
+ * 0 を使えるのは `LamportClock.tick()` が 1 から始まり、グラフの genesis も
+ * `GENESIS_CLOCK_START = 1` だからである。**0 は誰にも割り当てられない。**
+ */
+export const JUDGMENT_GENESIS_CLOCK: Lamport = 0;
+
+/**
+ * 判断ログの genesis batch を組み立てる (step2 Phase 1)。
+ *
+ * **id は fileId と actor から決定論的に導く。**rkey は batch の id から決まるので、
+ * 乱数だと bootstrap を 2 度走らせただけでレコードが 2 つになり、畳み込みが 2 つ目を
+ * `duplicateGenesis` で捨てる — 結果は正しいが、消えないゴミが残る。
+ *
+ * `timestamp` も 0 に固定する。決定論のためであり、グラフの `GENESIS_TIMESTAMP` と
+ * 同じ理由である (timestamp は表示用で順序付けには使わない)。
+ */
+export function participationGenesisBatch(
+  fileId: string,
+  actor: Actor,
+): JudgmentBatch {
+  return {
+    id: BatchIdSchema.parse(
+      deterministicUuid(`participation.genesis:${fileId}:${actor}`),
+    ),
+    actor,
+    clock: JUDGMENT_GENESIS_CLOCK,
+    timestamp: 0,
+    ops: [{ kind: 'participation.genesis' }],
+  };
+}

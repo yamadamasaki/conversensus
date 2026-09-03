@@ -155,6 +155,24 @@ rm -f data/*.json data/events.db*
 
 `data/` は gitignore 済みなので, 消してもリポジトリには影響しない. 次回 `dev:server` 起動時に `events.db` は自動的に再作成される.
 
+### 4.3 PDS 側も消す
+
+`data/` を消すのは**この端末のローカル正典だけ**である. PDS 上のレコードは残るので,
+次に同期すると戻ってくる. remote まで空にしたいなら:
+
+```shell
+ATPROTO_IDENTIFIER=alice.test ATPROTO_PASSWORD=devpassword123 \
+  bun run clear-pds-data          # DRY_RUN=1 を付けると件数だけ表示する
+```
+
+アカウント情報は残り, アプリケーションのレコードだけが消える. **アカウントごとに実行する**
+— repo はアカウント単位なので, `bob.test` の分は別に消す必要がある.
+
+> **step2 の多アクタ検証では消し残しが効く.** 他 actor の repo に古い batch や判断が
+> 残っていると, それがそのまま名簿と projection に入る. 「なぜこの人が参加者なのか」が
+> 分からなくなったら, まず両方の repo を空にしてやり直すこと.
+
+
 ## 5. 2 人目 (actor B) — 別アカウントで動かす (step2 Phase 0)
 
 §5 の device B は **同じアカウント (同じ DID) の 2 台目**である. step2 の多アクタ同期は

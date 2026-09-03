@@ -5,6 +5,8 @@ import {
   type FileId,
   type GraphFile,
   type GraphFileListItem,
+  LOCAL_DID,
+  participationGenesisBatch,
   projectFile,
   type SheetId,
 } from '@conversensus/shared';
@@ -17,12 +19,18 @@ import {
   pushReceivedBatches,
 } from '../api';
 import { FanoutSyncProvider } from '../atproto/fanoutSyncProvider';
+import { listJudgmentFileIds, putJudgment } from '../atproto/judgmentStore';
 import type { RemoteSyncQueue } from '../atproto/remoteSyncQueue';
 import type { GraphEvent } from '../events/GraphEvent';
 import { makeEventBase } from '../events/GraphEvent';
 import { exportFile, importFile } from '../files/fileTransfer';
 import type { PopupTarget } from '../SettingsPopup';
 import { didFromActor } from '../sync/actor';
+import {
+  bootstrapParticipation,
+  hasParticipationBootstrapped,
+  markParticipationBootstrapped,
+} from '../sync/bootstrapParticipation';
 import { discoverRemoteFiles } from '../sync/discoverRemoteFiles';
 import { deleteFileByTombstone } from '../sync/fileDeletion';
 import { LocalServerSyncProvider } from '../sync/localServerSyncProvider';
@@ -282,10 +290,28 @@ export function useFileSheetOperations({
       setActiveSheetId((file.sheets[0]?.id ?? null) as SheetId | null);
       setExpandedFileIds((prev) => new Set([...prev, created.id]));
       setNewFileName('');
+      // 名簿の起点を置く (step2 Phase 1)。**作成のこの瞬間だけが「誰が作ったか」を
+      // 知っている** — グラフの op-log に作成者は載らない (計画の事実 7)。起点が無い
+      // File では招待が 1 件残らず pre 条件で捨てられ、名簿が永久に空になる。
+      //
+      // ログイン前は DID が無いので置けない。その File は次に名簿を開いたときに
+      // `ensureOwnGenesis` が拾う。**失敗しても File の作成は成功として扱う** —
+      // 同じ理由で拾い直せるので、ここで巻き戻す筋合いが無い
+      if (didFromActor(actor) !== LOCAL_DID) {
+        putJudgment(
+          created.id as FileId,
+          participationGenesisBatch(created.id, actor),
+        ).catch((err) =>
+          console.warn(
+            '[participation] 起点を置けなかった (次に名簿を開いたとき置き直す):',
+            err,
+          ),
+        );
+      }
     } catch (err) {
       console.error('Failed to create file:', err);
     }
-  }, [newFileName, deps, loadFile]);
+  }, [newFileName, deps, loadFile, actor]);
 
   /**
    * 画面 state を進める (Phase 6 p6-3, 設計 §3.6)。**永続化はしない**。
@@ -569,8 +595,10 @@ export function useFileSheetOperations({
           ),
         );
 
+    // **Promise を返す。**`finally` のコールバックが thenable を返したときだけ
+    // 後段がそれを待つ。返さないと名簿の bootstrap が発見の完了前に走る
     const discover = () => {
-      discoverRemoteFiles({
+      return discoverRemoteFiles({
         // 列挙 → 未知ファイルだけ取得 (Phase 7 p7-3)。既知ファイルの batch は落とさない。
         // 列挙は「remote 側で削除済みか」も返す (ANA-127 S3) ので、他端末で削除された
         // ファイルはここで弾かれ、この端末に materialize されない
@@ -602,9 +630,44 @@ export function useFileSheetOperations({
           console.warn('[sync] remote file discovery failed:', error),
         );
     };
-    // 移行 → 発見の順に走らせる。移行の成否によらず発見は必ず実行する
+    // 名簿の起点を既存 File に置く (step2 Phase 1)。
+    //
+    // **発見の後に走らせる。**発見が materialize した File にも起点が要るのに、
+    // 先に走らせると marker が立って二度と拾えなくなる。step1 の発見は自分の repo
+    // からしか拾わないので、materialize された File も自分のものである。
+    //
+    // 手続きはべき等 (genesis の id が fileId と actor から決まる) なので、
+    // 失敗しても marker が立たず次の契機で再試行される。
+    const bootstrap = () =>
+      bootstrapParticipation({
+        listLocalFileIds: deps.fetchLocalFileIds,
+        fetchBatches: deps.fetchBatches,
+        listJudgmentFileIds: () => listJudgmentFileIds(),
+        putJudgment,
+        actor,
+        hasBootstrapped: () => hasParticipationBootstrapped(did),
+        markBootstrapped: () => markParticipationBootstrapped(did),
+      })
+        .then((result) => {
+          if (result.status === 'already-bootstrapped') return;
+          // 無言で済ませない — 1 回きりなので記録が残る形で出す
+          console.info(
+            `[participation] bootstrap done: wrote ${result.wrote} genesis, ` +
+              `skipped ${result.skippedExisting} existing / ` +
+              `${result.skippedForeign} foreign / ` +
+              `${result.skippedDeleted} deleted in ${result.elapsedMs}ms`,
+          );
+        })
+        .catch((error) =>
+          console.warn(
+            '[participation] bootstrap failed (will retry on the next start):',
+            error,
+          ),
+        );
+
+    // 移行 → 発見 → 名簿の起点の順に走らせる。前段の成否によらず後段は必ず実行する
     const sync = () => {
-      migrate().finally(discover);
+      migrate().finally(discover).finally(bootstrap);
     };
     sync();
     window.addEventListener('online', sync);

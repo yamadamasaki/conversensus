@@ -1,16 +1,5 @@
-import { afterEach, describe, expect, it, mock } from 'bun:test';
+import { afterEach, describe, expect, it } from 'bun:test';
 import type { Batch, NodeId } from '@conversensus/shared';
-
-// zod を先にモックする (./atproto 経由で推移的に読まれる)
-const zodProxy: Record<string, unknown> = new Proxy(() => zodProxy, {
-  get: () => zodProxy,
-  apply: () => zodProxy,
-}) as unknown as Record<string, unknown>;
-
-mock.module('zod', () => ({
-  z: zodProxy,
-  default: zodProxy,
-}));
 
 const { render, screen, fireEvent, act, cleanup } = await import(
   '@testing-library/react'

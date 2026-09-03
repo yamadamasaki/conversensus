@@ -1,0 +1,42 @@
+{
+  "lexicon": 1,
+  "id": "app.conversensus.graph.judgment",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "A judgment-log batch: operations whose fold VALIDATES A PRECONDITION and DISCARDS anything that fails it (roster changes now; DtR approvals from step2 Phase 6). Kept in a separate collection from app.conversensus.graph.batch because the two folds have different semantics — graph ops resolve by LWW / add-wins and have no notion of an invalid op, while these do. rkey = v1~<fileId>~<clock, 12-digit zero-padded>~<BatchId>, the same scheme as the graph batch collection so that one file's judgments can be range-fetched from another actor's repo. The Lamport clock space is SHARED with the graph op-log: preconditions say 'recorded before this operation', so the two logs must be orderable against one another (step2 Phase 0, U6-P2 spike).",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": ["fileId", "actor", "clock", "timestamp", "ops", "createdAt"],
+        "properties": {
+          "fileId": {
+            "type": "string",
+            "description": "The file this judgment belongs to (UUID). Required for the same reason as on graph batches: the collection is repo-wide, so the record must carry its own scope."
+          },
+          "actor": {
+            "type": "string",
+            "description": "Lamport actor (did#deviceId). NOTE: the roster is keyed by DID, not by actor — the fold reduces actor to its DID so that a second device of the same person is not a second participant."
+          },
+          "clock": {
+            "type": "integer",
+            "description": "Lamport logical clock, in the SAME clock space as app.conversensus.graph.batch. Do not introduce a separate counter here."
+          },
+          "timestamp": {
+            "type": "integer",
+            "description": "Wall-clock milliseconds since epoch (display only; never used for ordering)."
+          },
+          "ops": {
+            "type": "unknown",
+            "description": "Serialized JudgmentOp[]. Currently participation.genesis / .invite / .accept / .resign / .revoke; DtR approval ops join this union in step2 Phase 6."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime",
+            "description": "Timestamp of record creation (ISO 8601)."
+          }
+        }
+      }
+    }
+  }
+}

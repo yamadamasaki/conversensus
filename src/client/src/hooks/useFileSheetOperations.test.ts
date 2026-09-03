@@ -1,17 +1,6 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test';
 import type { ConversensusFile, FileId, SheetId } from '@conversensus/shared';
 
-// Mock zod before module imports (imported transitively via ../api and atproto packages)
-const zodProxy: Record<string, unknown> = new Proxy(() => zodProxy, {
-  get: () => zodProxy,
-  apply: () => zodProxy,
-}) as unknown as Record<string, unknown>;
-
-mock.module('zod', () => ({
-  z: zodProxy,
-  default: zodProxy,
-}));
-
 const { renderHook, act, cleanup } = await import('@testing-library/react');
 const { useFileSheetOperations } = await import('./useFileSheetOperations');
 const { createInMemoryFileSheetOpsDeps } = await import(

@@ -49,6 +49,13 @@ type Props = {
   remoteQueue: RemoteSyncQueue | null;
   /** 「今すぐ同期」で走らせる送受信 (#202)。送信だけでは他所の変更が取れない */
   onSyncNow: () => Promise<void>;
+  /**
+   * 共同作業者ダイアログを開く (step2 Phase 1)。
+   * **ログイン中でなければ渡さない** — 名簿は DID 単位なので、DID が無いと何も出せない
+   */
+  onOpenInvitation?: (fileId: string) => void;
+  /** 参加コードを貼るダイアログを開く (step2 Phase 1) */
+  onOpenParticipate?: () => void;
 };
 
 const gearBtnStyle: React.CSSProperties = {
@@ -94,6 +101,8 @@ export function Sidebar({
   onAtprotoLogout,
   remoteQueue,
   onSyncNow,
+  onOpenInvitation,
+  onOpenParticipate,
 }: Props) {
   const newFileComposingRef = useRef(false);
   const importInputRef = useRef<HTMLInputElement>(null);
@@ -193,6 +202,17 @@ export function Sidebar({
         >
           ↑
         </button>
+        {/* 参加コードを貼って共同作業に加わる (step2 Phase 1) */}
+        {onOpenParticipate && (
+          <button
+            type="button"
+            title="参加コードで参加する"
+            onClick={onOpenParticipate}
+            style={{ padding: '4px 8px', fontSize: 13 }}
+          >
+            ⇥
+          </button>
+        )}
       </div>
 
       {/* ファイル一覧 */}
@@ -271,6 +291,22 @@ export function Sidebar({
                 >
                   {f.name}
                 </button>
+
+                {/* 共同作業者 (step2 Phase 1)。ログイン中のファイル行にだけ出す */}
+                {onOpenInvitation && (
+                  <button
+                    type="button"
+                    title="共同作業者"
+                    style={gearBtnStyle}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (!isActiveFile) onOpenFile(f.id);
+                      onOpenInvitation(f.id);
+                    }}
+                  >
+                    👥
+                  </button>
+                )}
 
                 {/* ギアボタン */}
                 <button
