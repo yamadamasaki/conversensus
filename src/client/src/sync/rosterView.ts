@@ -78,6 +78,35 @@ export function rosterRows(
   return [...rows.values()].sort((a, b) => a.did.localeCompare(b.did));
 }
 
+/**
+ * 一覧に出る DID をすべて集める (自分の DID と依頼者の DID)。
+ *
+ * **行から集める。**名簿から集め直すと、行を組む条件と食い違ったときに
+ * 「表には出ているのに名前が引かれていない」DID が生まれる。
+ */
+export function rosterDids(rows: readonly RosterRow[]): Did[] {
+  const dids: Did[] = [];
+  for (const row of rows) {
+    dids.push(row.did);
+    if (row.inviter) dids.push(row.inviter);
+  }
+  return dids;
+}
+
+/**
+ * ハンドル名で並べ替える (仕様の「参加者のハンドル名のアルファベットでソート」)。
+ *
+ * **並べ替えは名前を引いた後にしかできない。**`rosterRows` が DID 順で返すのは、
+ * 名前が引けるまでの間も順序が決まっている必要があるからである (引けなかった DID は
+ * `labelOf` が DID をそのまま返すので、その行だけ DID で並ぶ)。
+ */
+export function sortRowsByLabel(
+  rows: readonly RosterRow[],
+  labelOf: (did: Did) => string,
+): RosterRow[] {
+  return [...rows].sort((a, b) => labelOf(a.did).localeCompare(labelOf(b.did)));
+}
+
 /** actor (`<did>#<deviceId>`) から DID を取り出す。名簿は DID 単位である */
 function didOf(actor: string): Did {
   return actor.split('#')[0] ?? actor;

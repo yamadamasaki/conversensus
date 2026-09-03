@@ -23,8 +23,9 @@ import type {
 import { didFromActor } from '@conversensus/shared';
 import { useCallback, useRef, useState } from 'react';
 import { fetchBatches } from '../api';
-import { resolveHandle } from '../atproto/identity';
+import { handleLabels, resolveHandle } from '../atproto/identity';
 import { loadRoster, putJudgment } from '../atproto/judgmentStore';
+import type { LabelResolver } from '../display/labelCache';
 import { appendJudgment } from '../sync/appendJudgment';
 import { ensureOwnGenesis } from '../sync/ensureOwnGenesis';
 import type { DecodeFailure } from '../sync/participationCode';
@@ -33,7 +34,7 @@ import {
   encodeParticipationCode,
 } from '../sync/participationCode';
 import type { RosterAction, RosterRow } from '../sync/rosterView';
-import { rosterRows } from '../sync/rosterView';
+import { rosterDids, rosterRows, sortRowsByLabel } from '../sync/rosterView';
 import type { TapClock } from './useEventSyncTap';
 
 export type ParticipationState = {
@@ -48,6 +49,11 @@ export type ParticipationState = {
    * 「招待したのに表が空のまま」が原因不明のまま残る (2026-09-03 に実際に起きた)。
    */
   rejectedNote: string | null;
+  /**
+   * DID → ハンドル名。**名簿が持つのは DID、画面に出すのはハンドル名**である。
+   * 引けなかった DID は DID のまま返る (`labelCache`)
+   */
+  labelOf: LabelResolver<Did>;
   /** 今わかっている判断ログ。**clock の seed に使うので捨ててはならない** */
   known: JudgmentBatch[];
   busy: boolean;
@@ -58,6 +64,7 @@ const EMPTY: ParticipationState = {
   rows: [],
   unreadable: [],
   rejectedNote: null,
+  labelOf: (did) => did,
   known: [],
   busy: false,
   error: null,
@@ -103,10 +110,15 @@ export function useParticipation({
           result = await loadRoster({ fileId, seed: viewer });
         }
         knownRef.current = result.batches;
+        // **描画の前にまとめて名前を引き、描画には同期の関数だけを渡す**
+        // (`labelCache`)。行ごとに待つと表がちらつき、失敗の扱いが行ごとにばらける
+        const rows = rosterRows(result.participation, viewer);
+        const labelOf = await handleLabels.resolve(rosterDids(rows));
         setState({
-          rows: rosterRows(result.participation, viewer),
+          rows: sortRowsByLabel(rows, labelOf),
           unreadable: result.unreadable.map((u) => u.did),
           rejectedNote: describeRejected(result.participation.rejected),
+          labelOf,
           known: result.batches,
           busy: false,
           error: null,

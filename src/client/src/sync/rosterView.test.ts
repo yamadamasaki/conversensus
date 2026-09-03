@@ -5,7 +5,7 @@ import {
   type JudgmentBatch,
   type JudgmentOp,
 } from '@conversensus/shared';
-import { rosterRows } from './rosterView';
+import { rosterDids, rosterRows, sortRowsByLabel } from './rosterView';
 
 const A = 'did:plc:alice';
 const B = 'did:plc:bob';
@@ -159,5 +159,74 @@ describe('並び', () => {
       A,
     );
     expect(rows.map((r) => r.did)).toEqual([A, B, C]);
+  });
+});
+
+describe('表示名 — 記録は DID, 画面はハンドル名', () => {
+  const HANDLE: Record<string, string> = {
+    [A]: 'zoe.test',
+    [B]: 'bob.test',
+    [C]: 'carol.test',
+  };
+  const labelOf = (did: string) => HANDLE[did] ?? did;
+
+  test('rosterDids は行に出る DID を残らず集める', () => {
+    // **行から集める。**名簿から集め直すと、行を組む条件と食い違ったときに
+    // 「表には出ているのに名前が引かれていない」DID が生まれる
+    const rows = rosterRows(
+      foldParticipation(
+        [
+          jb(A, 1, [{ kind: 'participation.genesis' }]),
+          jb(A, 2, [{ kind: 'participation.invite', target: B }]),
+        ],
+        deps,
+      ),
+      A,
+    );
+    expect(new Set(rosterDids(rows))).toEqual(new Set([A, B]));
+  });
+
+  test('rosterDids は行に出ない DID を集めない', () => {
+    const rows = rosterRows(
+      foldParticipation([jb(A, 1, [{ kind: 'participation.genesis' }])], deps),
+      A,
+    );
+    expect(rosterDids(rows)).toEqual([A]);
+  });
+
+  test('ハンドル名で並べ替える (DID 順とは違う)', () => {
+    // A の DID は alice で最小だが、ハンドル名は zoe.test なので最後に来る
+    const rows = rosterRows(
+      foldParticipation(
+        [
+          jb(A, 1, [{ kind: 'participation.genesis' }]),
+          jb(A, 2, [{ kind: 'participation.invite', target: B }]),
+        ],
+        deps,
+      ),
+      A,
+    );
+    expect(rows.map((r) => r.did)).toEqual([A, B]);
+    expect(sortRowsByLabel(rows, labelOf).map((r) => r.did)).toEqual([B, A]);
+  });
+
+  test('名前が引けなかった行は DID で並ぶ', () => {
+    // `labelOf` が DID をそのまま返すので、その行は DID の文字列として並ぶ
+    // (`did:plc:alice` は `bob.test` より後)。順序が乱れることより、
+    // **引けるまで順序が決まらない状態を作らないこと**を採る
+    const rows = rosterRows(
+      foldParticipation(
+        [
+          jb(A, 1, [{ kind: 'participation.genesis' }]),
+          jb(A, 2, [{ kind: 'participation.invite', target: B }]),
+        ],
+        deps,
+      ),
+      A,
+    );
+    const sorted = sortRowsByLabel(rows, (did) =>
+      did === B ? 'bob.test' : did,
+    );
+    expect(sorted.map((r) => r.did)).toEqual([B, A]);
   });
 });

@@ -4,20 +4,29 @@ import { DIALOG_Z_INDEX } from './ConfirmDialog';
 import type { RosterAction, RosterRow, RosterStatus } from './sync/rosterView';
 
 /**
- * 招待ダイアログ (step2 Phase 1)
+ * 参加者一覧ダイアログ (step2 Phase 1)
  *
- * 仕様: `deepse/requirements/spec/participation.md`「UI の例」
+ * 仕様: `deepse/requirements/spec/participation.md`「参加者一覧 + 参加依頼」
+ *
+ * **用語は「参加依頼」である。**PDS アカウントへの招待と混同させないため、画面に
+ * 「招待」を出さない。識別子 (`participation.invite`, `sent` など) は英語のまま変えて
+ * いない — ATProto のレコードに載る値なので、改称すると移行が要るためである。
  *
  * **判断はここに書かない。**どの action が押せるかは `rosterView` が決めており、
  * ここは `row.available` に無いものをグレイアウトするだけである。取り消しの pre 条件と
  * 画面の活性が食い違うと、押せるのに畳み込みで捨てられるという状態が生まれる。
  */
 
+/**
+ * 状態の表示。**`revoked` と `resigned` を「離脱中」に畳む** — 仕様が
+ * 「自分で辞めたか, 辞めさせられたかは問わない」と定めている。畳み込みは区別を
+ * 持っているが、**画面はそれを使わない** (誰がやったかは参加履歴に出る)
+ */
 const STATUS_LABEL: Record<RosterStatus, string> = {
-  sent: '招待済',
+  sent: '依頼中',
   accepted: '参加中',
-  revoked: '取り消し',
-  resigned: '取りやめ',
+  revoked: '離脱中',
+  resigned: '離脱中',
   invalid: '無効',
 };
 
@@ -27,6 +36,13 @@ const ACTION_LABEL: Record<RosterAction, string> = {
   revoke: '取り消す',
   resign: '参加をやめる',
 };
+
+/** 表示名が引けなかった DID はそのまま出る。長いので折り返せるようにする */
+const ID_CELL = {
+  padding: '6px',
+  fontSize: 12,
+  wordBreak: 'break-all',
+} as const;
 
 /** 一覧に出す action の並び。行ごとに順番が変わると押し間違える */
 const ACTION_ORDER: RosterAction[] = ['preview', 'accept', 'revoke', 'resign'];
@@ -44,7 +60,13 @@ type Props = {
    * ので、これが無いと「招待したのに表が空のまま」が原因不明のまま残る
    */
   rejectedNote?: string | null;
-  /** 招待済の行に出す参加コード。無ければ copy ボタンを出さない */
+  /**
+   * DID → ハンドル名。**名簿が持つのは DID、画面に出すのはハンドル名**である
+   * (記録にハンドル名を持つと、付け替えられた瞬間に嘘になる)。引けなかった DID は
+   * DID のまま返る
+   */
+  labelOf: (did: Did) => string;
+  /** 依頼中の行に出す参加コード。無ければ copy ボタンを出さない */
   codeFor: (did: Did) => string | null;
   onGenerate: (handle: string) => void;
   onAction: (action: RosterAction, did: Did) => void;
@@ -58,6 +80,7 @@ export function InvitationDialog({
   rows,
   unreadable,
   rejectedNote = null,
+  labelOf,
   codeFor,
   onGenerate,
   onAction,
@@ -110,7 +133,7 @@ export function InvitationDialog({
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="共同作業者"
+        aria-label="参加者一覧"
         style={{
           background: '#fff',
           borderRadius: 8,
@@ -123,7 +146,7 @@ export function InvitationDialog({
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => e.stopPropagation()}
       >
-        <h2 style={{ margin: '0 0 4px', fontSize: 16 }}>共同作業者</h2>
+        <h2 style={{ margin: '0 0 4px', fontSize: 16 }}>参加者一覧</h2>
         <p style={{ margin: '0 0 16px', fontSize: 12, color: '#666' }}>
           {fileName}
         </p>
@@ -152,8 +175,8 @@ export function InvitationDialog({
         >
           <thead>
             <tr style={{ textAlign: 'left', color: '#666' }}>
-              <th style={{ padding: '4px 6px' }}>アクタ</th>
-              <th style={{ padding: '4px 6px' }}>招待した人</th>
+              <th style={{ padding: '4px 6px' }}>参加者</th>
+              <th style={{ padding: '4px 6px' }}>依頼者</th>
               <th style={{ padding: '4px 6px' }}>状態</th>
               <th style={{ padding: '4px 6px' }}>操作</th>
             </tr>
@@ -161,23 +184,9 @@ export function InvitationDialog({
           <tbody>
             {rows.map((row) => (
               <tr key={row.did} style={{ borderTop: '1px solid #eee' }}>
-                <td
-                  style={{
-                    padding: '6px',
-                    fontFamily: 'monospace',
-                    fontSize: 11,
-                  }}
-                >
-                  {row.did}
-                </td>
-                <td
-                  style={{
-                    padding: '6px',
-                    fontFamily: 'monospace',
-                    fontSize: 11,
-                  }}
-                >
-                  {row.inviter ?? '—'}
+                <td style={ID_CELL}>{labelOf(row.did)}</td>
+                <td style={ID_CELL}>
+                  {row.inviter ? labelOf(row.inviter) : '—'}
                 </td>
                 <td style={{ padding: '6px' }}>{STATUS_LABEL[row.status]}</td>
                 <td style={{ padding: '6px', whiteSpace: 'nowrap' }}>
@@ -220,7 +229,7 @@ export function InvitationDialog({
           <input
             value={handle}
             aria-label="ハンドル名"
-            placeholder="ハンドル名 (例: bob.test)"
+            placeholder="ハンドル・ネーム (例: bob.test)"
             disabled={busy}
             onChange={(e) => setHandle(e.target.value)}
             onCompositionStart={() => {
@@ -236,7 +245,7 @@ export function InvitationDialog({
             style={{ flex: 1, minWidth: 0, padding: '4px 6px', fontSize: 13 }}
           />
           <button type="button" disabled={busy} onClick={submit}>
-            招待する
+            参加依頼する
           </button>
         </div>
 
