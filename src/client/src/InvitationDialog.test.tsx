@@ -27,7 +27,7 @@ const noop = () => {};
 
 function setup(over: Partial<Parameters<typeof InvitationDialog>[0]> = {}) {
   const actions: Array<[string, string]> = [];
-  const generated: string[] = [];
+  const generated: string[][] = [];
   const histories: string[] = [];
   render(
     <InvitationDialog
@@ -37,7 +37,7 @@ function setup(over: Partial<Parameters<typeof InvitationDialog>[0]> = {}) {
       labelOf={labelOf}
       onOpenHistory={(did) => histories.push(did)}
       codeFor={() => 'CODE'}
-      onGenerate={(h) => generated.push(h)}
+      onGenerate={(hs) => generated.push(hs)}
       onAction={(a, did) => actions.push([a, did])}
       onClose={noop}
       {...over}
@@ -145,17 +145,41 @@ describe('読めなかった repo', () => {
 });
 
 describe('新規の参加依頼', () => {
+  const type = (value: string) =>
+    fireEvent.change(screen.getByLabelText('ハンドル名'), {
+      target: { value },
+    });
+
   it('ハンドル名を渡す (前後の空白は落とす)', () => {
     const { generated } = setup();
-    fireEvent.change(screen.getByLabelText('ハンドル名'), {
-      target: { value: '  bob.test  ' },
-    });
+    type('  bob.test  ');
     fireEvent.click(screen.getByText('参加依頼する'));
-    expect(generated).toEqual(['bob.test']);
+    expect(generated).toEqual([['bob.test']]);
+  });
+
+  it('`,` 区切りでまとめて渡す', () => {
+    const { generated } = setup();
+    type('bob.test, carol.test ,dave.test');
+    fireEvent.click(screen.getByText('参加依頼する'));
+    expect(generated).toEqual([['bob.test', 'carol.test', 'dave.test']]);
+  });
+
+  it('空の要素は落とす — 末尾の `,` で空の依頼を書きに行かない', () => {
+    const { generated } = setup();
+    type('bob.test, , ');
+    fireEvent.click(screen.getByText('参加依頼する'));
+    expect(generated).toEqual([['bob.test']]);
   });
 
   it('空欄では何も起きない', () => {
     const { generated } = setup();
+    fireEvent.click(screen.getByText('参加依頼する'));
+    expect(generated).toEqual([]);
+  });
+
+  it('`,` だけでも何も起きない', () => {
+    const { generated } = setup();
+    type(' , , ');
     fireEvent.click(screen.getByText('参加依頼する'));
     expect(generated).toEqual([]);
   });

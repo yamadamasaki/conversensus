@@ -24,7 +24,11 @@ import type {
 import { didFromActor } from '@conversensus/shared';
 import { useCallback, useRef, useState } from 'react';
 import { fetchBatches } from '../api';
-import { handleLabels, resolveHandle } from '../atproto/identity';
+import {
+  handleLabels,
+  isDidOnThisPds,
+  resolveHandle,
+} from '../atproto/identity';
 import { loadRoster, putJudgment } from '../atproto/judgmentStore';
 import type { LabelResolver } from '../display/labelCache';
 import { appendJudgment } from '../sync/appendJudgment';
@@ -34,6 +38,7 @@ import {
   decodeParticipationCode,
   encodeParticipationCode,
 } from '../sync/participationCode';
+import { planInvitations } from '../sync/planInvitations';
 import type { RosterAction, RosterRow } from '../sync/rosterView';
 import { rosterDids, rosterRows, sortRowsByLabel } from '../sync/rosterView';
 import type { TapClock } from './useEventSyncTap';
@@ -160,22 +165,48 @@ export function useParticipation({
     [actor, clock, newBatchId, refresh],
   );
 
-  /** ハンドル名で招待する。名簿に載るのは DID なので、先に解決する */
+  /**
+   * ハンドル名で参加依頼する。名簿に載るのは DID なので、先に解決する。
+   *
+   * **複数を 1 つの batch で書く。**依頼はまとめて出すもの (仕様: `,` 区切りで並べる)
+   * なので、1 人ずつ batch にすると clock が人数分進み、判断ログが依頼のたびに
+   * 膨らむ。畳み込みは 1 batch の中の op を順に見るので、まとめても結果は変わらない。
+   *
+   * **書く前に確かめる。**見つからないハンドル、既に参加している人、別の PDS の
+   * アカウントは、書いても畳み込みが捨てる。捨てられると分かっているものを書かず、
+   * その場で理由を返す (仕様「その旨をダイアログで知らせる」)。
+   *
+   * **通る分は書く。**5 人中 1 人が見つからないときに 4 人分を捨てると、
+   * 打ち直しになる。通った分を書いて、通らなかった分だけを知らせる。
+   */
   const invite = useCallback(
-    async (fileId: FileId, handle: string) => {
+    async (fileId: FileId, handles: readonly string[]) => {
       setState((s) => ({ ...s, busy: true, error: null }));
-      const did = await resolveHandle(handle);
-      if (!did) {
-        setState((s) => ({
-          ...s,
-          busy: false,
-          error: `ハンドル ${handle} が見つからない`,
-        }));
-        return;
+      const { targets, problems } = await planInvitations(
+        {
+          resolveHandle,
+          isLocalDid: isDidOnThisPds,
+          isParticipating: (did) =>
+            state.rows.some((r) => r.did === did && r.status === 'accepted'),
+        },
+        handles,
+      );
+
+      if (targets.length > 0) {
+        await write(
+          fileId,
+          targets.map((target) => ({
+            kind: 'participation.invite' as const,
+            target,
+          })),
+        );
       }
-      await write(fileId, [{ kind: 'participation.invite', target: did }]);
+      // **`write` の後に置く。**`refresh` が error を消すので、先に置くと消える
+      if (problems.length > 0)
+        setState((s) => ({ ...s, busy: false, error: problems.join('、') }));
+      else if (targets.length === 0) setState((s) => ({ ...s, busy: false }));
     },
-    [write],
+    [state.rows, write],
   );
 
   /** 一覧の action を実行する。`preview` は書き込みを伴わない */

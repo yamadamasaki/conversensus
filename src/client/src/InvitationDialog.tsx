@@ -70,7 +70,8 @@ type Props = {
   onOpenHistory: (did: Did) => void;
   /** 依頼中の行に出す参加コード。無ければ copy ボタンを出さない */
   codeFor: (did: Did) => string | null;
-  onGenerate: (handle: string) => void;
+  /** 参加依頼を出す。**複数まとめて渡す** (`,` 区切りの入力) */
+  onGenerate: (handles: string[]) => void;
   onAction: (action: RosterAction, did: Did) => void;
   onClose: () => void;
   busy?: boolean;
@@ -96,9 +97,14 @@ export function InvitationDialog({
   const composingRef = useRef(false);
 
   const submit = () => {
-    const trimmed = handle.trim();
-    if (!trimmed || busy) return;
-    onGenerate(trimmed);
+    // 仕様: ハンドル名を `,` 区切りで並べて依頼する。空欄は落とす —
+    // 末尾の `,` や打ち間違いで空の依頼を書きに行かない
+    const handles = handle
+      .split(',')
+      .map((h) => h.trim())
+      .filter(Boolean);
+    if (handles.length === 0 || busy) return;
+    onGenerate(handles);
     setHandle('');
   };
 
@@ -243,7 +249,7 @@ export function InvitationDialog({
           <input
             value={handle}
             aria-label="ハンドル名"
-            placeholder="ハンドル・ネーム (例: bob.test)"
+            placeholder="ハンドル・ネーム, ハンドル・ネーム"
             disabled={busy}
             onChange={(e) => setHandle(e.target.value)}
             onCompositionStart={() => {

@@ -243,8 +243,8 @@ export default function App() {
           busy={participation.state.busy}
           error={participation.state.error}
           codeFor={(did) => participation.codeFor(invitationFileId, did)}
-          onGenerate={(handle) =>
-            participation.invite(invitationFileId, handle)
+          onGenerate={(handles) =>
+            participation.invite(invitationFileId, handles)
           }
           onAction={(action, did) =>
             participation.act(invitationFileId, action, did)
