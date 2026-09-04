@@ -213,6 +213,89 @@ bun run src/client/src/spikes/u6/p1.spike.ts
 > 範囲取得 (`listByFile` / `listByRkeyPrefix`) を使うこと. これは単一端末では効率の話
 > だったが, **多アクタでは正しさの話になる**.
 
+### 5.1 2 アカウントで共同編集する (step2 Phase 2)
+
+Phase 2 で「書くのは自分の repo だけ, 読むのは N 人の repo」が動くようになった.
+検証には **alice と bob がそれぞれ自分のデーモンを持つ**構成が要る — ローカル正典は
+端末 (デーモン) ごとなので, 1 つのデーモンを 2 アカウントで共有してはならない.
+
+構成は §6 (device B) と同じで, **ログインするアカウントだけが違う**.
+
+```shell
+# alice 側 (既定)
+bun run dev:server            # :3000, data/
+bun run dev:client            # :5173
+
+# bob 側
+PORT=3001 DATA_DIR=data-b bun run dev:server
+cd src/client && VITE_API_BASE=http://localhost:3001 bunx vite --port 5175 --strictPort
+```
+
+`:5173` で `alice.test`, `:5175` で `bob.test` にログインする (パスワードは両方
+`devpassword123`). セッションは `localStorage` に載るので, **オリジンが違えば同じ
+ブラウザで並べてよい** (`:5173` と `:5175` は別オリジンである).
+
+#### ⚠️ ウィンドウを並べる. タブで重ねない
+
+定期同期は **タブが不可視のとき止まる** (`document.hidden`). 裏で開いたままのタブが
+30 秒ごとに参加者全員の repo を読み続けないための判断だが, **同じウィンドウの別タブに
+すると, 見ていない方が同期しない**. 2 つのウィンドウを並べること (並べていれば,
+フォーカスが無くても `hidden` にはならない).
+
+可視に戻った瞬間には即座に同期が走るので, タブを切り替えた場合も戻せば追いつく.
+
+#### 手順
+
+1. alice で File を作り, ノードをいくつか置く
+2. alice の参加者ダイアログで `bob.test` を依頼し, 参加コードをコピーする
+3. bob の参加ダイアログにコードを貼る → **承認の前に「誰が・あなたを・どのファイルに」が
+   名前で出る** (Phase 1)
+4. 承認する → **bob のサイドバーにその File が現れる** (S3)
+5. 双方で編集して, 30 秒以内に相手の画面へ出ることを見る (S4)
+
+#### 見るもの
+
+| | 観点 | 確かめ方 |
+| --- | --- | --- |
+| 1 | alice の編集が bob のグラフに出る (**完了基準 1**) | 画面 + `[sync] read N participant repo(s)` |
+| 2 | 取り消した後の操作が反映されない (**完了基準 3**) | alice が bob を取り消す → bob が編集 → alice に出ない. `outside period` の数が増える |
+| 3 | 開き直さずに反映される (**#202**) | 同一アカウントの 2 窓でも見られる (§6) |
+| 4 | 相手の無関係な File が並ばない (**U6-P1**) | bob のサイドバーに alice の他の File が無い |
+| 5 | 相手の op-log を複製していない (**S0**) | 下記 |
+
+#### コンソールに出るもの
+
+```
+[sync] read 1 participant repo(s): 12 batch(es) in period, 3 new, 0 outside period
+[participation] joined 1 file(s), 12 batch(es)
+```
+
+`outside period` が 0 でないことは**異常ではない** — 取り消された actor の repo には
+取り消し後の op がそのまま残るので, この数は「それが手元に入っていない」ことの証拠に
+なる (観点 2 の観測点である).
+
+#### 観点 5: 相手の op-log が複製されていないこと
+
+**bob の repo に alice が書いた batch があってはならない.** `catchUp` はローカル正典の
+batch を remote へ積み直すので, 柵 (S0) が無いと受信した alice の分を bob の repo へ
+書き戻してしまう.
+
+```shell
+REPO=bob.test bun run scripts/inspect-remote-batches.ts --dump
+```
+
+`actor=` の欄に出てよいのは **bob の DID** と, File の起源である `genesis` だけである.
+`did:plc:jicee…` (alice) が出たら S0 が効いていない.
+
+#### 参加期間の外を読んでいないこと
+
+alice が bob を取り消した後も, bob の repo のレコードは減らない (相手は消さない).
+alice 側のローカル正典に **取り消し後の bob の batch が入っていない**ことを見る.
+
+```shell
+FILE_ID=<uuid> bun run scripts/inspect-local-oplog.ts --dump
+```
+
 ## 6. 2 台目 (device B) を同じマシンで動かす
 
 remote 同期 (step1 W3d5) の検証では, 「別端末が PDS 経由で受け取れるか」を見たいことがある.
