@@ -1,7 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 import fc from 'fast-check';
 import type { JudgmentBatch, JudgmentOp } from './judgment';
-import { foldParticipation, wasParticipatingAt } from './participation';
+import {
+  foldParticipation,
+  hasEverParticipated,
+  periodsOf,
+  wasParticipatingAt,
+} from './participation';
 import type { BatchId } from './unified';
 
 const A = 'did:plc:alice';
@@ -23,11 +28,13 @@ const jb = (
   clock: number,
   ops: JudgmentOp[],
   device = 'dev-1',
+  /** 表示用の日時。順序付けには使わないので、既定は 0 でよい */
+  timestamp = 0,
 ): JudgmentBatch => ({
   id: bid(),
   actor: `${did}#${device}`,
   clock,
-  timestamp: 0,
+  timestamp,
   ops,
 });
 
@@ -240,8 +247,8 @@ describe('取り消しと参加取りやめ', () => {
     );
     expect(r.departed.has(B)).toBe(false);
     expect([...r.participating].sort()).toEqual([A, B]);
-    // 履歴の方には残る
-    expect(r.history.get(B)).toEqual([{ from: 3, to: 4 }, { from: 6 }]);
+    // 履歴の方には残る (期間は出来事から導く)
+    expect(periodsOf(r, B)).toEqual([{ from: 3, to: 4 }, { from: 6 }]);
   });
 
   test('再招待された時点で「外れている」ではなくなる', () => {
@@ -302,7 +309,58 @@ describe('参加期間', () => {
       ],
       deps,
     );
-    expect(r.history.get(B)).toEqual([{ from: 3, to: 4 }, { from: 6 }]);
+    expect(periodsOf(r, B)).toEqual([{ from: 3, to: 4 }, { from: 6 }]);
+  });
+
+  test('依頼のまま取り消された期間は開かない', () => {
+    // 依頼は参加ではない。参加期間にならないが、**出来事としては残る** —
+    // 参加履歴の「依頼取り止め」列がこれを出す
+    const r = foldParticipation(
+      [jb(A, 1, [genesis()]), jb(A, 2, [invite(B)]), jb(A, 3, [revoke(B)])],
+      deps,
+    );
+    expect(periodsOf(r, B)).toEqual([]);
+    expect(r.history.get(B)?.map((e) => e.kind)).toEqual(['invite', 'revoke']);
+  });
+
+  test('一度も参加していない人と, 依頼されただけの人を区別する', () => {
+    // 仕様「依頼中に依頼が取り止められた場合, 今までに参加したことがなければ
+    // 一覧に表示されない」がこの区別を要る。`history.has` では区別できない
+    const r = foldParticipation(
+      [jb(A, 1, [genesis()]), jb(A, 2, [invite(B)]), jb(A, 3, [revoke(B)])],
+      deps,
+    );
+    expect(r.history.has(B)).toBe(true);
+    expect(hasEverParticipated(r, B)).toBe(false);
+    expect(hasEverParticipated(r, A)).toBe(true);
+  });
+
+  test('出来事は日時と実行者を持つ — 依頼と取り消しは対象と別人である', () => {
+    const r = foldParticipation(
+      [
+        jb(A, 1, [genesis()], 'dev-1', 1000),
+        jb(A, 2, [invite(B)], 'dev-1', 2000),
+        jb(B, 3, [accept()], 'dev-1', 3000),
+        jb(A, 4, [revoke(B)], 'dev-1', 4000),
+      ],
+      deps,
+    );
+    expect(r.history.get(B)).toEqual([
+      { kind: 'invite', clock: 2, timestamp: 2000, by: A },
+      { kind: 'accept', clock: 3, timestamp: 3000, by: B },
+      { kind: 'revoke', clock: 4, timestamp: 4000, by: A },
+    ]);
+  });
+
+  test('捨てられた op は履歴に載らない', () => {
+    // **生の batch から画面側で組んではならない**ことの根拠である。
+    // C は参加していないので、その取り消しは pre 条件で捨てられる
+    const r = foldParticipation(
+      [jb(A, 1, [genesis()]), jb(A, 2, [invite(B)]), jb(C, 3, [revoke(B)])],
+      deps,
+    );
+    expect(r.rejected.map((x) => x.reason)).toEqual(['issuerNotParticipating']);
+    expect(r.history.get(B)?.map((e) => e.kind)).toEqual(['invite']);
   });
 
   test('非参加期間の判定 — Phase 2 の同期フィルタが使う', () => {

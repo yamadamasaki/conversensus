@@ -35,8 +35,45 @@ import {
  *
  * **wall clock ではなく Lamport clock で持つ。**「参加していた期間の op-log だけを
  * 同期する」(Phase 2) の判定に使うので、op-log の位置と同じ物差しでなければならない。
+ *
+ * 期間は `history` の出来事から導く (`periodsOf`)。**書き込み先は出来事だけ**である。
  */
 export type ParticipationPeriod = { from: Lamport; to?: Lamport };
+
+/** 名簿に起きた出来事の種類。op の種類とそのまま対応する */
+export type ParticipationEventKind =
+  | 'genesis'
+  | 'invite'
+  | 'accept'
+  | 'resign'
+  | 'revoke';
+
+/**
+ * 名簿に起きた 1 つの出来事。**採択された op だけが載る。**
+ *
+ * 参加履歴の画面は「依頼日時 / 参加日時 / 取り止め日時と, 誰がそれを行ったか」を出す
+ * (`deepse/requirements/spec/participation.md` の図)。材料は batch の `timestamp` と
+ * `actor` に載っているが、**生の batch から画面側で組んではならない** — pre 条件で
+ * 捨てられた依頼や取り消しまで履歴に出てしまう。「採択された op だけが履歴に載る」以上、
+ * これは畳み込みの仕事である。
+ *
+ * `rejected` が捨てた op の出所を残しているのと対になっている。
+ */
+export type ParticipationEvent = {
+  kind: ParticipationEventKind;
+  /** 順序を決めるもの。**同期のフィルタが使うのはこちら** */
+  clock: Lamport;
+  /**
+   * 画面に出す日時。**順序付けには使わない** (端末の時計はずれる)。
+   *
+   * genesis は 0 に固定されている — batch がべき等であるために id も clock も
+   * timestamp も fileId と actor から決まるからで、**作成者の参加日時は記録されていない**。
+   * 画面はこれを日付にせず `—` と出す (`formatDay`)。
+   */
+  timestamp: number;
+  /** これを行った人の DID。依頼と取り消しは対象と別人である */
+  by: Did;
+};
 
 /** op を捨てた理由。UI の状態表示 (`invalid`) の材料になる */
 export type RejectReason =
@@ -88,8 +125,14 @@ export type Participation = {
    * 表すものであって、履歴ではない (履歴は `history` が持つ)。
    */
   departed: ReadonlyMap<Did, DepartureReason>;
-  /** DID ごとの参加期間。Phase 2 の同期フィルタが使う */
-  history: ReadonlyMap<Did, readonly ParticipationPeriod[]>;
+  /**
+   * DID ごとの出来事の列 (clock 昇順)。参加履歴の画面と、Phase 2 の同期フィルタが使う。
+   *
+   * **依頼も載る。**「依頼されたが取り消された」は参加期間にならないが、履歴には出る。
+   * したがって `history.has(did)` は「一度でも参加したか」を意味しない —
+   * それは `hasEverParticipated` で見る。
+   */
+  history: ReadonlyMap<Did, readonly ParticipationEvent[]>;
   /** 捨てた op と理由。**`invalid` の表示元** */
   rejected: readonly RejectedJudgment[];
 };
@@ -117,25 +160,26 @@ export function foldParticipation(
   const participating = new Set<Did>();
   const invited = new Map<Did, Did>();
   const departed = new Map<Did, DepartureReason>();
-  const history = new Map<Did, ParticipationPeriod[]>();
+  const history = new Map<Did, ParticipationEvent[]>();
   const rejected: RejectedJudgment[] = [];
   let genesisSeen = false;
-
-  const openPeriod = (did: Did, clock: Lamport) => {
-    const periods = history.get(did) ?? [];
-    periods.push({ from: clock });
-    history.set(did, periods);
-  };
-  const closePeriod = (did: Did, clock: Lamport) => {
-    const last = history.get(did)?.at(-1);
-    // 開いている期間だけを閉じる。二重の close は履歴を壊すので無視する
-    if (last && last.to === undefined) last.to = clock;
-  };
 
   for (const batch of [...batches].sort(compareByClockActorId)) {
     // 名簿は **DID 単位**、actor は **端末単位** である。同じ人の 2 台目を
     // 別の参加者にしないため、ここで DID へ落とす
     const issuer = didFromActor(batch.actor);
+
+    /** `subject` に起きた出来事として記録する。**採択された op だけを通す** */
+    const record = (subject: Did, kind: ParticipationEventKind) => {
+      const events = history.get(subject) ?? [];
+      events.push({
+        kind,
+        clock: batch.clock,
+        timestamp: batch.timestamp,
+        by: issuer,
+      });
+      history.set(subject, events);
+    };
 
     for (const [opIndex, op] of batch.ops.entries()) {
       const reject = (reason: RejectReason) =>
@@ -159,7 +203,7 @@ export function foldParticipation(
           genesisSeen = true;
           participating.add(issuer);
           departed.delete(issuer);
-          openPeriod(issuer, batch.clock);
+          record(issuer, 'genesis');
           break;
 
         case 'participation.invite':
@@ -179,6 +223,7 @@ export function foldParticipation(
           // 正当な操作で、名簿の結果も変わらないためである
           invited.set(op.target, issuer);
           departed.delete(op.target);
+          record(op.target, 'invite');
           break;
 
         case 'participation.accept':
@@ -189,7 +234,7 @@ export function foldParticipation(
           invited.delete(issuer);
           participating.add(issuer);
           departed.delete(issuer);
-          openPeriod(issuer, batch.clock);
+          record(issuer, 'accept');
           break;
 
         case 'participation.resign':
@@ -199,7 +244,7 @@ export function foldParticipation(
           }
           participating.delete(issuer);
           departed.set(issuer, 'resigned');
-          closePeriod(issuer, batch.clock);
+          record(issuer, 'resign');
           break;
 
         case 'participation.revoke':
@@ -213,9 +258,10 @@ export function foldParticipation(
           }
           invited.delete(op.target);
           departed.set(op.target, 'revoked');
-          // 招待済のまま取り消された場合は期間が開いていないので閉じない
-          if (participating.delete(op.target))
-            closePeriod(op.target, batch.clock);
+          participating.delete(op.target);
+          // **依頼のまま取り消された場合も記録する。**参加期間にはならないが、
+          // 参加履歴の「依頼取り止め」列はこれを出す
+          record(op.target, 'revoke');
           break;
       }
     }
@@ -236,10 +282,54 @@ export function wasParticipatingAt(
   did: Did,
   clock: Lamport,
 ): boolean {
-  const periods = participation.history.get(did);
-  if (!periods) return false;
-  return periods.some(
+  return periodsOf(participation, did).some(
     (p) => p.from <= clock && (p.to === undefined || clock < p.to),
+  );
+}
+
+/**
+ * 出来事の列から参加期間を導く。
+ *
+ * **期間を別に持たない。**持つと書き込み先が 2 つになり、片方だけ更新する事故が起きる。
+ * 1 DID あたりの出来事は参加ラウンドの数しかない (数件) ので、都度導いて足りる。
+ */
+export function periodsOf(
+  participation: Participation,
+  did: Did,
+): ParticipationPeriod[] {
+  const periods: ParticipationPeriod[] = [];
+  for (const event of participation.history.get(did) ?? []) {
+    switch (event.kind) {
+      case 'genesis':
+      case 'accept':
+        periods.push({ from: event.clock });
+        break;
+      case 'resign':
+      case 'revoke': {
+        // 開いている期間だけを閉じる。依頼のまま取り消された場合は開いていない
+        const last = periods.at(-1);
+        if (last && last.to === undefined) last.to = event.clock;
+        break;
+      }
+      case 'invite':
+        break;
+    }
+  }
+  return periods;
+}
+
+/**
+ * 一度でも参加したか。**依頼されただけの人は含まない。**
+ *
+ * 仕様の「依頼中に依頼が取り止められた場合, 今までに参加したことがなければ
+ * 一覧に表示されない」がこれを要る。
+ */
+export function hasEverParticipated(
+  participation: Participation,
+  did: Did,
+): boolean {
+  return (participation.history.get(did) ?? []).some(
+    (e) => e.kind === 'genesis' || e.kind === 'accept',
   );
 }
 

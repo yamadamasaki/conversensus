@@ -1,11 +1,13 @@
 import {
   BRANCH_STATUS,
+  type Did,
   type FileId,
   type GraphFile,
   type Sheet,
   type SheetId,
 } from '@conversensus/shared';
 import { useCallback, useRef, useState } from 'react';
+import { AcceptInvitationDialog } from './AcceptInvitationDialog';
 import { AlertDialog } from './AlertDialog';
 import { AtprotoLoginDialog } from './AtprotoLoginDialog';
 import { TRUNK_PREFIX } from './atproto';
@@ -26,8 +28,10 @@ import { useRemoteSyncQueue } from './hooks/useRemoteSyncQueue';
 import { InputDialog } from './InputDialog';
 import { InvitationDialog } from './InvitationDialog';
 import { ParticipateDialog } from './ParticipateDialog';
+import { ParticipationHistoryDialog } from './ParticipationHistoryDialog';
 import { FLOATING_UI_Z_INDEX } from './SettingsPopup';
 import { Sidebar } from './Sidebar';
+import { participationRounds } from './sync/participationHistoryView';
 import { generateId } from './uuid';
 
 export default function App() {
@@ -60,6 +64,8 @@ export default function App() {
   /** 共同作業者ダイアログの対象 File (step2 Phase 1)。null なら閉じている */
   const [invitationFileId, setInvitationFileId] = useState<FileId | null>(null);
   const [participateOpen, setParticipateOpen] = useState(false);
+  /** 参加履歴を開いている DID (step2)。参加者一覧の上に重ねて出す */
+  const [historyDid, setHistoryDid] = useState<Did | null>(null);
 
   // batch の操作主体 `<did>#<deviceId>`。端末まで一意にすることで、受信時に因果順序と
   // 重複排除の単位を識別できる (Phase 4d-2)
@@ -233,11 +239,13 @@ export default function App() {
           rows={participation.state.rows}
           unreadable={participation.state.unreadable}
           rejectedNote={participation.state.rejectedNote}
+          labelOf={participation.state.labelOf}
+          onOpenHistory={setHistoryDid}
           busy={participation.state.busy}
           error={participation.state.error}
           codeFor={(did) => participation.codeFor(invitationFileId, did)}
-          onGenerate={(handle) =>
-            participation.invite(invitationFileId, handle)
+          onGenerate={(handles) =>
+            participation.invite(invitationFileId, handles)
           }
           onAction={(action, did) =>
             participation.act(invitationFileId, action, did)
@@ -248,16 +256,39 @@ export default function App() {
           }}
         />
       )}
-      {participateOpen && (
+      {historyDid && (
+        <ParticipationHistoryDialog
+          label={participation.state.labelOf(historyDid)}
+          rounds={participationRounds(
+            participation.state.history.get(historyDid) ?? [],
+          )}
+          labelOf={participation.state.labelOf}
+          onClose={() => setHistoryDid(null)}
+        />
+      )}
+      {/* 参加コードを検めるまでは入力、検めたら承認の確認 (仕様の 2 枚の図) */}
+      {participateOpen && participation.state.preview && (
+        <AcceptInvitationDialog
+          preview={participation.state.preview}
+          busy={participation.state.busy}
+          error={participation.state.error}
+          onAccept={() => {
+            const preview = participation.state.preview;
+            if (!preview) return;
+            participation.acceptPreviewed(preview).then(() => {
+              setParticipateOpen(false);
+              participation.reset();
+            });
+          }}
+          onClose={participation.clearPreview}
+        />
+      )}
+      {participateOpen && !participation.state.preview && (
         <ParticipateDialog
           busy={participation.state.busy}
           error={participation.state.error}
           onSubmit={(code) => {
-            participation.participate(code).then((fileId) => {
-              if (!fileId) return;
-              setParticipateOpen(false);
-              participation.reset();
-            });
+            participation.previewCode(code);
           }}
           onCancel={() => {
             setParticipateOpen(false);

@@ -17,14 +17,21 @@ import type {
   FileId,
   JudgmentBatch,
   JudgmentOp,
+  ParticipationEvent,
   RejectedJudgment,
   RejectReason,
 } from '@conversensus/shared';
 import { didFromActor } from '@conversensus/shared';
 import { useCallback, useRef, useState } from 'react';
 import { fetchBatches } from '../api';
-import { resolveHandle } from '../atproto/identity';
+import {
+  handleLabels,
+  isDidOnThisPds,
+  resolveHandle,
+} from '../atproto/identity';
 import { loadRoster, putJudgment } from '../atproto/judgmentStore';
+import { fileNameLabels, remoteFileRef } from '../atproto/remoteFileName';
+import type { LabelResolver } from '../display/labelCache';
 import { appendJudgment } from '../sync/appendJudgment';
 import { ensureOwnGenesis } from '../sync/ensureOwnGenesis';
 import type { DecodeFailure } from '../sync/participationCode';
@@ -32,8 +39,9 @@ import {
   decodeParticipationCode,
   encodeParticipationCode,
 } from '../sync/participationCode';
+import { planInvitations } from '../sync/planInvitations';
 import type { RosterAction, RosterRow } from '../sync/rosterView';
-import { rosterRows } from '../sync/rosterView';
+import { rosterDids, rosterRows, sortRowsByLabel } from '../sync/rosterView';
 import type { TapClock } from './useEventSyncTap';
 
 export type ParticipationState = {
@@ -48,6 +56,23 @@ export type ParticipationState = {
    * 「招待したのに表が空のまま」が原因不明のまま残る (2026-09-03 に実際に起きた)。
    */
   rejectedNote: string | null;
+  /**
+   * DID → ハンドル名。**名簿が持つのは DID、画面に出すのはハンドル名**である。
+   * 引けなかった DID は DID のまま返る (`labelCache`)
+   */
+  labelOf: LabelResolver<Did>;
+  /**
+   * DID ごとの出来事の列。参加履歴ダイアログが使う。
+   *
+   * **畳み込みが返したものをそのまま持つ。**生の判断ログから画面側で組み直すと、
+   * pre 条件で捨てられた依頼や取り消しまで履歴に出てしまう
+   */
+  history: ReadonlyMap<Did, readonly ParticipationEvent[]>;
+  /**
+   * 参加コードを検めた結果。**承認の前に「何に参加するのか」を見せるために持つ**
+   * (仕様の承認ダイアログ)。`null` ならまだコードを入れる段である
+   */
+  preview: InvitationPreview | null;
   /** 今わかっている判断ログ。**clock の seed に使うので捨ててはならない** */
   known: JudgmentBatch[];
   busy: boolean;
@@ -58,9 +83,29 @@ const EMPTY: ParticipationState = {
   rows: [],
   unreadable: [],
   rejectedNote: null,
+  labelOf: (did) => did,
+  history: new Map(),
+  preview: null,
   known: [],
   busy: false,
   error: null,
+};
+
+/**
+ * 参加コードが指すものを、人に見せる形にしたもの。
+ *
+ * **DID も FileId も出さない。**「誰が」「あなたを」「どのファイルに」誘っているかが
+ * 分からなければ、承認してよいかを判断できない。
+ */
+export type InvitationPreview = {
+  fileId: FileId;
+  inviter: Did;
+  /** 依頼者のハンドル名 */
+  inviterLabel: string;
+  /** 自分のハンドル名。**コードが自分宛であることを目で確かめられる** */
+  inviteeLabel: string;
+  /** File の名前。依頼者の repo から引く */
+  fileName: string;
 };
 
 export type UseParticipationDeps = {
@@ -103,10 +148,19 @@ export function useParticipation({
           result = await loadRoster({ fileId, seed: viewer });
         }
         knownRef.current = result.batches;
+        // **描画の前にまとめて名前を引き、描画には同期の関数だけを渡す**
+        // (`labelCache`)。行ごとに待つと表がちらつき、失敗の扱いが行ごとにばらける
+        const rows = rosterRows(result.participation, viewer);
+        const labelOf = await handleLabels.resolve(rosterDids(rows));
         setState({
-          rows: rosterRows(result.participation, viewer),
+          rows: sortRowsByLabel(rows, labelOf),
           unreadable: result.unreadable.map((u) => u.did),
           rejectedNote: describeRejected(result.participation.rejected),
+          labelOf,
+          history: result.participation.history,
+          // 名簿を読み直したら検め中の依頼は畳む。承認の後に `refresh` が走るので、
+          // ここが残ると承認済のコードの確認画面が出たままになる
+          preview: null,
           known: result.batches,
           busy: false,
           error: null,
@@ -138,22 +192,48 @@ export function useParticipation({
     [actor, clock, newBatchId, refresh],
   );
 
-  /** ハンドル名で招待する。名簿に載るのは DID なので、先に解決する */
+  /**
+   * ハンドル名で参加依頼する。名簿に載るのは DID なので、先に解決する。
+   *
+   * **複数を 1 つの batch で書く。**依頼はまとめて出すもの (仕様: `,` 区切りで並べる)
+   * なので、1 人ずつ batch にすると clock が人数分進み、判断ログが依頼のたびに
+   * 膨らむ。畳み込みは 1 batch の中の op を順に見るので、まとめても結果は変わらない。
+   *
+   * **書く前に確かめる。**見つからないハンドル、既に参加している人、別の PDS の
+   * アカウントは、書いても畳み込みが捨てる。捨てられると分かっているものを書かず、
+   * その場で理由を返す (仕様「その旨をダイアログで知らせる」)。
+   *
+   * **通る分は書く。**5 人中 1 人が見つからないときに 4 人分を捨てると、
+   * 打ち直しになる。通った分を書いて、通らなかった分だけを知らせる。
+   */
   const invite = useCallback(
-    async (fileId: FileId, handle: string) => {
+    async (fileId: FileId, handles: readonly string[]) => {
       setState((s) => ({ ...s, busy: true, error: null }));
-      const did = await resolveHandle(handle);
-      if (!did) {
-        setState((s) => ({
-          ...s,
-          busy: false,
-          error: `ハンドル ${handle} が見つからない`,
-        }));
-        return;
+      const { targets, problems } = await planInvitations(
+        {
+          resolveHandle,
+          isLocalDid: isDidOnThisPds,
+          isParticipating: (did) =>
+            state.rows.some((r) => r.did === did && r.status === 'accepted'),
+        },
+        handles,
+      );
+
+      if (targets.length > 0) {
+        await write(
+          fileId,
+          targets.map((target) => ({
+            kind: 'participation.invite' as const,
+            target,
+          })),
+        );
       }
-      await write(fileId, [{ kind: 'participation.invite', target: did }]);
+      // **`write` の後に置く。**`refresh` が error を消すので、先に置くと消える
+      if (problems.length > 0)
+        setState((s) => ({ ...s, busy: false, error: problems.join('、') }));
+      else if (targets.length === 0) setState((s) => ({ ...s, busy: false }));
     },
-    [write],
+    [state.rows, write],
   );
 
   /** 一覧の action を実行する。`preview` は書き込みを伴わない */
@@ -173,6 +253,10 @@ export function useParticipation({
           return write(fileId, [{ kind: 'participation.resign' }]);
         case 'revoke':
           return write(fileId, [{ kind: 'participation.revoke', target: did }]);
+        case 'reinvite':
+          // 離脱した人をもう一度呼ぶ。**ハンドル名を引き直さない** — 名簿が持って
+          // いるのは DID で、依頼に要るのも DID である (ハンドル名は付け替えられる)
+          return write(fileId, [{ kind: 'participation.invite', target: did }]);
         case 'preview':
           // まだ参加していない File の中身を見る操作。**Phase 2 で繋ぐ** —
           // 他 actor のグラフを読む経路がまだ無い
@@ -187,18 +271,19 @@ export function useParticipation({
   );
 
   /**
-   * 参加コードを使って承認する。
+   * 参加コードを検める。**まだ何も書かない。**
    *
-   * **起点は自分ではなく、コードが指す招待者である。**自分はまだ名簿に載っていないので
+   * **起点は自分ではなく、コードが指す依頼者である。**自分はまだ名簿に載っていないので
    * 自分の repo から辿れない (「読む資格は名簿への所属と独立」— architecture §2)。
    *
-   * 書く前に招待の実在を確かめる。承認だけ書いても、招待が無ければ畳み込みが
+   * 書く前に依頼の実在を確かめる。承認だけ書いても、依頼が無ければ畳み込みが
    * `issuerNotInvited` で捨てる — 捨てられると分かっているものを書かない。
    *
-   * **グラフの中身はここでは同期しない。**他 actor の op-log を読むのは Phase 2 である。
+   * あわせて**人に見せる名前を引く** — 依頼者と自分のハンドル名、File の名前。
+   * 承認の前に「何に参加するのか」が分からなければ、判断のしようがない。
    */
-  const participate = useCallback(
-    async (code: string): Promise<FileId | null> => {
+  const previewCode = useCallback(
+    async (code: string): Promise<InvitationPreview | null> => {
       const decoded = decodeParticipationCode(code);
       if (!decoded.ok) {
         setState((s) => ({ ...s, error: FAILURE_MESSAGE[decoded.reason] }));
@@ -215,7 +300,7 @@ export function useParticipation({
 
       setState((s) => ({ ...s, busy: true, error: null }));
       try {
-        // 招待者の repo だけを読む (passes: 0)。承認は自分が書くのでまだ無い
+        // 依頼者の repo だけを読む (passes: 0)。承認は自分が書くのでまだ無い
         const seen = await loadRoster({
           fileId: fileId as FileId,
           seed: inviter,
@@ -225,21 +310,54 @@ export function useParticipation({
           setState((s) => ({
             ...s,
             busy: false,
-            error: '招待が見つからない。取り消された可能性がある',
+            error: '参加依頼が見つからない。取り消された可能性がある',
           }));
           return null;
         }
+        // **承認まで持ち越す。**書くときの clock の seed に要る
         knownRef.current = seen.batches;
-        await write(fileId as FileId, [
-          { kind: 'participation.accept', inviter },
+
+        const ref = remoteFileRef(inviter, fileId as FileId);
+        const [labelOf, nameOf] = await Promise.all([
+          handleLabels.resolve([inviter, viewer]),
+          fileNameLabels.resolve([ref]),
         ]);
-        return fileId as FileId;
+        const preview: InvitationPreview = {
+          fileId: fileId as FileId,
+          inviter,
+          inviterLabel: labelOf(inviter),
+          inviteeLabel: labelOf(viewer),
+          fileName: nameOf(ref),
+        };
+        setState((s) => ({ ...s, busy: false, error: null, preview }));
+        return preview;
       } catch (error) {
         setState((s) => ({ ...s, busy: false, error: describe(error) }));
         return null;
       }
     },
-    [viewer, write],
+    [viewer],
+  );
+
+  /**
+   * 検めた依頼を承認する。
+   *
+   * **グラフの中身はここでは同期しない。**他 actor の op-log を読むのは Phase 2 である。
+   */
+  const acceptPreviewed = useCallback(
+    async (preview: InvitationPreview): Promise<FileId | null> => {
+      await write(preview.fileId, [
+        { kind: 'participation.accept', inviter: preview.inviter },
+      ]);
+      return preview.fileId;
+    },
+    [write],
+  );
+
+  /** コードを入れ直す段に戻る */
+  const clearPreview = useCallback(
+    () => setState((s) => ({ ...s, preview: null, error: null })),
+    [],
   );
 
   /** 招待済の行に出す参加コード */
@@ -261,7 +379,17 @@ export function useParticipation({
     setState(EMPTY);
   }, []);
 
-  return { state, refresh, invite, act, participate, codeFor, reset };
+  return {
+    state,
+    refresh,
+    invite,
+    act,
+    previewCode,
+    acceptPreviewed,
+    clearPreview,
+    codeFor,
+    reset,
+  };
 }
 
 /** 判断を捨てた理由を、何が起きたか分かる文にする */

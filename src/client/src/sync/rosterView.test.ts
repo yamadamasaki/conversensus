@@ -5,7 +5,12 @@ import {
   type JudgmentBatch,
   type JudgmentOp,
 } from '@conversensus/shared';
-import { rosterRows } from './rosterView';
+import {
+  actionLabel,
+  rosterDids,
+  rosterRows,
+  sortRowsByLabel,
+} from './rosterView';
 
 const A = 'did:plc:alice';
 const B = 'did:plc:bob';
@@ -145,10 +150,66 @@ describe('action は立場で決まる', () => {
     expect(rowOf(view(batches, C), B)?.available).toEqual([]);
   });
 
-  test('外れた行には何もできない', () => {
+  test('外れた人はもう一度呼べる', () => {
+    // 畳み込みは既にこれを許している — `invite` の pre は「対象が参加者でないこと」
+    // であって「未依頼」ではない
     const rows = view([...batches, jb(A, 5, [revoke(B)])], A);
     expect(rowOf(rows, B)?.status).toBe('revoked');
+    expect(rowOf(rows, B)?.available).toEqual(['reinvite']);
+  });
+
+  test('離脱した自分を自分で呼び戻すことはできない', () => {
+    // 参加者でなければ依頼を出せない。押せてしまって畳み込みで捨てられるより,
+    // 押せない方がよい
+    const rows = view([...batches, jb(A, 5, [revoke(B)])], B);
     expect(rowOf(rows, B)?.available).toEqual([]);
+  });
+
+  test('参加していない viewer は外れた人を呼べない', () => {
+    const rows = view([...batches, jb(A, 5, [revoke(B)])], C);
+    expect(rowOf(rows, B)?.available).toEqual([]);
+  });
+});
+
+describe('操作の文言は状態で変わる', () => {
+  test('同じ revoke でも, 依頼中なら「依頼キャンセル」参加中なら「参加取りやめ」', () => {
+    // 仕様が「承認の前後を問わず同じ取り消しとして扱う」と定めているので op は
+    // 1 つしかない。見え分かれるのは文言だけである
+    expect(actionLabel('revoke', 'sent')).toBe('依頼キャンセル');
+    expect(actionLabel('revoke', 'accepted')).toBe('参加取りやめ');
+  });
+
+  test('自分で辞めるときも文言は「参加取りやめ」', () => {
+    // 仕様「自分で辞めたか, 辞めさせられたかは問わない」。
+    // 誰がやったかは参加履歴に出る
+    expect(actionLabel('resign', 'accepted')).toBe('参加取りやめ');
+  });
+});
+
+describe('依頼のまま取り消された人', () => {
+  test('参加歴が無ければ一覧に出さない', () => {
+    // 仕様「その依頼はなかったものとする」。名簿に一度も載ったことが無い人を
+    // 「離脱中」として並べると, 依頼を取り消すたびに一覧が伸びていく
+    const rows = view(
+      [jb(A, 1, [genesis()]), jb(A, 2, [invite(B)]), jb(A, 3, [revoke(B)])],
+      A,
+    );
+    expect(rows.map((r) => r.did)).toEqual([A]);
+  });
+
+  test('参加歴があれば離脱中として出す', () => {
+    const rows = view(
+      [
+        jb(A, 1, [genesis()]),
+        jb(A, 2, [invite(B)]),
+        jb(B, 3, [accept()]),
+        jb(B, 4, [resign()]),
+        jb(A, 5, [invite(B)]),
+        jb(A, 6, [revoke(B)]),
+      ],
+      A,
+    );
+    expect(rowOf(rows, B)?.status).toBe('revoked');
   });
 });
 
@@ -159,5 +220,74 @@ describe('並び', () => {
       A,
     );
     expect(rows.map((r) => r.did)).toEqual([A, B, C]);
+  });
+});
+
+describe('表示名 — 記録は DID, 画面はハンドル名', () => {
+  const HANDLE: Record<string, string> = {
+    [A]: 'zoe.test',
+    [B]: 'bob.test',
+    [C]: 'carol.test',
+  };
+  const labelOf = (did: string) => HANDLE[did] ?? did;
+
+  test('rosterDids は行に出る DID を残らず集める', () => {
+    // **行から集める。**名簿から集め直すと、行を組む条件と食い違ったときに
+    // 「表には出ているのに名前が引かれていない」DID が生まれる
+    const rows = rosterRows(
+      foldParticipation(
+        [
+          jb(A, 1, [{ kind: 'participation.genesis' }]),
+          jb(A, 2, [{ kind: 'participation.invite', target: B }]),
+        ],
+        deps,
+      ),
+      A,
+    );
+    expect(new Set(rosterDids(rows))).toEqual(new Set([A, B]));
+  });
+
+  test('rosterDids は行に出ない DID を集めない', () => {
+    const rows = rosterRows(
+      foldParticipation([jb(A, 1, [{ kind: 'participation.genesis' }])], deps),
+      A,
+    );
+    expect(rosterDids(rows)).toEqual([A]);
+  });
+
+  test('ハンドル名で並べ替える (DID 順とは違う)', () => {
+    // A の DID は alice で最小だが、ハンドル名は zoe.test なので最後に来る
+    const rows = rosterRows(
+      foldParticipation(
+        [
+          jb(A, 1, [{ kind: 'participation.genesis' }]),
+          jb(A, 2, [{ kind: 'participation.invite', target: B }]),
+        ],
+        deps,
+      ),
+      A,
+    );
+    expect(rows.map((r) => r.did)).toEqual([A, B]);
+    expect(sortRowsByLabel(rows, labelOf).map((r) => r.did)).toEqual([B, A]);
+  });
+
+  test('名前が引けなかった行は DID で並ぶ', () => {
+    // `labelOf` が DID をそのまま返すので、その行は DID の文字列として並ぶ
+    // (`did:plc:alice` は `bob.test` より後)。順序が乱れることより、
+    // **引けるまで順序が決まらない状態を作らないこと**を採る
+    const rows = rosterRows(
+      foldParticipation(
+        [
+          jb(A, 1, [{ kind: 'participation.genesis' }]),
+          jb(A, 2, [{ kind: 'participation.invite', target: B }]),
+        ],
+        deps,
+      ),
+      A,
+    );
+    const sorted = sortRowsByLabel(rows, (did) =>
+      did === B ? 'bob.test' : did,
+    );
+    expect(sorted.map((r) => r.did)).toEqual([B, A]);
   });
 });

@@ -10,6 +10,7 @@
  */
 
 import type { Did, Participation } from '@conversensus/shared';
+import { hasEverParticipated } from '@conversensus/shared';
 
 /**
  * 一覧に出す状態 (仕様の UI 例)。
@@ -25,12 +26,23 @@ export type RosterStatus =
   | 'resigned'
   | 'invalid';
 
-/** 仕様の UI 例が挙げる action */
-export type RosterAction = 'preview' | 'accept' | 'revoke' | 'resign';
+/**
+ * 行に対して取れる操作。
+ *
+ * `revoke` は**依頼の取り消しと参加の取り消しを兼ねる** — 仕様が「承認の前後を問わず,
+ * 同じ取り消しとして扱う」と定めているので op は 1 つしかない。画面の文言だけが
+ * 状態によって変わる (`actionLabel`)。
+ */
+export type RosterAction =
+  | 'preview'
+  | 'accept'
+  | 'revoke'
+  | 'resign'
+  | 'reinvite';
 
 export type RosterRow = {
   did: Did;
-  /** 招待した actor。genesis (作成者) と invalid には無い */
+  /** 依頼した actor。genesis (作成者) と invalid には無い */
   inviter?: Did;
   status: RosterStatus;
   /** **この行に対して viewer が取れる操作。**それ以外はグレイアウトする */
@@ -61,8 +73,13 @@ export function rosterRows(
 
   for (const did of participation.participating) put(did, 'accepted');
   for (const [did, inviter] of participation.invited) put(did, 'sent', inviter);
-  for (const [did, reason] of participation.departed)
+  for (const [did, reason] of participation.departed) {
+    // **依頼のまま取り消された人は, 参加歴が無ければ一覧に出さない** (仕様:
+    // 「その依頼はなかったものとする」)。名簿に一度も載ったことが無い人を
+    // 「離脱中」として並べると, 依頼を取り消すたびに一覧が伸びていく
+    if (!hasEverParticipated(participation, did)) continue;
     put(did, reason === 'revoked' ? 'revoked' : 'resigned');
+  }
 
   // **捨てられた承認だけを invalid として足す。**他の理由 (他 PDS への招待など) は
   // 相手が一覧に載る筋合いが無い — 名簿に関わったことが一度も無いからである。
@@ -76,6 +93,35 @@ export function rosterRows(
   }
 
   return [...rows.values()].sort((a, b) => a.did.localeCompare(b.did));
+}
+
+/**
+ * 一覧に出る DID をすべて集める (自分の DID と依頼者の DID)。
+ *
+ * **行から集める。**名簿から集め直すと、行を組む条件と食い違ったときに
+ * 「表には出ているのに名前が引かれていない」DID が生まれる。
+ */
+export function rosterDids(rows: readonly RosterRow[]): Did[] {
+  const dids: Did[] = [];
+  for (const row of rows) {
+    dids.push(row.did);
+    if (row.inviter) dids.push(row.inviter);
+  }
+  return dids;
+}
+
+/**
+ * ハンドル名で並べ替える (仕様の「参加者のハンドル名のアルファベットでソート」)。
+ *
+ * **並べ替えは名前を引いた後にしかできない。**`rosterRows` が DID 順で返すのは、
+ * 名前が引けるまでの間も順序が決まっている必要があるからである (引けなかった DID は
+ * `labelOf` が DID をそのまま返すので、その行だけ DID で並ぶ)。
+ */
+export function sortRowsByLabel(
+  rows: readonly RosterRow[],
+  labelOf: (did: Did) => string,
+): RosterRow[] {
+  return [...rows].sort((a, b) => labelOf(a.did).localeCompare(labelOf(b.did)));
 }
 
 /** actor (`<did>#<deviceId>`) から DID を取り出す。名簿は DID 単位である */
@@ -96,16 +142,46 @@ function actionsFor({
 }): RosterAction[] {
   const isSelf = did === viewer;
 
-  // 自分の行: 招待されていれば覗いて承認でき、参加していれば降りられる
+  // 自分の行: 依頼されていれば覗いて承認でき、参加していれば降りられる。
+  // **離脱した自分を自分で呼び戻すことはできない** — 参加者でなければ依頼を出せない
   if (isSelf) {
     if (status === 'sent') return ['preview', 'accept'];
     if (status === 'accepted') return ['resign'];
     return [];
   }
 
-  // 他人の行: 参加者だけが取り消せる。pre 条件と同じ条件である —
+  // 他人の行: 参加者だけが操作できる。pre 条件と同じ条件である —
   // 押せてしまって畳み込みで捨てられるより、押せない方がよい
   if (!viewerParticipates) return [];
   if (status === 'sent' || status === 'accepted') return ['revoke'];
+  // 離脱した人はもう一度呼べる。畳み込みは既にこれを許している
+  // (`invite` の pre は「対象が参加者でないこと」であって「未依頼」ではない)
+  if (status === 'revoked' || status === 'resigned') return ['reinvite'];
   return [];
+}
+
+/**
+ * 操作の文言。**状態によって変わる。**
+ *
+ * `revoke` は依頼の取り消しと参加の取り消しを兼ねるので、同じ op でも
+ * 「依頼キャンセル」と「参加取りやめ」に見え分かれる (仕様の操作一覧)。
+ * `resign` が `revoke` と同じ文言なのは、仕様が「自分で辞めたか, 辞めさせられたかは
+ * 問わない」としているためで、**誰がやったかは参加履歴に出る**。
+ */
+export function actionLabel(
+  action: RosterAction,
+  status: RosterStatus,
+): string {
+  switch (action) {
+    case 'preview':
+      return '中身を見る';
+    case 'accept':
+      return '承認';
+    case 'resign':
+      return '参加取りやめ';
+    case 'reinvite':
+      return '再度参加依頼';
+    case 'revoke':
+      return status === 'sent' ? '依頼キャンセル' : '参加取りやめ';
+  }
 }

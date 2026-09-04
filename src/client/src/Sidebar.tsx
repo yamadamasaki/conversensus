@@ -50,7 +50,7 @@ type Props = {
   /** 「今すぐ同期」で走らせる送受信 (#202)。送信だけでは他所の変更が取れない */
   onSyncNow: () => Promise<void>;
   /**
-   * 共同作業者ダイアログを開く (step2 Phase 1)。
+   * 参加者一覧ダイアログを開く (step2 Phase 1)。
    * **ログイン中でなければ渡さない** — 名簿は DID 単位なので、DID が無いと何も出せない
    */
   onOpenInvitation?: (fileId: string) => void;
@@ -292,11 +292,11 @@ export function Sidebar({
                   {f.name}
                 </button>
 
-                {/* 共同作業者 (step2 Phase 1)。ログイン中のファイル行にだけ出す */}
+                {/* 参加者一覧 (step2 Phase 1)。ログイン中のファイル行にだけ出す */}
                 {onOpenInvitation && (
                   <button
                     type="button"
-                    title="共同作業者"
+                    title="参加者一覧"
                     style={gearBtnStyle}
                     onClick={(e) => {
                       e.stopPropagation();
