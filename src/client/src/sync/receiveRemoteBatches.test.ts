@@ -17,6 +17,8 @@ import { filterBatchesForRemote } from '../atproto/remoteFilter';
 import type { RemoteBatch } from '../atproto/types';
 import { receiveRemoteBatches } from './receiveRemoteBatches';
 
+/** `deviceABatches()` の著者の DID (`<did>#<deviceId>` の DID 部分) */
+const DEVICE_A_DID = 'did:plc:alice';
 const FILE = '11111111-1111-4111-8111-111111111111' as FileId;
 const OTHER = '22222222-2222-4222-8222-222222222222' as FileId;
 
@@ -245,8 +247,8 @@ describe('bootstrap: genesis を含む受信で未知シートが立ち上がる
 
   it('送信フィルタを通した genesis が着地し、受信 op の drop が 0 件になる (基準 6 相当)', async () => {
     // 送信側: 4e-0 のフィルタは genesis を通す
-    const remote = filterBatchesForRemote(deviceABatches()).map((b) =>
-      envelope(FILE, b),
+    const remote = filterBatchesForRemote(deviceABatches(), DEVICE_A_DID).map(
+      (b) => envelope(FILE, b),
     );
     const t = makeStore();
     t.deps.pullRemoteForFile = async () => remote;
@@ -268,7 +270,7 @@ describe('bootstrap: genesis を含む受信で未知シートが立ち上がる
 
   it('genesis を除外すると同じ編集が unknown-sheet で全滅する (旧 C1 のギャップ再現)', async () => {
     // 4d-6 実機で観測した構造の再現 = 回帰の対照。genesis を落とす旧フィルタを模す。
-    const remote = filterBatchesForRemote(deviceABatches())
+    const remote = filterBatchesForRemote(deviceABatches(), DEVICE_A_DID)
       .filter((b) => b.actor !== GENESIS_ACTOR)
       .map((b) => envelope(FILE, b));
     const t = makeStore();

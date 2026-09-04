@@ -62,7 +62,7 @@ prefix で絞ることでこの誤りを再現できないようにはせず、*
 | 全件受信が失敗したら再 push へ進まず marker も立てない | §6.2 の中心。例外をそのまま外へ出し、push を 1 件もせず、marker も立てない |
 | 再 push が失敗したら marker を立てない (部分成功は許容) | 途中まで書けていても壊れない (べき等な差分やり直しが回収する)。marker が立たないことだけを保証する |
 | remote に無いローカル専用ファイルは push しない | 移行は「PDS 上の旧形式レコードを載せ替える」作業。未同期のローカルファイルを送るのは通常の catch-up の担当で、移行のついでに上げてしまわない。**読みにも行かない**ことを `fetchedFor` で固定 |
-| presentation だけの batch は再 push されない (D7) | remote leg のフィルタ (`filterBatchesForRemote`) は移行でも例外にしない |
+| presentation だけの batch は再 push されない (D7) | remote leg のフィルタ (`filterBatchesForRemote`) は移行でも例外にしない。**他 actor の batch の除外 (step2 Phase 2 S0) も同じ**で、移行を抜け道にはしない — 移行は 1 回きりだが「まだ移行していない端末が Phase 2 の受信を先に済ませている」順序はありうる |
 | remote が空なら何も書かず marker だけ立てる | 移行すべきものが無い = 移行済。次回以降 repo 全件 list を実行しない |
 | 新 rkey のレコードだけの repo でも安全に通る | p7-1 以降のクライアントで作られた repo。追記も書込も起きず、レコードが増えない |
 | 複数ファイルを fileId ごとに 1 回ずつ束ねて追記する | 追記は fileId 単位に束ねる (1 batch = 1 リクエストにしない) |

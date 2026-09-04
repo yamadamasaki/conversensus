@@ -36,6 +36,10 @@ export function useRemoteSyncQueue(
               // 「上げ済み」の記憶が別 repo へ持ち越されることはない
               uploadBlobs: createPdsBlobUploader(),
             }),
+            // 送るのは自分が書いた batch だけ (step2 Phase 2 S0)。Phase 2 の受信が
+            // 他 actor の batch をローカル正典へ入れるので、catch-up がそれを
+            // 送り返さないための柵である
+            did: session.did,
           })
         : null,
     // session が変われば別 repo への送信になるのでキューごと作り直す

@@ -15,6 +15,10 @@ import type { Batch, EdgeId, FileId, NodeId } from '@conversensus/shared';
  * 壊れていた** (`safeParse` の結果が proxy を返す)。単体では通り、全体で回したときだけ
  * 落ちるので原因に辿り着きにくい。4 つとも外しても全テストが通る = **もう不要だった**。
  */
+/** この端末の DID (既定の `batch()` の著者) */
+const MY_DID = 'did:plc:alice';
+/** この端末の操作主体 `<did>#<deviceId>` (Phase 4d-2) */
+const MY_ACTOR = `${MY_DID}#dev-test` as import('@conversensus/shared').Actor;
 const receivedWrites: Array<{ fileId: FileId; batches: Batch[] }> = [];
 let receiveFails: Error | null = null;
 const appendReceived = async (fileId: FileId, batches: Batch[]) => {
@@ -102,7 +106,7 @@ class RecordingProvider implements SyncProvider, RemoteBatchTarget {
 
 const batch = (id: string, over: Partial<Batch> = {}): Batch => ({
   id: id as Batch['id'],
-  actor: 'did:plc:alice',
+  actor: MY_DID,
   clock: 1,
   timestamp: 1_700_000_000_000,
   ops: [{ kind: 'node.add', target: id as NodeId, content: id }],
@@ -127,6 +131,10 @@ async function renderTap(opts: {
   const view = renderHook(() =>
     useEventSyncTap(opts.fileId === undefined ? FID : opts.fileId, {
       remoteQueue: opts.remoteQueue ?? null,
+      // **必須の option である。**渡さないと tap が actor 無しの batch を作り、
+      // remote leg の著者フィルタ (S0) がそこで落ちる。型は tsconfig.app.json が
+      // test を exclude しているため通ってしまう
+      actor: MY_ACTOR,
       createLocalProvider,
       appendReceived,
       ...(opts.onReceived && { onReceived: opts.onReceived }),
@@ -159,7 +167,10 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
     it('編集がローカル正典と remote の両方へ流れる', async () => {
       const local = new RecordingProvider();
       const remote = new RecordingProvider();
-      const remoteQueue = new RemoteSyncQueue({ provider: remote });
+      const remoteQueue = new RemoteSyncQueue({
+        provider: remote,
+        did: MY_DID,
+      });
       const { result } = await renderTap({ local, remoteQueue });
 
       result.current.record(relabel());
@@ -173,7 +184,10 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
     it('presentation はローカルに残り remote には載らない (D7)', async () => {
       const local = new RecordingProvider();
       const remote = new RecordingProvider();
-      const remoteQueue = new RemoteSyncQueue({ provider: remote });
+      const remoteQueue = new RemoteSyncQueue({
+        provider: remote,
+        did: MY_DID,
+      });
       const { result } = await renderTap({ local, remoteQueue });
 
       result.current.record(restyle());
@@ -189,7 +203,10 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
       const local = new RecordingProvider();
       const remote = new RecordingProvider();
       remote.existing = []; // 起動時は remote 空 = 取りこぼし無し
-      const remoteQueue = new RemoteSyncQueue({ provider: remote });
+      const remoteQueue = new RemoteSyncQueue({
+        provider: remote,
+        did: MY_DID,
+      });
 
       await renderTap({ local, remoteQueue });
       await settle();
@@ -206,7 +223,10 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
     it('unmount 後の online では catch-up しない (リスナ解除)', async () => {
       const local = new RecordingProvider();
       const remote = new RecordingProvider();
-      const remoteQueue = new RemoteSyncQueue({ provider: remote });
+      const remoteQueue = new RemoteSyncQueue({
+        provider: remote,
+        did: MY_DID,
+      });
 
       const { unmount } = await renderTap({ local, remoteQueue });
       unmount();
@@ -225,7 +245,10 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
       local.existing = [batch('1'), batch('2')];
       const remote = new RecordingProvider();
       remote.existing = [batch('1')]; // '2' が取りこぼし
-      const remoteQueue = new RemoteSyncQueue({ provider: remote });
+      const remoteQueue = new RemoteSyncQueue({
+        provider: remote,
+        did: MY_DID,
+      });
 
       await renderTap({ local, remoteQueue });
       await settle();
@@ -237,7 +260,10 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
       const local = new RecordingProvider();
       local.existing = [batch('1', { actor: GENESIS_ACTOR }), batch('2')];
       const remote = new RecordingProvider();
-      const remoteQueue = new RemoteSyncQueue({ provider: remote });
+      const remoteQueue = new RemoteSyncQueue({
+        provider: remote,
+        did: MY_DID,
+      });
 
       await renderTap({ local, remoteQueue });
       await settle();
@@ -260,7 +286,10 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
       const local = new RecordingProvider();
       const remote = new RecordingProvider();
       remote.existing = [batch('r1'), batch('r2')];
-      const remoteQueue = new RemoteSyncQueue({ provider: remote });
+      const remoteQueue = new RemoteSyncQueue({
+        provider: remote,
+        did: MY_DID,
+      });
 
       await renderTap({ local, remoteQueue });
       await settle();
@@ -275,7 +304,10 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
       const local = new RecordingProvider();
       const remote = new RecordingProvider();
       remote.existing = [batch('r1')];
-      const remoteQueue = new RemoteSyncQueue({ provider: remote });
+      const remoteQueue = new RemoteSyncQueue({
+        provider: remote,
+        did: MY_DID,
+      });
 
       await renderTap({ local, remoteQueue });
       await settle();
@@ -288,7 +320,10 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
     it('online イベントでも受信する (送信 catch-up と同じ契機, §3.4)', async () => {
       const local = new RecordingProvider();
       const remote = new RecordingProvider();
-      const remoteQueue = new RemoteSyncQueue({ provider: remote });
+      const remoteQueue = new RemoteSyncQueue({
+        provider: remote,
+        did: MY_DID,
+      });
 
       await renderTap({ local, remoteQueue });
       await settle();
@@ -307,7 +342,10 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
       local.existing = [batch('1')];
       const remote = new RecordingProvider();
       remote.existing = [batch('r1')];
-      const remoteQueue = new RemoteSyncQueue({ provider: remote });
+      const remoteQueue = new RemoteSyncQueue({
+        provider: remote,
+        did: MY_DID,
+      });
       receiveFails = new Error('daemon down');
 
       await renderTap({ local, remoteQueue });
@@ -331,7 +369,10 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
       const local = new RecordingProvider();
       const remote = new RecordingProvider();
       remote.existing = [batch('r1'), batch('r2')];
-      const remoteQueue = new RemoteSyncQueue({ provider: remote });
+      const remoteQueue = new RemoteSyncQueue({
+        provider: remote,
+        did: MY_DID,
+      });
       const calls: Array<{
         fileId: FileId;
         appended: number;
@@ -358,7 +399,10 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
     it('新規着地が無ければ呼ばれない (再 projection しても画面は変わらない)', async () => {
       const local = new RecordingProvider();
       const remote = new RecordingProvider(); // remote は空 = 受信 0 件
-      const remoteQueue = new RemoteSyncQueue({ provider: remote });
+      const remoteQueue = new RemoteSyncQueue({
+        provider: remote,
+        did: MY_DID,
+      });
       let called = 0;
 
       await renderTap({
@@ -378,7 +422,10 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
     it('fileId が null なら record は no-op で provider を作らない', async () => {
       const local = new RecordingProvider();
       const remote = new RecordingProvider();
-      const remoteQueue = new RemoteSyncQueue({ provider: remote });
+      const remoteQueue = new RemoteSyncQueue({
+        provider: remote,
+        did: MY_DID,
+      });
       const { result } = await renderTap({ local, remoteQueue, fileId: null });
 
       result.current.record(relabel());

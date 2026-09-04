@@ -112,6 +112,8 @@ function makeWorld(options?: {
         remote.set(rkey, e);
       }
     },
+    // 再 push の対象を自分が書いた batch に絞る (step2 Phase 2 S0)
+    did: DID,
     hasMigrated: () => storage.has(DID),
     markMigrated: () => {
       storage.set(DID, 'yes');

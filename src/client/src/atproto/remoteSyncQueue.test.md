@@ -23,6 +23,12 @@
 - **catch-up (取りこぼし回収)**: best-effort push がオフライン中に落とした分を、remote 全件
   pull と突き合わせて積み直す。remote に既にある分は二重投入しない (id 一致で除外) こと、
   genesis も積む (Phase 4e-0・C1 見直し) ことを固定する。
+- **⚠️ 他 actor の batch の送り返し (step2 Phase 2 S0)**: `catchUp` は「ローカル正典にあって
+  remote に無い batch」を積み直すが、**Phase 2 でローカル正典に他 actor の受信分が入る**。
+  そのまま積むと相手の op-log を自分の repo へ複製する (Phase 2 設計 事実 A)。フィルタは
+  `enqueue` の中にあるので `catchUp` も自動的に通るが、**それが効いていることを catchUp の
+  側でも固定する** — `enqueue` のテストだけだと、将来 `catchUp` がフィルタを迂回する形に
+  変わったときに落ちない。
 - **pending 購読 (§3.7)**: UI が未同期件数を追えるよう、登録直後の現在値通知と enqueue/flush
   での更新、解除後の非通知を固定する。
 
@@ -31,7 +37,8 @@
 テスト用 `FakeProvider` (push/pull を記録、`online` で push 成否、`pullBatches` で pull 応答を
 切替) を注入して単体で閉じる (PDS 非依存)。
 
-- **enqueue (フィルタ)**: genesis actor batch も積む (Phase 4e-0) / 全 presentation batch を
+- **enqueue (フィルタ)**: genesis actor batch も積む (Phase 4e-0) / **他 actor が書いた
+  batch は積まない (S0)** / 全 presentation batch を
   積まない / mixed batch は presentation を除いて積む。
 - **flush**: 成功でキューから除去 (provider に push される) / 失敗で破棄せず保持 /
   復帰後の再 flush で送信。
@@ -40,7 +47,8 @@
 - **上限 (D1)**: `capacity: 2` で 3 件積むと最古が溢れ直近 2 件を保持・`overflowed=true`。
   既定 `REMOTE_QUEUE_MAX` が正の有限値であること。
 - **catchUp**: remote に既にある id を除いた取りこぼしのみ push する / catch-up 経由でも
-  genesis batch を積む (Phase 4e-0)。
+  genesis batch を積む (Phase 4e-0) / **自分・他 actor・genesis が混ざった列を渡すと、
+  自分の分と genesis だけが push される (S0)**。
 
 ## fileId の運搬 (Phase 4d-1)
 

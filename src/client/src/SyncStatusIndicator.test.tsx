@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it } from 'bun:test';
 import type { Batch, NodeId } from '@conversensus/shared';
 
+/** この端末の DID (既定の `batch()` の著者) */
+const MY_DID = 'did:plc:alice';
 const { render, screen, fireEvent, act, cleanup } = await import(
   '@testing-library/react'
 );
@@ -44,7 +46,7 @@ class FakeProvider implements SyncProvider, RemoteBatchTarget {
 
 const batch = (id: string): Batch => ({
   id: id as Batch['id'],
-  actor: 'did:plc:alice',
+  actor: MY_DID,
   clock: Number(id),
   timestamp: 1_700_000_000_000,
   ops: [{ kind: 'node.add', target: id as NodeId, content: id }],
@@ -75,7 +77,10 @@ describe('SyncStatusIndicator', () => {
     // **送るものが無くても押せる必要がある。** 受信 (他所の変更を取りに行く) は
     // ここにしか口が無く、送信は普通は即成功するので、
     // 「未送信があるときだけ出す」だと正常なほどボタンに出会わない
-    const queue = new RemoteSyncQueue({ provider: new FakeProvider() });
+    const queue = new RemoteSyncQueue({
+      provider: new FakeProvider(),
+      did: MY_DID,
+    });
     render(
       <SyncStatusIndicator remoteQueue={queue} onSyncNow={fakeSyncNow().fn} />,
     );
@@ -84,7 +89,10 @@ describe('SyncStatusIndicator', () => {
   });
 
   it('未送信が無くても押せば受信が走る (#202)', async () => {
-    const queue = new RemoteSyncQueue({ provider: new FakeProvider() });
+    const queue = new RemoteSyncQueue({
+      provider: new FakeProvider(),
+      did: MY_DID,
+    });
     const sync = fakeSyncNow();
     render(<SyncStatusIndicator remoteQueue={queue} onSyncNow={sync.fn} />);
 
@@ -99,7 +107,7 @@ describe('SyncStatusIndicator', () => {
     // 落ちている理由が別かもしれない。送信の失敗で受信まで止めない
     const provider = new FakeProvider();
     provider.online = false;
-    const queue = new RemoteSyncQueue({ provider });
+    const queue = new RemoteSyncQueue({ provider, did: MY_DID });
     const sync = fakeSyncNow();
     render(<SyncStatusIndicator remoteQueue={queue} onSyncNow={sync.fn} />);
     await act(async () => {
@@ -114,7 +122,10 @@ describe('SyncStatusIndicator', () => {
   });
 
   it('未送信があれば件数を表示する', async () => {
-    const queue = new RemoteSyncQueue({ provider: new FakeProvider() });
+    const queue = new RemoteSyncQueue({
+      provider: new FakeProvider(),
+      did: MY_DID,
+    });
     render(
       <SyncStatusIndicator remoteQueue={queue} onSyncNow={fakeSyncNow().fn} />,
     );
@@ -128,6 +139,7 @@ describe('SyncStatusIndicator', () => {
   it('上限超過時は「N 件以上」と頭打ちで見せる (D1)', async () => {
     const queue = new RemoteSyncQueue({
       provider: new FakeProvider(),
+      did: MY_DID,
       capacity: 2,
     });
     render(
@@ -141,7 +153,7 @@ describe('SyncStatusIndicator', () => {
 
   it('「今すぐ同期」で flush され、成功すると同期済みに戻る', async () => {
     const provider = new FakeProvider();
-    const queue = new RemoteSyncQueue({ provider });
+    const queue = new RemoteSyncQueue({ provider, did: MY_DID });
     const sync = fakeSyncNow();
     render(<SyncStatusIndicator remoteQueue={queue} onSyncNow={sync.fn} />);
     await act(async () => {
@@ -160,7 +172,7 @@ describe('SyncStatusIndicator', () => {
   it('flush が失敗しても件数は残り、再送できる', async () => {
     const provider = new FakeProvider();
     provider.online = false;
-    const queue = new RemoteSyncQueue({ provider });
+    const queue = new RemoteSyncQueue({ provider, did: MY_DID });
     render(
       <SyncStatusIndicator remoteQueue={queue} onSyncNow={fakeSyncNow().fn} />,
     );

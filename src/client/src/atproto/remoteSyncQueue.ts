@@ -6,9 +6,10 @@
  * このキューに残って UI に「クラウド未同期: N 件」として現れ、自動/手動再送で回復する。
  * 純 fire-and-forget (サイレント消失) を採らないための中核。
  *
- * - **enqueue**: remote leg のフィルタ (`filterBatchesForRemote`: presentation 除外,
- *   §3.2。genesis は Phase 4e-0 の C1 見直しで remote へ通す) を内部で適用してから
- *   積む。フィルタで空になれば積まない。
+ * - **enqueue**: remote leg のフィルタ (`filterBatchesForRemote`) を内部で適用してから積む。
+ *   presentation 除外 (§3.2) と、**他 actor が書いた batch の除外** (step2 Phase 2 S0) の
+ *   2 つを落とす。genesis は Phase 4e-0 の C1 見直しで remote へ通す (どちらの除外の対象でもない)。
+ *   フィルタで空になれば積まない。
  * - **flush (best-effort)**: 内包 `Outbox` 経由で remote provider へ push。成功→除去、
  *   失敗→保持 (破棄しない)。失敗は編集フローに波及しない。
  * - **catch-up**: remote の**そのファイル分**を pull し、remote に無いローカル batch を
@@ -19,7 +20,7 @@
  * - **pending 公開**: 未送信件数を購読可能にし (§3.7 UI 用)、tap の pending に合流させる。
  */
 
-import type { Batch, FileId } from '@conversensus/shared';
+import type { Batch, Did, FileId } from '@conversensus/shared';
 import type { FlushResult } from '../sync/outbox';
 import { Outbox } from '../sync/outbox';
 import type { Unsubscribe } from '../sync/syncProvider';
@@ -88,6 +89,15 @@ export type PendingListener = (count: number) => void;
 export type RemoteSyncQueueDeps = {
   /** remote op-log (AtprotoSyncProvider 等)。flush / catch-up の送信先・取得元 */
   provider: RemoteBatchTarget;
+  /**
+   * この端末がログインしている DID (step2 Phase 2 S0)。
+   *
+   * **送るのは自分が書いた batch だけ**という制約をここで持つ。Phase 2 で受信が他 actor の
+   * batch をローカル正典へ入れるので、これが無いと `catchUp` が相手の op-log を自分の repo へ
+   * 複製する (`remoteFilter.ts` の設計注)。**キューは repo (= session) 単位**なので、
+   * DID もキューの寿命と一致する。
+   */
+  did: Did;
   /** 保持上限 (直近 N 件)。既定 REMOTE_QUEUE_MAX */
   capacity?: number;
 };
@@ -95,10 +105,12 @@ export type RemoteSyncQueueDeps = {
 export class RemoteSyncQueue {
   private readonly outbox: Outbox<RemoteBatch>;
   private readonly provider: RemoteBatchTarget;
+  private readonly did: Did;
   private readonly listeners = new Set<PendingListener>();
 
   constructor(deps: RemoteSyncQueueDeps) {
     this.provider = deps.provider;
+    this.did = deps.did;
     // 重複排除は batch id で行う (fileId は運搬のために添えるだけ)
     this.outbox = new Outbox<RemoteBatch>(
       (entry) => entry.batch.id,
@@ -107,11 +119,15 @@ export class RemoteSyncQueue {
   }
 
   /**
-   * remote へ送る batch を積む。genesis actor 除外・presentation 除外は enqueue 内で適用する
-   * ので、呼び出し側は生の batch 列を渡してよい。フィルタ後に何も残らなければ何もしない。
+   * remote へ送る batch を積む。presentation 除外と**他 actor の batch の除外** (S0) は
+   * enqueue 内で適用するので、呼び出し側は生の batch 列を渡してよい。フィルタ後に何も
+   * 残らなければ何もしない。
+   *
+   * **`catchUp` もこの口を通る**ので、受信した他 actor の batch が remote へ送り返される
+   * ことはない (Phase 2 設計 事実 A)。
    */
   enqueue(batches: readonly Batch[], fileId: FileId): void {
-    const filtered = filterBatchesForRemote(batches);
+    const filtered = filterBatchesForRemote(batches, this.did);
     if (filtered.length === 0) return;
     // fileId は remote レコードに埋め込む必要があるのでここで添える (§3.1)
     this.outbox.enqueue(filtered.map((batch) => ({ fileId, batch })));
@@ -133,7 +149,10 @@ export class RemoteSyncQueue {
   /**
    * 取りこぼし回収。remote の**そのファイル分**を pull し、remote に無いローカル batch を
    * 積み直して flush する。`localBatches` はローカル正典の全 batch (呼び出し側が渡す)。
-   * genesis 除外は enqueue 内で適用されるので remote に genesis を積むことはない (C1)。
+   *
+   * **⚠️ ローカル正典には他 actor の batch が入る** (step2 Phase 2 の受信)。積み直しは
+   * `enqueue` を通るので、`filterBatchesForRemote` が著者で落とす — ここが無いと
+   * 相手の op-log を自分の repo へ複製してしまう (S0 / Phase 2 設計 事実 A)。
    *
    * **Phase 7 p7-2 で取得をファイル単位に絞った**。以前は repo 全件 pull → fileId で
    * 絞り込みで、`localBatches` が 1 ファイル分なのに無関係な全件を毎回落としていた

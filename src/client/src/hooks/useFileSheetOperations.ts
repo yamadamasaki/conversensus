@@ -573,6 +573,8 @@ export function useFileSheetOperations({
         pullRemoteForFile: (fileId) => remoteQueue.pullRemoteForFile(fileId),
         // キューを経由しない直送 (上限で溢れると完了判定が嘘になる, remoteSyncQueue 参照)
         createRemote: (entries) => remoteQueue.createRemote(entries),
+        // 再 push は自分が書いた batch だけ (S0)。移行を抜け道にしない
+        did,
         hasMigrated: () => deps.hasRkeyMigrated(did),
         markMigrated: () => deps.markRkeyMigrated(did),
       })

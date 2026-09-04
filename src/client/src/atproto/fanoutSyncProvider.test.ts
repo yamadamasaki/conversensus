@@ -11,6 +11,8 @@ import { FanoutSyncProvider } from './fanoutSyncProvider';
 import { type RemoteBatchTarget, RemoteSyncQueue } from './remoteSyncQueue';
 import type { RemoteBatch, RemoteFileEntry } from './types';
 
+/** この端末の DID (既定の `batch()` の著者) */
+const MY_DID = 'did:plc:alice';
 const FILE = '22222222-2222-4222-8222-222222222222' as FileId;
 
 const addNode = (id: string): Op => ({
@@ -26,7 +28,7 @@ const setStyle = (id: string): Op => ({
 
 const batch = (id: string, over: Partial<Batch> = {}): Batch => ({
   id: id as Batch['id'],
-  actor: 'did:plc:alice',
+  actor: MY_DID,
   clock: Number(id) || 1,
   timestamp: 1_700_000_000_000,
   ops: [addNode(id)],
@@ -91,7 +93,7 @@ class FakeProvider implements SyncProvider, RemoteBatchTarget {
 const setup = () => {
   const local = new FakeProvider();
   const remote = new FakeProvider();
-  const remoteQueue = new RemoteSyncQueue({ provider: remote });
+  const remoteQueue = new RemoteSyncQueue({ provider: remote, did: MY_DID });
   const fanout = new FanoutSyncProvider({ local, remoteQueue, fileId: FILE });
   return { local, remote, remoteQueue, fanout };
 };
