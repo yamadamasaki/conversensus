@@ -287,6 +287,9 @@ export default function App() {
             participation.acceptPreviewed(preview).then(() => {
               setParticipateOpen(false);
               participation.reset();
+              // 承認しただけでは手元に File は無い (グラフの batch は 1 件も自分の
+              // repo に無い)。ここで立ち上げないと次に開き直すまで出てこない
+              void fileOps.discoverParticipating();
             });
           }}
           onClose={participation.clearPreview}
