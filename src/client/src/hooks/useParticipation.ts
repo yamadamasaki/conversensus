@@ -30,6 +30,7 @@ import {
   resolveHandle,
 } from '../atproto/identity';
 import { loadRoster, putJudgment } from '../atproto/judgmentStore';
+import { fileNameLabels, remoteFileRef } from '../atproto/remoteFileName';
 import type { LabelResolver } from '../display/labelCache';
 import { appendJudgment } from '../sync/appendJudgment';
 import { ensureOwnGenesis } from '../sync/ensureOwnGenesis';
@@ -67,6 +68,11 @@ export type ParticipationState = {
    * pre 条件で捨てられた依頼や取り消しまで履歴に出てしまう
    */
   history: ReadonlyMap<Did, readonly ParticipationEvent[]>;
+  /**
+   * 参加コードを検めた結果。**承認の前に「何に参加するのか」を見せるために持つ**
+   * (仕様の承認ダイアログ)。`null` ならまだコードを入れる段である
+   */
+  preview: InvitationPreview | null;
   /** 今わかっている判断ログ。**clock の seed に使うので捨ててはならない** */
   known: JudgmentBatch[];
   busy: boolean;
@@ -79,9 +85,27 @@ const EMPTY: ParticipationState = {
   rejectedNote: null,
   labelOf: (did) => did,
   history: new Map(),
+  preview: null,
   known: [],
   busy: false,
   error: null,
+};
+
+/**
+ * 参加コードが指すものを、人に見せる形にしたもの。
+ *
+ * **DID も FileId も出さない。**「誰が」「あなたを」「どのファイルに」誘っているかが
+ * 分からなければ、承認してよいかを判断できない。
+ */
+export type InvitationPreview = {
+  fileId: FileId;
+  inviter: Did;
+  /** 依頼者のハンドル名 */
+  inviterLabel: string;
+  /** 自分のハンドル名。**コードが自分宛であることを目で確かめられる** */
+  inviteeLabel: string;
+  /** File の名前。依頼者の repo から引く */
+  fileName: string;
 };
 
 export type UseParticipationDeps = {
@@ -134,6 +158,9 @@ export function useParticipation({
           rejectedNote: describeRejected(result.participation.rejected),
           labelOf,
           history: result.participation.history,
+          // 名簿を読み直したら検め中の依頼は畳む。承認の後に `refresh` が走るので、
+          // ここが残ると承認済のコードの確認画面が出たままになる
+          preview: null,
           known: result.batches,
           busy: false,
           error: null,
@@ -244,18 +271,19 @@ export function useParticipation({
   );
 
   /**
-   * 参加コードを使って承認する。
+   * 参加コードを検める。**まだ何も書かない。**
    *
-   * **起点は自分ではなく、コードが指す招待者である。**自分はまだ名簿に載っていないので
+   * **起点は自分ではなく、コードが指す依頼者である。**自分はまだ名簿に載っていないので
    * 自分の repo から辿れない (「読む資格は名簿への所属と独立」— architecture §2)。
    *
-   * 書く前に招待の実在を確かめる。承認だけ書いても、招待が無ければ畳み込みが
+   * 書く前に依頼の実在を確かめる。承認だけ書いても、依頼が無ければ畳み込みが
    * `issuerNotInvited` で捨てる — 捨てられると分かっているものを書かない。
    *
-   * **グラフの中身はここでは同期しない。**他 actor の op-log を読むのは Phase 2 である。
+   * あわせて**人に見せる名前を引く** — 依頼者と自分のハンドル名、File の名前。
+   * 承認の前に「何に参加するのか」が分からなければ、判断のしようがない。
    */
-  const participate = useCallback(
-    async (code: string): Promise<FileId | null> => {
+  const previewCode = useCallback(
+    async (code: string): Promise<InvitationPreview | null> => {
       const decoded = decodeParticipationCode(code);
       if (!decoded.ok) {
         setState((s) => ({ ...s, error: FAILURE_MESSAGE[decoded.reason] }));
@@ -272,7 +300,7 @@ export function useParticipation({
 
       setState((s) => ({ ...s, busy: true, error: null }));
       try {
-        // 招待者の repo だけを読む (passes: 0)。承認は自分が書くのでまだ無い
+        // 依頼者の repo だけを読む (passes: 0)。承認は自分が書くのでまだ無い
         const seen = await loadRoster({
           fileId: fileId as FileId,
           seed: inviter,
@@ -282,21 +310,54 @@ export function useParticipation({
           setState((s) => ({
             ...s,
             busy: false,
-            error: '招待が見つからない。取り消された可能性がある',
+            error: '参加依頼が見つからない。取り消された可能性がある',
           }));
           return null;
         }
+        // **承認まで持ち越す。**書くときの clock の seed に要る
         knownRef.current = seen.batches;
-        await write(fileId as FileId, [
-          { kind: 'participation.accept', inviter },
+
+        const ref = remoteFileRef(inviter, fileId as FileId);
+        const [labelOf, nameOf] = await Promise.all([
+          handleLabels.resolve([inviter, viewer]),
+          fileNameLabels.resolve([ref]),
         ]);
-        return fileId as FileId;
+        const preview: InvitationPreview = {
+          fileId: fileId as FileId,
+          inviter,
+          inviterLabel: labelOf(inviter),
+          inviteeLabel: labelOf(viewer),
+          fileName: nameOf(ref),
+        };
+        setState((s) => ({ ...s, busy: false, error: null, preview }));
+        return preview;
       } catch (error) {
         setState((s) => ({ ...s, busy: false, error: describe(error) }));
         return null;
       }
     },
-    [viewer, write],
+    [viewer],
+  );
+
+  /**
+   * 検めた依頼を承認する。
+   *
+   * **グラフの中身はここでは同期しない。**他 actor の op-log を読むのは Phase 2 である。
+   */
+  const acceptPreviewed = useCallback(
+    async (preview: InvitationPreview): Promise<FileId | null> => {
+      await write(preview.fileId, [
+        { kind: 'participation.accept', inviter: preview.inviter },
+      ]);
+      return preview.fileId;
+    },
+    [write],
+  );
+
+  /** コードを入れ直す段に戻る */
+  const clearPreview = useCallback(
+    () => setState((s) => ({ ...s, preview: null, error: null })),
+    [],
   );
 
   /** 招待済の行に出す参加コード */
@@ -318,7 +379,17 @@ export function useParticipation({
     setState(EMPTY);
   }, []);
 
-  return { state, refresh, invite, act, participate, codeFor, reset };
+  return {
+    state,
+    refresh,
+    invite,
+    act,
+    previewCode,
+    acceptPreviewed,
+    clearPreview,
+    codeFor,
+    reset,
+  };
 }
 
 /** 判断を捨てた理由を、何が起きたか分かる文にする */

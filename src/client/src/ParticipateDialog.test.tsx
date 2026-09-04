@@ -29,13 +29,13 @@ describe('参加コードの入力', () => {
     fireEvent.change(screen.getByLabelText('参加コード'), {
       target: { value: '  abc123  ' },
     });
-    fireEvent.click(screen.getByText('参加する'));
+    fireEvent.click(screen.getByText('OK'));
     expect(submitted).toEqual(['abc123']);
   });
 
   it('空欄では何も起きない', () => {
     const { submitted } = setup();
-    fireEvent.click(screen.getByText('参加する'));
+    fireEvent.click(screen.getByText('OK'));
     expect(submitted).toEqual([]);
   });
 
@@ -44,7 +44,7 @@ describe('参加コードの入力', () => {
     fireEvent.change(screen.getByLabelText('参加コード'), {
       target: { value: 'abc' },
     });
-    fireEvent.click(screen.getByText('参加する'));
+    fireEvent.click(screen.getByText('OK'));
     expect(submitted).toEqual([]);
   });
 });

@@ -7,6 +7,7 @@ import {
   type SheetId,
 } from '@conversensus/shared';
 import { useCallback, useRef, useState } from 'react';
+import { AcceptInvitationDialog } from './AcceptInvitationDialog';
 import { AlertDialog } from './AlertDialog';
 import { AtprotoLoginDialog } from './AtprotoLoginDialog';
 import { TRUNK_PREFIX } from './atproto';
@@ -265,16 +266,29 @@ export default function App() {
           onClose={() => setHistoryDid(null)}
         />
       )}
-      {participateOpen && (
+      {/* 参加コードを検めるまでは入力、検めたら承認の確認 (仕様の 2 枚の図) */}
+      {participateOpen && participation.state.preview && (
+        <AcceptInvitationDialog
+          preview={participation.state.preview}
+          busy={participation.state.busy}
+          error={participation.state.error}
+          onAccept={() => {
+            const preview = participation.state.preview;
+            if (!preview) return;
+            participation.acceptPreviewed(preview).then(() => {
+              setParticipateOpen(false);
+              participation.reset();
+            });
+          }}
+          onClose={participation.clearPreview}
+        />
+      )}
+      {participateOpen && !participation.state.preview && (
         <ParticipateDialog
           busy={participation.state.busy}
           error={participation.state.error}
           onSubmit={(code) => {
-            participation.participate(code).then((fileId) => {
-              if (!fileId) return;
-              setParticipateOpen(false);
-              participation.reset();
-            });
+            participation.previewCode(code);
           }}
           onCancel={() => {
             setParticipateOpen(false);

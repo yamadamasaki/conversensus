@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { DIALOG_WIDTH, DIALOG_Z_INDEX } from './ConfirmDialog';
 
 /**
- * 参加ダイアログ (step2 Phase 1)
+ * 参加コードの入力ダイアログ (step2 Phase 1)
  *
- * 仕様: `deepse/requirements/spec/participation.md`「UI の例」— 受け取った参加コードを
- * 貼って承認する。
+ * 仕様: `deepse/requirements/spec/participation/invitation.png` — 受け取った参加コードを
+ * 貼る。**ここでは参加しない** — OK で検めて、何に参加するのかを見せてから承認する
+ * (`AcceptInvitationDialog`)。
  *
  * **貼られた文字列を検証するのは呼び出し側**である。ここは入力と、返ってきた理由の
  * 表示に徹する — 「貼り間違い」と「古いコード」でユーザにしてもらうことが違うので、
@@ -13,6 +14,7 @@ import { DIALOG_WIDTH, DIALOG_Z_INDEX } from './ConfirmDialog';
  */
 
 type Props = {
+  /** 貼られたコードを検める。**参加はまだ成立しない** */
   onSubmit: (code: string) => void;
   onCancel: () => void;
   busy?: boolean;
@@ -69,7 +71,7 @@ export function ParticipateDialog({
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => e.stopPropagation()}
       >
-        <h2 style={{ margin: '0 0 12px', fontSize: 16 }}>共同作業に参加</h2>
+        <h2 style={{ margin: '0 0 12px', fontSize: 16 }}>参加コードを入力</h2>
         <p style={{ margin: '0 0 12px', fontSize: 12, color: '#666' }}>
           受け取った参加コードを貼り付けてほしい。
         </p>
@@ -109,7 +111,7 @@ export function ParticipateDialog({
             キャンセル
           </button>
           <button type="button" disabled={busy} onClick={submit}>
-            参加する
+            OK
           </button>
         </div>
       </div>
