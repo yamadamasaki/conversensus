@@ -2,6 +2,7 @@ import type { Did } from '@conversensus/shared';
 import { useRef, useState } from 'react';
 import { DIALOG_Z_INDEX } from './ConfirmDialog';
 import type { RosterAction, RosterRow, RosterStatus } from './sync/rosterView';
+import { actionLabel } from './sync/rosterView';
 
 /**
  * 参加者一覧ダイアログ (step2 Phase 1)
@@ -30,13 +31,6 @@ const STATUS_LABEL: Record<RosterStatus, string> = {
   invalid: '無効',
 };
 
-const ACTION_LABEL: Record<RosterAction, string> = {
-  preview: '中身を見る',
-  accept: '承認',
-  revoke: '取り消す',
-  resign: '参加をやめる',
-};
-
 /** 表示名が引けなかった DID はそのまま出る。長いので折り返せるようにする */
 const ID_CELL = {
   padding: '6px',
@@ -45,7 +39,13 @@ const ID_CELL = {
 } as const;
 
 /** 一覧に出す action の並び。行ごとに順番が変わると押し間違える */
-const ACTION_ORDER: RosterAction[] = ['preview', 'accept', 'revoke', 'resign'];
+const ACTION_ORDER: RosterAction[] = [
+  'preview',
+  'accept',
+  'revoke',
+  'resign',
+  'reinvite',
+];
 
 type Props = {
   fileName: string;
@@ -213,7 +213,7 @@ export function InvitationDialog({
                         onClick={() => onAction(action, row.did)}
                         style={{ marginRight: 4, fontSize: 12 }}
                       >
-                        {ACTION_LABEL[action]}
+                        {actionLabel(action, row.status)}
                       </button>
                     ),
                   )}

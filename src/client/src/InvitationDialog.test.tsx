@@ -62,6 +62,27 @@ describe('一覧', () => {
     expect(screen.getByText(B)).toBeTruthy();
   });
 
+  it('同じ revoke でも状態によって文言が変わる', () => {
+    // 仕様が「承認の前後を問わず同じ取り消しとして扱う」と定めているので op は
+    // 1 つしかない。見え分かれるのは文言だけである
+    setup({
+      rows: [
+        { did: A, inviter: B, status: 'sent', available: ['revoke'] },
+        { did: B, inviter: A, status: 'accepted', available: ['revoke'] },
+      ],
+    });
+    expect(screen.getByText('依頼キャンセル')).toBeTruthy();
+    expect(screen.getByText('参加取りやめ')).toBeTruthy();
+  });
+
+  it('離脱した人には「再度参加依頼」を出す', () => {
+    const { actions } = setup({
+      rows: [{ did: B, status: 'revoked', available: ['reinvite'] }],
+    });
+    fireEvent.click(screen.getByText('再度参加依頼'));
+    expect(actions).toEqual([['reinvite', B]]);
+  });
+
   it('離脱は理由を問わず「離脱中」に畳む', () => {
     // 仕様が「自分で辞めたか, 辞めさせられたかは問わない」と定めている。
     // 畳み込みは区別を持つが、画面はそれを使わない
@@ -91,12 +112,12 @@ describe('一覧', () => {
     // 判断は rosterView が持ち、ここは描くだけである
     setup();
     expect(screen.queryByText('承認')).toBeNull();
-    expect(screen.getByText('取り消す')).toBeTruthy();
+    expect(screen.getByText('依頼キャンセル')).toBeTruthy();
   });
 
   it('action を押すと種類と対象を返す', () => {
     const { actions } = setup();
-    fireEvent.click(screen.getByText('取り消す'));
+    fireEvent.click(screen.getByText('依頼キャンセル'));
     expect(actions).toEqual([['revoke', B]]);
   });
 
@@ -142,7 +163,7 @@ describe('新規の参加依頼', () => {
   it('busy の間は押せない', () => {
     const { generated, actions } = setup({ busy: true });
     fireEvent.click(screen.getByText('参加依頼する'));
-    fireEvent.click(screen.getByText('取り消す'));
+    fireEvent.click(screen.getByText('依頼キャンセル'));
     expect(generated).toEqual([]);
     expect(actions).toEqual([]);
   });

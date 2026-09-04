@@ -195,6 +195,10 @@ export function useParticipation({
           return write(fileId, [{ kind: 'participation.resign' }]);
         case 'revoke':
           return write(fileId, [{ kind: 'participation.revoke', target: did }]);
+        case 'reinvite':
+          // 離脱した人をもう一度呼ぶ。**ハンドル名を引き直さない** — 名簿が持って
+          // いるのは DID で、依頼に要るのも DID である (ハンドル名は付け替えられる)
+          return write(fileId, [{ kind: 'participation.invite', target: did }]);
         case 'preview':
           // まだ参加していない File の中身を見る操作。**Phase 2 で繋ぐ** —
           // 他 actor のグラフを読む経路がまだ無い
