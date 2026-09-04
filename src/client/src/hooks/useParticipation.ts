@@ -17,6 +17,7 @@ import type {
   FileId,
   JudgmentBatch,
   JudgmentOp,
+  ParticipationEvent,
   RejectedJudgment,
   RejectReason,
 } from '@conversensus/shared';
@@ -54,6 +55,13 @@ export type ParticipationState = {
    * 引けなかった DID は DID のまま返る (`labelCache`)
    */
   labelOf: LabelResolver<Did>;
+  /**
+   * DID ごとの出来事の列。参加履歴ダイアログが使う。
+   *
+   * **畳み込みが返したものをそのまま持つ。**生の判断ログから画面側で組み直すと、
+   * pre 条件で捨てられた依頼や取り消しまで履歴に出てしまう
+   */
+  history: ReadonlyMap<Did, readonly ParticipationEvent[]>;
   /** 今わかっている判断ログ。**clock の seed に使うので捨ててはならない** */
   known: JudgmentBatch[];
   busy: boolean;
@@ -65,6 +73,7 @@ const EMPTY: ParticipationState = {
   unreadable: [],
   rejectedNote: null,
   labelOf: (did) => did,
+  history: new Map(),
   known: [],
   busy: false,
   error: null,
@@ -119,6 +128,7 @@ export function useParticipation({
           unreadable: result.unreadable.map((u) => u.did),
           rejectedNote: describeRejected(result.participation.rejected),
           labelOf,
+          history: result.participation.history,
           known: result.batches,
           busy: false,
           error: null,

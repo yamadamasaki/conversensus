@@ -28,12 +28,14 @@ const noop = () => {};
 function setup(over: Partial<Parameters<typeof InvitationDialog>[0]> = {}) {
   const actions: Array<[string, string]> = [];
   const generated: string[] = [];
+  const histories: string[] = [];
   render(
     <InvitationDialog
       fileName="テスト"
       rows={rows}
       unreadable={[]}
       labelOf={labelOf}
+      onOpenHistory={(did) => histories.push(did)}
       codeFor={() => 'CODE'}
       onGenerate={(h) => generated.push(h)}
       onAction={(a, did) => actions.push([a, did])}
@@ -41,7 +43,7 @@ function setup(over: Partial<Parameters<typeof InvitationDialog>[0]> = {}) {
       {...over}
     />,
   );
-  return { actions, generated };
+  return { actions, generated, histories };
 }
 
 describe('一覧', () => {
@@ -70,6 +72,13 @@ describe('一覧', () => {
       ],
     });
     expect(screen.getAllByText('離脱中').length).toBe(2);
+  });
+
+  it('参加履歴は行ごとに開ける', () => {
+    // 状態によらず全員分開ける。依頼を取り消された人の履歴こそ見たい
+    const { histories } = setup();
+    fireEvent.click(screen.getByLabelText('bob.test の参加履歴'));
+    expect(histories).toEqual([B]);
   });
 
   it('作成者の依頼者欄は空にする (—)', () => {

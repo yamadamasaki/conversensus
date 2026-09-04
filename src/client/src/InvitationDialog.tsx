@@ -66,6 +66,8 @@ type Props = {
    * DID のまま返る
    */
   labelOf: (did: Did) => string;
+  /** 参加履歴を開く。行ごとの「…」から */
+  onOpenHistory: (did: Did) => void;
   /** 依頼中の行に出す参加コード。無ければ copy ボタンを出さない */
   codeFor: (did: Did) => string | null;
   onGenerate: (handle: string) => void;
@@ -81,6 +83,7 @@ export function InvitationDialog({
   unreadable,
   rejectedNote = null,
   labelOf,
+  onOpenHistory,
   codeFor,
   onGenerate,
   onAction,
@@ -178,6 +181,7 @@ export function InvitationDialog({
               <th style={{ padding: '4px 6px' }}>参加者</th>
               <th style={{ padding: '4px 6px' }}>依頼者</th>
               <th style={{ padding: '4px 6px' }}>状態</th>
+              <th style={{ padding: '4px 6px' }}>参加履歴</th>
               <th style={{ padding: '4px 6px' }}>操作</th>
             </tr>
           </thead>
@@ -189,6 +193,16 @@ export function InvitationDialog({
                   {row.inviter ? labelOf(row.inviter) : '—'}
                 </td>
                 <td style={{ padding: '6px' }}>{STATUS_LABEL[row.status]}</td>
+                <td style={{ padding: '6px' }}>
+                  <button
+                    type="button"
+                    aria-label={`${labelOf(row.did)} の参加履歴`}
+                    onClick={() => onOpenHistory(row.did)}
+                    style={{ fontSize: 12 }}
+                  >
+                    …
+                  </button>
+                </td>
                 <td style={{ padding: '6px', whiteSpace: 'nowrap' }}>
                   {ACTION_ORDER.filter((a) => row.available.includes(a)).map(
                     (action) => (
