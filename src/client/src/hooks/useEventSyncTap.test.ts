@@ -126,6 +126,8 @@ async function renderTap(opts: {
   remoteQueue?: InstanceType<typeof RemoteSyncQueue> | null;
   fileId?: FileId | null;
   onReceived?: Parameters<typeof useEventSyncTap>[1]['onReceived'];
+  /** 定期同期の間隔 (step2 Phase 2 S4)。既定は本番と同じ 30 秒 = テスト中は発火しない */
+  pollIntervalMs?: number;
 }) {
   const createLocalProvider = () => opts.local;
   const view = renderHook(() =>
@@ -135,6 +137,9 @@ async function renderTap(opts: {
       // remote leg の著者フィルタ (S0) がそこで落ちる。型は tsconfig.app.json が
       // test を exclude しているため通ってしまう
       actor: MY_ACTOR,
+      ...(opts.pollIntervalMs !== undefined && {
+        pollIntervalMs: opts.pollIntervalMs,
+      }),
       createLocalProvider,
       appendReceived,
       ...(opts.onReceived && { onReceived: opts.onReceived }),
@@ -195,6 +200,125 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
 
       expect(local.pushed).toHaveLength(1); // ローカル正典には残す (W3e 保全)
       expect(remote.pushed).toHaveLength(0); // remote へは送らない
+    });
+  });
+
+  describe('定期ポーリング (step2 Phase 2 S4 / #202)', () => {
+    /** 可視性を偽装する。既定 (jsdom/happy-dom) は常に可視である */
+    const setHidden = (hidden: boolean) => {
+      Object.defineProperty(document, 'hidden', {
+        configurable: true,
+        get: () => hidden,
+      });
+    };
+    const setOnline = (online: boolean) => {
+      Object.defineProperty(navigator, 'onLine', {
+        configurable: true,
+        get: () => online,
+      });
+    };
+    /** 実時間で n ミリ秒待つ (ポーリングは実タイマーで回る) */
+    const wait = (ms: number) =>
+      act(async () => {
+        await new Promise((r) => setTimeout(r, ms));
+      });
+
+    afterEach(() => {
+      setHidden(false);
+      setOnline(true);
+    });
+
+    it('間隔ごとに remote を読み直す (開き直さずに反映される)', async () => {
+      const local = new RecordingProvider();
+      const remote = new RecordingProvider();
+      const remoteQueue = new RemoteSyncQueue({
+        provider: remote,
+        did: MY_DID,
+      });
+      await renderTap({ local, remoteQueue, pollIntervalMs: 10 });
+      await settle();
+      // 起動時の 1 回で取りこぼしは無い
+      expect(receivedWrites).toHaveLength(0);
+
+      // 他所 (別端末 / 別 actor) の編集が remote に現れる
+      remote.existing = [batch('remote-1')];
+      await wait(40);
+
+      // **ファイルを開き直していないのに届く** — これが #202 の受入条件である
+      expect(receivedWrites.map((w) => w.batches[0]?.id)).toContain('remote-1');
+    });
+
+    it('タブが不可視の間は読みに行かない', async () => {
+      const local = new RecordingProvider();
+      const remote = new RecordingProvider();
+      const remoteQueue = new RemoteSyncQueue({
+        provider: remote,
+        did: MY_DID,
+      });
+      await renderTap({ local, remoteQueue, pollIntervalMs: 10 });
+      await settle();
+
+      setHidden(true);
+      remote.existing = [batch('remote-1')];
+      await wait(40);
+      // 裏で開いたままのタブが参加者全員の repo を読み続けないこと
+      expect(receivedWrites).toHaveLength(0);
+    });
+
+    it('可視に戻った瞬間に取りに行く (次の tick を待たない)', async () => {
+      const local = new RecordingProvider();
+      const remote = new RecordingProvider();
+      const remoteQueue = new RemoteSyncQueue({
+        provider: remote,
+        did: MY_DID,
+      });
+      // 間隔を長くして「タイマーではなく visibilitychange が発火した」ことを確かめる
+      await renderTap({ local, remoteQueue, pollIntervalMs: 60_000 });
+      await settle();
+
+      setHidden(true);
+      remote.existing = [batch('remote-1')];
+      setHidden(false);
+      document.dispatchEvent(new Event('visibilitychange'));
+      await settle();
+
+      expect(receivedWrites.map((w) => w.batches[0]?.id)).toContain('remote-1');
+    });
+
+    it('オフラインの間は読みに行かない', async () => {
+      const local = new RecordingProvider();
+      const remote = new RecordingProvider();
+      const remoteQueue = new RemoteSyncQueue({
+        provider: remote,
+        did: MY_DID,
+      });
+      await renderTap({ local, remoteQueue, pollIntervalMs: 10 });
+      await settle();
+
+      setOnline(false);
+      remote.existing = [batch('remote-1')];
+      await wait(40);
+      expect(receivedWrites).toHaveLength(0);
+    });
+
+    it('unmount 後はタイマーが止まる', async () => {
+      const local = new RecordingProvider();
+      const remote = new RecordingProvider();
+      const remoteQueue = new RemoteSyncQueue({
+        provider: remote,
+        did: MY_DID,
+      });
+      const { unmount } = await renderTap({
+        local,
+        remoteQueue,
+        pollIntervalMs: 10,
+      });
+      await settle();
+      unmount();
+
+      remote.existing = [batch('remote-1')];
+      await wait(40);
+      expect(receivedWrites).toHaveLength(0);
     });
   });
 

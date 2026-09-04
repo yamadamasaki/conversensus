@@ -23,6 +23,7 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { pushReceivedBatches } from '../api';
 import { FanoutSyncProvider } from '../atproto/fanoutSyncProvider';
 import type { RemoteSyncQueue } from '../atproto/remoteSyncQueue';
+import { SYNC_POLL_INTERVAL_MS } from '../config';
 import type { GraphEvent } from '../events/GraphEvent';
 import { EventSyncTap } from '../sync/eventSyncTap';
 import { LocalServerSyncProvider } from '../sync/localServerSyncProvider';
@@ -63,6 +64,11 @@ export type UseEventSyncTapOptions = {
   clockFloor?: Lamport;
   /** この端末の操作主体 `<did>#<deviceId>` (Phase 4d-2)。batch の actor になる */
   actor: Actor;
+  /**
+   * 定期同期の間隔 (ミリ秒, step2 Phase 2 S4)。既定は `SYNC_POLL_INTERVAL_MS`。
+   * **テストが時計を縮めるための口である** — 本番で変える想定は無い。
+   */
+  pollIntervalMs?: number;
   /**
    * 名簿の供給元 (step2 Phase 2 S2)。**渡されたときだけ多アクタ同期が走る**。
    *
@@ -134,6 +140,7 @@ export function useEventSyncTap(
     remoteQueue = null,
     actor,
     roster = null,
+    pollIntervalMs = SYNC_POLL_INTERVAL_MS,
     clockFloor,
     createLocalProvider,
     appendReceived = pushReceivedBatches,
@@ -196,29 +203,37 @@ export function useEventSyncTap(
   //
   // **受信 (Phase 4d-5) も同じ契機に相乗りする** (§3.4)。送信 catch-up と受信は
   // 「remote と突き合わせて差分を埋める」同じ性質の操作なので、発火経路を分けない。
-  //
-  // 定期取得は採らない — 1 回あたり remote 取得 1 往復のコストを常時払うことになる。
-  // 自動反映は Jetstream 購読へ委ね (GitHub #202)、それまでは**人が要求したときに
-  // 取りに行ける**ようにしておく (契機 3)。
   /**
    * remote と突き合わせて差分を埋める (送信の catch-up + 受信)。
    *
-   * **契機は 3 つある** (§3.4 + ANA-202):
+   * **契機は 4 つある** (§3.4 + ANA-202 + step2 Phase 2 S4):
    *
    * 1. ファイルを開いたとき (下の effect)
    * 2. `online` イベント (再接続)
-   * 3. **利用者が「今すぐ同期」を押したとき** (`SyncStatusIndicator`)
+   * 3. 利用者が「今すぐ同期」を押したとき (`SyncStatusIndicator`)
+   * 4. **定期ポーリング** (step2 Phase 2 S4)
    *
    * 3 を足したのは, 1 と 2 だけでは**開いている間に他所で起きた変更を取りに行く手段が
-   * 無かった**ためである (GitHub #202)。定期取得は 1 回あたり remote 取得 1 往復の
-   * コストを常時払うので採らず, **人が要求したときだけ**取りに行く。
+   * 無かった**ためである (GitHub #202)。step1 では 4 を採らなかった — 1 回あたり
+   * remote 取得 1 往復のコストを常時払うことになるためで, 自動反映は Jetstream 購読へ
+   * 委ねる予定だった。**step2 でこれを覆す**: 多アクタでは「相手の編集が見えるまでの
+   * 遅れ」がそのまま体験になるので, 人が押すまで待つ形は成立しない。
    *
    * 送信と受信は**独立に catch する** — 送信の失敗が受信を止めないようにする。
    * 呼び出し側が完了を待てるよう Promise を返す (ボタンの「同期中…」表示に使う)。
+   *
+   * **走っているサイクルがあれば、それに相乗りする** (S4)。契機が 4 つに増えたので、
+   * ポーリングと手動と `visibilitychange` が重なる場面が普通に起きる。2 本走らせても
+   * べき等なので壊れないが, 遅い PDS では要求が積み上がる。
    */
-  const syncNow = useCallback(async (): Promise<void> => {
-    if (!(provider instanceof FanoutSyncProvider)) return;
-    if (!fileId || !remoteQueue || !tap) return;
+  const runningSync = useRef<Promise<void> | null>(null);
+
+  const syncNow = useCallback((): Promise<void> => {
+    if (!(provider instanceof FanoutSyncProvider)) return Promise.resolve();
+    if (!fileId || !remoteQueue || !tap) return Promise.resolve();
+    // 走っているサイクルに相乗りする (S4)。契機が 4 つあるので重なりは常態である
+    const running = runningSync.current;
+    if (running) return running;
 
     /**
      * 受信の 2 本の脚 (step2 Phase 2 S2)。
@@ -264,7 +279,7 @@ export function useEventSyncTap(
       };
     };
 
-    await Promise.all([
+    const cycle = Promise.all([
       provider
         .catchUpRemote()
         .catch((error) =>
@@ -286,7 +301,15 @@ export function useEventSyncTap(
           }
         })
         .catch((error) => console.warn('[sync] remote receive failed:', error)),
-    ]);
+    ])
+      .then(() => undefined)
+      // **自分が最新のときだけ外す。**失敗したサイクルを残すと、以後の呼び出しが
+      // 同じ失敗を受け取り続ける (`rosterSource` と同じ判断)
+      .finally(() => {
+        if (runningSync.current === cycle) runningSync.current = null;
+      });
+    runningSync.current = cycle;
+    return cycle;
   }, [
     provider,
     fileId,
@@ -298,12 +321,47 @@ export function useEventSyncTap(
     onReceived,
   ]);
 
+  // 同期の契機 (§3.4 + step2 Phase 2 S4)。
+  //
+  // **定期ポーリングは「前回の完了から N ミリ秒」で回す。**`setInterval` にすると
+  // 遅い PDS で要求が積み上がる (前のサイクルが終わる前に次が始まる)。
+  //
+  // 止める条件を 2 つ持つ。どちらも「見ていない画面のために相手の PDS を叩かない」
+  // ためである。
+  //
+  //   - **タブが不可視のとき** (`document.hidden)。裏で開いたままのタブが 30 秒ごとに
+  //     参加者全員の repo を読み続けると、参加者が増えるほど無駄が効く
+  //   - **オフラインのとき** (`navigator.onLine`)。`online` イベントが復帰を拾う
+  //
+  // 不可視の間に溜まった変更は、**可視に戻った瞬間に取りに行く** — 次の tick を
+  // 待つと最大で間隔ぶん古い画面を見せることになる。
   useEffect(() => {
-    void syncNow();
-    const onOnline = () => void syncNow();
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const tick = async () => {
+      if (stopped) return;
+      // 画面を見ていて回線があるときだけ取りに行く。条件を満たさなくても
+      // **タイマーは回し続ける** — 復帰したときに次の tick が拾う
+      if (!document.hidden && navigator.onLine) await syncNow();
+      if (stopped) return;
+      timer = setTimeout(tick, pollIntervalMs);
+    };
+    void tick(); // 契機 1: ファイルを開いたとき
+
+    const onOnline = () => void syncNow(); // 契機 2: 再接続
+    const onVisible = () => {
+      if (!document.hidden) void syncNow();
+    };
     window.addEventListener('online', onOnline);
-    return () => window.removeEventListener('online', onOnline);
-  }, [syncNow]);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+      window.removeEventListener('online', onOnline);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [syncNow, pollIntervalMs]);
 
   // content 経路は sheetId を渡す (W3c2)。structure 経路は省略 → file-level batch。
   const record = useCallback(
