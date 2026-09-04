@@ -69,7 +69,7 @@ export interface RemoteBatchTarget {
    * `since` を取らないのは全件版と同じ理由 — 既読位置を持たない契約は変わらず、
    * 絞るのは「repo 全体 → 1 ファイル」の軸だけである (設計 §1.4 / §2.2)。
    */
-  pullRemoteForFile(fileId: FileId): Promise<RemoteBatch[]>;
+  pullRemoteForFile(fileId: FileId, repo?: Did): Promise<RemoteBatch[]>;
   /**
    * remote に存在するファイルを列挙する (Phase 7 p7-3 / ANA-127 S3)。
    *
@@ -214,9 +214,13 @@ export class RemoteSyncQueue {
    * remote の batch を**ファイル単位で**取得する (Phase 7 p7-2)。受信経路の既定。
    *
    * 全件版と同じく取得のみを委譲する。書き込みには使わない (echo ループ回避, §3.3a)。
+   *
+   * **`repo` を省くと自分の repo** (step2 Phase 2 S2)。多アクタ同期は参加者の DID を
+   * 順に渡してその actor の op-log を読む。送信側 (`enqueue` / `flush`) に repo が
+   * 無いのと対になっている — 読むのは N 人、書くのは自分だけである。
    */
-  pullRemoteForFile(fileId: FileId): Promise<RemoteBatch[]> {
-    return this.provider.pullRemoteForFile(fileId);
+  pullRemoteForFile(fileId: FileId, repo?: Did): Promise<RemoteBatch[]> {
+    return this.provider.pullRemoteForFile(fileId, repo);
   }
 
   /**

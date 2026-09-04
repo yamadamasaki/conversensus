@@ -95,6 +95,8 @@ export default function App() {
     setAlertState,
     remoteQueue,
     actor,
+    // 多アクタ同期は名簿を先に読む (step2 Phase 2 S2)。ダイアログと同じ供給元である
+    roster,
     isEditingActive,
   });
 

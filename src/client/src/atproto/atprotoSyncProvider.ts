@@ -27,6 +27,7 @@
 
 import {
   type BlobCid,
+  type Did,
   type FileId,
   isFileDeleted,
   type Op,
@@ -65,8 +66,14 @@ export interface BatchCollection {
    * 現れないので、探せるのは全件走査だけである。名前で用途を固定しておく。
    */
   listAllForMigration(): Promise<RecordSummary[]>;
-  /** 1 ファイル分だけを rkey prefix の範囲で取得する (Phase 7 p7-2) */
-  listByFile(fileId: FileId): Promise<RecordSummary[]>;
+  /**
+   * 1 ファイル分だけを rkey prefix の範囲で取得する (Phase 7 p7-2)。
+   * `repo` を省くと自分の repo。**他 actor の op-log を読むのが step2 Phase 2 の用途**
+   */
+  listByFile(
+    fileId: FileId,
+    options?: { repo?: Did },
+  ): Promise<RecordSummary[]>;
   /**
    * remote に存在するファイルを列挙する (Phase 7 p7-3, batch 本体は落とさない)。
    * 各ファイルの**着地レコード** (最大 clock の batch) を伴う (ANA-127 S3)。
@@ -266,9 +273,14 @@ export class AtprotoSyncProvider implements RemoteBatchTarget {
    * ここでは `fileId` は引数と一致するはずである。**一致しない場合の扱いは呼び出し側に
    * 委ねる** — 不変条件 (孤児 batch を作らない, 4d 設計 §1.11 D-4) を rkey の正しさに
    * 依存させないため、`receiveRemoteBatches` 側の fileId フィルタを防御として残している。
+   *
+   * **`repo` を省くと自分の repo** (step2 Phase 2 S2)。他 actor の DID を渡すとその actor の
+   * op-log を読む。書き込みには `repo` が無い — ATProto の credential は自分の repo のものしか
+   * 無いので、**「他者の repo は読めるが書けない」という非対称をそのまま型に出している**
+   * (`collections.ts` の `ReadRepo`)。
    */
-  async pullRemoteForFile(fileId: FileId): Promise<RemoteBatch[]> {
-    return toRemoteBatches(await this.batches.listByFile(fileId));
+  async pullRemoteForFile(fileId: FileId, repo?: Did): Promise<RemoteBatch[]> {
+    return toRemoteBatches(await this.batches.listByFile(fileId, { repo }));
   }
 
   /**

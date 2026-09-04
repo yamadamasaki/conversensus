@@ -18,6 +18,7 @@ import type {
   Lamport,
   SheetId,
 } from '@conversensus/shared';
+import { didFromActor } from '@conversensus/shared';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { pushReceivedBatches } from '../api';
 import { FanoutSyncProvider } from '../atproto/fanoutSyncProvider';
@@ -25,10 +26,9 @@ import type { RemoteSyncQueue } from '../atproto/remoteSyncQueue';
 import type { GraphEvent } from '../events/GraphEvent';
 import { EventSyncTap } from '../sync/eventSyncTap';
 import { LocalServerSyncProvider } from '../sync/localServerSyncProvider';
-import {
-  type ReceiveRemoteResult,
-  receiveRemoteBatches,
-} from '../sync/receiveRemoteBatches';
+import { receiveParticipantBatches } from '../sync/receiveParticipantBatches';
+import { receiveRemoteBatches } from '../sync/receiveRemoteBatches';
+import type { RosterSource } from '../sync/rosterSource';
 import type { SyncProvider } from '../sync/syncProvider';
 
 /**
@@ -63,6 +63,13 @@ export type UseEventSyncTapOptions = {
   clockFloor?: Lamport;
   /** この端末の操作主体 `<did>#<deviceId>` (Phase 4d-2)。batch の actor になる */
   actor: Actor;
+  /**
+   * 名簿の供給元 (step2 Phase 2 S2)。**渡されたときだけ多アクタ同期が走る**。
+   *
+   * 省略すると自分の repo だけを見る step1 の挙動になる。「読む順序は名簿 → グラフに
+   * 固定される」ので、他 actor の op-log を読むにはまず名簿が要る。
+   */
+  roster?: RosterSource | null;
   /** テスト用: ローカル正典 provider の差し替え (既定 `LocalServerSyncProvider`) */
   createLocalProvider?: (fileId: FileId) => SyncProvider;
   /**
@@ -74,12 +81,29 @@ export type UseEventSyncTapOptions = {
    * 受信がローカル正典へ着地した (`appended > 0`) ときの通知 (Phase 4e-3)。
    * 画面反映 (再 projection → activeFile 差し替え) の起点。tap の待ち合わせ点を添える。
    * **安定参照であること** (appendReceived と同じ理由)。
+   *
+   * **1 サイクルに 1 回である** (step2 Phase 2 S2)。自分の repo と参加者の repo の
+   * 両方を読んだ合計を渡す — 相手ごとに呼ぶと、参加者の数だけ再 projection が走る。
    */
   onReceived?: (
     fileId: FileId,
-    result: ReceiveRemoteResult,
+    result: ReceivedSummary,
     tap: TapHandle,
   ) => void;
+};
+
+/**
+ * 1 サイクルの受信の合計 (step2 Phase 2 S2)。
+ *
+ * Phase 2 で受信の脚が 2 本 (自分の repo / 参加者の repo) になり、結果の型も 2 つに
+ * なったので、通知はその共通部分に絞る。**消費者 (`reprojectAfterReceive`) は
+ * 「着地したか」しか見ない** ので、これで足りる。
+ */
+export type ReceivedSummary = {
+  /** 取り込みの対象にした batch 数 */
+  received: number;
+  /** ローカル正典に**新規に**追記された batch 数 */
+  appended: number;
 };
 
 export type UseEventSyncTapResult = {
@@ -109,6 +133,7 @@ export function useEventSyncTap(
   {
     remoteQueue = null,
     actor,
+    roster = null,
     clockFloor,
     createLocalProvider,
     appendReceived = pushReceivedBatches,
@@ -195,19 +220,57 @@ export function useEventSyncTap(
     if (!(provider instanceof FanoutSyncProvider)) return;
     if (!fileId || !remoteQueue || !tap) return;
 
+    /**
+     * 受信の 2 本の脚 (step2 Phase 2 S2)。
+     *
+     * **順序が意味を持つ。**自分の repo は名簿によらず読めるので先に読む。参加者の repo は
+     * 「読む順序は名簿 → グラフに固定される」ので、名簿を読んでからでないと読めない。
+     *
+     * 名簿が読めなくても自分の分は取り込み済である — 相手の PDS が応答しないことは
+     * 正常に起こるので、そこで自分の別端末の編集まで止めない。
+     */
+    const receiveAll = async (): Promise<ReceivedSummary> => {
+      // 受信は fanout を通さない (echo ループ回避, §3.3a)。ローカル正典への直書き。
+      const own = await receiveRemoteBatches(fileId, {
+        // 取得はファイル単位 (Phase 7 p7-2)。repo 全体を落として捨てる形を止めた
+        pullRemoteForFile: (id) => remoteQueue.pullRemoteForFile(id),
+        appendReceived,
+        observeRemote: (clock) => tap.observeRemote(clock),
+      });
+      if (!roster) return own;
+
+      const { participation } = await roster.read(fileId);
+      const others = await receiveParticipantBatches(
+        fileId,
+        participation,
+        didFromActor(actor),
+        {
+          pullRemoteForFile: (id, repo) =>
+            remoteQueue.pullRemoteForFile(id, repo),
+          appendReceived,
+          observeRemote: (clock) => tap.observeRemote(clock),
+        },
+      );
+      if (others.readRepos.length > 0 || others.outsidePeriod > 0) {
+        console.info(
+          `[sync] read ${others.readRepos.length} participant repo(s): ` +
+            `${others.received} batch(es) in period, ${others.appended} new, ` +
+            `${others.outsidePeriod} outside period`,
+        );
+      }
+      return {
+        received: own.received + others.received,
+        appended: own.appended + others.appended,
+      };
+    };
+
     await Promise.all([
       provider
         .catchUpRemote()
         .catch((error) =>
           console.warn('[sync] remote catch-up failed:', error),
         ),
-      // 受信は fanout を通さない (echo ループ回避, §3.3a)。ローカル正典への直書き。
-      receiveRemoteBatches(fileId, {
-        // 取得はファイル単位 (Phase 7 p7-2)。repo 全体を落として捨てる形を止めた
-        pullRemoteForFile: (id) => remoteQueue.pullRemoteForFile(id),
-        appendReceived,
-        observeRemote: (clock) => tap.observeRemote(clock),
-      })
+      receiveAll()
         .then((result) => {
           if (result.appended > 0) {
             console.info(
@@ -224,7 +287,16 @@ export function useEventSyncTap(
         })
         .catch((error) => console.warn('[sync] remote receive failed:', error)),
     ]);
-  }, [provider, fileId, remoteQueue, tap, appendReceived, onReceived]);
+  }, [
+    provider,
+    fileId,
+    remoteQueue,
+    tap,
+    roster,
+    actor,
+    appendReceived,
+    onReceived,
+  ]);
 
   useEffect(() => {
     void syncNow();

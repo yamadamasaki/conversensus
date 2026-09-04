@@ -39,9 +39,13 @@ import {
   markRkeyMigrated,
   migrateRemoteRkey,
 } from '../sync/migrateRemoteRkey';
-import type { ReceiveRemoteResult } from '../sync/receiveRemoteBatches';
 import { reprojectAfterReceive } from '../sync/reprojectAfterReceive';
-import { type TapHandle, useEventSyncTap } from './useEventSyncTap';
+import type { RosterSource } from '../sync/rosterSource';
+import {
+  type ReceivedSummary,
+  type TapHandle,
+  useEventSyncTap,
+} from './useEventSyncTap';
 
 type ConfirmState = {
   message: string;
@@ -112,6 +116,11 @@ interface UseFileSheetOperationsParams {
   /** この端末の操作主体 `<did>#<deviceId>` (Phase 4d-2)。tap が batch の actor に使う */
   actor: Actor;
   /**
+   * 名簿の供給元 (step2 Phase 2 S2)。**渡すと同期が他 actor の repo も読む**。
+   * null なら自分の repo だけを見る step1 の挙動になる。
+   */
+  roster?: RosterSource | null;
+  /**
    * 編集中 (ノードの inline editor / ドラッグ中) なら true を返す (Phase 4e-3, §3.3)。
    * 編集中の受信は activeFile 差し替えを保留し、次の受信契機で反映する。
    * **安定参照であること** (ref 経由を推奨)。未指定 = 常に編集中でない扱い。
@@ -126,6 +135,7 @@ export function useFileSheetOperations({
   syncRecord: syncRecordOverride,
   remoteQueue = null,
   actor,
+  roster = null,
   isEditingActive,
 }: UseFileSheetOperationsParams) {
   const [files, setFiles] = useState<GraphFileListItem[]>([]);
@@ -159,7 +169,7 @@ export function useFileSheetOperations({
   // pending が空のときだけ再 projection で activeFile を差し替える (未 flush 編集を
   // 失わない)。見送り (defer) は次の受信契機が拾う。
   const handleReceived = useCallback(
-    (fileId: FileId, _result: ReceiveRemoteResult, tap: TapHandle) => {
+    (fileId: FileId, _result: ReceivedSummary, tap: TapHandle) => {
       reprojectAfterReceive({
         settled: tap.settled,
         pendingCount: tap.pending,
@@ -203,6 +213,8 @@ export function useFileSheetOperations({
   } = useEventSyncTap(activeFile?.id ?? null, {
     remoteQueue,
     actor,
+    // 「読む順序は名簿 → グラフ」の前半 (step2 Phase 2 S2)
+    roster,
     // 受信 (a) の書き込み口も discovery (4e-2b) と同じ deps 抽象を通す。
     // 既定は api の pushReceivedBatches なので挙動は変わらない (deps は安定参照)。
     appendReceived: deps.pushReceivedBatches,

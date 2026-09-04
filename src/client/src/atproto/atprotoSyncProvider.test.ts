@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import type { Batch, FileId, NodeId } from '@conversensus/shared';
+import type { Batch, Did, FileId, NodeId } from '@conversensus/shared';
 import { PartialPushError } from '../sync/outbox';
 
 const FILE = '22222222-2222-4222-8222-222222222222' as FileId;
@@ -58,6 +58,7 @@ function inMemoryBatches() {
   };
   /** 走査したレコード件数 (範囲取得が旧レコードを踏まないことの証拠に使う) */
   let scanned = 0;
+  const reposRead: (string | undefined)[] = [];
   const store: BatchCollection & {
     /** 新形式 rkey (Phase 7 p7-1) で仕込む */
     _seed: (b: Batch, fileId?: FileId) => void;
@@ -69,6 +70,8 @@ function inMemoryBatches() {
     _rkeys: () => string[];
     /** 直近の `listByFile` が読んだレコード件数 */
     _scanned: () => number;
+    /** `listByFile` に渡された repo の列 (step2 Phase 2 S2) */
+    _reposRead: () => (string | undefined)[];
   } = {
     // 引数は rkey。Phase 7 p7-1 以降は batchId 単体ではない
     put(rkey, data) {
@@ -103,7 +106,8 @@ function inMemoryBatches() {
     listAllForMigration() {
       return Promise.resolve([...records.values()]);
     },
-    listByFile(fileId) {
+    listByFile(fileId, options) {
+      reposRead.push(options?.repo);
       const prefix = batchRkeyPrefix(fileId);
       const seek = batchRkeyFileCursor(fileId);
       const found: Array<{ uri: string; cid: string; value: unknown }> = [];
@@ -143,6 +147,7 @@ function inMemoryBatches() {
     _size: () => records.size,
     _rkeys: () => [...records.keys()],
     _scanned: () => scanned,
+    _reposRead: () => reposRead,
   };
   return store;
 }
@@ -311,6 +316,21 @@ describe('AtprotoSyncProvider', () => {
   });
 
   describe('pullRemoteForFile (Phase 7 p7-2)', () => {
+    it('repo を省くと自分の repo を読む', async () => {
+      const batches = inMemoryBatches();
+      await makeProvider(batches).pullRemoteForFile(FILE);
+      // undefined = collections 側で currentDid() に落ちる (step1 の挙動)
+      expect(batches._reposRead()).toEqual([undefined]);
+    });
+
+    it('repo を渡すとその actor の repo を読む (step2 Phase 2 S2)', async () => {
+      // 「書くのは自分の repo だけ、読むのは N 人の repo」の読み側。
+      // 書き込み側に repo が無いのと対になっている (credential は自分の repo の分しかない)
+      const batches = inMemoryBatches();
+      await makeProvider(batches).pullRemoteForFile(FILE, 'did:plc:bob' as Did);
+      expect(batches._reposRead()).toEqual(['did:plc:bob']);
+    });
+
     it('そのファイルの batch だけを返す (隣接 fileId を含めない)', async () => {
       // prefix 範囲取得の核心。fileId は UUID 固定長なので、ある fileId が別の fileId の
       // prefix になることはなく、同一ファイルの rkey は rkey 空間で連続する (§3.2)。
