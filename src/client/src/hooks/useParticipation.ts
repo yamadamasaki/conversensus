@@ -8,6 +8,10 @@
  * op-log を読むのは Phase 2 (多アクタ同期) の仕事で、そこは「名簿を先に読み、グラフを
  * 後に読む」の後半にあたる。Phase 1 の完了基準は「招待 → 承認で名簿に載り、取消で外れる」
  * であって、相手のグラフが見えることではない。
+ *
+ * **名簿の読み方はここには無い** (step2 Phase 2 S1)。起点を自分にすること・起点が無ければ
+ * 置いて読み直すことは `rosterSource` が持ち、同期サイクルと共有する。読み方が 2 箇所に
+ * 分かれると、片方だけが起点を修復するような食い違いが生まれる。
  */
 
 import type {
@@ -23,7 +27,6 @@ import type {
 } from '@conversensus/shared';
 import { didFromActor } from '@conversensus/shared';
 import { useCallback, useRef, useState } from 'react';
-import { fetchBatches } from '../api';
 import {
   handleLabels,
   isDidOnThisPds,
@@ -33,13 +36,13 @@ import { loadRoster, putJudgment } from '../atproto/judgmentStore';
 import { fileNameLabels, remoteFileRef } from '../atproto/remoteFileName';
 import type { LabelResolver } from '../display/labelCache';
 import { appendJudgment } from '../sync/appendJudgment';
-import { ensureOwnGenesis } from '../sync/ensureOwnGenesis';
 import type { DecodeFailure } from '../sync/participationCode';
 import {
   decodeParticipationCode,
   encodeParticipationCode,
 } from '../sync/participationCode';
 import { planInvitations } from '../sync/planInvitations';
+import type { RosterSource } from '../sync/rosterSource';
 import type { RosterAction, RosterRow } from '../sync/rosterView';
 import { rosterDids, rosterRows, sortRowsByLabel } from '../sync/rosterView';
 import type { TapClock } from './useEventSyncTap';
@@ -112,12 +115,18 @@ export type UseParticipationDeps = {
   actor: Actor;
   /** **グラフと同じ clock。**独立した採番器を渡してはならない */
   clock: TapClock;
+  /**
+   * 名簿の供給元 (step2 Phase 2 S1)。**同期サイクルと同じものを渡す** —
+   * 別に作ると読みが畳まれず、起点の修復も二重に走る
+   */
+  roster: RosterSource;
   newBatchId?: () => BatchId;
 };
 
 export function useParticipation({
   actor,
   clock,
+  roster,
   newBatchId = () => crypto.randomUUID() as BatchId,
 }: UseParticipationDeps) {
   const [state, setState] = useState<ParticipationState>(EMPTY);
@@ -129,24 +138,19 @@ export function useParticipation({
   const knownRef = useRef<JudgmentBatch[]>([]);
   const viewer = didFromActor(actor);
 
-  /** 名簿を読み直して整形する。**起点は自分自身** (既に参加している File を見るため) */
+  /**
+   * 名簿を読み直して整形する。読み方 (起点・起点の修復) は `rosterSource` が持つ。
+   *
+   * @param fresh 判断ログを書いた直後は `true`。進行中の読みに相乗りすると
+   *   書く前の名簿が返り、「依頼したのに表に出ない」になる
+   */
   const refresh = useCallback(
-    async (fileId: FileId) => {
+    async (fileId: FileId, fresh = false) => {
       setState((s) => ({ ...s, busy: true, error: null }));
       try {
-        let result = await loadRoster({ fileId, seed: viewer });
-        // **起点が無ければ置いてから畳む。**起点の無い File では招待が 1 件残らず
-        // `issuerNotParticipating` で捨てられ、名簿が永久に空になる。自分だけで
-        // 書かれた File なら起点は自分にあるので、その場で置いて読み直す
-        if (
-          await ensureOwnGenesis(
-            { fetchBatches, putJudgment, actor },
-            fileId,
-            result.batches,
-          )
-        ) {
-          result = await loadRoster({ fileId, seed: viewer });
-        }
+        const result = fresh
+          ? await roster.readFresh(fileId)
+          : await roster.read(fileId);
         knownRef.current = result.batches;
         // **描画の前にまとめて名前を引き、描画には同期の関数だけを渡す**
         // (`labelCache`)。行ごとに待つと表がちらつき、失敗の扱いが行ごとにばらける
@@ -169,7 +173,7 @@ export function useParticipation({
         setState((s) => ({ ...s, busy: false, error: describe(error) }));
       }
     },
-    [viewer, actor],
+    [viewer, roster],
   );
 
   const write = useCallback(
@@ -184,7 +188,8 @@ export function useParticipation({
           // しまい、判断ログの方が進んでいるときに衝突する**
           knownRef.current,
         );
-        await refresh(fileId);
+        // **書いた直後は必ず読み直す** (進行中の読みに相乗りしない)
+        await refresh(fileId, true);
       } catch (error) {
         setState((s) => ({ ...s, busy: false, error: describe(error) }));
       }

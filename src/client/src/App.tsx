@@ -25,6 +25,7 @@ import type { UndoState } from './hooks/useEventStore';
 import { useFileSheetOperations } from './hooks/useFileSheetOperations';
 import { useParticipation } from './hooks/useParticipation';
 import { useRemoteSyncQueue } from './hooks/useRemoteSyncQueue';
+import { useRosterSource } from './hooks/useRosterSource';
 import { InputDialog } from './InputDialog';
 import { InvitationDialog } from './InvitationDialog';
 import { ParticipateDialog } from './ParticipateDialog';
@@ -70,6 +71,10 @@ export default function App() {
   // batch の操作主体 `<did>#<deviceId>`。端末まで一意にすることで、受信時に因果順序と
   // 重複排除の単位を識別できる (Phase 4d-2)
   const actor = useActor(atprotoSession);
+
+  // 名簿の供給元 (step2 Phase 2 S1)。**ダイアログと同期サイクルで共有する** —
+  // 別々に作ると読みが畳まれず、起点の修復も二重に走る
+  const roster = useRosterSource(actor);
 
   // テキスト編集中の検出 (Phase 4e-3, 4e 設計 §3.3)。受信の activeFile 差し替えは
   // 入力中のテキストを巻き込むため、フォーカスが入力要素 (ノードの inline textarea /
@@ -176,6 +181,8 @@ export default function App() {
   const participation = useParticipation({
     actor,
     clock: fileOps.trunkClock,
+    // **同期サイクルと同じ供給元**を渡す (step2 Phase 2 S1)
+    roster,
   });
 
   // は撤去した。リモートのファイル発見は `useFileSheetOperations` 内の
