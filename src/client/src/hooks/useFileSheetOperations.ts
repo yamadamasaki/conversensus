@@ -31,6 +31,7 @@ import {
   hasParticipationBootstrapped,
   markParticipationBootstrapped,
 } from '../sync/bootstrapParticipation';
+import { discoverParticipatingFiles } from '../sync/discoverParticipatingFiles';
 import { discoverRemoteFiles } from '../sync/discoverRemoteFiles';
 import { deleteFileByTombstone } from '../sync/fileDeletion';
 import { LocalServerSyncProvider } from '../sync/localServerSyncProvider';
@@ -39,6 +40,7 @@ import {
   markRkeyMigrated,
   migrateRemoteRkey,
 } from '../sync/migrateRemoteRkey';
+import { collectParticipantBatches } from '../sync/receiveParticipantBatches';
 import { reprojectAfterReceive } from '../sync/reprojectAfterReceive';
 import type { RosterSource } from '../sync/rosterSource';
 import {
@@ -679,14 +681,62 @@ export function useFileSheetOperations({
           ),
         );
 
-    // 移行 → 発見 → 名簿の起点の順に走らせる。前段の成否によらず後段は必ず実行する
+    // 参加を承認した File を手元に立ち上げる (step2 Phase 2 S3)。
+    //
+    // 承認しただけでは手元に File は無い — 判断ログには承認が載るが、グラフの batch は
+    // 1 件も自分の repo に無いからである。**列挙の入口は自分の判断ログ**で、他 actor の
+    // repo は 1 件も列挙しない (U6-P1: 回すとその actor の File が全部見える)。
+    //
+    // **名簿の起点 (bootstrap) の後に走らせる。**起点が無い File では名簿が空になり、
+    // 「いま参加者か」を確かめられない。
+    const discoverParticipating = () => {
+      if (!roster) return Promise.resolve();
+      return discoverParticipatingFiles({
+        // **自分の repo だけを読む。**判断ログの rkey は batches と同じスキームなので、
+        // 自分が関わった File の fileId がここから出る
+        listJudgmentFileIds: () => listJudgmentFileIds(),
+        listLocalFileIds: deps.fetchLocalFileIds,
+        readRoster: (fileId) => roster.read(fileId),
+        // 集めるだけで書かない。削除の判定 (remove-wins) を書く前に挟むため
+        collectFromParticipants: (fileId, participation) =>
+          collectParticipantBatches(fileId, participation, did, {
+            pullRemoteForFile: (id, repo) =>
+              remoteQueue.pullRemoteForFile(id, repo),
+          }),
+        appendReceived: deps.pushReceivedBatches,
+        viewer: did,
+      })
+        .then((result) => {
+          if (result.skippedDeletedFiles > 0) {
+            console.info(
+              `[participation] skipped ${result.skippedDeletedFiles} file(s) ` +
+                'deleted by another participant',
+            );
+          }
+          if (result.discovered.length === 0) return;
+          console.info(
+            `[participation] joined ${result.discovered.length} file(s), ` +
+              `${result.appended} batch(es)`,
+          );
+          deps.fetchFiles().then(setFiles).catch(console.error);
+        })
+        .catch((error) =>
+          console.warn('[participation] file discovery failed:', error),
+        );
+    };
+
+    // 移行 → 発見 → 名簿の起点 → 参加 File の発見 の順に走らせる。
+    // 前段の成否によらず後段は必ず実行する
     const sync = () => {
-      migrate().finally(discover).finally(bootstrap);
+      migrate()
+        .finally(discover)
+        .finally(bootstrap)
+        .finally(discoverParticipating);
     };
     sync();
     window.addEventListener('online', sync);
     return () => window.removeEventListener('online', sync);
-  }, [remoteQueue, deps, actor]);
+  }, [remoteQueue, deps, actor, roster]);
 
   return {
     files,

@@ -50,22 +50,23 @@ import type {
 import type { RemoteBatch } from '../atproto/types';
 import { filterByParticipation } from './participationFilter';
 
-export type ReceiveParticipantDeps = {
+export type CollectParticipantDeps = {
   /** その actor の repo から、このファイル分の batch を取得する (範囲取得) */
   pullRemoteForFile: (fileId: FileId, repo: Did) => Promise<RemoteBatch[]>;
+};
+
+export type ReceiveParticipantDeps = CollectParticipantDeps & {
   /** ローカル正典へ受信追記する (marker を立てる経路であること) */
   appendReceived: (fileId: FileId, batches: Batch[]) => Promise<number>;
   /** 自端末 clock を Lamport 受信規則で前進させる */
   observeRemote: (remoteClock: Lamport) => void;
 };
 
-export type ReceiveParticipantResult = {
+export type CollectParticipantResult = {
+  /** 取り込んでよい batch (参加期間の中・このファイル宛)。読んだ repo の順 */
+  batches: Batch[];
   /** 実際に読んだ repo (自分は含まない) */
   readRepos: Did[];
-  /** 参加期間の中にあるとして取り込みの対象にした batch 数 */
-  received: number;
-  /** ローカル正典に**新規に**追記された batch 数 */
-  appended: number;
   /**
    * 参加期間の外だったため落とした batch 数。
    *
@@ -80,27 +81,37 @@ export type ReceiveParticipantResult = {
   unreadable: { did: Did; error: unknown }[];
 };
 
+export type ReceiveParticipantResult = CollectParticipantResult & {
+  /** 参加期間の中にあるとして取り込みの対象にした batch 数 (= `batches.length`) */
+  received: number;
+  /** ローカル正典に**新規に**追記された batch 数 */
+  appended: number;
+};
+
 /**
- * 名簿の参加者 (自分を除く) の repo を読み、参加期間の中の batch をローカル正典へ取り込む。
+ * 名簿の参加者 (自分を除く) の repo を読み、**取り込んでよい batch を集める**。
+ * **書き込まない。**
  *
- * べき等: 同じ状態で 2 回呼んでも `appended` が 0 になるだけである。
+ * 収集と追記を分けているのは、**書く前に見なければならない判断が 1 つある**ためである —
+ * 発見経路 (`discoverParticipatingFiles`) は、引いた op-log に `file.remove` があれば
+ * その File を materialize してはならない (ANA-127 の remove-wins)。書いてから消す形は
+ * 取れない (ローカル正典から File を取り除く口が無く、削除は tombstone でしか表せない)。
  */
-export async function receiveParticipantBatches(
+export async function collectParticipantBatches(
   fileId: FileId,
   participation: Participation,
   viewer: Did,
-  deps: ReceiveParticipantDeps,
-): Promise<ReceiveParticipantResult> {
+  deps: CollectParticipantDeps,
+): Promise<CollectParticipantResult> {
   // **読む順序を名簿の反復順に依存させない。**誰の手元でも同じ結果になるべきで、
   // Set の反復順に結論が左右される形にしない (`readRoster` と同じ判断)
   const repos = [...participation.participating]
     .filter((did) => did !== viewer)
     .sort((a, b) => a.localeCompare(b));
 
-  const result: ReceiveParticipantResult = {
+  const result: CollectParticipantResult = {
+    batches: [],
     readRepos: [],
-    received: 0,
-    appended: 0,
     outsidePeriod: 0,
     skippedOtherFile: 0,
     unreadable: [],
@@ -124,14 +135,7 @@ export async function receiveParticipantBatches(
     const all = addressed.map((e) => e.batch);
     const within = filterByParticipation(participation, all);
     result.outsidePeriod += all.length - within.length;
-    if (within.length === 0) continue;
-
-    result.received += within.length;
-    result.appended += await deps.appendReceived(fileId, within);
-
-    // 受信規則。**書き込みが成功してから前進させる** — 失敗して取り込めていないのに
-    // clock だけ進むと、次に発番する batch が「取り込めなかった編集より後」を騙る
-    deps.observeRemote(within.reduce((m, b) => Math.max(m, b.clock), 0));
+    result.batches.push(...within);
   }
 
   if (result.skippedOtherFile > 0) {
@@ -145,4 +149,39 @@ export async function receiveParticipantBatches(
   }
 
   return result;
+}
+
+/**
+ * 参加者の repo から集めた batch をローカル正典へ取り込む。
+ *
+ * **1 回にまとめて書く。**repo ごとに書くと、1 サイクルの間にローカル正典が中途半端な
+ * 状態を何度も通る。既読位置を持たないので、途中で落ちても次のサイクルが同じものを
+ * もう一度読む。
+ *
+ * べき等: 同じ状態で 2 回呼んでも `appended` が 0 になるだけである。
+ */
+export async function receiveParticipantBatches(
+  fileId: FileId,
+  participation: Participation,
+  viewer: Did,
+  deps: ReceiveParticipantDeps,
+): Promise<ReceiveParticipantResult> {
+  const collected = await collectParticipantBatches(
+    fileId,
+    participation,
+    viewer,
+    deps,
+  );
+  if (collected.batches.length === 0)
+    return { ...collected, received: 0, appended: 0 };
+
+  const appended = await deps.appendReceived(fileId, collected.batches);
+
+  // 受信規則。**書き込みが成功してから前進させる** — 失敗して取り込めていないのに
+  // clock だけ進むと、次に発番する batch が「取り込めなかった編集より後」を騙る
+  deps.observeRemote(
+    collected.batches.reduce((m, b) => Math.max(m, b.clock), 0),
+  );
+
+  return { ...collected, received: collected.batches.length, appended };
 }
