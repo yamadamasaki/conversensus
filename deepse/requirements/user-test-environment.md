@@ -310,6 +310,34 @@ REPOS=alice.test,bob.test FILE_ID=<uuid> bun run scripts/inspect-judgments.ts --
 > (2026-09-05 に実際に起きた。原因は修正済 — `ensureOwnGenesis` が手元に 1 件も無い
 > File を「自分の File」と判定していた)
 
+##### ⚠️ 平ら読みが健全でも, 画面は壊れていることがある
+
+上の使い方は **`REPOS` に挙げた repo を全部読む「平ら読み」**である。これは
+**誰の手元でもない名簿** — 「全部見えていれば名簿はこうなる」の答えであって、
+**アプリはそう読まない**。アプリが読む repo は名簿が決め、その名簿は読んだ結果で決まる
+(不動点計算)。したがって**平ら読みでは何も異常が無いのに、ある actor の画面だけが
+壊れている**ことが起こる。
+
+`SEED` を渡すと、アプリと同じ `readRoster` を通して**その actor から実際に見える名簿**を
+出す。
+
+```shell
+SEED=bob.test bun run scripts/inspect-judgments.ts                          # その起点の File 一覧
+SEED=bob.test FILE_ID=<uuid> bun run scripts/inspect-judgments.ts --dump    # 広がりが止まるまで
+SEED=bob.test PASSES=0 FILE_ID=<uuid> bun run scripts/inspect-judgments.ts  # 起点の repo だけ
+SEED=bob.test PASSES=1 FILE_ID=<uuid> bun run scripts/inspect-judgments.ts  # 同期サイクルと同じ
+```
+
+**「名前は出るが読んでいない repo」の行が答えである。**判断ログに名前が出ているのに
+訪ねていない actor がいれば、その repo にある op はこの起点からは見えていない。
+
+これで見つかった (2026-09-05, シナリオ 14-15)。alice が作った File で bob が alice を
+呼び戻したとき、平ら読みの名簿には依頼がちゃんと出るのに、alice の画面は
+「参加依頼が見つからない」だった。`SEED=bob.test PASSES=0` で読むと
+「起点が無い」「捨てた op 6 件」がそのまま出る — 招待者 bob の repo には genesis が
+無いので、そこだけ読むと依頼が残らず捨てられていた。修正済 (招待を検めるときは
+`converge` で広げる)。
+
 #### 参加期間の外を読んでいないこと
 
 alice が bob を取り消した後も, bob の repo のレコードは減らない (相手は消さない).
