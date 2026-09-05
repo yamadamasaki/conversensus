@@ -83,6 +83,18 @@ export type ReadRosterResult = {
  * (実機で発覚)。`accept` が持つ `inviter` が「自分 → 招待者」の辺になる。
  * これは**畳み込みの結果ではなく生の op から取る** — 承認が pre 条件で捨てられる場合
  * (まだ招待が見えていない場合がまさにそれである) でも、読みには行かなければならない。
+ *
+ * **⚠️ 離脱した actor も足りない** (step2 Phase 2, 実機で発覚)。取り消すと相手は
+ * participating からも invited からも外れるので、次の読みでその repo を訪ねなくなる。
+ * するとその actor の**承認 op が二度と見えなくなり**、名簿は「依頼されたが承認せずに
+ * 取り消された人」を見ることになる。仕様はそれを「その依頼はなかったものとする」と
+ * 定めているので、**一度参加した人が一覧から消える**。
+ *
+ * 参加履歴も同じところで失われる。履歴は畳み込みが持つが、畳み込みの入力にその人の
+ * 承認が無ければ、履歴にも参加が載らない。
+ *
+ * 読む repo は離脱者の分だけ増える。名簿は数十人という前提なので許容するが、
+ * **離脱者は減らない**ので、参加者が入れ替わり続ける File では効いてくる。
  */
 function reposToExpand(
   participation: Participation,
@@ -91,6 +103,7 @@ function reposToExpand(
   const next = new Set<Did>([
     ...participation.participating,
     ...participation.invited.keys(),
+    ...participation.departed.keys(),
   ]);
   for (const batch of batches)
     for (const op of batch.ops)

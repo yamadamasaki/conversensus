@@ -251,6 +251,53 @@ describe('取り消しは広げた先で見つかる', () => {
   });
 });
 
+describe('離脱した actor の repo も読む (step2 Phase 2, 実機で発覚)', () => {
+  test('取り消した後も, 相手が参加していた事実が名簿に残る', async () => {
+    // A が B を取り消すと B は participating からも invited からも外れる。
+    // **B の repo を訪ねなくなると, B の承認が二度と見えなくなる** —
+    // 名簿は「依頼されたが承認せずに取り消された人」を見ることになり、
+    // 仕様の「その依頼はなかったものとする」で **B が一覧から消える**
+    const deps = makeDeps({
+      [A]: [
+        jb(A, 1, [genesis()]),
+        jb(A, 2, [invite(B)]),
+        jb(A, 4, [revoke(B)]),
+      ],
+      [B]: [jb(B, 3, [accept()])],
+    });
+    const result = await readRoster(deps, { fileId: FILE, seed: A });
+
+    expect(deps.reads).toContain(B); // 離脱者の repo を訪ねる
+    expect(result.participation.departed.get(B)).toBe('revoked');
+    // 参加履歴に**承認が載っている**ことが要点。これが無いと
+    // `hasEverParticipated` が false になり、一覧から行ごと消える
+    expect(result.participation.history.get(B)?.map((e) => e.kind)).toEqual([
+      'invite',
+      'accept',
+      'revoke',
+    ]);
+  });
+
+  test('依頼のまま取り消された人は, 訪ねても参加歴を持たない', async () => {
+    // 離脱者を訪ねるようにしても、承認していない人が participating に化けたりしない
+    const deps = makeDeps({
+      [A]: [
+        jb(A, 1, [genesis()]),
+        jb(A, 2, [invite(B)]),
+        jb(A, 3, [revoke(B)]),
+      ],
+      [B]: [],
+    });
+    const result = await readRoster(deps, { fileId: FILE, seed: A });
+
+    expect(result.participation.history.get(B)?.map((e) => e.kind)).toEqual([
+      'invite',
+      'revoke',
+    ]);
+    expect(result.participation.participating.has(B)).toBe(false);
+  });
+});
+
 describe('性質', () => {
   test('∀ repo の応答順. 同じ名簿になる', async () => {
     // 読みは並行なので完了順は毎回違う。名簿が読む順序で変わってはならない
