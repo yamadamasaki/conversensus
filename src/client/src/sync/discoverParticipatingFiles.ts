@@ -130,6 +130,18 @@ export async function discoverParticipatingFiles(
     // 依頼されただけ / 離脱済の File は立ち上げない。**読む資格が無い**のではなく、
     // 参加期間が 1 つも開いていないので読んでも全部落ちる
     if (!roster.participation.participating.has(deps.viewer)) {
+      // **無言で見送らない。**ここを通ると「承認したのにサイドバーに出てこない」に
+      // なるが、画面には理由が何も出ない。名簿の中身まで出す — 起点が無い / 承認が
+      // 捨てられた / 依頼が取り消されていた、のどれなのかはこれで分かれる
+      console.warn(
+        `[participation] ${fileId}: 名簿に自分がいないので立ち上げない ` +
+          `(参加者 ${roster.participation.participating.size} 人, ` +
+          `捨てた判断 ${roster.participation.rejected.length} 件` +
+          (roster.participation.rejected.length > 0
+            ? `: ${roster.participation.rejected.map((r) => r.reason).join(', ')}`
+            : '') +
+          `, 読んだ repo ${roster.readRepos.length} 件)`,
+      );
       result.skippedNotParticipating += 1;
       continue;
     }
@@ -138,8 +150,15 @@ export async function discoverParticipatingFiles(
       fileId,
       roster.participation,
     );
-    // 名簿には載っているが、相手の repo が読めない・空だった場合。File を作らない
-    if (batches.length === 0) continue;
+    // 名簿には載っているが、相手の repo が読めない・空だった場合。File を作らない。
+    // **これも無言にしない** — 症状は上と同じ「出てこない」である
+    if (batches.length === 0) {
+      console.warn(
+        `[participation] ${fileId}: 参加者の repo から 1 件も集まらなかったので ` +
+          '立ち上げない',
+      );
+      continue;
+    }
 
     // **書く前に削除を見る** (ANA-127 の remove-wins)。書いてから消す形は取れない —
     // ローカル正典から File を取り除く口が無く、削除は tombstone でしか表せないので、

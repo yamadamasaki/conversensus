@@ -107,6 +107,20 @@ describe('ensureOwnGenesis', () => {
     expect(written).toEqual([]);
   });
 
+  test('⚠️ 手元に 1 件も無い File には置かない (2026-09-05)', async () => {
+    // **承認した直後の File がこの形である** — 判断ログには承認があるが、グラフは
+    // まだ 1 件も来ていない。`isSolelyOwnedBy` は空の op-log を「自分の File」と
+    // 答えるので (bootstrap の文脈ではそれが正しい)、ここで塞がないと
+    // **他人が作った File に自分の起点を置く**ことになる。
+    //
+    // 置いてしまうと、作った人の起点が `duplicateGenesis` で捨てられ、その人が
+    // 参加者でなくなり、依頼も承認も pre 条件で落ちる。起点は clock 0 なので
+    // 後から順序で覆せず、**名簿が壊れたまま固定される**
+    const { deps, written } = makeDeps({ fetchBatches: async () => [] });
+    expect(await ensureOwnGenesis(deps, F1, [])).toBe(false);
+    expect(written).toEqual([]);
+  });
+
   test('べき等 — 2 度呼んでも同じ id に収束する', async () => {
     const { deps, written } = makeDeps();
     await ensureOwnGenesis(deps, F1, []);
