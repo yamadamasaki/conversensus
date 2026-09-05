@@ -44,7 +44,8 @@ export type RosterAction =
   | 'accept'
   | 'revoke'
   | 'resign'
-  | 'reinvite';
+  | 'reinvite'
+  | 'reopen';
 
 export type RosterRow = {
   did: Did;
@@ -66,6 +67,9 @@ export function rosterRows(
   viewer: Did,
 ): RosterRow[] {
   const viewerParticipates = participation.participating.has(viewer);
+  // **誰も参加していない = 引き取れる状態である** (step2 Phase 2)。
+  // 空の名簿からは招待も起点の置き直しも通らないので、引き取りだけが出口になる
+  const rosterEmpty = participation.participating.size === 0;
   const rows = new Map<Did, RosterRow>();
 
   const put = (did: Did, status: RosterStatus, inviter?: Did) => {
@@ -73,7 +77,13 @@ export function rosterRows(
       did,
       ...(inviter !== undefined && { inviter }),
       status,
-      available: actionsFor({ did, status, viewer, viewerParticipates }),
+      available: actionsFor({
+        did,
+        status,
+        viewer,
+        viewerParticipates,
+        rosterEmpty,
+      }),
     });
   };
 
@@ -140,19 +150,25 @@ function actionsFor({
   status,
   viewer,
   viewerParticipates,
+  rosterEmpty,
 }: {
   did: Did;
   status: RosterStatus;
   viewer: Did;
   viewerParticipates: boolean;
+  rosterEmpty: boolean;
 }): RosterAction[] {
   const isSelf = did === viewer;
 
   // 自分の行: 依頼されていれば覗いて承認でき、参加していれば降りられる。
-  // **離脱した自分を自分で呼び戻すことはできない** — 参加者でなければ依頼を出せない
+  // **離脱した自分を自分で呼び戻すことはできない** — 参加者でなければ依頼を出せない。
+  // **ただし誰も参加していないときだけは引き取れる** (step2 Phase 2)。呼び戻せる人が
+  // 1 人も残っていない状態で塞ぐと、File が永久に閉じる
   if (isSelf) {
     if (status === 'sent') return ['preview', 'accept'];
     if (status === 'accepted') return ['resign'];
+    if (rosterEmpty && (status === 'revoked' || status === 'resigned'))
+      return ['reopen'];
     return [];
   }
 
@@ -187,6 +203,8 @@ export function actionLabel(
       return '参加取りやめ';
     case 'reinvite':
       return '再度参加依頼';
+    case 'reopen':
+      return 'この File を引き取る';
     case 'revoke':
       return status === 'sent' ? '依頼キャンセル' : '参加取りやめ';
   }
@@ -245,6 +263,8 @@ const REJECT_REASON_LABEL: Record<RejectReason, string> = {
   targetAlreadyParticipating: '対象は既に参加者',
   targetForeignPds: '対象が別の PDS のアカウント',
   duplicateGenesis: '起点が二重',
+  rosterNotEmpty: 'まだ参加している人がいる',
+  noGenesis: '起点がまだ見えていない',
 };
 
 /**

@@ -121,6 +121,17 @@ describe('一覧', () => {
     expect(actions).toEqual([['revoke', B]]);
   });
 
+  it('新しく足した action も描かれる — 並び順の表に足し忘れていないか', () => {
+    // **並び順を配列で持っていたときは、足し忘れてもコンパイルが通り、ボタンが
+    // 黙って出なかった** (`reopen` で実際に出かかった)。いまは Record にして型が
+    // 網羅を強制しているが、描画まで通ることはここでしか見られない
+    const { actions } = setup({
+      rows: [{ did: A, status: 'resigned', available: ['reopen'] }],
+    });
+    fireEvent.click(screen.getByText('この File を引き取る'));
+    expect(actions).toEqual([['reopen', A]]);
+  });
+
   it('依頼中の行にだけコードのコピーを出す', () => {
     setup();
     expect(screen.getAllByText('コードをコピー').length).toBe(1);

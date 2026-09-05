@@ -293,6 +293,10 @@ export function useParticipation({
           // 離脱した人をもう一度呼ぶ。**ハンドル名を引き直さない** — 名簿が持って
           // いるのは DID で、依頼に要るのも DID である (ハンドル名は付け替えられる)
           return write(fileId, [{ kind: 'participation.invite', target: did }]);
+        case 'reopen':
+          // 誰もいなくなった File を引き取る (step2 Phase 2)。**自分の行にしか出ない**
+          // ので `did` は使わない — 引き取るのは常に発行者自身である
+          return write(fileId, [{ kind: 'participation.reopen' }]);
         case 'preview':
           // まだ参加していない File の中身を見る操作。**Phase 2 で繋ぐ** —
           // 他 actor のグラフを読む経路がまだ無い

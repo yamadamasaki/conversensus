@@ -87,6 +87,24 @@ export const JudgmentOpSchema = z.discriminatedUnion('kind', [
     kind: z.literal('participation.revoke'),
     target: JudgmentDidSchema,
   }),
+  /**
+   * 誰も参加していなくなった File を、発行者が引き取る (step2 Phase 2)。
+   *
+   * **行き止まりを無くすための op である。**最後の 1 人が参加を取りやめると名簿が空に
+   * なり、そこからは招待が `issuerNotParticipating` で、起点の置き直しが
+   * `duplicateGenesis` で落ちる — **誰も二度と参加依頼を出せない**。File は手元に
+   * 残っているのに共同作業だけが永久に閉じる (2026-09-05 実機で行き止まりを確認)。
+   *
+   * **起点 (`genesis`) とは別の op にする。**起点は「File に 1 つ」で clock 0 に固定
+   * されており、2 つ目は必ず捨てられる。引き取りは何度でも起こりうるので、同じ op には
+   * できない。「最初の 1 人は genesis でしか決まらない」も保たれる。
+   *
+   * **作成者に限らない。**畳み込みは「その File を持っているか」を見ない —
+   * 名簿の読み出しは**起点から辿れる repo しか訪ねない**ので、判断ログに名前の無い人が
+   * 引き取りを書いても誰にも読まれない (「起点と繋がっていない genesis は読まれない」
+   * のと同じ理屈である)。したがって pre 条件に所属の条件は要らない。
+   */
+  z.object({ kind: z.literal('participation.reopen') }),
 ]);
 export type JudgmentOp = z.infer<typeof JudgmentOpSchema>;
 export type JudgmentOpKind = JudgmentOp['kind'];

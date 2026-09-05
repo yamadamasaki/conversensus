@@ -351,6 +351,50 @@ describe('File の共有状態 (step2 Phase 2, 2026-09-05 実機で発覚)', () 
   });
 });
 
+describe('引き取り — 誰も参加していないときだけ出る', () => {
+  /** 最後の 1 人が降りて名簿が空になった状態 */
+  const abandoned = () => [
+    jb(A, 1, [genesis()]),
+    jb(A, 2, [invite(B)]),
+    jb(B, 3, [accept()]),
+    jb(B, 4, [revoke(A)]),
+    jb(B, 5, [resign()]),
+  ];
+
+  test('名簿が空なら, 自分の行に引き取りが出る', () => {
+    const rows = view(abandoned(), A);
+    expect(rowOf(rows, A)?.available).toEqual(['reopen']);
+  });
+
+  test('自分で降りた人にも出る — 取り消されたかどうかは問わない', () => {
+    const rows = view(abandoned(), B);
+    expect(rowOf(rows, B)?.available).toEqual(['reopen']);
+  });
+
+  test('⚠️ 誰かが参加していれば出ない', () => {
+    // 押せてしまって畳み込みで捨てられるより, 押せない方がよい (pre 条件と同じ条件)
+    const rows = view(
+      [
+        jb(A, 1, [genesis()]),
+        jb(A, 2, [invite(B)]),
+        jb(B, 3, [accept()]),
+        jb(A, 4, [revoke(B)]),
+      ],
+      B,
+    );
+    expect(rowOf(rows, B)?.available).toEqual([]);
+  });
+
+  test('他人の行には出ない — 引き取るのは常に自分である', () => {
+    const rows = view(abandoned(), A);
+    expect(rowOf(rows, B)?.available).toEqual([]);
+  });
+
+  test('文言', () => {
+    expect(actionLabel('reopen', 'resigned')).toBe('この File を引き取る');
+  });
+});
+
 describe('捨てられた判断の知らせ', () => {
   /** 自分を招待した (必ず捨てられる) batch を 1 つ書いた状態を作る */
   const withSelfInvite = () => {

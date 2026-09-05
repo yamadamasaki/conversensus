@@ -39,13 +39,21 @@ const ID_CELL = {
 } as const;
 
 /** 一覧に出す action の並び。行ごとに順番が変わると押し間違える */
-const ACTION_ORDER: RosterAction[] = [
-  'preview',
-  'accept',
-  'revoke',
-  'resign',
-  'reinvite',
-];
+/**
+ * 操作ボタンの並び順。
+ *
+ * **配列ではなく `Record` にしてある。**配列で並べると、`RosterAction` に種類を足した
+ * ときに**足し忘れてもコンパイルが通り、ボタンが黙って出ない**。`Record` なら型が
+ * 網羅を強制する (`reopen` を足したときに実際に出かかった)。
+ */
+const ACTION_ORDER: Record<RosterAction, number> = {
+  preview: 0,
+  accept: 1,
+  revoke: 2,
+  resign: 3,
+  reinvite: 4,
+  reopen: 5,
+};
 
 type Props = {
   fileName: string;
@@ -210,8 +218,9 @@ export function InvitationDialog({
                   </button>
                 </td>
                 <td style={{ padding: '6px', whiteSpace: 'nowrap' }}>
-                  {ACTION_ORDER.filter((a) => row.available.includes(a)).map(
-                    (action) => (
+                  {[...row.available]
+                    .sort((a, b) => ACTION_ORDER[a] - ACTION_ORDER[b])
+                    .map((action) => (
                       <button
                         key={action}
                         type="button"
@@ -221,8 +230,7 @@ export function InvitationDialog({
                       >
                         {actionLabel(action, row.status)}
                       </button>
-                    ),
-                  )}
+                    ))}
                   {row.status === 'sent' && codeFor(row.did) && (
                     <button
                       type="button"

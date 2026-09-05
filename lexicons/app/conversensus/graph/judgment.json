@@ -28,7 +28,7 @@
           },
           "ops": {
             "type": "unknown",
-            "description": "Serialized JudgmentOp[]. Currently participation.genesis / .invite / .accept / .resign / .revoke; DtR approval ops join this union in step2 Phase 6."
+            "description": "Serialized JudgmentOp[]. Currently participation.genesis / .invite / .accept / .resign / .revoke / .reopen; DtR approval ops join this union in step2 Phase 6."
           },
           "createdAt": {
             "type": "string",
