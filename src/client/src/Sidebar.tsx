@@ -13,6 +13,7 @@ import { TRUNK_PREFIX } from './atproto';
 import type { RemoteSyncQueue } from './atproto/remoteSyncQueue';
 import type { PopupTarget } from './SettingsPopup';
 import { SettingsPopup } from './SettingsPopup';
+import { ShareStatusIcon } from './ShareStatusIcon';
 import { SyncStatusIndicator } from './SyncStatusIndicator';
 import type { FileSharing } from './sync/rosterView';
 
@@ -63,6 +64,21 @@ type Props = {
   /** 参加コードを貼るダイアログを開く (step2 Phase 1) */
   onOpenParticipate?: () => void;
 };
+
+/**
+ * 参加者ボタンの説明。**共有が切れていることはここにしか書かれていない** —
+ * 絵は 2 値しか表せないので、何が起きているかは title が引き受ける
+ */
+function shareTitle(share: FileSharing | null): string {
+  if (share?.isDetached)
+    return (
+      '共有が切れています。この File の参加者ではないので, ほかの参加者の編集は届きません' +
+      ' (ここまでの内容は手元に残っています)。押すと参加者一覧'
+    );
+  if (share && share.participants > 1)
+    return `参加者一覧 (共有中: ${share.participants} 人)`;
+  return '参加者一覧';
+}
 
 const gearBtnStyle: React.CSSProperties = {
   background: 'none',
@@ -301,42 +317,21 @@ export function Sidebar({
                   {f.name}
                 </button>
 
-                {/* 共有が切れた印 (step2 Phase 2, 2026-09-05 実機で発覚)。
-                    取り消されても File は手元に残るので、何も出さないと
-                    「もう同期されない File」が普通の File に見える。
-                    **開いている File の分しか分からない** (同期するのはそれだけ) */}
-                {fileShare?.isDetached && (
-                  <span
-                    title={
-                      'この File の参加者ではないので, ほかの参加者の編集は届きません。' +
-                      'ここまでの内容は手元に残っています'
-                    }
-                    style={{
-                      flexShrink: 0,
-                      fontSize: 10,
-                      color: '#8a6d1f',
-                      background: '#fdf3d0',
-                      border: '1px solid #e6d28a',
-                      borderRadius: 3,
-                      padding: '0 4px',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    同期していません
-                  </span>
-                )}
-
                 {/* 参加者一覧 (step2 Phase 1)。ログイン中のファイル行にだけ出す。
                     共有中なら人数を添える — 「誰かと共有している」ことが
-                    ダイアログを開かずに分かるようにする */}
+                    ダイアログを開かずに分かるようにする。
+
+                    **共有が切れた印もこのボタンが兼ねる** (step2 Phase 2)。
+                    取り消されても File は手元に残るので、何も出さないと
+                    「もう同期されない File」が普通の File に見える。以前は
+                    「同期していません」の札を File 名の隣に出していたが、
+                    **幅を食って File 名が読めなくなった** ので絵に畳んだ。
+                    押したときの働きは変わらない (名簿を見せる)。
+                    **開いている File の分しか分からない** (同期するのはそれだけ) */}
                 {onOpenInvitation && (
                   <button
                     type="button"
-                    title={
-                      fileShare && fileShare.participants > 1
-                        ? `参加者一覧 (共有中: ${fileShare.participants} 人)`
-                        : '参加者一覧'
-                    }
+                    title={shareTitle(fileShare)}
                     style={gearBtnStyle}
                     onClick={(e) => {
                       e.stopPropagation();
@@ -344,7 +339,11 @@ export function Sidebar({
                       onOpenInvitation(f.id);
                     }}
                   >
-                    👥
+                    <ShareStatusIcon
+                      detached={fileShare?.isDetached ?? false}
+                    />
+                    {/* 切れていても人数は出す — 「自分以外の N 人はまだ
+                        共有している」ことが、離脱の意味そのものである */}
                     {fileShare && fileShare.participants > 1 && (
                       <span style={{ fontSize: 9, marginLeft: 1 }}>
                         {fileShare.participants}
