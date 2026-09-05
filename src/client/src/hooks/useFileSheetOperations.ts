@@ -1,7 +1,9 @@
 import {
   type Actor,
   type Batch,
+  type BlobCid,
   type ConversensusFile,
+  type Did,
   type FileId,
   type GraphFile,
   type GraphFileListItem,
@@ -25,6 +27,7 @@ import type { RemoteSyncQueue } from '../atproto/remoteSyncQueue';
 import type { GraphEvent } from '../events/GraphEvent';
 import { makeEventBase } from '../events/GraphEvent';
 import { exportFile, importFile } from '../files/fileTransfer';
+import { collectBlobOrigins } from '../images/blobOrigins';
 import type { PopupTarget } from '../SettingsPopup';
 import { didFromActor } from '../sync/actor';
 import {
@@ -179,6 +182,16 @@ export function useFileSheetOperations({
     fileId: FileId;
     state: FileSharing;
   } | null>(null);
+  /**
+   * 画像 blob の由来 `cid → DID` (step2 Phase 2 S5)。**projection と同じ batch から
+   * 導く**ので、projection を差し替える場所で必ず一緒に更新する。
+   */
+  const [blobOrigins, setBlobOrigins] = useState<Map<BlobCid, Did>>(new Map());
+  /** cid から由来を引く。**Map ではなく関数を降ろす** (`blobOriginContext`) */
+  const originOf = useCallback(
+    (cid: BlobCid) => blobOrigins.get(cid),
+    [blobOrigins],
+  );
   const handleRoster = useCallback(
     (fileId: FileId, participation: Participation) => {
       setSharing({
@@ -197,8 +210,13 @@ export function useFileSheetOperations({
       reprojectAfterReceive({
         settled: tap.settled,
         pendingCount: tap.pending,
-        loadProjection: async () =>
-          projectFile(await deps.fetchBatches(fileId), fileId),
+        loadProjection: async () => {
+          // **受信後もここを通す。**他 actor が貼った画像は受信で初めて手元に来る
+          // ので、由来を更新しないと「読み込んだときには無かった画像」が出ない
+          const batches = await deps.fetchBatches(fileId);
+          setBlobOrigins(collectBlobOrigins(batches));
+          return projectFile(batches, fileId);
+        },
         ...(isEditingActive && { isEditing: isEditingActive }),
       })
         .then((result) => {
@@ -254,10 +272,11 @@ export function useFileSheetOperations({
   // 見せる方が失敗するより悪い)。安全弁 `READ_FROM_OPLOG` もここで役目を終える。
   const loadFile = useCallback(
     async (id: string): Promise<GraphFile> => {
-      const file = projectFile(
-        await deps.fetchBatches(id as FileId),
-        id as FileId,
-      );
+      const batches = await deps.fetchBatches(id as FileId);
+      const file = projectFile(batches, id as FileId);
+      // 画像 blob の由来は **op-log にしか無い** (step2 Phase 2 S5)。projection の
+      // 出力 (`GraphFile`) には載せないので、batch を読んだこの場で導いて持つ
+      setBlobOrigins(collectBlobOrigins(batches));
       // 有効な GraphFile は必ず 1 枚以上のシートを持つ (W3d-2 の読取失敗判定)。
       // 0 枚 = 欠損ファイル / 孤児 batch のみ。呼び出し側で alert に至らせる。
       if (file.sheets.length === 0) {
@@ -767,6 +786,11 @@ export function useFileSheetOperations({
 
   return {
     files,
+    /**
+     * 画像 blob の由来を引く (step2 Phase 2 S5)。`BlobOriginProvider` に渡す。
+     * **他 actor が貼った画像は自分の repo に無い**ので、これが無いと出ない
+     */
+    originOf,
     /**
      * 開いている File の共有状態 (step2 Phase 2)。**開いている File の分しか無い** —
      * 同期するのは開いている File だけなので、それ以外の共有状態は分からない

@@ -11,6 +11,7 @@
 
 import {
   type BlobCid,
+  type Did,
   MAX_BLOB_SIZE,
   type MimeType,
   type Op,
@@ -79,7 +80,17 @@ const BYTES_PER_MIB = 1024 * 1024;
 const MIB_FRACTION_DIGITS = 1;
 
 /** blob の実体が置かれている場所。ローカル・PDS のどちらでも同じ識別子で引ける */
-export type ImageBlobLocation = { cid: BlobCid; mimeType: MimeType };
+export type ImageBlobLocation = {
+  cid: BlobCid;
+  mimeType: MimeType;
+  /**
+   * その blob が**どの repo にあるか** (step2 Phase 2 S5)。省くと自分の repo。
+   *
+   * `cid` と `mimeType` は properties に書かれているが、**これは書かれていない** —
+   * op-log から導く (`collectBlobOrigins`)。単一 actor の File では常に省かれる。
+   */
+  originDid?: Did;
+};
 
 /**
  * 解決した画像。`fromCache` が true の URL は**共有キャッシュの持ち物**なので、
@@ -330,10 +341,17 @@ export async function resolveImageUrl(
 
   // 3. PDS。**ログインしている時だけ**触る。未ログインで `currentDid()` を呼ぶと
   //    throw して表示が止まってしまう (旧 ImageNode の不具合)
-  const did = deps.did();
-  if (!did) return undefined;
+  const own = deps.did();
+  if (!own) return undefined;
 
-  const remote = await deps.remote(did, location.cid, location.mimeType);
+  // **ログインの有無を決めるのは自分の DID、引きに行く先は由来の DID** である
+  // (step2 Phase 2 S5)。他 actor が貼った画像は自分の repo には無い。
+  // 由来が分からなければ自分に落ちる — 単一 actor の File はすべてこれである
+  const remote = await deps.remote(
+    location.originDid ?? own,
+    location.cid,
+    location.mimeType,
+  );
   // ローカルへ書き戻す: 次回以降は PDS を触らずに、オフラインでも表示できる。
   // content-addressed で冪等なので安全であり、失敗しても表示は妨げない (best effort)
   void remote

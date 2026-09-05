@@ -28,6 +28,7 @@ import { useRemoteSyncQueue } from './hooks/useRemoteSyncQueue';
 import { useRosterSource } from './hooks/useRosterSource';
 import { InputDialog } from './InputDialog';
 import { InvitationDialog } from './InvitationDialog';
+import { BlobOriginProvider } from './images/blobOriginContext';
 import { ParticipateDialog } from './ParticipateDialog';
 import { ParticipationHistoryDialog } from './ParticipationHistoryDialog';
 import { FLOATING_UI_Z_INDEX } from './SettingsPopup';
@@ -316,26 +317,31 @@ export default function App() {
       )}
       <main style={{ flex: 1 }}>
         {fileOps.activeFile && fileOps.activeSheetId ? (
-          <GraphEditor
-            key={`${fileOps.activeSheetId}/${branchOps.activeBranch?.id ?? TRUNK_PREFIX}`}
-            graphKey={`${fileOps.activeSheetId}/${branchOps.activeBranch?.id ?? TRUNK_PREFIX}`}
-            undoStateMap={undoStateMapRef}
-            file={fileOps.activeFile}
-            activeSheetId={fileOps.activeSheetId}
-            onChange={handleChange}
-            // branch 表示中の編集は branch 専用 op-log へ (p5-4)。trunk 用の tap に
-            // 流すと branch の編集が trunk のログに混ざる。
-            syncRecord={branchOps.branchSyncRecord ?? fileOps.syncRecord}
-            addedNodeIds={branchOps.addedNodeIds}
-            updatedNodeIds={branchOps.updatedNodeIds}
-            addedEdgeIds={branchOps.addedEdgeIds}
-            updatedEdgeIds={branchOps.updatedEdgeIds}
-            deletedNodes={branchOps.deletedNodes}
-            deletedEdges={branchOps.deletedEdges}
-            deletedNodeLayouts={branchOps.deletedNodeLayouts}
-            deletedEdgeLayouts={branchOps.deletedEdgeLayouts}
-            receiveEpoch={fileOps.receiveEpoch}
-          />
+          // 画像 blob の由来を降ろす (step2 Phase 2 S5)。**`GraphEditor` の props には
+          // 足さない** — `ImageNode` は React Flow が描くので props が届かず、
+          // 途中の層はこの値に用が無い (`blobOriginContext`)
+          <BlobOriginProvider value={fileOps.originOf}>
+            <GraphEditor
+              key={`${fileOps.activeSheetId}/${branchOps.activeBranch?.id ?? TRUNK_PREFIX}`}
+              graphKey={`${fileOps.activeSheetId}/${branchOps.activeBranch?.id ?? TRUNK_PREFIX}`}
+              undoStateMap={undoStateMapRef}
+              file={fileOps.activeFile}
+              activeSheetId={fileOps.activeSheetId}
+              onChange={handleChange}
+              // branch 表示中の編集は branch 専用 op-log へ (p5-4)。trunk 用の tap に
+              // 流すと branch の編集が trunk のログに混ざる。
+              syncRecord={branchOps.branchSyncRecord ?? fileOps.syncRecord}
+              addedNodeIds={branchOps.addedNodeIds}
+              updatedNodeIds={branchOps.updatedNodeIds}
+              addedEdgeIds={branchOps.addedEdgeIds}
+              updatedEdgeIds={branchOps.updatedEdgeIds}
+              deletedNodes={branchOps.deletedNodes}
+              deletedEdges={branchOps.deletedEdges}
+              deletedNodeLayouts={branchOps.deletedNodeLayouts}
+              deletedEdgeLayouts={branchOps.deletedEdgeLayouts}
+              receiveEpoch={fileOps.receiveEpoch}
+            />
+          </BlobOriginProvider>
         ) : (
           <div
             style={{
