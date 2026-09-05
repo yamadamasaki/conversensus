@@ -25,6 +25,7 @@ import { FanoutSyncProvider } from '../atproto/fanoutSyncProvider';
 import type { RemoteSyncQueue } from '../atproto/remoteSyncQueue';
 import { SYNC_POLL_INTERVAL_MS } from '../config';
 import type { GraphEvent } from '../events/GraphEvent';
+import { maxJudgmentClock } from '../sync/appendJudgment';
 import { EventSyncTap } from '../sync/eventSyncTap';
 import { LocalServerSyncProvider } from '../sync/localServerSyncProvider';
 import { receiveParticipantBatches } from '../sync/receiveParticipantBatches';
@@ -254,7 +255,25 @@ export function useEventSyncTap(
       });
       if (!roster) return own;
 
-      const { participation } = await roster.read(fileId);
+      const seen = await roster.read(fileId);
+
+      // ⚠️ **判断ログの clock も観測する** (2026-09-05 実機で発覚)。
+      //
+      // 判断ログとグラフの op-log は clock 空間を共有すると決めた (Phase 1) が、
+      // **tap はグラフ側の最大値からしか seed していなかった**。承認 (`accept`) は
+      // 判断ログの最大値 + 1 で発番されるので、承認直後にこの File を開くと
+      // tap の clock は承認より小さいところから始まる。すると**参加した本人の最初の
+      // 編集が「参加より前」に見え**、相手側の期間フィルタが落とす。
+      //
+      // Lamport の受信規則そのものである — 承認は自分の次の編集に因果的に先行する。
+      //
+      // **開いてから最初のサイクルが終わるまでの窓は残る。**その間に編集すると
+      // 低い clock が振られる。判断ログはローカルに無く PDS を読まないと分からない
+      // ので、tap の復元 (ローカル正典の max) だけでは埋められない。契機 1 (開いた
+      // とき) がすぐ走るので実際には狭いが、構造として残っていることは記しておく。
+      tap.observeRemote(maxJudgmentClock(seen.batches));
+
+      const participation = seen.participation;
       const others = await receiveParticipantBatches(
         fileId,
         participation,

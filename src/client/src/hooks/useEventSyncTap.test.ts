@@ -128,6 +128,8 @@ async function renderTap(opts: {
   onReceived?: Parameters<typeof useEventSyncTap>[1]['onReceived'];
   /** 定期同期の間隔 (step2 Phase 2 S4)。既定は本番と同じ 30 秒 = テスト中は発火しない */
   pollIntervalMs?: number;
+  /** 名簿の供給元 (step2 Phase 2 S2)。省略すると自分の repo だけを見る */
+  roster?: Parameters<typeof useEventSyncTap>[1]['roster'];
 }) {
   const createLocalProvider = () => opts.local;
   const view = renderHook(() =>
@@ -140,6 +142,7 @@ async function renderTap(opts: {
       ...(opts.pollIntervalMs !== undefined && {
         pollIntervalMs: opts.pollIntervalMs,
       }),
+      ...(opts.roster && { roster: opts.roster }),
       createLocalProvider,
       appendReceived,
       ...(opts.onReceived && { onReceived: opts.onReceived }),
@@ -200,6 +203,60 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
 
       expect(local.pushed).toHaveLength(1); // ローカル正典には残す (W3e 保全)
       expect(remote.pushed).toHaveLength(0); // remote へは送らない
+    });
+  });
+
+  describe('判断ログの clock を観測する (2026-09-05 実機で発覚)', () => {
+    /** 名簿を返すだけの供給元。判断ログの clock だけがここでの関心事である */
+    const rosterWith = (judgmentClock: number) => {
+      const result = {
+        participation: {
+          participating: new Set([MY_DID]),
+          invited: new Map(),
+          departed: new Map(),
+          history: new Map(),
+          rejected: [],
+        },
+        batches: [
+          {
+            id: 'j1',
+            actor: MY_ACTOR,
+            clock: judgmentClock,
+            timestamp: 0,
+            ops: [],
+          },
+        ],
+        readRepos: [],
+        unreadable: [],
+        // biome-ignore lint/suspicious/noExplicitAny: テスト用の最小の名簿
+      } as any;
+      return { read: async () => result, readFresh: async () => result };
+    };
+
+    it('承認より後の編集が, 承認より後の clock を持つ', async () => {
+      // 判断ログとグラフの op-log は clock 空間を共有する (Phase 1)。承認は判断ログの
+      // 最大値 + 1 で発番されるので、tap がグラフ側からしか seed しないと
+      // **参加した本人の最初の編集が「参加より前」に見え**、相手の期間フィルタが落とす
+      const local = new RecordingProvider();
+      local.existing = [batch('1')]; // グラフ側の最大 clock は 1
+      const remote = new RecordingProvider();
+      const remoteQueue = new RemoteSyncQueue({
+        provider: remote,
+        did: MY_DID,
+      });
+
+      const { result } = await renderTap({
+        local,
+        remoteQueue,
+        roster: rosterWith(42), // 承認の clock が 42 だったとする
+      });
+      await settle();
+
+      result.current.record(relabel());
+      await settle();
+
+      const written = local.pushed.at(-1);
+      expect(written?.clock).toBeGreaterThan(42);
     });
   });
 
