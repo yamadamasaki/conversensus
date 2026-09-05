@@ -19,6 +19,36 @@ import type { Batch, EdgeId, FileId, NodeId } from '@conversensus/shared';
 const MY_DID = 'did:plc:alice';
 /** この端末の操作主体 `<did>#<deviceId>` (Phase 4d-2) */
 const MY_ACTOR = `${MY_DID}#dev-test` as import('@conversensus/shared').Actor;
+/**
+ * 名簿を返すだけの供給元 (step2 Phase 2)。中身は 2 点だけが関心事である —
+ * **判断ログの clock** (tap がこれを観測しないと参加直後の編集が「参加より前」になる) と、
+ * **参加者に自分がいるか** (いなければ他 actor の repo を読まない)。
+ */
+const rosterWith = (judgmentClock: number, participants = [MY_DID]) => {
+  const result = {
+    participation: {
+      participating: new Set(participants),
+      invited: new Map(),
+      departed: new Map(),
+      history: new Map(),
+      rejected: [],
+    },
+    batches: [
+      {
+        id: 'j1',
+        actor: MY_ACTOR,
+        clock: judgmentClock,
+        timestamp: 0,
+        ops: [],
+      },
+    ],
+    readRepos: [],
+    unreadable: [],
+    // biome-ignore lint/suspicious/noExplicitAny: テスト用の最小の名簿
+  } as any;
+  return { read: async () => result, readFresh: async () => result };
+};
+
 const receivedWrites: Array<{ fileId: FileId; batches: Batch[] }> = [];
 let receiveFails: Error | null = null;
 const appendReceived = async (fileId: FileId, batches: Batch[]) => {
@@ -207,32 +237,6 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
   });
 
   describe('判断ログの clock を観測する (2026-09-05 実機で発覚)', () => {
-    /** 名簿を返すだけの供給元。判断ログの clock だけがここでの関心事である */
-    const rosterWith = (judgmentClock: number) => {
-      const result = {
-        participation: {
-          participating: new Set([MY_DID]),
-          invited: new Map(),
-          departed: new Map(),
-          history: new Map(),
-          rejected: [],
-        },
-        batches: [
-          {
-            id: 'j1',
-            actor: MY_ACTOR,
-            clock: judgmentClock,
-            timestamp: 0,
-            ops: [],
-          },
-        ],
-        readRepos: [],
-        unreadable: [],
-        // biome-ignore lint/suspicious/noExplicitAny: テスト用の最小の名簿
-      } as any;
-      return { read: async () => result, readFresh: async () => result };
-    };
-
     it('承認より後の編集が, 承認より後の clock を持つ', async () => {
       // 判断ログとグラフの op-log は clock 空間を共有する (Phase 1)。承認は判断ログの
       // 最大値 + 1 で発番されるので、tap がグラフ側からしか seed しないと
@@ -257,6 +261,69 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
 
       const written = local.pushed.at(-1);
       expect(written?.clock).toBeGreaterThan(42);
+    });
+  });
+
+  describe('離脱中は他 actor の repo を読まない (2026-09-05 実機で発覚)', () => {
+    const OTHER = 'did:plc:bob';
+
+    it('参加者でなければ相手の repo を読みに行かない', async () => {
+      // 期間フィルタは「書いた人がその時参加していたか」しか見ないので、
+      // **読む側が離脱していても相手の編集は通ってしまう**。取り消されたのに
+      // 相手の編集が届き続けるなら、取り消しを共有を切る操作として使えない
+      const local = new RecordingProvider();
+      const remote = new RecordingProvider();
+      const remoteQueue = new RemoteSyncQueue({
+        provider: remote,
+        did: MY_DID,
+      });
+      const pulled: (string | undefined)[] = [];
+      const spied = Object.assign(
+        Object.create(Object.getPrototypeOf(remoteQueue)),
+        remoteQueue,
+      ) as typeof remoteQueue;
+      spied.pullRemoteForFile = async (id, repo) => {
+        pulled.push(repo);
+        return remoteQueue.pullRemoteForFile(id, repo);
+      };
+
+      await renderTap({
+        local,
+        remoteQueue: spied,
+        // 自分は名簿にいない = 取り消された後
+        roster: rosterWith(1, [OTHER]),
+      });
+      await settle();
+
+      // 自分の repo (repo=undefined) は読むが、相手の repo は読まない
+      expect(pulled).toEqual([undefined]);
+    });
+
+    it('参加者なら相手の repo を読む', async () => {
+      const local = new RecordingProvider();
+      const remote = new RecordingProvider();
+      const remoteQueue = new RemoteSyncQueue({
+        provider: remote,
+        did: MY_DID,
+      });
+      const pulled: (string | undefined)[] = [];
+      const spied = Object.assign(
+        Object.create(Object.getPrototypeOf(remoteQueue)),
+        remoteQueue,
+      ) as typeof remoteQueue;
+      spied.pullRemoteForFile = async (id, repo) => {
+        pulled.push(repo);
+        return remoteQueue.pullRemoteForFile(id, repo);
+      };
+
+      await renderTap({
+        local,
+        remoteQueue: spied,
+        roster: rosterWith(1, [MY_DID, OTHER]),
+      });
+      await settle();
+
+      expect(pulled).toEqual([undefined, OTHER]);
     });
   });
 

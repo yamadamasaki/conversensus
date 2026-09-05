@@ -274,6 +274,26 @@ export function useEventSyncTap(
       tap.observeRemote(maxJudgmentClock(seen.batches));
 
       const participation = seen.participation;
+
+      // **自分が参加者でなければ他 actor の repo を読まない** (2026-09-05 実機で発覚)。
+      //
+      // 期間フィルタは「書いた人がその時参加していたか」を見るので、**読む側が
+      // 離脱していても相手の編集は通ってしまう**。取り消されたのに相手の編集が
+      // 届き続けるのは, 取り消しを共有を切る操作として使えないということである。
+      //
+      // 仕様のワークフロー 6-3 (再参加する前に標準 projection へ同期しなければ
+      // ならない) が成り立つのも, **離脱中は受け取っていない**からである。
+      // 受け取り続けるなら同期義務は要らない。
+      //
+      // ローカル正典はそのまま残る (自分の写しである)。止まるのは取り込みだけで、
+      // 「共有が切れている」ことは画面に出す責務が別にある。
+      if (!participation.participating.has(didFromActor(actor))) {
+        console.info(
+          `[sync] ${fileId}: この File の参加者ではないので他 actor の repo を読まない`,
+        );
+        return own;
+      }
+
       const others = await receiveParticipantBatches(
         fileId,
         participation,
