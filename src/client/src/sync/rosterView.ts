@@ -185,3 +185,46 @@ export function actionLabel(
       return status === 'sent' ? '依頼キャンセル' : '参加取りやめ';
   }
 }
+
+// --- File の共有状態 (step2 Phase 2, 2026-09-05 実機で発覚) ---
+
+/**
+ * 見る人から見た File の共有状態。
+ *
+ * **取り消されても File は手元に残る** — ローカル正典は自分の写しであって、共有が
+ * 切れたからといって消す筋合いは無い。しかし止まるのは取り込みであって表示ではないので、
+ * **何も出さないと「もう同期されない File」が普通の File に見える** (実機で混乱した)。
+ */
+export type FileSharing = {
+  /** いま参加している actor の数 (自分を含む) */
+  participants: number;
+  /**
+   * 見る人がその 1 人か。
+   *
+   * `false` は「取り消された / 自分で降りた」を意味する。**ただし名簿が空のときは
+   * 意味を持たない** — 起点の無い古い File では誰も参加者にならないので、
+   * `participants === 0` と区別すること (`isDetached` がそれを含む)。
+   */
+  viewerParticipates: boolean;
+  /**
+   * **共有が切れているか。**名簿に誰かがいて、その中に自分がいない状態だけを指す。
+   *
+   * 名簿が空 (起点の無い古い File) を含めない。含めると、共有と無関係な File にまで
+   * 「同期していません」が出てしまう。
+   */
+  isDetached: boolean;
+};
+
+/** 名簿から、見る人にとっての共有状態を導く */
+export function fileSharing(
+  participation: Participation,
+  viewer: Did,
+): FileSharing {
+  const participants = participation.participating.size;
+  const viewerParticipates = participation.participating.has(viewer);
+  return {
+    participants,
+    viewerParticipates,
+    isDetached: participants > 0 && !viewerParticipates,
+  };
+}

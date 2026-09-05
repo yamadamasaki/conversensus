@@ -202,6 +202,7 @@ export default function App() {
         expandedFileIds={fileOps.expandedFileIds}
         newFileName={fileOps.newFileName}
         popupTarget={fileOps.popupTarget}
+        sharing={fileOps.sharing}
         onNewFileNameChange={fileOps.setNewFileName}
         onCreateFile={fileOps.handleCreate}
         onImportFile={fileOps.handleImportFile}

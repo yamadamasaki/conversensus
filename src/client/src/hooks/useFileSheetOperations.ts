@@ -6,6 +6,7 @@ import {
   type GraphFile,
   type GraphFileListItem,
   LOCAL_DID,
+  type Participation,
   participationGenesisBatch,
   projectFile,
   type SheetId,
@@ -43,6 +44,7 @@ import {
 import { collectParticipantBatches } from '../sync/receiveParticipantBatches';
 import { reprojectAfterReceive } from '../sync/reprojectAfterReceive';
 import type { RosterSource } from '../sync/rosterSource';
+import { type FileSharing, fileSharing } from '../sync/rosterView';
 import {
   type ReceivedSummary,
   type TapHandle,
@@ -167,6 +169,26 @@ export function useFileSheetOperations({
   // GraphEditor の reset effect の依存に加えて再 seed を発火させる。
   const [receiveEpoch, setReceiveEpoch] = useState(0);
 
+  // 開いている File の共有状態 (step2 Phase 2, 2026-09-05 実機で発覚)。
+  //
+  // **取り消されても File は手元に残る** — ローカル正典は自分の写しなので消さない。
+  // しかし止まるのは取り込みであって表示ではないので、何も出さないと
+  // 「もう同期されない File」が普通の File に見える。同期サイクルが毎回名簿を読むので、
+  // その結果を受け取るだけで済む (表示のために読み直すとリクエストが倍になる)。
+  const [sharing, setSharing] = useState<{
+    fileId: FileId;
+    state: FileSharing;
+  } | null>(null);
+  const handleRoster = useCallback(
+    (fileId: FileId, participation: Participation) => {
+      setSharing({
+        fileId,
+        state: fileSharing(participation, didFromActor(actor)),
+      });
+    },
+    [actor],
+  );
+
   // 受信着地後の画面反映 (Phase 4e-3, 4e 設計 §3.3)。tap のローカル drain を待ち、
   // pending が空のときだけ再 projection で activeFile を差し替える (未 flush 編集を
   // 失わない)。見送り (defer) は次の受信契機が拾う。
@@ -221,6 +243,7 @@ export function useFileSheetOperations({
     // 既定は api の pushReceivedBatches なので挙動は変わらない (deps は安定参照)。
     appendReceived: deps.pushReceivedBatches,
     onReceived: handleReceived,
+    onRoster: handleRoster,
   });
   const syncRecord = syncRecordOverride ?? internalSyncRecord;
 
@@ -744,6 +767,12 @@ export function useFileSheetOperations({
 
   return {
     files,
+    /**
+     * 開いている File の共有状態 (step2 Phase 2)。**開いている File の分しか無い** —
+     * 同期するのは開いている File だけなので、それ以外の共有状態は分からない
+     * (知るには File の数だけ名簿を読むことになる)。
+     */
+    sharing,
     /**
      * 参加を承認した File を手元に立ち上げる (step2 Phase 2 S3)。
      * **承認の直後に呼ぶ** — 呼ばないと次に開き直すまでサイドバーに出てこない。

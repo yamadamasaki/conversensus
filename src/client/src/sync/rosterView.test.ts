@@ -7,6 +7,7 @@ import {
 } from '@conversensus/shared';
 import {
   actionLabel,
+  fileSharing,
   rosterDids,
   rosterRows,
   sortRowsByLabel,
@@ -289,5 +290,62 @@ describe('表示名 — 記録は DID, 画面はハンドル名', () => {
       did === B ? 'bob.test' : did,
     );
     expect(sorted.map((r) => r.did)).toEqual([B, A]);
+  });
+});
+
+describe('File の共有状態 (step2 Phase 2, 2026-09-05 実機で発覚)', () => {
+  const sharingOf = (batches: JudgmentBatch[], viewer: string) =>
+    fileSharing(foldParticipation(batches, deps), viewer);
+
+  test('誰とも共有していない File', () => {
+    const s = sharingOf([jb(A, 1, [genesis()])], A);
+    expect(s).toEqual({
+      participants: 1,
+      viewerParticipates: true,
+      isDetached: false,
+    });
+  });
+
+  test('共有中の File は人数が分かる', () => {
+    const s = sharingOf(
+      [jb(A, 1, [genesis()]), jb(A, 2, [invite(B)]), jb(B, 3, [accept()])],
+      A,
+    );
+    expect(s.participants).toBe(2);
+    expect(s.isDetached).toBe(false);
+  });
+
+  test('取り消された側は「共有が切れている」', () => {
+    // **File は手元に残る**が、以後ほかの参加者の編集は届かない。
+    // 何も出さないと、もう同期されない File が普通の File に見える
+    const batches = [
+      jb(A, 1, [genesis()]),
+      jb(A, 2, [invite(B)]),
+      jb(B, 3, [accept()]),
+      jb(A, 4, [revoke(B)]),
+    ];
+    expect(sharingOf(batches, B).isDetached).toBe(true);
+    // 残った側は切れていない
+    expect(sharingOf(batches, A).isDetached).toBe(false);
+  });
+
+  test('自分で降りた場合も同じ扱いになる', () => {
+    // 「自分で辞めたか, 辞めさせられたかは問わない」(仕様)
+    const batches = [
+      jb(A, 1, [genesis()]),
+      jb(A, 2, [invite(B)]),
+      jb(B, 3, [accept()]),
+      jb(B, 4, [resign()]),
+    ];
+    expect(sharingOf(batches, B).isDetached).toBe(true);
+  });
+
+  test('⚠️ 名簿が空の File は「切れている」に数えない', () => {
+    // 起点 (genesis) の無い古い File では誰も参加者にならない。これを切れている
+    // 扱いにすると、**共有と無関係な File にまで「同期していません」が出る**
+    const s = sharingOf([], A);
+    expect(s.participants).toBe(0);
+    expect(s.viewerParticipates).toBe(false);
+    expect(s.isDetached).toBe(false);
   });
 });

@@ -16,6 +16,7 @@ import type {
   Batch,
   FileId,
   Lamport,
+  Participation,
   SheetId,
 } from '@conversensus/shared';
 import { didFromActor } from '@conversensus/shared';
@@ -97,6 +98,14 @@ export type UseEventSyncTapOptions = {
     result: ReceivedSummary,
     tap: TapHandle,
   ) => void;
+  /**
+   * 名簿を読んだときの通知 (step2 Phase 2)。**共有状態の表示に使う**。
+   *
+   * 同期サイクルは毎回名簿を読むので、これを渡すと「いま何人と共有しているか」
+   * 「自分はまだ参加者か」が追加のリクエスト無しで分かる。
+   * **安定参照であること** (`onReceived` と同じ理由)。
+   */
+  onRoster?: (fileId: FileId, participation: Participation) => void;
 };
 
 /**
@@ -146,6 +155,7 @@ export function useEventSyncTap(
     createLocalProvider,
     appendReceived = pushReceivedBatches,
     onReceived,
+    onRoster,
   }: UseEventSyncTapOptions,
 ): UseEventSyncTapResult {
   // remote キューがあるときだけ fanout で包む。ローカル正典への経路は両者で同一。
@@ -274,6 +284,9 @@ export function useEventSyncTap(
       tap.observeRemote(maxJudgmentClock(seen.batches));
 
       const participation = seen.participation;
+      // 共有状態の表示元 (2026-09-05)。読んだ名簿をそのまま渡す —
+      // 表示のために名簿をもう一度読むと、参加者分のリクエストが倍になる
+      onRoster?.(fileId, participation);
 
       // **自分が参加者でなければ他 actor の repo を読まない** (2026-09-05 実機で発覚)。
       //
@@ -358,6 +371,7 @@ export function useEventSyncTap(
     actor,
     appendReceived,
     onReceived,
+    onRoster,
   ]);
 
   // 同期の契機 (§3.4 + step2 Phase 2 S4)。

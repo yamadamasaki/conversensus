@@ -14,6 +14,7 @@ import type { RemoteSyncQueue } from './atproto/remoteSyncQueue';
 import type { PopupTarget } from './SettingsPopup';
 import { SettingsPopup } from './SettingsPopup';
 import { SyncStatusIndicator } from './SyncStatusIndicator';
+import type { FileSharing } from './sync/rosterView';
 
 type Props = {
   files: GraphFileListItem[];
@@ -54,6 +55,11 @@ type Props = {
    * **ログイン中でなければ渡さない** — 名簿は DID 単位なので、DID が無いと何も出せない
    */
   onOpenInvitation?: (fileId: string) => void;
+  /**
+   * 開いている File の共有状態 (step2 Phase 2)。**開いている File の分しか無い** —
+   * 同期するのは開いている File だけなので、それ以外の共有状態は分からない。
+   */
+  sharing?: { fileId: string; state: FileSharing } | null;
   /** 参加コードを貼るダイアログを開く (step2 Phase 1) */
   onOpenParticipate?: () => void;
 };
@@ -102,6 +108,7 @@ export function Sidebar({
   remoteQueue,
   onSyncNow,
   onOpenInvitation,
+  sharing = null,
   onOpenParticipate,
 }: Props) {
   const newFileComposingRef = useRef(false);
@@ -228,6 +235,8 @@ export function Sidebar({
         {files.map((f) => {
           const isExpanded = expandedFileIds.has(f.id);
           const isActiveFile = activeFile?.id === f.id;
+          // 共有状態は開いている File の分しか無い (同期するのはそれだけ)
+          const fileShare = sharing?.fileId === f.id ? sharing.state : null;
           const fileData = isActiveFile ? activeFile : null;
           const fileDesc = fileData?.description ?? f.description;
           const isFilePopupOpen =
@@ -292,11 +301,42 @@ export function Sidebar({
                   {f.name}
                 </button>
 
-                {/* 参加者一覧 (step2 Phase 1)。ログイン中のファイル行にだけ出す */}
+                {/* 共有が切れた印 (step2 Phase 2, 2026-09-05 実機で発覚)。
+                    取り消されても File は手元に残るので、何も出さないと
+                    「もう同期されない File」が普通の File に見える。
+                    **開いている File の分しか分からない** (同期するのはそれだけ) */}
+                {fileShare?.isDetached && (
+                  <span
+                    title={
+                      'この File の参加者ではないので, ほかの参加者の編集は届きません。' +
+                      'ここまでの内容は手元に残っています'
+                    }
+                    style={{
+                      flexShrink: 0,
+                      fontSize: 10,
+                      color: '#8a6d1f',
+                      background: '#fdf3d0',
+                      border: '1px solid #e6d28a',
+                      borderRadius: 3,
+                      padding: '0 4px',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    同期していません
+                  </span>
+                )}
+
+                {/* 参加者一覧 (step2 Phase 1)。ログイン中のファイル行にだけ出す。
+                    共有中なら人数を添える — 「誰かと共有している」ことが
+                    ダイアログを開かずに分かるようにする */}
                 {onOpenInvitation && (
                   <button
                     type="button"
-                    title="参加者一覧"
+                    title={
+                      fileShare && fileShare.participants > 1
+                        ? `参加者一覧 (共有中: ${fileShare.participants} 人)`
+                        : '参加者一覧'
+                    }
                     style={gearBtnStyle}
                     onClick={(e) => {
                       e.stopPropagation();
@@ -305,6 +345,11 @@ export function Sidebar({
                     }}
                   >
                     👥
+                    {fileShare && fileShare.participants > 1 && (
+                      <span style={{ fontSize: 9, marginLeft: 1 }}>
+                        {fileShare.participants}
+                      </span>
+                    )}
                   </button>
                 )}
 
