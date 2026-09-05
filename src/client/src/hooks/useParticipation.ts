@@ -300,6 +300,8 @@ export function useParticipation({
    *
    * **起点は自分ではなく、コードが指す依頼者である。**自分はまだ名簿に載っていないので
    * 自分の repo から辿れない (「読む資格は名簿への所属と独立」— architecture §2)。
+   * ただし**起点で止めてはならない** — 依頼者が File の起点とは限らないので、genesis に
+   * 届くまで広げる必要がある (下記)。
    *
    * 書く前に依頼の実在を確かめる。承認だけ書いても、依頼が無ければ畳み込みが
    * `issuerNotInvited` で捨てる — 捨てられると分かっているものを書かない。
@@ -325,11 +327,18 @@ export function useParticipation({
 
       setState((s) => ({ ...s, busy: true, error: null }));
       try {
-        // 依頼者の repo だけを読む (passes: 0)。承認は自分が書くのでまだ無い
+        // **依頼者の repo だけでは足りない** (2026-09-05 実機で発覚)。依頼者が File の
+        // 起点とは限らず、その repo には genesis も依頼者自身への招待も無いので、
+        // そこだけ読むと名簿が空になり、**招待は残らず `issuerNotParticipating` で
+        // 捨てられる**。alice が作った File で bob が alice を呼び戻す場合がこれで、
+        // 「依頼が見つからない」と言われて再参加できなくなっていた。
+        //
+        // genesis に届くまで広げる (`converge`)。同期サイクルと違って**これは一度きりの
+        // 操作**なので、名簿の深さに比例するラウンドトリップを払ってよい
         const seen = await loadRoster({
           fileId: fileId as FileId,
           seed: inviter,
-          passes: 0,
+          passes: 'converge',
         });
         if (seen.participation.invited.get(viewer) !== inviter) {
           setState((s) => ({

@@ -298,6 +298,72 @@ describe('離脱した actor の repo も読む (step2 Phase 2, 実機で発覚)
   });
 });
 
+describe('招待者が File の起点とは限らない (2026-09-05 実機で発覚)', () => {
+  // A が作った File に B が参加し、B が A を取り消してから A を呼び戻す。
+  // A が招待の実在を確かめるとき、起点は招待者 B である
+  const recall = () => ({
+    [A]: [jb(A, 1, [genesis()]), jb(A, 2, [invite(B)])],
+    [B]: [jb(B, 3, [accept(A)]), jb(B, 4, [revoke(A)]), jb(B, 5, [invite(A)])],
+  });
+
+  test('起点だけ読むと, 招待が残らず捨てられる', async () => {
+    // B の repo には genesis も「B への招待」も無いので、畳み込みの名簿は空のまま。
+    // すると B 自身が参加者でないことになり、**B の招待は issuerNotParticipating で
+    // 捨てられる**。被招待者には「依頼が見つからない」としか見えない
+    const deps = makeDeps(recall());
+    const r = await readRoster(deps, { fileId: FILE, seed: B, passes: 0 });
+
+    expect(r.participation.invited.get(A)).toBeUndefined();
+    expect(r.participation.rejected.map((x) => x.reason)).toContain(
+      'issuerNotParticipating',
+    );
+  });
+
+  test('converge なら genesis まで届いて招待が見える', async () => {
+    const deps = makeDeps(recall());
+    const r = await readRoster(deps, {
+      fileId: FILE,
+      seed: B,
+      passes: 'converge',
+    });
+
+    expect(r.participation.invited.get(A)).toBe(B);
+    expect(deps.reads.sort()).toEqual([A, B]);
+  });
+
+  test('起点から genesis まで 2 ホップ以上あっても届く', async () => {
+    // A → B → C と繋がった File で、C が D を招待した。D の起点は C なので、
+    // genesis に届くには B を経由して A まで辿る必要がある
+    const repos = {
+      [A]: [jb(A, 1, [genesis()]), jb(A, 2, [invite(B)])],
+      [B]: [jb(B, 3, [accept(A)]), jb(B, 4, [invite(C)])],
+      [C]: [jb(C, 5, [accept(B)]), jb(C, 6, [invite(D)])],
+    };
+    const onePass = await readRoster(makeDeps(repos), {
+      fileId: FILE,
+      seed: C,
+    });
+    expect(onePass.participation.invited.get(D)).toBeUndefined(); // A に届かない
+
+    const deps = makeDeps(repos);
+    const r = await readRoster(deps, {
+      fileId: FILE,
+      seed: C,
+      passes: 'converge',
+    });
+    expect(r.participation.invited.get(D)).toBe(C);
+    // 被招待者 D 自身の repo も訪ねる (承認が既にあるかは読んでみないと分からない)
+    expect(deps.reads.sort()).toEqual([A, B, C, D]);
+  });
+
+  test('converge は広がりが止まったところで終わる', async () => {
+    // 回り続けないことが `converge` を許す条件である
+    const deps = makeDeps({ [A]: [jb(A, 1, [genesis()])] });
+    await readRoster(deps, { fileId: FILE, seed: A, passes: 'converge' });
+    expect(deps.reads).toEqual([A]);
+  });
+});
+
 describe('性質', () => {
   test('∀ repo の応答順. 同じ名簿になる', async () => {
     // 読みは並行なので完了順は毎回違う。名簿が読む順序で変わってはならない
