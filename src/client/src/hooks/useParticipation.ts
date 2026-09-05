@@ -113,8 +113,17 @@ export type InvitationPreview = {
 
 export type UseParticipationDeps = {
   actor: Actor;
-  /** **グラフと同じ clock。**独立した採番器を渡してはならない */
+  /**
+   * **開いている File のグラフと同じ clock。**独立した採番器を渡してはならない。
+   *
+   * clock 空間は File ごとなので、**判断を書く File が開いているときにだけ使う**
+   * (`activeFileId` で判定する)。承認は「まだ手元に無い File」に対して行うので、
+   * ここを無条件に使うと**別の clock 空間の採番器で発番**することになり、しかも
+   * 開いていなければ `tick()` が落ちる (2026-09-05 実機で発覚)。
+   */
   clock: TapClock;
+  /** いま開いている File。`clock` を使ってよいかの判定に使う */
+  activeFileId: FileId | null;
   /**
    * 名簿の供給元 (step2 Phase 2 S1)。**同期サイクルと同じものを渡す** —
    * 別に作ると読みが畳まれず、起点の修復も二重に走る
@@ -126,6 +135,7 @@ export type UseParticipationDeps = {
 export function useParticipation({
   actor,
   clock,
+  activeFileId,
   roster,
   newBatchId = () => crypto.randomUUID() as BatchId,
 }: UseParticipationDeps) {
@@ -176,12 +186,20 @@ export function useParticipation({
     [viewer, roster],
   );
 
+  /** @returns 書けたら true。**失敗を握り潰さない** — 呼び出し側が続きを止められる */
   const write = useCallback(
-    async (fileId: FileId, ops: JudgmentOp[]) => {
+    async (fileId: FileId, ops: JudgmentOp[]): Promise<boolean> => {
       setState((s) => ({ ...s, busy: true, error: null }));
       try {
         await appendJudgment(
-          { clock, actor, putJudgment, newBatchId },
+          {
+            // **開いている File のときだけ tap の clock を使う。**clock 空間は File
+            // ごとなので、別の File の tap で発番してはならない (承認がこの場合)
+            clock: fileId === activeFileId ? clock : null,
+            actor,
+            putJudgment,
+            newBatchId,
+          },
           fileId,
           ops,
           // 直前に読んだ判断ログを渡す。**渡さないとグラフ側の clock だけで発番して
@@ -190,11 +208,13 @@ export function useParticipation({
         );
         // **書いた直後は必ず読み直す** (進行中の読みに相乗りしない)
         await refresh(fileId, true);
+        return true;
       } catch (error) {
         setState((s) => ({ ...s, busy: false, error: describe(error) }));
+        return false;
       }
     },
-    [actor, clock, newBatchId, refresh],
+    [actor, clock, activeFileId, newBatchId, refresh],
   );
 
   /**
@@ -351,10 +371,14 @@ export function useParticipation({
    */
   const acceptPreviewed = useCallback(
     async (preview: InvitationPreview): Promise<FileId | null> => {
-      await write(preview.fileId, [
+      // **失敗したら null を返す。**以前は書けたかどうかによらず fileId を返しており、
+      // 呼び出し側がダイアログを閉じて `reset()` するので、**エラーが表示される前に
+      // 消えていた** — 画面にもコンソールにも何も出ないまま承認が無かったことになる
+      // (2026-09-05 実機で発覚)
+      const ok = await write(preview.fileId, [
         { kind: 'participation.accept', inviter: preview.inviter },
       ]);
-      return preview.fileId;
+      return ok ? preview.fileId : null;
     },
     [write],
   );

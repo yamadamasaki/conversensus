@@ -183,6 +183,8 @@ export default function App() {
   const participation = useParticipation({
     actor,
     clock: fileOps.trunkClock,
+    // clock 空間は File ごと。開いている File のときだけ tap の clock を使う
+    activeFileId: fileOps.activeFile?.id ?? null,
     // **同期サイクルと同じ供給元**を渡す (step2 Phase 2 S1)
     roster,
   });
@@ -285,7 +287,10 @@ export default function App() {
           onAccept={() => {
             const preview = participation.state.preview;
             if (!preview) return;
-            participation.acceptPreviewed(preview).then(() => {
+            participation.acceptPreviewed(preview).then((fileId) => {
+              // **書けなかったらダイアログを閉じない。**閉じて reset すると
+              // エラーが表示される前に消える (2026-09-05 実機で発覚)
+              if (!fileId) return;
               setParticipateOpen(false);
               participation.reset();
               // 承認しただけでは手元に File は無い (グラフの batch は 1 件も自分の

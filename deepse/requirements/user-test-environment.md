@@ -150,8 +150,10 @@ tombstone が残っていること = 「消えたが忘れてはいない」状�
 rm -f data/*.json data/events.db*
 ```
 
-`*.json` (legacy snapshot) は Phase 6 以降そもそも作られないので, 通常は `events.db*` を
-消すだけで足りる.
+> **⚠️ `*.json` も必ず消すこと.** Phase 6 以降 snapshot は作られないが, **それより前に
+> 作られた `*.json` は残っている**. `events.db*` だけを消すと, 次回起動の一括移行が
+> その json を拾って **File を復活させる**. 「消したのに 1 つだけ残る」はこれである
+> (2026-09-05 に実際に起きた — `data/aaaa1111-….json` が 2026-07-29 のまま残っていた).
 
 `data/` は gitignore 済みなので, 消してもリポジトリには影響しない. 次回 `dev:server` 起動時に `events.db` は自動的に再作成される.
 
