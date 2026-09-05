@@ -22,8 +22,6 @@ import type {
   JudgmentBatch,
   JudgmentOp,
   ParticipationEvent,
-  RejectedJudgment,
-  RejectReason,
 } from '@conversensus/shared';
 import { didFromActor } from '@conversensus/shared';
 import { useCallback, useRef, useState } from 'react';
@@ -44,7 +42,12 @@ import {
 import { planInvitations } from '../sync/planInvitations';
 import type { RosterSource } from '../sync/rosterSource';
 import type { RosterAction, RosterRow } from '../sync/rosterView';
-import { rosterDids, rosterRows, sortRowsByLabel } from '../sync/rosterView';
+import {
+  describeRejected,
+  rosterDids,
+  rosterRows,
+  sortRowsByLabel,
+} from '../sync/rosterView';
 import type { TapClock } from './useEventSyncTap';
 
 export type ParticipationState = {
@@ -52,11 +55,15 @@ export type ParticipationState = {
   /** 読めなかった repo。名簿が欠けている可能性を画面に出すために持つ */
   unreadable: Did[];
   /**
-   * 畳み込みが捨てた判断の要約。**空でなければ画面に出す。**
+   * **いま書いた判断**が捨てられたときの要約。**空でなければ画面に出す。**
    *
    * 捨てられた承認は `invalid` の行になるが、**捨てられた招待は行を持たない** —
    * 招待された人は名簿のどこにも現れないからである。理由を出さないと
    * 「招待したのに表が空のまま」が原因不明のまま残る (2026-09-03 に実際に起きた)。
+   *
+   * **判断ログ全体の捨てた op ではない** (2026-09-05 に直した)。判断ログは追記しか
+   * されないので、全体を数えると**一度出た警告が二度と消えない**。伝えたいのは
+   * 「いまの操作が効かなかった」である (`describeRejected`)。
    */
   rejectedNote: string | null;
   /**
@@ -153,9 +160,11 @@ export function useParticipation({
    *
    * @param fresh 判断ログを書いた直後は `true`。進行中の読みに相乗りすると
    *   書く前の名簿が返り、「依頼したのに表に出ない」になる
+   * @param wrote いま書いた batch の id。**その batch の op が捨てられたときだけ**
+   *   知らせる (`rejectedNote`)。省くと知らせない
    */
   const refresh = useCallback(
-    async (fileId: FileId, fresh = false) => {
+    async (fileId: FileId, fresh = false, wrote?: BatchId) => {
       setState((s) => ({ ...s, busy: true, error: null }));
       try {
         const result = fresh
@@ -169,7 +178,7 @@ export function useParticipation({
         setState({
           rows: sortRowsByLabel(rows, labelOf),
           unreadable: result.unreadable.map((u) => u.did),
-          rejectedNote: describeRejected(result.participation.rejected),
+          rejectedNote: describeRejected(result.participation.rejected, wrote),
           labelOf,
           history: result.participation.history,
           // 名簿を読み直したら検め中の依頼は畳む。承認の後に `refresh` が走るので、
@@ -191,7 +200,7 @@ export function useParticipation({
     async (fileId: FileId, ops: JudgmentOp[]): Promise<boolean> => {
       setState((s) => ({ ...s, busy: true, error: null }));
       try {
-        await appendJudgment(
+        const written = await appendJudgment(
           {
             // **開いている File のときだけ tap の clock を使う。**clock 空間は File
             // ごとなので、別の File の tap で発番してはならない (承認がこの場合)
@@ -206,8 +215,9 @@ export function useParticipation({
           // しまい、判断ログの方が進んでいるときに衝突する**
           knownRef.current,
         );
-        // **書いた直後は必ず読み直す** (進行中の読みに相乗りしない)
-        await refresh(fileId, true);
+        // **書いた直後は必ず読み直す** (進行中の読みに相乗りしない)。
+        // いま書いた batch を渡す — 畳み込みがそれを捨てたなら、その場で知らせる
+        await refresh(fileId, true, written.id);
         return true;
       } catch (error) {
         setState((s) => ({ ...s, busy: false, error: describe(error) }));
@@ -240,6 +250,7 @@ export function useParticipation({
           isLocalDid: isDidOnThisPds,
           isParticipating: (did) =>
             state.rows.some((r) => r.did === did && r.status === 'accepted'),
+          viewer,
         },
         handles,
       );
@@ -258,7 +269,7 @@ export function useParticipation({
         setState((s) => ({ ...s, busy: false, error: problems.join('、') }));
       else if (targets.length === 0) setState((s) => ({ ...s, busy: false }));
     },
-    [state.rows, write],
+    [state.rows, write, viewer],
   );
 
   /** 一覧の action を実行する。`preview` は書き込みを伴わない */
@@ -428,34 +439,6 @@ export function useParticipation({
     codeFor,
     reset,
   };
-}
-
-/** 判断を捨てた理由を、何が起きたか分かる文にする */
-const REJECT_REASON_LABEL: Record<RejectReason, string> = {
-  issuerNotParticipating: '発行者が参加者でない',
-  issuerNotInvited: '発行者が招待されていない',
-  targetNotInRoster: '対象が名簿にいない',
-  targetAlreadyParticipating: '対象は既に参加者',
-  targetForeignPds: '対象が別の PDS のアカウント',
-  duplicateGenesis: '起点が二重',
-};
-
-/**
- * 捨てた判断の要約。1 件も無ければ `null`。
- *
- * 理由ごとにまとめる — 同じ理由で 10 件落ちたときに 10 行出しても読めない。
- */
-function describeRejected(
-  rejected: readonly RejectedJudgment[],
-): string | null {
-  if (rejected.length === 0) return null;
-  const counts = new Map<RejectReason, number>();
-  for (const r of rejected)
-    counts.set(r.reason, (counts.get(r.reason) ?? 0) + 1);
-  const parts = [...counts].map(
-    ([reason, n]) => `${n} 件 (${REJECT_REASON_LABEL[reason]})`,
-  );
-  return `名簿に反映できなかった判断がある: ${parts.join(', ')}`;
 }
 
 /** 復号の失敗理由を、ユーザにしてもらうことが分かる文にする */

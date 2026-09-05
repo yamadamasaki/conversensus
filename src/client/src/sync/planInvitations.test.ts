@@ -6,6 +6,8 @@ import { planInvitations } from './planInvitations';
 const A = 'did:plc:alice' as Did;
 const B = 'did:plc:bob' as Did;
 const FOREIGN = 'did:plc:elsewhere' as Did;
+/** 依頼を出す本人。**名簿の誰でもない** — 自分自身の判定だけを別に試すため */
+const ME = 'did:plc:me' as Did;
 
 const DIRECTORY: Record<string, Did> = {
   'alice.test': A,
@@ -22,6 +24,7 @@ function makeDeps(over: Partial<PlanInvitationsDeps> = {}) {
     },
     isLocalDid: async (did) => did !== FOREIGN,
     isParticipating: () => false,
+    viewer: ME,
     ...over,
   };
   return { deps, asked };
@@ -48,6 +51,24 @@ describe('planInvitations', () => {
     const plan = await planInvitations(deps, ['bob.test']);
     expect(plan.targets).toEqual([]);
     expect(plan.problems).toEqual(['bob.test は既に参加している']);
+  });
+
+  test('自分自身は依頼先にならない', async () => {
+    // 畳み込みは必ず捨てるが、捨てられた op は判断ログに永久に残る。
+    // 「名簿の input に自分のハンドルを入れた」は実際に起きた (2026-09-05)
+    const { deps } = makeDeps({ viewer: A });
+    const plan = await planInvitations(deps, ['alice.test']);
+    expect(plan.targets).toEqual([]);
+    expect(plan.problems).toEqual(['alice.test は自分自身である']);
+  });
+
+  test('離脱中の自分も止まる — 参加中かどうかでは見ない', async () => {
+    // **ここが要点である。**離脱中は `isParticipating` が false なので、
+    // 参加中かどうかで見ていると素通りする (実機で 1 件書かれた経路)
+    const { deps } = makeDeps({ viewer: A, isParticipating: () => false });
+    const plan = await planInvitations(deps, ['alice.test', 'bob.test']);
+    expect(plan.targets).toEqual([B]); // 他の人の分は通す
+    expect(plan.problems).toEqual(['alice.test は自分自身である']);
   });
 
   test('別の PDS のアカウントは理由を返す', async () => {

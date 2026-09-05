@@ -9,7 +9,13 @@
  * その導出をここに閉じて、コンポーネントは表を描くだけにする。
  */
 
-import type { Did, Participation } from '@conversensus/shared';
+import type {
+  BatchId,
+  Did,
+  Participation,
+  RejectedJudgment,
+  RejectReason,
+} from '@conversensus/shared';
 import { hasEverParticipated } from '@conversensus/shared';
 
 /**
@@ -227,4 +233,44 @@ export function fileSharing(
     viewerParticipates,
     isDetached: participants > 0 && !viewerParticipates,
   };
+}
+
+// --- 捨てられた判断の知らせ (step2 Phase 1) ---
+
+/** 判断を捨てた理由を、何が起きたか分かる文にする */
+const REJECT_REASON_LABEL: Record<RejectReason, string> = {
+  issuerNotParticipating: '発行者が参加者でない',
+  issuerNotInvited: '発行者が招待されていない',
+  targetNotInRoster: '対象が名簿にいない',
+  targetAlreadyParticipating: '対象は既に参加者',
+  targetForeignPds: '対象が別の PDS のアカウント',
+  duplicateGenesis: '起点が二重',
+};
+
+/**
+ * **いま書いた batch**のうち捨てられた op の要約。捨てられていなければ `null`。
+ *
+ * **判断ログ全体の捨てた op を出してはならない** (2026-09-05 実機で発覚)。判断ログは
+ * 追記しかされないので、一度捨てられた op は**永久に残る**。全体を数えて出すと、
+ * 半年前の打ち間違い 1 件のせいで警告が消えなくなる。実際に消えなくなった。
+ *
+ * これが伝えたいのは「**いまの操作が効かなかった**」であって、ログの健康診断ではない
+ * (診断は `scripts/inspect-judgments.ts` の仕事である)。したがって対象は
+ * **書いた本人の、書いたばかりの batch** に限る。名簿を開いただけのときは何も出さない。
+ *
+ * 理由ごとにまとめる — 同じ理由で 10 件落ちたときに 10 行出しても読めない。
+ */
+export function describeRejected(
+  rejected: readonly RejectedJudgment[],
+  wrote: BatchId | undefined,
+): string | null {
+  if (!wrote) return null;
+  const mine = rejected.filter((r) => r.batchId === wrote);
+  if (mine.length === 0) return null;
+  const counts = new Map<RejectReason, number>();
+  for (const r of mine) counts.set(r.reason, (counts.get(r.reason) ?? 0) + 1);
+  const parts = [...counts].map(
+    ([reason, n]) => `${n} 件 (${REJECT_REASON_LABEL[reason]})`,
+  );
+  return `いまの操作は名簿に反映されなかった: ${parts.join(', ')}`;
 }

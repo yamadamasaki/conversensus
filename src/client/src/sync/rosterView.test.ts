@@ -7,6 +7,7 @@ import {
 } from '@conversensus/shared';
 import {
   actionLabel,
+  describeRejected,
   fileSharing,
   rosterDids,
   rosterRows,
@@ -347,5 +348,72 @@ describe('File の共有状態 (step2 Phase 2, 2026-09-05 実機で発覚)', () 
     expect(s.participants).toBe(0);
     expect(s.viewerParticipates).toBe(false);
     expect(s.isDetached).toBe(false);
+  });
+});
+
+describe('捨てられた判断の知らせ', () => {
+  /** 自分を招待した (必ず捨てられる) batch を 1 つ書いた状態を作る */
+  const withSelfInvite = () => {
+    const mine = jb(A, 5, [invite(A)]);
+    const batches = [
+      jb(A, 1, [genesis()]),
+      jb(A, 2, [invite(B)]),
+      jb(B, 3, [accept()]),
+      jb(B, 4, [revoke(A)]),
+      mine,
+    ];
+    return { mine, rejected: foldParticipation(batches, deps).rejected };
+  };
+
+  test('いま書いた batch が捨てられたら知らせる', () => {
+    const { mine, rejected } = withSelfInvite();
+    expect(describeRejected(rejected, mine.id)).toBe(
+      'いまの操作は名簿に反映されなかった: 1 件 (発行者が参加者でない)',
+    );
+  });
+
+  test('⚠️ 名簿を開いただけのときは何も出さない', () => {
+    // **判断ログは追記しかされないので、捨てられた op は永久に残る。**全体を数えて
+    // 出すと、一度出た警告が二度と消えない。実際に消えなくなった (2026-09-05 実機)。
+    // 伝えたいのは「いまの操作が効かなかった」であって、ログの健康診断ではない
+    const { rejected } = withSelfInvite();
+    expect(rejected.length).toBeGreaterThan(0); // 捨てた op は残っている
+    expect(describeRejected(rejected, undefined)).toBeNull();
+  });
+
+  test('他人が捨てられた分は、自分の操作として知らせない', () => {
+    const { mine, rejected } = withSelfInvite();
+    const other = jb(C, 9, [accept()]); // 招待されていない C の承認
+    const all = [...rejected, ...foldParticipation([other], deps).rejected];
+    // 知らせるのは自分の batch の分だけ。数は増えない
+    expect(describeRejected(all, mine.id)).toBe(
+      'いまの操作は名簿に反映されなかった: 1 件 (発行者が参加者でない)',
+    );
+  });
+
+  test('いま書いた batch が通っていれば何も出さない', () => {
+    const mine = jb(A, 5, [invite(C)]);
+    const rejected = foldParticipation(
+      [jb(A, 1, [genesis()]), mine],
+      deps,
+    ).rejected;
+    expect(describeRejected(rejected, mine.id)).toBeNull();
+  });
+
+  test('理由ごとにまとめる — 同じ理由で 10 件落ちても 1 つの句にする', () => {
+    const mine = jb(A, 5, [invite(A), invite(A), invite(A)]);
+    const rejected = foldParticipation(
+      [
+        jb(A, 1, [genesis()]),
+        jb(A, 2, [invite(B)]),
+        jb(B, 3, [accept()]),
+        jb(B, 4, [revoke(A)]),
+        mine,
+      ],
+      deps,
+    ).rejected;
+    expect(describeRejected(rejected, mine.id)).toBe(
+      'いまの操作は名簿に反映されなかった: 3 件 (発行者が参加者でない)',
+    );
   });
 });

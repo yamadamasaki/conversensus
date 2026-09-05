@@ -24,6 +24,15 @@ export type PlanInvitationsDeps = {
   isLocalDid: (did: Did) => Promise<boolean>;
   /** その DID が既に参加者か。名簿から見る (ネットワークは要らない) */
   isParticipating: (did: Did) => boolean;
+  /**
+   * 依頼を出す本人の DID。**自分自身への依頼を止めるために要る。**
+   *
+   * `isParticipating` では止まらない — **自分が離脱中のときに素通りする**。
+   * 畳み込みは自分への依頼を必ず捨てるが (参加中なら `targetAlreadyParticipating`、
+   * 離脱中なら `issuerNotParticipating`)、捨てられた op は判断ログに永久に残る
+   * (2026-09-05 実機で 1 件書かれた)。
+   */
+  viewer: Did;
 };
 
 export type InvitationPlan = {
@@ -50,6 +59,11 @@ export async function planInvitations(
   for (const [handle, did] of resolved) {
     if (!did) {
       problems.push(`${handle} は見つからない`);
+      continue;
+    }
+    if (did === deps.viewer) {
+      // **参加中かどうかの前に見る。**離脱中の自分は `isParticipating` を抜ける
+      problems.push(`${handle} は自分自身である`);
       continue;
     }
     if (deps.isParticipating(did)) {
