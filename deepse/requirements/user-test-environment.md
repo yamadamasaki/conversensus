@@ -287,6 +287,27 @@ REPO=bob.test bun run scripts/inspect-remote-batches.ts --dump
 `actor=` の欄に出てよいのは **bob の DID** と, File の起源である `genesis` だけである.
 `did:plc:jicee…` (alice) が出たら S0 が効いていない.
 
+#### 名簿がおかしいときは判断ログを直に見る
+
+名簿は**複数の repo に分かれている**ので、どれか 1 つの repo を見ても「なぜこうなるのか」は
+分からない。画面に出るのは畳み込みの結果だけで、**捨てられた op は行を持たない**
+(捨てられた依頼は誰にも見えない)。
+
+```shell
+REPOS=alice.test,bob.test bun run scripts/inspect-judgments.ts               # File の一覧
+REPOS=alice.test,bob.test FILE_ID=<uuid> bun run scripts/inspect-judgments.ts --dump
+```
+
+全 repo を読んで畳み込み、**参加中 / 依頼中 / 離脱中**と**捨てた op とその理由**を出す。
+
+> **⚠️ 起点 (`participation.genesis`) が 2 つある状態を特に見る。**起点は File に 1 つで、
+> 2 つ目は `duplicateGenesis` で捨てられる。捨てられた側の actor は参加者でなくなり、
+> その actor が出した依頼も承認も pre 条件で連鎖して落ちるので、**名簿が丸ごと壊れる**。
+> しかも起点の clock は 0 固定なので、後から書いても順序で覆せない。
+> 症状は「承認しても File が現れない」で、レコードを消すまで直らない。
+> (2026-09-05 に実際に起きた。原因は修正済 — `ensureOwnGenesis` が手元に 1 件も無い
+> File を「自分の File」と判定していた)
+
 #### 参加期間の外を読んでいないこと
 
 alice が bob を取り消した後も, bob の repo のレコードは減らない (相手は消さない).
