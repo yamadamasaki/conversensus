@@ -121,3 +121,43 @@ describe('filterByParticipation', () => {
     expect(filterByParticipation(roster({}), [])).toEqual([]);
   });
 });
+
+describe('引き取り (reopen) の後に何が届くか — 実装の記録', () => {
+  /**
+   * alice が作り (1), 取り消され (4), 誰もいない間にローカルで編集し, 引き取って (9)
+   * また編集した状態。**期間は 2 つに分かれる**
+   */
+  const reopened = () =>
+    roster({
+      [ALICE]: [event('genesis', 1), event('revoke', 4), event('reopen', 9)],
+    });
+
+  it('後から呼ばれた人には「止めた状態 + 引き取った後の変更」だけが届く', () => {
+    // 空白期間 (6,7,8) の編集は `outside period` として落ちる。
+    // 「引き取りは新しい期間を開くだけ」(仕様の決定) の観測点である
+    const out = filterByParticipation(reopened(), [
+      batch(ALICE, 2), // 参加中
+      batch(ALICE, 6), // 誰もいない間
+      batch(ALICE, 7),
+      batch(ALICE, 8),
+      batch(ALICE, 11), // 引き取った後
+    ]);
+    expect(out.map((b) => b.clock)).toEqual([2, 11]);
+  });
+
+  it('⚠️ 引き取った本人の手元は巻き戻らない', () => {
+    // **このフィルタは自分の repo には適用されない** (モジュール冒頭の「⚠️ 自分の repo
+    // には適用しない」)。引き取りは判断ログに op を 1 つ書くだけで、グラフの op-log に
+    // 触らない。したがって本人の手元は今の状態のままで、**後から呼んだ人とは
+    // projection が食い違う** — 意図した動作である。
+    //
+    // ここで固定するのは「かけたら何が落ちるか」であって、かける経路があることでは
+    // ない。落ちる中身が変わったらこのテストが先に落ちる
+    const mine = [2, 6, 7, 8, 11].map((c) => batch(ALICE, c));
+    expect(filterByParticipation(reopened(), mine).map((b) => b.clock)).toEqual(
+      [2, 11],
+    );
+    // 本人の手元にはこの 5 件がすべて残る (呼び出し側がフィルタを通さないため)
+    expect(mine.map((b) => b.clock)).toEqual([2, 6, 7, 8, 11]);
+  });
+});
