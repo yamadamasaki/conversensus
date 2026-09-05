@@ -7,6 +7,7 @@ import {
   type FileId,
   type GraphFile,
   type GraphFileListItem,
+  type Lamport,
   LOCAL_DID,
   type Participation,
   participationGenesisBatch,
@@ -48,6 +49,7 @@ import { collectParticipantBatches } from '../sync/receiveParticipantBatches';
 import { reprojectAfterReceive } from '../sync/reprojectAfterReceive';
 import type { RosterSource } from '../sync/rosterSource';
 import { type FileSharing, fileSharing } from '../sync/rosterView';
+import { rejoinObligation } from '../sync/syncObligation';
 import {
   type ReceivedSummary,
   type TapHandle,
@@ -192,15 +194,46 @@ export function useFileSheetOperations({
     (cid: BlobCid) => blobOrigins.get(cid),
     [blobOrigins],
   );
+  /**
+   * 果たしていない同期義務 (step2 Phase 2 S6)。**再参加した File を、同期が済むまで
+   * 読み取り専用にする**ための状態である。
+   */
+  const [obligation, setObligation] = useState<{
+    fileId: FileId;
+    /** 最後に開いた参加期間の始点。**義務を果たしたかどうかの鍵** */
+    since: Lamport;
+  } | null>(null);
+  /**
+   * 果たし終えた義務 (File → その時の期間の始点)。
+   *
+   * **真偽値では足りない。**「一度同期した」だけを覚えると、その後もう一度離脱して
+   * 再参加したときに義務が生まれない。期間の始点は再参加のたびに変わる
+   */
+  const dischargedRef = useRef(new Map<FileId, Lamport>());
+
   const handleRoster = useCallback(
     (fileId: FileId, participation: Participation) => {
-      setSharing({
-        fileId,
-        state: fileSharing(participation, didFromActor(actor)),
-      });
+      const viewer = didFromActor(actor);
+      setSharing({ fileId, state: fileSharing(participation, viewer) });
+
+      const since = rejoinObligation(participation, viewer);
+      setObligation(
+        since !== null && dischargedRef.current.get(fileId) !== since
+          ? { fileId, since }
+          : null,
+      );
     },
     [actor],
   );
+
+  /** 受信が最後まで走った。**義務を果たしたことを覚えて解く** (S6) */
+  const handleSynced = useCallback((fileId: FileId) => {
+    setObligation((prev) => {
+      if (!prev || prev.fileId !== fileId) return prev;
+      dischargedRef.current.set(fileId, prev.since);
+      return null;
+    });
+  }, []);
 
   // 受信着地後の画面反映 (Phase 4e-3, 4e 設計 §3.3)。tap のローカル drain を待ち、
   // pending が空のときだけ再 projection で activeFile を差し替える (未 flush 編集を
@@ -262,6 +295,7 @@ export function useFileSheetOperations({
     appendReceived: deps.pushReceivedBatches,
     onReceived: handleReceived,
     onRoster: handleRoster,
+    onSynced: handleSynced,
   });
   const syncRecord = syncRecordOverride ?? internalSyncRecord;
 
@@ -791,6 +825,11 @@ export function useFileSheetOperations({
      * **他 actor が貼った画像は自分の repo に無い**ので、これが無いと出ない
      */
     originOf,
+    /**
+     * 果たしていない同期義務 (step2 Phase 2 S6)。**この File は読み取り専用にする** —
+     * 離脱中の他人の編集を取りこぼしたまま書くと、受け取った側でエラーになる
+     */
+    obligation,
     /**
      * 開いている File の共有状態 (step2 Phase 2)。**開いている File の分しか無い** —
      * 同期するのは開いている File だけなので、それ以外の共有状態は分からない

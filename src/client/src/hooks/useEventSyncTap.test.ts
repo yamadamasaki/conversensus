@@ -156,6 +156,8 @@ async function renderTap(opts: {
   remoteQueue?: InstanceType<typeof RemoteSyncQueue> | null;
   fileId?: FileId | null;
   onReceived?: Parameters<typeof useEventSyncTap>[1]['onReceived'];
+  /** 受信サイクルが最後まで走った合図 (step2 Phase 2 S6) */
+  onSynced?: Parameters<typeof useEventSyncTap>[1]['onSynced'];
   /** 定期同期の間隔 (step2 Phase 2 S4)。既定は本番と同じ 30 秒 = テスト中は発火しない */
   pollIntervalMs?: number;
   /** 名簿の供給元 (step2 Phase 2 S2)。省略すると自分の repo だけを見る */
@@ -176,6 +178,7 @@ async function renderTap(opts: {
       createLocalProvider,
       appendReceived,
       ...(opts.onReceived && { onReceived: opts.onReceived }),
+      ...(opts.onSynced && { onSynced: opts.onSynced }),
     }),
   );
   await act(async () => {
@@ -663,6 +666,85 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
       await settle();
 
       expect(called).toBe(0);
+    });
+  });
+
+  describe('同期義務の解除 onSynced (step2 Phase 2 S6)', () => {
+    it('⚠️ 着地が 1 件も無くても呼ばれる', () => {
+      // **ここが `onReceived` と違うところである。**あれは着地したときだけ鳴るので、
+      // 義務の解除に使うと**追いつくものが無い File が永久に読み取り専用**になる
+      const local = new RecordingProvider();
+      const remote = new RecordingProvider(); // remote は空 = 受信 0 件
+      const remoteQueue = new RemoteSyncQueue({
+        provider: remote,
+        did: MY_DID,
+      });
+      const received: FileId[] = [];
+      const synced: FileId[] = [];
+
+      return renderTap({
+        local,
+        remoteQueue,
+        onReceived: (fileId) => {
+          received.push(fileId);
+        },
+        onSynced: (fileId) => {
+          synced.push(fileId);
+        },
+      })
+        .then(settle)
+        .then(() => {
+          expect(received).toEqual([]);
+          expect(synced).toEqual([FID]);
+        });
+    });
+
+    it('着地したときにも呼ばれる', async () => {
+      const local = new RecordingProvider();
+      const remote = new RecordingProvider();
+      remote.existing = [batch('r1')];
+      const remoteQueue = new RemoteSyncQueue({
+        provider: remote,
+        did: MY_DID,
+      });
+      const synced: FileId[] = [];
+
+      await renderTap({
+        local,
+        remoteQueue,
+        onSynced: (fileId) => {
+          synced.push(fileId);
+        },
+      });
+      await settle();
+
+      expect(synced).toEqual([FID]);
+    });
+
+    it('⚠️ 受信が失敗したサイクルでは呼ばれない', () => {
+      // 同期していないのに義務を解いてはならない。解くと、取りこぼしたまま
+      // 書けるようになる
+      const local = new RecordingProvider();
+      const remote = new RecordingProvider();
+      remote.existing = [batch('r1')]; // 受け取るものがあって, 書き込みで落ちる
+      const remoteQueue = new RemoteSyncQueue({
+        provider: remote,
+        did: MY_DID,
+      });
+      receiveFails = new Error('PDS が応答しない');
+      const synced: FileId[] = [];
+
+      return renderTap({
+        local,
+        remoteQueue,
+        onSynced: (fileId) => {
+          synced.push(fileId);
+        },
+      })
+        .then(settle)
+        .then(() => {
+          expect(synced).toEqual([]);
+        });
     });
   });
 

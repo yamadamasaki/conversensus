@@ -83,6 +83,7 @@ import { replaceNodeImage } from './images/replaceNodeImage';
 import { NodeCreationContext } from './NodeCreationContext';
 import type { NodeTypeOption } from './NodeTypeMenu';
 import { NodeTypeMenu } from './NodeTypeMenu';
+import { useReadOnly } from './readOnlyContext';
 
 const RF_INIT_DELAY_MS = 150;
 const DROP_TARGET_ATTR = 'data-drop-target'; // グループへ追加しようとしている
@@ -136,6 +137,9 @@ function GraphEditorInner({
   receiveEpoch,
 }: Props) {
   const { screenToFlowPosition, getNodes, getEdges } = useReactFlow();
+  // 再参加した後、同期が済むまでは編集させない (step2 Phase 2 S6)。
+  // **props ではなく context で受ける** — 途中の層はこの値に用が無い
+  const readOnly = useReadOnly();
   const activeSheet = file.sheets.find((s) => s.id === activeSheetId);
 
   const ghostDeletedNodeIds = useMemo(
@@ -802,13 +806,35 @@ function GraphEditorInner({
               onNodeDragStart={onNodeDragStart}
               onNodeDrag={onNodeDrag}
               onNodeDragStop={onNodeDragStop}
-              edgesReconnectable
+              // 読み取り専用のときは動かす・繋ぐ・繋ぎ替えるを止める
+              // (step2 Phase 2 S6)。**選択と拡大縮小は残す** — 読むための操作である
+              nodesDraggable={!readOnly}
+              nodesConnectable={!readOnly}
+              edgesReconnectable={!readOnly}
               onPaneClick={onPaneClick}
               onEdgeContextMenu={onEdgeContextMenu}
               zoomOnDoubleClick={false}
               deleteKeyCode={null}
               fitView
             >
+              {readOnly && (
+                <Panel position="top-center">
+                  {/* **なぜ編集できないかを出す。**出さないと「動かない」に見える */}
+                  <div
+                    role="status"
+                    style={{
+                      background: '#fdf3d0',
+                      border: '1px solid #e6d28a',
+                      color: '#8a6d1f',
+                      borderRadius: 4,
+                      padding: '4px 10px',
+                      fontSize: 12,
+                    }}
+                  >
+                    参加していなかった間の編集を取り込んでいます。終わるまで読み取り専用です
+                  </div>
+                </Panel>
+              )}
               <Background />
               <Controls />
               <MiniMap />
