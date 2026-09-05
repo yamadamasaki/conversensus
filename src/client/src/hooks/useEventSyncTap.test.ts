@@ -15,6 +15,40 @@ import type { Batch, EdgeId, FileId, NodeId } from '@conversensus/shared';
  * 壊れていた** (`safeParse` の結果が proxy を返す)。単体では通り、全体で回したときだけ
  * 落ちるので原因に辿り着きにくい。4 つとも外しても全テストが通る = **もう不要だった**。
  */
+/** この端末の DID (既定の `batch()` の著者) */
+const MY_DID = 'did:plc:alice';
+/** この端末の操作主体 `<did>#<deviceId>` (Phase 4d-2) */
+const MY_ACTOR = `${MY_DID}#dev-test` as import('@conversensus/shared').Actor;
+/**
+ * 名簿を返すだけの供給元 (step2 Phase 2)。中身は 2 点だけが関心事である —
+ * **判断ログの clock** (tap がこれを観測しないと参加直後の編集が「参加より前」になる) と、
+ * **参加者に自分がいるか** (いなければ他 actor の repo を読まない)。
+ */
+const rosterWith = (judgmentClock: number, participants = [MY_DID]) => {
+  const result = {
+    participation: {
+      participating: new Set(participants),
+      invited: new Map(),
+      departed: new Map(),
+      history: new Map(),
+      rejected: [],
+    },
+    batches: [
+      {
+        id: 'j1',
+        actor: MY_ACTOR,
+        clock: judgmentClock,
+        timestamp: 0,
+        ops: [],
+      },
+    ],
+    readRepos: [],
+    unreadable: [],
+    // biome-ignore lint/suspicious/noExplicitAny: テスト用の最小の名簿
+  } as any;
+  return { read: async () => result, readFresh: async () => result };
+};
+
 const receivedWrites: Array<{ fileId: FileId; batches: Batch[] }> = [];
 let receiveFails: Error | null = null;
 const appendReceived = async (fileId: FileId, batches: Batch[]) => {
@@ -102,7 +136,7 @@ class RecordingProvider implements SyncProvider, RemoteBatchTarget {
 
 const batch = (id: string, over: Partial<Batch> = {}): Batch => ({
   id: id as Batch['id'],
-  actor: 'did:plc:alice',
+  actor: MY_DID,
   clock: 1,
   timestamp: 1_700_000_000_000,
   ops: [{ kind: 'node.add', target: id as NodeId, content: id }],
@@ -122,11 +156,23 @@ async function renderTap(opts: {
   remoteQueue?: InstanceType<typeof RemoteSyncQueue> | null;
   fileId?: FileId | null;
   onReceived?: Parameters<typeof useEventSyncTap>[1]['onReceived'];
+  /** 定期同期の間隔 (step2 Phase 2 S4)。既定は本番と同じ 30 秒 = テスト中は発火しない */
+  pollIntervalMs?: number;
+  /** 名簿の供給元 (step2 Phase 2 S2)。省略すると自分の repo だけを見る */
+  roster?: Parameters<typeof useEventSyncTap>[1]['roster'];
 }) {
   const createLocalProvider = () => opts.local;
   const view = renderHook(() =>
     useEventSyncTap(opts.fileId === undefined ? FID : opts.fileId, {
       remoteQueue: opts.remoteQueue ?? null,
+      // **必須の option である。**渡さないと tap が actor 無しの batch を作り、
+      // remote leg の著者フィルタ (S0) がそこで落ちる。型は tsconfig.app.json が
+      // test を exclude しているため通ってしまう
+      actor: MY_ACTOR,
+      ...(opts.pollIntervalMs !== undefined && {
+        pollIntervalMs: opts.pollIntervalMs,
+      }),
+      ...(opts.roster && { roster: opts.roster }),
       createLocalProvider,
       appendReceived,
       ...(opts.onReceived && { onReceived: opts.onReceived }),
@@ -159,7 +205,10 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
     it('編集がローカル正典と remote の両方へ流れる', async () => {
       const local = new RecordingProvider();
       const remote = new RecordingProvider();
-      const remoteQueue = new RemoteSyncQueue({ provider: remote });
+      const remoteQueue = new RemoteSyncQueue({
+        provider: remote,
+        did: MY_DID,
+      });
       const { result } = await renderTap({ local, remoteQueue });
 
       result.current.record(relabel());
@@ -173,7 +222,10 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
     it('presentation はローカルに残り remote には載らない (D7)', async () => {
       const local = new RecordingProvider();
       const remote = new RecordingProvider();
-      const remoteQueue = new RemoteSyncQueue({ provider: remote });
+      const remoteQueue = new RemoteSyncQueue({
+        provider: remote,
+        did: MY_DID,
+      });
       const { result } = await renderTap({ local, remoteQueue });
 
       result.current.record(restyle());
@@ -184,12 +236,225 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
     });
   });
 
+  describe('判断ログの clock を観測する (2026-09-05 実機で発覚)', () => {
+    it('承認より後の編集が, 承認より後の clock を持つ', async () => {
+      // 判断ログとグラフの op-log は clock 空間を共有する (Phase 1)。承認は判断ログの
+      // 最大値 + 1 で発番されるので、tap がグラフ側からしか seed しないと
+      // **参加した本人の最初の編集が「参加より前」に見え**、相手の期間フィルタが落とす
+      const local = new RecordingProvider();
+      local.existing = [batch('1')]; // グラフ側の最大 clock は 1
+      const remote = new RecordingProvider();
+      const remoteQueue = new RemoteSyncQueue({
+        provider: remote,
+        did: MY_DID,
+      });
+
+      const { result } = await renderTap({
+        local,
+        remoteQueue,
+        roster: rosterWith(42), // 承認の clock が 42 だったとする
+      });
+      await settle();
+
+      result.current.record(relabel());
+      await settle();
+
+      const written = local.pushed.at(-1);
+      expect(written?.clock).toBeGreaterThan(42);
+    });
+  });
+
+  describe('離脱中は他 actor の repo を読まない (2026-09-05 実機で発覚)', () => {
+    const OTHER = 'did:plc:bob';
+
+    it('参加者でなければ相手の repo を読みに行かない', async () => {
+      // 期間フィルタは「書いた人がその時参加していたか」しか見ないので、
+      // **読む側が離脱していても相手の編集は通ってしまう**。取り消されたのに
+      // 相手の編集が届き続けるなら、取り消しを共有を切る操作として使えない
+      const local = new RecordingProvider();
+      const remote = new RecordingProvider();
+      const remoteQueue = new RemoteSyncQueue({
+        provider: remote,
+        did: MY_DID,
+      });
+      const pulled: (string | undefined)[] = [];
+      const spied = Object.assign(
+        Object.create(Object.getPrototypeOf(remoteQueue)),
+        remoteQueue,
+      ) as typeof remoteQueue;
+      spied.pullRemoteForFile = async (id, repo) => {
+        pulled.push(repo);
+        return remoteQueue.pullRemoteForFile(id, repo);
+      };
+
+      await renderTap({
+        local,
+        remoteQueue: spied,
+        // 自分は名簿にいない = 取り消された後
+        roster: rosterWith(1, [OTHER]),
+      });
+      await settle();
+
+      // 自分の repo (repo=undefined) は読むが、相手の repo は読まない
+      expect(pulled).toEqual([undefined]);
+    });
+
+    it('参加者なら相手の repo を読む', async () => {
+      const local = new RecordingProvider();
+      const remote = new RecordingProvider();
+      const remoteQueue = new RemoteSyncQueue({
+        provider: remote,
+        did: MY_DID,
+      });
+      const pulled: (string | undefined)[] = [];
+      const spied = Object.assign(
+        Object.create(Object.getPrototypeOf(remoteQueue)),
+        remoteQueue,
+      ) as typeof remoteQueue;
+      spied.pullRemoteForFile = async (id, repo) => {
+        pulled.push(repo);
+        return remoteQueue.pullRemoteForFile(id, repo);
+      };
+
+      await renderTap({
+        local,
+        remoteQueue: spied,
+        roster: rosterWith(1, [MY_DID, OTHER]),
+      });
+      await settle();
+
+      expect(pulled).toEqual([undefined, OTHER]);
+    });
+  });
+
+  describe('定期ポーリング (step2 Phase 2 S4 / #202)', () => {
+    /** 可視性を偽装する。既定 (jsdom/happy-dom) は常に可視である */
+    const setHidden = (hidden: boolean) => {
+      Object.defineProperty(document, 'hidden', {
+        configurable: true,
+        get: () => hidden,
+      });
+    };
+    const setOnline = (online: boolean) => {
+      Object.defineProperty(navigator, 'onLine', {
+        configurable: true,
+        get: () => online,
+      });
+    };
+    /** 実時間で n ミリ秒待つ (ポーリングは実タイマーで回る) */
+    const wait = (ms: number) =>
+      act(async () => {
+        await new Promise((r) => setTimeout(r, ms));
+      });
+
+    afterEach(() => {
+      setHidden(false);
+      setOnline(true);
+    });
+
+    it('間隔ごとに remote を読み直す (開き直さずに反映される)', async () => {
+      const local = new RecordingProvider();
+      const remote = new RecordingProvider();
+      const remoteQueue = new RemoteSyncQueue({
+        provider: remote,
+        did: MY_DID,
+      });
+      await renderTap({ local, remoteQueue, pollIntervalMs: 10 });
+      await settle();
+      // 起動時の 1 回で取りこぼしは無い
+      expect(receivedWrites).toHaveLength(0);
+
+      // 他所 (別端末 / 別 actor) の編集が remote に現れる
+      remote.existing = [batch('remote-1')];
+      await wait(40);
+
+      // **ファイルを開き直していないのに届く** — これが #202 の受入条件である
+      expect(receivedWrites.map((w) => w.batches[0]?.id)).toContain('remote-1');
+    });
+
+    it('タブが不可視の間は読みに行かない', async () => {
+      const local = new RecordingProvider();
+      const remote = new RecordingProvider();
+      const remoteQueue = new RemoteSyncQueue({
+        provider: remote,
+        did: MY_DID,
+      });
+      await renderTap({ local, remoteQueue, pollIntervalMs: 10 });
+      await settle();
+
+      setHidden(true);
+      remote.existing = [batch('remote-1')];
+      await wait(40);
+      // 裏で開いたままのタブが参加者全員の repo を読み続けないこと
+      expect(receivedWrites).toHaveLength(0);
+    });
+
+    it('可視に戻った瞬間に取りに行く (次の tick を待たない)', async () => {
+      const local = new RecordingProvider();
+      const remote = new RecordingProvider();
+      const remoteQueue = new RemoteSyncQueue({
+        provider: remote,
+        did: MY_DID,
+      });
+      // 間隔を長くして「タイマーではなく visibilitychange が発火した」ことを確かめる
+      await renderTap({ local, remoteQueue, pollIntervalMs: 60_000 });
+      await settle();
+
+      setHidden(true);
+      remote.existing = [batch('remote-1')];
+      setHidden(false);
+      document.dispatchEvent(new Event('visibilitychange'));
+      await settle();
+
+      expect(receivedWrites.map((w) => w.batches[0]?.id)).toContain('remote-1');
+    });
+
+    it('オフラインの間は読みに行かない', async () => {
+      const local = new RecordingProvider();
+      const remote = new RecordingProvider();
+      const remoteQueue = new RemoteSyncQueue({
+        provider: remote,
+        did: MY_DID,
+      });
+      await renderTap({ local, remoteQueue, pollIntervalMs: 10 });
+      await settle();
+
+      setOnline(false);
+      remote.existing = [batch('remote-1')];
+      await wait(40);
+      expect(receivedWrites).toHaveLength(0);
+    });
+
+    it('unmount 後はタイマーが止まる', async () => {
+      const local = new RecordingProvider();
+      const remote = new RecordingProvider();
+      const remoteQueue = new RemoteSyncQueue({
+        provider: remote,
+        did: MY_DID,
+      });
+      const { unmount } = await renderTap({
+        local,
+        remoteQueue,
+        pollIntervalMs: 10,
+      });
+      await settle();
+      unmount();
+
+      remote.existing = [batch('remote-1')];
+      await wait(40);
+      expect(receivedWrites).toHaveLength(0);
+    });
+  });
+
   describe('再接続時 catch-up (§3.6 / W3d5-7)', () => {
     it('online イベントで取りこぼしを回収する', async () => {
       const local = new RecordingProvider();
       const remote = new RecordingProvider();
       remote.existing = []; // 起動時は remote 空 = 取りこぼし無し
-      const remoteQueue = new RemoteSyncQueue({ provider: remote });
+      const remoteQueue = new RemoteSyncQueue({
+        provider: remote,
+        did: MY_DID,
+      });
 
       await renderTap({ local, remoteQueue });
       await settle();
@@ -206,7 +471,10 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
     it('unmount 後の online では catch-up しない (リスナ解除)', async () => {
       const local = new RecordingProvider();
       const remote = new RecordingProvider();
-      const remoteQueue = new RemoteSyncQueue({ provider: remote });
+      const remoteQueue = new RemoteSyncQueue({
+        provider: remote,
+        did: MY_DID,
+      });
 
       const { unmount } = await renderTap({ local, remoteQueue });
       unmount();
@@ -225,7 +493,10 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
       local.existing = [batch('1'), batch('2')];
       const remote = new RecordingProvider();
       remote.existing = [batch('1')]; // '2' が取りこぼし
-      const remoteQueue = new RemoteSyncQueue({ provider: remote });
+      const remoteQueue = new RemoteSyncQueue({
+        provider: remote,
+        did: MY_DID,
+      });
 
       await renderTap({ local, remoteQueue });
       await settle();
@@ -237,7 +508,10 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
       const local = new RecordingProvider();
       local.existing = [batch('1', { actor: GENESIS_ACTOR }), batch('2')];
       const remote = new RecordingProvider();
-      const remoteQueue = new RemoteSyncQueue({ provider: remote });
+      const remoteQueue = new RemoteSyncQueue({
+        provider: remote,
+        did: MY_DID,
+      });
 
       await renderTap({ local, remoteQueue });
       await settle();
@@ -260,7 +534,10 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
       const local = new RecordingProvider();
       const remote = new RecordingProvider();
       remote.existing = [batch('r1'), batch('r2')];
-      const remoteQueue = new RemoteSyncQueue({ provider: remote });
+      const remoteQueue = new RemoteSyncQueue({
+        provider: remote,
+        did: MY_DID,
+      });
 
       await renderTap({ local, remoteQueue });
       await settle();
@@ -275,7 +552,10 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
       const local = new RecordingProvider();
       const remote = new RecordingProvider();
       remote.existing = [batch('r1')];
-      const remoteQueue = new RemoteSyncQueue({ provider: remote });
+      const remoteQueue = new RemoteSyncQueue({
+        provider: remote,
+        did: MY_DID,
+      });
 
       await renderTap({ local, remoteQueue });
       await settle();
@@ -288,7 +568,10 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
     it('online イベントでも受信する (送信 catch-up と同じ契機, §3.4)', async () => {
       const local = new RecordingProvider();
       const remote = new RecordingProvider();
-      const remoteQueue = new RemoteSyncQueue({ provider: remote });
+      const remoteQueue = new RemoteSyncQueue({
+        provider: remote,
+        did: MY_DID,
+      });
 
       await renderTap({ local, remoteQueue });
       await settle();
@@ -307,7 +590,10 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
       local.existing = [batch('1')];
       const remote = new RecordingProvider();
       remote.existing = [batch('r1')];
-      const remoteQueue = new RemoteSyncQueue({ provider: remote });
+      const remoteQueue = new RemoteSyncQueue({
+        provider: remote,
+        did: MY_DID,
+      });
       receiveFails = new Error('daemon down');
 
       await renderTap({ local, remoteQueue });
@@ -331,7 +617,10 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
       const local = new RecordingProvider();
       const remote = new RecordingProvider();
       remote.existing = [batch('r1'), batch('r2')];
-      const remoteQueue = new RemoteSyncQueue({ provider: remote });
+      const remoteQueue = new RemoteSyncQueue({
+        provider: remote,
+        did: MY_DID,
+      });
       const calls: Array<{
         fileId: FileId;
         appended: number;
@@ -358,7 +647,10 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
     it('新規着地が無ければ呼ばれない (再 projection しても画面は変わらない)', async () => {
       const local = new RecordingProvider();
       const remote = new RecordingProvider(); // remote は空 = 受信 0 件
-      const remoteQueue = new RemoteSyncQueue({ provider: remote });
+      const remoteQueue = new RemoteSyncQueue({
+        provider: remote,
+        did: MY_DID,
+      });
       let called = 0;
 
       await renderTap({
@@ -378,7 +670,10 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
     it('fileId が null なら record は no-op で provider を作らない', async () => {
       const local = new RecordingProvider();
       const remote = new RecordingProvider();
-      const remoteQueue = new RemoteSyncQueue({ provider: remote });
+      const remoteQueue = new RemoteSyncQueue({
+        provider: remote,
+        did: MY_DID,
+      });
       const { result } = await renderTap({ local, remoteQueue, fileId: null });
 
       result.current.record(relabel());

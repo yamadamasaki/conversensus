@@ -13,6 +13,10 @@ import {
 } from './remoteSyncQueue';
 import type { RemoteBatch, RemoteFileEntry } from './types';
 
+/** この端末がログインしている DID (既定の `batch()` の著者) */
+const MY_DID = 'did:plc:alice';
+/** 他 actor。Phase 2 の受信でローカル正典に入ってくる側 */
+const OTHER_DID = 'did:plc:bob';
 const FILE = '22222222-2222-4222-8222-222222222222' as FileId;
 
 const addNode = (id: string): Op => ({
@@ -28,7 +32,7 @@ const setStyle = (id: string): Op => ({
 
 const batch = (id: string, over: Partial<Batch> = {}): Batch => ({
   id: id as Batch['id'],
-  actor: 'did:plc:alice',
+  actor: MY_DID,
   clock: Number(id) || 1,
   timestamp: 1_700_000_000_000,
   ops: [addNode(id)],
@@ -87,7 +91,7 @@ describe('RemoteSyncQueue', () => {
     it('enqueue で渡した fileId を送信エンベロープに添える', async () => {
       // remote の batch コレクションは repo 全体で 1 つなので、送信単位は fileId を伴う
       const provider = new FakeProvider();
-      const q = new RemoteSyncQueue({ provider });
+      const q = new RemoteSyncQueue({ provider, did: MY_DID });
       q.enqueue([batch('1')], FILE);
       await q.flush();
       expect(provider.flatEntries).toEqual([
@@ -98,7 +102,7 @@ describe('RemoteSyncQueue', () => {
     it('別ファイルの batch はそれぞれの fileId で積まれる', async () => {
       const other = '33333333-3333-4333-8333-333333333333' as FileId;
       const provider = new FakeProvider();
-      const q = new RemoteSyncQueue({ provider });
+      const q = new RemoteSyncQueue({ provider, did: MY_DID });
       q.enqueue([batch('1')], FILE);
       q.enqueue([batch('2')], other);
       await q.flush();
@@ -111,19 +115,39 @@ describe('RemoteSyncQueue', () => {
 
   describe('enqueue (フィルタ適用)', () => {
     it('genesis actor の batch も積む (Phase 4e-0・C1 見直し)', () => {
-      const q = new RemoteSyncQueue({ provider: new FakeProvider() });
+      const q = new RemoteSyncQueue({
+        provider: new FakeProvider(),
+        did: MY_DID,
+      });
       q.enqueue([batch('1', { actor: GENESIS_ACTOR })], FILE);
       expect(q.pendingCount).toBe(1);
     });
 
     it('全 op が presentation の batch は積まない', () => {
-      const q = new RemoteSyncQueue({ provider: new FakeProvider() });
+      const q = new RemoteSyncQueue({
+        provider: new FakeProvider(),
+        did: MY_DID,
+      });
       q.enqueue([batch('1', { ops: [setStyle('n1')] })], FILE);
       expect(q.pendingCount).toBe(0);
     });
 
+    it('他 actor が書いた batch は積まない (step2 Phase 2 S0)', () => {
+      // Phase 2 の受信でローカル正典に入ってくる分。積むと相手の op-log を
+      // 自分の repo へ複製することになる (Phase 2 設計 事実 A)
+      const q = new RemoteSyncQueue({
+        provider: new FakeProvider(),
+        did: MY_DID,
+      });
+      q.enqueue([batch('1', { actor: OTHER_DID })], FILE);
+      expect(q.pendingCount).toBe(0);
+    });
+
     it('mixed batch は presentation を除いて積む', () => {
-      const q = new RemoteSyncQueue({ provider: new FakeProvider() });
+      const q = new RemoteSyncQueue({
+        provider: new FakeProvider(),
+        did: MY_DID,
+      });
       q.enqueue([batch('1', { ops: [addNode('n1'), setStyle('n1')] })], FILE);
       expect(q.pendingCount).toBe(1);
       expect(q.pending()[0].batch.ops).toEqual([addNode('n1')]);
@@ -133,7 +157,7 @@ describe('RemoteSyncQueue', () => {
   describe('flush (best-effort)', () => {
     it('成功したらキューから除去する', async () => {
       const provider = new FakeProvider();
-      const q = new RemoteSyncQueue({ provider });
+      const q = new RemoteSyncQueue({ provider, did: MY_DID });
       q.enqueue([batch('1'), batch('2')], FILE);
       const result = await q.flush();
       expect(result.ok).toBe(true);
@@ -144,7 +168,7 @@ describe('RemoteSyncQueue', () => {
     it('失敗しても破棄せず保持する', async () => {
       const provider = new FakeProvider();
       provider.online = false;
-      const q = new RemoteSyncQueue({ provider });
+      const q = new RemoteSyncQueue({ provider, did: MY_DID });
       q.enqueue([batch('1')], FILE);
       const result = await q.flush();
       expect(result.ok).toBe(false);
@@ -154,7 +178,7 @@ describe('RemoteSyncQueue', () => {
     it('復帰後の再 flush で送信できる', async () => {
       const provider = new FakeProvider();
       provider.online = false;
-      const q = new RemoteSyncQueue({ provider });
+      const q = new RemoteSyncQueue({ provider, did: MY_DID });
       q.enqueue([batch('1')], FILE);
       await q.flush(); // 失敗・保持
       provider.online = true;
@@ -167,7 +191,7 @@ describe('RemoteSyncQueue', () => {
   describe('pending 購読', () => {
     it('登録直後に現在値を通知し、enqueue/flush で更新する', async () => {
       const provider = new FakeProvider();
-      const q = new RemoteSyncQueue({ provider });
+      const q = new RemoteSyncQueue({ provider, did: MY_DID });
       const seen: number[] = [];
       const unsub = q.subscribe((n) => seen.push(n));
       expect(seen).toEqual([0]); // 登録直後
@@ -187,6 +211,7 @@ describe('RemoteSyncQueue', () => {
     it('capacity を超えると最古から溢れ overflowed になる', () => {
       const q = new RemoteSyncQueue({
         provider: new FakeProvider(),
+        did: MY_DID,
         capacity: 2,
       });
       q.enqueue([batch('1'), batch('2'), batch('3')], FILE);
@@ -206,7 +231,7 @@ describe('RemoteSyncQueue', () => {
       const provider = new FakeProvider();
       // remote には '1' が既にある。'2','3' が取りこぼし
       provider.setPullBatches([batch('1')]);
-      const q = new RemoteSyncQueue({ provider });
+      const q = new RemoteSyncQueue({ provider, did: MY_DID });
       const result = await q.catchUp(
         [batch('1'), batch('2'), batch('3')],
         FILE,
@@ -219,10 +244,30 @@ describe('RemoteSyncQueue', () => {
     it('catch-up も genesis batch を積む (Phase 4e-0・C1 見直し)', async () => {
       const provider = new FakeProvider();
       provider.setPullBatches([]);
-      const q = new RemoteSyncQueue({ provider });
+      const q = new RemoteSyncQueue({ provider, did: MY_DID });
       await q.catchUp([batch('1', { actor: GENESIS_ACTOR }), batch('2')], FILE);
       // genesis の '1' も bootstrap の起源として push される
       expect(provider.flatPushed.map((b) => b.id)).toEqual(['1', '2']);
+    });
+
+    it('受信した他 actor の batch を remote へ送り返さない (step2 Phase 2 S0)', async () => {
+      // **これが S0 の本命である。**catchUp はローカル正典の全 batch を渡されるが、
+      // Phase 2 ではそこに他 actor の受信分が混ざる。送り返すと相手の op-log を
+      // 自分の repo へ複製する (Phase 2 設計 事実 A)
+      const provider = new FakeProvider();
+      provider.setPullBatches([]);
+      const q = new RemoteSyncQueue({ provider, did: MY_DID });
+      await q.catchUp(
+        [
+          batch('1'),
+          batch('2', { actor: OTHER_DID }),
+          batch('3', { actor: `${OTHER_DID}#device-9` }),
+          batch('4', { actor: GENESIS_ACTOR }),
+        ],
+        FILE,
+      );
+      // 自分の '1' と、File の起源である genesis の '4' だけが載る
+      expect(provider.flatPushed.map((b) => b.id)).toEqual(['1', '4']);
     });
 
     it('取得はファイル単位で行い repo 全件を落とさない (Phase 7 p7-2)', async () => {
@@ -230,7 +275,7 @@ describe('RemoteSyncQueue', () => {
       // なので、他ファイル分は突合しようがない転送量として捨てられていた。
       const provider = new FakeProvider();
       provider.setPullBatches([batch('1')]);
-      const q = new RemoteSyncQueue({ provider });
+      const q = new RemoteSyncQueue({ provider, did: MY_DID });
       await q.catchUp([batch('1'), batch('2')], FILE);
 
       expect(provider.pulledFor).toEqual([FILE]);
@@ -247,7 +292,7 @@ describe('RemoteSyncQueue', () => {
         { fileId: FILE, batch: batch('1') },
         { fileId: OTHER, batch: batch('2') },
       ];
-      const q = new RemoteSyncQueue({ provider });
+      const q = new RemoteSyncQueue({ provider, did: MY_DID });
       await q.catchUp([batch('1'), batch('2')], FILE);
       // '1' は FILE に既にあるので送らない。'2' は OTHER のものなので
       // FILE としては未送信 → 積み直す。
@@ -263,7 +308,7 @@ describe('RemoteSyncQueue', () => {
         { fileId: OTHER, batch: batch('1') },
         { fileId: OTHER, batch: batch('2') },
       ];
-      const q = new RemoteSyncQueue({ provider });
+      const q = new RemoteSyncQueue({ provider, did: MY_DID });
       await q.catchUp([batch('1'), batch('2')], FILE);
       expect(provider.flatPushed.map((b) => b.id)).toEqual(['1', '2']);
       // 積み直したエンベロープは FILE 宛であること

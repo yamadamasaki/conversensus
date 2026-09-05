@@ -6,6 +6,7 @@ import {
   type GraphFile,
   type GraphFileListItem,
   LOCAL_DID,
+  type Participation,
   participationGenesisBatch,
   projectFile,
   type SheetId,
@@ -31,6 +32,7 @@ import {
   hasParticipationBootstrapped,
   markParticipationBootstrapped,
 } from '../sync/bootstrapParticipation';
+import { discoverParticipatingFiles } from '../sync/discoverParticipatingFiles';
 import { discoverRemoteFiles } from '../sync/discoverRemoteFiles';
 import { deleteFileByTombstone } from '../sync/fileDeletion';
 import { LocalServerSyncProvider } from '../sync/localServerSyncProvider';
@@ -39,9 +41,15 @@ import {
   markRkeyMigrated,
   migrateRemoteRkey,
 } from '../sync/migrateRemoteRkey';
-import type { ReceiveRemoteResult } from '../sync/receiveRemoteBatches';
+import { collectParticipantBatches } from '../sync/receiveParticipantBatches';
 import { reprojectAfterReceive } from '../sync/reprojectAfterReceive';
-import { type TapHandle, useEventSyncTap } from './useEventSyncTap';
+import type { RosterSource } from '../sync/rosterSource';
+import { type FileSharing, fileSharing } from '../sync/rosterView';
+import {
+  type ReceivedSummary,
+  type TapHandle,
+  useEventSyncTap,
+} from './useEventSyncTap';
 
 type ConfirmState = {
   message: string;
@@ -112,6 +120,11 @@ interface UseFileSheetOperationsParams {
   /** この端末の操作主体 `<did>#<deviceId>` (Phase 4d-2)。tap が batch の actor に使う */
   actor: Actor;
   /**
+   * 名簿の供給元 (step2 Phase 2 S2)。**渡すと同期が他 actor の repo も読む**。
+   * null なら自分の repo だけを見る step1 の挙動になる。
+   */
+  roster?: RosterSource | null;
+  /**
    * 編集中 (ノードの inline editor / ドラッグ中) なら true を返す (Phase 4e-3, §3.3)。
    * 編集中の受信は activeFile 差し替えを保留し、次の受信契機で反映する。
    * **安定参照であること** (ref 経由を推奨)。未指定 = 常に編集中でない扱い。
@@ -126,6 +139,7 @@ export function useFileSheetOperations({
   syncRecord: syncRecordOverride,
   remoteQueue = null,
   actor,
+  roster = null,
   isEditingActive,
 }: UseFileSheetOperationsParams) {
   const [files, setFiles] = useState<GraphFileListItem[]>([]);
@@ -155,11 +169,31 @@ export function useFileSheetOperations({
   // GraphEditor の reset effect の依存に加えて再 seed を発火させる。
   const [receiveEpoch, setReceiveEpoch] = useState(0);
 
+  // 開いている File の共有状態 (step2 Phase 2, 2026-09-05 実機で発覚)。
+  //
+  // **取り消されても File は手元に残る** — ローカル正典は自分の写しなので消さない。
+  // しかし止まるのは取り込みであって表示ではないので、何も出さないと
+  // 「もう同期されない File」が普通の File に見える。同期サイクルが毎回名簿を読むので、
+  // その結果を受け取るだけで済む (表示のために読み直すとリクエストが倍になる)。
+  const [sharing, setSharing] = useState<{
+    fileId: FileId;
+    state: FileSharing;
+  } | null>(null);
+  const handleRoster = useCallback(
+    (fileId: FileId, participation: Participation) => {
+      setSharing({
+        fileId,
+        state: fileSharing(participation, didFromActor(actor)),
+      });
+    },
+    [actor],
+  );
+
   // 受信着地後の画面反映 (Phase 4e-3, 4e 設計 §3.3)。tap のローカル drain を待ち、
   // pending が空のときだけ再 projection で activeFile を差し替える (未 flush 編集を
   // 失わない)。見送り (defer) は次の受信契機が拾う。
   const handleReceived = useCallback(
-    (fileId: FileId, _result: ReceiveRemoteResult, tap: TapHandle) => {
+    (fileId: FileId, _result: ReceivedSummary, tap: TapHandle) => {
       reprojectAfterReceive({
         settled: tap.settled,
         pendingCount: tap.pending,
@@ -203,10 +237,13 @@ export function useFileSheetOperations({
   } = useEventSyncTap(activeFile?.id ?? null, {
     remoteQueue,
     actor,
+    // 「読む順序は名簿 → グラフ」の前半 (step2 Phase 2 S2)
+    roster,
     // 受信 (a) の書き込み口も discovery (4e-2b) と同じ deps 抽象を通す。
     // 既定は api の pushReceivedBatches なので挙動は変わらない (deps は安定参照)。
     appendReceived: deps.pushReceivedBatches,
     onReceived: handleReceived,
+    onRoster: handleRoster,
   });
   const syncRecord = syncRecordOverride ?? internalSyncRecord;
 
@@ -541,6 +578,54 @@ export function useFileSheetOperations({
     deps.fetchFiles().then(setFiles).catch(console.error);
   }, [deps]);
 
+  // 参加を承認した File を手元に立ち上げる (step2 Phase 2 S3)。
+  //
+  // 承認しただけでは手元に File は無い — 判断ログには承認が載るが、グラフの batch は
+  // 1 件も自分の repo に無いからである。**列挙の入口は自分の判断ログ**で、他 actor の
+  // repo は 1 件も列挙しない (U6-P1: 回すとその actor の File が全部見える)。
+  //
+  // **名簿の起点 (bootstrap) の後に走らせる。**起点が無い File では名簿が空になり、
+  // 「いま参加者か」を確かめられない。
+  //
+  // 契機は 2 つある。**起動時・`online`** (下の effect) と、**参加を承認した直後**
+  // (App が呼ぶ)。後者が無いと、承認しても次に開き直すまでサイドバーに出てこない。
+  const discoverParticipating = useCallback((): Promise<void> => {
+    if (!roster || !remoteQueue) return Promise.resolve();
+    const did = didFromActor(actor);
+    return discoverParticipatingFiles({
+      // **自分の repo だけを読む。**判断ログの rkey は batches と同じスキームなので、
+      // 自分が関わった File の fileId がここから出る
+      listJudgmentFileIds: () => listJudgmentFileIds(),
+      listLocalFileIds: deps.fetchLocalFileIds,
+      readRoster: (fileId) => roster.read(fileId),
+      // 集めるだけで書かない。削除の判定 (remove-wins) を書く前に挟むため
+      collectFromParticipants: (fileId, participation) =>
+        collectParticipantBatches(fileId, participation, did, {
+          pullRemoteForFile: (id, repo) =>
+            remoteQueue.pullRemoteForFile(id, repo),
+        }),
+      appendReceived: deps.pushReceivedBatches,
+      viewer: did,
+    })
+      .then((result) => {
+        if (result.skippedDeletedFiles > 0) {
+          console.info(
+            `[participation] skipped ${result.skippedDeletedFiles} file(s) ` +
+              'deleted by another participant',
+          );
+        }
+        if (result.discovered.length === 0) return;
+        console.info(
+          `[participation] joined ${result.discovered.length} file(s), ` +
+            `${result.appended} batch(es)`,
+        );
+        deps.fetchFiles().then(setFiles).catch(console.error);
+      })
+      .catch((error) =>
+        console.warn('[participation] file discovery failed:', error),
+      );
+  }, [remoteQueue, deps, actor, roster]);
+
   // 未知ファイルの発見と materialize (Phase 4e-2b, 4e 設計 §3.2b)。
   // **リモートのファイル一覧を得る唯一の経路** (Phase 6 p6-4, 設計 §3.8)。以前は
   // `loadAtprotoFiles` (PDS の legacy file レコード一覧) が並走していたが、あちらは
@@ -573,6 +658,8 @@ export function useFileSheetOperations({
         pullRemoteForFile: (fileId) => remoteQueue.pullRemoteForFile(fileId),
         // キューを経由しない直送 (上限で溢れると完了判定が嘘になる, remoteSyncQueue 参照)
         createRemote: (entries) => remoteQueue.createRemote(entries),
+        // 再 push は自分が書いた batch だけ (S0)。移行を抜け道にしない
+        did,
         hasMigrated: () => deps.hasRkeyMigrated(did),
         markMigrated: () => deps.markRkeyMigrated(did),
       })
@@ -665,17 +752,32 @@ export function useFileSheetOperations({
           ),
         );
 
-    // 移行 → 発見 → 名簿の起点の順に走らせる。前段の成否によらず後段は必ず実行する
+    // 移行 → 発見 → 名簿の起点 → 参加 File の発見 の順に走らせる。
+    // 前段の成否によらず後段は必ず実行する
     const sync = () => {
-      migrate().finally(discover).finally(bootstrap);
+      migrate()
+        .finally(discover)
+        .finally(bootstrap)
+        .finally(discoverParticipating);
     };
     sync();
     window.addEventListener('online', sync);
     return () => window.removeEventListener('online', sync);
-  }, [remoteQueue, deps, actor]);
+  }, [remoteQueue, deps, actor, discoverParticipating]);
 
   return {
     files,
+    /**
+     * 開いている File の共有状態 (step2 Phase 2)。**開いている File の分しか無い** —
+     * 同期するのは開いている File だけなので、それ以外の共有状態は分からない
+     * (知るには File の数だけ名簿を読むことになる)。
+     */
+    sharing,
+    /**
+     * 参加を承認した File を手元に立ち上げる (step2 Phase 2 S3)。
+     * **承認の直後に呼ぶ** — 呼ばないと次に開き直すまでサイドバーに出てこない。
+     */
+    discoverParticipating,
     activeFile,
     activeSheetId,
     setActiveFile,

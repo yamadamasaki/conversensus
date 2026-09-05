@@ -16,19 +16,22 @@ import type {
   Batch,
   FileId,
   Lamport,
+  Participation,
   SheetId,
 } from '@conversensus/shared';
+import { didFromActor } from '@conversensus/shared';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { pushReceivedBatches } from '../api';
 import { FanoutSyncProvider } from '../atproto/fanoutSyncProvider';
 import type { RemoteSyncQueue } from '../atproto/remoteSyncQueue';
+import { SYNC_POLL_INTERVAL_MS } from '../config';
 import type { GraphEvent } from '../events/GraphEvent';
+import { maxJudgmentClock } from '../sync/appendJudgment';
 import { EventSyncTap } from '../sync/eventSyncTap';
 import { LocalServerSyncProvider } from '../sync/localServerSyncProvider';
-import {
-  type ReceiveRemoteResult,
-  receiveRemoteBatches,
-} from '../sync/receiveRemoteBatches';
+import { receiveParticipantBatches } from '../sync/receiveParticipantBatches';
+import { receiveRemoteBatches } from '../sync/receiveRemoteBatches';
+import type { RosterSource } from '../sync/rosterSource';
 import type { SyncProvider } from '../sync/syncProvider';
 
 /**
@@ -63,6 +66,18 @@ export type UseEventSyncTapOptions = {
   clockFloor?: Lamport;
   /** この端末の操作主体 `<did>#<deviceId>` (Phase 4d-2)。batch の actor になる */
   actor: Actor;
+  /**
+   * 定期同期の間隔 (ミリ秒, step2 Phase 2 S4)。既定は `SYNC_POLL_INTERVAL_MS`。
+   * **テストが時計を縮めるための口である** — 本番で変える想定は無い。
+   */
+  pollIntervalMs?: number;
+  /**
+   * 名簿の供給元 (step2 Phase 2 S2)。**渡されたときだけ多アクタ同期が走る**。
+   *
+   * 省略すると自分の repo だけを見る step1 の挙動になる。「読む順序は名簿 → グラフに
+   * 固定される」ので、他 actor の op-log を読むにはまず名簿が要る。
+   */
+  roster?: RosterSource | null;
   /** テスト用: ローカル正典 provider の差し替え (既定 `LocalServerSyncProvider`) */
   createLocalProvider?: (fileId: FileId) => SyncProvider;
   /**
@@ -74,12 +89,37 @@ export type UseEventSyncTapOptions = {
    * 受信がローカル正典へ着地した (`appended > 0`) ときの通知 (Phase 4e-3)。
    * 画面反映 (再 projection → activeFile 差し替え) の起点。tap の待ち合わせ点を添える。
    * **安定参照であること** (appendReceived と同じ理由)。
+   *
+   * **1 サイクルに 1 回である** (step2 Phase 2 S2)。自分の repo と参加者の repo の
+   * 両方を読んだ合計を渡す — 相手ごとに呼ぶと、参加者の数だけ再 projection が走る。
    */
   onReceived?: (
     fileId: FileId,
-    result: ReceiveRemoteResult,
+    result: ReceivedSummary,
     tap: TapHandle,
   ) => void;
+  /**
+   * 名簿を読んだときの通知 (step2 Phase 2)。**共有状態の表示に使う**。
+   *
+   * 同期サイクルは毎回名簿を読むので、これを渡すと「いま何人と共有しているか」
+   * 「自分はまだ参加者か」が追加のリクエスト無しで分かる。
+   * **安定参照であること** (`onReceived` と同じ理由)。
+   */
+  onRoster?: (fileId: FileId, participation: Participation) => void;
+};
+
+/**
+ * 1 サイクルの受信の合計 (step2 Phase 2 S2)。
+ *
+ * Phase 2 で受信の脚が 2 本 (自分の repo / 参加者の repo) になり、結果の型も 2 つに
+ * なったので、通知はその共通部分に絞る。**消費者 (`reprojectAfterReceive`) は
+ * 「着地したか」しか見ない** ので、これで足りる。
+ */
+export type ReceivedSummary = {
+  /** 取り込みの対象にした batch 数 */
+  received: number;
+  /** ローカル正典に**新規に**追記された batch 数 */
+  appended: number;
 };
 
 export type UseEventSyncTapResult = {
@@ -109,10 +149,13 @@ export function useEventSyncTap(
   {
     remoteQueue = null,
     actor,
+    roster = null,
+    pollIntervalMs = SYNC_POLL_INTERVAL_MS,
     clockFloor,
     createLocalProvider,
     appendReceived = pushReceivedBatches,
     onReceived,
+    onRoster,
   }: UseEventSyncTapOptions,
 ): UseEventSyncTapResult {
   // remote キューがあるときだけ fanout で包む。ローカル正典への経路は両者で同一。
@@ -171,43 +214,130 @@ export function useEventSyncTap(
   //
   // **受信 (Phase 4d-5) も同じ契機に相乗りする** (§3.4)。送信 catch-up と受信は
   // 「remote と突き合わせて差分を埋める」同じ性質の操作なので、発火経路を分けない。
-  //
-  // 定期取得は採らない — 1 回あたり remote 取得 1 往復のコストを常時払うことになる。
-  // 自動反映は Jetstream 購読へ委ね (GitHub #202)、それまでは**人が要求したときに
-  // 取りに行ける**ようにしておく (契機 3)。
   /**
    * remote と突き合わせて差分を埋める (送信の catch-up + 受信)。
    *
-   * **契機は 3 つある** (§3.4 + ANA-202):
+   * **契機は 4 つある** (§3.4 + ANA-202 + step2 Phase 2 S4):
    *
    * 1. ファイルを開いたとき (下の effect)
    * 2. `online` イベント (再接続)
-   * 3. **利用者が「今すぐ同期」を押したとき** (`SyncStatusIndicator`)
+   * 3. 利用者が「今すぐ同期」を押したとき (`SyncStatusIndicator`)
+   * 4. **定期ポーリング** (step2 Phase 2 S4)
    *
    * 3 を足したのは, 1 と 2 だけでは**開いている間に他所で起きた変更を取りに行く手段が
-   * 無かった**ためである (GitHub #202)。定期取得は 1 回あたり remote 取得 1 往復の
-   * コストを常時払うので採らず, **人が要求したときだけ**取りに行く。
+   * 無かった**ためである (GitHub #202)。step1 では 4 を採らなかった — 1 回あたり
+   * remote 取得 1 往復のコストを常時払うことになるためで, 自動反映は Jetstream 購読へ
+   * 委ねる予定だった。**step2 でこれを覆す**: 多アクタでは「相手の編集が見えるまでの
+   * 遅れ」がそのまま体験になるので, 人が押すまで待つ形は成立しない。
    *
    * 送信と受信は**独立に catch する** — 送信の失敗が受信を止めないようにする。
    * 呼び出し側が完了を待てるよう Promise を返す (ボタンの「同期中…」表示に使う)。
+   *
+   * **走っているサイクルがあれば、それに相乗りする** (S4)。契機が 4 つに増えたので、
+   * ポーリングと手動と `visibilitychange` が重なる場面が普通に起きる。2 本走らせても
+   * べき等なので壊れないが, 遅い PDS では要求が積み上がる。
    */
-  const syncNow = useCallback(async (): Promise<void> => {
-    if (!(provider instanceof FanoutSyncProvider)) return;
-    if (!fileId || !remoteQueue || !tap) return;
+  const runningSync = useRef<Promise<void> | null>(null);
 
-    await Promise.all([
+  const syncNow = useCallback((): Promise<void> => {
+    if (!(provider instanceof FanoutSyncProvider)) return Promise.resolve();
+    if (!fileId || !remoteQueue || !tap) return Promise.resolve();
+    // 走っているサイクルに相乗りする (S4)。契機が 4 つあるので重なりは常態である
+    const running = runningSync.current;
+    if (running) return running;
+
+    /**
+     * 受信の 2 本の脚 (step2 Phase 2 S2)。
+     *
+     * **順序が意味を持つ。**自分の repo は名簿によらず読めるので先に読む。参加者の repo は
+     * 「読む順序は名簿 → グラフに固定される」ので、名簿を読んでからでないと読めない。
+     *
+     * 名簿が読めなくても自分の分は取り込み済である — 相手の PDS が応答しないことは
+     * 正常に起こるので、そこで自分の別端末の編集まで止めない。
+     */
+    const receiveAll = async (): Promise<ReceivedSummary> => {
+      // 受信は fanout を通さない (echo ループ回避, §3.3a)。ローカル正典への直書き。
+      const own = await receiveRemoteBatches(fileId, {
+        // 取得はファイル単位 (Phase 7 p7-2)。repo 全体を落として捨てる形を止めた
+        pullRemoteForFile: (id) => remoteQueue.pullRemoteForFile(id),
+        appendReceived,
+        observeRemote: (clock) => tap.observeRemote(clock),
+      });
+      if (!roster) return own;
+
+      const seen = await roster.read(fileId);
+
+      // ⚠️ **判断ログの clock も観測する** (2026-09-05 実機で発覚)。
+      //
+      // 判断ログとグラフの op-log は clock 空間を共有すると決めた (Phase 1) が、
+      // **tap はグラフ側の最大値からしか seed していなかった**。承認 (`accept`) は
+      // 判断ログの最大値 + 1 で発番されるので、承認直後にこの File を開くと
+      // tap の clock は承認より小さいところから始まる。すると**参加した本人の最初の
+      // 編集が「参加より前」に見え**、相手側の期間フィルタが落とす。
+      //
+      // Lamport の受信規則そのものである — 承認は自分の次の編集に因果的に先行する。
+      //
+      // **開いてから最初のサイクルが終わるまでの窓は残る。**その間に編集すると
+      // 低い clock が振られる。判断ログはローカルに無く PDS を読まないと分からない
+      // ので、tap の復元 (ローカル正典の max) だけでは埋められない。契機 1 (開いた
+      // とき) がすぐ走るので実際には狭いが、構造として残っていることは記しておく。
+      tap.observeRemote(maxJudgmentClock(seen.batches));
+
+      const participation = seen.participation;
+      // 共有状態の表示元 (2026-09-05)。読んだ名簿をそのまま渡す —
+      // 表示のために名簿をもう一度読むと、参加者分のリクエストが倍になる
+      onRoster?.(fileId, participation);
+
+      // **自分が参加者でなければ他 actor の repo を読まない** (2026-09-05 実機で発覚)。
+      //
+      // 期間フィルタは「書いた人がその時参加していたか」を見るので、**読む側が
+      // 離脱していても相手の編集は通ってしまう**。取り消されたのに相手の編集が
+      // 届き続けるのは, 取り消しを共有を切る操作として使えないということである。
+      //
+      // 仕様のワークフロー 6-3 (再参加する前に標準 projection へ同期しなければ
+      // ならない) が成り立つのも, **離脱中は受け取っていない**からである。
+      // 受け取り続けるなら同期義務は要らない。
+      //
+      // ローカル正典はそのまま残る (自分の写しである)。止まるのは取り込みだけで、
+      // 「共有が切れている」ことは画面に出す責務が別にある。
+      if (!participation.participating.has(didFromActor(actor))) {
+        console.info(
+          `[sync] ${fileId}: この File の参加者ではないので他 actor の repo を読まない`,
+        );
+        return own;
+      }
+
+      const others = await receiveParticipantBatches(
+        fileId,
+        participation,
+        didFromActor(actor),
+        {
+          pullRemoteForFile: (id, repo) =>
+            remoteQueue.pullRemoteForFile(id, repo),
+          appendReceived,
+          observeRemote: (clock) => tap.observeRemote(clock),
+        },
+      );
+      if (others.readRepos.length > 0 || others.outsidePeriod > 0) {
+        console.info(
+          `[sync] read ${others.readRepos.length} participant repo(s): ` +
+            `${others.received} batch(es) in period, ${others.appended} new, ` +
+            `${others.outsidePeriod} outside period`,
+        );
+      }
+      return {
+        received: own.received + others.received,
+        appended: own.appended + others.appended,
+      };
+    };
+
+    const cycle = Promise.all([
       provider
         .catchUpRemote()
         .catch((error) =>
           console.warn('[sync] remote catch-up failed:', error),
         ),
-      // 受信は fanout を通さない (echo ループ回避, §3.3a)。ローカル正典への直書き。
-      receiveRemoteBatches(fileId, {
-        // 取得はファイル単位 (Phase 7 p7-2)。repo 全体を落として捨てる形を止めた
-        pullRemoteForFile: (id) => remoteQueue.pullRemoteForFile(id),
-        appendReceived,
-        observeRemote: (clock) => tap.observeRemote(clock),
-      })
+      receiveAll()
         .then((result) => {
           if (result.appended > 0) {
             console.info(
@@ -223,15 +353,68 @@ export function useEventSyncTap(
           }
         })
         .catch((error) => console.warn('[sync] remote receive failed:', error)),
-    ]);
-  }, [provider, fileId, remoteQueue, tap, appendReceived, onReceived]);
+    ])
+      .then(() => undefined)
+      // **自分が最新のときだけ外す。**失敗したサイクルを残すと、以後の呼び出しが
+      // 同じ失敗を受け取り続ける (`rosterSource` と同じ判断)
+      .finally(() => {
+        if (runningSync.current === cycle) runningSync.current = null;
+      });
+    runningSync.current = cycle;
+    return cycle;
+  }, [
+    provider,
+    fileId,
+    remoteQueue,
+    tap,
+    roster,
+    actor,
+    appendReceived,
+    onReceived,
+    onRoster,
+  ]);
 
+  // 同期の契機 (§3.4 + step2 Phase 2 S4)。
+  //
+  // **定期ポーリングは「前回の完了から N ミリ秒」で回す。**`setInterval` にすると
+  // 遅い PDS で要求が積み上がる (前のサイクルが終わる前に次が始まる)。
+  //
+  // 止める条件を 2 つ持つ。どちらも「見ていない画面のために相手の PDS を叩かない」
+  // ためである。
+  //
+  //   - **タブが不可視のとき** (`document.hidden)。裏で開いたままのタブが 30 秒ごとに
+  //     参加者全員の repo を読み続けると、参加者が増えるほど無駄が効く
+  //   - **オフラインのとき** (`navigator.onLine`)。`online` イベントが復帰を拾う
+  //
+  // 不可視の間に溜まった変更は、**可視に戻った瞬間に取りに行く** — 次の tick を
+  // 待つと最大で間隔ぶん古い画面を見せることになる。
   useEffect(() => {
-    void syncNow();
-    const onOnline = () => void syncNow();
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const tick = async () => {
+      if (stopped) return;
+      // 画面を見ていて回線があるときだけ取りに行く。条件を満たさなくても
+      // **タイマーは回し続ける** — 復帰したときに次の tick が拾う
+      if (!document.hidden && navigator.onLine) await syncNow();
+      if (stopped) return;
+      timer = setTimeout(tick, pollIntervalMs);
+    };
+    void tick(); // 契機 1: ファイルを開いたとき
+
+    const onOnline = () => void syncNow(); // 契機 2: 再接続
+    const onVisible = () => {
+      if (!document.hidden) void syncNow();
+    };
     window.addEventListener('online', onOnline);
-    return () => window.removeEventListener('online', onOnline);
-  }, [syncNow]);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+      window.removeEventListener('online', onOnline);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [syncNow, pollIntervalMs]);
 
   // content 経路は sheetId を渡す (W3c2)。structure 経路は省略 → file-level batch。
   const record = useCallback(

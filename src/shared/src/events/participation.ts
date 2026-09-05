@@ -46,7 +46,8 @@ export type ParticipationEventKind =
   | 'invite'
   | 'accept'
   | 'resign'
-  | 'revoke';
+  | 'revoke'
+  | 'reopen';
 
 /**
  * 名簿に起きた 1 つの出来事。**採択された op だけが載る。**
@@ -88,7 +89,11 @@ export type RejectReason =
   /** 被招待者の DID がこの PDS に属さない (仕様は「無効とする」と定める) */
   | 'targetForeignPds'
   /** この File の genesis は既に出ている */
-  | 'duplicateGenesis';
+  | 'duplicateGenesis'
+  /** 引き取ろうとしたが, まだ誰かが参加している */
+  | 'rosterNotEmpty'
+  /** 引き取ろうとしたが, 起点がまだ見えていない (引き取る名簿が無い) */
+  | 'noGenesis';
 
 export type RejectedJudgment = {
   batchId: BatchId;
@@ -247,6 +252,24 @@ export function foldParticipation(
           record(issuer, 'resign');
           break;
 
+        case 'participation.reopen':
+          // **誰もいなくなった File を引き取る。**起点を要求するのは、起点が無い
+          // File には「引き取る名簿」がそもそも無いからである (それは
+          // `ensureOwnGenesis` が直す別の状態で、混ぜると起点の修復が 2 通りになる)
+          if (!genesisSeen) {
+            reject('noGenesis');
+            break;
+          }
+          if (participating.size > 0) {
+            reject('rosterNotEmpty');
+            break;
+          }
+          participating.add(issuer);
+          departed.delete(issuer);
+          invited.delete(issuer);
+          record(issuer, 'reopen');
+          break;
+
         case 'participation.revoke':
           if (!participating.has(issuer)) {
             reject('issuerNotParticipating');
@@ -302,6 +325,10 @@ export function periodsOf(
     switch (event.kind) {
       case 'genesis':
       case 'accept':
+      case 'reopen':
+        // **引き取りは新しい期間を開くだけ** — 誰もいなかった間の op は届かない
+        // (仕様の決定, 2026-09-05)。遡って開くと「取り消した後の操作は反映されない」を
+        // 名簿が空になる経路で迂回できてしまう
         periods.push({ from: event.clock });
         break;
       case 'resign':
@@ -329,7 +356,7 @@ export function hasEverParticipated(
   did: Did,
 ): boolean {
   return (participation.history.get(did) ?? []).some(
-    (e) => e.kind === 'genesis' || e.kind === 'accept',
+    (e) => e.kind === 'genesis' || e.kind === 'accept' || e.kind === 'reopen',
   );
 }
 

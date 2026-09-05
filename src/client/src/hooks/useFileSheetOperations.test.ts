@@ -10,6 +10,8 @@ const { createInMemoryFileSheetOpsDeps } = await import(
 /** hook が要求する操作主体 `<did>#<deviceId>` (Phase 4d-2) */
 const TEST_ACTOR =
   'did:plc:test#dev-test' as import('@conversensus/shared').Actor;
+/** この端末の DID (`TEST_ACTOR` の DID 部分)。remote leg の著者フィルタが使う (S0) */
+const TEST_DID = 'did:plc:test';
 
 const SID1 = '00000000-0000-0000-0000-000000000001' as SheetId;
 const SID2 = '00000000-0000-0000-0000-000000000002' as SheetId;
@@ -653,7 +655,7 @@ describe('useFileSheetOperations', () => {
           entries.filter((e) => e.fileId === fileId),
       };
       // biome-ignore lint/suspicious/noExplicitAny: テスト用の最小 provider
-      return new RemoteSyncQueue({ provider: provider as any });
+      return new RemoteSyncQueue({ provider: provider as any, did: TEST_DID });
     }
 
     it('mount 時に未知ファイルを materialize し一覧を再読込する', async () => {
@@ -745,6 +747,7 @@ describe('useFileSheetOperations', () => {
       const queue = new RemoteSyncQueue({
         // biome-ignore lint/suspicious/noExplicitAny: テスト用の最小 provider
         provider: provider as any,
+        did: TEST_DID,
       });
       return { queue, calls };
     }
@@ -831,8 +834,11 @@ describe('useFileSheetOperations', () => {
 
       await renderWith({
         deps,
-        // biome-ignore lint/suspicious/noExplicitAny: テスト用の最小 provider
-        remoteQueue: new RemoteSyncQueue({ provider: provider as any }),
+        remoteQueue: new RemoteSyncQueue({
+          // biome-ignore lint/suspicious/noExplicitAny: テスト用の最小 provider
+          provider: provider as any,
+          did: TEST_DID,
+        }),
       });
 
       expect(received).toEqual([DISCOVERED]); // 発見は走った
@@ -866,7 +872,7 @@ describe('useFileSheetOperations', () => {
           entries.filter((e) => e.fileId === id),
       };
       // biome-ignore lint/suspicious/noExplicitAny: テスト用の最小 provider
-      return new RemoteSyncQueue({ provider: provider as any });
+      return new RemoteSyncQueue({ provider: provider as any, did: TEST_DID });
     }
 
     it('開いているファイルへの受信で activeFile が差し替わり receiveEpoch が増える', async () => {

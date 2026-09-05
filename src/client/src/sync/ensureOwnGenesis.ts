@@ -57,10 +57,21 @@ export async function ensureOwnGenesis(
   known: readonly JudgmentBatch[],
 ): Promise<boolean> {
   if (hasGenesis(known)) return false;
-  if (
-    !isSolelyOwnedBy(await deps.fetchBatches(fileId), didFromActor(deps.actor))
-  )
-    return false;
+
+  const local = await deps.fetchBatches(fileId);
+  // ⚠️ **手元に 1 件も無い File には置かない** (2026-09-05)。
+  //
+  // `isSolelyOwnedBy` は空の op-log を「自分の File」と答える。**bootstrap の文脈では
+  // それが正しい** — あちらの入力はローカルに存在する File なので、空は「この端末で
+  // 作られたばかり」を意味する。**こちらでは意味が逆になる**。名簿を読むたびに呼ばれる
+  // ので、空は「そもそも手元に無い」でありうる — **承認した直後の File がまさにそれ**
+  // (判断ログには承認があるが、グラフはまだ 1 件も来ていない)。
+  //
+  // そこへ起点を置くと、作った人の起点が `duplicateGenesis` で捨てられ、その人が
+  // 参加者でなくなり、依頼も承認も pre 条件で落ちる。**名簿が壊れたまま固定される** —
+  // 起点は clock 0 なので、後から書いても順序で負けない。
+  if (local.length === 0) return false;
+  if (!isSolelyOwnedBy(local, didFromActor(deps.actor))) return false;
   await deps.putJudgment(fileId, participationGenesisBatch(fileId, deps.actor));
   console.info(`[participation] ${fileId}: 起点が無かったので置いた`);
   return true;

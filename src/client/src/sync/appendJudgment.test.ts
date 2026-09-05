@@ -123,6 +123,51 @@ describe('appendJudgment', () => {
     expect(written[0]?.clock).toBe(21);
   });
 
+  describe('⚠️ その File を開いていないとき (2026-09-05 実機で発覚)', () => {
+    // clock 空間は File ごとで、tap も File ごとに作られる。承認する時点でその File は
+    // 手元に無いので開きようがなく、**開いている別の File の tap を渡してはならない**
+    // (別の clock 空間の採番器であり、その File の clock を無関係に進めてしまう)。
+    // 無条件に渡す実装では、そもそも何も開いていない端末で `tick()` が落ち、
+    // **承認が 1 件も書かれないまま画面には何も出なかった**
+    const makeTaplessDeps = () => {
+      const written: JudgmentBatch[] = [];
+      const deps: AppendJudgmentDeps = {
+        clock: null,
+        actor: ACTOR,
+        putJudgment: async (_fileId, batch) => {
+          written.push(batch);
+        },
+        newBatchId: bid,
+        now: () => 1_700_000_000_000,
+      };
+      return { deps, written };
+    };
+
+    test('判断ログの最大値 + 1 で発番する', async () => {
+      const { deps, written } = makeTaplessDeps();
+      await appendJudgment(
+        deps,
+        FILE,
+        [{ kind: 'participation.accept', inviter: 'did:plc:alice' }],
+        [jb(7)],
+      );
+      // 依頼の clock は依頼者の tap がグラフを追い越して振ったものなので、
+      // その + 1 は「依頼より後」を正しく表す
+      expect(written[0]?.clock).toBe(8);
+    });
+
+    test('判断ログが空でも書ける (clock は 1 から)', async () => {
+      const { deps, written } = makeTaplessDeps();
+      await appendJudgment(
+        deps,
+        FILE,
+        [{ kind: 'participation.accept', inviter: 'did:plc:alice' }],
+        [],
+      );
+      expect(written[0]?.clock).toBe(1);
+    });
+  });
+
   test('連続して書くと clock が単調に増える', async () => {
     const { deps, written } = makeDeps();
     await appendJudgment(

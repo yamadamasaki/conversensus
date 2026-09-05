@@ -150,8 +150,10 @@ tombstone が残っていること = 「消えたが忘れてはいない」状�
 rm -f data/*.json data/events.db*
 ```
 
-`*.json` (legacy snapshot) は Phase 6 以降そもそも作られないので, 通常は `events.db*` を
-消すだけで足りる.
+> **⚠️ `*.json` も必ず消すこと.** Phase 6 以降 snapshot は作られないが, **それより前に
+> 作られた `*.json` は残っている**. `events.db*` だけを消すと, 次回起動の一括移行が
+> その json を拾って **File を復活させる**. 「消したのに 1 つだけ残る」はこれである
+> (2026-09-05 に実際に起きた — `data/aaaa1111-….json` が 2026-07-29 のまま残っていた).
 
 `data/` は gitignore 済みなので, 消してもリポジトリには影響しない. 次回 `dev:server` 起動時に `events.db` は自動的に再作成される.
 
@@ -212,6 +214,138 @@ bun run src/client/src/spikes/u6/p1.spike.ts
 > `listRecords` の 1 ページ (100 件) では目的の batch に届かないことがある.
 > 範囲取得 (`listByFile` / `listByRkeyPrefix`) を使うこと. これは単一端末では効率の話
 > だったが, **多アクタでは正しさの話になる**.
+
+### 5.1 2 アカウントで共同編集する (step2 Phase 2)
+
+Phase 2 で「書くのは自分の repo だけ, 読むのは N 人の repo」が動くようになった.
+検証には **alice と bob がそれぞれ自分のデーモンを持つ**構成が要る — ローカル正典は
+端末 (デーモン) ごとなので, 1 つのデーモンを 2 アカウントで共有してはならない.
+
+構成は §6 (device B) と同じで, **ログインするアカウントだけが違う**.
+
+```shell
+# alice 側 (既定)
+bun run dev:server            # :3000, data/
+bun run dev:client            # :5173
+
+# bob 側
+PORT=3001 DATA_DIR=data-b bun run dev:server
+cd src/client && VITE_API_BASE=http://localhost:3001 bunx vite --port 5175 --strictPort
+```
+
+`:5173` で `alice.test`, `:5175` で `bob.test` にログインする (パスワードは両方
+`devpassword123`). セッションは `localStorage` に載るので, **オリジンが違えば同じ
+ブラウザで並べてよい** (`:5173` と `:5175` は別オリジンである).
+
+#### ⚠️ ウィンドウを並べる. タブで重ねない
+
+定期同期は **タブが不可視のとき止まる** (`document.hidden`). 裏で開いたままのタブが
+30 秒ごとに参加者全員の repo を読み続けないための判断だが, **同じウィンドウの別タブに
+すると, 見ていない方が同期しない**. 2 つのウィンドウを並べること (並べていれば,
+フォーカスが無くても `hidden` にはならない).
+
+可視に戻った瞬間には即座に同期が走るので, タブを切り替えた場合も戻せば追いつく.
+
+#### 手順
+
+1. alice で File を作り, ノードをいくつか置く
+2. alice の参加者ダイアログで `bob.test` を依頼し, 参加コードをコピーする
+3. bob の参加ダイアログにコードを貼る → **承認の前に「誰が・あなたを・どのファイルに」が
+   名前で出る** (Phase 1)
+4. 承認する → **bob のサイドバーにその File が現れる** (S3)
+5. 双方で編集して, 30 秒以内に相手の画面へ出ることを見る (S4)
+
+#### 見るもの
+
+| | 観点 | 確かめ方 |
+| --- | --- | --- |
+| 1 | alice の編集が bob のグラフに出る (**完了基準 1**) | 画面 + `[sync] read N participant repo(s)` |
+| 2 | 取り消した後の操作が反映されない (**完了基準 3**) | alice が bob を取り消す → bob が編集 → alice に出ない. `outside period` の数が増える |
+| 3 | 開き直さずに反映される (**#202**) | 同一アカウントの 2 窓でも見られる (§6) |
+| 4 | 相手の無関係な File が並ばない (**U6-P1**) | bob のサイドバーに alice の他の File が無い |
+| 5 | 相手の op-log を複製していない (**S0**) | 下記 |
+
+#### コンソールに出るもの
+
+```
+[sync] read 1 participant repo(s): 12 batch(es) in period, 3 new, 0 outside period
+[participation] joined 1 file(s), 12 batch(es)
+```
+
+`outside period` が 0 でないことは**異常ではない** — 取り消された actor の repo には
+取り消し後の op がそのまま残るので, この数は「それが手元に入っていない」ことの証拠に
+なる (観点 2 の観測点である).
+
+#### 観点 5: 相手の op-log が複製されていないこと
+
+**bob の repo に alice が書いた batch があってはならない.** `catchUp` はローカル正典の
+batch を remote へ積み直すので, 柵 (S0) が無いと受信した alice の分を bob の repo へ
+書き戻してしまう.
+
+```shell
+REPO=bob.test bun run scripts/inspect-remote-batches.ts --dump
+```
+
+`actor=` の欄に出てよいのは **bob の DID** と, File の起源である `genesis` だけである.
+`did:plc:jicee…` (alice) が出たら S0 が効いていない.
+
+#### 名簿がおかしいときは判断ログを直に見る
+
+名簿は**複数の repo に分かれている**ので、どれか 1 つの repo を見ても「なぜこうなるのか」は
+分からない。画面に出るのは畳み込みの結果だけで、**捨てられた op は行を持たない**
+(捨てられた依頼は誰にも見えない)。
+
+```shell
+REPOS=alice.test,bob.test bun run scripts/inspect-judgments.ts               # File の一覧
+REPOS=alice.test,bob.test FILE_ID=<uuid> bun run scripts/inspect-judgments.ts --dump
+```
+
+全 repo を読んで畳み込み、**参加中 / 依頼中 / 離脱中**と**捨てた op とその理由**を出す。
+
+> **⚠️ 起点 (`participation.genesis`) が 2 つある状態を特に見る。**起点は File に 1 つで、
+> 2 つ目は `duplicateGenesis` で捨てられる。捨てられた側の actor は参加者でなくなり、
+> その actor が出した依頼も承認も pre 条件で連鎖して落ちるので、**名簿が丸ごと壊れる**。
+> しかも起点の clock は 0 固定なので、後から書いても順序で覆せない。
+> 症状は「承認しても File が現れない」で、レコードを消すまで直らない。
+> (2026-09-05 に実際に起きた。原因は修正済 — `ensureOwnGenesis` が手元に 1 件も無い
+> File を「自分の File」と判定していた)
+
+##### ⚠️ 平ら読みが健全でも, 画面は壊れていることがある
+
+上の使い方は **`REPOS` に挙げた repo を全部読む「平ら読み」**である。これは
+**誰の手元でもない名簿** — 「全部見えていれば名簿はこうなる」の答えであって、
+**アプリはそう読まない**。アプリが読む repo は名簿が決め、その名簿は読んだ結果で決まる
+(不動点計算)。したがって**平ら読みでは何も異常が無いのに、ある actor の画面だけが
+壊れている**ことが起こる。
+
+`SEED` を渡すと、アプリと同じ `readRoster` を通して**その actor から実際に見える名簿**を
+出す。
+
+```shell
+SEED=bob.test bun run scripts/inspect-judgments.ts                          # その起点の File 一覧
+SEED=bob.test FILE_ID=<uuid> bun run scripts/inspect-judgments.ts --dump    # 広がりが止まるまで
+SEED=bob.test PASSES=0 FILE_ID=<uuid> bun run scripts/inspect-judgments.ts  # 起点の repo だけ
+SEED=bob.test PASSES=1 FILE_ID=<uuid> bun run scripts/inspect-judgments.ts  # 同期サイクルと同じ
+```
+
+**「名前は出るが読んでいない repo」の行が答えである。**判断ログに名前が出ているのに
+訪ねていない actor がいれば、その repo にある op はこの起点からは見えていない。
+
+これで見つかった (2026-09-05, シナリオ 14-15)。alice が作った File で bob が alice を
+呼び戻したとき、平ら読みの名簿には依頼がちゃんと出るのに、alice の画面は
+「参加依頼が見つからない」だった。`SEED=bob.test PASSES=0` で読むと
+「起点が無い」「捨てた op 6 件」がそのまま出る — 招待者 bob の repo には genesis が
+無いので、そこだけ読むと依頼が残らず捨てられていた。修正済 (招待を検めるときは
+`converge` で広げる)。
+
+#### 参加期間の外を読んでいないこと
+
+alice が bob を取り消した後も, bob の repo のレコードは減らない (相手は消さない).
+alice 側のローカル正典に **取り消し後の bob の batch が入っていない**ことを見る.
+
+```shell
+FILE_ID=<uuid> bun run scripts/inspect-local-oplog.ts --dump
+```
 
 ## 6. 2 台目 (device B) を同じマシンで動かす
 

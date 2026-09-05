@@ -9,7 +9,13 @@
  * その導出をここに閉じて、コンポーネントは表を描くだけにする。
  */
 
-import type { Did, Participation } from '@conversensus/shared';
+import type {
+  BatchId,
+  Did,
+  Participation,
+  RejectedJudgment,
+  RejectReason,
+} from '@conversensus/shared';
 import { hasEverParticipated } from '@conversensus/shared';
 
 /**
@@ -38,7 +44,8 @@ export type RosterAction =
   | 'accept'
   | 'revoke'
   | 'resign'
-  | 'reinvite';
+  | 'reinvite'
+  | 'reopen';
 
 export type RosterRow = {
   did: Did;
@@ -60,6 +67,9 @@ export function rosterRows(
   viewer: Did,
 ): RosterRow[] {
   const viewerParticipates = participation.participating.has(viewer);
+  // **誰も参加していない = 引き取れる状態である** (step2 Phase 2)。
+  // 空の名簿からは招待も起点の置き直しも通らないので、引き取りだけが出口になる
+  const rosterEmpty = participation.participating.size === 0;
   const rows = new Map<Did, RosterRow>();
 
   const put = (did: Did, status: RosterStatus, inviter?: Did) => {
@@ -67,7 +77,13 @@ export function rosterRows(
       did,
       ...(inviter !== undefined && { inviter }),
       status,
-      available: actionsFor({ did, status, viewer, viewerParticipates }),
+      available: actionsFor({
+        did,
+        status,
+        viewer,
+        viewerParticipates,
+        rosterEmpty,
+      }),
     });
   };
 
@@ -134,19 +150,25 @@ function actionsFor({
   status,
   viewer,
   viewerParticipates,
+  rosterEmpty,
 }: {
   did: Did;
   status: RosterStatus;
   viewer: Did;
   viewerParticipates: boolean;
+  rosterEmpty: boolean;
 }): RosterAction[] {
   const isSelf = did === viewer;
 
   // 自分の行: 依頼されていれば覗いて承認でき、参加していれば降りられる。
-  // **離脱した自分を自分で呼び戻すことはできない** — 参加者でなければ依頼を出せない
+  // **離脱した自分を自分で呼び戻すことはできない** — 参加者でなければ依頼を出せない。
+  // **ただし誰も参加していないときだけは引き取れる** (step2 Phase 2)。呼び戻せる人が
+  // 1 人も残っていない状態で塞ぐと、File が永久に閉じる
   if (isSelf) {
     if (status === 'sent') return ['preview', 'accept'];
     if (status === 'accepted') return ['resign'];
+    if (rosterEmpty && (status === 'revoked' || status === 'resigned'))
+      return ['reopen'];
     return [];
   }
 
@@ -181,7 +203,105 @@ export function actionLabel(
       return '参加取りやめ';
     case 'reinvite':
       return '再度参加依頼';
+    case 'reopen':
+      return 'この File を引き取る';
     case 'revoke':
       return status === 'sent' ? '依頼キャンセル' : '参加取りやめ';
   }
+}
+
+// --- File の共有状態 (step2 Phase 2, 2026-09-05 実機で発覚) ---
+
+/**
+ * 見る人から見た File の共有状態。
+ *
+ * **取り消されても File は手元に残る** — ローカル正典は自分の写しであって、共有が
+ * 切れたからといって消す筋合いは無い。しかし止まるのは取り込みであって表示ではないので、
+ * **何も出さないと「もう同期されない File」が普通の File に見える** (実機で混乱した)。
+ */
+export type FileSharing = {
+  /** いま参加している actor の数 (自分を含む) */
+  participants: number;
+  /**
+   * 見る人がその 1 人か。
+   *
+   * `false` は「取り消された / 自分で降りた」を意味する。**ただし名簿が空のときは
+   * 意味を持たない** — 起点の無い古い File では誰も参加者にならないので、
+   * `participants === 0` と区別すること (`isDetached` がそれを含む)。
+   */
+  viewerParticipates: boolean;
+  /**
+   * **共有が切れているか。**名簿に誰かがいて、その中に自分がいない状態だけを指す。
+   *
+   * 名簿が空 (起点の無い古い File) を含めない。含めると、共有と無関係な File にまで
+   * 「同期していません」が出てしまう。
+   *
+   * ## 採らなかった案: 名簿が空の File にも印を出す (2026-09-05 に検討して見送り)
+   *
+   * `participants === 0` は 2 つの状態を一緒くたにしている —
+   * **一度も共有していない File** と、**共有していたが誰も参加しなくなった File**
+   * (引き取り待ち) である。後者は行き止まりなので、サイドバーの絵から見分けられると
+   * 親切ではある。`history` が空かどうかで区別できるので、実装は可能である。
+   *
+   * **今は出さない** (利用者の判断)。行き止まりだと分かるのは名簿ダイアログを開いた
+   * ときで、そこには「この File を引き取る」が出ている。印を増やすより、
+   * サイドバーの幅そのものを扱う UI refinement を先に置く。
+   */
+  isDetached: boolean;
+};
+
+/** 名簿から、見る人にとっての共有状態を導く */
+export function fileSharing(
+  participation: Participation,
+  viewer: Did,
+): FileSharing {
+  const participants = participation.participating.size;
+  const viewerParticipates = participation.participating.has(viewer);
+  return {
+    participants,
+    viewerParticipates,
+    isDetached: participants > 0 && !viewerParticipates,
+  };
+}
+
+// --- 捨てられた判断の知らせ (step2 Phase 1) ---
+
+/** 判断を捨てた理由を、何が起きたか分かる文にする */
+const REJECT_REASON_LABEL: Record<RejectReason, string> = {
+  issuerNotParticipating: '発行者が参加者でない',
+  issuerNotInvited: '発行者が招待されていない',
+  targetNotInRoster: '対象が名簿にいない',
+  targetAlreadyParticipating: '対象は既に参加者',
+  targetForeignPds: '対象が別の PDS のアカウント',
+  duplicateGenesis: '起点が二重',
+  rosterNotEmpty: 'まだ参加している人がいる',
+  noGenesis: '起点がまだ見えていない',
+};
+
+/**
+ * **いま書いた batch**のうち捨てられた op の要約。捨てられていなければ `null`。
+ *
+ * **判断ログ全体の捨てた op を出してはならない** (2026-09-05 実機で発覚)。判断ログは
+ * 追記しかされないので、一度捨てられた op は**永久に残る**。全体を数えて出すと、
+ * 半年前の打ち間違い 1 件のせいで警告が消えなくなる。実際に消えなくなった。
+ *
+ * これが伝えたいのは「**いまの操作が効かなかった**」であって、ログの健康診断ではない
+ * (診断は `scripts/inspect-judgments.ts` の仕事である)。したがって対象は
+ * **書いた本人の、書いたばかりの batch** に限る。名簿を開いただけのときは何も出さない。
+ *
+ * 理由ごとにまとめる — 同じ理由で 10 件落ちたときに 10 行出しても読めない。
+ */
+export function describeRejected(
+  rejected: readonly RejectedJudgment[],
+  wrote: BatchId | undefined,
+): string | null {
+  if (!wrote) return null;
+  const mine = rejected.filter((r) => r.batchId === wrote);
+  if (mine.length === 0) return null;
+  const counts = new Map<RejectReason, number>();
+  for (const r of mine) counts.set(r.reason, (counts.get(r.reason) ?? 0) + 1);
+  const parts = [...counts].map(
+    ([reason, n]) => `${n} 件 (${REJECT_REASON_LABEL[reason]})`,
+  );
+  return `いまの操作は名簿に反映されなかった: ${parts.join(', ')}`;
 }

@@ -25,6 +25,7 @@ import type { UndoState } from './hooks/useEventStore';
 import { useFileSheetOperations } from './hooks/useFileSheetOperations';
 import { useParticipation } from './hooks/useParticipation';
 import { useRemoteSyncQueue } from './hooks/useRemoteSyncQueue';
+import { useRosterSource } from './hooks/useRosterSource';
 import { InputDialog } from './InputDialog';
 import { InvitationDialog } from './InvitationDialog';
 import { ParticipateDialog } from './ParticipateDialog';
@@ -71,6 +72,10 @@ export default function App() {
   // 重複排除の単位を識別できる (Phase 4d-2)
   const actor = useActor(atprotoSession);
 
+  // 名簿の供給元 (step2 Phase 2 S1)。**ダイアログと同期サイクルで共有する** —
+  // 別々に作ると読みが畳まれず、起点の修復も二重に走る
+  const roster = useRosterSource(actor);
+
   // テキスト編集中の検出 (Phase 4e-3, 4e 設計 §3.3)。受信の activeFile 差し替えは
   // 入力中のテキストを巻き込むため、フォーカスが入力要素 (ノードの inline textarea /
   // エッジラベルの input / 各ダイアログ) にある間は保留する。ドラッグ中の検出は
@@ -90,6 +95,8 @@ export default function App() {
     setAlertState,
     remoteQueue,
     actor,
+    // 多アクタ同期は名簿を先に読む (step2 Phase 2 S2)。ダイアログと同じ供給元である
+    roster,
     isEditingActive,
   });
 
@@ -176,6 +183,10 @@ export default function App() {
   const participation = useParticipation({
     actor,
     clock: fileOps.trunkClock,
+    // clock 空間は File ごと。開いている File のときだけ tap の clock を使う
+    activeFileId: fileOps.activeFile?.id ?? null,
+    // **同期サイクルと同じ供給元**を渡す (step2 Phase 2 S1)
+    roster,
   });
 
   // は撤去した。リモートのファイル発見は `useFileSheetOperations` 内の
@@ -193,6 +204,7 @@ export default function App() {
         expandedFileIds={fileOps.expandedFileIds}
         newFileName={fileOps.newFileName}
         popupTarget={fileOps.popupTarget}
+        sharing={fileOps.sharing}
         onNewFileNameChange={fileOps.setNewFileName}
         onCreateFile={fileOps.handleCreate}
         onImportFile={fileOps.handleImportFile}
@@ -275,9 +287,15 @@ export default function App() {
           onAccept={() => {
             const preview = participation.state.preview;
             if (!preview) return;
-            participation.acceptPreviewed(preview).then(() => {
+            participation.acceptPreviewed(preview).then((fileId) => {
+              // **書けなかったらダイアログを閉じない。**閉じて reset すると
+              // エラーが表示される前に消える (2026-09-05 実機で発覚)
+              if (!fileId) return;
               setParticipateOpen(false);
               participation.reset();
+              // 承認しただけでは手元に File は無い (グラフの batch は 1 件も自分の
+              // repo に無い)。ここで立ち上げないと次に開き直すまで出てこない
+              void fileOps.discoverParticipating();
             });
           }}
           onClose={participation.clearPreview}

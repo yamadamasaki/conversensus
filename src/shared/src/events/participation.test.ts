@@ -52,6 +52,7 @@ const revoke = (target: string): JudgmentOp => ({
   kind: 'participation.revoke',
   target,
 });
+const reopen = (): JudgmentOp => ({ kind: 'participation.reopen' });
 
 const reasons = (r: ReturnType<typeof foldParticipation>) =>
   r.rejected.map((x) => x.reason);
@@ -380,6 +381,97 @@ describe('参加期間', () => {
   });
 });
 
+describe('引き取り — 誰も参加していない File を開き直す', () => {
+  /** 最後の 1 人が降りて名簿が空になった状態 */
+  const abandoned = () => [
+    jb(A, 1, [genesis()]),
+    jb(A, 2, [invite(B)]),
+    jb(B, 3, [accept()]),
+    jb(B, 4, [revoke(A)]),
+    jb(B, 5, [resign()]),
+  ];
+
+  test('⚠️ 引き取りが無ければ行き止まりになる', () => {
+    // **これが引き取りを足した理由である。**空の名簿からは招待が
+    // `issuerNotParticipating` で, 起点の置き直しが `duplicateGenesis` で落ちる
+    const p = foldParticipation(
+      [...abandoned(), jb(A, 6, [invite(B)]), jb(A, 7, [genesis()])],
+      deps,
+    );
+    expect(p.participating.size).toBe(0);
+    expect(p.rejected.map((r) => r.reason)).toEqual([
+      'issuerNotParticipating',
+      'duplicateGenesis',
+    ]);
+  });
+
+  test('名簿が空なら引き取れる', () => {
+    const p = foldParticipation([...abandoned(), jb(A, 6, [reopen()])], deps);
+    expect([...p.participating]).toEqual([A]);
+    expect(p.departed.has(A)).toBe(false); // 「外れている」ではなくなる
+  });
+
+  test('作成者でなくても引き取れる', () => {
+    // 仕様: 「誰も参加していない時には, ファイル作成者に限らない」。
+    // 畳み込みは所属を見ない — 起点から辿れない repo はそもそも読まれないので、
+    // 読まれる範囲では「判断ログに名前のある人」に自然に限られる
+    const p = foldParticipation([...abandoned(), jb(B, 6, [reopen()])], deps);
+    expect([...p.participating]).toEqual([B]);
+  });
+
+  test('引き取った人はそのまま招待できる', () => {
+    const p = foldParticipation(
+      [...abandoned(), jb(A, 6, [reopen()]), jb(A, 7, [invite(B)])],
+      deps,
+    );
+    expect(p.invited.get(B)).toBe(A);
+  });
+
+  test('誰かが参加していれば引き取れない', () => {
+    const p = foldParticipation(
+      [jb(A, 1, [genesis()]), jb(B, 2, [reopen()])],
+      deps,
+    );
+    expect([...p.participating]).toEqual([A]);
+    expect(p.rejected.map((r) => r.reason)).toEqual(['rosterNotEmpty']);
+  });
+
+  test('起点が無ければ引き取れない', () => {
+    // 起点の無い File には「引き取る名簿」がそもそも無い。これは
+    // `ensureOwnGenesis` が直す別の状態で、混ぜると起点の修復が 2 通りになる
+    const p = foldParticipation([jb(A, 1, [reopen()])], deps);
+    expect(p.participating.size).toBe(0);
+    expect(p.rejected.map((r) => r.reason)).toEqual(['noGenesis']);
+  });
+
+  test('同時に 2 人が引き取っても, 通るのは 1 人だけ', () => {
+    // clock 順で先の 1 人が入り、後の 1 人は名簿が空でなくなっているので落ちる。
+    // **誰の手元でも同じ結論になる**ことがここの要点である
+    const p = foldParticipation(
+      [...abandoned(), jb(A, 6, [reopen()]), jb(B, 7, [reopen()])],
+      deps,
+    );
+    expect([...p.participating]).toEqual([A]);
+    expect(p.rejected.map((r) => r.reason)).toEqual(['rosterNotEmpty']);
+  });
+
+  test('⚠️ 引き取りは新しい期間を開くだけ — 誰もいなかった間は含めない', () => {
+    // 仕様の決定 (2026-09-05)。遡って開くと「取り消した後の操作は反映されない」を
+    // 名簿を空にする経路で迂回できてしまう
+    const p = foldParticipation([...abandoned(), jb(A, 9, [reopen()])], deps);
+    expect(periodsOf(p, A)).toEqual([{ from: 1, to: 4 }, { from: 9 }]);
+    expect(wasParticipatingAt(p, A, 6)).toBe(false); // 空だった間
+    expect(wasParticipatingAt(p, A, 9)).toBe(true);
+  });
+
+  test('引き取りは参加歴になる', () => {
+    // 一度も参加していない人は一覧に出ない (仕様) ので、これが false だと
+    // 引き取った本人が名簿から消える
+    const p = foldParticipation([...abandoned(), jb(A, 6, [reopen()])], deps);
+    expect(hasEverParticipated(p, A)).toBe(true);
+  });
+});
+
 // --- 性質 (CLAUDE.md「全称命題は性質として書く」) ---
 
 /** actor は 3 人の小さなプールから引く。広く振ると同じ相手への invite/revoke が並ばない */
@@ -390,6 +482,10 @@ const opArb: fc.Arbitrary<JudgmentOp> = fc.oneof(
   fc.constant(accept()),
   fc.constant(resign()),
   did.map(revoke),
+  // **引き取りも引く。**性質 2 つ (配送順の不変性 / 捨てた op の無副作用) は
+  // op の種類ごとに書き直すものではない。生成器に入れないと, 新しい op だけが
+  // 全称命題の外に残る
+  fc.constant(reopen()),
 );
 const batchArb = fc
   .tuple(

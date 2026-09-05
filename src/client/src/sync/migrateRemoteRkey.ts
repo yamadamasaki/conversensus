@@ -36,7 +36,7 @@
  * 運用前提とする (旧版併用は非目標, §2.2)。
  */
 
-import type { Batch, FileId } from '@conversensus/shared';
+import type { Batch, Did, FileId } from '@conversensus/shared';
 import { filterBatchesForRemote } from '../atproto/remoteFilter';
 import type { RemoteBatch } from '../atproto/types';
 import { safeLocalStorage } from './safeStorage';
@@ -79,6 +79,14 @@ export type MigrateRemoteRkeyDeps = {
    * 失敗するので、渡す前に `pullRemoteForFile` で差分を取る。
    */
   createRemote: (entries: readonly RemoteBatch[]) => Promise<void>;
+  /**
+   * この端末がログインしている DID (step2 Phase 2 S0)。
+   *
+   * 再 push の対象を**自分が書いた batch**に絞るために要る。移行は 1 回きりだが、
+   * 「まだ移行していない端末が Phase 2 の受信を先に済ませている」順序はありうるので、
+   * ローカル正典に他 actor の batch が入っていることを前提に置く。
+   */
+  did: Did;
   /** 移行済か (既定は localStorage の marker) */
   hasMigrated: () => boolean;
   /** 移行済を記録する (既定は localStorage の marker) */
@@ -151,8 +159,12 @@ export async function migrateRemoteRkey(
   let pushedFiles = 0;
   let pushedBatches = 0;
   for (const fileId of byFile.keys()) {
-    // presentation 除外は remote leg の不変条件 (§3.2 D7)。移行でも例外にしない
-    const local = filterBatchesForRemote(await deps.fetchBatches(fileId));
+    // presentation 除外は remote leg の不変条件 (§3.2 D7)。移行でも例外にしない。
+    // **他 actor の batch の除外 (S0) も同じ**で、移行を抜け道にはしない
+    const local = filterBatchesForRemote(
+      await deps.fetchBatches(fileId),
+      deps.did,
+    );
     if (local.length === 0) continue;
 
     // **すでに新 rkey で載っている分を除く**。まとめ書き (`applyWrites#create`) は

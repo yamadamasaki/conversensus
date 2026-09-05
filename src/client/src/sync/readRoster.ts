@@ -18,6 +18,13 @@
  *   - 既に参加している File: 起点は**自分自身**
  *   - まだ参加していない File: 起点は**参加コードが指す招待者**
  *     (「読む資格は名簿への所属と独立」— 被招待者は参加者でないのに招待者の repo を読む)
+ *
+ * **⚠️ 起点の repo だけでは名簿にならない** (2026-09-05 実機で発覚)。**招待者が File の
+ * 起点 (genesis) とは限らない** — 参加した人は誰でも招待できる。招待者の repo には
+ * genesis も、その人自身への招待も無いので、そこだけを読むと名簿は空になり、
+ * **その repo にある招待は残らず `issuerNotParticipating` で捨てられる**。被招待者は
+ * 「依頼が見つからない」と言われて参加できない。招待の実在を確かめるときは
+ * `passes: 'converge'` で genesis に届くまで広げること。
  */
 
 import {
@@ -44,9 +51,13 @@ export type ReadRosterOptions = {
   seed: Did;
   /**
    * 起点の後に何回広げるか。**既定は 1**。
-   * 0 にすると起点の repo だけを読む (被招待者が招待の実在を確かめる用途)。
+   *
+   * `'converge'` にすると**広がりが止まるまで回す**。同期サイクルはこれを使わない
+   * (ラウンドトリップが名簿の深さに比例する) が、**被招待者が招待の実在を確かめる
+   * ときは要る** — 招待者が File の起点とは限らず、起点の repo だけでは genesis に
+   * 届かないからである (下記)。
    */
-  passes?: number;
+  passes?: number | 'converge';
 };
 
 export type ReadRosterResult = {
@@ -83,6 +94,18 @@ export type ReadRosterResult = {
  * (実機で発覚)。`accept` が持つ `inviter` が「自分 → 招待者」の辺になる。
  * これは**畳み込みの結果ではなく生の op から取る** — 承認が pre 条件で捨てられる場合
  * (まだ招待が見えていない場合がまさにそれである) でも、読みには行かなければならない。
+ *
+ * **⚠️ 離脱した actor も足りない** (step2 Phase 2, 実機で発覚)。取り消すと相手は
+ * participating からも invited からも外れるので、次の読みでその repo を訪ねなくなる。
+ * するとその actor の**承認 op が二度と見えなくなり**、名簿は「依頼されたが承認せずに
+ * 取り消された人」を見ることになる。仕様はそれを「その依頼はなかったものとする」と
+ * 定めているので、**一度参加した人が一覧から消える**。
+ *
+ * 参加履歴も同じところで失われる。履歴は畳み込みが持つが、畳み込みの入力にその人の
+ * 承認が無ければ、履歴にも参加が載らない。
+ *
+ * 読む repo は離脱者の分だけ増える。名簿は数十人という前提なので許容するが、
+ * **離脱者は減らない**ので、参加者が入れ替わり続ける File では効いてくる。
  */
 function reposToExpand(
   participation: Participation,
@@ -91,6 +114,7 @@ function reposToExpand(
   const next = new Set<Did>([
     ...participation.participating,
     ...participation.invited.keys(),
+    ...participation.departed.keys(),
   ]);
   for (const batch of batches)
     for (const op of batch.ops)
@@ -141,7 +165,10 @@ export async function readRoster(
   await readAll([seed]);
   let participation = await fold();
 
-  for (let pass = 0; pass < passes; pass += 1) {
+  // `'converge'` は「広がりが止まるまで」。下の break が必ず効く —
+  // 広げる先は読んだ batch に現れた DID だけで、visited は単調に増えるからである
+  const limit = passes === 'converge' ? Number.POSITIVE_INFINITY : passes;
+  for (let pass = 0; pass < limit; pass += 1) {
     const next = reposToExpand(participation, batches);
     if ([...next].every((did) => visited.has(did))) break; // 広がりが止まった
     await readAll(next);
