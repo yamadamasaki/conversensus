@@ -3,9 +3,11 @@ import {
   type BranchMeta,
   type Commit,
   type CommitOperation,
+  type FileId,
   type GraphFile,
   type GraphFileListItem,
   graphFileToBatches,
+  type SheetId,
 } from '@conversensus/shared';
 import type { SheetChange } from '../../sync/computeOperations';
 import { INITIAL_CURSOR } from '../../sync/syncProvider';
@@ -29,13 +31,18 @@ export function createInMemoryFileSheetOpsDeps(): FileSheetOpsDeps & {
     _fileList: fileList,
 
     createFile: async (name: string) => {
-      const id = crypto.randomUUID();
+      const id = crypto.randomUUID() as FileId;
       const file: GraphFile = {
         id,
         name,
         description: '',
         sheets: [
-          { id: crypto.randomUUID(), name: 'Sheet 1', nodes: [], edges: [] },
+          {
+            id: crypto.randomUUID() as SheetId,
+            name: 'Sheet 1',
+            nodes: [],
+            edges: [],
+          },
         ],
       };
       fileStore.set(id, file);
@@ -74,7 +81,10 @@ export function createInMemoryFileSheetOpsDeps(): FileSheetOpsDeps & {
     // 模すテストが fileList にだけ積むためである。実装では op-log の行が唯一の
     // 出どころなので和は要らない。
     fetchLocalFileIds: async () => [
-      ...new Set([...fileStore.keys(), ...fileList.map((f) => f.id)]),
+      ...new Set<FileId>([
+        ...(fileStore.keys() as IterableIterator<FileId>),
+        ...fileList.map((f) => f.id),
+      ]),
     ],
 
     // 受信 materialize の書き込み口 (Phase 4e-2b)。in-memory では何も書かない。

@@ -565,6 +565,7 @@ describe('NODES_PASTED_UNDO', () => {
       nodes: [],
       layouts: [],
       edges: [],
+      edgeLayouts: [],
     };
     const { nodes, edges } = applyEvent(event, [n1, n2], [e1]);
     expect(nodes).toHaveLength(1);
@@ -832,8 +833,8 @@ describe('round-trip: apply → invert → apply = 元の状態', () => {
     expect(redone).toHaveLength(3);
     const readdedNode = redone.find((n) => n.id === graphNode.id);
     expect(readdedNode?.position).toEqual({
-      x: graphNodeLayout.x,
-      y: graphNodeLayout.y,
+      x: graphNodeLayout.x as number,
+      y: graphNodeLayout.y as number,
     });
   });
 

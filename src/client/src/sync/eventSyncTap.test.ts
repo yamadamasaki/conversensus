@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'bun:test';
-import type { Batch, NodeId, SheetId } from '@conversensus/shared';
+import type { Batch, NodeId, NodeLayout, SheetId } from '@conversensus/shared';
 import { LamportClock, SheetIdSchema } from '@conversensus/shared';
 import type {
-  NodeLayout,
   NodeRelabeledEvent,
   NodeStyleChangedEvent,
 } from '../events/GraphEvent';

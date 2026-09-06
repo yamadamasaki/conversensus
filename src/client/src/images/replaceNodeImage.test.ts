@@ -30,7 +30,7 @@ const OLD_REF: ImageBlobRef = {
 /** 中身は使わない — `save` を差し込むので実体は読まれない */
 const SOURCE = { type: PNG, size: 7 } as unknown as Blob;
 
-function deps(save: () => Promise<ImageBlobRef>) {
+function deps(save: (source: Blob) => Promise<ImageBlobRef>) {
   const dispatch = mock((_event: GraphEvent) => undefined);
   const reportError = mock((_message: string) => undefined);
   return { deps: { dispatch, reportError, save }, dispatch, reportError };

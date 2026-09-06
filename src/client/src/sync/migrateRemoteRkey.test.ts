@@ -157,7 +157,10 @@ describe('migrateRemoteRkey (Phase 7 p7-4)', () => {
     expect(result.status).toBe('migrated');
     expect(result.remoteFiles).toBe(1);
     expect(result.receivedBatches).toBe(1); // 新規は a2 だけ
-    expect(w.local.get(FILE_A)?.map((b) => b.id)).toEqual(['a1', 'a2']);
+    expect(w.local.get(FILE_A)?.map((b) => b.id as string)).toEqual([
+      'a1',
+      'a2',
+    ]);
     // 取り込んだ a2 を含めて新形式で載せ直す
     expect(result.pushedFiles).toBe(1);
     expect(result.pushedBatches).toBe(2);
@@ -337,7 +340,10 @@ describe('migrateRemoteRkey (Phase 7 p7-4)', () => {
     expect(result.remoteFiles).toBe(2);
     expect(w.appendCalls).toHaveLength(2);
     expect(w.appendCalls[0]?.fileId).toBe(FILE_A);
-    expect(w.appendCalls[0]?.batches.map((b) => b.id)).toEqual(['a1', 'a2']);
+    expect(w.appendCalls[0]?.batches.map((b) => b.id as string)).toEqual([
+      'a1',
+      'a2',
+    ]);
     expect(w.appendCalls[1]?.fileId).toBe(FILE_B);
   });
 

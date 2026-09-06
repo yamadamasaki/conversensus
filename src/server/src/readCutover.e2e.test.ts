@@ -28,6 +28,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  type Batch,
   type EdgeId,
   type FileId,
   type GraphFile,
@@ -116,7 +117,7 @@ async function openViaOplog(fileId: FileId): Promise<GraphFile> {
   const res = await fetch(
     new Request(`http://localhost/files/${fileId}/batches`),
   );
-  const batches = await res.json();
+  const batches = (await res.json()) as Batch[];
   return projectFile(batches, fileId);
 }
 
@@ -174,11 +175,8 @@ describe('W3d-4 read cutover e2e (daemon + projectFile)', () => {
     const before = await fetch(
       new Request(`http://localhost/files/${file.id}/batches`),
     );
-    const genesis = await before.json();
-    const maxClock = genesis.reduce(
-      (m: number, b: { clock: number }) => Math.max(m, b.clock),
-      0,
-    );
+    const genesis = (await before.json()) as Batch[];
+    const maxClock = genesis.reduce((m, b) => Math.max(m, b.clock), 0);
 
     // nodeA (u(1)) の content を編集する batch を追記
     const edit = {

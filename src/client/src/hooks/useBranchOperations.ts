@@ -73,17 +73,17 @@ export function resolveBranchDiffState(
   return BRANCH_DIFF_STATE.UNCHANGED;
 }
 
-type ConfirmState = {
+export type ConfirmState = {
   message: string;
   resolve: (ok: boolean) => void;
 };
 
-type InputState = {
+export type InputState = {
   message: string;
   resolve: (value: string) => void;
 };
 
-type AlertState = {
+export type AlertState = {
   message: string;
   resolve: () => void;
 };

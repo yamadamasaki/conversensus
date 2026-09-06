@@ -183,9 +183,9 @@ describe('createRosterSource', () => {
 
       load.settle(0, 'before-write');
       load.settle(1, 'after-write');
-      expect((await stale).batches[0]?.id).toBe('before-write');
+      expect((await stale).batches[0]?.id as string).toBe('before-write');
       // **書いた後の名簿が返る。**相乗りしていたら 'before-write' になる
-      expect((await fresh).batches[0]?.id).toBe('after-write');
+      expect((await fresh).batches[0]?.id as string).toBe('after-write');
     });
 
     it('readFresh の後の read は新しい方に相乗りする', async () => {

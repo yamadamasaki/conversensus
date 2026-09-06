@@ -109,7 +109,9 @@ describe('batchMapper', () => {
       };
       const restored = recordToBatch(batch.id, record);
       expect(restored).toEqual(batch);
-      expect(restored.sheetId).toBe('11111111-1111-4111-8111-111111111111');
+      expect(restored.sheetId as string).toBe(
+        '11111111-1111-4111-8111-111111111111',
+      );
     });
 
     it('旧データ (sheetId 無しレコード) は sheetId undefined で復元する', () => {

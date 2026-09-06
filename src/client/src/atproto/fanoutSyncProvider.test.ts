@@ -60,6 +60,10 @@ class FakeProvider implements SyncProvider, RemoteBatchTarget {
     this.pushedRemote.push([...entries]);
     this.pushed.push(entries.map((e) => e.batch));
   }
+  /** 移行専用の新規作成 (p7-4)。fanout のテストでは pushRemote と区別しなくてよい */
+  async createRemote(entries: readonly RemoteBatch[]): Promise<void> {
+    return this.pushRemote(entries);
+  }
   async pull(since: Cursor): Promise<PullResult> {
     this.pulledSince.push(since);
     return { batches: this.pullBatches, cursor: this.pullCursor };
@@ -129,7 +133,7 @@ describe('FanoutSyncProvider', () => {
       const { remote, remoteQueue, fanout } = setup();
       await fanout.push([batch('1')]);
       await fanout.whenRemoteSettled();
-      expect(remote.flatPushed.map((b) => b.id)).toEqual(['1']);
+      expect(remote.flatPushed.map((b) => b.id as string)).toEqual(['1']);
       expect(remoteQueue.pendingCount).toBe(0);
     });
 
@@ -139,7 +143,11 @@ describe('FanoutSyncProvider', () => {
       await fanout.push([batch('2')]);
       await fanout.push([batch('3')]);
       await fanout.whenRemoteSettled();
-      expect(remote.flatPushed.map((b) => b.id)).toEqual(['1', '2', '3']);
+      expect(remote.flatPushed.map((b) => b.id as string)).toEqual([
+        '1',
+        '2',
+        '3',
+      ]);
       expect(remoteQueue.pendingCount).toBe(0);
     });
   });
@@ -150,8 +158,8 @@ describe('FanoutSyncProvider', () => {
       const g = batch('1', { actor: GENESIS_ACTOR });
       await fanout.push([g]);
       await fanout.whenRemoteSettled();
-      expect(local.flatPushed.map((b) => b.id)).toEqual(['1']); // ローカルにも載る
-      expect(remote.flatPushed.map((b) => b.id)).toEqual(['1']); // remote にも載る
+      expect(local.flatPushed.map((b) => b.id as string)).toEqual(['1']); // ローカルにも載る
+      expect(remote.flatPushed.map((b) => b.id as string)).toEqual(['1']); // remote にも載る
     });
 
     it('mixed batch は presentation を除いて remote へ送る', async () => {
@@ -175,7 +183,7 @@ describe('FanoutSyncProvider', () => {
       local.pullBatches = [batch('1')];
       remote.pullBatches = [batch('99')];
       const result = await fanout.pull('since-1');
-      expect(result.batches.map((b) => b.id)).toEqual(['1']);
+      expect(result.batches.map((b) => b.id as string)).toEqual(['1']);
       expect(result.cursor).toBe('local-cursor');
       expect(local.pulledSince).toEqual(['since-1']);
       expect(remote.pulledSince).toEqual([]);

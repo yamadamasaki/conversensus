@@ -56,12 +56,12 @@ import {
   useEventSyncTap,
 } from './useEventSyncTap';
 
-type ConfirmState = {
+export type ConfirmState = {
   message: string;
   resolve: (ok: boolean) => void;
 };
 
-type AlertState = {
+export type AlertState = {
   message: string;
   resolve: () => void;
 };

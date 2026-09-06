@@ -13,7 +13,7 @@
     "build:client:tauri": "bun run --cwd src/client build:tauri",
     "app:dev": "tauri dev",
     "app:build": "tauri build",
-    "typecheck": "bun run --cwd src/client tsc --noEmit -p tsconfig.app.json && bun run --cwd src/server tsc --noEmit -p tsconfig.json && bun run --cwd src/client tsc --noEmit -p ../../tsconfig.e2e.json",
+    "typecheck": "bun run --cwd src/client tsc --noEmit -p tsconfig.app.json && bun run --cwd src/client tsc --noEmit -p tsconfig.test.json && bun run --cwd src/server tsc --noEmit -p tsconfig.json && bun run --cwd src/shared tsc --noEmit -p tsconfig.json && bun run --cwd src/client tsc --noEmit -p ../../tsconfig.e2e.json",
     "lint": "bun --bun biome check src/ tests/ playwright.config.ts",
     "lint:fix": "bun --bun biome check --write src/ tests/ playwright.config.ts",
     "setup": "cp scripts/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit && echo 'pre-commit hook installed'",

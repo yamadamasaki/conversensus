@@ -31,10 +31,9 @@ const batch = (clock: number, ops: Op[] = [addNode(`n${clock}`)]): Batch => ({
   ops,
 });
 
-const removeFile = (fileId: FileId): Op => ({
-  kind: 'file.remove',
-  target: fileId,
-});
+// file.remove は target を取らない — batch が既に fileId 単位に束ねられているので、
+// 自分が載っている op-log のファイルを指す
+const removeFile = (): Op => ({ kind: 'file.remove' });
 
 const event = (
   kind: ParticipationEvent['kind'],
@@ -168,7 +167,7 @@ describe('discoverParticipatingFiles', () => {
       const h = harness({
         judgmentFiles: [JOINED],
         rosters: { [JOINED]: rosterOf([ME, BOB]) },
-        collected: { [JOINED]: [batch(1), batch(5, [removeFile(JOINED)])] },
+        collected: { [JOINED]: [batch(1), batch(5, [removeFile()])] },
       });
       const result = await discoverParticipatingFiles(h.deps);
 

@@ -1,4 +1,10 @@
 {
+  /* shared は client / server の双方から import されるので本体の型は透過的に
+     検査されるが, **テストはどこからも import されないので誰も見ていなかった**。
+     ここで見る (tsconfig.e2e.json / client の tsconfig.test.json と同じ理由)。
+
+     shared は tsc でビルドしない (client / server が直接 .ts を読む) ので,
+     本体用とテスト用を分けずに全部を対象にする */
   "compilerOptions": {
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.tsbuildinfo",
     "target": "ESNext",
@@ -7,7 +13,7 @@
     "types": ["bun"],
     "skipLibCheck": true,
 
-    /* Bundler mode (client の tsconfig.app.json に合わせる) */
+    /* Bundler mode (server の tsconfig.json に合わせる) */
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
@@ -22,9 +28,5 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true
   },
-  /* テストも型検査する。bun test は transpile only なので, ここで見ないと
-     フェイクと本物のインタフェースの乖離が実行時まで分からない
-     (tsconfig.e2e.json と同じ理由)。server は tsc でビルドしないので,
-     本体用の設定と分けずにここへ含める */
   "include": ["src"]
 }

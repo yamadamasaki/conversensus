@@ -240,11 +240,11 @@ describe('AtprotoSyncProvider', () => {
       const provider = makeProvider(batches);
 
       const first = await provider.pullAllRemoteForMigration();
-      expect(first.map((e) => e.batch.id)).toEqual(['a', 'c', 'b']);
+      expect(first.map((e) => e.batch.id as string)).toEqual(['a', 'c', 'b']);
 
       // 2 回目も同じ全件が返る (前進する既読位置が無い = 取りこぼしようがない)
       const second = await provider.pullAllRemoteForMigration();
-      expect(second.map((e) => e.batch.id)).toEqual(['a', 'c', 'b']);
+      expect(second.map((e) => e.batch.id as string)).toEqual(['a', 'c', 'b']);
     });
 
     it('clock → actor → id の順に整列して返す (orderBatches と同じ規則)', async () => {
@@ -256,7 +256,7 @@ describe('AtprotoSyncProvider', () => {
       const provider = makeProvider(batches);
       const entries = await provider.pullAllRemoteForMigration();
       // clock 1 の z → clock 2 は actor 昇順で dev-a(y) → dev-b(x)
-      expect(entries.map((e) => e.batch.id)).toEqual(['z', 'y', 'x']);
+      expect(entries.map((e) => e.batch.id as string)).toEqual(['z', 'y', 'x']);
     });
 
     it('適用先 fileId をエンベロープで返す', async () => {
@@ -281,7 +281,7 @@ describe('AtprotoSyncProvider', () => {
       } as never);
       const provider = makeProvider(batches);
       const entries = await provider.pullAllRemoteForMigration();
-      expect(entries.map((e) => e.batch.id)).toEqual(['a']);
+      expect(entries.map((e) => e.batch.id as string)).toEqual(['a']);
     });
 
     it('新形式 rkey から batch.id を復元する (Phase 7 p7-1)', async () => {
@@ -290,7 +290,7 @@ describe('AtprotoSyncProvider', () => {
       batches._seed(batch('a', 1));
       const provider = makeProvider(batches);
       const entries = await provider.pullAllRemoteForMigration();
-      expect(entries.map((e) => e.batch.id)).toEqual(['a']);
+      expect(entries.map((e) => e.batch.id as string)).toEqual(['a']);
     });
 
     it('旧形式 rkey (= batchId 単体) も復元できる', async () => {
@@ -301,7 +301,7 @@ describe('AtprotoSyncProvider', () => {
       batches._seed(batch('new', 2));
       const provider = makeProvider(batches);
       const entries = await provider.pullAllRemoteForMigration();
-      expect(entries.map((e) => e.batch.id)).toEqual(['old', 'new']);
+      expect(entries.map((e) => e.batch.id as string)).toEqual(['old', 'new']);
     });
 
     it('v1~ で始まるのに形式を満たさない rkey は飛ばす', async () => {
@@ -311,7 +311,7 @@ describe('AtprotoSyncProvider', () => {
       batches._seedRkey(`v1~${FILE}~42~short-clock`, batch('bad', 2));
       const provider = makeProvider(batches);
       const entries = await provider.pullAllRemoteForMigration();
-      expect(entries.map((e) => e.batch.id)).toEqual(['ok']);
+      expect(entries.map((e) => e.batch.id as string)).toEqual(['ok']);
     });
   });
 
@@ -342,7 +342,7 @@ describe('AtprotoSyncProvider', () => {
       const provider = makeProvider(batches);
 
       const entries = await provider.pullRemoteForFile(FILE);
-      expect(entries.map((e) => e.batch.id)).toEqual(['a', 'b']);
+      expect(entries.map((e) => e.batch.id as string)).toEqual(['a', 'b']);
       expect(entries.map((e) => e.fileId)).toEqual([FILE, FILE]);
     });
 
@@ -358,7 +358,7 @@ describe('AtprotoSyncProvider', () => {
       const provider = makeProvider(batches);
 
       const entries = await provider.pullRemoteForFile(FILE);
-      expect(entries.map((e) => e.batch.id)).toEqual(['mine']);
+      expect(entries.map((e) => e.batch.id as string)).toEqual(['mine']);
       // 自分の 1 件 + 境界の 1 件。全 11 件を舐めていない
       expect(batches._scanned()).toBe(2);
     });
@@ -372,7 +372,7 @@ describe('AtprotoSyncProvider', () => {
       const provider = makeProvider(batches);
 
       const entries = await provider.pullRemoteForFile(FILE);
-      expect(entries.map((e) => e.batch.id)).toEqual(['new']);
+      expect(entries.map((e) => e.batch.id as string)).toEqual(['new']);
       // 旧 rkey は `v1~` より小さいので合成 cursor の手前にあり、走査に現れない
       expect(batches._scanned()).toBe(1);
     });
@@ -403,7 +403,7 @@ describe('AtprotoSyncProvider', () => {
       const provider = makeProvider(batches);
 
       const entries = await provider.pullRemoteForFile(FILE);
-      expect(entries.map((e) => e.batch.id)).toEqual(['z', 'y', 'x']);
+      expect(entries.map((e) => e.batch.id as string)).toEqual(['z', 'y', 'x']);
     });
 
     it('壊れた新形式 rkey は飛ばす (id を推測して正典へ入れない)', async () => {
@@ -417,7 +417,7 @@ describe('AtprotoSyncProvider', () => {
       const provider = makeProvider(batches);
 
       const entries = await provider.pullRemoteForFile(FILE);
-      expect(entries.map((e) => e.batch.id)).toEqual(['ok']);
+      expect(entries.map((e) => e.batch.id as string)).toEqual(['ok']);
     });
 
     it('合成 cursor は prefix の直前を指す (先頭レコードを落とさない)', async () => {

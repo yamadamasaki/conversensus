@@ -37,7 +37,7 @@ describe('Outbox', () => {
     it('積んだ batches を FIFO で保持する', () => {
       const outbox = new Outbox<Batch>(batchId);
       outbox.enqueue([batch('1', 1), batch('2', 2)]);
-      expect(outbox.pending().map((b) => b.id)).toEqual(['1', '2']);
+      expect(outbox.pending().map((b) => b.id as string)).toEqual(['1', '2']);
       expect(outbox.size).toBe(2);
     });
 
@@ -45,7 +45,7 @@ describe('Outbox', () => {
       const outbox = new Outbox<Batch>(batchId);
       outbox.enqueue([batch('1', 1)]);
       outbox.enqueue([batch('1', 1), batch('2', 2)]);
-      expect(outbox.pending().map((b) => b.id)).toEqual(['1', '2']);
+      expect(outbox.pending().map((b) => b.id as string)).toEqual(['1', '2']);
     });
 
     it('既定は無制限 (eviction なし・overflowed=false)', () => {
@@ -61,7 +61,7 @@ describe('Outbox', () => {
       const outbox = new Outbox<Batch>(batchId, 2);
       outbox.enqueue([batch('1', 1), batch('2', 2), batch('3', 3)]);
       // 最古 '1' が落ち、直近 2 件が残る
-      expect(outbox.pending().map((b) => b.id)).toEqual(['2', '3']);
+      expect(outbox.pending().map((b) => b.id as string)).toEqual(['2', '3']);
       expect(outbox.size).toBe(2);
       expect(outbox.overflowed).toBe(true);
     });
@@ -70,7 +70,7 @@ describe('Outbox', () => {
       const outbox = new Outbox<Batch>(batchId, 2);
       outbox.enqueue([batch('1', 1), batch('2', 2), batch('3', 3)]); // '1' が落ちる
       outbox.enqueue([batch('1', 1)]); // 落ちた '1' を積み直せる
-      expect(outbox.pending().map((b) => b.id)).toEqual(['3', '1']);
+      expect(outbox.pending().map((b) => b.id as string)).toEqual(['3', '1']);
     });
 
     it('上限内なら overflowed は false のまま', () => {
@@ -144,7 +144,7 @@ describe('Outbox', () => {
         partial: true,
       });
       // 送れなかった 1 件だけが残る = 次回の flush は他を巻き添えにしない
-      expect(outbox.pending().map((b) => b.id)).toEqual(['2']);
+      expect(outbox.pending().map((b) => b.id as string)).toEqual(['2']);
     });
 
     it('部分成功でも in-flight enqueue 分は失われない', async () => {
@@ -155,7 +155,7 @@ describe('Outbox', () => {
         return Promise.reject(new PartialPushError(['1'], new Error('boom')));
       });
       expect(result.flushed).toBe(1);
-      expect(outbox.pending().map((b) => b.id)).toEqual(['2', '3']);
+      expect(outbox.pending().map((b) => b.id as string)).toEqual(['2', '3']);
     });
 
     it('素の例外は従来どおり全件保留 (partial を立てない)', async () => {
@@ -179,7 +179,7 @@ describe('Outbox', () => {
       const result = await outbox.flush((b) => provider.push(b));
       // スナップショット分 (batch 1) のみ除去され、新規 (batch 2) は残る
       expect(result).toEqual({ ok: true, flushed: 1 });
-      expect(outbox.pending().map((b) => b.id)).toEqual(['2']);
+      expect(outbox.pending().map((b) => b.id as string)).toEqual(['2']);
     });
   });
 });

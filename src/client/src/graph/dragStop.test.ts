@@ -126,7 +126,7 @@ describe('buildDragStopEvents', () => {
     );
 
     expect(events).toHaveLength(1);
-    expect(events[0].nodeId).toBe('n1');
+    expect(events[0].nodeId as string).toBe('n1');
   });
 
   it('位置が変わっていないノードは何も出さない', () => {
@@ -191,7 +191,7 @@ describe('buildDragStopEvents', () => {
       positionsOf(nodes),
     );
 
-    expect(events.map((e) => [e.type, e.nodeId])).toEqual([
+    expect(events.map((e) => [e.type, e.nodeId as string])).toEqual([
       ['NODE_REPARENTED', 'n1'],
       ['NODE_REPARENTED', 'n2'],
     ]);
@@ -306,11 +306,11 @@ describe('resolveDropTargets', () => {
     const events = buildDragStopEvents(draggedNodes, nodes, positionsOf(nodes));
 
     const reparented = events.find((e) => e.type === 'NODE_REPARENTED');
-    expect(reparented?.nodeId).toBe('n1');
+    expect(reparented?.nodeId as string).toBe('n1');
     expect(
       reparented?.type === 'NODE_REPARENTED'
-        ? reparented.newParentId
+        ? (reparented.newParentId as string | undefined)
         : undefined,
-    ).toBe(targets.get('n1')?.id);
+    ).toBe(targets.get('n1')?.id as string | undefined);
   });
 });

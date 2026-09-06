@@ -20,13 +20,14 @@ const PDS_VECTORS = [
 ] as const;
 
 describe('computeBlobCid', () => {
-  test.each(PDS_VECTORS)('PDS が返した CID と一致する ($text)', async ({
-    text,
-    cid,
-  }) => {
-    const bytes = new TextEncoder().encode(text);
-    expect(await computeBlobCid(bytes)).toBe(cid);
-  });
+  // test.each ではなくループで回す — bun の test.each はオブジェクトの表を
+  // unknown[] としてしか受け取らないので, 分解した text / cid の型が落ちる
+  for (const { text, cid } of PDS_VECTORS) {
+    test(`PDS が返した CID と一致する (${text})`, async () => {
+      const bytes = new TextEncoder().encode(text);
+      expect(await computeBlobCid(bytes)).toBe(cid);
+    });
+  }
 
   test('同じバイト列からは必ず同じ CID が出る (content-addressed)', async () => {
     const bytes = new Uint8Array([1, 2, 3, 4, 5]);
@@ -66,9 +67,11 @@ describe('computeBlobCid', () => {
 });
 
 describe('isBlobCid', () => {
-  test.each(PDS_VECTORS)('実際の CID を受け入れる ($text)', ({ cid }) => {
-    expect(isBlobCid(cid)).toBe(true);
-  });
+  for (const { text, cid } of PDS_VECTORS) {
+    test(`実際の CID を受け入れる (${text})`, () => {
+      expect(isBlobCid(cid)).toBe(true);
+    });
+  }
 
   test.each([
     ['空文字', ''],

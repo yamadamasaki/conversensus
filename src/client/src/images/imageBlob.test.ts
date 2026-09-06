@@ -50,7 +50,7 @@ beforeEach(() => {
   };
 });
 
-function bytesOf(...values: number[]): Uint8Array {
+function bytesOf(...values: number[]): Uint8Array<ArrayBuffer> {
   return new Uint8Array(values);
 }
 
@@ -316,7 +316,10 @@ describe('resolveImageUrl', () => {
   });
 
   it('3. ログイン中でローカルに無ければ PDS から取る', async () => {
-    const remote = mock(async () => new Blob([bytesOf(9)], { type: PNG }));
+    const remote = mock(
+      async (_did: string, _cid: string, _mimeType: string) =>
+        new Blob([bytesOf(9)], { type: PNG }),
+    );
     const deps = resolveDeps({
       remote: remote as unknown as ResolveImageDeps['remote'],
       did: () => DID,
@@ -331,7 +334,10 @@ describe('resolveImageUrl', () => {
   it('由来 DID があれば, その repo から引く (step2 Phase 2 S5)', async () => {
     // 他 actor が貼った画像は**自分の repo に無い**。cid だけでは引けないので、
     // どの repo かを location が運ぶ
-    const remote = mock(async () => new Blob([bytesOf(9)], { type: PNG }));
+    const remote = mock(
+      async (_did: string, _cid: string, _mimeType: string) =>
+        new Blob([bytesOf(9)], { type: PNG }),
+    );
     const deps = resolveDeps({
       remote: remote as unknown as ResolveImageDeps['remote'],
       did: () => DID,

@@ -82,7 +82,10 @@ describe('receiveRemoteBatches (Phase 4d-5)', () => {
     expect(result).toEqual({ received: 2, appended: 2, skippedOtherFile: 0 });
     expect(t.appendCalls).toHaveLength(1);
     expect(t.appendCalls[0]?.fileId).toBe(FILE);
-    expect(t.appendCalls[0]?.batches.map((b) => b.id)).toEqual(['a', 'b']);
+    expect(t.appendCalls[0]?.batches.map((b) => b.id as string)).toEqual([
+      'a',
+      'b',
+    ]);
   });
 
   it('取得は開いているファイルを指定して行う (Phase 7 p7-2)', async () => {
@@ -107,7 +110,7 @@ describe('receiveRemoteBatches (Phase 4d-5)', () => {
 
     expect(result.received).toBe(1);
     expect(result.skippedOtherFile).toBe(2);
-    expect(t.appendCalls[0]?.batches.map((b) => b.id)).toEqual(['a']);
+    expect(t.appendCalls[0]?.batches.map((b) => b.id as string)).toEqual(['a']);
   });
 
   it('自ファイル宛が 0 件なら書き込まず clock も動かさない', async () => {

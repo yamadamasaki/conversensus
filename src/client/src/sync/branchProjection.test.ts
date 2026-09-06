@@ -233,7 +233,7 @@ describe('readBranchSheet', () => {
         'branch で書き換え',
       );
       // 現在は両方入る (未コミットの n3 が pending として差分に出る)
-      expect(current.nodes.map((n) => n.id)).toContain('n3');
+      expect(current.nodes.map((n) => n.id as string)).toContain('n3');
     });
 
     it('🔴 branch op-log に混ざった別シートの batch は現れない', async () => {
@@ -299,7 +299,7 @@ describe('readBranchSheet', () => {
         { lastCommitAt: 5, lastMergeAt: 4 },
       );
 
-      expect(atLastCommit.nodes.map((n) => n.id)).toContain('n3');
+      expect(atLastCommit.nodes.map((n) => n.id as string)).toContain('n3');
       expect(atLastMerge.nodes.map((n) => n.id)).not.toContain('n3');
     });
   });
@@ -310,7 +310,7 @@ describe('readBranchSheet', () => {
     // branch batch は branch 専用 file_id にしか無いので trunk は無傷
     const trunk = projectFile(logs[TRUNK] ?? [], TRUNK);
     const trunkSheet = trunk.sheets.find((s) => s.id === SHEET);
-    expect(trunkSheet?.nodes.map((n) => n.id).sort()).toEqual([
+    expect(trunkSheet?.nodes.map((n) => n.id as string).sort()).toEqual([
       'n1',
       'n2',
       'n4',
@@ -354,6 +354,6 @@ describe('readBranchSheet', () => {
       deps,
     );
     const sheet = await readBranchSheet(meta, SHEET_META, deps);
-    expect(sheet.nodes.map((n) => n.id)).toEqual(['n1']);
+    expect(sheet.nodes.map((n) => n.id as string)).toEqual(['n1']);
   });
 });

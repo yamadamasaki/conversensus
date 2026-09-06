@@ -4,6 +4,7 @@ import type {
   GraphEdge,
   GraphNode,
   NodeId,
+  NodeLayout,
 } from '@conversensus/shared';
 import type { GraphEvent } from './GraphEvent';
 import { invertEvent } from './invertEvent';
@@ -19,6 +20,8 @@ const graphEdge: GraphEdge = {
   source: 'n1' as NodeId,
   target: 'n2' as NodeId,
 };
+/** ノードの座標は node ではなく layout が持つ */
+const graphLayout: NodeLayout = { nodeId: 'n1' as NodeId, x: 0, y: 0 };
 
 // --- structure ---
 
@@ -33,9 +36,9 @@ describe('NODE_ADDED ↔ NODE_DELETED', () => {
     };
     const inv = invertEvent(event);
     expect(inv.type).toBe('NODE_DELETED');
-    expect((inv as Extract<GraphEvent, { type: 'NODE_DELETED' }>).nodeId).toBe(
-      'n1',
-    );
+    expect(
+      (inv as Extract<GraphEvent, { type: 'NODE_DELETED' }>).nodeId as string,
+    ).toBe('n1');
     expect((inv as Extract<GraphEvent, { type: 'NODE_DELETED' }>).data).toEqual(
       graphNode,
     );
@@ -76,9 +79,9 @@ describe('EDGE_ADDED ↔ EDGE_DELETED', () => {
     };
     const inv = invertEvent(event);
     expect(inv.type).toBe('EDGE_DELETED');
-    expect((inv as Extract<GraphEvent, { type: 'EDGE_DELETED' }>).edgeId).toBe(
-      'e1',
-    );
+    expect(
+      (inv as Extract<GraphEvent, { type: 'EDGE_DELETED' }>).edgeId as string,
+    ).toBe('e1');
   });
 
   it('EDGE_DELETED の逆は EDGE_ADDED', () => {
@@ -132,6 +135,7 @@ describe('NODES_GROUPED ↔ NODES_UNGROUPED', () => {
     id: 'parent' as NodeId,
     content: 'グループ',
   };
+  const parentLayout: NodeLayout = { nodeId: 'parent' as NodeId, x: 0, y: 0 };
 
   it('NODES_GROUPED の逆は NODES_UNGROUPED (同じ children を保持)', () => {
     const event: GraphEvent = {
@@ -140,6 +144,7 @@ describe('NODES_GROUPED ↔ NODES_UNGROUPED', () => {
       type: 'NODES_GROUPED',
       parentId: 'parent' as NodeId,
       parentData,
+      parentLayout,
       children,
     };
     const inv = invertEvent(event) as Extract<
@@ -147,7 +152,7 @@ describe('NODES_GROUPED ↔ NODES_UNGROUPED', () => {
       { type: 'NODES_UNGROUPED' }
     >;
     expect(inv.type).toBe('NODES_UNGROUPED');
-    expect(inv.parentId).toBe('parent');
+    expect(inv.parentId as string).toBe('parent');
     expect(inv.children).toEqual(children);
   });
 
@@ -158,6 +163,7 @@ describe('NODES_GROUPED ↔ NODES_UNGROUPED', () => {
       type: 'NODES_UNGROUPED',
       parentId: 'parent' as NodeId,
       parentData,
+      parentLayout,
       children,
     };
     expect(invertEvent(event).type).toBe('NODES_GROUPED');
@@ -181,8 +187,8 @@ describe('NODE_REPARENTED', () => {
       { type: 'NODE_REPARENTED' }
     >;
     expect(inv.type).toBe('NODE_REPARENTED');
-    expect(inv.nodeId).toBe('n1');
-    expect(inv.oldParentId).toBe('group1');
+    expect(inv.nodeId as string).toBe('n1');
+    expect(inv.oldParentId as string).toBe('group1');
     expect(inv.newParentId).toBeUndefined();
     expect(inv.oldPosition).toEqual({ x: 15, y: 25 });
     expect(inv.newPosition).toEqual({ x: 10, y: 20 });
@@ -196,15 +202,17 @@ describe('NODES_PASTED ↔ NODES_PASTED_UNDO', () => {
       category: 'structure',
       type: 'NODES_PASTED',
       nodes: [graphNode],
+      layouts: [graphLayout],
       edges: [graphEdge],
+      edgeLayouts: [],
     };
     const inv = invertEvent(event) as Extract<
       GraphEvent,
       { type: 'NODES_PASTED_UNDO' }
     >;
     expect(inv.type).toBe('NODES_PASTED_UNDO');
-    expect(inv.nodeIds).toEqual(['n1']);
-    expect(inv.edgeIds).toEqual(['e1']);
+    expect(inv.nodeIds.map((id) => id as string)).toEqual(['n1']);
+    expect(inv.edgeIds.map((id) => id as string)).toEqual(['e1']);
     // redo のために元データを保持
     expect(inv.nodes).toEqual([graphNode]);
     expect(inv.edges).toEqual([graphEdge]);
@@ -218,7 +226,9 @@ describe('NODES_PASTED ↔ NODES_PASTED_UNDO', () => {
       nodeIds: ['n1' as NodeId],
       edgeIds: ['e1' as EdgeId],
       nodes: [graphNode],
+      layouts: [graphLayout],
       edges: [graphEdge],
+      edgeLayouts: [],
     };
     const inv = invertEvent(event) as Extract<
       GraphEvent,
@@ -375,15 +385,15 @@ describe('NODE_STYLE_CHANGED', () => {
       category: 'presentation',
       type: 'NODE_STYLE_CHANGED',
       nodeId: 'n1' as NodeId,
-      from: { background: 'white' },
-      to: { background: '#eee' },
+      from: { nodeId: 'n1' as NodeId, background: 'white' },
+      to: { nodeId: 'n1' as NodeId, background: '#eee' },
     };
     const inv = invertEvent(event) as Extract<
       GraphEvent,
       { type: 'NODE_STYLE_CHANGED' }
     >;
-    expect(inv.from).toEqual({ background: '#eee' });
-    expect(inv.to).toEqual({ background: 'white' });
+    expect(inv.from).toEqual({ nodeId: 'n1' as NodeId, background: '#eee' });
+    expect(inv.to).toEqual({ nodeId: 'n1' as NodeId, background: 'white' });
   });
 });
 

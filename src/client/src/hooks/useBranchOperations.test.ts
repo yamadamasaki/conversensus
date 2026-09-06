@@ -1,8 +1,21 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test';
+import type {
+  BranchMeta,
+  CommitOperation,
+  FileId,
+  GraphFile,
+  NodeId,
+  SheetId,
+} from '@conversensus/shared';
 import {
   createInMemoryBranchOplogDeps,
   createInMemoryBranchOpsDeps,
 } from './testing/inMemoryDeps';
+import type {
+  AlertState,
+  ConfirmState,
+  InputState,
+} from './useBranchOperations';
 
 const { renderHook, act, cleanup } = await import('@testing-library/react');
 const {
@@ -24,18 +37,25 @@ const makeClock = () => {
   };
 };
 
-const mockOnSetActiveFile = mock(() => {});
-const mockSetConfirmState = mock(() => {});
-const mockSetInputState = mock(() => {});
-const mockSetAlertState = mock(() => {});
+// ダイアログの差し込み口。**引数の形を本物に合わせる** — ここを () => {} のままに
+// すると、mockImplementationOnce で resolve を呼ぶ側の型も検査されなくなる
+const mockOnSetActiveFile = mock((_file: GraphFile | null) => {});
+const mockSetConfirmState = mock((_s: ConfirmState | null) => {});
+const mockSetInputState = mock((_s: InputState | null) => {});
+const mockSetAlertState = mock((_s: AlertState | null) => {});
 
-const mockActiveFile = {
-  id: 'f1',
+const mockActiveFile: GraphFile = {
+  id: 'f1' as FileId,
   name: 'test',
   description: '',
-  sheets: [{ id: 's1', name: 'Sheet 1', nodes: [], edges: [] }],
+  sheets: [{ id: 's1' as SheetId, name: 'Sheet 1', nodes: [], edges: [] }],
 };
-const mockActiveSheet = { id: 's1', name: 'Sheet 1', nodes: [], edges: [] };
+const mockActiveSheet = {
+  id: 's1' as SheetId,
+  name: 'Sheet 1',
+  nodes: [],
+  edges: [],
+};
 
 afterEach(() => {
   cleanup();
@@ -46,8 +66,8 @@ afterEach(() => {
 });
 // --- テストの共通ハーネス ---
 
-const TRUNK_ID = 'f1';
-const SHEET_ID = 's1';
+const TRUNK_ID = 'f1' as FileId;
+const SHEET_ID = 's1' as SheetId;
 
 /** trunk op-log の 1 batch (content, sheetId 付き) */
 const trunkBatch = (id: string, clock: number, nodeId: string, text: string) =>
@@ -159,16 +179,14 @@ async function withOpenBranch(
 ) {
   const view = await renderOplog(trunkLog, options);
   view.deps._setComputeOps(pending);
-  mockSetInputState.mockImplementationOnce(
-    (s: { resolve: (v: string) => void }) => {
-      s.resolve('feature-x');
-    },
-  );
+  mockSetInputState.mockImplementationOnce((s) => {
+    s?.resolve('feature-x');
+  });
   await act(async () => {
     await view.result.current.handleCreateBranch(SHEET_ID);
   });
   const branch = (view.result.current.sheetBranches.get(SHEET_ID) ??
-    [])[0] as import('@conversensus/shared').BranchMeta;
+    ([] as BranchMeta[]))[0] as BranchMeta;
   await act(async () => {
     await view.result.current.handleSelectBranch(SHEET_ID, branch);
   });
@@ -180,11 +198,9 @@ async function withOpenBranch(
  * 空白だけを渡せば入力ダイアログのキャンセルと同じ扱いになる。
  */
 const answerMergeReason = (reason: string) => {
-  mockSetInputState.mockImplementationOnce(
-    (s: { resolve: (v: string) => void }) => {
-      s.resolve(reason);
-    },
-  );
+  mockSetInputState.mockImplementationOnce((s) => {
+    s?.resolve(reason);
+  });
 };
 
 /** 指定 status に付け替えた branch を選び直す (状態ゲートの検証用) */
@@ -240,11 +256,9 @@ describe('useBranchOperations — 表示状態', () => {
   describe('handleCreateBranch', () => {
     it('空の名前では作成されない', async () => {
       const { result } = await renderOplog();
-      mockSetInputState.mockImplementationOnce(
-        (s: { resolve: (v: string) => void }) => {
-          s.resolve('');
-        },
-      );
+      mockSetInputState.mockImplementationOnce((s) => {
+        s?.resolve('');
+      });
       await act(async () => {
         await result.current.handleCreateBranch(SHEET_ID);
       });
@@ -279,7 +293,9 @@ describe('useBranchOperations — 表示状態', () => {
    * status ごとの出し分けを固定する — CLOSED の branch にコミットさせないため。
    */
   describe('pendingChanges (commit 可能な変更の検出)', () => {
-    const ops = [{ op: 'node.add', nodeId: 'n1', content: 'hi' }];
+    const ops: CommitOperation[] = [
+      { op: 'node.add', nodeId: 'n1', content: 'hi' },
+    ];
 
     it('OPEN branch で変更あり → pendingChanges に含まれる', async () => {
       const view = await withOpenBranch(undefined, ops);
@@ -311,7 +327,9 @@ describe('useBranchOperations — 表示状態', () => {
         { op: 'node.remove', nodeId: 'n1' },
       ]);
       // base (branch 作成時点の projection) にある n1 がゴーストとして残る
-      expect(view.result.current.deletedNodes.map((n) => n.id)).toEqual(['n1']);
+      expect(
+        view.result.current.deletedNodes.map((n) => n.id as string),
+      ).toEqual(['n1']);
       // remove は conflicted (ハイライト) には入らない
       expect(view.result.current.addedNodeIds.size).toBe(0);
     });
@@ -338,7 +356,7 @@ describe('useBranchOperations — 表示状態', () => {
 
       await act(async () => {
         view.rerender({
-          activeFile: { ...mockActiveFile, id: 'f2' },
+          activeFile: { ...mockActiveFile, id: 'f2' as FileId },
           activeSheetId: SHEET_ID,
           activeSheet: mockActiveSheet,
         });
@@ -370,18 +388,16 @@ describe('useBranchOperations — branch 操作 (op-log)', () => {
       // 旧経路は trunk の全レコードを `{branchId}_` prefix で PDS へ複製していた。
       // op-log では base コミット (ログ上のオフセット) を記録するだけでよい。
       const { result, oplogDeps } = await renderOplog();
-      mockSetInputState.mockImplementationOnce(
-        (s: { resolve: (v: string) => void }) => {
-          s.resolve('feature-x');
-        },
-      );
+      mockSetInputState.mockImplementationOnce((s) => {
+        s?.resolve('feature-x');
+      });
       await act(async () => {
         await result.current.handleCreateBranch(SHEET_ID);
       });
 
       const branches = result.current.sheetBranches.get(SHEET_ID) ?? [];
       expect(branches).toHaveLength(1);
-      const meta = branches[0] as import('@conversensus/shared').BranchMeta;
+      const meta = branches[0] as BranchMeta;
       expect(meta.name).toBe('feature-x');
       // base は現在のログ先端 (tipClock)
       expect(meta.base.at).toBe(3);
@@ -396,9 +412,7 @@ describe('useBranchOperations — branch 操作 (op-log)', () => {
     it('branch のシート内容を projection から差し替える', async () => {
       const { branch, oplogDeps } = await withOpenBranch();
       // 分岐直後は base = trunk の内容
-      const passed = mockOnSetActiveFile.mock.calls.at(-1)?.[0] as
-        | import('@conversensus/shared').GraphFile
-        | undefined;
+      const passed = mockOnSetActiveFile.mock.calls.at(-1)?.[0];
       const sheet = passed?.sheets.find((s) => s.id === SHEET_ID);
       expect(sheet?.nodes.map((n) => n.content)).toEqual(['trunk']);
       expect(oplogDeps._branches.get(branch.id)?.status).toBe('open');
@@ -583,11 +597,9 @@ describe('useBranchOperations — branch 操作 (op-log)', () => {
   describe('handleCloseBranch / handleDeleteBranch', () => {
     it('close は status を closed にする (op-log は残る)', async () => {
       const { result, branch, oplogDeps } = await withOpenBranch();
-      mockSetConfirmState.mockImplementationOnce(
-        (s: { resolve: (ok: boolean) => void }) => {
-          s.resolve(true);
-        },
-      );
+      mockSetConfirmState.mockImplementationOnce((s) => {
+        s?.resolve(true);
+      });
       await act(async () => {
         await result.current.handleCloseBranch(branch);
       });
@@ -601,11 +613,9 @@ describe('useBranchOperations — branch 操作 (op-log)', () => {
         result.current.branchSyncRecord?.(relabel('編集'), SHEET_ID);
         await new Promise((r) => setTimeout(r, 10));
       });
-      mockSetConfirmState.mockImplementationOnce(
-        (s: { resolve: (ok: boolean) => void }) => {
-          s.resolve(true);
-        },
-      );
+      mockSetConfirmState.mockImplementationOnce((s) => {
+        s?.resolve(true);
+      });
       await act(async () => {
         await result.current.handleDeleteBranch(branch);
       });
@@ -623,8 +633,8 @@ describe('useBranchOperations — branch 操作 (op-log)', () => {
  * 返すので、「どの Sheet を起点にしたか」= このスライスの検証対象そのものを区別できない。
  */
 describe('useBranchOperations — 差分状態 (ANA-120)', () => {
-  const NODE_A = 'a0000000-0000-4000-8000-000000000000';
-  const NODE_B = 'b0000000-0000-4000-8000-000000000000';
+  const NODE_A = 'a0000000-0000-4000-8000-000000000000' as NodeId;
+  const NODE_B = 'b0000000-0000-4000-8000-000000000000' as NodeId;
 
   type View = Awaited<ReturnType<typeof withOpenBranch>>;
   // biome-ignore lint/suspicious/noExplicitAny: テストで branded 型の Sheet を組まない
@@ -632,16 +642,17 @@ describe('useBranchOperations — 差分状態 (ANA-120)', () => {
 
   /** hook が最後に渡してきた branch の projection */
   const projectedSheet = (): TestSheet => {
-    const file = mockOnSetActiveFile.mock.calls.at(-1)?.[0] as
-      | import('@conversensus/shared').GraphFile
-      | undefined;
+    const file = mockOnSetActiveFile.mock.calls.at(-1)?.[0];
     const sheet = file?.sheets.find((s) => s.id === SHEET_ID);
     if (!sheet) throw new Error('branch の projection が取れていない');
     return sheet;
   };
 
-  /** activeSheet を差し替える = 画面でシートを編集したのと同じ状態にする */
-  async function edit(view: View, sheet: TestSheet) {
+  /**
+   * activeSheet を差し替える = 画面でシートを編集したのと同じ状態にする。
+   * **`rerender` しか使わない**ので、branch を持たない view (開き直した直後) も受ける
+   */
+  async function edit(view: Pick<View, 'rerender'>, sheet: TestSheet) {
     await act(async () => {
       view.rerender({
         activeFile: mockActiveFile,
@@ -679,7 +690,7 @@ describe('useBranchOperations — 差分状態 (ANA-120)', () => {
   }
 
   /** commit する (pendingChanges があること = 変更中であることが前提) */
-  async function commit(view: View, message: string) {
+  async function commit(view: Pick<View, 'result'>, message: string) {
     await act(async () => {
       await view.result.current.handleCommit(message);
     });

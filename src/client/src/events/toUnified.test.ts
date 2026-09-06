@@ -370,7 +370,7 @@ describe('graphEventToOps: 全 21 イベント型を網羅する', () => {
   test('graphEventToBatch は event.id を BatchId に、渡された actor を載せる', () => {
     const event = events[0];
     const batch = graphEventToBatch(event, { clock: 7, actor: ACTOR });
-    expect(batch.id).toBe(event.id);
+    expect(batch.id as string).toBe(event.id);
     expect(batch.actor).toBe(ACTOR);
     expect(batch.clock).toBe(7);
   });
@@ -457,7 +457,7 @@ describe('graphEventToOps: file 構造イベント (W3c1)', () => {
   test('FILE_DELETED も file 構造 batch (sheetId 無し) になる', () => {
     const batch = graphEventToBatch(
       { ...makeEventBase('file'), type: 'FILE_DELETED' },
-      7,
+      { clock: 7, actor: ACTOR },
     );
     expect(batch.sheetId).toBeUndefined();
     expect(batch.ops).toEqual([{ kind: 'file.remove' }]);
@@ -466,7 +466,7 @@ describe('graphEventToOps: file 構造イベント (W3c1)', () => {
   test('構造イベントは file 構造 batch (sheetId 無し) になる', () => {
     const batch = graphEventToBatch(
       { ...makeEventBase('file'), type: 'FILE_RENAMED', name: 'F' },
-      3,
+      { clock: 3, actor: ACTOR },
     );
     expect(batch.sheetId).toBeUndefined();
     expect(batch.ops).toEqual([{ kind: 'file.setName', name: 'F' }]);
@@ -544,8 +544,8 @@ describe('layout 値の整数化 (W3d5-7)', () => {
       ...makeEventBase('presentation'),
       type: 'NODE_STYLE_CHANGED',
       nodeId,
-      from: {},
-      to: { width: '100%', height: 80.6 },
+      from: { nodeId },
+      to: { nodeId, width: '100%', height: 80.6 },
     });
     expect(op.width).toBe('100%');
     expect(op.height).toBe(81);

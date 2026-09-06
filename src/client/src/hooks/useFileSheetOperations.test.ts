@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test';
 import type { ConversensusFile, FileId, SheetId } from '@conversensus/shared';
+import type { GraphEvent } from '../events/GraphEvent';
+import type { AlertState, ConfirmState } from './useFileSheetOperations';
 
 const { renderHook, act, cleanup } = await import('@testing-library/react');
 const { useFileSheetOperations } = await import('./useFileSheetOperations');
@@ -16,8 +18,10 @@ const TEST_DID = 'did:plc:test';
 const SID1 = '00000000-0000-0000-0000-000000000001' as SheetId;
 const SID2 = '00000000-0000-0000-0000-000000000002' as SheetId;
 
-const mockSetConfirmState = mock(() => {});
-const mockSetAlertState = mock(() => {});
+// ダイアログの差し込み口。**引数の形を本物に合わせる** — ここを () => {} のままに
+// すると、mockImplementationOnce で resolve を呼ぶ側の型も検査されなくなる
+const mockSetConfirmState = mock((_s: ConfirmState | null) => {});
+const mockSetAlertState = mock((_s: AlertState | null) => {});
 
 afterEach(() => {
   cleanup();
@@ -34,13 +38,13 @@ async function renderWith(opts: RenderOpts = {}) {
   const deps = opts.deps ?? createInMemoryFileSheetOpsDeps();
   // op-log tap を差し替え、実ネットワーク (LocalServerSyncProvider) を避けつつ
   // 構造操作の dual-write emit を検証する
-  const syncRecord = mock((_event: { type: string }) => {});
+  const syncRecord = mock((_event: GraphEvent, _sheetId?: SheetId) => {});
   const result = renderHook(() =>
     useFileSheetOperations({
       setConfirmState: mockSetConfirmState,
       setAlertState: mockSetAlertState,
       deps,
-      syncRecord: syncRecord as unknown as (event: never) => void,
+      syncRecord,
       // rkey 移行 marker (p7-4) がこの actor の DID 部分をキーにする
       actor: TEST_ACTOR,
       ...(opts.remoteQueue !== undefined && { remoteQueue: opts.remoteQueue }),
@@ -134,6 +138,7 @@ describe('useFileSheetOperations', () => {
         await result.current.handleCreate();
       });
       const fileId = result.current.activeFile?.id;
+      if (!fileId) throw new Error('activeFile should be set');
 
       act(() => {
         result.current.setActiveFile(null);
@@ -149,8 +154,8 @@ describe('useFileSheetOperations', () => {
     });
 
     it('ファイルが見つからない場合はエラー通知を表示する', async () => {
-      mockSetAlertState.mockImplementationOnce((s: { resolve: () => void }) => {
-        s.resolve();
+      mockSetAlertState.mockImplementationOnce((s) => {
+        s?.resolve();
       });
 
       const { result } = await render();
@@ -206,8 +211,8 @@ describe('useFileSheetOperations', () => {
       deps.fetchBatches = mock(async () => {
         throw new Error('boom');
       });
-      mockSetAlertState.mockImplementationOnce((s: { resolve: () => void }) => {
-        s.resolve();
+      mockSetAlertState.mockImplementationOnce((s) => {
+        s?.resolve();
       });
 
       await act(async () => {
@@ -224,8 +229,8 @@ describe('useFileSheetOperations', () => {
       const { result } = await renderWith({ deps });
       const fileId = await createThenClose(result, act);
       deps.fetchBatches = mock(async () => []);
-      mockSetAlertState.mockImplementationOnce((s: { resolve: () => void }) => {
-        s.resolve();
+      mockSetAlertState.mockImplementationOnce((s) => {
+        s?.resolve();
       });
 
       await act(async () => {
@@ -307,11 +312,9 @@ describe('useFileSheetOperations', () => {
 
   describe('handleDeleteFile', () => {
     it('確認後ファイルを削除し activeFile をクリアする', async () => {
-      mockSetConfirmState.mockImplementationOnce(
-        (s: { resolve: (ok: boolean) => void }) => {
-          s.resolve(true);
-        },
-      );
+      mockSetConfirmState.mockImplementationOnce((s) => {
+        s?.resolve(true);
+      });
 
       const { result } = await render();
       await act(async () => {
@@ -332,11 +335,9 @@ describe('useFileSheetOperations', () => {
     });
 
     it('確認でキャンセルした場合は削除されない', async () => {
-      mockSetConfirmState.mockImplementationOnce(
-        (s: { resolve: (ok: boolean) => void }) => {
-          s.resolve(false);
-        },
-      );
+      mockSetConfirmState.mockImplementationOnce((s) => {
+        s?.resolve(false);
+      });
 
       const { result } = await render();
       await act(async () => {
@@ -359,11 +360,9 @@ describe('useFileSheetOperations', () => {
     // 「既知」のままでなければならない。ここが崩れると削除したファイルが未知と判定され、
     // PDS から materialize されて次回起動で復活する。
     it('削除しても discovery の既知集合には残る (復活させないため)', async () => {
-      mockSetConfirmState.mockImplementationOnce(
-        (s: { resolve: (ok: boolean) => void }) => {
-          s.resolve(true);
-        },
-      );
+      mockSetConfirmState.mockImplementationOnce((s) => {
+        s?.resolve(true);
+      });
 
       const deps = createInMemoryFileSheetOpsDeps();
       const { result } = await renderWith({ deps });
@@ -384,11 +383,9 @@ describe('useFileSheetOperations', () => {
     });
 
     it('削除に失敗したら UI からも消さない', async () => {
-      mockSetConfirmState.mockImplementationOnce(
-        (s: { resolve: (ok: boolean) => void }) => {
-          s.resolve(true);
-        },
-      );
+      mockSetConfirmState.mockImplementationOnce((s) => {
+        s?.resolve(true);
+      });
 
       const deps = createInMemoryFileSheetOpsDeps();
       deps.deleteFile = async () => {
@@ -428,7 +425,7 @@ describe('useFileSheetOperations', () => {
         } as unknown as ConversensusFile);
       });
 
-      expect(result.current.activeFile?.id).toBe('imported-f1');
+      expect(result.current.activeFile?.id as string).toBe('imported-f1');
       expect(result.current.files.length).toBe(1);
     });
   });
@@ -440,8 +437,9 @@ describe('useFileSheetOperations', () => {
     it('🔴 開いていないファイルは op-log の projection を書き出す', async () => {
       const deps = createInMemoryFileSheetOpsDeps();
       const exported: string[] = [];
-      deps.exportFile = (file) => {
+      deps.exportFile = async (file) => {
         exported.push(file.name);
+        return { missingBlobs: [] };
       };
       const { result } = await renderWith({ deps });
       await act(async () => {
@@ -489,8 +487,8 @@ describe('useFileSheetOperations', () => {
       if (!sheetId) throw new Error('activeSheetId should be set');
 
       mockSetAlertState.mockClear();
-      mockSetAlertState.mockImplementationOnce((s: { resolve: () => void }) => {
-        s.resolve();
+      mockSetAlertState.mockImplementationOnce((s) => {
+        s?.resolve();
       });
 
       await act(async () => {
@@ -585,7 +583,7 @@ describe('useFileSheetOperations', () => {
       act(() => {
         result.current.setActiveFile(file);
       });
-      expect(result.current.activeFile?.id).toBe('f1');
+      expect(result.current.activeFile?.id as string).toBe('f1');
     });
 
     it('setActiveSheetId で activeSheetId を更新できる', async () => {

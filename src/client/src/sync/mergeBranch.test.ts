@@ -63,6 +63,7 @@ const branchMeta = (): BranchMeta => ({
   name: '案A',
   base: {
     id: 'commit-1' as CommitId,
+    kind: COMMIT_KIND.COMMIT,
     message: '案A の分岐点',
     at: 2,
     authorActor: ACTOR,
@@ -128,6 +129,15 @@ const branchLog = (): Batch[] => [
   content('br2', 4, [addNode('n2', 'branch のノード')]),
 ];
 
+/**
+ * 再 projection に失敗すると `trunk` は undefined になる契約だが、
+ * **テストの文脈ではその失敗自体が異常**なので、ここで潰して以降を素直に書く
+ */
+const trunkOf = (result: { trunk: GraphFile | undefined }): GraphFile => {
+  if (!result.trunk) throw new Error('merge が trunk を返していない');
+  return result.trunk;
+};
+
 const nodeContent = (trunk: GraphFile, nodeId: string) => {
   const sheet = trunk.sheets.find((s) => s.id === SHEET);
   return sheet?.nodes.find((n) => n.id === nodeId)?.content;
@@ -144,7 +154,7 @@ describe('mergeBranchOnOplog', () => {
     const appended = (logs[TRUNK] ?? []).slice(3);
     expect(appended.map((b) => b.clock)).toEqual([4, 5]);
     // 元の相対順序 (br1 → br2) が保たれる
-    expect(appended.map((b) => b.id)).toEqual(['br1', 'br2']);
+    expect(appended.map((b) => b.id as string)).toEqual(['br1', 'br2']);
   });
 
   it('batch の id は保持する (再 merge のべき等性の土台)', async () => {
@@ -176,8 +186,11 @@ describe('mergeBranchOnOplog', () => {
     const logs = { [TRUNK]: trunkLog(), [BRANCH_LOG]: branchLog() };
     const { deps } = makeDeps(logs);
     const result = await mergeBranchOnOplog(branchMeta(), mergeParams(), deps);
-    const sheet = result.trunk.sheets.find((s) => s.id === SHEET);
-    expect(sheet?.nodes.map((n) => n.id).sort()).toEqual(['n1', 'n2']);
+    const sheet = trunkOf(result).sheets.find((s) => s.id === SHEET);
+    expect(sheet?.nodes.map((n) => n.id as string).sort()).toEqual([
+      'n1',
+      'n2',
+    ]);
   });
 
   // 設計 §3.3-(i): branch が trunk の**上に乗る**。再スタンプで branch の clock が
@@ -186,7 +199,7 @@ describe('mergeBranchOnOplog', () => {
     const logs = { [TRUNK]: trunkLog(), [BRANCH_LOG]: branchLog() };
     const { deps } = makeDeps(logs);
     const result = await mergeBranchOnOplog(branchMeta(), mergeParams(), deps);
-    expect(nodeContent(result.trunk, 'n1')).toBe('branch による編集');
+    expect(nodeContent(trunkOf(result), 'n1')).toBe('branch による編集');
   });
 
   it('並行 content 変更を MergeConflict として検出する', async () => {
@@ -236,7 +249,7 @@ describe('mergeBranchOnOplog', () => {
       expect(second.appended).toBe(0);
       expect(JSON.stringify(logs[TRUNK])).toBe(afterFirst);
       // projection も不変
-      expect(nodeContent(second.trunk, 'n1')).toBe('branch による編集');
+      expect(nodeContent(trunkOf(second), 'n1')).toBe('branch による編集');
     });
 
     it('再 merge では既に merge 済みの batch を対立として数え直さない', async () => {
@@ -265,8 +278,12 @@ describe('mergeBranchOnOplog', () => {
       );
       expect(second.appended).toBe(1);
       expect((logs[TRUNK] ?? []).at(-1)?.id).toBe('br3' as Batch['id']);
-      const sheet = second.trunk.sheets.find((s) => s.id === SHEET);
-      expect(sheet?.nodes.map((n) => n.id).sort()).toEqual(['n1', 'n2', 'n3']);
+      const sheet = trunkOf(second).sheets.find((s) => s.id === SHEET);
+      expect(sheet?.nodes.map((n) => n.id as string).sort()).toEqual([
+        'n1',
+        'n2',
+        'n3',
+      ]);
     });
   });
 
@@ -288,7 +305,7 @@ describe('mergeBranchOnOplog', () => {
     const { deps } = makeDeps(logs, 10);
     const result = await mergeBranchOnOplog(branchMeta(), mergeParams(), deps);
     expect((logs[TRUNK] ?? []).slice(3).map((b) => b.clock)).toEqual([11, 12]);
-    expect(nodeContent(result.trunk, 'n1')).toBe('branch による編集');
+    expect(nodeContent(trunkOf(result), 'n1')).toBe('branch による編集');
   });
 
   /**

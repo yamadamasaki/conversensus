@@ -20,6 +20,13 @@ import { EventStore, IN_MEMORY } from './eventStore';
 const FILE = 'file-1' as FileId;
 const SHEET_META = { id: 'sheet-1' as SheetId, name: 'Sheet 1' };
 
+/**
+ * branded id の列を素の文字列として取り出す。
+ * 期待値をリテラルで書けるようにするための糖衣で, 比較の意味は変わらない
+ */
+const idsOf = (records: readonly { id: string }[]): string[] =>
+  records.map((r) => r.id as string);
+
 let store: EventStore;
 
 beforeEach(() => {
@@ -67,7 +74,7 @@ describe('EventStore', () => {
     it('clock 昇順で返す (追記順が逆でも)', () => {
       store.appendBatch(FILE, addNode('b2', 'n2', 'B', 2));
       store.appendBatch(FILE, addNode('b1', 'n1', 'A', 1));
-      expect(store.getBatches(FILE).map((b) => b.id)).toEqual(['b1', 'b2']);
+      expect(idsOf(store.getBatches(FILE))).toEqual(['b1', 'b2']);
     });
 
     it('壊れた Batch (ops 空) は追記を拒否する', () => {
@@ -184,7 +191,7 @@ describe('EventStore', () => {
       ];
       expect(store.migrateToOplog(FILE, genesis, W3)).toBe(true);
       expect(store.getSchemaVersion(FILE)).toBe(W3);
-      expect(store.getBatches(FILE).map((b) => b.id)).toEqual(['g1', 'g2']);
+      expect(idsOf(store.getBatches(FILE))).toEqual(['g1', 'g2']);
     });
 
     it('既存 (pre-W3) ログを破棄してから genesis で作り直す', () => {
@@ -193,7 +200,7 @@ describe('EventStore', () => {
       const genesis = [addNode('g1', 'n1', 'A', 1)];
       store.migrateToOplog(FILE, genesis, W3);
       // 旧 batch は消え、genesis のみが残る (破棄→genesis)
-      expect(store.getBatches(FILE).map((b) => b.id)).toEqual(['g1']);
+      expect(idsOf(store.getBatches(FILE))).toEqual(['g1']);
     });
 
     it('marker 済のファイルへの再 migration は no-op で false を返す', () => {
@@ -203,7 +210,7 @@ describe('EventStore', () => {
         store.migrateToOplog(FILE, [addNode('g2', 'n2', 'B', 2)], W3),
       ).toBe(false);
       // ログは初回 genesis のまま (再破棄・再 append されない)
-      expect(store.getBatches(FILE).map((b) => b.id)).toEqual(['g1']);
+      expect(idsOf(store.getBatches(FILE))).toEqual(['g1']);
     });
 
     it('marker はファイル境界で分離する', () => {
@@ -220,7 +227,7 @@ describe('EventStore', () => {
     it('受信 batch を追記し、同時に正典 marker を立てる', () => {
       const received = [addNode('r1', 'n1', '受信', 7)];
       expect(store.appendReceivedBatches(FILE, received, W3)).toBe(1);
-      expect(store.getBatches(FILE).map((b) => b.id)).toEqual(['r1']);
+      expect(idsOf(store.getBatches(FILE))).toEqual(['r1']);
       expect(store.getSchemaVersion(FILE)).toBe(W3);
     });
 
@@ -230,7 +237,7 @@ describe('EventStore', () => {
       expect(
         store.migrateToOplog(FILE, [addNode('g1', 'n1', 'A', 1)], W3),
       ).toBe(false);
-      expect(store.getBatches(FILE).map((b) => b.id)).toEqual(['r1']);
+      expect(idsOf(store.getBatches(FILE))).toEqual(['r1']);
     });
 
     it('受信していないファイルの lazy migration は従来どおり破棄→genesis する', () => {
@@ -239,7 +246,7 @@ describe('EventStore', () => {
       expect(
         store.migrateToOplog(FILE, [addNode('g1', 'n1', 'A', 1)], W3),
       ).toBe(true);
-      expect(store.getBatches(FILE).map((b) => b.id)).toEqual(['g1']);
+      expect(idsOf(store.getBatches(FILE))).toEqual(['g1']);
     });
 
     it('受信 0 件では marker を立てない (migration の機会を奪わない)', () => {
@@ -251,7 +258,7 @@ describe('EventStore', () => {
       const received = [addNode('r1', 'n1', '受信', 7)];
       store.appendReceivedBatches(FILE, received, W3);
       expect(store.appendReceivedBatches(FILE, received, W3)).toBe(0);
-      expect(store.getBatches(FILE).map((b) => b.id)).toEqual(['r1']);
+      expect(idsOf(store.getBatches(FILE))).toEqual(['r1']);
     });
 
     it('marker は下げない (より新しい版で正典化済ならそのまま)', () => {
@@ -299,7 +306,7 @@ describe('EventStore', () => {
     it('保存したコミットを at 昇順で読み返せる', () => {
       store.saveCommit(FILE, commit('c2', 5));
       store.saveCommit(FILE, commit('c1', 2));
-      expect(store.getCommits(FILE).map((c) => c.id)).toEqual(['c1', 'c2']);
+      expect(idsOf(store.getCommits(FILE))).toEqual(['c1', 'c2']);
     });
 
     it('同一 id は上書きする', () => {
@@ -315,8 +322,8 @@ describe('EventStore', () => {
       const other = 'file-2' as FileId;
       store.saveCommit(FILE, commit('c1', 2));
       store.saveCommit(other, commit('c2', 2));
-      expect(store.getCommits(FILE).map((c) => c.id)).toEqual(['c1']);
-      expect(store.getCommits(other).map((c) => c.id)).toEqual(['c2']);
+      expect(idsOf(store.getCommits(FILE))).toEqual(['c1']);
+      expect(idsOf(store.getCommits(other))).toEqual(['c2']);
     });
 
     /**
@@ -425,7 +432,7 @@ describe('EventStore', () => {
     it('保存したブランチを base オフセット (at) 昇順で読み返せる', () => {
       store.saveBranch(branch('b2', 5));
       store.saveBranch(branch('b1', 2));
-      expect(store.getBranches(FILE).map((b) => b.id)).toEqual(['b1', 'b2']);
+      expect(idsOf(store.getBranches(FILE))).toEqual(['b1', 'b2']);
     });
 
     it('メタ全体を round-trip できる (base コミットと補足フィールド)', () => {
@@ -452,8 +459,8 @@ describe('EventStore', () => {
       const other = 'file-2' as FileId;
       store.saveBranch(branch('b1', 2));
       store.saveBranch(branch('b2', 2, { trunkFileId: other }));
-      expect(store.getBranches(FILE).map((b) => b.id)).toEqual(['b1']);
-      expect(store.getBranches(other).map((b) => b.id)).toEqual(['b2']);
+      expect(idsOf(store.getBranches(FILE))).toEqual(['b1']);
+      expect(idsOf(store.getBranches(other))).toEqual(['b2']);
     });
 
     it('branch batches は branch_file_id 側の op-log に置かれ trunk と混ざらない', () => {
@@ -466,15 +473,14 @@ describe('EventStore', () => {
         meta.branchFileId,
         addNode('br1', 'n2', 'branch のノード', 2),
       );
-      expect(store.getBatches(FILE).map((b) => b.id)).toEqual(['t1']);
-      expect(store.getBatches(meta.branchFileId).map((b) => b.id)).toEqual([
-        'br1',
-      ]);
+      expect(idsOf(store.getBatches(FILE))).toEqual(['t1']);
+      expect(idsOf(store.getBatches(meta.branchFileId))).toEqual(['br1']);
     });
 
     describe('deleteBranch (p5-4)', () => {
       const commit = (id: string, at: number): Commit => ({
         id: id as CommitId,
+        kind: COMMIT_KIND.COMMIT,
         message: `commit ${id}`,
         at,
         authorActor: 'local',
@@ -506,8 +512,8 @@ describe('EventStore', () => {
 
         store.deleteBranch(FILE, meta.id);
 
-        expect(store.getBatches(FILE).map((b) => b.id)).toEqual(['t1']);
-        expect(store.getCommits(FILE).map((c) => c.id)).toEqual(['ct']);
+        expect(idsOf(store.getBatches(FILE))).toEqual(['t1']);
+        expect(idsOf(store.getCommits(FILE))).toEqual(['ct']);
       });
 
       it('trunk が一致しないブランチは消せない', () => {
@@ -516,7 +522,7 @@ describe('EventStore', () => {
         const meta = branch('b1', 1);
         store.saveBranch(meta);
         expect(store.deleteBranch('file-2' as FileId, meta.id)).toBe(false);
-        expect(store.getBranches(FILE).map((b) => b.id)).toEqual(['b1']);
+        expect(idsOf(store.getBranches(FILE))).toEqual(['b1']);
       });
 
       it('存在しないブランチは false を返す (べき等な二重削除)', () => {
@@ -534,6 +540,7 @@ describe('EventStore', () => {
       name: `branch ${id}`,
       base: {
         id: `${id}-base` as CommitId,
+        kind: COMMIT_KIND.COMMIT,
         message: 'base',
         at: 1,
         authorActor: 'local',
@@ -545,6 +552,7 @@ describe('EventStore', () => {
     });
     const commit = (id: string, at: number): Commit => ({
       id: id as CommitId,
+      kind: COMMIT_KIND.COMMIT,
       message: `commit ${id}`,
       at,
       authorActor: 'local',
@@ -584,8 +592,8 @@ describe('EventStore', () => {
 
       store.deleteFile(FILE);
 
-      expect(store.getBatches(other).map((b) => b.id)).toEqual(['o1']);
-      expect(store.getCommits(other).map((c) => c.id)).toEqual(['oc']);
+      expect(idsOf(store.getBatches(other))).toEqual(['o1']);
+      expect(idsOf(store.getCommits(other))).toEqual(['oc']);
     });
 
     it('対象が何も無ければ false を返す (べき等な二重削除)', () => {
@@ -765,7 +773,7 @@ describe('EventStore', () => {
         // 一覧から落ちるのは表示上の判断であって、projection の材料は残る。
         // p5-2 の `branchSheet` はここから branchBatches を読む。
         expect(store.listOplogFiles()).toEqual([]);
-        expect(store.getBatches(BRANCH_FILE).map((b) => b.id)).toEqual(['br1']);
+        expect(idsOf(store.getBatches(BRANCH_FILE))).toEqual(['br1']);
       });
 
       // 🔴 除外が成り立つ条件そのものを固定する。branch op-log に構造 op
