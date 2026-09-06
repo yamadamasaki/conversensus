@@ -19,6 +19,7 @@
  * 別々のプロパティを触っただけの二人が競合になる。
  */
 
+import { isRemoveOp } from './cascade';
 import { canonicalPropertyName } from './properties';
 import type { Batch, BatchId, Op, PropertyName } from './unified';
 import { isContentOp } from './unified';
@@ -88,11 +89,6 @@ const PARALLEL_STRUCTURE_KINDS = new Set<Op['kind']>([
   'node.setParent',
   'edge.reconnect',
 ]);
-
-/** 要素を消す op か。消えた要素を前提にする op が削除依存の相手になる */
-function isRemoveOp(op: Op): boolean {
-  return op.kind === 'node.remove' || op.kind === 'edge.remove';
-}
 
 function isParallelStructureOp(op: Op): boolean {
   return PARALLEL_STRUCTURE_KINDS.has(op.kind);

@@ -19,6 +19,7 @@ import type {
   SheetId,
   Style,
 } from '../schemas';
+import { cascadeOfNodeRemoval } from './cascade';
 import { applyPropertyChange, canonicalProperties } from './properties';
 import {
   type Batch,
@@ -73,23 +74,6 @@ export function projectBatches(batches: Batch[]): ProjectedGraph {
   return g;
 }
 
-// 親子チェーンを辿るループの上限。データ破損で循環参照ができても停止させる
-const MAX_PARENT_HOPS = 100;
-
-/** parentId から親を辿って ancestorId に行き着くか。配列やマップの順序に依存しない */
-function hasAncestor(
-  parentId: NodeId | undefined,
-  ancestorId: NodeId,
-  g: ProjectedGraph,
-): boolean {
-  let current: NodeId | undefined = parentId;
-  for (let hop = 0; current && hop < MAX_PARENT_HOPS; hop++) {
-    if (current === ancestorId) return true;
-    current = g.nodes.get(current)?.parentId;
-  }
-  return false;
-}
-
 function applyOp(g: ProjectedGraph, op: GraphOp): void {
   switch (op.kind) {
     case 'node.add':
@@ -104,23 +88,18 @@ function applyOp(g: ProjectedGraph, op: GraphOp): void {
       });
       break;
     case 'node.remove': {
-      // 子孫もカスケード削除する。親の居ないノードを残さないための不変条件であり、
-      // クライアント側が子ごとに node.remove を出していても結果は変わらない (冪等)
-      const removed = new Set<NodeId>([op.target]);
-      for (const [id, node] of g.nodes) {
-        if (hasAncestor(node.parentId, op.target, g)) removed.add(id);
-      }
-
-      for (const id of removed) {
+      // 子孫と、端点を失うエッジもカスケード削除する。親の居ないノードを残さないための
+      // 不変条件であり、クライアント側が子ごとに node.remove を出していても結果は
+      // 変わらない (冪等)。**規則は cascade.ts にある** — 競合検出が同じ集合を要るので、
+      // ここに直接書くと 2 箇所に分かれる (Phase 3 T0)
+      const removed = cascadeOfNodeRemoval(g, op.target);
+      for (const id of removed.nodes) {
         g.nodes.delete(id);
         g.nodeLayouts.delete(id);
       }
-      // 端点を失うエッジもカスケード削除する (applyEvent NODE_DELETED と同じ挙動)
-      for (const [edgeId, edge] of g.edges) {
-        if (removed.has(edge.source) || removed.has(edge.target)) {
-          g.edges.delete(edgeId);
-          g.edgeLayouts.delete(edgeId);
-        }
+      for (const id of removed.edges) {
+        g.edges.delete(id);
+        g.edgeLayouts.delete(id);
       }
       break;
     }

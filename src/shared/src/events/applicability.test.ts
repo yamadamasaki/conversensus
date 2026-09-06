@@ -140,6 +140,97 @@ describe('analyzeApplicability', () => {
     });
   });
 
+  // 🔴 回帰 (Phase 3 T0): カスケードの規則が `applyOp` と別に書かれていて、**子孫の
+  // 削除が抜けていた**。projection では消える子ノードがこちらでは live のままなので、
+  // 子への setter が applied に数えられ、**落ちた op を数えるという目的そのものが
+  // 崩れていた**。規則を `cascade.ts` に一本化して直した。
+  test('🔴 グループを消すと子孫も live から消える (子への setter は missing-target)', () => {
+    const s = sid();
+    const g = nid();
+    const child = nid();
+    const grandchild = nid();
+    const report = analyzeApplicability([
+      createSheet(1, s),
+      batch(
+        2,
+        [
+          { kind: 'node.add', target: g, content: 'G', nodeType: 'group' },
+          { kind: 'node.add', target: child, content: 'C', parentId: g },
+          {
+            kind: 'node.add',
+            target: grandchild,
+            content: 'GC',
+            parentId: child,
+          },
+        ],
+        s,
+      ),
+      batch(3, [{ kind: 'node.remove', target: g }], s),
+      batch(4, [{ kind: 'node.setContent', target: child, content: 'X' }], s),
+      batch(
+        5,
+        [{ kind: 'node.setContent', target: grandchild, content: 'Y' }],
+        s,
+      ),
+    ]);
+
+    // projection でも同じ 2 件が落ちる (規則が一致していることの裏取り)
+    const projected = projectFile(
+      [
+        createSheet(1, s),
+        batch(
+          2,
+          [
+            { kind: 'node.add', target: g, content: 'G', nodeType: 'group' },
+            { kind: 'node.add', target: child, content: 'C', parentId: g },
+            {
+              kind: 'node.add',
+              target: grandchild,
+              content: 'GC',
+              parentId: child,
+            },
+          ],
+          s,
+        ),
+        batch(3, [{ kind: 'node.remove', target: g }], s),
+      ],
+      fid(),
+    );
+    expect(projected.sheets[0]?.nodes).toEqual([]);
+
+    expect(report.drops).toHaveLength(2);
+    expect(report.drops.map((d) => d.target)).toEqual([child, grandchild]);
+    expect(report.drops.every((d) => d.reason === 'missing-target')).toBe(true);
+  });
+
+  // 所属先の変更を追わないと、後から子になったノードがグループ削除で消えることを
+  // 見落とす。カスケードは op ではなく**そのときの親子関係**に依存する
+  test('node.setParent の後に親を消すと、その子も live から消える', () => {
+    const s = sid();
+    const g = nid();
+    const later = nid();
+    const report = analyzeApplicability([
+      createSheet(1, s),
+      batch(
+        2,
+        [
+          { kind: 'node.add', target: g, content: 'G', nodeType: 'group' },
+          { kind: 'node.add', target: later, content: 'L' },
+        ],
+        s,
+      ),
+      batch(3, [{ kind: 'node.setParent', target: later, parentId: g }], s),
+      batch(4, [{ kind: 'node.remove', target: g }], s),
+      batch(5, [{ kind: 'node.setContent', target: later, content: 'X' }], s),
+    ]);
+
+    expect(report.drops).toHaveLength(1);
+    expect(report.drops[0]).toMatchObject({
+      reason: 'missing-target',
+      target: later,
+    });
+  });
+
   test('対象不在の layout/style は drop ではなく orphan-decoration の警告にする', () => {
     const s = sid();
     const report = analyzeApplicability([
