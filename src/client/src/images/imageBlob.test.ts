@@ -24,6 +24,8 @@ const CID = 'bafkreibm6jg3ux5qumhcn2b3flc3tyu6dmlb4xa7u5bf44yegnrjhc4yeq';
 const OTHER_CID = 'bafkreiadsbmmn4waznesyuz3bjgrj33xzqhxrk6mz3ksq7meugrachh3qe';
 const PNG = 'image/png';
 const DID = 'did:plc:testtesttesttesttest' as Did;
+/** 他 actor。**自分の repo に無い画像**を引く先 (step2 Phase 2 S5) */
+const OTHER_DID = 'did:plc:otherotherotherother' as Did;
 const MAX_BLOB_SIZE = 5 * 1024 * 1024;
 
 /** 旧形式の base64。`AAECAw==` は [0, 1, 2, 3] のバイト列 */
@@ -324,6 +326,34 @@ describe('resolveImageUrl', () => {
     expect(resolved?.url).toStartWith('blob:');
     expect(remote).toHaveBeenCalledTimes(1);
     expect(remote.mock.calls[0]).toEqual([DID, CID, PNG]);
+  });
+
+  it('由来 DID があれば, その repo から引く (step2 Phase 2 S5)', async () => {
+    // 他 actor が貼った画像は**自分の repo に無い**。cid だけでは引けないので、
+    // どの repo かを location が運ぶ
+    const remote = mock(async () => new Blob([bytesOf(9)], { type: PNG }));
+    const deps = resolveDeps({
+      remote: remote as unknown as ResolveImageDeps['remote'],
+      did: () => DID,
+    });
+
+    await resolveImageUrl({ ...location, originDid: OTHER_DID }, deps);
+    expect(remote.mock.calls[0]).toEqual([OTHER_DID, CID, PNG]);
+  });
+
+  it('⚠️ ログインの有無を決めるのは自分の DID である', async () => {
+    // 由来があっても未ログインなら触らない。`getAgent()` はセッション前提なので、
+    // 由来を理由に 3 段目へ進むと未ログインで表示が止まる (旧 ImageNode の不具合)
+    const remote = mock(async () => new Blob([]));
+    const deps = resolveDeps({
+      remote: remote as unknown as ResolveImageDeps['remote'],
+      did: () => undefined,
+    });
+
+    expect(
+      await resolveImageUrl({ ...location, originDid: OTHER_DID }, deps),
+    ).toBeUndefined();
+    expect(remote).not.toHaveBeenCalled();
   });
 
   it('PDS から取れた実体はローカルへ書き戻す', async () => {

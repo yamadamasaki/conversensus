@@ -1,10 +1,13 @@
 import {
   type Actor,
   type Batch,
+  type BlobCid,
   type ConversensusFile,
+  type Did,
   type FileId,
   type GraphFile,
   type GraphFileListItem,
+  type Lamport,
   LOCAL_DID,
   type Participation,
   participationGenesisBatch,
@@ -25,6 +28,7 @@ import type { RemoteSyncQueue } from '../atproto/remoteSyncQueue';
 import type { GraphEvent } from '../events/GraphEvent';
 import { makeEventBase } from '../events/GraphEvent';
 import { exportFile, importFile } from '../files/fileTransfer';
+import { collectBlobOrigins } from '../images/blobOrigins';
 import type { PopupTarget } from '../SettingsPopup';
 import { didFromActor } from '../sync/actor';
 import {
@@ -45,6 +49,7 @@ import { collectParticipantBatches } from '../sync/receiveParticipantBatches';
 import { reprojectAfterReceive } from '../sync/reprojectAfterReceive';
 import type { RosterSource } from '../sync/rosterSource';
 import { type FileSharing, fileSharing } from '../sync/rosterView';
+import { rejoinObligation } from '../sync/syncObligation';
 import {
   type ReceivedSummary,
   type TapHandle,
@@ -179,26 +184,89 @@ export function useFileSheetOperations({
     fileId: FileId;
     state: FileSharing;
   } | null>(null);
+  /**
+   * 画像 blob の由来 `cid → DID` (step2 Phase 2 S5)。**projection と同じ batch から
+   * 導く**ので、projection を差し替える場所で必ず一緒に更新する。
+   */
+  const [blobOrigins, setBlobOrigins] = useState<Map<BlobCid, Did>>(new Map());
+  /** cid から由来を引く。**Map ではなく関数を降ろす** (`blobOriginContext`) */
+  const originOf = useCallback(
+    (cid: BlobCid) => blobOrigins.get(cid),
+    [blobOrigins],
+  );
+  /**
+   * 果たしていない同期義務 (step2 Phase 2 S6)。**再参加した File を、同期が済むまで
+   * 読み取り専用にする**ための状態である。
+   */
+  const [obligation, setObligation] = useState<{
+    fileId: FileId;
+    /** 最後に開いた参加期間の始点。**義務を果たしたかどうかの鍵** */
+    since: Lamport;
+  } | null>(null);
+  /**
+   * 果たし終えた義務 (File → その時の期間の始点)。
+   *
+   * **真偽値では足りない。**「一度同期した」だけを覚えると、その後もう一度離脱して
+   * 再参加したときに義務が生まれない。期間の始点は再参加のたびに変わる
+   */
+  const dischargedRef = useRef(new Map<FileId, Lamport>());
+
   const handleRoster = useCallback(
     (fileId: FileId, participation: Participation) => {
-      setSharing({
-        fileId,
-        state: fileSharing(participation, didFromActor(actor)),
-      });
+      const viewer = didFromActor(actor);
+      setSharing({ fileId, state: fileSharing(participation, viewer) });
+
+      const since = rejoinObligation(participation, viewer);
+      setObligation(
+        since !== null && dischargedRef.current.get(fileId) !== since
+          ? { fileId, since }
+          : null,
+      );
     },
+    [actor],
+  );
+
+  /**
+   * 画面に出ている projection が含んでいた**他 actor の batch 数** (File ごと)。
+   *
+   * **「画面が古い」を測る物差し**である (#202)。自分の編集では増えないので、
+   * 自分で描いている間に不要な差し替えが走らない。op-log は追記しかされないので
+   * 単調に増え、増えていれば必ず画面に無いものが正典にある。
+   */
+  const projectedForeignRef = useRef(new Map<FileId, number>());
+  const foreignCount = useCallback(
+    (batches: readonly Batch[]) =>
+      batches.filter((b) => b.actor !== actor).length,
     [actor],
   );
 
   // 受信着地後の画面反映 (Phase 4e-3, 4e 設計 §3.3)。tap のローカル drain を待ち、
   // pending が空のときだけ再 projection で activeFile を差し替える (未 flush 編集を
   // 失わない)。見送り (defer) は次の受信契機が拾う。
-  const handleReceived = useCallback(
-    (fileId: FileId, _result: ReceivedSummary, tap: TapHandle) => {
+  /**
+   * 差し替えが走っている File。
+   *
+   * **契機が 2 つある** (受信の着地 / 手元の正典が動いた) ので、同じサイクルで 2 回
+   * 差し替えないための柵である。2 回走らせても結果は同じだが、`receiveEpoch` が
+   * 2 つ進んで React Flow が二度 seed し直す (選択が落ちる)。
+   */
+  const swappingRef = useRef(new Set<FileId>());
+
+  const swapProjection = useCallback(
+    (fileId: FileId, tap: TapHandle) => {
+      if (swappingRef.current.has(fileId)) return;
+      swappingRef.current.add(fileId);
       reprojectAfterReceive({
         settled: tap.settled,
         pendingCount: tap.pending,
-        loadProjection: async () =>
-          projectFile(await deps.fetchBatches(fileId), fileId),
+        loadProjection: async () => {
+          // **受信後もここを通す。**他 actor が貼った画像は受信で初めて手元に来る
+          // ので、由来を更新しないと「読み込んだときには無かった画像」が出ない
+          const batches = await deps.fetchBatches(fileId);
+          setBlobOrigins(collectBlobOrigins(batches));
+          projectedForeignRef.current.set(fileId, foreignCount(batches));
+          return projectFile(batches, fileId);
+        },
         ...(isEditingActive && { isEditing: isEditingActive }),
       })
         .then((result) => {
@@ -222,9 +290,59 @@ export function useFileSheetOperations({
         })
         .catch((error) =>
           console.warn('[sync] reprojection after receive failed:', error),
+        )
+        .finally(() => swappingRef.current.delete(fileId));
+    },
+    [deps, isEditingActive, foreignCount],
+  );
+
+  const handleReceived = useCallback(
+    (fileId: FileId, _result: ReceivedSummary, tap: TapHandle) =>
+      swapProjection(fileId, tap),
+    [swapProjection],
+  );
+
+  /**
+   * 受信のサイクルが最後まで走った。
+   *
+   * 1. **同期義務を解く** (S6)。果たしたことを覚えてから外す
+   * 2. **画面が古くないか見る** (#202)
+   *
+   * 2 が要るのは、`onReceived` が「**このブラウザがローカル正典に追記したとき**」しか
+   * 鳴らないからである。同じデーモンを共有する別の窓が書いた分は**もう正典に入って
+   * いる**ので追記が 0 になり、画面だけが古いまま残る (2 つのブラウザで同じ
+   * `localhost:5173` を開いた構成。2026-09-06 実機で発覚)。
+   *
+   * **古いのはローカル正典ではなく画面である。**だから remote ではなく手元を見る。
+   */
+  const handleSynced = useCallback(
+    (fileId: FileId, tap: TapHandle) => {
+      setObligation((prev) => {
+        if (!prev || prev.fileId !== fileId) return prev;
+        dischargedRef.current.set(fileId, prev.since);
+        return null;
+      });
+
+      if (activeFileRef.current?.id !== fileId) return;
+      // 受信の着地が既に差し替えを始めていれば、ここで測る意味は無い
+      if (swappingRef.current.has(fileId)) return;
+      deps
+        .fetchBatches(fileId)
+        .then((batches) => {
+          const seen = projectedForeignRef.current.get(fileId);
+          // **知らない File は測らない。**開いた時点で必ず記録されるので、
+          // 未記録は「開いていない」を意味する
+          if (seen === undefined || foreignCount(batches) <= seen) return;
+          console.info(
+            `[sync] ${fileId}: 手元の正典に画面へ出ていない batch がある。差し替える`,
+          );
+          swapProjection(fileId, tap);
+        })
+        .catch((error) =>
+          console.warn('[sync] local canon check failed:', error),
         );
     },
-    [deps, isEditingActive],
+    [deps, foreignCount, swapProjection],
   );
 
   // 操作ログ tap をファイル単位で保持する (W3c1)。content (GraphEditor) と
@@ -244,6 +362,7 @@ export function useFileSheetOperations({
     appendReceived: deps.pushReceivedBatches,
     onReceived: handleReceived,
     onRoster: handleRoster,
+    onSynced: handleSynced,
   });
   const syncRecord = syncRecordOverride ?? internalSyncRecord;
 
@@ -254,10 +373,13 @@ export function useFileSheetOperations({
   // 見せる方が失敗するより悪い)。安全弁 `READ_FROM_OPLOG` もここで役目を終える。
   const loadFile = useCallback(
     async (id: string): Promise<GraphFile> => {
-      const file = projectFile(
-        await deps.fetchBatches(id as FileId),
-        id as FileId,
-      );
+      const batches = await deps.fetchBatches(id as FileId);
+      const file = projectFile(batches, id as FileId);
+      // 画像 blob の由来は **op-log にしか無い** (step2 Phase 2 S5)。projection の
+      // 出力 (`GraphFile`) には載せないので、batch を読んだこの場で導いて持つ
+      setBlobOrigins(collectBlobOrigins(batches));
+      // 「画面が古い」を測る物差しの起点 (#202)
+      projectedForeignRef.current.set(id as FileId, foreignCount(batches));
       // 有効な GraphFile は必ず 1 枚以上のシートを持つ (W3d-2 の読取失敗判定)。
       // 0 枚 = 欠損ファイル / 孤児 batch のみ。呼び出し側で alert に至らせる。
       if (file.sheets.length === 0) {
@@ -265,7 +387,7 @@ export function useFileSheetOperations({
       }
       return file;
     },
-    [deps],
+    [deps, foreignCount],
   );
 
   const openFile = useCallback(
@@ -767,6 +889,16 @@ export function useFileSheetOperations({
 
   return {
     files,
+    /**
+     * 画像 blob の由来を引く (step2 Phase 2 S5)。`BlobOriginProvider` に渡す。
+     * **他 actor が貼った画像は自分の repo に無い**ので、これが無いと出ない
+     */
+    originOf,
+    /**
+     * 果たしていない同期義務 (step2 Phase 2 S6)。**この File は読み取り専用にする** —
+     * 離脱中の他人の編集を取りこぼしたまま書くと、受け取った側でエラーになる
+     */
+    obligation,
     /**
      * 開いている File の共有状態 (step2 Phase 2)。**開いている File の分しか無い** —
      * 同期するのは開いている File だけなので、それ以外の共有状態は分からない

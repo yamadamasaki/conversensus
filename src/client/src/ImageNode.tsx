@@ -1,4 +1,4 @@
-import type { NodeId } from '@conversensus/shared';
+import type { BlobCid, Did, NodeId } from '@conversensus/shared';
 import {
   Handle,
   type NodeProps,
@@ -10,6 +10,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useEventDispatch } from './EventDispatchContext';
 import { makeEventBase } from './events/GraphEvent';
 import { useInlineEdit } from './hooks/useInlineEdit';
+import { useBlobOrigin } from './images/blobOriginContext';
 import {
   IMAGE_MIME_PREFIX,
   IMAGE_URL_PROPERTY_KEY,
@@ -35,6 +36,9 @@ export function ImageNode({ id, data, selected }: NodeProps) {
   const nodeData = data as unknown as ImageNodeData;
   const { getNode } = useReactFlow();
   const { dispatch } = useEventDispatch();
+  // 他 actor が貼った画像は自分の repo に無いので、どの repo から引くかを知る必要が
+  // ある (step2 Phase 2 S5)。分からなければ自分に落ちる
+  const originOf = useBlobOrigin();
 
   // 新名を読む。projection / reducer が `canonicalProperties` で寄せているので、
   // ここに旧名 (`imageUrl`) が現れることはない (#137)
@@ -49,6 +53,9 @@ export function ImageNode({ id, data, selected }: NodeProps) {
   // 同一性が変わりうるので、そのまま依存に置くと解決が回り続ける
   const blobCid = location?.cid ?? '';
   const blobMimeType = location?.mimeType ?? '';
+  // 由来も原始値で持つ。**依存に入れる** — 名簿を読み直して由来が分かった時点で
+  // 引き直せないと、先に「無い」と決めた画像がそのまま出ないままになる
+  const blobOriginDid = (blobCid && originOf(blobCid as BlobCid)) || '';
   const label = String(nodeData.label ?? '');
   const diffType = nodeData.diffType as 'add' | 'update' | undefined;
   const ghost = nodeData.ghost === true;
@@ -111,7 +118,11 @@ export function ImageNode({ id, data, selected }: NodeProps) {
     if (!blobCid || !blobMimeType) return;
     let cancelled = false;
 
-    resolveImageUrl({ cid: blobCid, mimeType: blobMimeType })
+    resolveImageUrl({
+      cid: blobCid,
+      mimeType: blobMimeType,
+      ...(blobOriginDid && { originDid: blobOriginDid as Did }),
+    })
       .then((resolved) => {
         if (cancelled) {
           if (resolved && !resolved.fromCache)
@@ -136,7 +147,7 @@ export function ImageNode({ id, data, selected }: NodeProps) {
     return () => {
       cancelled = true;
     };
-  }, [blobCid, blobMimeType]);
+  }, [blobCid, blobMimeType, blobOriginDid]);
 
   // アンマウント時に自前の Object URL を解放する
   useEffect(() => {

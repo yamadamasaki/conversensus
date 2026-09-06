@@ -910,10 +910,49 @@ describe('useFileSheetOperations', () => {
       expect(result.current.receiveEpoch).toBe(1);
     });
 
-    it('受信が既知分のみ (appended=0) なら swap も epoch 増加も起きない', async () => {
+    it('⚠️ 別の窓が同じデーモンに書いた分は appended=0 でも画面に出る (#202)', async () => {
+      // **2 つのブラウザが同じ `localhost:5173` を開いた構成**である。相手の窓の編集は
+      // **もうローカル正典に入っている**ので、こちらの受信では追記が 0 になり
+      // `onReceived` が鳴らない。古いのは正典ではなく**画面の方**である
+      // (2026-09-06 実機で発覚)
+      const deps = createInMemoryFileSheetOpsDeps();
+      const file = await deps.createFile('共有デーモン');
+      deps.pushReceivedBatches = async () => 0; // 既知分だけ = 着地 0 件
+      const remoteQueue = await makeRemoteQueueFor(file.id);
+
+      const { result } = await renderWith({ deps, remoteQueue });
+      await act(async () => {
+        await result.current.openFile(file.id);
+      });
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 30));
+      });
+      expect(result.current.receiveEpoch).toBe(0);
+
+      // 別の窓が正典へ書いた (デーモンは共有なので, こちらの受信は何も追記しない)
+      deps._files.get(file.id)?.sheets[0]?.nodes.push({
+        id: RECV_NODE,
+        content: '別の窓の編集',
+      } as (typeof file.sheets)[0]['nodes'][number]);
+
+      await act(async () => {
+        await result.current.syncNow();
+        await new Promise((r) => setTimeout(r, 30));
+      });
+
+      expect(
+        result.current.activeFile?.sheets[0]?.nodes.some(
+          (n) => n.id === RECV_NODE,
+        ),
+      ).toBe(true);
+      expect(result.current.receiveEpoch).toBe(1);
+    });
+
+    it('手元の正典が動いていなければ swap も epoch 増加も起きない', async () => {
+      // **判定は「追記したか」ではなく「正典が動いたか」である** (#202 の修正後)。
+      // 何も動いていなければ, 何回サイクルが回っても画面は差し替わらない
       const deps = createInMemoryFileSheetOpsDeps();
       const file = await deps.createFile('受信対象');
-      // 着地 0 件 = 全 batch が既知 (べき等再受信)
       deps.pushReceivedBatches = async () => 0;
       const remoteQueue = await makeRemoteQueueFor(file.id);
 

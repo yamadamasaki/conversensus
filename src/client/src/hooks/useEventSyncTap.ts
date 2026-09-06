@@ -106,6 +106,21 @@ export type UseEventSyncTapOptions = {
    * **安定参照であること** (`onReceived` と同じ理由)。
    */
   onRoster?: (fileId: FileId, participation: Participation) => void;
+  /**
+   * 受信のサイクルが**最後まで走った**ことの合図 (step2 Phase 2 S6)。
+   *
+   * **`onReceived` では代わりにならない** — あれは着地した batch があるときだけ
+   * 呼ばれるので、「取りこぼしが 1 件も無かった」ときに鳴らない。同期義務の解除に
+   * 使うと、追いつくものが無い File で**永久に読み取り専用のまま**になる。
+   *
+   * 失敗したサイクルでは呼ばない。同期していないのに義務を解いてはならない。
+   *
+   * **安定参照であること** (`onReceived` と同じ理由)。
+   */
+  onSynced?: (
+    fileId: FileId,
+    tap: { settled: () => Promise<void>; pending: () => number },
+  ) => void;
 };
 
 /**
@@ -156,6 +171,7 @@ export function useEventSyncTap(
     appendReceived = pushReceivedBatches,
     onReceived,
     onRoster,
+    onSynced,
   }: UseEventSyncTapOptions,
 ): UseEventSyncTapResult {
   // remote キューがあるときだけ fanout で包む。ローカル正典への経路は両者で同一。
@@ -351,6 +367,17 @@ export function useEventSyncTap(
               pending: () => tap.pending,
             });
           }
+          // **義務の解除はここである** (S6)。着地の有無によらず、受信が最後まで
+          // 走ったことだけを伝える。
+          //
+          // **画面が古いままかの確認もここに乗る** (#202)。`onReceived` は
+          // 「このブラウザが追記したとき」しか鳴らないので、**同じデーモンを共有する
+          // 別の窓**が書いた分では鳴らない (もう正典に入っているので追記が 0 になる)。
+          // 古いのはローカル正典ではなく画面の方である
+          onSynced?.(fileId, {
+            settled: () => tap.settled(),
+            pending: () => tap.pending,
+          });
         })
         .catch((error) => console.warn('[sync] remote receive failed:', error)),
     ])
@@ -372,6 +399,7 @@ export function useEventSyncTap(
     appendReceived,
     onReceived,
     onRoster,
+    onSynced,
   ]);
 
   // 同期の契機 (§3.4 + step2 Phase 2 S4)。

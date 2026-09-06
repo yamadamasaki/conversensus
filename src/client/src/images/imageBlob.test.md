@@ -160,3 +160,17 @@ op に base64 を載せない一方で, 単に落とすと旧形式には blob �
 - **`ImageNode` の描画と Object URL の解放タイミング**: React の effect の話なので
   `ImageNode.test.tsx` の領分
 - **貼り付け先の選び方**: `images/pasteTarget.test.ts` の領分
+
+## 由来 DID (step2 Phase 2 S5)
+
+**他 actor が貼った画像は自分の repo に無い。**`cid` は content-addressed だが、
+`com.atproto.sync.getBlob` は repo を名指しするので、cid だけでは引けない。
+どの repo かは `location.originDid` が運ぶ (導出は `blobOrigins.test.md`)。
+
+- **由来 DID があれば, その repo から引く。**`remote` に渡る DID をそのまま見る
+- **⚠️ ログインの有無を決めるのは自分の DID である。**由来があっても未ログインなら
+  3 段目へ進まない。`getAgent()` はセッション前提なので、由来を理由に進むと
+  **未ログインで表示が止まる** (旧 `ImageNode` の不具合そのもの)。ここを取り違えると、
+  「他人の画像は見られるが自分の画面が固まる」形になる
+- 由来が無ければ自分の repo に落ちる (既存の「3. ログイン中でローカルに無ければ
+  PDS から取る」がその場合である)
