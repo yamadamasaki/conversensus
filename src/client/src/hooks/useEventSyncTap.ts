@@ -117,7 +117,10 @@ export type UseEventSyncTapOptions = {
    *
    * **安定参照であること** (`onReceived` と同じ理由)。
    */
-  onSynced?: (fileId: FileId) => void;
+  onSynced?: (
+    fileId: FileId,
+    tap: { settled: () => Promise<void>; pending: () => number },
+  ) => void;
 };
 
 /**
@@ -365,8 +368,16 @@ export function useEventSyncTap(
             });
           }
           // **義務の解除はここである** (S6)。着地の有無によらず、受信が最後まで
-          // 走ったことだけを伝える
-          onSynced?.(fileId);
+          // 走ったことだけを伝える。
+          //
+          // **画面が古いままかの確認もここに乗る** (#202)。`onReceived` は
+          // 「このブラウザが追記したとき」しか鳴らないので、**同じデーモンを共有する
+          // 別の窓**が書いた分では鳴らない (もう正典に入っているので追記が 0 になる)。
+          // 古いのはローカル正典ではなく画面の方である
+          onSynced?.(fileId, {
+            settled: () => tap.settled(),
+            pending: () => tap.pending,
+          });
         })
         .catch((error) => console.warn('[sync] remote receive failed:', error)),
     ])

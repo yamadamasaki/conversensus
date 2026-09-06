@@ -226,20 +226,36 @@ export function useFileSheetOperations({
     [actor],
   );
 
-  /** 受信が最後まで走った。**義務を果たしたことを覚えて解く** (S6) */
-  const handleSynced = useCallback((fileId: FileId) => {
-    setObligation((prev) => {
-      if (!prev || prev.fileId !== fileId) return prev;
-      dischargedRef.current.set(fileId, prev.since);
-      return null;
-    });
-  }, []);
+  /**
+   * 画面に出ている projection が含んでいた**他 actor の batch 数** (File ごと)。
+   *
+   * **「画面が古い」を測る物差し**である (#202)。自分の編集では増えないので、
+   * 自分で描いている間に不要な差し替えが走らない。op-log は追記しかされないので
+   * 単調に増え、増えていれば必ず画面に無いものが正典にある。
+   */
+  const projectedForeignRef = useRef(new Map<FileId, number>());
+  const foreignCount = useCallback(
+    (batches: readonly Batch[]) =>
+      batches.filter((b) => b.actor !== actor).length,
+    [actor],
+  );
 
   // 受信着地後の画面反映 (Phase 4e-3, 4e 設計 §3.3)。tap のローカル drain を待ち、
   // pending が空のときだけ再 projection で activeFile を差し替える (未 flush 編集を
   // 失わない)。見送り (defer) は次の受信契機が拾う。
-  const handleReceived = useCallback(
-    (fileId: FileId, _result: ReceivedSummary, tap: TapHandle) => {
+  /**
+   * 差し替えが走っている File。
+   *
+   * **契機が 2 つある** (受信の着地 / 手元の正典が動いた) ので、同じサイクルで 2 回
+   * 差し替えないための柵である。2 回走らせても結果は同じだが、`receiveEpoch` が
+   * 2 つ進んで React Flow が二度 seed し直す (選択が落ちる)。
+   */
+  const swappingRef = useRef(new Set<FileId>());
+
+  const swapProjection = useCallback(
+    (fileId: FileId, tap: TapHandle) => {
+      if (swappingRef.current.has(fileId)) return;
+      swappingRef.current.add(fileId);
       reprojectAfterReceive({
         settled: tap.settled,
         pendingCount: tap.pending,
@@ -248,6 +264,7 @@ export function useFileSheetOperations({
           // ので、由来を更新しないと「読み込んだときには無かった画像」が出ない
           const batches = await deps.fetchBatches(fileId);
           setBlobOrigins(collectBlobOrigins(batches));
+          projectedForeignRef.current.set(fileId, foreignCount(batches));
           return projectFile(batches, fileId);
         },
         ...(isEditingActive && { isEditing: isEditingActive }),
@@ -273,9 +290,59 @@ export function useFileSheetOperations({
         })
         .catch((error) =>
           console.warn('[sync] reprojection after receive failed:', error),
+        )
+        .finally(() => swappingRef.current.delete(fileId));
+    },
+    [deps, isEditingActive, foreignCount],
+  );
+
+  const handleReceived = useCallback(
+    (fileId: FileId, _result: ReceivedSummary, tap: TapHandle) =>
+      swapProjection(fileId, tap),
+    [swapProjection],
+  );
+
+  /**
+   * 受信のサイクルが最後まで走った。
+   *
+   * 1. **同期義務を解く** (S6)。果たしたことを覚えてから外す
+   * 2. **画面が古くないか見る** (#202)
+   *
+   * 2 が要るのは、`onReceived` が「**このブラウザがローカル正典に追記したとき**」しか
+   * 鳴らないからである。同じデーモンを共有する別の窓が書いた分は**もう正典に入って
+   * いる**ので追記が 0 になり、画面だけが古いまま残る (2 つのブラウザで同じ
+   * `localhost:5173` を開いた構成。2026-09-06 実機で発覚)。
+   *
+   * **古いのはローカル正典ではなく画面である。**だから remote ではなく手元を見る。
+   */
+  const handleSynced = useCallback(
+    (fileId: FileId, tap: TapHandle) => {
+      setObligation((prev) => {
+        if (!prev || prev.fileId !== fileId) return prev;
+        dischargedRef.current.set(fileId, prev.since);
+        return null;
+      });
+
+      if (activeFileRef.current?.id !== fileId) return;
+      // 受信の着地が既に差し替えを始めていれば、ここで測る意味は無い
+      if (swappingRef.current.has(fileId)) return;
+      deps
+        .fetchBatches(fileId)
+        .then((batches) => {
+          const seen = projectedForeignRef.current.get(fileId);
+          // **知らない File は測らない。**開いた時点で必ず記録されるので、
+          // 未記録は「開いていない」を意味する
+          if (seen === undefined || foreignCount(batches) <= seen) return;
+          console.info(
+            `[sync] ${fileId}: 手元の正典に画面へ出ていない batch がある。差し替える`,
+          );
+          swapProjection(fileId, tap);
+        })
+        .catch((error) =>
+          console.warn('[sync] local canon check failed:', error),
         );
     },
-    [deps, isEditingActive],
+    [deps, foreignCount, swapProjection],
   );
 
   // 操作ログ tap をファイル単位で保持する (W3c1)。content (GraphEditor) と
@@ -311,6 +378,8 @@ export function useFileSheetOperations({
       // 画像 blob の由来は **op-log にしか無い** (step2 Phase 2 S5)。projection の
       // 出力 (`GraphFile`) には載せないので、batch を読んだこの場で導いて持つ
       setBlobOrigins(collectBlobOrigins(batches));
+      // 「画面が古い」を測る物差しの起点 (#202)
+      projectedForeignRef.current.set(id as FileId, foreignCount(batches));
       // 有効な GraphFile は必ず 1 枚以上のシートを持つ (W3d-2 の読取失敗判定)。
       // 0 枚 = 欠損ファイル / 孤児 batch のみ。呼び出し側で alert に至らせる。
       if (file.sheets.length === 0) {
@@ -318,7 +387,7 @@ export function useFileSheetOperations({
       }
       return file;
     },
-    [deps],
+    [deps, foreignCount],
   );
 
   const openFile = useCallback(
