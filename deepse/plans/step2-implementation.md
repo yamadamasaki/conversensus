@@ -338,6 +338,13 @@ Phase のどこにも入っていなかった。**Phase 3 が負う** (下記 §
 
 **Exit**: content / structure / layout が仕様の 3 段どおりに扱い分けられる。
 
+> **設計文書に分割済** (2026-09-06): [step2-phase3-conflict](./step2-phase3-conflict.md)。
+> コードを読んで固めた事実 8 つと、着手前に決める未決 3 つ (語彙変更が Phase 5 と重なる /
+> merge の適用点 / implicit merge の分岐点) をそこに置いた。
+> **最大の発見は「implicit merge は競合を 1 件も検出していない」** — `mergeBranches` の
+> 呼び出し元は explicit branch merge だけで、Phase 2 の受信経路には競合の概念が無い。
+> したがって Phase 3 の最初の仕事は検出の改良ではなく**検出器を受信経路に持ち込むこと**である。
+
 ### Phase 4: property editor
 
 仕様: [propertyEditor](../requirements/spec/propertyEditor.md)
