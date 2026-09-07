@@ -110,6 +110,11 @@ export type ConflictNoticeState = {
   conflicts: MergeConflict[];
   /** 対象 id → 分岐点での名前。引けなかった対象は入らない */
   labels: Map<string, string>;
+  /**
+   * 保留の記録 (fork) として書かれた件数 (Phase 3 T6)。
+   * **explicit merge では 0** — 人が押した merge は保留ではなく取り込みである
+   */
+  forkCount?: number;
 };
 
 export type AlertState = {

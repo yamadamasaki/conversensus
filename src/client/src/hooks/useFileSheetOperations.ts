@@ -227,10 +227,11 @@ export function useFileSheetOperations({
    * どちらも「競合が起きた」であって、経路の違いは関心事ではない。
    */
   const handleConflicts = useCallback(
-    (_fileId: FileId, detected: DetectedConflicts) => {
+    (_fileId: FileId, detected: DetectedConflicts, forkCount: number) => {
       setConflictNotice({
         conflicts: detected.conflicts,
         labels: detected.labels,
+        forkCount,
       });
     },
     [setConflictNotice],

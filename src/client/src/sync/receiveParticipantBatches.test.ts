@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'bun:test';
 import type {
   Batch,
+  BranchMeta,
   Did,
   FileId,
   NodeId,
   Op,
   Participation,
   ParticipationEvent,
+  SheetId,
 } from '@conversensus/shared';
 import { GENESIS_ACTOR } from '@conversensus/shared';
 import type { RemoteBatch } from '../atproto/types';
@@ -28,16 +30,25 @@ const batch = (
   actor: string,
   clock: number,
   ops: Op[] = [addNode(`n${clock}`)],
+  sheetId?: SheetId,
 ): Batch => ({
   id: `${actor}-${clock}` as Batch['id'],
   actor,
   clock,
   timestamp: 1_700_000_000_000 + clock,
   ops,
+  ...(sheetId !== undefined && { sheetId }),
 });
 
 const NODE = 'aaaaaaaa-0000-4000-8000-000000000000' as NodeId;
+const SHEET = 'ssssssss-0000-4000-8000-000000000000' as SheetId;
 const removeNode = (): Op => ({ kind: 'node.remove', target: NODE });
+const moveNode = (x: number, y: number): Op => ({
+  kind: 'node.setLayout',
+  target: NODE,
+  x,
+  y,
+});
 const setContent = (content: string): Op => ({
   kind: 'node.setContent',
   target: NODE,
@@ -70,6 +81,9 @@ function fakeRemote(
   local: Batch[] = [],
 ) {
   const readRepos: Did[] = [];
+  /** 書かれた fork (= 保留の記録)。器は branch と同じである */
+  const branches: BranchMeta[] = [];
+  let idSeq = 0;
   const appended: { fileId: FileId; batches: Batch[] }[] = [];
   const observed: number[] = [];
   const failing = new Set<Did>();
@@ -77,6 +91,7 @@ function fakeRemote(
     readRepos,
     appended,
     observed,
+    branches,
     failFor(did: Did) {
       failing.add(did);
     },
@@ -87,6 +102,15 @@ function fakeRemote(
         return byRepo[repo] ?? [];
       },
       fetchLocal: async (_fileId: FileId) => local,
+      fetchBranches: async (_trunkFileId: FileId) => branches,
+      saveBranch: async (meta: BranchMeta) => {
+        branches.push(meta);
+        return meta;
+      },
+      newId: () => {
+        idSeq += 1;
+        return `${idSeq.toString(16).padStart(8, '0')}-2222-4222-8222-222222222222`;
+      },
       appendReceived: async (fileId: FileId, batches: Batch[]) => {
         appended.push({ fileId, batches });
         return batches.length;
@@ -162,6 +186,89 @@ describe('receiveParticipantBatches', () => {
       );
 
       expect(result.conflicts.conflicts).toEqual([]);
+    });
+
+    /**
+     * fork は「この競合を保留した」という判断の記録である。書かないと同期のたびに
+     * 再計算されて、ユーザが解決したはずの fork が毎回復活する。
+     */
+    it('🔴 人の判断が要る競合には fork を書く (Phase 3 T6)', async () => {
+      const local = [
+        batch(ME, 3, [addNode(NODE)], SHEET),
+        batch(ME, 9, [setContent('私の編集')], SHEET),
+      ];
+      const remote = fakeRemote(
+        { [BOB]: [envelope(FILE, batch(BOB, 8, [removeNode()], SHEET))] },
+        local,
+      );
+      const result = await receiveParticipantBatches(
+        FILE,
+        sharedWith(BOB),
+        ME,
+        remote.deps,
+      );
+
+      expect(result.forks).toHaveLength(1);
+      const fork = result.forks[0];
+      // 器は branch と同じで, trunk と sheet にぶら下がる
+      expect(fork).toMatchObject({ trunkFileId: FILE, sheetId: SHEET });
+      // **理由が凍結されている** — 種別・対象の見える形・双方・分岐点
+      expect(fork?.origin).toMatchObject({
+        category: 'structure',
+        kind: 'removeDependency',
+        target: NODE,
+        targetLabel: '私の編集',
+        baseAt: 9,
+      });
+      expect(fork?.origin.ours.actor).toBe(ME);
+      expect(fork?.origin.theirs.actor).toBe(BOB);
+      // 実際に保存されている (返り値だけではない)
+      expect(remote.branches).toHaveLength(1);
+    });
+
+    it('🔴 同じ競合に fork は 1 つだけ (毎回復活しない)', async () => {
+      // 2 回続けて受信しても fork は増えない。**fork を書くと決めた理由そのもの**である
+      const local = [
+        batch(ME, 3, [addNode(NODE)], SHEET),
+        batch(ME, 9, [setContent('私の編集')], SHEET),
+      ];
+      const bobs = batch(BOB, 8, [removeNode()], SHEET);
+      const remote = fakeRemote({ [BOB]: [envelope(FILE, bobs)] }, local);
+
+      await receiveParticipantBatches(FILE, sharedWith(BOB), ME, remote.deps);
+      const second = await receiveParticipantBatches(
+        FILE,
+        sharedWith(BOB),
+        ME,
+        remote.deps,
+      );
+
+      expect(second.forks).toEqual([]);
+      expect(remote.branches).toHaveLength(1);
+    });
+
+    it('🔴 layout の競合では fork を作らない (3 段の一番下)', async () => {
+      // 通知のみで DtR graph を起動しない種別なので、保留する判断そのものが無い
+      const local = [
+        batch(ME, 3, [addNode(NODE)], SHEET),
+        batch(ME, 9, [moveNode(1, 1)], SHEET),
+      ];
+      const remote = fakeRemote(
+        { [BOB]: [envelope(FILE, batch(BOB, 8, [moveNode(9, 9)], SHEET))] },
+        local,
+      );
+      const result = await receiveParticipantBatches(
+        FILE,
+        sharedWith(BOB),
+        ME,
+        remote.deps,
+      );
+
+      // 競合としては検出されるが…
+      expect(result.conflicts.conflicts).toHaveLength(1);
+      // …fork にはならない
+      expect(result.forks).toEqual([]);
+      expect(remote.branches).toEqual([]);
     });
 
     it('新着が無ければ検出しない', async () => {

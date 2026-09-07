@@ -64,11 +64,12 @@ const layout = (
   theirs: side('b3'),
 });
 
-const renderNotice = (conflicts: MergeConflict[]) =>
+const renderNotice = (conflicts: MergeConflict[], forkCount = 0) =>
   render(
     <ConflictNotice
       conflicts={conflicts}
       labelOf={labelOf}
+      forkCount={forkCount}
       onClose={onClose}
     />,
   );
@@ -192,6 +193,19 @@ describe('ConflictNotice', () => {
       layout(NODE, 'size'),
     ]);
     expect(container.querySelectorAll('li')).toHaveLength(2);
+  });
+
+  it('🔴 保留として記録したことを出す (Phase 3 T6)', () => {
+    // 通知だけでは消えてしまう。後から「何でこれが生じたんだ?」に答えられるのは
+    // 記録の方である
+    renderNotice([content(NODE), structure(OTHER, 'removeDependency')], 2);
+    expect(screen.getByText(/2 件を保留として記録しました/)).toBeTruthy();
+  });
+
+  it('保留していなければその行は出さない (explicit merge)', () => {
+    // 人が押した merge は保留ではなく取り込みである
+    renderNotice([content(NODE)]);
+    expect(screen.queryByText(/保留として記録/)).toBeNull();
   });
 
   it('閉じられる', () => {

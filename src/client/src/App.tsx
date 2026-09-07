@@ -502,6 +502,7 @@ export default function App() {
       <ConflictNotice
         conflicts={conflictNotice.conflicts}
         labelOf={conflictLabelOf}
+        forkCount={conflictNotice.forkCount ?? 0}
         onClose={() => setConflictNotice({ conflicts: [], labels: new Map() })}
       />
       {loginDialogOpen && (

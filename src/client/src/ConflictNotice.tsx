@@ -105,10 +105,22 @@ type Props = {
    * 「分岐点での名前」から引く。
    */
   labelOf: (target: string) => string;
+  /**
+   * 保留の記録 (fork) として書かれた件数 (step2 Phase 3 T6)。
+   *
+   * **explicit merge では 0 である** — あちらは人が押した merge なので、保留ではなく
+   * 取り込みが起きている。implicit merge だけが fork を作る。
+   */
+  forkCount?: number;
   onClose: () => void;
 };
 
-export function ConflictNotice({ conflicts, labelOf, onClose }: Props) {
+export function ConflictNotice({
+  conflicts,
+  labelOf,
+  forkCount = 0,
+  onClose,
+}: Props) {
   if (conflicts.length === 0) return null;
 
   const byTier = TIERS.map((tier) => ({
@@ -163,6 +175,14 @@ export function ConflictNotice({ conflicts, labelOf, onClose }: Props) {
           閉じる
         </button>
       </div>
+
+      {forkCount > 0 && (
+        // **通知だけでは消えてしまう。**保留したことを記録に残したと伝える —
+        // 後から「何でこれが生じたんだ?」に答えられるのはこの記録である
+        <p style={{ margin: '8px 0 0', color: '#555' }}>
+          {forkCount} 件を保留として記録しました。後から対話で決められます。
+        </p>
+      )}
 
       {byTier.map(({ tier, items }) => (
         <details key={tier.category} open={tier.open} style={{ marginTop: 12 }}>
