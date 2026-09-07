@@ -14,6 +14,7 @@ import {
 import type {
   AlertState,
   ConfirmState,
+  ConflictNoticeState,
   InputState,
 } from './useBranchOperations';
 
@@ -43,6 +44,8 @@ const mockOnSetActiveFile = mock((_file: GraphFile | null) => {});
 const mockSetConfirmState = mock((_s: ConfirmState | null) => {});
 const mockSetInputState = mock((_s: InputState | null) => {});
 const mockSetAlertState = mock((_s: AlertState | null) => {});
+/** 画面に出す競合の通知 (Phase 3 T4)。非モーダルなので resolve を持たない */
+const mockSetConflictNotice = mock((_n: ConflictNoticeState) => {});
 
 const mockActiveFile: GraphFile = {
   id: 'f1' as FileId,
@@ -63,6 +66,7 @@ afterEach(() => {
   mockSetConfirmState.mockClear();
   mockSetInputState.mockClear();
   mockSetAlertState.mockClear();
+  mockSetConflictNotice.mockClear();
 });
 // --- テストの共通ハーネス ---
 
@@ -198,6 +202,7 @@ async function renderOplog(
         setConfirmState: mockSetConfirmState,
         setInputState: mockSetInputState,
         setAlertState: mockSetAlertState,
+        setConflictNotice: mockSetConflictNotice,
         deps: options.realChanges ? defaultBranchOpsDeps : deps,
         oplogDeps,
         actor: 'did:plc:alice#dev1',
@@ -734,6 +739,40 @@ describe('useBranchOperations — branch 操作 (op-log)', () => {
         expect(mockSetConfirmState).not.toHaveBeenCalled();
         expect(view.oplogDeps._branches.get(view.branch.id)?.status).toBe(
           'merged',
+        );
+      });
+
+      it('🔴 適用した結果の対立を画面へ渡す (Phase 3 T4)', async () => {
+        // `console.warn` は人に届かない。**通知に出すのは先読みではなく適用の結果**である
+        const { result, branch, oplogDeps } = await conflictingBranch();
+        // 分岐点でのノード名。削除された対象はいま開いているシートから引けないので、
+        // merge の結果が名前を運ぶ必要がある
+        const node = (oplogDeps._batches.get(TRUNK_ID) ?? [])[0]?.ops[0] as {
+          target: string;
+        };
+
+        answerMergeConfirm(true);
+        answerMergeReason('取り込む');
+        await act(async () => {
+          await result.current.handleMergeBranch(branch);
+        });
+
+        const notice = mockSetConflictNotice.mock.calls.at(-1)?.[0];
+        expect(notice?.conflicts).toHaveLength(1);
+        expect(notice?.conflicts[0]).toMatchObject({ category: 'structure' });
+        // **消された要素の名前が分岐点から引けている**
+        expect(notice?.labels.get(node.target)).toBe('trunk');
+      });
+
+      it('対立が無ければ通知は空で渡す (前の通知が残らない)', async () => {
+        // 空配列を渡さないと、前の merge の通知が画面に居座る
+        const { result, branch } = await withOpenBranch();
+        answerMergeReason('取り込む');
+        await act(async () => {
+          await result.current.handleMergeBranch(branch);
+        });
+        expect(mockSetConflictNotice.mock.calls.at(-1)?.[0].conflicts).toEqual(
+          [],
         );
       });
 

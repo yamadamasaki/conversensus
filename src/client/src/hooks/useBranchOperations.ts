@@ -100,6 +100,18 @@ export type InputState = {
   resolve: (value: string) => void;
 };
 
+/**
+ * 画面に出す競合の通知 (Phase 3 T4)。
+ *
+ * **名前を一緒に運ぶ。**削除依存の対象はまさに消された要素なので、いま開いているシートから
+ * 名前を引けない。分岐点での名前を merge の結果が持っているので、それをそのまま渡す。
+ */
+export type ConflictNoticeState = {
+  conflicts: MergeConflict[];
+  /** 対象 id → 分岐点での名前。引けなかった対象は入らない */
+  labels: Map<string, string>;
+};
+
 export type AlertState = {
   message: string;
   resolve: () => void;
@@ -154,6 +166,11 @@ interface UseBranchOperationsParams {
   setInputState: (s: InputState | null) => void;
   setAlertState: (s: AlertState | null) => void;
   /**
+   * merge で検出した競合を画面に届ける (Phase 3 T4)。**`console.warn` は人に届かない。**
+   * 空配列を渡したら通知は閉じる
+   */
+  setConflictNotice: (notice: ConflictNoticeState) => void;
+  /**
    * この端末の操作主体 `<did>#<deviceId>` (Phase 4d-2)。branch batch / commit の作者。
    * **既定値を持たせない** — 'local' 等に落とすと 4d-2 で削除した `LOCAL_ACTOR` が
    * 復活し、端末を識別できない batch が静かに生まれる。
@@ -176,6 +193,7 @@ export function useBranchOperations({
   setConfirmState,
   setInputState,
   setAlertState,
+  setConflictNotice,
   actor,
   trunkClock,
   deps = defaultBranchOpsDeps,
@@ -542,9 +560,14 @@ export function useBranchOperations({
             tick: trunkClock.tick,
           },
         );
+        // 収束は LWW で確定させ、対立は**画面に届ける** (Phase 3 T4)。
+        // **通知に出すのは確認で見せた先読みではなく、実際に適用した結果である** —
+        // 先読みと適用の間に trunk が動けば件数は食い違いうる。
+        setConflictNotice({
+          conflicts: result.conflicts,
+          labels: result.conflictLabels,
+        });
         if (result.conflicts.length > 0) {
-          // 収束は LWW で確定させ、対立は診断ログに残す (可視化は T4)。
-          // **先読みと件数が食い違いうる** — 間に trunk が動けば適用時の対立が変わる。
           console.warn(
             `[branch] merge: ${describeConflicts(result.conflicts)} を LWW で確定`,
             result.conflicts,
@@ -564,6 +587,7 @@ export function useBranchOperations({
       setInputState,
       setConfirmState,
       setAlertState,
+      setConflictNotice,
       oplogDeps,
       trunkClock,
       actor,

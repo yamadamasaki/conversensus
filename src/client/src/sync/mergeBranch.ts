@@ -40,12 +40,15 @@ import {
   COMMIT_KIND,
   type Commit,
   type CommitId,
+  type EdgeId,
   type FileId,
   type GraphFile,
   type Lamport,
   type MergeConflict,
   makeMergeCommit,
   mergeBranches,
+  type NodeId,
+  type ProjectedGraph,
   projectBatches,
   projectFile,
   tipClock,
@@ -79,8 +82,13 @@ export type MergeBranchDeps = MergePreviewDeps & {
 export type MergeBranchResult = {
   /** trunk op-log に新規追記された batch 数 (再 merge では 0) */
   appended: number;
-  /** 検出された content 対立 (検出のみ。可視化は後続 phase) */
+  /** 検出された対立 (content / structure / layout) */
   conflicts: MergeConflict[];
+  /**
+   * 対立の対象の**分岐点での名前**。削除された要素は適用後のグラフに居ないので、
+   * 通知が id しか出せなくなる (Phase 3 T4)
+   */
+  conflictLabels: Map<string, string>;
   /**
    * 追記後に projection し直した trunk。**再 projection に失敗したときは undefined** —
    * merge 自体 (追記 + status 更新) は成功しているので、ここでの失敗を merge の
@@ -116,7 +124,37 @@ type MergePlan = {
   /** trunk にまだ無い branch batches (再スタンプ前, clock 昇順) */
   toAppend: Batch[];
   conflicts: MergeConflict[];
+  /** 分岐点のグラフ。競合の対象を名前で呼ぶのに要る */
+  base: ProjectedGraph;
 };
+
+/**
+ * 競合の対象の**分岐点での名前** (node の content / edge の label)。
+ *
+ * **merge 後の projection からは引けない。**削除依存の対象はまさに消された要素なので、
+ * 適用後のグラフには居ない (T2 の tombstone にも、そこへ辿る道が UI に無い)。
+ * 分岐点には必ず在る — 相手がそれを前提にした op を出せた時点で在ったからである。
+ *
+ * 空文字はそのまま返す。「名前が無い」と「引けなかった」は別の話なので、
+ * 言い換えるかどうかは見せる側が決める。
+ */
+function labelsOfConflicts(
+  base: ProjectedGraph,
+  conflicts: readonly MergeConflict[],
+): Map<string, string> {
+  const labels = new Map<string, string>();
+  for (const { target } of conflicts) {
+    if (labels.has(target)) continue;
+    const node = base.nodes.get(target as NodeId);
+    if (node) {
+      labels.set(target, node.content);
+      continue;
+    }
+    const edge = base.edges.get(target as EdgeId);
+    if (edge) labels.set(target, edge.label ?? '');
+  }
+  return labels;
+}
 
 async function buildMergePlan(
   meta: BranchMeta,
@@ -143,7 +181,7 @@ async function buildMergePlan(
     trunkBatches.filter((b) => b.clock <= meta.base.at),
   );
   const { conflicts } = mergeBranches(base, trunkAfterBase, toAppend);
-  return { trunkBatches, branchBatches, toAppend, conflicts };
+  return { trunkBatches, branchBatches, toAppend, conflicts, base };
 }
 
 /**
@@ -179,7 +217,7 @@ export async function mergeBranchOnOplog(
   params: MergeBranchParams,
   deps: MergeBranchDeps,
 ): Promise<MergeBranchResult> {
-  const { trunkBatches, branchBatches, toAppend, conflicts } =
+  const { trunkBatches, branchBatches, toAppend, conflicts, base } =
     await buildMergePlan(meta, deps);
 
   // 再スタンプの起点を trunk 先端まで進める。自端末 clock が trunk より遅れていると
@@ -230,7 +268,14 @@ export async function mergeBranchOnOplog(
     console.warn('[branch] merge 後の trunk 再 projection に失敗:', error);
   }
 
-  return { appended, conflicts, trunk, branch, mergeCommit };
+  return {
+    appended,
+    conflicts,
+    conflictLabels: labelsOfConflicts(base, conflicts),
+    trunk,
+    branch,
+    mergeCommit,
+  };
 }
 
 /**
