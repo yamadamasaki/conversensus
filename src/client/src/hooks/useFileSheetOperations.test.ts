@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test';
 import type { ConversensusFile, FileId, SheetId } from '@conversensus/shared';
 import type { GraphEvent } from '../events/GraphEvent';
+import type { ConflictNoticeState } from './useBranchOperations';
 import type { AlertState, ConfirmState } from './useFileSheetOperations';
 
 const { renderHook, act, cleanup } = await import('@testing-library/react');
@@ -22,6 +23,8 @@ const SID2 = '00000000-0000-0000-0000-000000000002' as SheetId;
 // すると、mockImplementationOnce で resolve を呼ぶ側の型も検査されなくなる
 const mockSetConfirmState = mock((_s: ConfirmState | null) => {});
 const mockSetAlertState = mock((_s: AlertState | null) => {});
+/** implicit merge の競合の通知先 (step2 Phase 3 T5) */
+const mockSetConflictNotice = mock((_n: ConflictNoticeState) => {});
 
 afterEach(() => {
   cleanup();
@@ -43,6 +46,7 @@ async function renderWith(opts: RenderOpts = {}) {
     useFileSheetOperations({
       setConfirmState: mockSetConfirmState,
       setAlertState: mockSetAlertState,
+      setConflictNotice: mockSetConflictNotice,
       deps,
       syncRecord,
       // rkey 移行 marker (p7-4) がこの actor の DID 部分をキーにする

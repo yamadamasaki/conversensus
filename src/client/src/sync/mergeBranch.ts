@@ -40,19 +40,18 @@ import {
   COMMIT_KIND,
   type Commit,
   type CommitId,
-  type EdgeId,
   type FileId,
   type GraphFile,
   type Lamport,
   type MergeConflict,
   makeMergeCommit,
   mergeBranches,
-  type NodeId,
   type ProjectedGraph,
   projectBatches,
   projectFile,
   tipClock,
 } from '@conversensus/shared';
+import { labelsOfConflicts } from './conflicts';
 
 /** 先読み (`previewMerge`) に要るもの。**読むだけで何も書かない**ことを型で示す */
 export type MergePreviewDeps = {
@@ -127,34 +126,6 @@ type MergePlan = {
   /** 分岐点のグラフ。競合の対象を名前で呼ぶのに要る */
   base: ProjectedGraph;
 };
-
-/**
- * 競合の対象の**分岐点での名前** (node の content / edge の label)。
- *
- * **merge 後の projection からは引けない。**削除依存の対象はまさに消された要素なので、
- * 適用後のグラフには居ない (T2 の tombstone にも、そこへ辿る道が UI に無い)。
- * 分岐点には必ず在る — 相手がそれを前提にした op を出せた時点で在ったからである。
- *
- * 空文字はそのまま返す。「名前が無い」と「引けなかった」は別の話なので、
- * 言い換えるかどうかは見せる側が決める。
- */
-function labelsOfConflicts(
-  base: ProjectedGraph,
-  conflicts: readonly MergeConflict[],
-): Map<string, string> {
-  const labels = new Map<string, string>();
-  for (const { target } of conflicts) {
-    if (labels.has(target)) continue;
-    const node = base.nodes.get(target as NodeId);
-    if (node) {
-      labels.set(target, node.content);
-      continue;
-    }
-    const edge = base.edges.get(target as EdgeId);
-    if (edge) labels.set(target, edge.label ?? '');
-  }
-  return labels;
-}
 
 async function buildMergePlan(
   meta: BranchMeta,

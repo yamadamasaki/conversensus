@@ -24,12 +24,24 @@ const addNode = (id: string): Op => ({
   content: 'ノード',
 });
 
-const batch = (actor: string, clock: number): Batch => ({
+const batch = (
+  actor: string,
+  clock: number,
+  ops: Op[] = [addNode(`n${clock}`)],
+): Batch => ({
   id: `${actor}-${clock}` as Batch['id'],
   actor,
   clock,
   timestamp: 1_700_000_000_000 + clock,
-  ops: [addNode(`n${clock}`)],
+  ops,
+});
+
+const NODE = 'aaaaaaaa-0000-4000-8000-000000000000' as NodeId;
+const removeNode = (): Op => ({ kind: 'node.remove', target: NODE });
+const setContent = (content: string): Op => ({
+  kind: 'node.setContent',
+  target: NODE,
+  content,
 });
 
 const event = (
@@ -47,8 +59,16 @@ const roster = (
   rejected: [],
 });
 
-/** repo ごとの op-log を持つ fake。読んだ repo を記録する */
-function fakeRemote(byRepo: Record<string, RemoteBatch[]>) {
+/**
+ * repo ごとの op-log を持つ fake。読んだ repo を記録する。
+ *
+ * `local` は**受信前のローカル正典**である (step2 Phase 3 T5)。既定は空 = 何も知らない
+ * 手元で、届いたものは全部「新着」になる。
+ */
+function fakeRemote(
+  byRepo: Record<string, RemoteBatch[]>,
+  local: Batch[] = [],
+) {
   const readRepos: Did[] = [];
   const appended: { fileId: FileId; batches: Batch[] }[] = [];
   const observed: number[] = [];
@@ -66,6 +86,7 @@ function fakeRemote(byRepo: Record<string, RemoteBatch[]>) {
         readRepos.push(repo);
         return byRepo[repo] ?? [];
       },
+      fetchLocal: async (_fileId: FileId) => local,
       appendReceived: async (fileId: FileId, batches: Batch[]) => {
         appended.push({ fileId, batches });
         return batches.length;
@@ -83,6 +104,78 @@ const envelope = (fileId: FileId, b: Batch): RemoteBatch => ({
 });
 
 describe('receiveParticipantBatches', () => {
+  // 検出は**追記の前**に行う (step2 Phase 3 T5)。分岐点は受信前の手元の状態なので、
+  // 書いてからでは「私が見ていたグラフ」が失われる
+  describe('implicit merge の競合検出 (Phase 3 T5)', () => {
+    const sharedWith = (did: Did) =>
+      roster({ [ME]: [event('genesis', 1)], [did]: [event('accept', 2)] });
+
+    it('新着が手元の編集を壊せば競合として返す', async () => {
+      // 私が編集したノードを bob が消した (私の編集の clock が上 = bob は見ていない)
+      const local = [
+        batch(ME, 3, [addNode(NODE)]),
+        batch(ME, 9, [setContent('私の編集')]),
+      ];
+      const remote = fakeRemote(
+        { [BOB]: [envelope(FILE, batch(BOB, 8, [removeNode()]))] },
+        local,
+      );
+      const result = await receiveParticipantBatches(
+        FILE,
+        sharedWith(BOB),
+        ME,
+        remote.deps,
+      );
+
+      expect(result.conflicts.conflicts).toHaveLength(1);
+      expect(result.conflicts.conflicts[0]).toMatchObject({
+        category: 'structure',
+        kind: 'removeDependency',
+      });
+      // 消された対象の名前が分岐点から引けている
+      expect(result.conflicts.labels.get(NODE)).toBe('私の編集');
+      // **implicit merge は止めない。**競合があっても取り込みは続く
+      expect(result.appended).toBeGreaterThan(0);
+    });
+
+    /**
+     * **既読位置を持たない設計の帰結。**受信は毎回全件を読むので、新着に絞らないと
+     * 同じ競合が毎サイクル通知される。「通知の畳み方」がここで効いている。
+     */
+    it('🔴 既に受け取った batch は新着に数えない (同じ競合を毎回通知しない)', async () => {
+      const bobsRemoval = batch(BOB, 8, [removeNode()]);
+      // 前のサイクルで bob の削除を取り込み済である
+      const local = [
+        batch(ME, 3, [addNode(NODE)]),
+        batch(ME, 9, [setContent('私の編集')]),
+        bobsRemoval,
+      ];
+      const remote = fakeRemote(
+        { [BOB]: [envelope(FILE, bobsRemoval)] },
+        local,
+      );
+      const result = await receiveParticipantBatches(
+        FILE,
+        sharedWith(BOB),
+        ME,
+        remote.deps,
+      );
+
+      expect(result.conflicts.conflicts).toEqual([]);
+    });
+
+    it('新着が無ければ検出しない', async () => {
+      const remote = fakeRemote({});
+      const result = await receiveParticipantBatches(
+        FILE,
+        sharedWith(BOB),
+        ME,
+        remote.deps,
+      );
+      expect(result.conflicts.conflicts).toEqual([]);
+    });
+  });
+
   describe('誰の repo を読むか', () => {
     it('参加者から自分を除いた repo を読む', async () => {
       const remote = fakeRemote({
