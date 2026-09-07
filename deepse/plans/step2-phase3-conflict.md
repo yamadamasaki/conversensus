@@ -125,6 +125,31 @@ DtR で議論する前に対象が消える。「判断を保留するなら情�
 > Phase 2 の S7 (`convergence.test.ts`) の生成器がそのまま使える。**削除を引く生成器で
 > 収束が壊れないこと**が add-wins 化の受入基準になる。
 
+### 決着 (2026-09-07, T2 実施)
+
+**規則は 3 つ。**(1) 削除は消滅ではなく tombstone (`ProjectedGraph.removed`)。
+(2) 後から来た「在る」という主張が tombstone を解く。(3) 主張は祖先まで遡って効く
+(子だけ戻すと孤児になる)。`toSheet` は live しか出さないので**利用者から見た挙動は
+変わらない**。layout / presentation は解かない — 位置を動かすことは存在の主張ではないし、
+`prerequisitesOf` の線引きと同じである。
+
+**カスケードは畳み込みの最後に導出する。**削除の時点で子孫まで消してしまうと、後から
+親の tombstone が解けても子孫が戻らない。直接の削除だけを覚えておき、live 集合は最後に
+一度求める。
+
+**⚠️ 限界: 因果を持たないので「削除が後に来た」場合は tombstone のままである。**
+真の add-wins (OR-Set) は「その削除が観測していない追加は生き残る」だが、判定には因果が
+要る。手元の clock は Lamport のスカラで `a < b` は「b が a を見た」を意味しないので、
+**畳み込みに決められるのは全順序の中の前後だけ**である。
+
+実務上はこれで足りる: explicit merge は branch batches を trunk 先端の後へ再スタンプ
+するので**branch の編集は必ず trunk の削除より後に来る** — 仕様が名指しする S2 / S2' は
+この規則で拾える。順序が逆になる implicit merge でも要素は `removed` に残るので情報は
+失われず、T4 の通知と T6 の fork がそこから引ける。
+
+**真の add-wins が要るなら vector clock (または observed-remove タグ) の導入になる。**
+それは op の形と同期量に効く決定なので、ここでは倒さない (→ 未決のまま持ち越す)。
+
 ## 3. カスケード削除の推移的検出 (事実 C)
 
 `mergeBranches` に**分岐点の状態**を渡す。判定は次の形になる。
@@ -237,7 +262,7 @@ explicit merge の `meta.base.at` に相当するものが無い。受信した 
 | --- | --- | --- |
 | ~~**T0**~~ | ~~カスケードの規則を `project.ts` から切り出して共有する~~ **完了 (2026-09-07)** → `src/shared/src/events/cascade.ts` | 単体 + 性質。projection と検出が同じ集合を出す |
 | ~~**T1**~~ | ~~`mergeBranches` に分岐点の状態を渡す (シグネチャ変更) + 適用点を決める~~ **完了 (2026-09-07)**。`mergeBranches(base, trunkAfterBase, branchBatches)` / `previewMerge` / `requiresConfirmation` | 単体。グループ削除で子への依存が検出される |
-| **T2** | add-wins 化 (tombstone) | 単体 + **S7 の生成器に削除を厚く引かせて収束を確かめる** |
+| ~~**T2**~~ | ~~add-wins 化 (tombstone)~~ **完了 (2026-09-07)**。`ProjectedGraph.removed` + revive + `selfAndAncestors` | 単体 + S7 の生成器に削除を厚く引かせて収束を確かめた |
 | **T3** | layout の競合検出 (通知系列を 1 本増やす) | 単体 |
 | **T4** | 競合の通知 UI (3 段の出し分け) | 単体 + 実機 |
 | **T5** | implicit merge に検出器を持ち込む (未決 ③ を決める) | 単体 + 実 PDS (2 アカウント) |
@@ -273,5 +298,8 @@ explicit merge の `meta.base.at` に相当するものが無い。受信した 
 
 ## 未決のまま持ち越すもの
 
+- **真の add-wins に因果が要る** (T2 で判明)。Lamport のスカラ clock では「削除が後に
+  来た」場合を「観測した上での削除」と「並行な削除」に分けられない。分けるには vector
+  clock か observed-remove タグが要り、それは op の形と同期量に効く決定である
 - **通知の畳み方** (§5 の ⚠️)。layout の並行変更は日常的なので、出し方を誤ると埋もれる
 - **DtR の起動**は Phase 6。ここでは「手動で起動できる口」までを作る

@@ -20,6 +20,43 @@ projection は step1 §4 の「集約は projection (導出ビュー)」を実�
 - **presentation の分離**: presentation op (edge.setStyle 等) は presentation マップに入り、意味的な状態 (edges の properties 等) に影響しないことを確認する (D7: presentation はローカル限定)。
 - **toSheet**: projection が既存の `Sheet` 形式へ変換されることを確認する (現行資産との接続点)。
 
+### add-wins / tombstone (Phase 3 T2)
+
+削除の意味論を変えた。「判断を保留するなら情報を消さない方に倒す」(`spec/merging.md`) —
+競合の決着 (DtR) の前に対象が消えると、議論する物が無くなる。
+
+**規則は 3 つである。**
+
+1. **削除は消滅ではなく tombstone。**`node.remove` / `edge.remove` は要素を
+   `removed` へ移すだけで、値は残る。`nodes` / `edges` (= `toSheet` が出す既定の表示) からは
+   外れるので、**利用者から見た挙動は変わらない**。
+2. **後から来た「在る」という主張が tombstone を解く** (add-wins の本体)。
+   削除の後の `setContent` は、以前は無言の no-op だった — 消えた上に編集も失われていた。
+3. **主張は祖先まで遡って効く。**子だけ戻すと親の居ない孤児になるので、
+   グループの削除の後に子を編集すると**親ごと戻る** (仕様の S2')。
+
+| 例 | 何を守るか |
+| --- | --- |
+| 削除した要素が `removed` に残る | 消滅ではないこと。ghost 表示と競合の通知はここから引く |
+| 🔴 削除 → 編集で戻る | **add-wins の中身。**LWW のままなら編集が無言で捨てられる |
+| 🔴 グループ削除 → 子を編集すると親ごと戻る | S2'。子だけ戻すと孤児になる |
+| 編集 → 削除は消える | **add-wins は「削除を無効にする」ことではない。**誰も触っていない削除はそのまま通る — でなければ何も消せない |
+| layout / style は tombstone を解かない | 位置を動かすことは「在るべきだ」という主張ではない。layout の競合は「通知のみで DtR を起動しない」種別でもあり、`merge.ts` の `prerequisitesOf` と同じ線引きである |
+| エッジを張り直すと両端のノードも戻る | 端点の無いエッジは在れない |
+| カスケードで消えた要素も `removed` に残る | 巻き添えも tombstone。**カスケードは畳み込みの最後に導出する**ので、親が戻れば子孫もまとめて戻る |
+| `file.remove` は remove-wins のまま | File の削除には「再作成」に相当する op が無いので add-wins にする意味が無い (ANA-127)。**ここを一緒に倒さない** |
+
+**限界を 1 つ残している。**「削除が後に来た」場合は tombstone のままである
+(上表 4 行目)。真の add-wins (CRDT の OR-Set) は「その削除が観測していない追加は生き残る」
+だが、判定には**因果**が要る。手元の clock は Lamport のスカラで、`a < b` は
+「b が a を見た」を意味しない。**因果を持たない畳み込みに決められるのは全順序の中の
+前後だけ**なので、ここが上限である。
+
+実務上はこれで足りる: explicit merge は branch batches を trunk 先端の後へ再スタンプする
+(`mergeBranch.ts`) ので、**branch の編集は必ず trunk の削除より後に来る** — 仕様が名指しする
+S2 / S2' はこの規則で拾える。順序が逆になる implicit merge でも、要素は `removed` に
+残っているので情報は失われない (T4 の通知と fork がそこから引く)。
+
 ### projectFile (W3 読み取り経路, §3.3)
 
 - **基本射影**: `file.setName` + `sheet.create` + content batch から `GraphFile` (id・name・シート) が導出されることを確認する。

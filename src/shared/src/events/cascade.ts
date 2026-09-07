@@ -79,6 +79,27 @@ export function cascadeOfNodeRemoval(
 }
 
 /**
+ * 自分と祖先の連なり (自分を含む)。**カスケードの逆向き**である。
+ *
+ * `cascadeOfNodeRemoval` が「この要素を消すと何が道連れになるか」を答えるのに対し、
+ * こちらは「この要素が在るためには何が在らねばならないか」を答える。add-wins
+ * (Phase 3 T2) で「この node は在る」と主張する op が来たとき、**祖先まで遡って
+ * tombstone を解く**のに使う — 子だけ戻すと親の居ない孤児になる。
+ *
+ * 循環していても `MAX_PARENT_HOPS` で止まる。
+ */
+export function selfAndAncestors(g: CascadeGraphView, id: NodeId): NodeId[] {
+  const chain: NodeId[] = [];
+  let current: NodeId | undefined = id;
+  for (let hop = 0; current && hop < MAX_PARENT_HOPS; hop++) {
+    if (chain.includes(current)) break; // 循環を 1 周で打ち切る
+    chain.push(current);
+    current = g.nodes.get(current)?.parentId;
+  }
+  return chain;
+}
+
+/**
  * 削除 op が実際に消す要素。`edge.remove` はそのエッジ 1 本だけで、カスケードしない。
  *
  * 競合検出はこの集合に対して削除依存を判定する — 「op に書かれた id」で判定すると
