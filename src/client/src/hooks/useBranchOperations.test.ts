@@ -1,8 +1,22 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test';
+import type {
+  BranchMeta,
+  CommitOperation,
+  FileId,
+  GraphFile,
+  NodeId,
+  SheetId,
+} from '@conversensus/shared';
 import {
   createInMemoryBranchOplogDeps,
   createInMemoryBranchOpsDeps,
 } from './testing/inMemoryDeps';
+import type {
+  AlertState,
+  ConfirmState,
+  ConflictNoticeState,
+  InputState,
+} from './useBranchOperations';
 
 const { renderHook, act, cleanup } = await import('@testing-library/react');
 const {
@@ -24,18 +38,27 @@ const makeClock = () => {
   };
 };
 
-const mockOnSetActiveFile = mock(() => {});
-const mockSetConfirmState = mock(() => {});
-const mockSetInputState = mock(() => {});
-const mockSetAlertState = mock(() => {});
+// ダイアログの差し込み口。**引数の形を本物に合わせる** — ここを () => {} のままに
+// すると、mockImplementationOnce で resolve を呼ぶ側の型も検査されなくなる
+const mockOnSetActiveFile = mock((_file: GraphFile | null) => {});
+const mockSetConfirmState = mock((_s: ConfirmState | null) => {});
+const mockSetInputState = mock((_s: InputState | null) => {});
+const mockSetAlertState = mock((_s: AlertState | null) => {});
+/** 画面に出す競合の通知 (Phase 3 T4)。非モーダルなので resolve を持たない */
+const mockSetConflictNotice = mock((_n: ConflictNoticeState) => {});
 
-const mockActiveFile = {
-  id: 'f1',
+const mockActiveFile: GraphFile = {
+  id: 'f1' as FileId,
   name: 'test',
   description: '',
-  sheets: [{ id: 's1', name: 'Sheet 1', nodes: [], edges: [] }],
+  sheets: [{ id: 's1' as SheetId, name: 'Sheet 1', nodes: [], edges: [] }],
 };
-const mockActiveSheet = { id: 's1', name: 'Sheet 1', nodes: [], edges: [] };
+const mockActiveSheet = {
+  id: 's1' as SheetId,
+  name: 'Sheet 1',
+  nodes: [],
+  edges: [],
+};
 
 afterEach(() => {
   cleanup();
@@ -43,11 +66,12 @@ afterEach(() => {
   mockSetConfirmState.mockClear();
   mockSetInputState.mockClear();
   mockSetAlertState.mockClear();
+  mockSetConflictNotice.mockClear();
 });
 // --- テストの共通ハーネス ---
 
-const TRUNK_ID = 'f1';
-const SHEET_ID = 's1';
+const TRUNK_ID = 'f1' as FileId;
+const SHEET_ID = 's1' as SheetId;
 
 /** trunk op-log の 1 batch (content, sheetId 付き) */
 const trunkBatch = (id: string, clock: number, nodeId: string, text: string) =>
@@ -61,6 +85,18 @@ const trunkBatch = (id: string, clock: number, nodeId: string, text: string) =>
     // biome-ignore lint/suspicious/noExplicitAny: テストの最小 Batch (branded 型は実行時に無関係)
   }) as any;
 
+/** trunk op-log でノードを 1 つ消す batch (削除依存の競合を作る用) */
+const trunkRemoveBatch = (id: string, clock: number, nodeId: string) =>
+  ({
+    id,
+    actor: 'seed#dev',
+    clock,
+    timestamp: clock,
+    sheetId: SHEET_ID,
+    ops: [{ kind: 'node.remove', target: nodeId }],
+    // biome-ignore lint/suspicious/noExplicitAny: テストの最小 Batch (branded 型は実行時に無関係)
+  }) as any;
+
 // `graphEventToBatch` は API 境界と同じ zod 検証を通すので、id は実 UUID 形式で作る
 let uuidSeq = 0;
 const uuid = () => {
@@ -68,17 +104,57 @@ const uuid = () => {
   return `${uuidSeq.toString(16).padStart(8, '0')}-0000-4000-8000-000000000000`;
 };
 
-/** node.setContent を 1 件生む content イベント */
-const relabel = (to: string) => ({
+/**
+ * node.setContent を 1 件生む content イベント。
+ * `nodeId` を渡せるのは**対立を作るため** — 既定の新しい id では trunk 側と衝突しない
+ */
+const relabel = (to: string, nodeId: string = uuid()) => ({
   id: uuid(),
   timestamp: 1,
   category: 'content' as const,
   type: 'NODE_RELABELED' as const,
   // biome-ignore lint/suspicious/noExplicitAny: branded NodeId をテストで作らない
-  nodeId: uuid() as any,
+  nodeId: nodeId as any,
   from: '',
   to,
 });
+
+/** node.setLayout を 1 件生む layout イベント (NODE_MOVED) */
+const move = (nodeId: string, x: number, y: number) => ({
+  id: uuid(),
+  timestamp: 1,
+  category: 'layout' as const,
+  type: 'NODE_MOVED' as const,
+  // biome-ignore lint/suspicious/noExplicitAny: branded NodeId をテストで作らない
+  nodeId: nodeId as any,
+  from: { x: 0, y: 0 },
+  to: { x, y },
+});
+
+/** trunk op-log でノードを動かす batch (layout の並行変更を作る用) */
+const trunkMoveBatch = (
+  id: string,
+  clock: number,
+  nodeId: string,
+  x: number,
+  y: number,
+) =>
+  ({
+    id,
+    actor: 'seed#dev',
+    clock,
+    timestamp: clock,
+    sheetId: SHEET_ID,
+    ops: [{ kind: 'node.setLayout', target: nodeId, x, y }],
+    // biome-ignore lint/suspicious/noExplicitAny: テストの最小 Batch (branded 型は実行時に無関係)
+  }) as any;
+
+/** 確認ダイアログに答える。`ok=false` はキャンセル */
+const answerMergeConfirm = (ok: boolean) => {
+  mockSetConfirmState.mockImplementationOnce((s) => {
+    s?.resolve(ok);
+  });
+};
 
 async function renderOplog(
   trunkLog = [trunkBatch('t1', 3, 'n1', 'trunk')],
@@ -126,6 +202,7 @@ async function renderOplog(
         setConfirmState: mockSetConfirmState,
         setInputState: mockSetInputState,
         setAlertState: mockSetAlertState,
+        setConflictNotice: mockSetConflictNotice,
         deps: options.realChanges ? defaultBranchOpsDeps : deps,
         oplogDeps,
         actor: 'did:plc:alice#dev1',
@@ -159,16 +236,14 @@ async function withOpenBranch(
 ) {
   const view = await renderOplog(trunkLog, options);
   view.deps._setComputeOps(pending);
-  mockSetInputState.mockImplementationOnce(
-    (s: { resolve: (v: string) => void }) => {
-      s.resolve('feature-x');
-    },
-  );
+  mockSetInputState.mockImplementationOnce((s) => {
+    s?.resolve('feature-x');
+  });
   await act(async () => {
     await view.result.current.handleCreateBranch(SHEET_ID);
   });
   const branch = (view.result.current.sheetBranches.get(SHEET_ID) ??
-    [])[0] as import('@conversensus/shared').BranchMeta;
+    ([] as BranchMeta[]))[0] as BranchMeta;
   await act(async () => {
     await view.result.current.handleSelectBranch(SHEET_ID, branch);
   });
@@ -180,11 +255,9 @@ async function withOpenBranch(
  * 空白だけを渡せば入力ダイアログのキャンセルと同じ扱いになる。
  */
 const answerMergeReason = (reason: string) => {
-  mockSetInputState.mockImplementationOnce(
-    (s: { resolve: (v: string) => void }) => {
-      s.resolve(reason);
-    },
-  );
+  mockSetInputState.mockImplementationOnce((s) => {
+    s?.resolve(reason);
+  });
 };
 
 /** 指定 status に付け替えた branch を選び直す (状態ゲートの検証用) */
@@ -240,11 +313,9 @@ describe('useBranchOperations — 表示状態', () => {
   describe('handleCreateBranch', () => {
     it('空の名前では作成されない', async () => {
       const { result } = await renderOplog();
-      mockSetInputState.mockImplementationOnce(
-        (s: { resolve: (v: string) => void }) => {
-          s.resolve('');
-        },
-      );
+      mockSetInputState.mockImplementationOnce((s) => {
+        s?.resolve('');
+      });
       await act(async () => {
         await result.current.handleCreateBranch(SHEET_ID);
       });
@@ -279,7 +350,9 @@ describe('useBranchOperations — 表示状態', () => {
    * status ごとの出し分けを固定する — CLOSED の branch にコミットさせないため。
    */
   describe('pendingChanges (commit 可能な変更の検出)', () => {
-    const ops = [{ op: 'node.add', nodeId: 'n1', content: 'hi' }];
+    const ops: CommitOperation[] = [
+      { op: 'node.add', nodeId: 'n1', content: 'hi' },
+    ];
 
     it('OPEN branch で変更あり → pendingChanges に含まれる', async () => {
       const view = await withOpenBranch(undefined, ops);
@@ -311,7 +384,9 @@ describe('useBranchOperations — 表示状態', () => {
         { op: 'node.remove', nodeId: 'n1' },
       ]);
       // base (branch 作成時点の projection) にある n1 がゴーストとして残る
-      expect(view.result.current.deletedNodes.map((n) => n.id)).toEqual(['n1']);
+      expect(
+        view.result.current.deletedNodes.map((n) => n.id as string),
+      ).toEqual(['n1']);
       // remove は conflicted (ハイライト) には入らない
       expect(view.result.current.addedNodeIds.size).toBe(0);
     });
@@ -338,7 +413,7 @@ describe('useBranchOperations — 表示状態', () => {
 
       await act(async () => {
         view.rerender({
-          activeFile: { ...mockActiveFile, id: 'f2' },
+          activeFile: { ...mockActiveFile, id: 'f2' as FileId },
           activeSheetId: SHEET_ID,
           activeSheet: mockActiveSheet,
         });
@@ -370,18 +445,16 @@ describe('useBranchOperations — branch 操作 (op-log)', () => {
       // 旧経路は trunk の全レコードを `{branchId}_` prefix で PDS へ複製していた。
       // op-log では base コミット (ログ上のオフセット) を記録するだけでよい。
       const { result, oplogDeps } = await renderOplog();
-      mockSetInputState.mockImplementationOnce(
-        (s: { resolve: (v: string) => void }) => {
-          s.resolve('feature-x');
-        },
-      );
+      mockSetInputState.mockImplementationOnce((s) => {
+        s?.resolve('feature-x');
+      });
       await act(async () => {
         await result.current.handleCreateBranch(SHEET_ID);
       });
 
       const branches = result.current.sheetBranches.get(SHEET_ID) ?? [];
       expect(branches).toHaveLength(1);
-      const meta = branches[0] as import('@conversensus/shared').BranchMeta;
+      const meta = branches[0] as BranchMeta;
       expect(meta.name).toBe('feature-x');
       // base は現在のログ先端 (tipClock)
       expect(meta.base.at).toBe(3);
@@ -396,9 +469,7 @@ describe('useBranchOperations — branch 操作 (op-log)', () => {
     it('branch のシート内容を projection から差し替える', async () => {
       const { branch, oplogDeps } = await withOpenBranch();
       // 分岐直後は base = trunk の内容
-      const passed = mockOnSetActiveFile.mock.calls.at(-1)?.[0] as
-        | import('@conversensus/shared').GraphFile
-        | undefined;
+      const passed = mockOnSetActiveFile.mock.calls.at(-1)?.[0];
       const sheet = passed?.sheets.find((s) => s.id === SHEET_ID);
       expect(sheet?.nodes.map((n) => n.content)).toEqual(['trunk']);
       expect(oplogDeps._branches.get(branch.id)?.status).toBe('open');
@@ -578,16 +649,158 @@ describe('useBranchOperations — branch 操作 (op-log)', () => {
       expect(commits[0]?.authorActor).toBe('did:plc:alice#dev1');
       expect(commits[0]?.sourceBranchId).toBe(branch.id);
     });
+
+    /**
+     * Phase 3 T1 の決着: **適用前に何が起きるかを見せる。**
+     *
+     * merge は不可逆である — 再スタンプした branch batches は trunk op-log へ追記され、
+     * revert の経路が無い (branch が MERGED になるだけ)。人が押す操作なので、
+     * 人の判断が要る対立 (content / structure) は取り込む前に問う。
+     */
+    describe('取り込む前の確認 (Phase 3 T1)', () => {
+      /** trunk が消したノードを branch が編集した状態を作る (削除依存の対立) */
+      async function conflictingBranch() {
+        const node = uuid();
+        const view = await withOpenBranch([trunkBatch('t1', 3, node, 'trunk')]);
+        await act(async () => {
+          view.result.current.branchSyncRecord?.(
+            relabel('branch の編集', node),
+            SHEET_ID,
+          );
+          await new Promise((r) => setTimeout(r, 10));
+        });
+        // 分岐後に trunk 側が同じノードを消す
+        view.oplogDeps._batches.set(TRUNK_ID, [
+          ...(view.oplogDeps._batches.get(TRUNK_ID) ?? []),
+          trunkRemoveBatch('t2', 9, node),
+        ]);
+        // branch 作成が名前の入力を 1 回使っているので、ここから数え直す
+        mockSetInputState.mockClear();
+        return view;
+      }
+
+      it('🔴 対立があれば確認を出し、キャンセルすると trunk は動かない', async () => {
+        const { result, branch, oplogDeps } = await conflictingBranch();
+        const before = (oplogDeps._batches.get(TRUNK_ID) ?? []).length;
+
+        answerMergeConfirm(false);
+        await act(async () => {
+          await result.current.handleMergeBranch(branch);
+        });
+
+        expect(mockSetConfirmState).toHaveBeenCalledTimes(1);
+        expect(mockSetConfirmState.mock.calls[0]?.[0]?.message).toContain(
+          'structure 1 件',
+        );
+        // **1 件も載らない。**理由の入力にも進まない (押さなければ何も起きない)
+        expect(oplogDeps._batches.get(TRUNK_ID) ?? []).toHaveLength(before);
+        expect(oplogDeps._branches.get(branch.id)?.status).toBe('open');
+        expect(oplogDeps._commits.get(TRUNK_ID) ?? []).toHaveLength(0);
+        expect(mockSetInputState).not.toHaveBeenCalled();
+      });
+
+      it('確認を承諾すれば従来どおり merge される', async () => {
+        const { result, branch, oplogDeps } = await conflictingBranch();
+        const before = (oplogDeps._batches.get(TRUNK_ID) ?? []).length;
+
+        answerMergeConfirm(true);
+        answerMergeReason('対立を承知で取り込む');
+        await act(async () => {
+          await result.current.handleMergeBranch(branch);
+        });
+
+        expect((oplogDeps._batches.get(TRUNK_ID) ?? []).length).toBeGreaterThan(
+          before,
+        );
+        expect(oplogDeps._branches.get(branch.id)?.status).toBe('merged');
+        expect(oplogDeps._commits.get(TRUNK_ID) ?? []).toHaveLength(1);
+      });
+
+      it('🔴 layout の対立だけなら確認を出さない (3 段の一番下, Phase 3 T3)', async () => {
+        // 共同編集で二人が同じノードを動かすのは日常的なので、毎回止めると確認が
+        // ノイズになる。**検出はする**が、確認では止めず適用してから通知する
+        const node = uuid();
+        const view = await withOpenBranch([trunkBatch('t1', 3, node, 'trunk')]);
+        await act(async () => {
+          view.result.current.branchSyncRecord?.(move(node, 50, 60), SHEET_ID);
+          await new Promise((r) => setTimeout(r, 10));
+        });
+        view.oplogDeps._batches.set(TRUNK_ID, [
+          ...(view.oplogDeps._batches.get(TRUNK_ID) ?? []),
+          trunkMoveBatch('t2', 9, node, 5, 6),
+        ]);
+        mockSetConfirmState.mockClear();
+
+        answerMergeReason('取り込む');
+        await act(async () => {
+          await view.result.current.handleMergeBranch(view.branch);
+        });
+
+        expect(mockSetConfirmState).not.toHaveBeenCalled();
+        expect(view.oplogDeps._branches.get(view.branch.id)?.status).toBe(
+          'merged',
+        );
+      });
+
+      it('🔴 適用した結果の対立を画面へ渡す (Phase 3 T4)', async () => {
+        // `console.warn` は人に届かない。**通知に出すのは先読みではなく適用の結果**である
+        const { result, branch, oplogDeps } = await conflictingBranch();
+        // 分岐点でのノード名。削除された対象はいま開いているシートから引けないので、
+        // merge の結果が名前を運ぶ必要がある
+        const node = (oplogDeps._batches.get(TRUNK_ID) ?? [])[0]?.ops[0] as {
+          target: string;
+        };
+
+        answerMergeConfirm(true);
+        answerMergeReason('取り込む');
+        await act(async () => {
+          await result.current.handleMergeBranch(branch);
+        });
+
+        const notice = mockSetConflictNotice.mock.calls.at(-1)?.[0];
+        expect(notice?.conflicts).toHaveLength(1);
+        expect(notice?.conflicts[0]).toMatchObject({ category: 'structure' });
+        // **消された要素の名前が分岐点から引けている**
+        expect(notice?.labels.get(node.target)).toBe('trunk');
+      });
+
+      it('対立が無ければ通知は空で渡す (前の通知が残らない)', async () => {
+        // 空配列を渡さないと、前の merge の通知が画面に居座る
+        const { result, branch } = await withOpenBranch();
+        answerMergeReason('取り込む');
+        await act(async () => {
+          await result.current.handleMergeBranch(branch);
+        });
+        expect(mockSetConflictNotice.mock.calls.at(-1)?.[0].conflicts).toEqual(
+          [],
+        );
+      });
+
+      it('対立が無ければ確認は出ない (理由の入力が唯一の確認)', async () => {
+        // 見せるものが無いのに二段構えにしても得るものが無い、という既存の判断を保つ
+        const { result, branch, oplogDeps } = await withOpenBranch();
+        await act(async () => {
+          result.current.branchSyncRecord?.(relabel('branch の編集'), SHEET_ID);
+          await new Promise((r) => setTimeout(r, 10));
+        });
+
+        answerMergeReason('取り込む');
+        await act(async () => {
+          await result.current.handleMergeBranch(branch);
+        });
+
+        expect(mockSetConfirmState).not.toHaveBeenCalled();
+        expect(oplogDeps._branches.get(branch.id)?.status).toBe('merged');
+      });
+    });
   });
 
   describe('handleCloseBranch / handleDeleteBranch', () => {
     it('close は status を closed にする (op-log は残る)', async () => {
       const { result, branch, oplogDeps } = await withOpenBranch();
-      mockSetConfirmState.mockImplementationOnce(
-        (s: { resolve: (ok: boolean) => void }) => {
-          s.resolve(true);
-        },
-      );
+      mockSetConfirmState.mockImplementationOnce((s) => {
+        s?.resolve(true);
+      });
       await act(async () => {
         await result.current.handleCloseBranch(branch);
       });
@@ -601,11 +814,9 @@ describe('useBranchOperations — branch 操作 (op-log)', () => {
         result.current.branchSyncRecord?.(relabel('編集'), SHEET_ID);
         await new Promise((r) => setTimeout(r, 10));
       });
-      mockSetConfirmState.mockImplementationOnce(
-        (s: { resolve: (ok: boolean) => void }) => {
-          s.resolve(true);
-        },
-      );
+      mockSetConfirmState.mockImplementationOnce((s) => {
+        s?.resolve(true);
+      });
       await act(async () => {
         await result.current.handleDeleteBranch(branch);
       });
@@ -623,8 +834,8 @@ describe('useBranchOperations — branch 操作 (op-log)', () => {
  * 返すので、「どの Sheet を起点にしたか」= このスライスの検証対象そのものを区別できない。
  */
 describe('useBranchOperations — 差分状態 (ANA-120)', () => {
-  const NODE_A = 'a0000000-0000-4000-8000-000000000000';
-  const NODE_B = 'b0000000-0000-4000-8000-000000000000';
+  const NODE_A = 'a0000000-0000-4000-8000-000000000000' as NodeId;
+  const NODE_B = 'b0000000-0000-4000-8000-000000000000' as NodeId;
 
   type View = Awaited<ReturnType<typeof withOpenBranch>>;
   // biome-ignore lint/suspicious/noExplicitAny: テストで branded 型の Sheet を組まない
@@ -632,16 +843,17 @@ describe('useBranchOperations — 差分状態 (ANA-120)', () => {
 
   /** hook が最後に渡してきた branch の projection */
   const projectedSheet = (): TestSheet => {
-    const file = mockOnSetActiveFile.mock.calls.at(-1)?.[0] as
-      | import('@conversensus/shared').GraphFile
-      | undefined;
+    const file = mockOnSetActiveFile.mock.calls.at(-1)?.[0];
     const sheet = file?.sheets.find((s) => s.id === SHEET_ID);
     if (!sheet) throw new Error('branch の projection が取れていない');
     return sheet;
   };
 
-  /** activeSheet を差し替える = 画面でシートを編集したのと同じ状態にする */
-  async function edit(view: View, sheet: TestSheet) {
+  /**
+   * activeSheet を差し替える = 画面でシートを編集したのと同じ状態にする。
+   * **`rerender` しか使わない**ので、branch を持たない view (開き直した直後) も受ける
+   */
+  async function edit(view: Pick<View, 'rerender'>, sheet: TestSheet) {
     await act(async () => {
       view.rerender({
         activeFile: mockActiveFile,
@@ -679,7 +891,7 @@ describe('useBranchOperations — 差分状態 (ANA-120)', () => {
   }
 
   /** commit する (pendingChanges があること = 変更中であることが前提) */
-  async function commit(view: View, message: string) {
+  async function commit(view: Pick<View, 'result'>, message: string) {
     await act(async () => {
       await view.result.current.handleCommit(message);
     });

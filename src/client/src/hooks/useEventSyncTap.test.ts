@@ -110,6 +110,10 @@ class RecordingProvider implements SyncProvider, RemoteBatchTarget {
   async pushRemote(entries: readonly RemoteBatch[]): Promise<void> {
     return this.push(entries.map((e) => e.batch));
   }
+  /** 移行専用の新規作成 (p7-4)。この hook のテストでは push と区別しなくてよい */
+  async createRemote(entries: readonly RemoteBatch[]): Promise<void> {
+    return this.push(entries.map((e) => e.batch));
+  }
   async push(batches: Batch[]): Promise<void> {
     this.pushed.push(...batches);
   }
@@ -372,7 +376,9 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
       await wait(40);
 
       // **ファイルを開き直していないのに届く** — これが #202 の受入条件である
-      expect(receivedWrites.map((w) => w.batches[0]?.id)).toContain('remote-1');
+      expect(
+        receivedWrites.map((w) => w.batches[0]?.id as string | undefined),
+      ).toContain('remote-1');
     });
 
     it('タブが不可視の間は読みに行かない', async () => {
@@ -409,7 +415,9 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
       document.dispatchEvent(new Event('visibilitychange'));
       await settle();
 
-      expect(receivedWrites.map((w) => w.batches[0]?.id)).toContain('remote-1');
+      expect(
+        receivedWrites.map((w) => w.batches[0]?.id as string | undefined),
+      ).toContain('remote-1');
     });
 
     it('オフラインの間は読みに行かない', async () => {
@@ -468,7 +476,7 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
       window.dispatchEvent(new Event('online'));
       await settle();
 
-      expect(remote.pushed.map((b) => b.id)).toEqual(['1']);
+      expect(remote.pushed.map((b) => b.id as string)).toEqual(['1']);
     });
 
     it('unmount 後の online では catch-up しない (リスナ解除)', async () => {
@@ -504,7 +512,7 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
       await renderTap({ local, remoteQueue });
       await settle();
 
-      expect(remote.pushed.map((b) => b.id)).toEqual(['2']);
+      expect(remote.pushed.map((b) => b.id as string)).toEqual(['2']);
     });
 
     it('catch-up で genesis batch も remote へ送る (Phase 4e-0・C1 見直し)', async () => {
@@ -519,7 +527,7 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
       await renderTap({ local, remoteQueue });
       await settle();
 
-      expect(remote.pushed.map((b) => b.id)).toEqual(['1', '2']);
+      expect(remote.pushed.map((b) => b.id as string)).toEqual(['1', '2']);
     });
 
     it('remoteQueue が無ければ catch-up は起きない (fanout でない)', async () => {
@@ -548,7 +556,10 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
       // 受信が実際に発火し、正典宣言つきの書き込み口へ届いていること
       expect(receivedWrites).toHaveLength(1);
       expect(receivedWrites[0]?.fileId).toBe(FID);
-      expect(receivedWrites[0]?.batches.map((b) => b.id)).toEqual(['r1', 'r2']);
+      expect(receivedWrites[0]?.batches.map((b) => b.id as string)).toEqual([
+        'r1',
+        'r2',
+      ]);
     });
 
     it('受信は fanout を通さない — remote へ送り返さない (echo ループ回避, §3.3a)', async () => {
@@ -565,7 +576,7 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
 
       // 受信した 'r1' が remote へ push され直していないこと。
       // (catch-up は local.existing が空なので何も送らない)
-      expect(remote.pushed.map((b) => b.id)).not.toContain('r1');
+      expect(remote.pushed.map((b) => b.id as string)).not.toContain('r1');
     });
 
     it('online イベントでも受信する (送信 catch-up と同じ契機, §3.4)', async () => {
@@ -585,7 +596,9 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
       await settle();
 
       expect(receivedWrites.length).toBe(afterMount + 1);
-      expect(receivedWrites.at(-1)?.batches.map((b) => b.id)).toEqual(['r9']);
+      expect(receivedWrites.at(-1)?.batches.map((b) => b.id as string)).toEqual(
+        ['r9'],
+      );
     });
 
     it('受信が失敗しても送信 catch-up は動く (両者は独立)', async () => {
@@ -603,7 +616,7 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
       await settle();
 
       // 受信は失敗したが、ローカルにあって remote に無い '1' は送られている
-      expect(remote.pushed.map((b) => b.id)).toContain('1');
+      expect(remote.pushed.map((b) => b.id as string)).toContain('1');
       expect(receivedWrites).toHaveLength(0);
     });
 

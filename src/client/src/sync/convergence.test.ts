@@ -60,14 +60,26 @@ function projectionAt(
   return projectBatches([...mine, ...others]);
 }
 
-/** 比較できる形にする。Map の反復順に結論を依存させない */
-const shape = (g: ReturnType<typeof projectBatches>) => ({
-  nodes: [...g.nodes.values()].sort((x, y) => x.id.localeCompare(y.id)),
-  edges: [...g.edges.values()].sort((x, y) => x.id.localeCompare(y.id)),
-  layouts: [...g.nodeLayouts.values()].sort((x, y) =>
-    x.nodeId.localeCompare(y.nodeId),
-  ),
-});
+/**
+ * 比較できる形にする。Map の反復順に結論を依存させない。
+ *
+ * **tombstone (`removed`) も比べる** (Phase 3 T2)。add-wins で削除が「消滅」から
+ * 「消えているが在る」に変わったので、live だけを見ると **removed 側のずれが
+ * 見えない** — 「両方の手元で消えて見える」だけでは収束の証明にならない。
+ */
+const shape = (g: ReturnType<typeof projectBatches>) => {
+  const byId = <T extends { id: string }>(m: Map<string, T>) =>
+    [...m.values()].sort((x, y) => x.id.localeCompare(y.id));
+  return {
+    nodes: byId(g.nodes as Map<string, { id: string }>),
+    edges: byId(g.edges as Map<string, { id: string }>),
+    layouts: [...g.nodeLayouts.values()].sort((x, y) =>
+      x.nodeId.localeCompare(y.nodeId),
+    ),
+    removedNodes: byId(g.removed.nodes as Map<string, { id: string }>),
+    removedEdges: byId(g.removed.edges as Map<string, { id: string }>),
+  };
+};
 
 // --- 生成器 ---
 //
@@ -80,30 +92,75 @@ const nodeId = fc.constantFrom('n1', 'n2', 'n3').map((s) => s as NodeId);
 const edgeId = fc.constantFrom('e1', 'e2').map((s) => s as EdgeId);
 const clock = fc.integer({ min: 0, max: 12 });
 
+/**
+ * **削除を厚く引く** (Phase 3 T2 の受入基準)。
+ *
+ * add-wins は削除の意味論を変えるので、削除がまばらにしか出ない生成器では
+ * 「add-wins にしても ∀ 配送順で同じ projection になる」を確かめたことにならない。
+ * `node.remove` / `edge.remove` に重みを付け、さらに **`node.setParent` を入れて
+ * グループを作る** — カスケード削除と、その tombstone を解く経路は、親子関係が
+ * 無いと 1 度も通らない。
+ *
+ * 重みは「削除 : それ以外」がおよそ 1 : 2 になるようにしてある。削除だけを厚くすると
+ * 今度はグラフが空のままになり、tombstone を解く側 (add-wins の本体) を引かない。
+ */
 const graphOp: fc.Arbitrary<Op> = fc.oneof(
-  fc
-    .tuple(nodeId, fc.constantFrom('あ', 'い'))
-    .map(([target, content]) => ({ kind: 'node.add', target, content }) as Op),
-  fc
-    .tuple(nodeId, fc.constantFrom('あ', 'い'))
-    .map(
-      ([target, content]) =>
-        ({ kind: 'node.setContent', target, content }) as Op,
-    ),
-  nodeId.map((target) => ({ kind: 'node.remove', target }) as Op),
-  fc
-    .tuple(edgeId, nodeId, nodeId)
-    .map(
-      ([target, source, dest]) =>
-        ({ kind: 'edge.add', target, source, dest }) as Op,
-    ),
-  fc
-    .tuple(
-      nodeId,
-      fc.integer({ min: 0, max: 3 }),
-      fc.integer({ min: 0, max: 3 }),
-    )
-    .map(([target, x, y]) => ({ kind: 'node.setLayout', target, x, y }) as Op),
+  {
+    weight: 3,
+    arbitrary: fc
+      .tuple(nodeId, fc.constantFrom('あ', 'い'))
+      .map(
+        ([target, content]) => ({ kind: 'node.add', target, content }) as Op,
+      ),
+  },
+  {
+    weight: 3,
+    arbitrary: fc
+      .tuple(nodeId, fc.constantFrom('あ', 'い'))
+      .map(
+        ([target, content]) =>
+          ({ kind: 'node.setContent', target, content }) as Op,
+      ),
+  },
+  {
+    // グループを作る。カスケード削除とその復帰は親子関係が無いと 1 度も通らない
+    weight: 3,
+    arbitrary: fc
+      .tuple(nodeId, fc.option(nodeId, { nil: undefined }))
+      .map(
+        ([target, parentId]) =>
+          ({ kind: 'node.setParent', target, parentId }) as Op,
+      ),
+  },
+  {
+    weight: 4,
+    arbitrary: nodeId.map((target) => ({ kind: 'node.remove', target }) as Op),
+  },
+  {
+    weight: 3,
+    arbitrary: fc
+      .tuple(edgeId, nodeId, nodeId)
+      .map(
+        ([target, source, dest]) =>
+          ({ kind: 'edge.add', target, source, dest }) as Op,
+      ),
+  },
+  {
+    weight: 2,
+    arbitrary: edgeId.map((target) => ({ kind: 'edge.remove', target }) as Op),
+  },
+  {
+    weight: 2,
+    arbitrary: fc
+      .tuple(
+        nodeId,
+        fc.integer({ min: 0, max: 3 }),
+        fc.integer({ min: 0, max: 3 }),
+      )
+      .map(
+        ([target, x, y]) => ({ kind: 'node.setLayout', target, x, y }) as Op,
+      ),
+  },
 );
 
 const judgmentOp: fc.Arbitrary<JudgmentOp> = fc.oneof(
@@ -148,10 +205,66 @@ const judgmentLog = fc
         ...tail,
       ] as [Did, number, JudgmentOp[]][],
   );
-const graphLog = fc.array(
-  fc.tuple(did, clock, fc.array(graphOp, { minLength: 1, maxLength: 2 })),
-  { maxLength: 8 },
-);
+/**
+ * **描かれたグラフがあるところから始める** (Phase 3 T2)。
+ *
+ * 判断ログと同じ問題がグラフ側にもある。op を一様に引くと `node.add` より前に
+ * `node.remove` や `setContent` が来て無言の no-op になり、**削除も復活も引き当てない**。
+ * 実測で tombstone が出るのは 100 回中 10 回、グループができるのは 2 回だった —
+ * add-wins の収束を述べたい命題が、ほとんど空のグラフを見ていた。
+ *
+ * そこで**先頭に有効な導入部を固定する**: A が n1/n2/n3 を作り、n2 を n1 の子にして
+ * (カスケードの起点)、e1 で n2 と n3 を結ぶ。尾の clock を 3 以降にするのは導入部より
+ * 前に割り込ませないためで、判断ログと同じ判断である (**割り込みの検証は clock では
+ * なく配送順の話**で、それは性質の側が担う)。
+ */
+const graphLog = fc
+  .array(
+    fc.tuple(
+      did,
+      fc.integer({ min: 3, max: 12 }),
+      fc.array(graphOp, { minLength: 1, maxLength: 2 }),
+    ),
+    { minLength: 2, maxLength: 8 },
+  )
+  .map(
+    (tail) =>
+      [
+        [
+          A,
+          0,
+          [
+            { kind: 'node.add', target: 'n1' as NodeId, content: 'あ' },
+            { kind: 'node.add', target: 'n2' as NodeId, content: 'い' },
+            { kind: 'node.add', target: 'n3' as NodeId, content: 'あ' },
+          ],
+        ],
+        [
+          A,
+          1,
+          [
+            {
+              kind: 'node.setParent',
+              target: 'n2' as NodeId,
+              parentId: 'n1' as NodeId,
+            },
+          ],
+        ],
+        [
+          A,
+          2,
+          [
+            {
+              kind: 'edge.add',
+              target: 'e1' as EdgeId,
+              source: 'n2' as NodeId,
+              dest: 'n3' as NodeId,
+            },
+          ],
+        ],
+        ...tail,
+      ] as [Did, number, Op[]][],
+  );
 
 /** 生成した種から batch を組む。**id は組むたびに新しい** ので順序の混同を防ぐ */
 const buildJ = (seeds: [Did, number, JudgmentOp[]][]) =>

@@ -19,6 +19,7 @@ import type {
   SheetId,
   Style,
 } from '../schemas';
+import { cascadeOfNodeRemoval, selfAndAncestors } from './cascade';
 import { applyPropertyChange, canonicalProperties } from './properties';
 import {
   type Batch,
@@ -28,6 +29,20 @@ import {
   isFileOp,
 } from './unified';
 
+/**
+ * tombstone (Phase 3 T2)。**削除された要素を projection から消さずに分けて持つ。**
+ *
+ * 「判断を保留するなら情報を消さない方に倒す」(`spec/merging.md`)。競合の決着 (DtR) の
+ * 前に対象が消えると、議論する物が無くなる。既定の表示からは外れる (`toSheet` は
+ * live しか出さない) が、値は残っているので競合の通知や ghost 表示から引ける。
+ */
+export type RemovedGraph = {
+  nodes: Map<NodeId, GraphNode>;
+  edges: Map<EdgeId, GraphEdge>;
+  nodeLayouts: Map<NodeId, NodeLayout>;
+  edgeLayouts: Map<EdgeId, EdgeLayout>;
+};
+
 export type ProjectedGraph = {
   nodes: Map<NodeId, GraphNode>;
   edges: Map<EdgeId, GraphEdge>;
@@ -35,16 +50,112 @@ export type ProjectedGraph = {
   edgeLayouts: Map<EdgeId, EdgeLayout>;
   /** presentation はローカル限定 (同期しない)。target ごとの style / label offset */
   presentation: Map<string, Style>;
+  /** 削除された要素 (tombstone)。**live とは排他** */
+  removed: RemovedGraph;
 };
 
-function emptyGraph(): ProjectedGraph {
+/**
+ * 畳み込みの途中状態。**live と removed を分ける前**の全体を持つ。
+ *
+ * 分けるのを最後にするのは、**カスケードを状態ではなく導出にする**ためである。
+ * 削除の時点で子孫まで消してしまうと、後から親の tombstone が解けても子孫は戻らない。
+ * 直接の削除だけを覚えておき、live 集合は最後に一度求める。
+ */
+type FoldState = {
+  nodes: Map<NodeId, GraphNode>;
+  edges: Map<EdgeId, GraphEdge>;
+  nodeLayouts: Map<NodeId, NodeLayout>;
+  edgeLayouts: Map<EdgeId, EdgeLayout>;
+  presentation: Map<string, Style>;
+  /** **直接** remove された node。カスケードは `finalize` で当てる */
+  tombstonedNodes: Set<NodeId>;
+  /** **直接** remove された edge */
+  tombstonedEdges: Set<EdgeId>;
+};
+
+function emptyState(): FoldState {
   return {
     nodes: new Map(),
     edges: new Map(),
     nodeLayouts: new Map(),
     edgeLayouts: new Map(),
     presentation: new Map(),
+    tombstonedNodes: new Set(),
+    tombstonedEdges: new Set(),
   };
+}
+
+/**
+ * **この要素は在る**と主張する op が来たので、それを消している tombstone を解く
+ * (add-wins, Phase 3 T2)。祖先まで遡るのは、子だけ戻すと孤児になるからである。
+ *
+ * 解く op と解かない op の線引きは `merge.ts` の `prerequisitesOf` と同じである —
+ * **layout / presentation は解かない。**位置を動かすことは「在るべきだ」という主張では
+ * ないし、layout の競合は「通知のみで DtR を起動しない」と決めた種別でもある。
+ */
+function reviveNode(s: FoldState, id: NodeId): void {
+  for (const ancestor of selfAndAncestors(s, id)) {
+    s.tombstonedNodes.delete(ancestor);
+  }
+}
+
+/** edge を主張する op は、その edge と**両端の node** を戻す (端点が無い edge は在れない) */
+function reviveEdge(s: FoldState, id: EdgeId): void {
+  s.tombstonedEdges.delete(id);
+  const edge = s.edges.get(id);
+  if (!edge) return;
+  reviveNode(s, edge.source);
+  reviveNode(s, edge.target);
+}
+
+/**
+ * 直接の tombstone にカスケードを当てて live / removed を分ける。
+ *
+ * ここで初めてカスケードを当てるので、**親の tombstone が解ければ子孫もまとめて戻る**。
+ */
+function finalize(s: FoldState): ProjectedGraph {
+  const removedNodes = new Set<NodeId>();
+  const removedEdges = new Set<EdgeId>(s.tombstonedEdges);
+  for (const id of s.tombstonedNodes) {
+    const cascade = cascadeOfNodeRemoval(s, id);
+    for (const n of cascade.nodes) removedNodes.add(n);
+    for (const e of cascade.edges) removedEdges.add(e);
+  }
+
+  const g: ProjectedGraph = {
+    nodes: new Map(),
+    edges: new Map(),
+    nodeLayouts: new Map(),
+    edgeLayouts: new Map(),
+    presentation: s.presentation,
+    removed: {
+      nodes: new Map(),
+      edges: new Map(),
+      nodeLayouts: new Map(),
+      edgeLayouts: new Map(),
+    },
+  };
+  for (const [id, node] of s.nodes) {
+    (removedNodes.has(id) ? g.removed.nodes : g.nodes).set(id, node);
+  }
+  for (const [id, edge] of s.edges) {
+    (removedEdges.has(id) ? g.removed.edges : g.edges).set(id, edge);
+  }
+  // layout は要素に従う。孤児 layout (対象が一度も add されていない) は live 側に残す —
+  // 削除されたわけではないので tombstone ではない
+  for (const [id, layout] of s.nodeLayouts) {
+    (removedNodes.has(id) ? g.removed.nodeLayouts : g.nodeLayouts).set(
+      id,
+      layout,
+    );
+  }
+  for (const [id, layout] of s.edgeLayouts) {
+    (removedEdges.has(id) ? g.removed.edgeLayouts : g.edgeLayouts).set(
+      id,
+      layout,
+    );
+  }
+  return g;
 }
 
 /**
@@ -62,35 +173,18 @@ export function orderBatches(batches: Batch[]): Batch[] {
 }
 
 export function projectBatches(batches: Batch[]): ProjectedGraph {
-  const g = emptyGraph();
+  const s = emptyState();
   for (const batch of orderBatches(batches)) {
     for (const op of batch.ops) {
       // file 構造 op は projectFile が畳み込む。content projection では無視する。
       if (isFileOp(op)) continue;
-      applyOp(g, op);
+      applyOp(s, op);
     }
   }
-  return g;
+  return finalize(s);
 }
 
-// 親子チェーンを辿るループの上限。データ破損で循環参照ができても停止させる
-const MAX_PARENT_HOPS = 100;
-
-/** parentId から親を辿って ancestorId に行き着くか。配列やマップの順序に依存しない */
-function hasAncestor(
-  parentId: NodeId | undefined,
-  ancestorId: NodeId,
-  g: ProjectedGraph,
-): boolean {
-  let current: NodeId | undefined = parentId;
-  for (let hop = 0; current && hop < MAX_PARENT_HOPS; hop++) {
-    if (current === ancestorId) return true;
-    current = g.nodes.get(current)?.parentId;
-  }
-  return false;
-}
-
-function applyOp(g: ProjectedGraph, op: GraphOp): void {
+function applyOp(g: FoldState, op: GraphOp): void {
   switch (op.kind) {
     case 'node.add':
       g.nodes.set(op.target, {
@@ -102,33 +196,22 @@ function applyOp(g: ProjectedGraph, op: GraphOp): void {
         ...(op.nodeType && { nodeType: op.nodeType }),
         ...(op.parentId !== undefined && { parentId: op.parentId }),
       });
+      reviveNode(g, op.target);
+      if (op.parentId !== undefined) reviveNode(g, op.parentId);
       break;
-    case 'node.remove': {
-      // 子孫もカスケード削除する。親の居ないノードを残さないための不変条件であり、
-      // クライアント側が子ごとに node.remove を出していても結果は変わらない (冪等)
-      const removed = new Set<NodeId>([op.target]);
-      for (const [id, node] of g.nodes) {
-        if (hasAncestor(node.parentId, op.target, g)) removed.add(id);
-      }
-
-      for (const id of removed) {
-        g.nodes.delete(id);
-        g.nodeLayouts.delete(id);
-      }
-      // 端点を失うエッジもカスケード削除する (applyEvent NODE_DELETED と同じ挙動)
-      for (const [edgeId, edge] of g.edges) {
-        if (removed.has(edge.source) || removed.has(edge.target)) {
-          g.edges.delete(edgeId);
-          g.edgeLayouts.delete(edgeId);
-        }
-      }
+    case 'node.remove':
+      // **消さずに tombstone を立てる** (add-wins, Phase 3 T2)。カスケード (子孫と
+      // 端点を失うエッジ) はここでは当てない — `finalize` で導出することで、後から
+      // 親の tombstone が解けたときに子孫もまとめて戻る
+      g.tombstonedNodes.add(op.target);
       break;
-    }
     case 'node.setParent': {
       const node = g.nodes.get(op.target);
       if (node) {
         if (op.parentId === undefined) delete node.parentId;
         else node.parentId = op.parentId;
+        reviveNode(g, op.target);
+        if (op.parentId !== undefined) reviveNode(g, op.parentId);
       }
       break;
     }
@@ -142,48 +225,68 @@ function applyOp(g: ProjectedGraph, op: GraphOp): void {
           properties: canonicalProperties(op.properties),
         }),
       });
+      // edge を張ることは「両端の node が在る」という主張でもある
+      reviveEdge(g, op.target);
       break;
     case 'edge.remove':
-      g.edges.delete(op.target);
-      g.edgeLayouts.delete(op.target);
+      g.tombstonedEdges.add(op.target);
       break;
     case 'edge.reconnect': {
       const edge = g.edges.get(op.target);
       if (edge) {
         edge.source = op.source;
         edge.target = op.dest;
+        reviveEdge(g, op.target);
       }
       break;
     }
     case 'node.setContent': {
       const node = g.nodes.get(op.target);
-      if (node) node.content = op.content;
+      if (node) {
+        node.content = op.content;
+        reviveNode(g, op.target);
+      }
       break;
     }
     case 'node.setProperty': {
       const node = g.nodes.get(op.target);
-      if (node) node.properties = applyPropertyChange(node.properties, op);
+      if (node) {
+        node.properties = applyPropertyChange(node.properties, op);
+        reviveNode(g, op.target);
+      }
       break;
     }
     case 'edge.setLabel': {
       const edge = g.edges.get(op.target);
-      if (edge) edge.label = op.label;
+      if (edge) {
+        edge.label = op.label;
+        reviveEdge(g, op.target);
+      }
       break;
     }
     case 'edge.setProperty': {
       const edge = g.edges.get(op.target);
-      if (edge) edge.properties = applyPropertyChange(edge.properties, op);
+      if (edge) {
+        edge.properties = applyPropertyChange(edge.properties, op);
+        reviveEdge(g, op.target);
+      }
       break;
     }
     // 旧形式 (置換)。既存の op-log に積まれているので読む。新規には発行しない (ANA-208)
     case 'node.setProperties': {
       const node = g.nodes.get(op.target);
-      if (node) node.properties = canonicalProperties(op.properties);
+      if (node) {
+        node.properties = canonicalProperties(op.properties);
+        reviveNode(g, op.target);
+      }
       break;
     }
     case 'edge.setProperties': {
       const edge = g.edges.get(op.target);
-      if (edge) edge.properties = canonicalProperties(op.properties);
+      if (edge) {
+        edge.properties = canonicalProperties(op.properties);
+        reviveEdge(g, op.target);
+      }
       break;
     }
     case 'node.setLayout': {

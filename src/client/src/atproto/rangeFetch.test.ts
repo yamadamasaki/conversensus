@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import type { FileId } from '@conversensus/shared';
+import type { BatchId, FileId } from '@conversensus/shared';
 import { batchRkey } from './batchRkey';
 import {
   type ListRecordsPage,
@@ -158,7 +158,7 @@ describe('listBatchFileHeads (Phase 7 p7-3)', () => {
   /** 各ファイル 3 batch を新形式 rkey で仕込む */
   const seedRkeys = (files: FileId[]) =>
     files.flatMap((f) =>
-      [1, 2, 3].map((clock) => batchRkey(f, clock, `b${clock}`)),
+      [1, 2, 3].map((clock) => batchRkey(f, clock, `b${clock}` as BatchId)),
     );
 
   it('全 fileId をちょうど 1 回ずつ降順で返す (リクエスト数 = N + 1)', async () => {
@@ -182,8 +182,8 @@ describe('listBatchFileHeads (Phase 7 p7-3)', () => {
     const heads = await listBatchFileHeads(pager.listPage);
 
     expect(heads.map((h) => rkeyOf(h.head))).toEqual([
-      batchRkey(FILE_5, 3, 'b3'),
-      batchRkey(FILE_1, 3, 'b3'),
+      batchRkey(FILE_5, 3, 'b3' as BatchId),
+      batchRkey(FILE_1, 3, 'b3' as BatchId),
     ]);
   });
 
@@ -238,7 +238,7 @@ describe('listBatchFileHeads (Phase 7 p7-3)', () => {
     let requests = 0;
     const listPage: ListRecordsPage = async () => {
       requests += 1;
-      const rkey = batchRkey(FILE_5, 1, 'b1');
+      const rkey = batchRkey(FILE_5, 1, 'b1' as BatchId);
       return { records: [record(rkey)], cursor: rkey };
     };
 

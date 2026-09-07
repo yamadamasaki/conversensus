@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it } from 'bun:test';
-import type { Batch, NodeId } from '@conversensus/shared';
+import type { Batch, FileId, NodeId } from '@conversensus/shared';
 
 /** この端末の DID (既定の `batch()` の著者) */
 const MY_DID = 'did:plc:alice';
+/** enqueue に添える fileId。remote レコードに埋まるので省略できない */
+const FILE = 'file-1' as FileId;
 const { render, screen, fireEvent, act, cleanup } = await import(
   '@testing-library/react'
 );
@@ -21,6 +23,10 @@ class FakeProvider implements SyncProvider, RemoteBatchTarget {
   online = true;
   pushed: Batch[] = [];
   async pushRemote(entries: readonly RemoteBatch[]): Promise<void> {
+    return this.push(entries.map((e) => e.batch));
+  }
+  /** 移行専用の新規作成 (p7-4)。この画面のテストでは push と区別しなくてよい */
+  async createRemote(entries: readonly RemoteBatch[]): Promise<void> {
     return this.push(entries.map((e) => e.batch));
   }
   async push(batches: Batch[]): Promise<void> {
@@ -111,7 +117,7 @@ describe('SyncStatusIndicator', () => {
     const sync = fakeSyncNow();
     render(<SyncStatusIndicator remoteQueue={queue} onSyncNow={sync.fn} />);
     await act(async () => {
-      queue.enqueue([batch('1')]);
+      queue.enqueue([batch('1')], FILE);
     });
 
     await act(async () => {
@@ -131,7 +137,7 @@ describe('SyncStatusIndicator', () => {
     );
     // 購読済みなので、後から積まれた分も表示に反映される
     await act(async () => {
-      queue.enqueue([batch('1'), batch('2')]);
+      queue.enqueue([batch('1'), batch('2')], FILE);
     });
     expect(screen.getByText('クラウド未同期: 2 件')).toBeTruthy();
   });
@@ -146,7 +152,7 @@ describe('SyncStatusIndicator', () => {
       <SyncStatusIndicator remoteQueue={queue} onSyncNow={fakeSyncNow().fn} />,
     );
     await act(async () => {
-      queue.enqueue([batch('1'), batch('2'), batch('3')]);
+      queue.enqueue([batch('1'), batch('2'), batch('3')], FILE);
     });
     expect(screen.getByText('クラウド未同期: 2 件以上')).toBeTruthy();
   });
@@ -157,14 +163,14 @@ describe('SyncStatusIndicator', () => {
     const sync = fakeSyncNow();
     render(<SyncStatusIndicator remoteQueue={queue} onSyncNow={sync.fn} />);
     await act(async () => {
-      queue.enqueue([batch('1')]);
+      queue.enqueue([batch('1')], FILE);
     });
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: '今すぐ同期' }));
     });
 
-    expect(provider.pushed.map((b) => b.id)).toEqual(['1']);
+    expect(provider.pushed.map((b) => b.id as string)).toEqual(['1']);
     expect(sync.calls.count).toBe(1); // 送信と受信の両方を行う
     expect(screen.getByText('クラウド同期済み')).toBeTruthy();
   });
@@ -177,7 +183,7 @@ describe('SyncStatusIndicator', () => {
       <SyncStatusIndicator remoteQueue={queue} onSyncNow={fakeSyncNow().fn} />,
     );
     await act(async () => {
-      queue.enqueue([batch('1')]);
+      queue.enqueue([batch('1')], FILE);
     });
 
     await act(async () => {

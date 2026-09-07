@@ -1,0 +1,32 @@
+{
+  /* shared は client / server の双方から import されるので本体の型は透過的に
+     検査されるが, **テストはどこからも import されないので誰も見ていなかった**。
+     ここで見る (tsconfig.e2e.json / client の tsconfig.test.json と同じ理由)。
+
+     shared は tsc でビルドしない (client / server が直接 .ts を読む) ので,
+     本体用とテスト用を分けずに全部を対象にする */
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.tsbuildinfo",
+    "target": "ESNext",
+    "lib": ["ESNext"],
+    "module": "ESNext",
+    "types": ["bun"],
+    "skipLibCheck": true,
+
+    /* Bundler mode (server の tsconfig.json に合わせる) */
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+
+    /* Linting */
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "erasableSyntaxOnly": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true
+  },
+  "include": ["src"]
+}

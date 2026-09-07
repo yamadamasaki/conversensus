@@ -131,9 +131,39 @@ deps は `createInMemoryBranchOplogDeps` (batches / branches / commits の in-me
 ### merge — trunk 先端の後へ再スタンプ + 一級の記録 (ANA-122)
 
 - **merge 理由は必須**。理由の入力に答えない (空白だけ) と merge は起きず、trunk も
-  branch の status も動かない。以前は確認ダイアログだったが、**理由の入力そのものが
-  確認**なので二段構えにしない。テストは `answerMergeReason` で入力に答える —
+  branch の status も動かない。テストは `answerMergeReason` で入力に答える —
   答えないと Promise が解決せず merge に進まない。
+
+#### 取り込む前の確認 (Phase 3 T1)
+
+**merge は不可逆である** — 再スタンプした branch batches は trunk op-log へ追記され、
+revert の経路が無い。人が押す操作なので、人の判断が要る対立 (content / structure) は
+取り込む前に問う。**layout は「通知のみで DtR を起動しない」種別なので止めない**
+(共同編集で二人が同じノードを動かすのは日常的で、毎回止めると確認がノイズになる)。
+
+- **🔴 対立があれば確認を出し、キャンセルすると trunk は動かない**。1 件も載らず、
+  branch は open のまま、commit も残らない。**理由の入力にも進まない** — 押さなければ
+  何も起きないので、「merge を押したがまだ入っていない」という保留状態 (= もう 1 つの器)
+  が要らない。確認の文言に件数の内訳 (`structure 1 件`) が入ることも固定する。
+- **承諾すれば従来どおり merge される**。確認はゲートであって別経路ではない。
+- **🔴 layout の対立だけなら確認を出さない** (Phase 3 T3)。二人が同じノードを動かすのは
+  日常的なので、毎回止めると確認がノイズになる。**検出はする**が、適用してから通知する。
+  3 段の出し分けが端から端まで効いていることを見るのはこの 1 件である。
+- **対立が無ければ確認は出ない**。「見せるものが無いのに二段構えにしても得るものが無い」
+  という既存の判断はそのまま保つ。理由の入力が唯一の確認になる。
+
+確認は**先読み** (`previewMerge`) の結果に基づく。先読みと適用の間に trunk が動きうるので、
+確認は助言であって保証ではない — 適用側は読み直して計画を組み直す。
+
+#### 検出した競合を画面へ渡す (Phase 3 T4)
+
+`console.warn` は人に届かない。適用した結果の競合を `setConflictNotice` で画面へ渡す。
+
+- **🔴 適用した結果を渡す**。確認で見せた**先読みではない** — 先読みと適用の間に trunk が
+  動けば件数は食い違いうるので、通知に出すのは実際に起きたことである。
+- **🔴 消された要素の名前が分岐点から引けている**。削除依存の対象はまさに消された要素で、
+  いま開いているシートには居ない。merge の結果が「分岐点での名前」を運ぶ。
+- **対立が無ければ空を渡す**。渡さないと前の merge の通知が画面に居座る。
 - **merge の記録が trunk 側の commits に `kind=merge` で残る** (理由・実行者・由来 branch)。
   branch の status が MERGED になるだけでは「いつ・誰が・何のために」が残らなかった。
 
@@ -141,7 +171,7 @@ deps は `createInMemoryBranchOplogDeps` (batches / branches / commits の in-me
   trunk 先端より後になる。id 保持が再 merge のべき等性そのもの (p5-3)。
 - 再スタンプの発番は **trunk の tap と同じ clock** で行う (`trunkClock`)。発番器を
   分けると、次のローカル編集が merge 済み batch と同じ `(clock, actor)` を持ちうる。
-- キャンセル時は trunk も branch の status も動かない。
+- 理由の入力をキャンセルしたときも trunk も branch の status も動かない。
 
 ### close / delete
 - close は status を closed にし、branch op-log は残す (再開の余地を残す)。

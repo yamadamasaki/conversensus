@@ -36,6 +36,7 @@ import {
   hasParticipationBootstrapped,
   markParticipationBootstrapped,
 } from '../sync/bootstrapParticipation';
+import type { DetectedConflicts } from '../sync/conflicts';
 import { discoverParticipatingFiles } from '../sync/discoverParticipatingFiles';
 import { discoverRemoteFiles } from '../sync/discoverRemoteFiles';
 import { deleteFileByTombstone } from '../sync/fileDeletion';
@@ -50,18 +51,19 @@ import { reprojectAfterReceive } from '../sync/reprojectAfterReceive';
 import type { RosterSource } from '../sync/rosterSource';
 import { type FileSharing, fileSharing } from '../sync/rosterView';
 import { rejoinObligation } from '../sync/syncObligation';
+import type { ConflictNoticeState } from './useBranchOperations';
 import {
   type ReceivedSummary,
   type TapHandle,
   useEventSyncTap,
 } from './useEventSyncTap';
 
-type ConfirmState = {
+export type ConfirmState = {
   message: string;
   resolve: (ok: boolean) => void;
 };
 
-type AlertState = {
+export type AlertState = {
   message: string;
   resolve: () => void;
 };
@@ -111,6 +113,12 @@ export const defaultFileSheetOpsDeps: FileSheetOpsDeps = {
 interface UseFileSheetOperationsParams {
   setConfirmState: (s: ConfirmState | null) => void;
   setAlertState: (s: AlertState | null) => void;
+  /**
+   * implicit merge で検出した競合を画面に届ける (step2 Phase 3 T5)。
+   * **競合が 0 件のときは呼ばれない** — 定期サイクルが空で上書きすると、人が読んで
+   * いる通知が消えるためである
+   */
+  setConflictNotice: (notice: ConflictNoticeState) => void;
   deps?: FileSheetOpsDeps;
   /**
    * テスト用: op-log tap の record を差し替える。未指定なら内部 tap (LocalServerSyncProvider)。
@@ -140,6 +148,7 @@ interface UseFileSheetOperationsParams {
 export function useFileSheetOperations({
   setConfirmState,
   setAlertState,
+  setConflictNotice,
   deps = defaultFileSheetOpsDeps,
   syncRecord: syncRecordOverride,
   remoteQueue = null,
@@ -210,6 +219,23 @@ export function useFileSheetOperations({
    * 再参加したときに義務が生まれない。期間の始点は再参加のたびに変わる
    */
   const dischargedRef = useRef(new Map<FileId, Lamport>());
+
+  /**
+   * implicit merge の競合を画面へ渡す (step2 Phase 3 T5)。
+   *
+   * explicit merge (`useBranchOperations`) と**同じ通知に載せる** — 人から見れば
+   * どちらも「競合が起きた」であって、経路の違いは関心事ではない。
+   */
+  const handleConflicts = useCallback(
+    (_fileId: FileId, detected: DetectedConflicts, forkCount: number) => {
+      setConflictNotice({
+        conflicts: detected.conflicts,
+        labels: detected.labels,
+        forkCount,
+      });
+    },
+    [setConflictNotice],
+  );
 
   const handleRoster = useCallback(
     (fileId: FileId, participation: Participation) => {
@@ -360,8 +386,10 @@ export function useFileSheetOperations({
     // 受信 (a) の書き込み口も discovery (4e-2b) と同じ deps 抽象を通す。
     // 既定は api の pushReceivedBatches なので挙動は変わらない (deps は安定参照)。
     appendReceived: deps.pushReceivedBatches,
+    fetchLocal: deps.fetchBatches,
     onReceived: handleReceived,
     onRoster: handleRoster,
+    onConflicts: handleConflicts,
     onSynced: handleSynced,
   });
   const syncRecord = syncRecordOverride ?? internalSyncRecord;

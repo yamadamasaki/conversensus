@@ -13,10 +13,12 @@ import { AtprotoLoginDialog } from './AtprotoLoginDialog';
 import { TRUNK_PREFIX } from './atproto';
 import { CommitDialog } from './CommitDialog';
 import { ConfirmDialog } from './ConfirmDialog';
+import { ConflictNotice } from './ConflictNotice';
 import { makeEventBase } from './events/GraphEvent';
 import { GraphEditor } from './GraphEditor';
 import { useActor } from './hooks/useActor';
 import { useAtprotoSession } from './hooks/useAtprotoSession';
+import type { ConflictNoticeState } from './hooks/useBranchOperations';
 import {
   BRANCH_DIFF_STATE,
   useBranchOperations,
@@ -51,6 +53,25 @@ export default function App() {
     message: string;
     resolve: () => void;
   } | null>(null);
+  /** merge で検出した競合 (Phase 3 T4)。非モーダルなので resolve を持たない */
+  const [conflictNotice, setConflictNotice] = useState<ConflictNoticeState>({
+    conflicts: [],
+    labels: new Map(),
+  });
+  /**
+   * 競合の対象を人が読める名前にする。**id は UUID なので出しても意味が無い。**
+   *
+   * 名前は merge の結果 (分岐点での名前) から引く — 削除依存の対象は消された要素なので
+   * **いま開いているシートには居ない**。空の名前は「無い」と分かる形に言い換える。
+   */
+  const conflictLabelOf = useCallback(
+    (target: string) => {
+      const label = conflictNotice.labels.get(target);
+      if (label === undefined) return target;
+      return label === '' ? '(名前のない要素)' : label;
+    },
+    [conflictNotice.labels],
+  );
 
   const undoStateMapRef = useRef<Map<string, UndoState>>(new Map());
 
@@ -95,6 +116,7 @@ export default function App() {
   const fileOps = useFileSheetOperations({
     setConfirmState,
     setAlertState,
+    setConflictNotice,
     remoteQueue,
     actor,
     // 多アクタ同期は名簿を先に読む (step2 Phase 2 S2)。ダイアログと同じ供給元である
@@ -111,6 +133,7 @@ export default function App() {
     setConfirmState,
     setInputState,
     setAlertState,
+    setConflictNotice,
     actor,
     // merge の再スタンプは trunk と同じ発番器で行う (p5-4)
     trunkClock: fileOps.trunkClock,
@@ -476,6 +499,12 @@ export default function App() {
           }}
         />
       )}
+      <ConflictNotice
+        conflicts={conflictNotice.conflicts}
+        labelOf={conflictLabelOf}
+        forkCount={conflictNotice.forkCount ?? 0}
+        onClose={() => setConflictNotice({ conflicts: [], labels: new Map() })}
+      />
       {loginDialogOpen && (
         <AtprotoLoginDialog
           onLogin={async (handle, password) => {

@@ -234,7 +234,7 @@ describe('fromFlowEdges', () => {
       target: 'n2',
       label: 'ラベル',
     });
-    expect(edgeLayouts[0].edgeId).toBe('e1');
+    expect(edgeLayouts[0].edgeId as string).toBe('e1');
   });
 
   it('label が string でない場合は undefined になる', () => {
@@ -372,7 +372,7 @@ describe('fromFlowNodes: parentId / groupNode', () => {
       },
     ];
     const result = fromFlowNodes(flowNodes);
-    expect(result.nodes[0].parentId).toBe('g1');
+    expect(result.nodes[0].parentId as string).toBe('g1');
     expect(result.layouts[0]).not.toHaveProperty('parentId');
   });
 

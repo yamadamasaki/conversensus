@@ -1,12 +1,13 @@
 import { describe, expect, test } from 'bun:test';
-import type { CommitOperation } from '../schemas';
+import type { CommitOperation, EdgeId, NodeId } from '../schemas';
 import {
   commitOperationsToBatch,
   commitOperationToOps,
 } from './fromCommitOperation';
 import { projectBatches } from './project';
 
-const uuid = () => crypto.randomUUID();
+/** テスト用の id 生成。branded 型を要求する側にそのまま渡せるようにする */
+const uuid = <T extends string = string>() => crypto.randomUUID() as T;
 
 describe('commitOperationToOps', () => {
   test('node.update は content / properties / parentId を最大3つの op に展開する', () => {
@@ -28,7 +29,7 @@ describe('commitOperationToOps', () => {
   });
 
   test('edge.remove は edge.remove op へ写像する', () => {
-    const edgeId = uuid();
+    const edgeId = uuid<EdgeId>();
     expect(commitOperationToOps({ op: 'edge.remove', edgeId })).toEqual([
       { kind: 'edge.remove', target: edgeId },
     ]);
@@ -37,9 +38,9 @@ describe('commitOperationToOps', () => {
 
 describe('commitOperationsToBatch → projectBatches', () => {
   test('CommitOperation 列がグラフ状態を正しく導出する (同期語彙の部分集合性)', () => {
-    const a = uuid();
-    const b = uuid();
-    const e = uuid();
+    const a = uuid<NodeId>();
+    const b = uuid<NodeId>();
+    const e = uuid<EdgeId>();
     const ops: CommitOperation[] = [
       { op: 'node.add', nodeId: a, content: 'A' },
       { op: 'node.add', nodeId: b, content: 'B' },
@@ -52,7 +53,7 @@ describe('commitOperationsToBatch → projectBatches', () => {
       timestamp: Date.now(),
     });
     const g = projectBatches([batch]);
-    expect(g.nodes.get(a as never)?.content).toBe('A2');
-    expect(g.edges.get(e as never)?.label).toBe('rel');
+    expect(g.nodes.get(a)?.content).toBe('A2');
+    expect(g.edges.get(e)?.label).toBe('rel');
   });
 });

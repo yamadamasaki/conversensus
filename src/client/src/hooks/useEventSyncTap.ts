@@ -21,18 +21,32 @@ import type {
 } from '@conversensus/shared';
 import { didFromActor } from '@conversensus/shared';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
-import { pushReceivedBatches } from '../api';
+import {
+  fetchBatches,
+  fetchBranches,
+  pushReceivedBatches,
+  saveBranch,
+} from '../api';
 import { FanoutSyncProvider } from '../atproto/fanoutSyncProvider';
 import type { RemoteSyncQueue } from '../atproto/remoteSyncQueue';
 import { SYNC_POLL_INTERVAL_MS } from '../config';
 import type { GraphEvent } from '../events/GraphEvent';
 import { maxJudgmentClock } from '../sync/appendJudgment';
+import type { DetectedConflicts } from '../sync/conflicts';
 import { EventSyncTap } from '../sync/eventSyncTap';
 import { LocalServerSyncProvider } from '../sync/localServerSyncProvider';
 import { receiveParticipantBatches } from '../sync/receiveParticipantBatches';
 import { receiveRemoteBatches } from '../sync/receiveRemoteBatches';
 import type { RosterSource } from '../sync/rosterSource';
 import type { SyncProvider } from '../sync/syncProvider';
+import type { ForkWriterDeps } from '../sync/writeForks';
+
+/** fork の器の既定。api をそのまま使う (deps は安定参照でなければならない) */
+const defaultForkDeps: ForkWriterDeps = {
+  fetchBranches,
+  saveBranch,
+  newId: () => crypto.randomUUID(),
+};
 
 /**
  * 受信通知に添える tap の待ち合わせ点 (Phase 4e-3, critic MED3)。
@@ -86,6 +100,17 @@ export type UseEventSyncTapOptions = {
    */
   appendReceived?: (fileId: FileId, batches: Batch[]) => Promise<number>;
   /**
+   * 受信**前**のローカル正典を読む (step2 Phase 3 T5)。implicit merge の競合検出が
+   * 「新しく届いた分」と「分岐点のグラフ」を求めるのに使う。
+   * **安定参照であること** (`appendReceived` と同じ理由)。
+   */
+  fetchLocal?: (fileId: FileId) => Promise<Batch[]>;
+  /**
+   * fork の器 (step2 Phase 3 T6)。競合を保留した記録を branch として書く。
+   * **安定参照であること** (`appendReceived` と同じ理由)。
+   */
+  forkDeps?: ForkWriterDeps;
+  /**
    * 受信がローカル正典へ着地した (`appended > 0`) ときの通知 (Phase 4e-3)。
    * 画面反映 (再 projection → activeFile 差し替え) の起点。tap の待ち合わせ点を添える。
    * **安定参照であること** (appendReceived と同じ理由)。
@@ -106,6 +131,19 @@ export type UseEventSyncTapOptions = {
    * **安定参照であること** (`onReceived` と同じ理由)。
    */
   onRoster?: (fileId: FileId, participation: Participation) => void;
+  /**
+   * implicit merge で競合を検出したときの通知 (step2 Phase 3 T5)。
+   *
+   * **競合が 0 件のときは呼ばない。**同期サイクルは定期的に走るので、毎回呼ぶと
+   * 人が読んでいる通知を空で上書きしてしまう。
+   * **安定参照であること** (`onReceived` と同じ理由)。
+   */
+  onConflicts?: (
+    fileId: FileId,
+    detected: DetectedConflicts,
+    /** 保留の記録 (fork) として書かれた件数 (Phase 3 T6) */
+    forkCount: number,
+  ) => void;
   /**
    * 受信のサイクルが**最後まで走った**ことの合図 (step2 Phase 2 S6)。
    *
@@ -169,8 +207,11 @@ export function useEventSyncTap(
     clockFloor,
     createLocalProvider,
     appendReceived = pushReceivedBatches,
+    fetchLocal = fetchBatches,
+    forkDeps = defaultForkDeps,
     onReceived,
     onRoster,
+    onConflicts,
     onSynced,
   }: UseEventSyncTapOptions,
 ): UseEventSyncTapResult {
@@ -330,10 +371,17 @@ export function useEventSyncTap(
         {
           pullRemoteForFile: (id, repo) =>
             remoteQueue.pullRemoteForFile(id, repo),
+          fetchLocal,
+          ...forkDeps,
           appendReceived,
           observeRemote: (clock) => tap.observeRemote(clock),
         },
       );
+      // **0 件では呼ばない。**サイクルは定期的に走るので、空で上書きすると
+      // 人が読んでいる通知が消える
+      if (others.conflicts.conflicts.length > 0) {
+        onConflicts?.(fileId, others.conflicts, others.forks.length);
+      }
       if (others.readRepos.length > 0 || others.outsidePeriod > 0) {
         console.info(
           `[sync] read ${others.readRepos.length} participant repo(s): ` +
@@ -397,8 +445,11 @@ export function useEventSyncTap(
     roster,
     actor,
     appendReceived,
+    fetchLocal,
+    forkDeps,
     onReceived,
     onRoster,
+    onConflicts,
     onSynced,
   ]);
 

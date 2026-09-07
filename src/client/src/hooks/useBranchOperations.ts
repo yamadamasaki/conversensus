@@ -10,11 +10,16 @@ import type {
   GraphEdge,
   GraphFile,
   GraphNode,
+  MergeConflict,
   NodeLayout,
   Sheet,
   SheetId,
 } from '@conversensus/shared';
-import { BRANCH_STATUS, makeCommit } from '@conversensus/shared';
+import {
+  BRANCH_STATUS,
+  makeCommit,
+  requiresConfirmation,
+} from '@conversensus/shared';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as api from '../api';
 import { TRUNK_PREFIX } from '../atproto';
@@ -28,6 +33,7 @@ import {
   countCommitsAfter,
   lastMergeSourceAt,
   mergeBranchOnOplog,
+  previewMerge,
 } from '../sync/mergeBranch';
 import type { SyncProvider } from '../sync/syncProvider';
 import { type TapClock, useEventSyncTap } from './useEventSyncTap';
@@ -73,17 +79,45 @@ export function resolveBranchDiffState(
   return BRANCH_DIFF_STATE.UNCHANGED;
 }
 
-type ConfirmState = {
+/** 対立を「content 1 件 / structure 2 件」の形で言い表す。確認とログで同じ言葉を使う */
+function describeConflicts(conflicts: readonly MergeConflict[]): string {
+  const byCategory = new Map<string, number>();
+  for (const c of conflicts) {
+    byCategory.set(c.category, (byCategory.get(c.category) ?? 0) + 1);
+  }
+  return [...byCategory]
+    .map(([category, count]) => `${category} ${count} 件`)
+    .join(' / ');
+}
+
+export type ConfirmState = {
   message: string;
   resolve: (ok: boolean) => void;
 };
 
-type InputState = {
+export type InputState = {
   message: string;
   resolve: (value: string) => void;
 };
 
-type AlertState = {
+/**
+ * 画面に出す競合の通知 (Phase 3 T4)。
+ *
+ * **名前を一緒に運ぶ。**削除依存の対象はまさに消された要素なので、いま開いているシートから
+ * 名前を引けない。分岐点での名前を merge の結果が持っているので、それをそのまま渡す。
+ */
+export type ConflictNoticeState = {
+  conflicts: MergeConflict[];
+  /** 対象 id → 分岐点での名前。引けなかった対象は入らない */
+  labels: Map<string, string>;
+  /**
+   * 保留の記録 (fork) として書かれた件数 (Phase 3 T6)。
+   * **explicit merge では 0** — 人が押した merge は保留ではなく取り込みである
+   */
+  forkCount?: number;
+};
+
+export type AlertState = {
   message: string;
   resolve: () => void;
 };
@@ -137,6 +171,11 @@ interface UseBranchOperationsParams {
   setInputState: (s: InputState | null) => void;
   setAlertState: (s: AlertState | null) => void;
   /**
+   * merge で検出した競合を画面に届ける (Phase 3 T4)。**`console.warn` は人に届かない。**
+   * 空配列を渡したら通知は閉じる
+   */
+  setConflictNotice: (notice: ConflictNoticeState) => void;
+  /**
    * この端末の操作主体 `<did>#<deviceId>` (Phase 4d-2)。branch batch / commit の作者。
    * **既定値を持たせない** — 'local' 等に落とすと 4d-2 で削除した `LOCAL_ACTOR` が
    * 復活し、端末を識別できない batch が静かに生まれる。
@@ -159,6 +198,7 @@ export function useBranchOperations({
   setConfirmState,
   setInputState,
   setAlertState,
+  setConflictNotice,
   actor,
   trunkClock,
   deps = defaultBranchOpsDeps,
@@ -477,19 +517,39 @@ export function useBranchOperations({
   const handleMergeBranch = useCallback(
     async (branch: BranchMeta) => {
       if (!activeSheetId || !activeFile) return;
-      // merge 理由は commit と同様に**必須** (ANA-122)。確認ダイアログは置かない —
-      // 理由の入力そのものが確認であり、二段構えにしても得るものが無い。
-      const message = await new Promise<string>((resolve) => {
-        setInputState({
-          message: `branch "${branch.name}" を trunk に merge します。理由を入力してください:`,
-          resolve,
-        });
-      });
-      if (!message.trim()) return;
       try {
         // 🔴 直前の編集が branch op-log に着地するのを待つ。待たないと、その編集が
         // trunk に載らないまま branch だけ MERGED になる (record は非同期に flush する)。
+        // **先読みより前に置く** — 未着地の編集は対立の検出からも漏れる。
         await branchSettled();
+
+        // 適用の前に何が起きるかを見せる (Phase 3 T1)。merge は不可逆なので、
+        // 人の判断が要る対立 (content / structure) があれば取り込む前に問う。
+        // layout は「通知のみで DtR を起動しない」種別なので止めない。
+        const preview = await previewMerge(branch, {
+          fetchBatches: oplogDeps.fetchBatches,
+        });
+        const blocking = preview.conflicts.filter(requiresConfirmation);
+        if (blocking.length > 0) {
+          const proceed = await new Promise<boolean>((resolve) => {
+            setConfirmState({
+              message: `branch "${branch.name}" の取り込みで ${describeConflicts(blocking)} を検出しました。取り込むと trunk に載り、取り消せません。続けますか?`,
+              resolve,
+            });
+          });
+          if (!proceed) return;
+        }
+
+        // merge 理由は commit と同様に**必須** (ANA-122)。対立が無ければ理由の入力が
+        // 唯一の確認になる — 見せるものが無いのに二段構えにしても得るものが無い。
+        const message = await new Promise<string>((resolve) => {
+          setInputState({
+            message: `branch "${branch.name}" を trunk に merge します。理由を入力してください:`,
+            resolve,
+          });
+        });
+        if (!message.trim()) return;
+
         // branch batches を trunk 先端の後へ再スタンプして trunk op-log へ追記する。
         // 再スタンプの発番は trunk の tap と同じ clock で行う (同 clock の衝突回避)。
         const result = await mergeBranchOnOplog(
@@ -505,18 +565,16 @@ export function useBranchOperations({
             tick: trunkClock.tick,
           },
         );
+        // 収束は LWW で確定させ、対立は**画面に届ける** (Phase 3 T4)。
+        // **通知に出すのは確認で見せた先読みではなく、実際に適用した結果である** —
+        // 先読みと適用の間に trunk が動けば件数は食い違いうる。
+        setConflictNotice({
+          conflicts: result.conflicts,
+          labels: result.conflictLabels,
+        });
         if (result.conflicts.length > 0) {
-          // 収束は LWW で確定させ、対立は診断ログに残す (可視化は後続 phase)
-          const byCategory = result.conflicts.reduce<Record<string, number>>(
-            (acc, c) => {
-              acc[c.category] = (acc[c.category] ?? 0) + 1;
-              return acc;
-            },
-            {},
-          );
           console.warn(
-            `[branch] merge: ${result.conflicts.length} 件の対立を LWW で確定`,
-            byCategory,
+            `[branch] merge: ${describeConflicts(result.conflicts)} を LWW で確定`,
             result.conflicts,
           );
         }
@@ -532,7 +590,9 @@ export function useBranchOperations({
       activeSheetId,
       activeFile,
       setInputState,
+      setConfirmState,
       setAlertState,
+      setConflictNotice,
       oplogDeps,
       trunkClock,
       actor,

@@ -382,6 +382,24 @@ export function isContentOp(op: Op): op is ContentOp {
   return opCategory(op) === 'content';
 }
 
+/** layout カテゴリの op (位置・大きさ・経路)。merge の対立検出に使う */
+export type LayoutOp = Extract<
+  Op,
+  { kind: 'node.setLayout' | 'edge.setLayout' }
+>;
+
+/**
+ * layout カテゴリの op か。`isContentOp` と同じく、**判定は `OP_CATEGORY` 一本**だが
+ * 型の絞り込みのために `LayoutOp` を返す (layout op は必ず `target` を持つ)。
+ *
+ * layout の競合は「検出して通知するだけで DtR graph は起動しない」種別である
+ * (`spec/merging.md` の 3 段)。**削除依存には混ぜてはならない** — 混ぜると DtR が
+ * ノイズに埋まる。
+ */
+export function isLayoutOp(op: Op): op is LayoutOp {
+  return opCategory(op) === 'layout';
+}
+
 // --- Batch: undo/redo と同期の運搬単位 ---
 
 export const BatchSchema = z.object({

@@ -22,9 +22,7 @@ const sampleFile = (): GraphFile => ({
     {
       id: 'sheet-1' as SheetId,
       name: 'Sheet 1',
-      nodes: [
-        { id: 'n1' as NodeId, content: 'ノード1', style: { x: 10, y: 20 } },
-      ],
+      nodes: [{ id: 'n1' as NodeId, content: 'ノード1' }],
       edges: [
         {
           id: 'e1' as EdgeId,
@@ -33,6 +31,8 @@ const sampleFile = (): GraphFile => ({
           label: 'ラベル',
         },
       ],
+      // 座標はノードではなく sheet.layouts が持つ
+      layouts: [{ nodeId: 'n1' as NodeId, x: 10, y: 20 }],
     },
   ],
 });

@@ -9,9 +9,14 @@
  *
  * 判定は `projectFile` / `projectBatches` の畳み込み規則を写したもので、独立した第 2 の
  * 実装である。両者がずれたらテストで気付けるよう、規則の対応関係をコメントで示す。
+ *
+ * **例外はカスケード削除だけ** (Phase 3 T0)。この規則は op ではなくそのときの状態
+ * (親子関係) に依存するので、写すと必ずずれる — 実際、子孫の削除が抜けたまま
+ * 「`applyOp` と同じ」と書かれていた。`cascade.ts` を共有する。
  */
 
 import type { EdgeId, NodeId, SheetId } from '../schemas';
+import { cascadeOfNodeRemoval } from './cascade';
 import { orderBatches } from './project';
 import { type Batch, isFileOp, type Op } from './unified';
 
@@ -80,11 +85,20 @@ const DECORATION: Partial<Record<Op['kind'], 'node' | 'edge'>> = {
   'edge.setLabelOffset': 'edge',
 };
 
-/** シート内の live な対象集合。`ProjectedGraph` の nodes/edges の存在だけを追う縮約版 */
-type LiveTargets = { nodes: Set<NodeId>; edges: Map<EdgeId, [NodeId, NodeId]> };
+/**
+ * シート内の live な対象集合。`ProjectedGraph` の nodes/edges の存在だけを追う縮約版。
+ *
+ * ノードに `parentId` を持たせているのは**カスケード削除のため**である。親子関係が
+ * 無いと `node.remove` で消える子孫が分からず、消えた子への setter を
+ * `missing-target` として数え損なう。`CascadeGraphView` として渡せる形にしてある。
+ */
+type LiveTargets = {
+  nodes: Map<NodeId, { parentId?: NodeId }>;
+  edges: Map<EdgeId, { source: NodeId; target: NodeId }>;
+};
 
 function emptyTargets(): LiveTargets {
-  return { nodes: new Set(), edges: new Map() };
+  return { nodes: new Map(), edges: new Map() };
 }
 
 /**
@@ -107,12 +121,11 @@ function finalLiveSheets(ordered: Batch[]): Set<SheetId> {
   return live;
 }
 
-/** node.remove のカスケード削除 (`applyOp` の node.remove 分岐と同じ) */
+/** node.remove のカスケード削除。規則は projection と共有する (`cascade.ts`) */
 function removeNode(t: LiveTargets, nodeId: NodeId): void {
-  t.nodes.delete(nodeId);
-  for (const [edgeId, [source, dest]] of t.edges) {
-    if (source === nodeId || dest === nodeId) t.edges.delete(edgeId);
-  }
+  const removed = cascadeOfNodeRemoval(t, nodeId);
+  for (const id of removed.nodes) t.nodes.delete(id);
+  for (const id of removed.edges) t.edges.delete(id);
 }
 
 /**
@@ -208,15 +221,24 @@ export function analyzeApplicability(batches: Batch[]): ApplicabilityReport {
       // 存在集合を更新する (`applyOp` の structure 分岐と同じ規則)
       switch (op.kind) {
         case 'node.add':
-          live.nodes.add(op.target);
+          live.nodes.set(op.target, {
+            ...(op.parentId !== undefined && { parentId: op.parentId }),
+          });
           break;
         case 'node.remove':
           if (!live.nodes.has(op.target))
             warns.push({ ...trace, reason: 'redundant-remove' });
           removeNode(live, op.target);
           break;
+        // 所属先の変更はカスケードの形を変える。追わないと、後から親になった
+        // ノードの子孫が `node.remove` で消えることを見落とす
+        case 'node.setParent':
+          live.nodes.set(op.target, {
+            ...(op.parentId !== undefined && { parentId: op.parentId }),
+          });
+          break;
         case 'edge.add':
-          live.edges.set(op.target, [op.source, op.dest]);
+          live.edges.set(op.target, { source: op.source, target: op.dest });
           break;
         case 'edge.remove':
           if (!live.edges.has(op.target))
@@ -224,7 +246,7 @@ export function analyzeApplicability(batches: Batch[]): ApplicabilityReport {
           live.edges.delete(op.target);
           break;
         case 'edge.reconnect':
-          live.edges.set(op.target, [op.source, op.dest]);
+          live.edges.set(op.target, { source: op.source, target: op.dest });
           break;
       }
       appliedOps += 1;

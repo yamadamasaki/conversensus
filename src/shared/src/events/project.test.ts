@@ -126,6 +126,136 @@ describe('projectBatches', () => {
     expect(g.edges.has(inside)).toBe(false);
   });
 
+  // --- add-wins / tombstone (Phase 3 T2) ---
+  //
+  // 「判断を保留するなら情報を消さない方に倒す」(`spec/merging.md`)。競合の決着 (DtR) の
+  // 前に対象が消えると議論する物が無くなるので、削除は **tombstone** にする。
+
+  test('削除した要素は removed に残る (projection から消えるのではない)', () => {
+    const a = nid();
+    const g = projectBatches([
+      batch(1, [{ kind: 'node.add', target: a, content: 'A' }]),
+      batch(2, [{ kind: 'node.remove', target: a }]),
+    ]);
+    // 既定の表示からは外れる (toSheet は live しか出さない)
+    expect(g.nodes.has(a)).toBe(false);
+    // が、値は残っている — 競合の通知や ghost 表示から引ける
+    expect(g.removed.nodes.get(a)?.content).toBe('A');
+  });
+
+  test('🔴 削除の後の編集は tombstone を解く (add-wins)', () => {
+    // これが add-wins の中身である。clock-LWW のままだと編集が無言の no-op になり、
+    // 「消えた上に編集も失われた」になる
+    const a = nid();
+    const g = projectBatches([
+      batch(1, [{ kind: 'node.add', target: a, content: 'A' }]),
+      batch(2, [{ kind: 'node.remove', target: a }]),
+      batch(3, [{ kind: 'node.setContent', target: a, content: '編集' }]),
+    ]);
+    expect(g.nodes.get(a)?.content).toBe('編集');
+    expect(g.removed.nodes.has(a)).toBe(false);
+  });
+
+  test("🔴 グループを消した後に子を編集すると、親ごと戻る (S2')", () => {
+    // 子だけ戻すと親の居ない孤児になる。**存在の主張は祖先まで遡って効く**
+    const group = nid();
+    const child = nid();
+    const g = projectBatches([
+      batch(1, [
+        { kind: 'node.add', target: group, content: 'G' },
+        { kind: 'node.add', target: child, content: 'C', parentId: group },
+      ]),
+      batch(2, [{ kind: 'node.remove', target: group }]),
+      batch(3, [{ kind: 'node.setContent', target: child, content: '編集' }]),
+    ]);
+    expect(g.nodes.has(group)).toBe(true);
+    expect(g.nodes.get(child)?.content).toBe('編集');
+    expect(g.removed.nodes.size).toBe(0);
+  });
+
+  test('編集の後の削除は消える (削除が効かなくなるわけではない)', () => {
+    // add-wins は「削除を無効にする」ことではない。**後から来た主張が勝つ**だけで、
+    // 誰も触っていない削除はそのまま通る — でなければ何も消せなくなる
+    const a = nid();
+    const g = projectBatches([
+      batch(1, [{ kind: 'node.add', target: a, content: 'A' }]),
+      batch(2, [{ kind: 'node.setContent', target: a, content: '編集' }]),
+      batch(3, [{ kind: 'node.remove', target: a }]),
+    ]);
+    expect(g.nodes.has(a)).toBe(false);
+    expect(g.removed.nodes.get(a)?.content).toBe('編集');
+  });
+
+  test('layout / style は tombstone を解かない', () => {
+    // 位置を動かすことは「在るべきだ」という主張ではない。layout の競合は
+    // 「通知のみで DtR を起動しない」種別でもある (`prerequisitesOf` と同じ線引き)
+    const a = nid();
+    const g = projectBatches([
+      batch(1, [{ kind: 'node.add', target: a, content: 'A' }]),
+      batch(2, [{ kind: 'node.remove', target: a }]),
+      batch(3, [{ kind: 'node.setLayout', target: a, x: 1, y: 2 }]),
+      batch(4, [
+        { kind: 'node.setStyle', target: a, style: { stroke: '#f00' } },
+      ]),
+    ]);
+    expect(g.nodes.has(a)).toBe(false);
+    expect(g.removed.nodes.has(a)).toBe(true);
+  });
+
+  test('エッジを張り直すと、両端のノードも戻る (端点の無いエッジは在れない)', () => {
+    const a = nid();
+    const b = nid();
+    const e = eid();
+    const g = projectBatches([
+      batch(1, [
+        { kind: 'node.add', target: a, content: 'A' },
+        { kind: 'node.add', target: b, content: 'B' },
+      ]),
+      batch(2, [{ kind: 'node.remove', target: a }]),
+      batch(3, [{ kind: 'edge.add', target: e, source: a, dest: b }]),
+    ]);
+    expect(g.nodes.has(a)).toBe(true);
+    expect(g.edges.has(e)).toBe(true);
+  });
+
+  test('カスケードで消えた要素も removed に残る', () => {
+    const group = nid();
+    const child = nid();
+    const e = eid();
+    const outsider = nid();
+    const g = projectBatches([
+      batch(1, [
+        { kind: 'node.add', target: group, content: 'G' },
+        { kind: 'node.add', target: child, content: 'C', parentId: group },
+        { kind: 'node.add', target: outsider, content: 'O' },
+        { kind: 'edge.add', target: e, source: child, dest: outsider },
+      ]),
+      batch(2, [{ kind: 'node.remove', target: group }]),
+    ]);
+    expect([...g.removed.nodes.keys()].sort()).toEqual([group, child].sort());
+    expect([...g.removed.edges.keys()]).toEqual([e]);
+    expect(g.nodes.has(outsider)).toBe(true);
+  });
+
+  test('file.remove は add-wins にしない (remove-wins で sticky のまま)', () => {
+    // File の削除には「再作成」に相当する op が無いので add-wins にする意味が無い
+    // (ANA-127)。ここを一緒に倒さないことを固定する
+    const f = fid();
+    const s = sid();
+    const a = nid();
+    const batches = [
+      batch(1, [{ kind: 'sheet.create', target: s, name: 'S' }]),
+      contentBatch(2, s, [{ kind: 'node.add', target: a, content: 'A' }]),
+      batch(3, [{ kind: 'file.remove' }]),
+      contentBatch(4, s, [
+        { kind: 'node.setContent', target: a, content: '後から編集' },
+      ]),
+    ];
+    expect(isFileDeleted(batches)).toBe(true);
+    // グラフ側の編集は file の削除を取り消さない
+    expect(projectFile(batches, f).sheets).toHaveLength(1);
+  });
+
   test('子が親より後に node.add されていても子孫を取りこぼさない', () => {
     const group = nid();
     const child = nid();

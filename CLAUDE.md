@@ -26,6 +26,11 @@ bun run setup   # pre-commit hook をインストール (lint + typecheck が co
 - テストファイルはテスト対象と同じディレクトリに置く: `foo.ts` → `foo.test.ts`
 - テストファイルと同じ場所に `foo.test.md` を置き, **何を・なぜ・どのようにテストするか** を記述する
 - テスト実行: `bun test`
+- **テスト・コードも型検査の対象にする** (`bun run typecheck`)。`bun test` は transpile only で
+  走るので, ここで見ないとフェイクと本物のインタフェースの乖離が実行時まで分からない
+  - 単体: client は `src/client/tsconfig.test.json` (本番ビルド用の `tsconfig.app.json` と分ける),
+    server と shared は本体用の設定にテストを含める (どちらも tsc でビルドしないため)
+  - E2E: `tsconfig.e2e.json`
 
 ### 全称命題は性質として書く (property-based testing)
 

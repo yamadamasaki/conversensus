@@ -42,6 +42,8 @@ const batch = (id: string, over: Partial<Batch> = {}): Batch => ({
 /** pushRemote/pull 系を記録し成否・pull 応答を切り替えられるテスト用 remote */
 class FakeProvider implements RemoteBatchTarget {
   pushed: RemoteBatch[][] = [];
+  /** `createRemote` で作られたエンベロープ (移行専用経路) */
+  created: RemoteBatch[][] = [];
   online = true;
   /** remote に載っているエンベロープ (repo 全体なので他ファイル分も混ざりうる) */
   pullEntries: RemoteBatch[] = [];
@@ -55,6 +57,14 @@ class FakeProvider implements RemoteBatchTarget {
   async pushRemote(entries: readonly RemoteBatch[]): Promise<void> {
     if (!this.online) throw new Error('offline');
     this.pushed.push([...entries]);
+  }
+  /**
+   * 移行専用の新規作成 (p7-4)。**push とは別に記録する** — べき等でない契約なので、
+   * 取り違えると「二重に作った」ことがテストから見えなくなる
+   */
+  async createRemote(entries: readonly RemoteBatch[]): Promise<void> {
+    if (!this.online) throw new Error('offline');
+    this.created.push([...entries]);
   }
   async pullAllRemoteForMigration(): Promise<RemoteBatch[]> {
     this.fullPulls += 1;
@@ -106,7 +116,12 @@ describe('RemoteSyncQueue', () => {
       q.enqueue([batch('1')], FILE);
       q.enqueue([batch('2')], other);
       await q.flush();
-      expect(provider.flatEntries.map((e) => [e.batch.id, e.fileId])).toEqual([
+      expect(
+        provider.flatEntries.map((e) => [
+          e.batch.id as string,
+          e.fileId as string,
+        ]),
+      ).toEqual([
         ['1', FILE],
         ['2', other],
       ]);
@@ -162,7 +177,10 @@ describe('RemoteSyncQueue', () => {
       const result = await q.flush();
       expect(result.ok).toBe(true);
       expect(q.pendingCount).toBe(0);
-      expect(provider.flatPushed.map((b) => b.id)).toEqual(['1', '2']);
+      expect(provider.flatPushed.map((b) => b.id as string)).toEqual([
+        '1',
+        '2',
+      ]);
     });
 
     it('失敗しても破棄せず保持する', async () => {
@@ -216,7 +234,7 @@ describe('RemoteSyncQueue', () => {
       });
       q.enqueue([batch('1'), batch('2'), batch('3')], FILE);
       expect(q.pendingCount).toBe(2);
-      expect(q.pending().map((e) => e.batch.id)).toEqual(['2', '3']);
+      expect(q.pending().map((e) => e.batch.id as string)).toEqual(['2', '3']);
       expect(q.overflowed).toBe(true);
     });
 
@@ -237,7 +255,10 @@ describe('RemoteSyncQueue', () => {
         FILE,
       );
       expect(result.ok).toBe(true);
-      expect(provider.flatPushed.map((b) => b.id)).toEqual(['2', '3']);
+      expect(provider.flatPushed.map((b) => b.id as string)).toEqual([
+        '2',
+        '3',
+      ]);
       expect(q.pendingCount).toBe(0);
     });
 
@@ -247,7 +268,10 @@ describe('RemoteSyncQueue', () => {
       const q = new RemoteSyncQueue({ provider, did: MY_DID });
       await q.catchUp([batch('1', { actor: GENESIS_ACTOR }), batch('2')], FILE);
       // genesis の '1' も bootstrap の起源として push される
-      expect(provider.flatPushed.map((b) => b.id)).toEqual(['1', '2']);
+      expect(provider.flatPushed.map((b) => b.id as string)).toEqual([
+        '1',
+        '2',
+      ]);
     });
 
     it('受信した他 actor の batch を remote へ送り返さない (step2 Phase 2 S0)', async () => {
@@ -267,7 +291,10 @@ describe('RemoteSyncQueue', () => {
         FILE,
       );
       // 自分の '1' と、File の起源である genesis の '4' だけが載る
-      expect(provider.flatPushed.map((b) => b.id)).toEqual(['1', '4']);
+      expect(provider.flatPushed.map((b) => b.id as string)).toEqual([
+        '1',
+        '4',
+      ]);
     });
 
     it('取得はファイル単位で行い repo 全件を落とさない (Phase 7 p7-2)', async () => {
@@ -296,7 +323,7 @@ describe('RemoteSyncQueue', () => {
       await q.catchUp([batch('1'), batch('2')], FILE);
       // '1' は FILE に既にあるので送らない。'2' は OTHER のものなので
       // FILE としては未送信 → 積み直す。
-      expect(provider.flatPushed.map((b) => b.id)).toEqual(['2']);
+      expect(provider.flatPushed.map((b) => b.id as string)).toEqual(['2']);
     });
 
     it('他ファイルの batch しか remote に無ければローカル全件を積み直す', async () => {
@@ -310,7 +337,10 @@ describe('RemoteSyncQueue', () => {
       ];
       const q = new RemoteSyncQueue({ provider, did: MY_DID });
       await q.catchUp([batch('1'), batch('2')], FILE);
-      expect(provider.flatPushed.map((b) => b.id)).toEqual(['1', '2']);
+      expect(provider.flatPushed.map((b) => b.id as string)).toEqual([
+        '1',
+        '2',
+      ]);
       // 積み直したエンベロープは FILE 宛であること
       expect(provider.flatEntries.every((e) => e.fileId === FILE)).toBe(true);
     });

@@ -88,7 +88,10 @@ describe('discoverRemoteFiles (Phase 4e-2b)', () => {
     // fileId ごとに 1 回の書き込みへ束ねる
     expect(t.appendCalls).toHaveLength(2);
     expect(t.appendCalls[0]?.fileId).toBe(NEW_A);
-    expect(t.appendCalls[0]?.batches.map((b) => b.id)).toEqual(['a1', 'a2']);
+    expect(t.appendCalls[0]?.batches.map((b) => b.id as string)).toEqual([
+      'a1',
+      'a2',
+    ]);
     expect(t.appendCalls[1]?.fileId).toBe(NEW_B);
   });
 

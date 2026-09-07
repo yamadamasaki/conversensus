@@ -2,7 +2,15 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { FileId, SheetId } from '@conversensus/shared';
+import type {
+  Batch,
+  BranchMeta,
+  Commit,
+  FileId,
+  GraphFile,
+  GraphFileListItem,
+  SheetId,
+} from '@conversensus/shared';
 import { projectFile } from '@conversensus/shared';
 import { app } from './index';
 import { listSnapshotIds } from './storage';
@@ -20,6 +28,16 @@ afterEach(async () => {
   delete process.env.DATA_DIR;
   await rm(tmpDir, { recursive: true, force: true });
 });
+
+/**
+ * レスポンス本体を読む。`Response.json()` は unknown を返すので,
+ * **エンドポイントが返すと約束した型をここで名指しする**。
+ * 約束が変われば, 呼び出し側がその場で型エラーになる
+ */
+const bodyOf = async <T>(res: Response): Promise<T> => (await res.json()) as T;
+
+/** POST /blobs の応答 */
+type UploadedBlob = { cid: string; mimeType: string; size: number };
 
 async function createFile(name?: string) {
   return fetch(
@@ -55,7 +73,7 @@ async function postBatches(fileId: string, batches: unknown[]) {
 describe('API routes', () => {
   describe('POST /files/:id/batches', () => {
     it('batches を追記して 201 と件数を返す', async () => {
-      const created = await (await createFile('ログ')).json();
+      const created = await bodyOf<GraphFile>(await createFile('ログ'));
       const res = await postBatches(created.id, [
         sampleBatch(1),
         sampleBatch(2),
@@ -65,14 +83,14 @@ describe('API routes', () => {
     });
 
     it('同一 batch の再送はべき等 (appended=0)', async () => {
-      const created = await (await createFile('ログ')).json();
+      const created = await bodyOf<GraphFile>(await createFile('ログ'));
       await postBatches(created.id, [sampleBatch(1)]);
       const res = await postBatches(created.id, [sampleBatch(1)]);
       expect(await res.json()).toEqual({ appended: 0 });
     });
 
     it('不正な Batch は 400 を返す', async () => {
-      const created = await (await createFile('ログ')).json();
+      const created = await bodyOf<GraphFile>(await createFile('ログ'));
       const res = await postBatches(created.id, [{ id: 'not-a-uuid' }]);
       expect(res.status).toBe(400);
     });
@@ -90,8 +108,8 @@ describe('API routes', () => {
         new Request(`http://localhost/files/${rawId}/batches`),
       );
       expect(res.status).toBe(200);
-      const body = await res.json();
-      expect(body.map((b: { clock: number }) => b.clock)).toEqual([1, 2]);
+      const body = await bodyOf<Batch[]>(res);
+      expect(body.map((b) => b.clock)).toEqual([1, 2]);
     });
 
     it('since を渡すと clock > since のみ返す', async () => {
@@ -103,8 +121,8 @@ describe('API routes', () => {
       const res = await fetch(
         new Request(`http://localhost/files/${rawId}/batches?since=1`),
       );
-      const body = await res.json();
-      expect(body.map((b: { clock: number }) => b.clock)).toEqual([2, 3]);
+      const body = await bodyOf<Batch[]>(res);
+      expect(body.map((b) => b.clock)).toEqual([2, 3]);
     });
 
     it('ログの無いファイルは空配列を返す', async () => {
@@ -119,21 +137,19 @@ describe('API routes', () => {
   // lazy migration は撤去された。「読んだだけで op-log が消える」経路がもう無いことを固定する。
   describe('GET /files/:id/batches — 作成時 genesis と読取の無害性 (Phase 6 p6-1)', () => {
     it('新規作成ファイルの初回 GET が genesis を返す', async () => {
-      const created = await (await createFile('空')).json();
+      const created = await bodyOf<GraphFile>(await createFile('空'));
       const res = await fetch(
         new Request(`http://localhost/files/${created.id}/batches`),
       );
-      const body = await res.json();
+      const body = await bodyOf<Batch[]>(res);
       // 空ファイルでも file.setName / sheet.create の genesis batch が作られている
       expect(body.length).toBeGreaterThan(0);
-      const kinds = body.flatMap((b: { ops: { kind: string }[] }) =>
-        b.ops.map((o) => o.kind),
-      );
+      const kinds = body.flatMap((b) => b.ops.map((o) => o.kind));
       expect(kinds).toContain('file.setName');
     });
 
     it('二度目の GET も同じ genesis を返す (読取に副作用が無い)', async () => {
-      const created = await (await createFile('反復')).json();
+      const created = await bodyOf<GraphFile>(await createFile('反復'));
       const first = await (
         await fetch(new Request(`http://localhost/files/${created.id}/batches`))
       ).json();
@@ -147,20 +163,18 @@ describe('API routes', () => {
       // W3d-1 では lazy migration がここで `DELETE FROM batches` を実行し、
       // 積んだ増分を捨てていた (4d-0 §1.8 の事故はこれが原因)。p6-1 で読取時の
       // migration ごと撤去したので、**書いたものは読んでも消えない**。
-      const created = await (await createFile('保持')).json();
+      const created = await bodyOf<GraphFile>(await createFile('保持'));
       await postBatches(created.id, [sampleBatch(1)]);
       const res = await fetch(
         new Request(`http://localhost/files/${created.id}/batches`),
       );
-      const body = await res.json();
-      const contents = body.flatMap((b: { ops: { content?: string }[] }) =>
-        b.ops.map((o) => o.content),
+      const body = await bodyOf<Batch[]>(res);
+      const contents = body.flatMap((b) =>
+        b.ops.map((o) => ('content' in o ? o.content : undefined)),
       );
       expect(contents).toContain('n1');
       // genesis も残っている (置き換えではなく追記)
-      const kinds = body.flatMap((b: { ops: { kind: string }[] }) =>
-        b.ops.map((o) => o.kind),
-      );
+      const kinds = body.flatMap((b) => b.ops.map((o) => o.kind));
       expect(kinds).toContain('file.setName');
     });
   });
@@ -177,7 +191,7 @@ describe('API routes', () => {
     }
 
     it('受信 batches を追記して 201 と件数を返す', async () => {
-      const created = await (await createFile('受信')).json();
+      const created = await bodyOf<GraphFile>(await createFile('受信'));
       const res = await postReceived(created.id, [
         sampleBatch(1),
         sampleBatch(2),
@@ -187,14 +201,14 @@ describe('API routes', () => {
     });
 
     it('同一 batch の再受信はべき等 (appended=0)', async () => {
-      const created = await (await createFile('受信')).json();
+      const created = await bodyOf<GraphFile>(await createFile('受信'));
       await postReceived(created.id, [sampleBatch(1)]);
       const res = await postReceived(created.id, [sampleBatch(1)]);
       expect(await res.json()).toEqual({ appended: 0 });
     });
 
     it('不正な Batch は 400 を返す', async () => {
-      const created = await (await createFile('受信')).json();
+      const created = await bodyOf<GraphFile>(await createFile('受信'));
       const res = await postReceived(created.id, [{ id: 'not-a-uuid' }]);
       expect(res.status).toBe(400);
     });
@@ -203,15 +217,15 @@ describe('API routes', () => {
       // 4d-0 (§1.8) では marker がこれを守っていた。p6-1 で読取時の migration ごと
       // 撤去されたので、いまは経路の有無に関わらず消えない。受信経路の end-to-end 契約
       // としては引き続き成立する必要があるため残す。
-      const created = await (await createFile('受信保護')).json();
+      const created = await bodyOf<GraphFile>(await createFile('受信保護'));
       // openFile より前に受信 batch が着地した状態を模す (device B の未オープンファイル)
       await postReceived(created.id, [sampleBatch(1)]);
       const res = await fetch(
         new Request(`http://localhost/files/${created.id}/batches`),
       );
-      const body = await res.json();
-      const contents = body.flatMap((b: { ops: { content?: string }[] }) =>
-        b.ops.map((o) => o.content),
+      const body = await bodyOf<Batch[]>(res);
+      const contents = body.flatMap((b) =>
+        b.ops.map((o) => ('content' in o ? o.content : undefined)),
       );
       expect(contents).toContain('n1');
     });
@@ -242,7 +256,7 @@ describe('API routes', () => {
     }
 
     it('コミットを保存して 201 と保存内容を返す', async () => {
-      const created = await (await createFile('ログ')).json();
+      const created = await bodyOf<GraphFile>(await createFile('ログ'));
       const commit = sampleCommit(1, 3);
       const res = await postCommit(created.id, commit);
       expect(res.status).toBe(201);
@@ -252,7 +266,7 @@ describe('API routes', () => {
     });
 
     it('merge の記録は kind と由来 branch を保って往復する', async () => {
-      const created = await (await createFile('ログ')).json();
+      const created = await bodyOf<GraphFile>(await createFile('ログ'));
       const mergeCommit = {
         ...sampleCommit(3, 7),
         kind: 'merge',
@@ -267,19 +281,19 @@ describe('API routes', () => {
     });
 
     it('保存したコミットを at 昇順で取得できる', async () => {
-      const created = await (await createFile('ログ')).json();
+      const created = await bodyOf<GraphFile>(await createFile('ログ'));
       await postCommit(created.id, sampleCommit(2, 5));
       await postCommit(created.id, sampleCommit(1, 2));
       const res = await fetch(
         new Request(`http://localhost/files/${created.id}/commits`),
       );
       expect(res.status).toBe(200);
-      const body = await res.json();
-      expect(body.map((cm: { at: number }) => cm.at)).toEqual([2, 5]);
+      const body = await bodyOf<Commit[]>(res);
+      expect(body.map((cm) => cm.at)).toEqual([2, 5]);
     });
 
     it('コミットが無ければ空配列を返す', async () => {
-      const created = await (await createFile('ログ')).json();
+      const created = await bodyOf<GraphFile>(await createFile('ログ'));
       const res = await fetch(
         new Request(`http://localhost/files/${created.id}/commits`),
       );
@@ -287,7 +301,7 @@ describe('API routes', () => {
     });
 
     it('不正なコミット (id が UUID でない) は 400 を返す', async () => {
-      const created = await (await createFile('ログ')).json();
+      const created = await bodyOf<GraphFile>(await createFile('ログ'));
       const res = await postCommit(created.id, {
         ...sampleCommit(1, 3),
         id: 'not-a-uuid',
@@ -329,7 +343,7 @@ describe('API routes', () => {
     }
 
     it('ブランチのメタを保存して 201 と保存内容を返す', async () => {
-      const created = await (await createFile('trunk')).json();
+      const created = await bodyOf<GraphFile>(await createFile('trunk'));
       const meta = sampleBranch(1, created.id, 3);
       const res = await postBranch(created.id, meta);
       expect(res.status).toBe(201);
@@ -341,36 +355,34 @@ describe('API routes', () => {
     });
 
     it('保存したブランチを base オフセット昇順で取得できる', async () => {
-      const created = await (await createFile('trunk')).json();
+      const created = await bodyOf<GraphFile>(await createFile('trunk'));
       await postBranch(created.id, sampleBranch(2, created.id, 5));
       await postBranch(created.id, sampleBranch(1, created.id, 2));
       const res = await fetch(
         new Request(`http://localhost/files/${created.id}/branches`),
       );
       expect(res.status).toBe(200);
-      const body = await res.json();
-      expect(body.map((b: { base: { at: number } }) => b.base.at)).toEqual([
-        2, 5,
-      ]);
+      const body = await bodyOf<BranchMeta[]>(res);
+      expect(body.map((b) => b.base.at)).toEqual([2, 5]);
     });
 
     it('trunk が異なるブランチは一覧に混ざらない', async () => {
-      const trunkA = await (await createFile('trunk A')).json();
-      const trunkB = await (await createFile('trunk B')).json();
+      const trunkA = await bodyOf<GraphFile>(await createFile('trunk A'));
+      const trunkB = await bodyOf<GraphFile>(await createFile('trunk B'));
       await postBranch(trunkA.id, sampleBranch(1, trunkA.id, 1));
       await postBranch(trunkB.id, sampleBranch(2, trunkB.id, 1));
       const res = await fetch(
         new Request(`http://localhost/files/${trunkA.id}/branches`),
       );
-      const body = await res.json();
-      expect(body.map((b: { id: string }) => b.id)).toEqual([uuid(3001)]);
+      const body = await bodyOf<BranchMeta[]>(res);
+      expect(body.map((b) => b.id as string)).toEqual([uuid(3001)]);
     });
 
     // URL と body の trunk が食い違うと、以後 GET で取り出せないブランチが
     // 静かに生まれる。境界で弾くことを固定する。
     it('body の trunkFileId が URL と食い違えば 400 を返す', async () => {
-      const trunkA = await (await createFile('trunk A')).json();
-      const trunkB = await (await createFile('trunk B')).json();
+      const trunkA = await bodyOf<GraphFile>(await createFile('trunk A'));
+      const trunkB = await bodyOf<GraphFile>(await createFile('trunk B'));
       const res = await postBranch(trunkA.id, sampleBranch(1, trunkB.id, 1));
       expect(res.status).toBe(400);
       const listed = await (
@@ -380,7 +392,7 @@ describe('API routes', () => {
     });
 
     it('不正なブランチ (status が未定義の値) は 400 を返す', async () => {
-      const created = await (await createFile('trunk')).json();
+      const created = await bodyOf<GraphFile>(await createFile('trunk'));
       const res = await postBranch(
         created.id,
         sampleBranch(1, created.id, 1, { status: 'unknown' }),
@@ -389,7 +401,7 @@ describe('API routes', () => {
     });
 
     it('ブランチが無ければ空配列を返す', async () => {
-      const created = await (await createFile('trunk')).json();
+      const created = await bodyOf<GraphFile>(await createFile('trunk'));
       const res = await fetch(
         new Request(`http://localhost/files/${created.id}/branches`),
       );
@@ -406,7 +418,7 @@ describe('API routes', () => {
       }
 
       it('ブランチを消すとメタと branch 専用 op-log が消える', async () => {
-        const created = await (await createFile('trunk')).json();
+        const created = await bodyOf<GraphFile>(await createFile('trunk'));
         const meta = sampleBranch(1, created.id, 1);
         await postBranch(created.id, meta);
         // branch 専用 file_id へ編集を積む (branch の実体)
@@ -436,7 +448,7 @@ describe('API routes', () => {
       });
 
       it('存在しないブランチは 404 を返す', async () => {
-        const created = await (await createFile('trunk')).json();
+        const created = await bodyOf<GraphFile>(await createFile('trunk'));
         const res = await deleteBranch(created.id, uuid(3999));
         expect(res.status).toBe(404);
       });
@@ -444,8 +456,8 @@ describe('API routes', () => {
       // trunk を URL で受けるのは、id だけを知る呼び出しが別ファイルのブランチを
       // 消せないようにするため。
       it('別の trunk を指定したブランチは消えない', async () => {
-        const trunkA = await (await createFile('trunk A')).json();
-        const trunkB = await (await createFile('trunk B')).json();
+        const trunkA = await bodyOf<GraphFile>(await createFile('trunk A'));
+        const trunkB = await bodyOf<GraphFile>(await createFile('trunk B'));
         const meta = sampleBranch(1, trunkA.id, 1);
         await postBranch(trunkA.id, meta);
 
@@ -494,55 +506,54 @@ describe('API routes', () => {
     }
 
     it('op-log にしか無いファイルも一覧に載る (受信 materialize の可視化)', async () => {
-      const created = await (await createFile('作成側')).json();
+      const created = await bodyOf<GraphFile>(await createFile('作成側'));
       const oplogId = uuid(42);
       await receive(oplogId, [structureBatch(1, '受信ファイル')]);
 
-      const body = await (
-        await fetch(new Request('http://localhost/files'))
-      ).json();
+      const body = await bodyOf<GraphFileListItem[]>(
+        await fetch(new Request('http://localhost/files')),
+      );
       // 順序は op-log の初出順 (file_id ごとの最小 seq)
-      expect(body.map((f: { id: string }) => f.id)).toEqual([
-        created.id,
-        oplogId,
-      ]);
+      expect(body.map((f) => f.id as string)).toEqual([created.id, oplogId]);
       expect(body[1].name).toBe('受信ファイル');
     });
 
     // p6-2 の切り替えの核心: 一覧の name はどちらの正典から来るか。
     // 和集合だった頃は snapshot 側が勝っていた (二重の正典)。今は op-log projection だけ。
     it('snapshot だけを更新しても一覧には反映されない (op-log projection が正)', async () => {
-      const created = await (await createFile('op-log の名前')).json();
+      const created = await bodyOf<GraphFile>(
+        await createFile('op-log の名前'),
+      );
       // snapshot を直接書き換える (HTTP からは書けなくなった — p6-3 で PUT を撤去)
       await writeLegacySnapshot({ ...created, name: 'snapshot だけの名前' });
 
-      const body = await (
-        await fetch(new Request('http://localhost/files'))
-      ).json();
+      const body = await bodyOf<GraphFileListItem[]>(
+        await fetch(new Request('http://localhost/files')),
+      );
       expect(body).toHaveLength(1);
       expect(body[0].name).toBe('op-log の名前');
     });
 
     it('構造を持たない孤児 batch だけの file_id は一覧に出さない (D-4)', async () => {
       await receive(uuid(77), [sampleBatch(1)]); // sheet.create の無い content batch
-      const body = await (
-        await fetch(new Request('http://localhost/files'))
-      ).json();
+      const body = await bodyOf<GraphFileListItem[]>(
+        await fetch(new Request('http://localhost/files')),
+      );
       expect(body).toEqual([]);
     });
 
     // Phase 5 p5-1: branch 専用 file_id は snapshot を持たず op-log にしか無いので、
     // 一覧に出るとしたら op-log 側 (listOplogFiles) から。HTTP の口でも固定する。
     it('branch 専用 file_id は一覧に出ない (Phase 5 p5-1)', async () => {
-      const trunk = await (await createFile('trunk')).json();
+      const trunk = await bodyOf<GraphFile>(await createFile('trunk'));
       const branchFileId = uuid(88);
       // branch の編集 = 分岐元シートを指す content batch のみ (構造 op を含まない)
       await postBatches(branchFileId, [sampleBatch(1), sampleBatch(2)]);
 
-      const body = await (
-        await fetch(new Request('http://localhost/files'))
-      ).json();
-      expect(body.map((f: { id: string }) => f.id)).toEqual([trunk.id]);
+      const body = await bodyOf<GraphFileListItem[]>(
+        await fetch(new Request('http://localhost/files')),
+      );
+      expect(body.map((f) => f.id)).toEqual([trunk.id]);
     });
   });
 
@@ -550,7 +561,7 @@ describe('API routes', () => {
     it('ファイルを作成して 201 を返す', async () => {
       const res = await createFile('新規ファイル');
       expect(res.status).toBe(201);
-      const body = await res.json();
+      const body = await bodyOf<GraphFile>(res);
       expect(body.name).toBe('新規ファイル');
       expect(body.id).toBeTruthy();
       expect(body.sheets).toBeArrayOfSize(1);
@@ -564,7 +575,7 @@ describe('API routes', () => {
           body: JSON.stringify({}),
         }),
       );
-      const body = await res.json();
+      const body = await bodyOf<GraphFile>(res);
       expect(body.name).toBe('無題');
     });
   });
@@ -610,7 +621,7 @@ describe('API routes', () => {
     });
 
     it('batch を追記しても snapshot は現れない', async () => {
-      const created = await (await createFile('編集')).json();
+      const created = await bodyOf<GraphFile>(await createFile('編集'));
       await postBatches(created.id, [sampleBatch(1)]);
       expect(await snapshotFiles()).toEqual([]);
     });
@@ -621,7 +632,7 @@ describe('API routes', () => {
   // (読取は op-log の projection、書込は batch 追記が唯一の口)。
   describe('🔴 撤去した snapshot endpoint (Phase 6 p6-3)', () => {
     it('GET /files/:id は存在しない', async () => {
-      const created = await (await createFile('テスト')).json();
+      const created = await bodyOf<GraphFile>(await createFile('テスト'));
       const res = await fetch(
         new Request(`http://localhost/files/${created.id}`),
       );
@@ -629,7 +640,7 @@ describe('API routes', () => {
     });
 
     it('PUT /files/:id は存在しない', async () => {
-      const created = await (await createFile('元の名前')).json();
+      const created = await bodyOf<GraphFile>(await createFile('元の名前'));
       const res = await fetch(
         new Request(`http://localhost/files/${created.id}`, {
           method: 'PUT',
@@ -650,25 +661,25 @@ describe('API routes', () => {
     }
 
     async function listFileIds(): Promise<string[]> {
-      const body = await (
-        await fetch(new Request('http://localhost/files'))
-      ).json();
-      return body.map((f: { id: string }) => f.id);
+      const body = await bodyOf<GraphFileListItem[]>(
+        await fetch(new Request('http://localhost/files')),
+      );
+      return body.map((f) => f.id as string);
     }
 
-    async function getBatches(fileId: string): Promise<unknown[]> {
-      return (
-        await fetch(new Request(`http://localhost/files/${fileId}/batches`))
-      ).json();
+    async function getBatches(fileId: string): Promise<Batch[]> {
+      return bodyOf<Batch[]>(
+        await fetch(new Request(`http://localhost/files/${fileId}/batches`)),
+      );
     }
 
     it('ファイルを削除すると 204 を返す', async () => {
-      const created = await (await createFile('削除対象')).json();
+      const created = await bodyOf<GraphFile>(await createFile('削除対象'));
       expect((await deleteFileReq(created.id)).status).toBe(204);
     });
 
     it('削除後は GET で 404 になる', async () => {
-      const created = await (await createFile('削除対象')).json();
+      const created = await bodyOf<GraphFile>(await createFile('削除対象'));
       await deleteFileReq(created.id);
       const res = await fetch(
         new Request(`http://localhost/files/${created.id}`),
@@ -683,7 +694,7 @@ describe('API routes', () => {
     // §1.3 の穴: snapshot しか消していなかったため、削除したファイルの op-log が残り、
     // 同じ id が受信で materialize されると消したはずの内容が復活しうる。
     it('削除すると op-log も消える (batches が残らない)', async () => {
-      const created = await (await createFile('削除対象')).json();
+      const created = await bodyOf<GraphFile>(await createFile('削除対象'));
       await postBatches(created.id, [sampleBatch(1)]);
       expect(await getBatches(created.id)).not.toEqual([]);
 
@@ -750,7 +761,7 @@ describe('API routes', () => {
     // branch の中身へは branches.branch_file_id からしか辿れない。trunk を消すときに
     // 一緒に消さないと、参照者のいない batch が永久に残る (deleteBranch と同じ理由)。
     it('trunk を削除するとブランチのメタと branch 専用 op-log も消える', async () => {
-      const trunk = await (await createFile('trunk')).json();
+      const trunk = await bodyOf<GraphFile>(await createFile('trunk'));
       const branchFileId = uuid(6001);
       const meta = {
         id: uuid(3001),
@@ -780,7 +791,7 @@ describe('API routes', () => {
     });
 
     it('コミットも消える', async () => {
-      const created = await (await createFile('削除対象')).json();
+      const created = await bodyOf<GraphFile>(await createFile('削除対象'));
       await fetch(
         new Request(`http://localhost/files/${created.id}/commits`, {
           method: 'POST',
@@ -796,15 +807,34 @@ describe('API routes', () => {
 
       await deleteFileReq(created.id);
 
-      const commits = await (
-        await fetch(new Request(`http://localhost/files/${created.id}/commits`))
-      ).json();
+      const commits = await bodyOf<Commit[]>(
+        await fetch(
+          new Request(`http://localhost/files/${created.id}/commits`),
+        ),
+      );
       expect(commits).toEqual([]);
     });
   });
 
   describe('POST /files/import', () => {
-    const validPayload = () => ({
+    /** インポートに送る生の JSON。branded 型になる前の形なので id は素の文字列 */
+    type ImportPayload = {
+      version: string;
+      id: string;
+      name: string;
+      description: string;
+      sheets: {
+        id: string;
+        name: string;
+        nodes: {
+          id: string;
+          content: string;
+          style: { x: number; y: number };
+        }[];
+        edges: { id: string; source: string; target: string }[];
+      }[];
+    };
+    const validPayload = (): ImportPayload => ({
       version: '1',
       id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
       name: 'インポートファイル',
@@ -828,7 +858,7 @@ describe('API routes', () => {
         }),
       );
       expect(res.status).toBe(201);
-      const body = await res.json();
+      const body = await bodyOf<GraphFile>(res);
       expect(body.name).toBe('インポートファイル');
       expect(body.sheets).toBeArrayOfSize(1);
     });
@@ -851,7 +881,7 @@ describe('API routes', () => {
           body: JSON.stringify(payload),
         }),
       );
-      const body = await res.json();
+      const body = await bodyOf<GraphFile>(res);
       expect(body.id).not.toBe(payload.id);
       expect(body.sheets[0].id).not.toBe(payload.sheets[0].id);
       expect(body.sheets[0].nodes[0].id).not.toBe(nodeId);
@@ -874,33 +904,33 @@ describe('API routes', () => {
       payload.sheets[0].edges = [
         { id: edgeId, source: nodeId, target: nodeId },
       ];
-      const imported = await (
+      const imported = await bodyOf<GraphFile>(
         await fetch(
           new Request('http://localhost/files/import', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
           }),
-        )
-      ).json();
+        ),
+      );
 
-      const batches = await (
+      const batches = await bodyOf<Batch[]>(
         await fetch(
           new Request(`http://localhost/files/${imported.id}/batches`),
-        )
-      ).json();
+        ),
+      );
       const projected = projectFile(batches, imported.id);
 
       expect(projected.name).toBe(imported.name);
       expect(projected.description).toBe(imported.description);
       expect(projected.sheets.map((s) => s.id)).toEqual(
-        imported.sheets.map((s: { id: string }) => s.id),
+        imported.sheets.map((s) => s.id),
       );
       expect(projected.sheets[0]?.nodes.map((n) => n.id)).toEqual(
-        imported.sheets[0].nodes.map((n: { id: string }) => n.id),
+        imported.sheets[0].nodes.map((n) => n.id),
       );
       expect(projected.sheets[0]?.edges.map((e) => e.id)).toEqual(
-        imported.sheets[0].edges.map((e: { id: string }) => e.id),
+        imported.sheets[0].edges.map((e) => e.id),
       );
       // 付け替えた参照 (source/target) が projection でも保たれている
       expect(projected.sheets[0]?.edges[0]?.source).toBe(
@@ -916,9 +946,9 @@ describe('API routes', () => {
           body: JSON.stringify(validPayload()),
         }),
       );
-      const list = await (
-        await fetch(new Request('http://localhost/files'))
-      ).json();
+      const list = await bodyOf<GraphFileListItem[]>(
+        await fetch(new Request('http://localhost/files')),
+      );
       expect(list).toHaveLength(1);
       expect(list[0].name).toBe('インポートファイル');
     });
@@ -946,14 +976,14 @@ describe('API routes', () => {
         }),
       );
       expect(res.status).toBe(201);
-      const imported = await res.json();
+      const imported = await bodyOf<GraphFile>(res);
       expect(imported).not.toHaveProperty('blobs');
 
-      const batches = await (
+      const batches = await bodyOf<Batch[]>(
         await fetch(
           new Request(`http://localhost/files/${imported.id}/batches`),
-        )
-      ).json();
+        ),
+      );
       expect(JSON.stringify(batches)).not.toContain('AQID');
     });
 
@@ -1022,10 +1052,12 @@ describe('blob API (ANA-116)', () => {
   });
 
   it('同じ内容を 2 回送っても同じ cid が返る (冪等)', async () => {
-    const first = await (await postBlob(HELLO, 'image/png')).json();
+    const first = await bodyOf<UploadedBlob>(
+      await postBlob(HELLO, 'image/png'),
+    );
     const second = await postBlob(HELLO, 'image/png');
     expect(second.status).toBe(201);
-    expect((await second.json()).cid).toBe(first.cid);
+    expect((await bodyOf<UploadedBlob>(second)).cid).toBe(first.cid);
   });
 
   it('GET /blobs/:cid が実体を Content-Type 付きで返す', async () => {

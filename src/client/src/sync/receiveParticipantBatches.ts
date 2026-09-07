@@ -44,11 +44,14 @@ import type {
   Batch,
   Did,
   FileId,
+  ForkMeta,
   Lamport,
   Participation,
 } from '@conversensus/shared';
 import type { RemoteBatch } from '../atproto/types';
+import { type DetectedConflicts, detectIncomingConflicts } from './conflicts';
 import { filterByParticipation } from './participationFilter';
+import { type ForkWriterDeps, writeForksForConflicts } from './writeForks';
 
 export type CollectParticipantDeps = {
   /** その actor の repo から、このファイル分の batch を取得する (範囲取得) */
@@ -56,11 +59,18 @@ export type CollectParticipantDeps = {
 };
 
 export type ReceiveParticipantDeps = CollectParticipantDeps & {
+  /**
+   * 受信**前**のローカル正典を読む (step2 Phase 3 T5)。
+   *
+   * 2 つに要る — **どの batch が新しいか**の判定と、**分岐点のグラフ**である。
+   * どちらも「受信前の手元」を指すので、追記より先に読まなければならない。
+   */
+  fetchLocal: (fileId: FileId) => Promise<Batch[]>;
   /** ローカル正典へ受信追記する (marker を立てる経路であること) */
   appendReceived: (fileId: FileId, batches: Batch[]) => Promise<number>;
   /** 自端末 clock を Lamport 受信規則で前進させる */
   observeRemote: (remoteClock: Lamport) => void;
-};
+} & ForkWriterDeps;
 
 export type CollectParticipantResult = {
   /** 取り込んでよい batch (参加期間の中・このファイル宛)。読んだ repo の順 */
@@ -86,6 +96,20 @@ export type ReceiveParticipantResult = CollectParticipantResult & {
   received: number;
   /** ローカル正典に**新規に**追記された batch 数 */
   appended: number;
+  /**
+   * 新しく届いた分と手元の間で検出した競合 (step2 Phase 3 T5)。
+   *
+   * **implicit merge は止めない。**導出であって判断ではないので、競合があっても
+   * 取り込みは続ける — 止めると「相手の編集が届かない」になる。競合は通知に回る。
+   */
+  conflicts: DetectedConflicts;
+  /**
+   * この受信で新しく書いた fork (step2 Phase 3 T6)。既にあったものは含まない。
+   *
+   * **競合の検出と fork の作成は同じ受信の中で完結する** — 検出時点の状態でしか
+   * 理由を凍結できないからである。
+   */
+  forks: ForkMeta[];
 };
 
 /**
@@ -172,8 +196,42 @@ export async function receiveParticipantBatches(
     viewer,
     deps,
   );
+  const noConflicts: DetectedConflicts = {
+    conflicts: [],
+    labels: new Map(),
+  };
   if (collected.batches.length === 0)
-    return { ...collected, received: 0, appended: 0 };
+    return {
+      ...collected,
+      received: 0,
+      appended: 0,
+      conflicts: noConflicts,
+      forks: [],
+    };
+
+  // **追記の前に検出する** (step2 Phase 3 T5)。分岐点は受信前の手元の状態なので、
+  // 書いてからでは「私が見ていたグラフ」が失われる。
+  //
+  // 既読位置を持たない設計なので `collected.batches` は毎回全件である。**新しく
+  // 届いた分だけ**を相手側にしないと、同じ batch が両側に居て自分自身との衝突を
+  // 検出しうる。
+  const local = await deps.fetchLocal(fileId);
+  const known = new Set(local.map((b) => b.id));
+  const incoming = collected.batches.filter((b) => !known.has(b.id));
+  const conflicts = detectIncomingConflicts(local, incoming);
+
+  // **保留の記録は検出と同じ受信の中で書く** (step2 Phase 3 T6)。理由は検出時点の状態で
+  // しか凍結できない — 畳み直すと「今の競合」になるし、競合そのものが消えていることもある
+  const forks = await writeForksForConflicts(
+    {
+      trunkFileId: fileId,
+      detected: conflicts,
+      localBatches: local,
+      incoming,
+      actor: viewer,
+    },
+    deps,
+  );
 
   const appended = await deps.appendReceived(fileId, collected.batches);
 
@@ -183,5 +241,11 @@ export async function receiveParticipantBatches(
     collected.batches.reduce((m, b) => Math.max(m, b.clock), 0),
   );
 
-  return { ...collected, received: collected.batches.length, appended };
+  return {
+    ...collected,
+    received: collected.batches.length,
+    appended,
+    conflicts,
+    forks,
+  };
 }
