@@ -379,6 +379,15 @@ step2 では意味を持たない (型が値の従属変数なので「決まっ
 
 ### Phase 5: template (toulmin) + node label
 
+> **⚠️ 順序を入れ替えた (2026-09-08)。**Phase 3 の T0-T6 で Exit が揃った時点で一旦閉じ、
+> **Phase 5 を先に、Phase 3 の T7 (器) を後に**する (Phase 3 の未決 ① の決着)。
+>
+> 理由は語彙の共有ではない (**op を足すのにマイグレーションは要らない**ことが判明した)。
+> **T4 の実機観察** — 競合の通知に出る「ノードの名前」が content の先頭になるのは node が
+> 名前を持たないからで、**通知は「どれのことか」が伝わらないと機能しない**。node label は
+> そこに直接効く。加えて T7 は「DtR 本体より大きい可能性がある」ので、Phase 3 にこれ以上
+> 積まない。
+
 仕様: [template](../requirements/spec/template.md)
 
 - **`node.setLabel` op の追加**と node label の表示・編集。既存ノードの label は空でよい。
