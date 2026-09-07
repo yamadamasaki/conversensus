@@ -183,6 +183,21 @@ DtR で議論する前に対象が消える。「判断を保留するなら情�
   **通知の畳み方**が要る (同じ対象の連続した layout 競合は 1 件にまとめる、など)。
   ここは UI の設計であって検出の設計ではない
 
+### 決着 (2026-09-07, T3 実施)
+
+**`collectParallelChanges` と同型でよい、は半分だけ正しかった。**`node.setLayout` は
+**部分更新**で、移動 (x/y) と リサイズ (width/height) は projection でも独立に畳み込まれる。
+op 単位で判定すると「A が動かし B が大きさを変えただけ」が競合になる — **`setProperties`
+が抱えていたのと同じ粗さ (ANA-208) を layout で作り直す**ことになる。
+
+そこで**観点 (`LayoutAspect`) で割る**: `position` (x, y) / `size` (width, height) /
+`route` (edge の sourceHandle・targetHandle・pathType)。`unitsOf` がプロパティを
+キー単位に割るのと同じ形である。**触っていない観点は単位にしない** — 移動しかしていない
+op が「大きさを undefined に変えた」ことになると偽の競合が出る。
+
+`requiresConfirmation` は `category !== 'layout'` と書いた。**止める側ではなく止めない側を
+書く** — 種別が増えたときの既定が「人に問う」になるほうが安全である。
+
 ## 6. fork (事実 H)
 
 **fork は op-log に書く。**implicit merge 自体は書かないが、fork は「この競合を保留した」
@@ -263,7 +278,7 @@ explicit merge の `meta.base.at` に相当するものが無い。受信した 
 | ~~**T0**~~ | ~~カスケードの規則を `project.ts` から切り出して共有する~~ **完了 (2026-09-07)** → `src/shared/src/events/cascade.ts` | 単体 + 性質。projection と検出が同じ集合を出す |
 | ~~**T1**~~ | ~~`mergeBranches` に分岐点の状態を渡す (シグネチャ変更) + 適用点を決める~~ **完了 (2026-09-07)**。`mergeBranches(base, trunkAfterBase, branchBatches)` / `previewMerge` / `requiresConfirmation` | 単体。グループ削除で子への依存が検出される |
 | ~~**T2**~~ | ~~add-wins 化 (tombstone)~~ **完了 (2026-09-07)**。`ProjectedGraph.removed` + revive + `selfAndAncestors` | 単体 + S7 の生成器に削除を厚く引かせて収束を確かめた |
-| **T3** | layout の競合検出 (通知系列を 1 本増やす) | 単体 |
+| ~~**T3**~~ | ~~layout の競合検出 (通知系列を 1 本増やす)~~ **完了 (2026-09-07)**。`isLayoutOp` + `LayoutAspect` (position / size / route) | 単体 |
 | **T4** | 競合の通知 UI (3 段の出し分け) | 単体 + 実機 |
 | **T5** | implicit merge に検出器を持ち込む (未決 ③ を決める) | 単体 + 実 PDS (2 アカウント) |
 | **T6** | fork を書く + 理由を凍結する | 単体 + 実 PDS |

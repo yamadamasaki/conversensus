@@ -21,8 +21,8 @@
 
 import { type CascadeGraphView, cascadeOfRemoval, isRemoveOp } from './cascade';
 import { canonicalPropertyName } from './properties';
-import type { Batch, BatchId, Op, PropertyName } from './unified';
-import { isContentOp } from './unified';
+import type { Batch, BatchId, LayoutOp, Op, PropertyName } from './unified';
+import { isContentOp, isLayoutOp } from './unified';
 
 /** 競合の片側。ours は trunk 側、theirs は branch 側 */
 type ConflictSide = { batchId: BatchId; op: Op };
@@ -43,13 +43,27 @@ type MergeConflictBase = {
  */
 export type StructureConflictKind = 'removeDependency' | 'parallelChange';
 
+/**
+ * layout 競合の観点 (Phase 3 T3)。**判定の単位は op ではなく「一つの操作」**である。
+ *
+ * `node.setLayout` は部分更新で、移動 (x/y) と リサイズ (width/height) は projection でも
+ * 独立に畳み込まれる。op 単位で判定すると、A が動かし B が大きさを変えただけで競合に
+ * なる — `setProperties` が抱えていたのと同じ粗さである (ANA-208)。
+ *
+ * - `position`: 移動 (x, y)
+ * - `size`    : リサイズ (width, height)
+ * - `route`   : edge の描かれ方 (sourceHandle / targetHandle / pathType)
+ */
+export type LayoutAspect = 'position' | 'size' | 'route';
+
 /** 並行変更 = 合意形成の機会。グラフ上に可視化する候補 */
 export type MergeConflict =
   | (MergeConflictBase & { category: 'content' })
   | (MergeConflictBase & {
       category: 'structure';
       kind: StructureConflictKind;
-    });
+    })
+  | (MergeConflictBase & { category: 'layout'; aspect: LayoutAspect });
 
 /**
  * **適用前に人の確認を要する競合か** (Phase 3 T1 の決着)。
@@ -62,7 +76,7 @@ export type MergeConflict =
  * 止める理由は merge が不可逆だからである — trunk op-log への追記に revert の経路は無い。
  */
 export function requiresConfirmation(conflict: MergeConflict): boolean {
-  return conflict.category === 'content' || conflict.category === 'structure';
+  return conflict.category !== 'layout';
 }
 
 export type MergeResult = {
@@ -86,11 +100,13 @@ type TaggedOp = { batchId: BatchId; clock: number; op: OpWithTarget };
  * properties だけはプロパティ 1 つずつに割る。
  */
 type ConflictUnit = TaggedOp & {
-  /** 対立の同一性。同じ target でもプロパティが違えば別の単位になる */
+  /** 対立の同一性。同じ target でもプロパティ / 観点が違えば別の単位になる */
   key: string;
   /** 差異の判定に使う値 */
   value: unknown;
   propertyName?: PropertyName;
+  /** layout の単位なら、どの観点で揉めたか */
+  aspect?: LayoutAspect;
 };
 
 /**
@@ -181,6 +197,57 @@ function propertyKeyOf(target: string, name: PropertyName): string {
   return `${target}\u0000${canonicalPropertyName(name)}`;
 }
 
+/** layout の単位キー。プロパティの単位キーと同じ形にして衝突を避ける */
+function layoutKeyOf(target: string, aspect: LayoutAspect): string {
+  return `${target}\u0000layout:${aspect}`;
+}
+
+/**
+ * layout op を観点ごとの単位に割る。**その op が実際に触った観点だけ**を返す。
+ *
+ * 触っていない観点まで単位にすると、移動しかしていない op が「大きさを (undefined に)
+ * 変えた」ことになり、リサイズした相手と競合してしまう。
+ */
+function layoutUnitsOf(t: TaggedOp, op: LayoutOp): ConflictUnit[] {
+  if (op.kind === 'node.setLayout') {
+    const units: ConflictUnit[] = [];
+    if (op.x !== undefined || op.y !== undefined) {
+      units.push({
+        ...t,
+        key: layoutKeyOf(op.target, 'position'),
+        value: { x: op.x, y: op.y },
+        aspect: 'position',
+      });
+    }
+    if (op.width !== undefined || op.height !== undefined) {
+      units.push({
+        ...t,
+        key: layoutKeyOf(op.target, 'size'),
+        value: { width: op.width, height: op.height },
+        aspect: 'size',
+      });
+    }
+    return units;
+  }
+  // edge.setLayout: 3 つとも「どう描かれるか」で、経路の付け替えは一動作で決まる
+  const { sourceHandle, targetHandle, pathType } = op;
+  if (
+    sourceHandle === undefined &&
+    targetHandle === undefined &&
+    pathType === undefined
+  ) {
+    return [];
+  }
+  return [
+    {
+      ...t,
+      key: layoutKeyOf(op.target, 'route'),
+      value: { sourceHandle, targetHandle, pathType },
+      aspect: 'route',
+    },
+  ];
+}
+
 /**
  * op を対立の単位に割る。properties 以外は op そのものが 1 単位である。
  *
@@ -191,6 +258,7 @@ function propertyKeyOf(target: string, name: PropertyName): string {
  */
 function unitsOf(t: TaggedOp): ConflictUnit[] {
   const { op } = t;
+  if (isLayoutOp(op)) return layoutUnitsOf(t, op);
   switch (op.kind) {
     case 'node.setProperty':
     case 'edge.setProperty':
@@ -244,7 +312,7 @@ function collectParallelChanges(
   trunkAfterBase: Batch[],
   branchBatches: Batch[],
   keep: (op: Op) => boolean,
-  label: (base: MergeConflictBase) => MergeConflict,
+  label: (base: MergeConflictBase, unit: ConflictUnit) => MergeConflict,
 ): MergeConflict[] {
   const ourLast = lastByKey(flattenUnits(trunkAfterBase, keep));
   const out: MergeConflict[] = [];
@@ -252,14 +320,17 @@ function collectParallelChanges(
     const ours = ourLast.get(theirs.key);
     if (ours && valueDiffers(ours.value, theirs.value)) {
       out.push(
-        label({
-          target: theirs.op.target,
-          ...(theirs.propertyName !== undefined && {
-            propertyName: theirs.propertyName,
-          }),
-          ours: { batchId: ours.batchId, op: ours.op },
-          theirs: { batchId: theirs.batchId, op: theirs.op },
-        }),
+        label(
+          {
+            target: theirs.op.target,
+            ...(theirs.propertyName !== undefined && {
+              propertyName: theirs.propertyName,
+            }),
+            ours: { batchId: ours.batchId, op: ours.op },
+            theirs: { batchId: theirs.batchId, op: theirs.op },
+          },
+          theirs,
+        ),
       );
     }
   }
@@ -360,6 +431,18 @@ export function mergeBranches(
       branchBatches,
       isParallelStructureOp,
       (base) => ({ ...base, category: 'structure', kind: 'parallelChange' }),
+    ),
+    // layout の並行変更 (Phase 3 T3)。**通知だけの系列**で、DtR は起動しない。
+    // 削除依存には混ぜない — 混ぜると DtR がノイズに埋まる
+    ...collectParallelChanges(
+      trunkAfterBase,
+      branchBatches,
+      isLayoutOp,
+      (base, unit) => ({
+        ...base,
+        category: 'layout',
+        aspect: unit.aspect ?? 'position',
+      }),
     ),
     // structure の削除依存 (S1/S2/S4)。どちらが削除した場合も拾う
     ...collectRemoveDependencies(base, trunkAfterBase, branchBatches, true),

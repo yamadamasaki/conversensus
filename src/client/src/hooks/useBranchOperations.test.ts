@@ -115,6 +115,36 @@ const relabel = (to: string, nodeId: string = uuid()) => ({
   to,
 });
 
+/** node.setLayout を 1 件生む layout イベント (NODE_MOVED) */
+const move = (nodeId: string, x: number, y: number) => ({
+  id: uuid(),
+  timestamp: 1,
+  category: 'layout' as const,
+  type: 'NODE_MOVED' as const,
+  // biome-ignore lint/suspicious/noExplicitAny: branded NodeId をテストで作らない
+  nodeId: nodeId as any,
+  from: { x: 0, y: 0 },
+  to: { x, y },
+});
+
+/** trunk op-log でノードを動かす batch (layout の並行変更を作る用) */
+const trunkMoveBatch = (
+  id: string,
+  clock: number,
+  nodeId: string,
+  x: number,
+  y: number,
+) =>
+  ({
+    id,
+    actor: 'seed#dev',
+    clock,
+    timestamp: clock,
+    sheetId: SHEET_ID,
+    ops: [{ kind: 'node.setLayout', target: nodeId, x, y }],
+    // biome-ignore lint/suspicious/noExplicitAny: テストの最小 Batch (branded 型は実行時に無関係)
+  }) as any;
+
 /** 確認ダイアログに答える。`ok=false` はキャンセル */
 const answerMergeConfirm = (ok: boolean) => {
   mockSetConfirmState.mockImplementationOnce((s) => {
@@ -679,6 +709,32 @@ describe('useBranchOperations — branch 操作 (op-log)', () => {
         );
         expect(oplogDeps._branches.get(branch.id)?.status).toBe('merged');
         expect(oplogDeps._commits.get(TRUNK_ID) ?? []).toHaveLength(1);
+      });
+
+      it('🔴 layout の対立だけなら確認を出さない (3 段の一番下, Phase 3 T3)', async () => {
+        // 共同編集で二人が同じノードを動かすのは日常的なので、毎回止めると確認が
+        // ノイズになる。**検出はする**が、確認では止めず適用してから通知する
+        const node = uuid();
+        const view = await withOpenBranch([trunkBatch('t1', 3, node, 'trunk')]);
+        await act(async () => {
+          view.result.current.branchSyncRecord?.(move(node, 50, 60), SHEET_ID);
+          await new Promise((r) => setTimeout(r, 10));
+        });
+        view.oplogDeps._batches.set(TRUNK_ID, [
+          ...(view.oplogDeps._batches.get(TRUNK_ID) ?? []),
+          trunkMoveBatch('t2', 9, node, 5, 6),
+        ]);
+        mockSetConfirmState.mockClear();
+
+        answerMergeReason('取り込む');
+        await act(async () => {
+          await view.result.current.handleMergeBranch(view.branch);
+        });
+
+        expect(mockSetConfirmState).not.toHaveBeenCalled();
+        expect(view.oplogDeps._branches.get(view.branch.id)?.status).toBe(
+          'merged',
+        );
       });
 
       it('対立が無ければ確認は出ない (理由の入力が唯一の確認)', async () => {

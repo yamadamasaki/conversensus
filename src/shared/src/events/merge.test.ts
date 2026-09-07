@@ -6,7 +6,7 @@ import {
   NodeIdSchema,
 } from '../schemas';
 import type { CascadeGraphView } from './cascade';
-import { mergeBranches } from './merge';
+import { mergeBranches, requiresConfirmation } from './merge';
 import { projectBatches } from './project';
 import { SYSTEM_PROPERTY_PREFIX } from './properties';
 import { type Batch, BatchIdSchema, type Op } from './unified';
@@ -72,7 +72,9 @@ describe('mergeBranches', () => {
     expect(g.nodes.get(a)?.content).toBe('branch');
   });
 
-  test('layout の並行変更は対立にしない (静かな LWW)', () => {
+  test('layout の並行変更は検出するが解決は LWW のまま (Phase 3 T3)', () => {
+    // 以前は layout を対立に含めていなかった (D7)。仕様の 3 段では layout も
+    // 「検出して通知する」— ただし DtR は起動しないので、**解決は静かな LWW のまま**
     const a = nid();
     const trunkAfterBase = [
       batch(2, [{ kind: 'node.setLayout', target: a, x: 10, y: 10 }]),
@@ -86,7 +88,13 @@ describe('mergeBranches', () => {
       branchBatches,
     );
 
-    expect(conflicts).toHaveLength(0); // layout は対立に含めない (D7)
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0]).toMatchObject({
+      category: 'layout',
+      aspect: 'position',
+    });
+    // **確認では止めない。**layout は通知だけの段である
+    expect(conflicts.filter(requiresConfirmation)).toHaveLength(0);
 
     const base = [batch(1, [{ kind: 'node.add', target: a, content: 'A' }])];
     const g = projectBatches([...base, ...merged]);
@@ -342,6 +350,166 @@ describe('mergeBranches — プロパティはキー単位で判定する (#208)
       ],
     );
     expect(conflicts).toHaveLength(0);
+  });
+});
+
+describe('mergeBranches — layout の競合 (Phase 3 T3)', () => {
+  // 仕様の 3 段の一番下。**検出して通知するだけで DtR graph は起動しない。**
+  // 共同編集で二人が同じノードを動かすのは日常的なので、毎回「対話して決着すべき競合」に
+  // 上げると DtR がノイズで埋まる。一方で検出しないと、位置が飛んだ理由が分からない。
+
+  test('同じノードを二人が動かすと position の対立になる', () => {
+    const a = nid();
+    const { conflicts } = mergeBranches(
+      NO_BASE,
+      [batch(2, [{ kind: 'node.setLayout', target: a, x: 1, y: 1 }])],
+      [batch(3, [{ kind: 'node.setLayout', target: a, x: 9, y: 9 }])],
+    );
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0]).toMatchObject({
+      target: a,
+      category: 'layout',
+      aspect: 'position',
+    });
+  });
+
+  test('🔴 移動とリサイズは別の観点なので対立にしない', () => {
+    // op 単位で判定すると、A が動かし B が大きさを変えただけで競合になる。
+    // `setProperties` が抱えていたのと同じ粗さである (ANA-208)。projection も
+    // x/y と width/height を独立に畳み込むので、両方そのまま残る
+    const a = nid();
+    const { conflicts } = mergeBranches(
+      NO_BASE,
+      [batch(2, [{ kind: 'node.setLayout', target: a, x: 1, y: 1 }])],
+      [
+        batch(3, [
+          { kind: 'node.setLayout', target: a, width: 100, height: 50 },
+        ]),
+      ],
+    );
+    expect(conflicts).toEqual([]);
+  });
+
+  test('同じノードを二人がリサイズすると size の対立になる', () => {
+    const a = nid();
+    const { conflicts } = mergeBranches(
+      NO_BASE,
+      [
+        batch(2, [
+          { kind: 'node.setLayout', target: a, width: 10, height: 10 },
+        ]),
+      ],
+      [
+        batch(3, [
+          { kind: 'node.setLayout', target: a, width: 99, height: 99 },
+        ]),
+      ],
+    );
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0]).toMatchObject({ category: 'layout', aspect: 'size' });
+  });
+
+  test('移動とリサイズを両方触った op は 2 つの観点に割れる', () => {
+    const a = nid();
+    const { conflicts } = mergeBranches(
+      NO_BASE,
+      [
+        batch(2, [
+          {
+            kind: 'node.setLayout',
+            target: a,
+            x: 1,
+            y: 1,
+            width: 10,
+            height: 10,
+          },
+        ]),
+      ],
+      [
+        batch(3, [
+          {
+            kind: 'node.setLayout',
+            target: a,
+            x: 9,
+            y: 9,
+            width: 99,
+            height: 99,
+          },
+        ]),
+      ],
+    );
+    expect(
+      conflicts.map((c) => c.category === 'layout' && c.aspect).sort(),
+    ).toEqual(['position', 'size']);
+  });
+
+  test('同じ位置へ動かしただけなら対立にしない', () => {
+    const a = nid();
+    const { conflicts } = mergeBranches(
+      NO_BASE,
+      [batch(2, [{ kind: 'node.setLayout', target: a, x: 5, y: 5 }])],
+      [batch(3, [{ kind: 'node.setLayout', target: a, x: 5, y: 5 }])],
+    );
+    expect(conflicts).toEqual([]);
+  });
+
+  test('別のノードを動かしただけなら対立にしない', () => {
+    const a = nid();
+    const b = nid();
+    const { conflicts } = mergeBranches(
+      NO_BASE,
+      [batch(2, [{ kind: 'node.setLayout', target: a, x: 1, y: 1 }])],
+      [batch(3, [{ kind: 'node.setLayout', target: b, x: 9, y: 9 }])],
+    );
+    expect(conflicts).toEqual([]);
+  });
+
+  test('edge の経路の並行変更は route の対立になる', () => {
+    const e = eid();
+    const { conflicts } = mergeBranches(
+      NO_BASE,
+      [batch(2, [{ kind: 'edge.setLayout', target: e, pathType: 'step' }])],
+      [batch(3, [{ kind: 'edge.setLayout', target: e, pathType: 'bezier' }])],
+    );
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0]).toMatchObject({ category: 'layout', aspect: 'route' });
+  });
+
+  test('🔴 layout は確認では止めない (3 段の一番下)', () => {
+    // content / structure は人の判断が要るので取り込む前に問うが、layout は通知だけ。
+    // **この分岐が生きるのは T3 で layout の category ができてからである**
+    const a = nid();
+    const { conflicts } = mergeBranches(
+      NO_BASE,
+      [batch(2, [{ kind: 'node.setLayout', target: a, x: 1, y: 1 }])],
+      [batch(3, [{ kind: 'node.setLayout', target: a, x: 9, y: 9 }])],
+    );
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts.filter(requiresConfirmation)).toEqual([]);
+  });
+
+  test('🔴 layout は削除依存に混ざらない', () => {
+    // 消えたノードを動かしただけで DtR が起動すると、ノイズで埋まる。
+    // `prerequisitesOf` が layout を対象外にしていることの裏取り
+    const a = nid();
+    const { conflicts } = mergeBranches(
+      NO_BASE,
+      [batch(2, [{ kind: 'node.remove', target: a }])],
+      [batch(3, [{ kind: 'node.setLayout', target: a, x: 9, y: 9 }])],
+    );
+    // 片側にしか layout op が無いので並行変更でもない
+    expect(conflicts).toEqual([]);
+  });
+
+  test('content の対立とは別の単位である', () => {
+    // 同じノードの content と layout を触っても、単位キーが違うので混ざらない
+    const a = nid();
+    const { conflicts } = mergeBranches(
+      NO_BASE,
+      [batch(2, [{ kind: 'node.setContent', target: a, content: 'trunk' }])],
+      [batch(3, [{ kind: 'node.setLayout', target: a, x: 9, y: 9 }])],
+    );
+    expect(conflicts).toEqual([]);
   });
 });
 
