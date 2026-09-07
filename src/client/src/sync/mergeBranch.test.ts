@@ -18,6 +18,7 @@ import {
   lastMergeSourceAt,
   type MergeBranchDeps,
   mergeBranchOnOplog,
+  previewMerge,
 } from './mergeBranch';
 
 const TRUNK = 'trunk-file' as FileId;
@@ -49,6 +50,11 @@ const addNode = (node: string, text: string): Batch['ops'][number] => ({
   kind: 'node.add',
   target: node as NodeId,
   content: text,
+});
+
+const removeNode = (node: string): Batch['ops'][number] => ({
+  kind: 'node.remove',
+  target: node as NodeId,
 });
 
 const setContent = (node: string, text: string): Batch['ops'][number] => ({
@@ -142,6 +148,77 @@ const nodeContent = (trunk: GraphFile, nodeId: string) => {
   const sheet = trunk.sheets.find((s) => s.id === SHEET);
   return sheet?.nodes.find((n) => n.id === nodeId)?.content;
 };
+
+describe('previewMerge (Phase 3 T1)', () => {
+  it('🔴 op-log を一切変えない (適用しないことがこの関数の存在理由)', () => {
+    const logs = { [TRUNK]: trunkLog(), [BRANCH_LOG]: branchLog() };
+    const before = {
+      trunk: [...(logs[TRUNK] ?? [])],
+      branch: [...(logs[BRANCH_LOG] ?? [])],
+    };
+    const { deps, saved, commits } = makeDeps(logs);
+
+    return previewMerge(branchMeta(), deps).then(() => {
+      expect(logs[TRUNK]).toEqual(before.trunk);
+      expect(logs[BRANCH_LOG]).toEqual(before.branch);
+      expect(saved).toEqual([]); // branch は open のまま
+      expect(commits).toEqual({});
+    });
+  });
+
+  it('適用したときと同じ対立を返す', async () => {
+    // 先読みと適用が別の答えを出すなら、見せる意味が無い
+    const logs = { [TRUNK]: trunkLog(), [BRANCH_LOG]: branchLog() };
+    const preview = await previewMerge(branchMeta(), makeDeps(logs).deps);
+    const applied = await mergeBranchOnOplog(
+      branchMeta(),
+      mergeParams(),
+      makeDeps({ [TRUNK]: trunkLog(), [BRANCH_LOG]: branchLog() }).deps,
+    );
+    expect(preview.conflicts).toEqual(applied.conflicts);
+  });
+
+  it('trunk へ新しく載る件数を返す (再 merge では 0)', async () => {
+    const logs = { [TRUNK]: trunkLog(), [BRANCH_LOG]: branchLog() };
+    expect(
+      (await previewMerge(branchMeta(), makeDeps(logs).deps)).toAppendCount,
+    ).toBe(2);
+
+    // 一度 merge した後は載るものが無い
+    const { deps } = makeDeps(logs);
+    await mergeBranchOnOplog(branchMeta(), mergeParams(), deps);
+    expect((await previewMerge(branchMeta(), deps)).toAppendCount).toBe(0);
+  });
+
+  it('🔴 グループを消した trunk と、子を編集した branch の対立を拾う', async () => {
+    // **分岐点のグラフを渡していないと 0 件になる** — T1 のシグネチャ変更の主眼。
+    // 分岐点 (clock 1-2) で g > child のグループを作り、分岐後に trunk が g を消す
+    const logs = {
+      [TRUNK]: [
+        structure('t1', 1),
+        content('t2', 2, [
+          { kind: 'node.add', target: 'g' as NodeId, content: 'G' },
+          {
+            kind: 'node.add',
+            target: 'child' as NodeId,
+            content: 'C',
+            parentId: 'g' as NodeId,
+          },
+        ]),
+        content('t3', 3, [removeNode('g')]),
+      ],
+      [BRANCH_LOG]: [content('br1', 3, [setContent('child', '子を編集')])],
+    };
+    const preview = await previewMerge(branchMeta(), makeDeps(logs).deps);
+
+    expect(preview.conflicts).toHaveLength(1);
+    expect(preview.conflicts[0]).toMatchObject({
+      target: 'child', // op に書かれた id は g だけ
+      category: 'structure',
+      kind: 'removeDependency',
+    });
+  });
+});
 
 describe('mergeBranchOnOplog', () => {
   it('branch batches を trunk 先端の後へ再スタンプして追記する', async () => {

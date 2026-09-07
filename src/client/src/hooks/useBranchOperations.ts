@@ -10,11 +10,16 @@ import type {
   GraphEdge,
   GraphFile,
   GraphNode,
+  MergeConflict,
   NodeLayout,
   Sheet,
   SheetId,
 } from '@conversensus/shared';
-import { BRANCH_STATUS, makeCommit } from '@conversensus/shared';
+import {
+  BRANCH_STATUS,
+  makeCommit,
+  requiresConfirmation,
+} from '@conversensus/shared';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as api from '../api';
 import { TRUNK_PREFIX } from '../atproto';
@@ -28,6 +33,7 @@ import {
   countCommitsAfter,
   lastMergeSourceAt,
   mergeBranchOnOplog,
+  previewMerge,
 } from '../sync/mergeBranch';
 import type { SyncProvider } from '../sync/syncProvider';
 import { type TapClock, useEventSyncTap } from './useEventSyncTap';
@@ -71,6 +77,17 @@ export function resolveBranchDiffState(
   if (hasPendingChanges) return BRANCH_DIFF_STATE.EDITING;
   if (commitCount > 0) return BRANCH_DIFF_STATE.COMMITTED;
   return BRANCH_DIFF_STATE.UNCHANGED;
+}
+
+/** 対立を「content 1 件 / structure 2 件」の形で言い表す。確認とログで同じ言葉を使う */
+function describeConflicts(conflicts: readonly MergeConflict[]): string {
+  const byCategory = new Map<string, number>();
+  for (const c of conflicts) {
+    byCategory.set(c.category, (byCategory.get(c.category) ?? 0) + 1);
+  }
+  return [...byCategory]
+    .map(([category, count]) => `${category} ${count} 件`)
+    .join(' / ');
 }
 
 export type ConfirmState = {
@@ -477,19 +494,39 @@ export function useBranchOperations({
   const handleMergeBranch = useCallback(
     async (branch: BranchMeta) => {
       if (!activeSheetId || !activeFile) return;
-      // merge 理由は commit と同様に**必須** (ANA-122)。確認ダイアログは置かない —
-      // 理由の入力そのものが確認であり、二段構えにしても得るものが無い。
-      const message = await new Promise<string>((resolve) => {
-        setInputState({
-          message: `branch "${branch.name}" を trunk に merge します。理由を入力してください:`,
-          resolve,
-        });
-      });
-      if (!message.trim()) return;
       try {
         // 🔴 直前の編集が branch op-log に着地するのを待つ。待たないと、その編集が
         // trunk に載らないまま branch だけ MERGED になる (record は非同期に flush する)。
+        // **先読みより前に置く** — 未着地の編集は対立の検出からも漏れる。
         await branchSettled();
+
+        // 適用の前に何が起きるかを見せる (Phase 3 T1)。merge は不可逆なので、
+        // 人の判断が要る対立 (content / structure) があれば取り込む前に問う。
+        // layout は「通知のみで DtR を起動しない」種別なので止めない。
+        const preview = await previewMerge(branch, {
+          fetchBatches: oplogDeps.fetchBatches,
+        });
+        const blocking = preview.conflicts.filter(requiresConfirmation);
+        if (blocking.length > 0) {
+          const proceed = await new Promise<boolean>((resolve) => {
+            setConfirmState({
+              message: `branch "${branch.name}" の取り込みで ${describeConflicts(blocking)} を検出しました。取り込むと trunk に載り、取り消せません。続けますか?`,
+              resolve,
+            });
+          });
+          if (!proceed) return;
+        }
+
+        // merge 理由は commit と同様に**必須** (ANA-122)。対立が無ければ理由の入力が
+        // 唯一の確認になる — 見せるものが無いのに二段構えにしても得るものが無い。
+        const message = await new Promise<string>((resolve) => {
+          setInputState({
+            message: `branch "${branch.name}" を trunk に merge します。理由を入力してください:`,
+            resolve,
+          });
+        });
+        if (!message.trim()) return;
+
         // branch batches を trunk 先端の後へ再スタンプして trunk op-log へ追記する。
         // 再スタンプの発番は trunk の tap と同じ clock で行う (同 clock の衝突回避)。
         const result = await mergeBranchOnOplog(
@@ -506,17 +543,10 @@ export function useBranchOperations({
           },
         );
         if (result.conflicts.length > 0) {
-          // 収束は LWW で確定させ、対立は診断ログに残す (可視化は後続 phase)
-          const byCategory = result.conflicts.reduce<Record<string, number>>(
-            (acc, c) => {
-              acc[c.category] = (acc[c.category] ?? 0) + 1;
-              return acc;
-            },
-            {},
-          );
+          // 収束は LWW で確定させ、対立は診断ログに残す (可視化は T4)。
+          // **先読みと件数が食い違いうる** — 間に trunk が動けば適用時の対立が変わる。
           console.warn(
-            `[branch] merge: ${result.conflicts.length} 件の対立を LWW で確定`,
-            byCategory,
+            `[branch] merge: ${describeConflicts(result.conflicts)} を LWW で確定`,
             result.conflicts,
           );
         }
@@ -532,6 +562,7 @@ export function useBranchOperations({
       activeSheetId,
       activeFile,
       setInputState,
+      setConfirmState,
       setAlertState,
       oplogDeps,
       trunkClock,

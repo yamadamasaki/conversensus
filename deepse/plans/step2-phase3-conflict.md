@@ -201,15 +201,29 @@ fork の後も op-log は伸びるし、負けた側がその後に消えてい�
 - 前倒す利点: 語彙の追加とマイグレーションを 1 回で済ませられる
 - 前倒さない利点: Phase 3 が大きすぎるので、これ以上積まない
 
-### ② merge の適用点 — staged か即時か (事実 F)
+### ~~② merge の適用点 — staged か即時か (事実 F)~~ **決着 (2026-09-07)**
 
-いまは即時である。**シグネチャ変更と同じスライスで決める** (別々にやると同じ経路を
-2 回作り直す)。
+**事前検査 + 人の確認。保留の器は作らない。**
 
-- **即時のまま**: 追記してから通知する。implicit merge とは揃うが、explicit merge で
-  「merge したら壊れた」が起きうる
-- **staged**: 競合があれば保留して人に見せる。explicit merge の意味論としては素直だが、
-  保留した状態をどこに置くか (= もう 1 つの器) が要る
+`mergeBranchOnOplog` から検出だけを行う `previewMerge` を割り出し、explicit merge の
+UI は competing があれば内訳を見せてから適用する。押さなければ**何も起きない =
+branch は open のまま**なので、「merge を押したがまだ入っていない」という第 3 の状態
+(= もう 1 つの器) は要らない。適用してからは即時と同じ (add-wins → 通知 → DtR)。
+
+**確認で止めるのは content / structure。**layout は「通知のみで DtR を起動しない」と
+決めた種別なので止めない (`merging.md` の 3 段)。判定は `requiresConfirmation` に置く。
+
+**決め手は不可逆性である。**`mergeBranchOnOplog` は再スタンプした branch batches を
+trunk op-log へ追記し、**revert の経路は無い** (branch が MERGED になるだけで、trunk に
+載った batch を降ろす操作は存在しない)。仕様の「適用してから決着する」(add-wins は
+決着まで表示できるための規定) は**止められない導出である implicit merge の文脈**であって、
+人が押す不可逆な操作にそのまま当てはめる必要はない。
+
+**確認は助言であって保証ではない。**preview と適用の間に trunk が動きうるので、適用側は
+読み直して計画を組み直す。preview は「見せるための先読み」に徹する。
+
+**implicit merge は確認を出せない**ので常に適用する (T5)。分岐するのは呼び出し元だけで、
+検出器と適用規則は共有される。
 
 ### ③ implicit merge の「分岐点」の定め方 (§4)
 
@@ -222,7 +236,7 @@ explicit merge の `meta.base.at` に相当するものが無い。受信した 
 | | 内容 | 検証 |
 | --- | --- | --- |
 | ~~**T0**~~ | ~~カスケードの規則を `project.ts` から切り出して共有する~~ **完了 (2026-09-07)** → `src/shared/src/events/cascade.ts` | 単体 + 性質。projection と検出が同じ集合を出す |
-| **T1** | `mergeBranches` に分岐点の状態を渡す (シグネチャ変更) + **適用点を決める** (未決 ②) | 単体。グループ削除で子への依存が検出される |
+| ~~**T1**~~ | ~~`mergeBranches` に分岐点の状態を渡す (シグネチャ変更) + 適用点を決める~~ **完了 (2026-09-07)**。`mergeBranches(base, trunkAfterBase, branchBatches)` / `previewMerge` / `requiresConfirmation` | 単体。グループ削除で子への依存が検出される |
 | **T2** | add-wins 化 (tombstone) | 単体 + **S7 の生成器に削除を厚く引かせて収束を確かめる** |
 | **T3** | layout の競合検出 (通知系列を 1 本増やす) | 単体 |
 | **T4** | 競合の通知 UI (3 段の出し分け) | 単体 + 実機 |

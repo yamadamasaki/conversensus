@@ -19,7 +19,7 @@
  * 別々のプロパティを触っただけの二人が競合になる。
  */
 
-import { isRemoveOp } from './cascade';
+import { type CascadeGraphView, cascadeOfRemoval, isRemoveOp } from './cascade';
 import { canonicalPropertyName } from './properties';
 import type { Batch, BatchId, Op, PropertyName } from './unified';
 import { isContentOp } from './unified';
@@ -50,6 +50,20 @@ export type MergeConflict =
       category: 'structure';
       kind: StructureConflictKind;
     });
+
+/**
+ * **適用前に人の確認を要する競合か** (Phase 3 T1 の決着)。
+ *
+ * `merging.md` の 3 段のうち、content は DtR graph の強制起動、structure は通知から
+ * 手動で DtR 起動 — どちらも人の判断が要る。layout は「通知のみで DtR を起動しない」と
+ * 決めた種別なので確認では止めない (共同編集で二人が同じノードを動かすのは日常的で、
+ * 毎回止めると確認がノイズになる)。**T3 で layout の検出が入ってもこの述語は変えない。**
+ *
+ * 止める理由は merge が不可逆だからである — trunk op-log への追記に revert の経路は無い。
+ */
+export function requiresConfirmation(conflict: MergeConflict): boolean {
+  return conflict.category === 'content' || conflict.category === 'structure';
+}
 
 export type MergeResult = {
   /** trunk へ追記される、マージ後のログ (projection で解決される) */
@@ -257,14 +271,36 @@ function collectParallelChanges(
  *
  * `removals` と `dependents` は trunk/branch のどちらでもよいが、結果の
  * ours/theirs は常に「ours = trunk 側、theirs = branch 側」に揃える。
+ *
+ * **判定は「op に書かれた id」ではなく「分岐点の状態にカスケードを当てて求めた、
+ * 実際に消える要素の集合」に対して行う** (Phase 3 T1, `merging.md` の S1' / S2')。
+ * グループを 1 つ消すと子孫と端点を失うエッジも消えるので、op の target だけを見ると
+ * 子への依存を取り逃す。グループはまとめて消す操作なので、共同作業では直接参照より
+ * 起こりやすい。
  */
 function collectRemoveDependencies(
+  base: CascadeGraphView,
   removals: Batch[],
   dependents: Batch[],
   removalIsOurs: boolean,
 ): MergeConflict[] {
   const removed = new Map<string, TaggedOp>();
-  for (const t of flattenOps(removals, isRemoveOp)) removed.set(t.op.target, t);
+  for (const t of flattenOps(removals, isRemoveOp)) {
+    if (!isRemoveOp(t.op)) continue; // flattenOps の述語を型に伝える
+    const cascade = cascadeOfRemoval(base, t.op);
+    for (const id of [...cascade.nodes, ...cascade.edges]) {
+      // その要素を**最初に**壊した削除に帰属させる。入力の並び順に依らないよう
+      // clock → batchId で決める (同 clock は別 actor の並行削除でありうる)
+      const prev = removed.get(id);
+      if (
+        !prev ||
+        t.clock < prev.clock ||
+        (t.clock === prev.clock && t.batchId < prev.batchId)
+      ) {
+        removed.set(id, t);
+      }
+    }
+  }
   if (removed.size === 0) return [];
 
   const out: MergeConflict[] = [];
@@ -291,10 +327,19 @@ function collectRemoveDependencies(
 /**
  * base 以降の trunk batches と branch batches をマージする。
  *
+ * @param base           **分岐点のグラフ**。削除のカスケードをここに当てて「実際に
+ *   消える要素」を求める (Phase 3 T1)。カスケードが絡まない検出には効かないので、
+ *   状態を持たない呼び出しは空のグラフを渡してよい
  * @param trunkAfterBase 分岐点 (base) 以降に trunk 側で追記された batches
  * @param branchBatches  ブランチ側で追記された batches
+ *
+ * **既知の限界**: カスケードは分岐点の状態に当てる。分岐後に相手側が
+ * `node.setParent` でグループに入れたノードは、分岐点では子孫でないので削除の
+ * 巻き添えとして数えられない。取り逃すのは「分岐後に依存関係が生まれた」場合だけで、
+ * 仕様が名指しする「グループを消すと中身も消える」(S1' / S2') は分岐点で足りる。
  */
 export function mergeBranches(
+  base: CascadeGraphView,
   trunkAfterBase: Batch[],
   branchBatches: Batch[],
 ): MergeResult {
@@ -317,8 +362,8 @@ export function mergeBranches(
       (base) => ({ ...base, category: 'structure', kind: 'parallelChange' }),
     ),
     // structure の削除依存 (S1/S2/S4)。どちらが削除した場合も拾う
-    ...collectRemoveDependencies(trunkAfterBase, branchBatches, true),
-    ...collectRemoveDependencies(branchBatches, trunkAfterBase, false),
+    ...collectRemoveDependencies(base, trunkAfterBase, branchBatches, true),
+    ...collectRemoveDependencies(base, branchBatches, trunkAfterBase, false),
   ];
 
   return { merged, conflicts };

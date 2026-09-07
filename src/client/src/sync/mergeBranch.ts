@@ -46,13 +46,18 @@ import {
   type MergeConflict,
   makeMergeCommit,
   mergeBranches,
+  projectBatches,
   projectFile,
   tipClock,
 } from '@conversensus/shared';
 
-export type MergeBranchDeps = {
+/** 先読み (`previewMerge`) に要るもの。**読むだけで何も書かない**ことを型で示す */
+export type MergePreviewDeps = {
   /** file_id の op-log を取得する */
   fetchBatches: (fileId: FileId) => Promise<Batch[]>;
+};
+
+export type MergeBranchDeps = MergePreviewDeps & {
   /** trunk op-log へ追記する。@returns 新規に追記された件数 */
   appendBatches: (fileId: FileId, batches: Batch[]) => Promise<number>;
   /** branch メタを保存する (status を merged にする) */
@@ -96,18 +101,27 @@ export type MergeBranchParams = {
   actor: string;
 };
 
-/**
- * branch を trunk へ merge する。
- *
- * べき等: 同じ状態で 2 回呼んでも `appended` が 0 になるだけで trunk は変わらない。
- * ただし**merge の記録は毎回残る** — 「いつ・誰が・何のために merge したか」は
- * 追記が 0 件でも起きた事実だからである。
- */
-export async function mergeBranchOnOplog(
+/** 先読みの結果。**op-log は一切変えていない** */
+export type MergePreview = {
+  /** この merge で起きる対立 */
+  conflicts: MergeConflict[];
+  /** trunk へ新しく載る batch の数 (再 merge では 0) */
+  toAppendCount: number;
+};
+
+/** merge の計画。`previewMerge` と `mergeBranchOnOplog` が同じ手順で組む */
+type MergePlan = {
+  trunkBatches: Batch[];
+  branchBatches: Batch[];
+  /** trunk にまだ無い branch batches (再スタンプ前, clock 昇順) */
+  toAppend: Batch[];
+  conflicts: MergeConflict[];
+};
+
+async function buildMergePlan(
   meta: BranchMeta,
-  params: MergeBranchParams,
-  deps: MergeBranchDeps,
-): Promise<MergeBranchResult> {
+  deps: MergePreviewDeps,
+): Promise<MergePlan> {
   const [trunkBatches, branchBatches] = await Promise.all([
     deps.fetchBatches(meta.trunkFileId),
     deps.fetchBatches(meta.branchFileId),
@@ -123,7 +137,50 @@ export async function mergeBranchOnOplog(
   // 対立検出は「分岐後に trunk 側で起きた変更」と「これから載せる branch の変更」の間で行う。
   // 既に merge 済みの batch を含めても自分自身と突き合わせるだけなので除いてある。
   const trunkAfterBase = trunkBatches.filter((b) => b.clock > meta.base.at);
-  const { conflicts } = mergeBranches(trunkAfterBase, toAppend);
+  // **分岐点のグラフ**を渡す (Phase 3 T1)。削除のカスケードをこれに当てて「実際に
+  // 消える要素」を求めないと、グループ削除で子への依存を取り逃す
+  const base = projectBatches(
+    trunkBatches.filter((b) => b.clock <= meta.base.at),
+  );
+  const { conflicts } = mergeBranches(base, trunkAfterBase, toAppend);
+  return { trunkBatches, branchBatches, toAppend, conflicts };
+}
+
+/**
+ * merge を**適用せずに**何が起きるかだけを求める (Phase 3 T1)。
+ *
+ * merge は不可逆である — trunk op-log への追記に revert の経路は無い。人が押す操作の
+ * 前に、content / structure の対立を見せるためにこれを使う (`requiresConfirmation`)。
+ *
+ * **結果は助言であって保証ではない。**先読みと適用の間に trunk は動きうるので、
+ * `mergeBranchOnOplog` は読み直して計画を組み直す。ここで 0 件でも適用時に対立が
+ * 出ることはある (逆もある)。
+ */
+export async function previewMerge(
+  meta: BranchMeta,
+  deps: MergePreviewDeps,
+): Promise<MergePreview> {
+  const { toAppend, conflicts } = await buildMergePlan(meta, deps);
+  return { conflicts, toAppendCount: toAppend.length };
+}
+
+/**
+ * branch を trunk へ merge する。
+ *
+ * べき等: 同じ状態で 2 回呼んでも `appended` が 0 になるだけで trunk は変わらない。
+ * ただし**merge の記録は毎回残る** — 「いつ・誰が・何のために merge したか」は
+ * 追記が 0 件でも起きた事実だからである。
+ *
+ * **確認は挟まない。**止めるかどうかは呼び出し側の判断である — explicit merge は
+ * `previewMerge` で先に問い、implicit merge (Phase 3 T5) は止めずに常に適用する。
+ */
+export async function mergeBranchOnOplog(
+  meta: BranchMeta,
+  params: MergeBranchParams,
+  deps: MergeBranchDeps,
+): Promise<MergeBranchResult> {
+  const { trunkBatches, branchBatches, toAppend, conflicts } =
+    await buildMergePlan(meta, deps);
 
   // 再スタンプの起点を trunk 先端まで進める。自端末 clock が trunk より遅れていると
   // (別経路の受信などで) branch が trunk の下に潜り込み「上に乗る」不変条件が壊れる。

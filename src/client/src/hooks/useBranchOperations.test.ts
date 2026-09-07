@@ -81,6 +81,18 @@ const trunkBatch = (id: string, clock: number, nodeId: string, text: string) =>
     // biome-ignore lint/suspicious/noExplicitAny: テストの最小 Batch (branded 型は実行時に無関係)
   }) as any;
 
+/** trunk op-log でノードを 1 つ消す batch (削除依存の競合を作る用) */
+const trunkRemoveBatch = (id: string, clock: number, nodeId: string) =>
+  ({
+    id,
+    actor: 'seed#dev',
+    clock,
+    timestamp: clock,
+    sheetId: SHEET_ID,
+    ops: [{ kind: 'node.remove', target: nodeId }],
+    // biome-ignore lint/suspicious/noExplicitAny: テストの最小 Batch (branded 型は実行時に無関係)
+  }) as any;
+
 // `graphEventToBatch` は API 境界と同じ zod 検証を通すので、id は実 UUID 形式で作る
 let uuidSeq = 0;
 const uuid = () => {
@@ -88,17 +100,27 @@ const uuid = () => {
   return `${uuidSeq.toString(16).padStart(8, '0')}-0000-4000-8000-000000000000`;
 };
 
-/** node.setContent を 1 件生む content イベント */
-const relabel = (to: string) => ({
+/**
+ * node.setContent を 1 件生む content イベント。
+ * `nodeId` を渡せるのは**対立を作るため** — 既定の新しい id では trunk 側と衝突しない
+ */
+const relabel = (to: string, nodeId: string = uuid()) => ({
   id: uuid(),
   timestamp: 1,
   category: 'content' as const,
   type: 'NODE_RELABELED' as const,
   // biome-ignore lint/suspicious/noExplicitAny: branded NodeId をテストで作らない
-  nodeId: uuid() as any,
+  nodeId: nodeId as any,
   from: '',
   to,
 });
+
+/** 確認ダイアログに答える。`ok=false` はキャンセル */
+const answerMergeConfirm = (ok: boolean) => {
+  mockSetConfirmState.mockImplementationOnce((s) => {
+    s?.resolve(ok);
+  });
+};
 
 async function renderOplog(
   trunkLog = [trunkBatch('t1', 3, 'n1', 'trunk')],
@@ -591,6 +613,90 @@ describe('useBranchOperations — branch 操作 (op-log)', () => {
       expect(commits[0]?.message).toBe('案 A を採用したため');
       expect(commits[0]?.authorActor).toBe('did:plc:alice#dev1');
       expect(commits[0]?.sourceBranchId).toBe(branch.id);
+    });
+
+    /**
+     * Phase 3 T1 の決着: **適用前に何が起きるかを見せる。**
+     *
+     * merge は不可逆である — 再スタンプした branch batches は trunk op-log へ追記され、
+     * revert の経路が無い (branch が MERGED になるだけ)。人が押す操作なので、
+     * 人の判断が要る対立 (content / structure) は取り込む前に問う。
+     */
+    describe('取り込む前の確認 (Phase 3 T1)', () => {
+      /** trunk が消したノードを branch が編集した状態を作る (削除依存の対立) */
+      async function conflictingBranch() {
+        const node = uuid();
+        const view = await withOpenBranch([trunkBatch('t1', 3, node, 'trunk')]);
+        await act(async () => {
+          view.result.current.branchSyncRecord?.(
+            relabel('branch の編集', node),
+            SHEET_ID,
+          );
+          await new Promise((r) => setTimeout(r, 10));
+        });
+        // 分岐後に trunk 側が同じノードを消す
+        view.oplogDeps._batches.set(TRUNK_ID, [
+          ...(view.oplogDeps._batches.get(TRUNK_ID) ?? []),
+          trunkRemoveBatch('t2', 9, node),
+        ]);
+        // branch 作成が名前の入力を 1 回使っているので、ここから数え直す
+        mockSetInputState.mockClear();
+        return view;
+      }
+
+      it('🔴 対立があれば確認を出し、キャンセルすると trunk は動かない', async () => {
+        const { result, branch, oplogDeps } = await conflictingBranch();
+        const before = (oplogDeps._batches.get(TRUNK_ID) ?? []).length;
+
+        answerMergeConfirm(false);
+        await act(async () => {
+          await result.current.handleMergeBranch(branch);
+        });
+
+        expect(mockSetConfirmState).toHaveBeenCalledTimes(1);
+        expect(mockSetConfirmState.mock.calls[0]?.[0]?.message).toContain(
+          'structure 1 件',
+        );
+        // **1 件も載らない。**理由の入力にも進まない (押さなければ何も起きない)
+        expect(oplogDeps._batches.get(TRUNK_ID) ?? []).toHaveLength(before);
+        expect(oplogDeps._branches.get(branch.id)?.status).toBe('open');
+        expect(oplogDeps._commits.get(TRUNK_ID) ?? []).toHaveLength(0);
+        expect(mockSetInputState).not.toHaveBeenCalled();
+      });
+
+      it('確認を承諾すれば従来どおり merge される', async () => {
+        const { result, branch, oplogDeps } = await conflictingBranch();
+        const before = (oplogDeps._batches.get(TRUNK_ID) ?? []).length;
+
+        answerMergeConfirm(true);
+        answerMergeReason('対立を承知で取り込む');
+        await act(async () => {
+          await result.current.handleMergeBranch(branch);
+        });
+
+        expect((oplogDeps._batches.get(TRUNK_ID) ?? []).length).toBeGreaterThan(
+          before,
+        );
+        expect(oplogDeps._branches.get(branch.id)?.status).toBe('merged');
+        expect(oplogDeps._commits.get(TRUNK_ID) ?? []).toHaveLength(1);
+      });
+
+      it('対立が無ければ確認は出ない (理由の入力が唯一の確認)', async () => {
+        // 見せるものが無いのに二段構えにしても得るものが無い、という既存の判断を保つ
+        const { result, branch, oplogDeps } = await withOpenBranch();
+        await act(async () => {
+          result.current.branchSyncRecord?.(relabel('branch の編集'), SHEET_ID);
+          await new Promise((r) => setTimeout(r, 10));
+        });
+
+        answerMergeReason('取り込む');
+        await act(async () => {
+          await result.current.handleMergeBranch(branch);
+        });
+
+        expect(mockSetConfirmState).not.toHaveBeenCalled();
+        expect(oplogDeps._branches.get(branch.id)?.status).toBe('merged');
+      });
     });
   });
 
