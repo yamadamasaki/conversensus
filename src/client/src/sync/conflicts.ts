@@ -24,7 +24,11 @@ import { mergeBranches, projectBatches } from '@conversensus/shared';
  */
 export function labelsOfConflicts(
   base: ProjectedGraph,
-  conflicts: readonly MergeConflict[],
+  /**
+   * 名前を引きたい対象。**`MergeConflict` に限らない** — 上書きの報告 (T8) も
+   * 同じ「分岐点での名前」を要るので、`target` だけを要求する形にしてある
+   */
+  conflicts: readonly { target: string }[],
 ): Map<string, string> {
   const labels = new Map<string, string>();
   for (const { target } of conflicts) {

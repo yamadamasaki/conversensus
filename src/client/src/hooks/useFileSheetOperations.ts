@@ -46,6 +46,7 @@ import {
   markRkeyMigrated,
   migrateRemoteRkey,
 } from '../sync/migrateRemoteRkey';
+import type { DetectedOverwrites } from '../sync/overwrites';
 import { collectParticipantBatches } from '../sync/receiveParticipantBatches';
 import { reprojectAfterReceive } from '../sync/reprojectAfterReceive';
 import type { RosterSource } from '../sync/rosterSource';
@@ -119,6 +120,13 @@ interface UseFileSheetOperationsParams {
    * いる通知が消えるためである
    */
   setConflictNotice: (notice: ConflictNoticeState) => void;
+  /**
+   * 上書きの報告を画面へ渡す (step2 Phase 3 T8)。
+   *
+   * **競合と違って「溜める」ので、値ではなく更新関数を受け取る形にする** —
+   * この報告は自動では出ない印なので、上書きすると人が見に行く前に消える。
+   */
+  onOverwrites: (detected: DetectedOverwrites) => void;
   deps?: FileSheetOpsDeps;
   /**
    * テスト用: op-log tap の record を差し替える。未指定なら内部 tap (LocalServerSyncProvider)。
@@ -149,6 +157,7 @@ export function useFileSheetOperations({
   setConfirmState,
   setAlertState,
   setConflictNotice,
+  onOverwrites,
   deps = defaultFileSheetOpsDeps,
   syncRecord: syncRecordOverride,
   remoteQueue = null,
@@ -235,6 +244,19 @@ export function useFileSheetOperations({
       });
     },
     [setConflictNotice],
+  );
+
+  /**
+   * 上書きの報告を画面へ渡す (step2 Phase 3 T8)。
+   *
+   * **競合の通知には載せない。**「競合しました」と「あなたの書いたものが変わりました」は
+   * 言い方も扱いも別である、というのが T8 の決着そのものである。
+   */
+  const handleOverwrites = useCallback(
+    (_fileId: FileId, detected: DetectedOverwrites) => {
+      onOverwrites(detected);
+    },
+    [onOverwrites],
   );
 
   const handleRoster = useCallback(
@@ -390,6 +412,7 @@ export function useFileSheetOperations({
     onReceived: handleReceived,
     onRoster: handleRoster,
     onConflicts: handleConflicts,
+    onOverwrites: handleOverwrites,
     onSynced: handleSynced,
   });
   const syncRecord = syncRecordOverride ?? internalSyncRecord;

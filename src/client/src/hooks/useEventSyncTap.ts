@@ -35,6 +35,7 @@ import { maxJudgmentClock } from '../sync/appendJudgment';
 import type { DetectedConflicts } from '../sync/conflicts';
 import { EventSyncTap } from '../sync/eventSyncTap';
 import { LocalServerSyncProvider } from '../sync/localServerSyncProvider';
+import type { DetectedOverwrites } from '../sync/overwrites';
 import { receiveParticipantBatches } from '../sync/receiveParticipantBatches';
 import { receiveRemoteBatches } from '../sync/receiveRemoteBatches';
 import type { RosterSource } from '../sync/rosterSource';
@@ -145,6 +146,14 @@ export type UseEventSyncTapOptions = {
     forkCount: number,
   ) => void;
   /**
+   * 自分の書いたものが新着に上書きされたときの通知 (step2 Phase 3 T8)。
+   *
+   * **0 件のときは呼ばない** — `onConflicts` と同じ理由である。ただし受け手は
+   * これを**溜める** (自動では出さない印なので、上書きして消すと人が見る前に消える)。
+   * **安定参照であること**。
+   */
+  onOverwrites?: (fileId: FileId, detected: DetectedOverwrites) => void;
+  /**
    * 受信のサイクルが**最後まで走った**ことの合図 (step2 Phase 2 S6)。
    *
    * **`onReceived` では代わりにならない** — あれは着地した batch があるときだけ
@@ -212,6 +221,7 @@ export function useEventSyncTap(
     onReceived,
     onRoster,
     onConflicts,
+    onOverwrites,
     onSynced,
   }: UseEventSyncTapOptions,
 ): UseEventSyncTapResult {
@@ -382,6 +392,11 @@ export function useEventSyncTap(
       if (others.conflicts.conflicts.length > 0) {
         onConflicts?.(fileId, others.conflicts, others.forks.length);
       }
+      // 上書きの報告は競合と**別系列**である (Phase 3 T8)。同じ受信で両方 0 件でない
+      // ことはあるが、同じ単位が両方に出ることはない (検出条件が補集合である)
+      if (others.overwrites.reports.length > 0) {
+        onOverwrites?.(fileId, others.overwrites);
+      }
       if (others.readRepos.length > 0 || others.outsidePeriod > 0) {
         console.info(
           `[sync] read ${others.readRepos.length} participant repo(s): ` +
@@ -450,6 +465,7 @@ export function useEventSyncTap(
     onReceived,
     onRoster,
     onConflicts,
+    onOverwrites,
     onSynced,
   ]);
 

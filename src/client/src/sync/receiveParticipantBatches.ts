@@ -50,6 +50,11 @@ import type {
 } from '@conversensus/shared';
 import type { RemoteBatch } from '../atproto/types';
 import { type DetectedConflicts, detectIncomingConflicts } from './conflicts';
+import {
+  type DetectedOverwrites,
+  detectOverwrites,
+  NO_OVERWRITES,
+} from './overwrites';
 import { filterByParticipation } from './participationFilter';
 import { type ForkWriterDeps, writeForksForConflicts } from './writeForks';
 
@@ -103,6 +108,13 @@ export type ReceiveParticipantResult = CollectParticipantResult & {
    * 取り込みは続ける — 止めると「相手の編集が届かない」になる。競合は通知に回る。
    */
   conflicts: DetectedConflicts;
+  /**
+   * 自分の書いたものが新着に上書きされた件 (step2 Phase 3 T8)。
+   *
+   * **競合ではない。**`conflicts` の検出条件の補集合であり、両者が同じ単位について
+   * 同時に出ることはない。通知の向きが LWW の勝者側に寄る問題への補償である。
+   */
+  overwrites: DetectedOverwrites;
   /**
    * この受信で新しく書いた fork (step2 Phase 3 T6)。既にあったものは含まない。
    *
@@ -206,6 +218,7 @@ export async function receiveParticipantBatches(
       received: 0,
       appended: 0,
       conflicts: noConflicts,
+      overwrites: NO_OVERWRITES,
       forks: [],
     };
 
@@ -219,6 +232,10 @@ export async function receiveParticipantBatches(
   const known = new Set(local.map((b) => b.id));
   const incoming = collected.batches.filter((b) => !known.has(b.id));
   const conflicts = detectIncomingConflicts(local, incoming);
+
+  // **上書きの報告は競合と同じ分岐点で採る** (step2 Phase 3 T8)。追記の後では
+  // 「自分が書いた値」が既に相手の値に置き換わっていて、何が変わったか分からない
+  const overwrites = detectOverwrites(local, incoming, viewer);
 
   // **保留の記録は検出と同じ受信の中で書く** (step2 Phase 3 T6)。理由は検出時点の状態で
   // しか凍結できない — 畳み直すと「今の競合」になるし、競合そのものが消えていることもある
@@ -246,6 +263,7 @@ export async function receiveParticipantBatches(
     received: collected.batches.length,
     appended,
     conflicts,
+    overwrites,
     forks,
   };
 }

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test';
 import type { ConversensusFile, FileId, SheetId } from '@conversensus/shared';
 import type { GraphEvent } from '../events/GraphEvent';
+import type { DetectedOverwrites } from '../sync/overwrites';
 import type { ConflictNoticeState } from './useBranchOperations';
 import type { AlertState, ConfirmState } from './useFileSheetOperations';
 
@@ -25,6 +26,7 @@ const mockSetConfirmState = mock((_s: ConfirmState | null) => {});
 const mockSetAlertState = mock((_s: AlertState | null) => {});
 /** implicit merge の競合の通知先 (step2 Phase 3 T5) */
 const mockSetConflictNotice = mock((_n: ConflictNoticeState) => {});
+const mockOnOverwrites = mock((_d: DetectedOverwrites) => {});
 
 afterEach(() => {
   cleanup();
@@ -47,6 +49,7 @@ async function renderWith(opts: RenderOpts = {}) {
       setConfirmState: mockSetConfirmState,
       setAlertState: mockSetAlertState,
       setConflictNotice: mockSetConflictNotice,
+      onOverwrites: mockOnOverwrites,
       deps,
       syncRecord,
       // rkey 移行 marker (p7-4) がこの actor の DID 部分をキーにする

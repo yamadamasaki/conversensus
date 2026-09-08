@@ -13,7 +13,7 @@ import { AtprotoLoginDialog } from './AtprotoLoginDialog';
 import { TRUNK_PREFIX } from './atproto';
 import { CommitDialog } from './CommitDialog';
 import { ConfirmDialog } from './ConfirmDialog';
-import { ConflictNotice } from './ConflictNotice';
+import { ConflictNotice, NOTICE_Z_INDEX } from './ConflictNotice';
 import { makeEventBase } from './events/GraphEvent';
 import { GraphEditor } from './GraphEditor';
 import { useActor } from './hooks/useActor';
@@ -31,11 +31,18 @@ import { useRosterSource } from './hooks/useRosterSource';
 import { InputDialog } from './InputDialog';
 import { InvitationDialog } from './InvitationDialog';
 import { BlobOriginProvider } from './images/blobOriginContext';
+import { OverwriteNotice } from './OverwriteNotice';
 import { ParticipateDialog } from './ParticipateDialog';
 import { ParticipationHistoryDialog } from './ParticipationHistoryDialog';
 import { ReadOnlyProvider } from './readOnlyContext';
 import { FLOATING_UI_Z_INDEX } from './SettingsPopup';
 import { Sidebar } from './Sidebar';
+import {
+  accumulateOverwrites,
+  type DetectedOverwrites,
+  NO_OVERWRITE_NOTICE,
+  type OverwriteNoticeState,
+} from './sync/overwrites';
 import { participationRounds } from './sync/participationHistoryView';
 import { generateId } from './uuid';
 
@@ -58,6 +65,23 @@ export default function App() {
     conflicts: [],
     labels: new Map(),
   });
+  /**
+   * 上書きの報告 (Phase 3 T8)。**受信サイクルをまたいで溜める。**
+   *
+   * 競合の通知と違って自動では開かないので、上書きして消すと**人が見に行く前に
+   * 消える**。検出は競合と同じく 1 度きり (次のサイクルではその batch は手元にある)
+   * なので、溜めるのはここしかない。
+   */
+  const [overwriteNotice, setOverwriteNotice] =
+    useState<OverwriteNoticeState>(NO_OVERWRITE_NOTICE);
+  const handleOverwrites = useCallback((detected: DetectedOverwrites) => {
+    setOverwriteNotice((prev) => accumulateOverwrites(prev, detected));
+  }, []);
+  /** 上書きの報告の対象名。競合と同じ「分岐点での名前」から引く */
+  const overwriteLabelOf = useCallback(
+    (target: string) => overwriteNotice.labels.get(target) ?? target,
+    [overwriteNotice],
+  );
   /**
    * 競合の対象を人が読める名前にする。**id は UUID なので出しても意味が無い。**
    *
@@ -117,6 +141,7 @@ export default function App() {
     setConfirmState,
     setAlertState,
     setConflictNotice,
+    onOverwrites: handleOverwrites,
     remoteQueue,
     actor,
     // 多アクタ同期は名簿を先に読む (step2 Phase 2 S2)。ダイアログと同じ供給元である
@@ -499,12 +524,38 @@ export default function App() {
           }}
         />
       )}
-      <ConflictNotice
-        conflicts={conflictNotice.conflicts}
-        labelOf={conflictLabelOf}
-        forkCount={conflictNotice.forkCount ?? 0}
-        onClose={() => setConflictNotice({ conflicts: [], labels: new Map() })}
-      />
+      {/*
+        通知は 2 系列ある (競合 / 上書きの報告, Phase 3 T8)。**同じ隅に出るので
+        積む** — どちらも自分では位置を持たず、重ならないことはここで保証する。
+        中身が無ければ両方 null なので、この箱は 0 の大きさになる
+      */}
+      <div
+        style={{
+          position: 'fixed',
+          right: 16,
+          bottom: 16,
+          zIndex: NOTICE_Z_INDEX,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'flex-end',
+          gap: 8,
+        }}
+      >
+        <ConflictNotice
+          conflicts={conflictNotice.conflicts}
+          labelOf={conflictLabelOf}
+          forkCount={conflictNotice.forkCount ?? 0}
+          onClose={() =>
+            setConflictNotice({ conflicts: [], labels: new Map() })
+          }
+        />
+        <OverwriteNotice
+          reports={overwriteNotice.reports}
+          labelOf={overwriteLabelOf}
+          actorLabelOf={participation.state.labelOf}
+          onDismiss={() => setOverwriteNotice(NO_OVERWRITE_NOTICE)}
+        />
+      </div>
       {loginDialogOpen && (
         <AtprotoLoginDialog
           onLogin={async (handle, password) => {

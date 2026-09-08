@@ -28,6 +28,14 @@
 
 import type { MergeConflict } from '@conversensus/shared';
 
+/**
+ * 通知の重なり順。ダイアログ (1000) より下、画面上の浮遊 UI (100) より上。
+ *
+ * **位置は自分で持たない。**上書きの報告 (T8) と同じ隅に出るので、重ならないよう
+ * 積むのは呼び出し側 (`App` の通知スタック) の仕事である。
+ */
+export const NOTICE_Z_INDEX = 900;
+
 /** 通知の段。仕様の 3 段そのもの */
 type Tier = {
   category: MergeConflict['category'];
@@ -133,9 +141,6 @@ export function ConflictNotice({
       role="status"
       aria-label="競合の通知"
       style={{
-        position: 'fixed',
-        right: 16,
-        bottom: 16,
         width: 380,
         maxWidth: 'calc(100vw - 32px)',
         maxHeight: '60vh',
@@ -147,7 +152,6 @@ export function ConflictNotice({
         padding: 16,
         fontSize: 13,
         lineHeight: 1.6,
-        zIndex: 900,
       }}
     >
       <div
