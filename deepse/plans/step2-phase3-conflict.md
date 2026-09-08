@@ -383,7 +383,7 @@ fork が同期されて私にも届く**。総当たりにすると検出が参�
 | ~~**T4**~~ | ~~競合の通知 UI (3 段の出し分け)~~ **完了 (2026-09-07, 実機確認済)**。`ConflictNotice` (非モーダル / 3 段を開閉で出し分け) | 単体 + 実機 |
 | ~~**T5**~~ | ~~implicit merge に検出器を持ち込む~~ **完了 (2026-09-07, 実機確認済)**。`detectIncomingConflicts` / 受信経路の追記の前に挟む | 単体 + 実 PDS (2 アカウント) |
 | ~~**T6**~~ | ~~fork を書く + 理由を凍結する~~ **完了 (2026-09-07, 実 PDS 確認済)**。`makeFork` / `conflictKeyOf` / `writeForksForConflicts` | 単体 + 実 PDS |
-| ~~**T8**~~ | ~~上書きの報告 (通知の向きの決着)~~ **完了 (2026-09-08)**。`sync/overwrites.ts` (`detectOverwrites` / `accumulateOverwrites`) + `OverwriteNotice` | 単体 |
+| ~~**T8**~~ | ~~上書きの報告 (通知の向きの決着)~~ **完了 (2026-09-08, 実機確認済)**。`sync/overwrites.ts` (`detectOverwrites` / `accumulateOverwrites`) + `OverwriteNotice` | 単体 + 実機 |
 | **T7** | 器: branch / commit / merge の op-log 昇格と同期。**Phase 5 の後にやる** (① の決着) | 単体 + 実 PDS |
 
 **T0 が最初なのは順序の問題ではなく正しさの問題である** — カスケードの規則が 2 箇所に
@@ -433,6 +433,7 @@ fork が同期されて私にも届く**。総当たりにすると検出が参�
 
 > **決着 → T8 (下記)。**穴 2 つとも fork の同期を待たずに埋まる。上書きの報告は
 > 受信の中で完結し (fork の到着を契機にしない)、**layout も含める**からである。
+> **2026-09-08 に実機で確認した** — 通知が出なかった側 (LWW で負けた側) に印が出る。
 
 ## ⚠️ 順序についての整理 (2026-09-07 に問われて確認)
 
