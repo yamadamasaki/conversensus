@@ -283,6 +283,105 @@ describe('receiveParticipantBatches', () => {
     });
   });
 
+  /**
+   * **通知の向きの決着** (Phase 3 T8)。T5 の検出は LWW で勝つ側にしか出ないので、
+   * 負けた側 — 自分の編集が上書きされた側 — に届く系列をもう 1 本持つ。
+   */
+  describe('上書きの報告 (Phase 3 T8)', () => {
+    const sharedWith = (did: Did) =>
+      roster({ [ME]: [event('genesis', 1)], [did]: [event('accept', 2)] });
+
+    it('🔴 競合が 0 件でも、自分の編集が上書きされていれば報告する', async () => {
+      // 私の編集 (clock 3) < bob の編集 (clock 8) = T5 は何も出さない側である
+      const local = [
+        batch(ME, 1, [addNode(NODE)]),
+        batch(ME, 3, [setContent('私が書いた')]),
+      ];
+      const remote = fakeRemote(
+        {
+          [BOB]: [envelope(FILE, batch(BOB, 8, [setContent('bob が直した')]))],
+        },
+        local,
+      );
+      const result = await receiveParticipantBatches(
+        FILE,
+        sharedWith(BOB),
+        ME,
+        remote.deps,
+      );
+
+      // T5 は沈黙する — **これが実 PDS で見つかった問題そのものである**
+      expect(result.conflicts.conflicts).toEqual([]);
+      // T8 が拾う
+      expect(result.overwrites.reports).toHaveLength(1);
+      expect(result.overwrites.reports[0]).toMatchObject({
+        target: NODE,
+        category: 'content',
+        by: BOB,
+      });
+      // 名前は分岐点から引けている (追記後は bob の値になっている)
+      expect(result.overwrites.labels.get(NODE)).toBe('私が書いた');
+    });
+
+    it('🔴 競合として出る側では報告しない (2 つの系列は補集合である)', async () => {
+      const local = [
+        batch(ME, 1, [addNode(NODE)]),
+        batch(ME, 9, [setContent('私が書いた')]),
+      ];
+      const remote = fakeRemote(
+        {
+          [BOB]: [envelope(FILE, batch(BOB, 8, [setContent('bob が書いた')]))],
+        },
+        local,
+      );
+      const result = await receiveParticipantBatches(
+        FILE,
+        sharedWith(BOB),
+        ME,
+        remote.deps,
+      );
+
+      expect(result.conflicts.conflicts).toHaveLength(1);
+      expect(result.overwrites.reports).toEqual([]);
+    });
+
+    it('🔴 layout も報告する (fork にならないので他に伝える道が無い)', async () => {
+      const local = [
+        batch(ME, 1, [addNode(NODE)], SHEET),
+        batch(ME, 3, [moveNode(1, 1)], SHEET),
+      ];
+      const remote = fakeRemote(
+        { [BOB]: [envelope(FILE, batch(BOB, 8, [moveNode(9, 9)], SHEET))] },
+        local,
+      );
+      const result = await receiveParticipantBatches(
+        FILE,
+        sharedWith(BOB),
+        ME,
+        remote.deps,
+      );
+
+      expect(result.overwrites.reports).toHaveLength(1);
+      expect(result.overwrites.reports[0]).toMatchObject({
+        category: 'layout',
+        aspect: 'position',
+      });
+      // 報告は fork を作らない。保留する判断ではなく事実の報告である
+      expect(result.forks).toEqual([]);
+    });
+
+    it('新着が無ければ報告もしない', async () => {
+      const remote = fakeRemote({});
+      const result = await receiveParticipantBatches(
+        FILE,
+        sharedWith(BOB),
+        ME,
+        remote.deps,
+      );
+      expect(result.overwrites.reports).toEqual([]);
+    });
+  });
+
   describe('誰の repo を読むか', () => {
     it('参加者から自分を除いた repo を読む', async () => {
       const remote = fakeRemote({
