@@ -75,10 +75,10 @@ function dropWith(files: File[]) {
 // NodeProps の最小スタブ
 // biome-ignore lint/suspicious/noExplicitAny: テスト用 NodeProps スタブ
 type TestNodeProps = any;
-const makeProps = (label = '画像ノード'): TestNodeProps => ({
+const makeProps = (content = '画像ノード'): TestNodeProps => ({
   id: 'node-1',
   data: {
-    label,
+    content,
     properties: { [IMAGE_URL_PROPERTY_KEY]: 'https://example.com/a.png' },
   },
   type: 'imageNode',
@@ -90,10 +90,10 @@ const makeProps = (label = '画像ノード'): TestNodeProps => ({
   zIndex: 0,
 });
 
-const makeGhostProps = (label = '削除予定の画像'): TestNodeProps => ({
-  ...makeProps(label),
+const makeGhostProps = (content = '削除予定の画像'): TestNodeProps => ({
+  ...makeProps(content),
   data: {
-    label,
+    content,
     ghost: true,
     properties: { [IMAGE_URL_PROPERTY_KEY]: 'https://example.com/a.png' },
   },
@@ -129,7 +129,7 @@ describe('ImageNode', () => {
       ]);
     });
 
-    it('ラベルを取り消し線付きで表示し, 画像は描画しない', () => {
+    it('キャプションを取り消し線付きで表示し, 画像は描画しない', () => {
       render(<ImageNode {...makeGhostProps()} />);
       expect(screen.getByText('削除予定の画像')).toBeDefined();
       expect(screen.queryByRole('img')).toBeNull();
@@ -272,7 +272,7 @@ describe('ImageNode', () => {
     const legacyProps = (): TestNodeProps => ({
       ...makeProps(),
       data: {
-        label: '画像ノード',
+        content: '画像ノード',
         properties: { imageDataUrl: 'data:image/png;base64,AAECAw==' },
       },
     });
@@ -324,7 +324,7 @@ describe('ImageNode', () => {
     const withBlob = (cid: string): TestNodeProps => ({
       ...makeProps(),
       data: {
-        label: '画像ノード',
+        content: '画像ノード',
         properties: {
           [IMAGE_PROPERTY_KEY]: {
             $type: 'blob',
@@ -405,7 +405,7 @@ describe('ImageNode', () => {
       rerender(
         <ImageNode
           {...makeProps()}
-          data={{ label: '画像ノード', properties: {} }}
+          data={{ content: '画像ノード', properties: {} }}
         />,
       );
 

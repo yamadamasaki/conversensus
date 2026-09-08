@@ -46,7 +46,7 @@ const { EditableNode } = await import('./EditableNode');
 type TestNodeProps = any;
 const makeProps = (label = 'テストノード'): TestNodeProps => ({
   id: 'node-1',
-  data: { label },
+  data: { content: label },
   type: 'editableNode',
   isConnectable: true,
   selected: false,
@@ -68,18 +68,18 @@ describe('EditableNode', () => {
     cleanup();
   });
 
-  it('ラベルを表示する', () => {
+  it('内容を表示する', () => {
     render(<EditableNode {...makeProps()} />);
     expect(screen.getByText('テストノード')).toBeDefined();
   });
 
-  it('ラベルを ReactMarkdown で描画する', () => {
+  it('内容を ReactMarkdown で描画する', () => {
     render(<EditableNode {...makeProps('**太字**')} />);
     expect(mockReactMarkdown).toHaveBeenCalled();
     expect(screen.getByTestId('markdown')).toBeDefined();
   });
 
-  it('空ラベルでは編集促進テキストを表示する', () => {
+  it('内容が空なら編集促進テキストを表示する', () => {
     render(<EditableNode {...makeProps('')} />);
     expect(screen.getByText('ダブルクリックで編集')).toBeDefined();
     expect(screen.queryByRole('textbox')).toBeNull();
@@ -93,7 +93,7 @@ describe('EditableNode', () => {
     expect(textarea.value).toBe('テストノード');
   });
 
-  it('onBlur で確定し NODE_RELABELED を dispatch する', () => {
+  it('onBlur で確定し NODE_CONTENT_CHANGED を dispatch する', () => {
     render(<EditableNode {...makeProps()} />);
     fireEvent.dblClick(screen.getByText('テストノード'));
     const textarea = screen.getByRole('textbox') as HTMLTextAreaElement;
@@ -101,7 +101,7 @@ describe('EditableNode', () => {
     fireEvent.blur(textarea);
     expect(mockDispatch).toHaveBeenCalledTimes(1);
     expect((mockDispatch.mock.calls[0][0] as { type: string }).type).toBe(
-      'NODE_RELABELED',
+      'NODE_CONTENT_CHANGED',
     );
     expect(screen.queryByRole('textbox')).toBeNull();
   });
@@ -128,7 +128,7 @@ describe('EditableNode', () => {
   describe('ghost (削除予定表示)', () => {
     const makeGhostProps = (label = '削除予定'): TestNodeProps => ({
       ...makeProps(label),
-      data: { label, ghost: true },
+      data: { content: label, ghost: true },
     });
 
     it('ハンドルをすべて接続不可にする', () => {

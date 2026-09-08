@@ -152,9 +152,17 @@ export type NodesPastedUndoEvent = EventBase & {
 };
 
 // --- Content ---
-export type NodeRelabeledEvent = EventBase & {
+/**
+ * ノードの本文 (markdown) の編集。
+ *
+ * **かつて `NODE_RELABELED` という名前だった** (step2 Phase 5 P0 で改称)。写る先は
+ * `node.setContent` で、実体は最初から本文の編集だった — 「ラベルを変えた」という名前が
+ * 嘘をついていた。**Phase 5 で node に本物の label (種別名) が入る**ので、
+ * その前に語を空けてある。`edge.setLabel` の label は本物なのでそのままである。
+ */
+export type NodeContentChangedEvent = EventBase & {
   category: 'content';
-  type: 'NODE_RELABELED';
+  type: 'NODE_CONTENT_CHANGED';
   nodeId: NodeId;
   from: string;
   to: string;
@@ -280,7 +288,7 @@ export type GraphEvent =
   | NodesRestoredEvent
   | NodesPastedEvent
   | NodesPastedUndoEvent
-  | NodeRelabeledEvent
+  | NodeContentChangedEvent
   | EdgeRelabeledEvent
   | NodePropertiesChangedEvent
   | EdgePropertiesChangedEvent

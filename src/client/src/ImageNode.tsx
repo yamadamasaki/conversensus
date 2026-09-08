@@ -26,7 +26,7 @@ import {
 import { replaceNodeImage } from './images/replaceNodeImage';
 
 type ImageNodeData = {
-  label: string;
+  content: string;
   diffType?: 'add' | 'update';
   properties?: Record<string, unknown>;
   ghost?: boolean;
@@ -56,7 +56,7 @@ export function ImageNode({ id, data, selected }: NodeProps) {
   // 由来も原始値で持つ。**依存に入れる** — 名簿を読み直して由来が分かった時点で
   // 引き直せないと、先に「無い」と決めた画像がそのまま出ないままになる
   const blobOriginDid = (blobCid && originOf(blobCid as BlobCid)) || '';
-  const label = String(nodeData.label ?? '');
+  const content = String(nodeData.content ?? '');
   const diffType = nodeData.diffType as 'add' | 'update' | undefined;
   const ghost = nodeData.ghost === true;
 
@@ -222,13 +222,13 @@ export function ImageNode({ id, data, selected }: NodeProps) {
   }, [urlInput, imageUrl, properties, dispatch, id, reportImageError]);
 
   // キャプション編集
-  const caption = useInlineEdit(label, (value) => {
-    if (value !== label) {
+  const caption = useInlineEdit(content, (value) => {
+    if (value !== content) {
       dispatch({
         ...makeEventBase('content'),
-        type: 'NODE_RELABELED',
+        type: 'NODE_CONTENT_CHANGED',
         nodeId: id as NodeId,
-        from: label,
+        from: content,
         to: value,
       });
     }
@@ -286,7 +286,7 @@ export function ImageNode({ id, data, selected }: NodeProps) {
             }}
           >
             <span style={{ textDecoration: 'line-through' }}>
-              {label || ''}
+              {content || ''}
             </span>
           </div>
           <div
@@ -408,7 +408,7 @@ export function ImageNode({ id, data, selected }: NodeProps) {
               }}
             />
           ) : (
-            <span>{label || ''}</span>
+            <span>{content || ''}</span>
           )}
         </div>
         {/* 画像エリア */}
@@ -469,7 +469,7 @@ export function ImageNode({ id, data, selected }: NodeProps) {
           ) : displayUrl ? (
             <img
               src={displayUrl}
-              alt={label}
+              alt={content}
               onError={() => setImgError(true)}
               style={{
                 width: '100%',

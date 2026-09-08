@@ -48,7 +48,10 @@ export function toFlowNodes(
         y: layout.y ?? 0,
       },
       data: {
-        label: n.content,
+        // **React Flow の data のキーは `content` である** (step2 Phase 5 P0)。
+        // かつて `label` だったが、入っているのは最初から本文だった。Phase 5 で
+        // node に本物の label (template の種別名) が入るので、語を空けてある
+        content: n.content,
         diffType,
         ...(n.properties ? { properties: n.properties } : {}),
       },
@@ -144,7 +147,7 @@ export function fromFlowNodes(nodes: Node[]): {
 } {
   const graphNodes: GraphNode[] = nodes.map((n) => ({
     id: n.id as NodeId,
-    content: String(n.data.label ?? ''),
+    content: String(n.data.content ?? ''),
     ...(n.type === RF_GROUP_NODE_TYPE ? { nodeType: GROUP_NODE_TYPE } : {}),
     ...(n.type === RF_IMAGE_NODE_TYPE ? { nodeType: IMAGE_NODE_TYPE } : {}),
     ...(n.parentId ? { parentId: n.parentId as NodeId } : {}),

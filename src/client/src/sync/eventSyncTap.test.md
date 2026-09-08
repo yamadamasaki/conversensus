@@ -30,7 +30,7 @@ tap のロジックを framework 非依存に固定する。
 ## どのように
 
 - テスト用 `RecordingProvider` (push を記録、`online` で成否を切替) を注入。
-- **push**: `NODE_RELABELED` (node.setContent を生む) を record → settled 後に 1 件 push、
+- **push**: `NODE_CONTENT_CHANGED` (node.setContent を生む) を record → settled 後に 1 件 push、
   ops が node.setContent であること。
 - **空 ops スキップ**: width/height 無しの `NODE_STYLE_CHANGED` を record → push 0 件、
   注入した `LamportClock` が tick されていない (current()===0)。

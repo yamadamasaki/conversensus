@@ -293,7 +293,7 @@ describe('graphEventToOps: 全 21 イベント型を網羅する', () => {
     },
     {
       ...makeEventBase('content'),
-      type: 'NODE_RELABELED',
+      type: 'NODE_CONTENT_CHANGED',
       nodeId,
       from: 'a',
       to: 'b',
@@ -479,7 +479,7 @@ describe('graphEventToBatch: content の sheet-aware 化 (W3c2)', () => {
     const nodeId = nid();
     return {
       ...makeEventBase('content'),
-      type: 'NODE_RELABELED',
+      type: 'NODE_CONTENT_CHANGED',
       nodeId,
       from: 'a',
       to: 'b',

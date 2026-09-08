@@ -19,13 +19,13 @@ const base = { id: 'evt', timestamp: 0 } as const;
 const n1: Node = {
   id: 'n1',
   position: { x: 10, y: 20 },
-  data: { label: 'ノード1' },
+  data: { content: 'ノード1' },
   type: 'editableNode',
 };
 const n2: Node = {
   id: 'n2',
   position: { x: 100, y: 200 },
-  data: { label: 'ノード2' },
+  data: { content: 'ノード2' },
   type: 'editableNode',
 };
 const e1: Edge = {
@@ -69,7 +69,7 @@ describe('NODE_ADDED', () => {
     expect(nodes[2]).toMatchObject({
       id: 'n3',
       position: { x: 50, y: 60 },
-      data: { label: 'ノード3' },
+      data: { content: 'ノード3' },
     });
     expect(edges).toHaveLength(1);
   });
@@ -217,7 +217,7 @@ describe('NODES_UNGROUPED', () => {
     const parentNode: Node = {
       id: 'parent',
       position: { x: 0, y: 0 },
-      data: { label: 'グループ' },
+      data: { content: 'グループ' },
       type: 'groupNode',
     };
     const childNode: Node = {
@@ -264,7 +264,7 @@ describe('NODES_UNGROUPED', () => {
     const parentNode: Node = {
       id: 'parent',
       position: { x: 500, y: 500 },
-      data: { label: 'グループ' },
+      data: { content: 'グループ' },
       type: 'groupNode',
     };
     const childNode: Node = {
@@ -324,7 +324,7 @@ describe('NODES_UNGROUPED', () => {
     const parentNode: Node = {
       id: 'parent',
       position: { x: 0, y: 0 },
-      data: { label: 'グループ' },
+      data: { content: 'グループ' },
       type: 'groupNode',
     };
     const listed: Node = {
@@ -371,7 +371,7 @@ describe('NODE_REPARENTED', () => {
   const groupNode: Node = {
     id: 'group1',
     position: { x: 0, y: 0 },
-    data: { label: 'グループ' },
+    data: { content: 'グループ' },
     type: 'groupNode',
   };
 
@@ -430,7 +430,7 @@ describe('NODE_REPARENTED', () => {
     const anotherGroup: Node = {
       id: 'group2',
       position: { x: 200, y: 200 },
-      data: { label: 'グループ2' },
+      data: { content: 'グループ2' },
       type: 'groupNode',
     };
     const event: GraphEvent = {
@@ -460,7 +460,7 @@ describe('NODES_DELETED / NODES_RESTORED', () => {
   const groupNode: Node = {
     id: 'group',
     position: { x: 100, y: 100 },
-    data: { label: 'グループ' },
+    data: { content: 'グループ' },
     type: 'groupNode',
     style: { width: 200, height: 200 },
   };
@@ -576,19 +576,19 @@ describe('NODES_PASTED_UNDO', () => {
 
 // --- content イベント ---
 
-describe('NODE_RELABELED', () => {
-  it('ノードの data.label を更新する', () => {
+describe('NODE_CONTENT_CHANGED', () => {
+  it('ノードの data.content を更新する', () => {
     const event: GraphEvent = {
       ...base,
       category: 'content',
-      type: 'NODE_RELABELED',
+      type: 'NODE_CONTENT_CHANGED',
       nodeId: 'n1' as NodeId,
       from: 'ノード1',
       to: '新しいラベル',
     };
     const { nodes } = applyEvent(event, [n1, n2], []);
-    expect(nodes[0].data.label).toBe('新しいラベル');
-    expect(nodes[1].data.label).toBe('ノード2');
+    expect(nodes[0].data.content).toBe('新しいラベル');
+    expect(nodes[1].data.content).toBe('ノード2');
   });
 });
 
@@ -619,7 +619,7 @@ describe('NODE_PROPERTIES_CHANGED', () => {
     };
     const { nodes } = applyEvent(event, [n1], []);
     expect(nodes[0].data.properties).toEqual({ key: 'value' });
-    expect(nodes[0].data.label).toBe('ノード1'); // 他の data は保持
+    expect(nodes[0].data.content).toBe('ノード1'); // 他の data は保持
   });
 
   it('from が現在の properties と一致していれば to のとおりになる', () => {
@@ -785,18 +785,18 @@ describe('round-trip: apply → invert → apply = 元の状態', () => {
     expect(restored[0].position).toEqual(n1.position);
   });
 
-  it('NODE_RELABELED', () => {
+  it('NODE_CONTENT_CHANGED', () => {
     const event: GraphEvent = {
       ...base,
       category: 'content',
-      type: 'NODE_RELABELED',
+      type: 'NODE_CONTENT_CHANGED',
       nodeId: 'n1' as NodeId,
       from: 'ノード1',
       to: '変更後',
     };
     const { nodes: after } = applyEvent(event, [n1], []);
     const { nodes: restored } = applyEvent(invertEvent(event), after, []);
-    expect(restored[0].data.label).toBe('ノード1');
+    expect(restored[0].data.content).toBe('ノード1');
   });
 
   it('NODE_ADDED → NODE_DELETED (undo) = 元の状態', () => {

@@ -182,11 +182,11 @@ export function applyEvent(
       };
     }
 
-    case 'NODE_RELABELED':
+    case 'NODE_CONTENT_CHANGED':
       return {
         nodes: nodes.map((n) =>
           n.id === event.nodeId
-            ? { ...n, data: { ...n.data, label: event.to } }
+            ? { ...n, data: { ...n.data, content: event.to } }
             : n,
         ),
         edges,

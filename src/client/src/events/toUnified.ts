@@ -222,7 +222,7 @@ export function graphEventToOps(event: GraphEvent): Op[] {
         ops.push({ kind: 'node.remove', target: nodeId });
       return ops;
     }
-    case 'NODE_RELABELED':
+    case 'NODE_CONTENT_CHANGED':
       return [
         { kind: 'node.setContent', target: event.nodeId, content: event.to },
       ];

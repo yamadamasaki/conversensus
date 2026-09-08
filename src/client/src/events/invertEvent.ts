@@ -124,10 +124,10 @@ export function invertEvent(event: GraphEvent): GraphEvent {
         edges: event.edges,
         edgeLayouts: event.edgeLayouts,
       };
-    case 'NODE_RELABELED':
+    case 'NODE_CONTENT_CHANGED':
       return {
         ...base,
-        type: 'NODE_RELABELED',
+        type: 'NODE_CONTENT_CHANGED',
         category: 'content',
         nodeId: event.nodeId,
         from: event.to,

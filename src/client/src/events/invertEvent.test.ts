@@ -278,21 +278,21 @@ describe('NODES_DELETED ↔ NODES_RESTORED', () => {
 
 // --- content ---
 
-describe('NODE_RELABELED', () => {
+describe('NODE_CONTENT_CHANGED', () => {
   it('from/to を入れ替える', () => {
     const event: GraphEvent = {
       ...base,
       category: 'content',
-      type: 'NODE_RELABELED',
+      type: 'NODE_CONTENT_CHANGED',
       nodeId: 'n1' as NodeId,
       from: '旧ラベル',
       to: '新ラベル',
     };
     const inv = invertEvent(event) as Extract<
       GraphEvent,
-      { type: 'NODE_RELABELED' }
+      { type: 'NODE_CONTENT_CHANGED' }
     >;
-    expect(inv.type).toBe('NODE_RELABELED');
+    expect(inv.type).toBe('NODE_CONTENT_CHANGED');
     expect(inv.from).toBe('新ラベル');
     expect(inv.to).toBe('旧ラベル');
   });
@@ -463,11 +463,11 @@ describe('二重反転対称性: invertEvent(invertEvent(e)).type === e.type', (
       },
     },
     {
-      label: 'NODE_RELABELED',
+      label: 'NODE_CONTENT_CHANGED',
       event: {
         ...base,
         category: 'content',
-        type: 'NODE_RELABELED',
+        type: 'NODE_CONTENT_CHANGED',
         nodeId: 'n1' as NodeId,
         from: 'a',
         to: 'b',

@@ -26,9 +26,9 @@
 
 | テストケース | 検証内容 |
 |---|---|
-| ラベルを表示する | `label` が描画される |
-| 空ラベルでは編集促進テキストを表示する | 空ラベル時に「ダブルクリックで編集」が表示される |
-| ダブルクリックで編集モードに切り替わる | dblclick 後に textarea が出現し value が現在のラベル |
+| 内容を表示する | `data.content` が描画される |
+| 内容が空なら編集促進テキストを表示する | 空のとき「ダブルクリックで編集」が表示される |
+| ダブルクリックで編集モードに切り替わる | dblclick 後に textarea が出現し value が現在の内容 |
 | onBlur で確定し setNodes を呼び出す | blur 時に `setNodes` が呼ばれ、textarea が消える |
 | Escape でキャンセルし setNodes を呼ばない | `setNodes` が呼ばれず、textarea が消える |
 | Enter キーは改行のみで確定しない | textarea の自然な動作として Enter は確定せず編集継続 |

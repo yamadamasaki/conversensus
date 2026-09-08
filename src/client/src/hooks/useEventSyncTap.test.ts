@@ -82,7 +82,7 @@ const relabel = () => ({
   id: uuid(),
   timestamp: Date.now(),
   category: 'content' as const,
-  type: 'NODE_RELABELED' as const,
+  type: 'NODE_CONTENT_CHANGED' as const,
   nodeId: uuid() as NodeId,
   from: 'a',
   to: 'b',

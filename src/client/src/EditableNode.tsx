@@ -49,18 +49,18 @@ export function EditableNode({ id, data, selected }: NodeProps) {
     [dispatch, id],
   );
 
-  const label = String(data.label ?? '');
+  const content = String(data.content ?? '');
   const diffType = data.diffType as 'add' | 'update' | undefined;
   const ghost = data.ghost === true;
 
   const { editing, inputValue, setInputValue, startEdit, confirm, cancel } =
-    useInlineEdit(label, (value) => {
-      if (value !== label) {
+    useInlineEdit(content, (value) => {
+      if (value !== content) {
         dispatch({
           ...makeEventBase('content'),
-          type: 'NODE_RELABELED',
+          type: 'NODE_CONTENT_CHANGED',
           nodeId: id as NodeId,
-          from: label,
+          from: content,
           to: value,
         });
       }
@@ -99,8 +99,10 @@ export function EditableNode({ id, data, selected }: NodeProps) {
             }}
             className="markdown-body"
           >
-            {label ? (
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{label}</ReactMarkdown>
+            {content ? (
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {content}
+              </ReactMarkdown>
             ) : (
               <span style={{ color: '#aaa' }}>(空)</span>
             )}
@@ -193,8 +195,10 @@ export function EditableNode({ id, data, selected }: NodeProps) {
             }}
             className="markdown-body"
           >
-            {label ? (
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{label}</ReactMarkdown>
+            {content ? (
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {content}
+              </ReactMarkdown>
             ) : (
               <span style={{ color: '#aaa' }}>ダブルクリックで編集</span>
             )}

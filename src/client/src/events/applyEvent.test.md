@@ -27,7 +27,7 @@ GraphEvent を React Flow のノード/エッジ配列に適用した結果を�
 | NODES_RESTORED | 削除したノード/エッジの復元 (undo で親子関係と位置が戻る) |
 | NODES_PASTED | 既存選択解除・新規追加 |
 | NODES_PASTED_UNDO | 指定 ID のノード/エッジ一括削除 |
-| NODE_RELABELED | data.label 更新 |
+| NODE_CONTENT_CHANGED | data.content 更新 |
 | EDGE_RELABELED | label 更新 |
 | NODE_PROPERTIES_CHANGED | data.properties へ **from → to の差分**を当てる。`from` と一致していれば `to` のとおりになり、`from` が知らないプロパティは残る。`to` が空なら `from` にあったものが消える (#208) |
 | NODE_MOVED | position 更新 |
