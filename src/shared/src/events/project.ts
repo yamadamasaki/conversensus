@@ -248,6 +248,14 @@ function applyOp(g: FoldState, op: GraphOp): void {
       }
       break;
     }
+    case 'node.setLabel': {
+      const node = g.nodes.get(op.target);
+      if (node) {
+        node.label = op.label;
+        reviveNode(g, op.target);
+      }
+      break;
+    }
     case 'node.setProperty': {
       const node = g.nodes.get(op.target);
       if (node) {

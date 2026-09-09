@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   BatchSchema,
   FILE_OP_KINDS,
+  isContentOp,
   isFileOp,
   isSyncable,
   LamportClock,
@@ -124,5 +125,25 @@ describe('BatchSchema', () => {
       ops: [{ kind: 'node.add', target: crypto.randomUUID(), content: 'A' }],
     });
     expect(result.success).toBe(true);
+  });
+});
+
+describe('node.setLabel (Phase 5 P1)', () => {
+  const setLabel = {
+    kind: 'node.setLabel',
+    target: crypto.randomUUID() as never,
+    label: '主張',
+  } as const;
+
+  test('content カテゴリに属する — edge.setLabel と揃える (設計 D4)', () => {
+    // 人が決めた意味であって位置でも構造でもない。layout に置くと通知だけで流れ、
+    // structure に置くと削除依存の判定に混ざる
+    expect(OP_CATEGORY['node.setLabel']).toBe('content');
+    expect(OP_CATEGORY['node.setLabel']).toBe(OP_CATEGORY['edge.setLabel']);
+  });
+
+  test('content op なので同期され、対立検出の対象になる', () => {
+    expect(isContentOp(setLabel)).toBe(true);
+    expect(isSyncable(setLabel)).toBe(true);
   });
 });

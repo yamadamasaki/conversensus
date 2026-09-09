@@ -181,7 +181,7 @@ template の中で接続規則を書くときに label で照合すると、表�
 | | 内容 | 検証 |
 | --- | --- | --- |
 | **P0** | **語を直す**。`data.label` → `data.content`、`NODE_RELABELED` → `NODE_CONTENT_CHANGED`。**振舞いは変えない** | 単体 (既存が全部緑のまま) |
-| **P1** | `node.setLabel` op の追加 (schema / `OP_CATEGORY` = content / projection)。`applicability` と cascade は無関係 | 単体 |
+| **P1** ✅ | `node.setLabel` op の追加 (schema / `OP_CATEGORY` = content / projection + **merge の単位キー**)。cascade は無関係 | 単体 (+14 件、計 1600 緑) |
 | **P2** | template の型と toulmin の直書き (`shared/template/`) + 畳み方 (`kindsOf` / `isConnectionAllowed`) | 単体 + 性質 |
 | **P3** | **紐づけ**。`sheet.create` に `templateIds` + シート作成時に選ぶ | 単体 |
 | **P4** | node の種別を出す・選ぶ。`NodeTypeMenu` を 2 段 + 後から変える口 | 単体 |
@@ -192,6 +192,23 @@ template の中で接続規則を書くときに label で照合すると、表�
 **P0 が最初なのは順序の問題ではなく正しさの問題である** (T0 と同じ形)。label が 2 つの
 意味を持ったまま P1 を入れると、`node.setLabel` と `data.label` が別のものを指す状態が
 固定される。
+
+### P1 で計画から外れた点 (2026-09-09)
+
+計画は「`applicability` と cascade は無関係」としていたが、**片方は無関係ではなかった**。
+
+- **`merge.ts` の対立単位キー**を割る必要があった。`unitsOf` は content op を
+  **`op.target` だけ**でキーにしていた。node が本文と種別の 2 フィールドを持つように
+  なると、「片方が本文を直し、片方が種別を付けた」が対立として出る。プロパティを
+  名前ごとに割ったのと同じ理由で、`fieldKeyOf(target, 'content' | 'label')` に分けた。
+  **D4 (種別の食い違いは合意形成の機会) を正しく効かせるための前提**である
+- **`applicability` の `REQUIRES_TARGET`** には載せた。規則を変えたのではなく、
+  `applyOp` の `if (node)` 分岐の写しという既存の不変条件を保っただけである。
+  `Partial<Record<...>>` なので**抜けても型検査に出ない** — テストで見るしかない
+- cascade は本当に無関係だった (削除依存は structure の話で、content op は関わらない)
+
+**cascade は無関係、`applicability` は写しの維持、`merge` は本物の設計判断**、という
+三者三様だった。「無関係」と書いた所は実装前に一度は開く。
 
 **P3 が P4/P5 より前**なのは、メニューが「この sheet に当たっている template」を訊く先を
 必要とするからである。先に UI を作ると、その問い合わせ先が「常に toulmin」に固定される。

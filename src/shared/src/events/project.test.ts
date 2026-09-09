@@ -736,3 +736,71 @@ describe('isFileDeleted (ANA-127)', () => {
     expect(file.sheets).toHaveLength(1);
   });
 });
+
+describe('node.setLabel (Phase 5 P1)', () => {
+  test('種別名を node.label に書き、本文 (content) は触らない', () => {
+    const a = nid();
+    const g = projectBatches([
+      batch(1, [{ kind: 'node.add', target: a, content: '本文' }]),
+      batch(2, [{ kind: 'node.setLabel', target: a, label: '主張' }]),
+    ]);
+    expect(g.nodes.get(a)?.label).toBe('主張');
+    expect(g.nodes.get(a)?.content).toBe('本文');
+  });
+
+  test('label と content は互いを消さない (別のフィールドである)', () => {
+    const a = nid();
+    const g = projectBatches([
+      batch(1, [{ kind: 'node.add', target: a, content: '初期' }]),
+      batch(2, [{ kind: 'node.setLabel', target: a, label: '反論' }]),
+      batch(3, [{ kind: 'node.setContent', target: a, content: '書き直した' }]),
+    ]);
+    expect(g.nodes.get(a)?.label).toBe('反論');
+    expect(g.nodes.get(a)?.content).toBe('書き直した');
+  });
+
+  test('label は clock 昇順の畳み込みで LWW になる (投入順に依存しない)', () => {
+    const a = nid();
+    const seed = batch(0, [{ kind: 'node.add', target: a, content: 'init' }]);
+    const older = batch(1, [{ kind: 'node.setLabel', target: a, label: '旧' }]);
+    const newer = batch(2, [{ kind: 'node.setLabel', target: a, label: '新' }]);
+    const g = projectBatches([newer, seed, older]);
+    expect(g.nodes.get(a)?.label).toBe('新');
+  });
+
+  test('既存ノードは label を持たない (種別は空でよい)', () => {
+    const a = nid();
+    const g = projectBatches([
+      batch(1, [{ kind: 'node.add', target: a, content: 'A' }]),
+    ]);
+    expect(g.nodes.get(a)?.label).toBeUndefined();
+  });
+
+  test('対象が居なければ no-op (node を作らない)', () => {
+    const g = projectBatches([
+      batch(1, [{ kind: 'node.setLabel', target: nid(), label: '主張' }]),
+    ]);
+    expect(g.nodes.size).toBe(0);
+  });
+
+  test('削除済みノードへの setLabel は node.setContent と同じく復活させる', () => {
+    const a = nid();
+    const g = projectBatches([
+      batch(1, [{ kind: 'node.add', target: a, content: 'A' }]),
+      batch(2, [{ kind: 'node.remove', target: a }]),
+      batch(3, [{ kind: 'node.setLabel', target: a, label: '主張' }]),
+    ]);
+    expect(g.nodes.get(a)?.label).toBe('主張');
+  });
+
+  test('toSheet は label を持ち出す', () => {
+    const a = nid();
+    const s = sid();
+    const g = projectBatches([
+      batch(1, [{ kind: 'node.add', target: a, content: 'A' }]),
+      batch(2, [{ kind: 'node.setLabel', target: a, label: 'データ' }]),
+    ]);
+    const sheet = toSheet(g, { id: s, name: 'S' });
+    expect(sheet.nodes[0]?.label).toBe('データ');
+  });
+});

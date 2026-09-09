@@ -18,6 +18,8 @@ export type FileId = z.infer<typeof FileIdSchema>;
 // --- Primitive type aliases ---
 export type NodeContent = string;
 export type EdgeLabel = string;
+/** node の種別名 (template が与える「主張」「データ」など)。本文は `NodeContent` */
+export type NodeLabel = string;
 export type FileName = string;
 export type FileDescription = string;
 export type SheetName = string;
@@ -47,6 +49,12 @@ export type NodeLayout = z.infer<typeof NodeLayoutSchema>;
 export const GraphNodeSchema = z.object({
   id: NodeIdSchema,
   content: z.string(),
+  /**
+   * node の**種別名**。`edge` の `label` と同じ概念で、template が候補を与える。
+   * 本文は `content` であって `label` ではない (Phase 5 P0 で語を分けた)。
+   * 既存ノードは種別を持たないので optional。
+   */
+  label: z.string().optional(),
   properties: z.record(z.string(), z.unknown()).optional(),
   nodeType: z.enum([GROUP_NODE_TYPE, IMAGE_NODE_TYPE]).optional(),
   parentId: NodeIdSchema.optional(),

@@ -15,3 +15,17 @@
 - **isFileOp**: `FILE_OP_KINDS` の op のみ file と判定し、グラフ内容 op は false を返すことを確認する。projection の content/構造 routing (`projectBatches` は file op を無視、`projectFile` が畳み込む) が正しく分岐する前提。あわせて `FILE_OP_KINDS` が `OP_CATEGORY` で漏れなく `file` に揃っていることを確認する。
 - **LamportClock**: `tick` の単調増加と、`observe` がリモート時刻に `max + 1` で追随することを確認する (並行編集の順序付けの基礎)。さらに `seed` は下限を取り込むが `observe` と違い `+1` しない (次の `tick` が `floor+1`)・現在値より小さい `floor` は無視することを確認する (再起動後に永続ログの max(clock) から発番を再開する復元用)。
 - **BatchSchema**: 空 ops の Batch を拒否し、妥当な Batch を受理する (バッチは必ず 1 つ以上の op を持つ)。`sheetId` は optional で、指定すれば受理する (content batch のシート scope, §3.1)。
+
+### node.setLabel は content カテゴリ (Phase 5 P1)
+
+`node.setLabel` の**カテゴリの選択**を固定する。設計 D4 の判断そのものなので、
+`OP_CATEGORY` の表を書き換えたときにここで気付ける。
+
+- **`edge.setLabel` と同じ content である**: template から見れば node の種別と edge の
+  種別は同じ概念で、片方だけ別カテゴリにする理由が無い。値を直書きせず
+  `OP_CATEGORY['edge.setLabel']` と比べているのは、**揃っていること**を述べたいためである。
+- **`isContentOp` / `isSyncable` が真**: 同期され、対立検出の対象になること。
+  presentation に落ちると相手に届かず、共同作業で種別が食い違う。
+
+なお「schema の全 kind が `OP_CATEGORY` に載っている」ことは既存の網羅テストが見ている
+ので、ここでは繰り返さない。

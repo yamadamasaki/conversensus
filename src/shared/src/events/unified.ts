@@ -159,6 +159,12 @@ export const OpSchema = z.discriminatedUnion('kind', [
     content: z.string(),
   }),
   z.object({
+    kind: z.literal('node.setLabel'),
+    target: NodeIdSchema,
+    /** node の種別名。`edge.setLabel` と同じ概念 — 本文を変えるのは `node.setContent` */
+    label: z.string(),
+  }),
+  z.object({
     kind: z.literal('node.setProperty'),
     target: NodeIdSchema,
     name: PropertyNameSchema,
@@ -327,6 +333,7 @@ export const OP_CATEGORY: Record<OpKind, Category> = {
   'edge.remove': 'structure',
   'edge.reconnect': 'structure',
   'node.setContent': 'content',
+  'node.setLabel': 'content',
   'node.setProperty': 'content',
   'node.setProperties': 'content',
   'edge.setLabel': 'content',
@@ -365,6 +372,7 @@ export function isFileOp(op: Op): op is FileOp {
 export type ContentOp = Extract<Op, { kind: ContentOpKind }>;
 type ContentOpKind =
   | 'node.setContent'
+  | 'node.setLabel'
   | 'node.setProperty'
   | 'node.setProperties'
   | 'edge.setLabel'
