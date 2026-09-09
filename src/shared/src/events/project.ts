@@ -191,6 +191,7 @@ function applyOp(g: FoldState, op: GraphOp): void {
       g.nodes.set(op.target, {
         id: op.target,
         content: op.content,
+        ...(op.label !== undefined && { label: op.label }),
         ...(op.properties && {
           properties: canonicalProperties(op.properties),
         }),

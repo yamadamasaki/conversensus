@@ -192,6 +192,16 @@ export function applyEvent(
         edges,
       };
 
+    case 'NODE_LABEL_CHANGED':
+      return {
+        nodes: nodes.map((n) =>
+          n.id === event.nodeId
+            ? { ...n, data: { ...n.data, label: event.to } }
+            : n,
+        ),
+        edges,
+      };
+
     case 'EDGE_RELABELED':
       return {
         nodes,

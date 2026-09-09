@@ -738,6 +738,42 @@ describe('isFileDeleted (ANA-127)', () => {
   });
 });
 
+describe('node.add の label (Phase 5 P4)', () => {
+  test('作成時の種別をそのまま持つ', () => {
+    const a = nid();
+    const g = projectBatches([
+      batch(1, [{ kind: 'node.add', target: a, content: '', label: '主張' }]),
+    ]);
+    expect(g.nodes.get(a)?.label).toBe('主張');
+  });
+
+  test('種別なしで作れば label を持たない', () => {
+    const a = nid();
+    const g = projectBatches([
+      batch(1, [{ kind: 'node.add', target: a, content: '' }]),
+    ]);
+    expect(g.nodes.get(a)?.label).toBeUndefined();
+  });
+
+  test('後から node.setLabel で上書きできる', () => {
+    const a = nid();
+    const g = projectBatches([
+      batch(1, [{ kind: 'node.add', target: a, content: '', label: '主張' }]),
+      batch(2, [{ kind: 'node.setLabel', target: a, label: '反論' }]),
+    ]);
+    expect(g.nodes.get(a)?.label).toBe('反論');
+  });
+
+  test('空文字を載せると種別が外れる', () => {
+    const a = nid();
+    const g = projectBatches([
+      batch(1, [{ kind: 'node.add', target: a, content: '', label: '主張' }]),
+      batch(2, [{ kind: 'node.setLabel', target: a, label: '' }]),
+    ]);
+    expect(g.nodes.get(a)?.label).toBe('');
+  });
+});
+
 describe('node.setLabel (Phase 5 P1)', () => {
   test('種別名を node.label に書き、本文 (content) は触らない', () => {
     const a = nid();

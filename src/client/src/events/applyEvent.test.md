@@ -70,3 +70,9 @@ React Flow は親が居ない子の相対座標の扱いを規定していない
 適用側は `NODES_PASTED` / `NODES_PASTED_UNDO` と同じ分岐を共有している
 (「まとめて足す / まとめて消す」という操作が同じであるため)。
 何を消すかを決めるのは `graph/deletion.ts` で、そちらでテストする。
+
+### NODE_LABEL_CHANGED (Phase 5 P4)
+
+`data.label` を更新し、**`data.content` は触らない**。P0 で分けた 2 つのフィールドが
+画面側でも分かれていることの確認で、`NODE_CONTENT_CHANGED` の対になる。
+対象でないノードに `label` が生えないことも併せて見る。

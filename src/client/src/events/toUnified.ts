@@ -86,6 +86,7 @@ export function graphEventToOps(event: GraphEvent): Op[] {
           kind: 'node.add',
           target: event.data.id,
           content: event.data.content,
+          ...(event.data.label !== undefined && { label: event.data.label }),
           ...(event.data.properties && { properties: event.data.properties }),
           ...(event.data.nodeType && { nodeType: event.data.nodeType }),
           ...(event.data.parentId !== undefined && {
@@ -226,6 +227,8 @@ export function graphEventToOps(event: GraphEvent): Op[] {
       return [
         { kind: 'node.setContent', target: event.nodeId, content: event.to },
       ];
+    case 'NODE_LABEL_CHANGED':
+      return [{ kind: 'node.setLabel', target: event.nodeId, label: event.to }];
     case 'EDGE_RELABELED':
       return [{ kind: 'edge.setLabel', target: event.edgeId, label: event.to }];
     case 'NODE_PROPERTIES_CHANGED':

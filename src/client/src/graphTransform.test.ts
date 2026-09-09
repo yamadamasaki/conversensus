@@ -67,6 +67,36 @@ describe('toFlowNodes', () => {
   });
 });
 
+describe('種別 (label) の往復 (Phase 5 P4)', () => {
+  // **ここが唯一の境界である** (P0 の判断)。型が守らない所なので往復で見る —
+  // React Flow の data は Record<string, unknown> で、キーの綴り違いは tsc を通る
+  const withKind = [
+    { id: 'n1' as NodeId, content: '本文', label: '主張' },
+    { id: 'n2' as NodeId, content: '種別なし' },
+  ];
+
+  it('toFlowNodes は label を data.label に写し、無ければ入れない', () => {
+    const [a, b] = toFlowNodes(withKind);
+    expect(a.data.label).toBe('主張');
+    expect(a.data.content).toBe('本文');
+    expect(b.data).not.toHaveProperty('label');
+  });
+
+  it('fromFlowNodes で戻す (往復して変わらない)', () => {
+    const { nodes } = fromFlowNodes(toFlowNodes(withKind));
+    expect(nodes[0]).toMatchObject({ content: '本文', label: '主張' });
+    expect(nodes[1]).not.toHaveProperty('label');
+  });
+
+  it('空文字の種別も往復する — 「外した」は「無い」と区別される', () => {
+    // op-log には label:'' が積まれるので、空文字が undefined に潰れてはいけない
+    const { nodes } = fromFlowNodes(
+      toFlowNodes([{ id: 'n1' as NodeId, content: '本文', label: '' }]),
+    );
+    expect(nodes[0].label).toBe('');
+  });
+});
+
 describe('toFlowAndGhostNodes', () => {
   const deletedNodes: GraphNode[] = [
     { id: 'd1' as NodeId, content: '削除予定' },

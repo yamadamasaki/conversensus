@@ -595,3 +595,59 @@ describe('layout 値の整数化 (W3d5-7)', () => {
     }
   });
 });
+
+describe('graphEventToOps: node の種別 (Phase 5 P4)', () => {
+  test('NODE_ADDED は種別を node.add に載せる (作成が 1 batch のままである)', () => {
+    const nodeId = nid();
+    const ops = graphEventToOps({
+      ...makeEventBase('structure'),
+      type: 'NODE_ADDED',
+      nodeId,
+      data: { id: nodeId, content: '', label: '主張' },
+      layout: { nodeId, x: 0, y: 0 },
+    });
+    expect(ops[0]).toMatchObject({
+      kind: 'node.add',
+      target: nodeId,
+      label: '主張',
+    });
+  });
+
+  test('種別が無ければ node.add にも載せない', () => {
+    const nodeId = nid();
+    const ops = graphEventToOps({
+      ...makeEventBase('structure'),
+      type: 'NODE_ADDED',
+      nodeId,
+      data: { id: nodeId, content: '' },
+      layout: { nodeId, x: 0, y: 0 },
+    });
+    expect(ops[0]).not.toHaveProperty('label');
+  });
+
+  test('NODE_LABEL_CHANGED → node.setLabel', () => {
+    const nodeId = nid();
+    expect(
+      graphEventToOps({
+        ...makeEventBase('content'),
+        type: 'NODE_LABEL_CHANGED',
+        nodeId,
+        from: '主張',
+        to: 'データ',
+      }),
+    ).toEqual([{ kind: 'node.setLabel', target: nodeId, label: 'データ' }]);
+  });
+
+  test('種別を外すのは空文字を載せることである (op が消えるのではない)', () => {
+    const nodeId = nid();
+    expect(
+      graphEventToOps({
+        ...makeEventBase('content'),
+        type: 'NODE_LABEL_CHANGED',
+        nodeId,
+        from: '主張',
+        to: '',
+      }),
+    ).toEqual([{ kind: 'node.setLabel', target: nodeId, label: '' }]);
+  });
+});

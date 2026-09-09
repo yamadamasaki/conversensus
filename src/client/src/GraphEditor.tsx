@@ -7,6 +7,7 @@ import type {
   NodeLayout,
   SheetId,
 } from '@conversensus/shared';
+import { nodeKindsOf, templatesOf } from '@conversensus/shared';
 import {
   Background,
   type Connection,
@@ -66,6 +67,7 @@ import { useClipboard } from './hooks/useClipboard';
 import { useEdgeContextMenu } from './hooks/useEdgeContextMenu';
 import { type UndoState, useEventStore } from './hooks/useEventStore';
 import { useGroupNodes } from './hooks/useGroupNodes';
+import { useNodeKindMenu } from './hooks/useNodeKindMenu';
 import { useNodeTypeMenu } from './hooks/useNodeTypeMenu';
 import { ImageNode } from './ImageNode';
 import {
@@ -81,6 +83,7 @@ import { pasteImage as routeImagePaste } from './images/pasteImage';
 import { pickImagePasteTarget } from './images/pasteTarget';
 import { replaceNodeImage } from './images/replaceNodeImage';
 import { NodeCreationContext } from './NodeCreationContext';
+import { NodeKindMenu } from './NodeKindMenu';
 import type { NodeTypeOption } from './NodeTypeMenu';
 import { NodeTypeMenu } from './NodeTypeMenu';
 import { useReadOnly } from './readOnlyContext';
@@ -486,6 +489,8 @@ function GraphEditorInner({
       position?: { x: number; y: number },
       nodeType?: NodeTypeOption,
       properties?: Record<string, unknown>,
+      // 作成時の種別 (Phase 5 P4)。node.add に載るので undo は 1 段のまま
+      label?: string,
       // 生成先のグループ。指定時 position はそのグループから見た相対座標
       parentId?: NodeId,
     ) => {
@@ -497,6 +502,7 @@ function GraphEditorInner({
       const graphNode: GraphNode = {
         id: nodeId,
         content: '',
+        ...(label ? { label } : {}),
         ...(nodeType === 'group' ? { nodeType: GROUP_NODE_TYPE } : {}),
         ...(nodeType === 'image' ? { nodeType: IMAGE_NODE_TYPE } : {}),
         ...(properties ? { properties } : {}),
@@ -563,7 +569,7 @@ function GraphEditorInner({
     async (source: Blob, position: { x: number; y: number }) => {
       try {
         const ref = await saveImageBlob(source);
-        addNode(position, 'image', imagePropertiesOf(ref));
+        addNode(position, 'image', imagePropertiesOf(ref), undefined);
       } catch (err) {
         // 握り潰さない (設計 D7)。旧実装は console.error だけだったので、
         // 上限超過は「落としたのに何も起きない」ようにしか見えなかった
@@ -739,6 +745,18 @@ function GraphEditorInner({
   const { onPaneClick, openNodeTypeMenu, nodeTypeMenu, clearNodeTypeMenu } =
     useNodeTypeMenu(screenToFlowPosition, getNodes);
 
+  // このシートに当たっている template から種別を引く。**当たっていなければ空**で、
+  // 空であることが「種別の段もメニューも出さない」根拠になる (設計 D3)
+  const nodeKinds = useMemo(
+    () => nodeKindsOf(templatesOf(activeSheet?.templateIds)),
+    [activeSheet?.templateIds],
+  );
+  const { nodeKindMenu, onNodeContextMenu, setNodeKind } = useNodeKindMenu(
+    getNodes,
+    nodeKinds,
+    dispatch,
+  );
+
   // --- PNG export ---
   const handleExportPng = useCallback(() => {
     const nodes = getNodes();
@@ -813,6 +831,7 @@ function GraphEditorInner({
               edgesReconnectable={!readOnly}
               onPaneClick={onPaneClick}
               onEdgeContextMenu={onEdgeContextMenu}
+              onNodeContextMenu={onNodeContextMenu}
               zoomOnDoubleClick={false}
               deleteKeyCode={null}
               fitView
@@ -923,16 +942,21 @@ function GraphEditorInner({
             {nodeTypeMenu && (
               <NodeTypeMenu
                 position={nodeTypeMenu.screenPos}
-                onSelect={(nodeType) => {
+                nodeKinds={nodeKinds}
+                onSelect={(nodeType, label) => {
                   addNode(
                     nodeTypeMenu.position,
                     nodeType,
                     undefined,
+                    label,
                     nodeTypeMenu.containerId,
                   );
                   clearNodeTypeMenu();
                 }}
               />
+            )}
+            {nodeKindMenu && (
+              <NodeKindMenu menu={nodeKindMenu} onSelect={setNodeKind} />
             )}
             {contextMenu && (
               <EdgeContextMenu

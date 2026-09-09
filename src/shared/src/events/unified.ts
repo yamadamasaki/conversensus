@@ -126,6 +126,12 @@ export const OpSchema = z.discriminatedUnion('kind', [
     kind: z.literal('node.add'),
     target: NodeIdSchema,
     content: z.string(),
+    /**
+     * 作成時の種別 (Phase 5 P4)。**`properties` と同じ立場**である — 後から
+     * `node.setLabel` で変えられるが、作成時に決まっているものを別 op に割ると
+     * 「1 ユーザー操作 = 1 batch」が崩れ、undo が 2 段になる
+     */
+    label: z.string().optional(),
     properties: NodePropertiesSchema.optional(),
     nodeType: z.enum(['group', 'image']).optional(),
     parentId: NodeIdSchema.optional(),

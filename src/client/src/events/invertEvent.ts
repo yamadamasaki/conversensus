@@ -133,6 +133,15 @@ export function invertEvent(event: GraphEvent): GraphEvent {
         from: event.to,
         to: event.from,
       };
+    case 'NODE_LABEL_CHANGED':
+      return {
+        ...base,
+        type: 'NODE_LABEL_CHANGED',
+        category: 'content',
+        nodeId: event.nodeId,
+        from: event.to,
+        to: event.from,
+      };
     case 'EDGE_RELABELED':
       return {
         ...base,

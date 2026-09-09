@@ -49,3 +49,12 @@ actor 節と `step1-phase4d-receive.md` §3.1)。
 - **無ければ op にも載せない**: `undefined` を明示的に書かない (`...(x !== undefined && {})`)。
   載せてしまうと、既存の op-log にある `sheet.create` と JSON の形が変わり、
   マージの値比較 (`JSON.stringify`) で無関係な差が出る。
+
+### node の種別 (Phase 5 P4)
+
+- **`NODE_ADDED` は種別を `node.add` に載せる**: 作成が 1 batch のままであること。
+  別 op に割ると undo が 2 段になる (`project.test.md` を見よ)。
+- **種別が無ければ `node.add` にも載せない**: 既存の op-log と同じ形を保つ。
+- **`NODE_LABEL_CHANGED` → `node.setLabel`**: 後から変える経路。
+- **外すのは空文字を載せることである**: op が消えるのではない。op-log は追記なので、
+  「外した」を表せるのは値だけである。

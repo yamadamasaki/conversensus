@@ -27,3 +27,8 @@ GraphEvent をその逆操作（undo用）に変換する。
 | EDGE_STYLE_CHANGED / NODE_STYLE_CHANGED | from/to 入れ替え |
 | EDGE_LABEL_MOVED | from/to 入れ替え |
 | 二重反転対称性 | 全イベント型で type が保存されることの網羅テスト |
+
+### NODE_LABEL_CHANGED (Phase 5 P4)
+
+`from`/`to` を入れ替える。**種別を与えた操作を戻すと種別が外れる** (`from` が空文字なので
+反転すると `to` が空文字になる) — 「無い」を空文字で表す規則が、undo でも一貫していること。

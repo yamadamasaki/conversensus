@@ -592,6 +592,23 @@ describe('NODE_CONTENT_CHANGED', () => {
   });
 });
 
+describe('NODE_LABEL_CHANGED (Phase 5 P4)', () => {
+  it('ノードの data.label を更新し、data.content は触らない', () => {
+    const event: GraphEvent = {
+      ...base,
+      category: 'content',
+      type: 'NODE_LABEL_CHANGED',
+      nodeId: 'n1' as NodeId,
+      from: '',
+      to: '主張',
+    };
+    const { nodes } = applyEvent(event, [n1, n2], []);
+    expect(nodes[0].data.label).toBe('主張');
+    expect(nodes[0].data.content).toBe('ノード1');
+    expect(nodes[1].data.label).toBeUndefined();
+  });
+});
+
 describe('EDGE_RELABELED', () => {
   it('エッジの label を更新する', () => {
     const event: GraphEvent = {

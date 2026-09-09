@@ -168,6 +168,23 @@ export type NodeContentChangedEvent = EventBase & {
   from: string;
   to: string;
 };
+/**
+ * ノードの**種別**を変えた (Phase 5 P4)。本文の編集は `NODE_CONTENT_CHANGED` で、
+ * こちらは template が与える種別名 (`主張` など) を付け替える。
+ * `EDGE_RELABELED` と対になる — edge 側は最初から label が本物だった。
+ *
+ * **空いた `NODE_RELABELED` の名は再利用しない。**かつてその名で本文を指していたので、
+ * 同じ綴りを別の意味に付け替えると、過去のコードや記録を読むたびにどちらの意味か
+ * 判断することになる。`NODE_CONTENT_CHANGED` と対の綴りにしてある。
+ */
+export type NodeLabelChangedEvent = EventBase & {
+  category: 'content';
+  type: 'NODE_LABEL_CHANGED';
+  nodeId: NodeId;
+  /** 種別を外すときは空文字。undefined は「変えない」ではなく使わない */
+  from: string;
+  to: string;
+};
 export type EdgeRelabeledEvent = EventBase & {
   category: 'content';
   type: 'EDGE_RELABELED';
@@ -292,6 +309,7 @@ export type GraphEvent =
   | NodesPastedEvent
   | NodesPastedUndoEvent
   | NodeContentChangedEvent
+  | NodeLabelChangedEvent
   | EdgeRelabeledEvent
   | NodePropertiesChangedEvent
   | EdgePropertiesChangedEvent

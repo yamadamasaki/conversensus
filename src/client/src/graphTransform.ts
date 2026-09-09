@@ -52,6 +52,9 @@ export function toFlowNodes(
         // かつて `label` だったが、入っているのは最初から本文だった。Phase 5 で
         // node に本物の label (template の種別名) が入るので、語を空けてある
         content: n.content,
+        // **`label` は種別名である** (Phase 5)。P0 で本文を `content` に移し、
+        // ここが空いた。template が当たっていないシートでは undefined のまま
+        ...(n.label !== undefined ? { label: n.label } : {}),
         diffType,
         ...(n.properties ? { properties: n.properties } : {}),
       },
@@ -148,6 +151,7 @@ export function fromFlowNodes(nodes: Node[]): {
   const graphNodes: GraphNode[] = nodes.map((n) => ({
     id: n.id as NodeId,
     content: String(n.data.content ?? ''),
+    ...(n.data.label !== undefined ? { label: String(n.data.label) } : {}),
     ...(n.type === RF_GROUP_NODE_TYPE ? { nodeType: GROUP_NODE_TYPE } : {}),
     ...(n.type === RF_IMAGE_NODE_TYPE ? { nodeType: IMAGE_NODE_TYPE } : {}),
     ...(n.parentId ? { parentId: n.parentId as NodeId } : {}),
