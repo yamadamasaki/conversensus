@@ -18,6 +18,7 @@ import type {
   Sheet,
   SheetId,
   Style,
+  TemplateId,
 } from '../schemas';
 import { cascadeOfNodeRemoval, selfAndAncestors } from './cascade';
 import { applyPropertyChange, canonicalProperties } from './properties';
@@ -340,12 +341,18 @@ function applyOp(g: FoldState, op: GraphOp): void {
 /** projection を既存の `Sheet` 形式へ変換する (エディタ・エクスポート・入出力の受け口) */
 export function toSheet(
   g: ProjectedGraph,
-  meta: { id: SheetId; name: string; description?: string },
+  meta: {
+    id: SheetId;
+    name: string;
+    description?: string;
+    templateIds?: TemplateId[];
+  },
 ): Sheet {
   return {
     id: meta.id,
     name: meta.name,
     ...(meta.description !== undefined && { description: meta.description }),
+    ...(meta.templateIds !== undefined && { templateIds: meta.templateIds }),
     nodes: [...g.nodes.values()],
     edges: [...g.edges.values()],
     layouts: [...g.nodeLayouts.values()],
@@ -367,7 +374,13 @@ type FileStructure = {
   /** live シート: id → メタ + createClock (reorder reconcile の tiebreak) */
   sheets: Map<
     SheetId,
-    { name: string; description?: string; createClock: number }
+    {
+      name: string;
+      description?: string;
+      /** 作成時に決まる template。`sheet.setName` 等では変わらない (設計 D1) */
+      templateIds?: TemplateId[];
+      createClock: number;
+    }
   >;
   /** 最新の sheet.reorder の順序 (未指定なら null) */
   order: SheetId[] | null;
@@ -396,6 +409,7 @@ function applyFileOp(s: FileStructure, op: FileOp, clock: number): void {
       s.sheets.set(op.target, {
         name: op.name,
         ...(op.description !== undefined && { description: op.description }),
+        ...(op.templateIds !== undefined && { templateIds: op.templateIds }),
         createClock: clock,
       });
       break;
@@ -479,6 +493,7 @@ export function projectFile(batches: Batch[], fileId: FileId): GraphFile {
       id: sheetId,
       name: meta?.name ?? '',
       ...(meta?.description !== undefined && { description: meta.description }),
+      ...(meta?.templateIds !== undefined && { templateIds: meta.templateIds }),
     });
   });
 

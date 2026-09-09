@@ -8,6 +8,7 @@ import {
   NodeIdSchema,
   type SheetId,
   SheetIdSchema,
+  TemplateIdSchema,
 } from '../schemas';
 import { isFileDeleted, projectBatches, projectFile, toSheet } from './project';
 import { SYSTEM_PROPERTY_PREFIX } from './properties';
@@ -802,5 +803,83 @@ describe('node.setLabel (Phase 5 P1)', () => {
     ]);
     const sheet = toSheet(g, { id: s, name: 'S' });
     expect(sheet.nodes[0]?.label).toBe('データ');
+  });
+});
+
+describe('sheet.create の templateIds (Phase 5 P3)', () => {
+  test('紐づけを projection から Sheet まで運ぶ', () => {
+    const f = fid();
+    const s = sid();
+    const file = projectFile(
+      [
+        batch(1, [
+          {
+            kind: 'sheet.create',
+            target: s,
+            name: 'DtR',
+            templateIds: [TemplateIdSchema.parse('toulmin')],
+          },
+        ]),
+      ],
+      f,
+    );
+    expect(file.sheets[0]?.templateIds).toEqual([
+      TemplateIdSchema.parse('toulmin'),
+    ]);
+  });
+
+  test('templateIds を持たない既存の op-log はそのまま通る (移行は要らない)', () => {
+    const f = fid();
+    const s = sid();
+    const file = projectFile(
+      [batch(1, [{ kind: 'sheet.create', target: s, name: 'S1' }])],
+      f,
+    );
+    expect(file.sheets[0]?.name).toBe('S1');
+    expect(file.sheets[0]?.templateIds).toBeUndefined();
+  });
+
+  test('sheet.setName では紐づけが変わらない (作成時にしか持たない, D1)', () => {
+    const f = fid();
+    const s = sid();
+    const file = projectFile(
+      [
+        batch(1, [
+          {
+            kind: 'sheet.create',
+            target: s,
+            name: 'DtR',
+            templateIds: [TemplateIdSchema.parse('toulmin')],
+          },
+        ]),
+        batch(2, [{ kind: 'sheet.setName', target: s, name: '改名' }]),
+      ],
+      f,
+    );
+    expect(file.sheets[0]?.name).toBe('改名');
+    expect(file.sheets[0]?.templateIds).toEqual([
+      TemplateIdSchema.parse('toulmin'),
+    ]);
+  });
+
+  test('シートを消して作り直すと紐づけも作り直される (add-wins の帰結)', () => {
+    const f = fid();
+    const s = sid();
+    const file = projectFile(
+      [
+        batch(1, [
+          {
+            kind: 'sheet.create',
+            target: s,
+            name: 'DtR',
+            templateIds: [TemplateIdSchema.parse('toulmin')],
+          },
+        ]),
+        batch(2, [{ kind: 'sheet.remove', target: s }]),
+        batch(3, [{ kind: 'sheet.create', target: s, name: '再作成' }]),
+      ],
+      f,
+    );
+    expect(file.sheets[0]?.templateIds).toBeUndefined();
   });
 });

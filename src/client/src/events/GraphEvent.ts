@@ -7,6 +7,7 @@ import type {
   NodeId,
   NodeLayout,
   SheetId,
+  TemplateId,
 } from '@conversensus/shared';
 
 type Position = { x: number; y: number };
@@ -237,6 +238,8 @@ export type SheetCreatedEvent = EventBase & {
   sheetId: SheetId;
   name: string;
   description?: string;
+  /** 作成時に当てる template (Phase 5 D1)。後から変える口は無い */
+  templateIds?: TemplateId[];
 };
 export type SheetRemovedEvent = EventBase & {
   category: 'file';

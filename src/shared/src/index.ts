@@ -17,6 +17,7 @@ export * from './events/unified';
 export * from './migrations';
 export * from './schemas';
 export * from './template/fold';
+export * from './template/registry';
 export * from './template/toulmin';
 export * from './template/types';
 

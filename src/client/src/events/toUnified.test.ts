@@ -7,6 +7,7 @@ import {
   projectBatches,
   type SheetId,
   SheetIdSchema,
+  TemplateIdSchema,
 } from '@conversensus/shared';
 import type { GraphEvent } from './GraphEvent';
 import { makeEventBase } from './GraphEvent';
@@ -378,6 +379,35 @@ describe('graphEventToOps: 全 21 イベント型を網羅する', () => {
 
 describe('graphEventToOps: file 構造イベント (W3c1)', () => {
   const sid = (): SheetId => SheetIdSchema.parse(crypto.randomUUID());
+
+  test('SHEET_CREATED → sheet.create (templateIds 付き, Phase 5 P3)', () => {
+    const sheetId = sid();
+    const ops = graphEventToOps({
+      ...makeEventBase('file'),
+      type: 'SHEET_CREATED',
+      sheetId,
+      name: 'DtR',
+      templateIds: [TemplateIdSchema.parse('toulmin')],
+    });
+    expect(ops).toEqual([
+      {
+        kind: 'sheet.create',
+        target: sheetId,
+        name: 'DtR',
+        templateIds: [TemplateIdSchema.parse('toulmin')],
+      },
+    ]);
+  });
+
+  test('templateIds が無ければ op にも載せない (既存の op-log と同じ形)', () => {
+    const ops = graphEventToOps({
+      ...makeEventBase('file'),
+      type: 'SHEET_CREATED',
+      sheetId: sid(),
+      name: 'S1',
+    });
+    expect(ops[0]).not.toHaveProperty('templateIds');
+  });
 
   test('SHEET_CREATED → sheet.create (description 付き)', () => {
     const sheetId = sid();

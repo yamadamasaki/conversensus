@@ -183,7 +183,7 @@ template の中で接続規則を書くときに label で照合すると、表�
 | **P0** | **語を直す**。`data.label` → `data.content`、`NODE_RELABELED` → `NODE_CONTENT_CHANGED`。**振舞いは変えない** | 単体 (既存が全部緑のまま) |
 | **P1** ✅ | `node.setLabel` op の追加 (schema / `OP_CATEGORY` = content / projection + **merge の単位キー**)。cascade は無関係 | 単体 (+14 件、計 1600 緑) |
 | **P2** ✅ | template の型と toulmin の直書き (`shared/template/`) + 畳み方 (`nodeKindsOf` / `edgeKindsOf` / `isConnectionAllowed`) | 単体 + 性質 (+31 件、計 1631 緑) |
-| **P3** | **紐づけ**。`sheet.create` に `templateIds` + シート作成時に選ぶ | 単体 |
+| **P3** ✅ | **紐づけ**。`sheet.create` に `templateIds` + シート作成時に選ぶ (`▾` の別口) | 単体 + 実機 (+11 件、計 1642 緑) |
 | **P4** | node の種別を出す・選ぶ。`NodeTypeMenu` を 2 段 + 後から変える口 | 単体 |
 | **P5** | edge の種別メニュー (`edge.setLabel` を自由入力から選択に) | 単体 |
 | **P6** | 接続の警告 (拒否しない) | 単体 + 実機 |
@@ -250,6 +250,24 @@ template の中で接続規則を書くときに label で照合すると、表�
 
 **P3 が P4/P5 より前**なのは、メニューが「この sheet に当たっている template」を訊く先を
 必要とするからである。先に UI を作ると、その問い合わせ先が「常に toulmin」に固定される。
+
+### P3 で分かったこと (2026-09-09)
+
+- **循環 import で実行時に落ちた。**`sheet.create` が `TemplateId` を要り、`template/types` が
+  `PropertyName` (`events/unified`) を要るので、`unified ⇄ template/types` の循環になった。
+  **typecheck は循環を見ないので通り、`bun` の実行時に
+  `Cannot access 'PropertyNameSchema' before initialization` で落ちた。**
+  `TemplateIdSchema` を id の本籍地である `schemas.ts` へ移し、
+  `schemas → events → template` の一方向にして解消した
+- **`templatesOf` は知らない id を黙って落とす。**共同作業では相手が持つ template を
+  自分が持たないことが起こる (step3 でユーザ定義になれば普通に起こる)。例外を投げると
+  **相手の作ったシートを開けなくなる** — 種別が少し引けないより遥かに悪い
+- **`BUILTIN_TEMPLATES` という一覧を作った。**シート作成の選択肢がここから出る。
+  UI に toulmin を直書きすると、template が増えたときに画面を書き直すことになる
+- **シートは「タブ」ではなくサイドバーの一覧だった。**`+ シートを追加` の右に `▾` を置き、
+  開くと `+ Toulmin model のシート` が出る形にした。**素の追加は 1 クリックのまま**である
+- **実機で op-log を直接確認した。**素の `+` は `{kind, target, name}` のまま、
+  `▾` 経由は `templateIds: ["toulmin"]` が載る。既存の op-log と同じ形が保たれている
 
 **P7 は忘れやすいが、これが前倒しの理由そのものである。**出す形は
 **「種別名 + 本文の先頭」** (`反論: 気温の記録は…`) にする。**種別名だけでは足りない** —

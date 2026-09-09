@@ -29,6 +29,7 @@ import {
   NodeIdSchema,
   SheetIdSchema,
   StyleSchema,
+  TemplateIdSchema,
 } from '../schemas';
 
 // --- メタ ---
@@ -232,6 +233,15 @@ export const OpSchema = z.discriminatedUnion('kind', [
     target: SheetIdSchema,
     name: z.string(),
     description: z.string().optional(),
+    /**
+     * このシートに当てる template (設計 D1)。**作成時にしか持たない** — 後から
+     * 変える op は作らない (外したときに既存ノードの種別をどう扱うかは step3)。
+     *
+     * **複数を前提にする。**当面は 1 つしか当てないが、単数で作ると複数にするときに
+     * op の形が変わって移行が要る。省略は「template 無し」であり、既存の op-log
+     * (このフィールドを持たない `sheet.create`) はそのまま通る。
+     */
+    templateIds: z.array(TemplateIdSchema).optional(),
   }),
   z.object({ kind: z.literal('sheet.remove'), target: SheetIdSchema }),
   z.object({

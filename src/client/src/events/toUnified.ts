@@ -280,6 +280,9 @@ export function graphEventToOps(event: GraphEvent): Op[] {
           ...(event.description !== undefined && {
             description: event.description,
           }),
+          ...(event.templateIds !== undefined && {
+            templateIds: event.templateIds,
+          }),
         },
       ];
     case 'SHEET_REMOVED':

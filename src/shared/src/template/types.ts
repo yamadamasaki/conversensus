@@ -1,18 +1,6 @@
 import { z } from 'zod';
 import { PropertyNameSchema } from '../events/unified';
-
-/**
- * template の識別子。
- *
- * **UUID ではない。**他の id (`NodeId` など) は実行時に作られる**個体**の識別子なので
- * UUID で採番するが、template と種別は**コードに書かれた定義**の識別子である
- * (`'toulmin'` / `'claim'`)。op-log と template のソースの両方に生で現れるので、
- * 読める文字列であることに意味がある。`PropertyName` が branded UUID でないのと同じ理由。
- *
- * 混同を防ぐ目的 (規約 2 の趣旨) は brand が果たすので、brand だけ掛けて UUID は課さない。
- */
-export const TemplateIdSchema = z.string().min(1).brand<'TemplateId'>();
-export type TemplateId = z.infer<typeof TemplateIdSchema>;
+import { TemplateIdSchema } from '../schemas';
 
 export const NodeKindIdSchema = z.string().min(1).brand<'NodeKindId'>();
 export type NodeKindId = z.infer<typeof NodeKindIdSchema>;

@@ -9,6 +9,21 @@ export const EdgeIdSchema = z.string().uuid().brand<'EdgeId'>();
 export const SheetIdSchema = z.string().uuid().brand<'SheetId'>();
 export const FileIdSchema = z.string().uuid().brand<'FileId'>();
 
+/**
+ * template の識別子。**UUID ではない。**
+ *
+ * 他の id は実行時に作られる**個体**の識別子だが、template は**コードに書かれた定義**の
+ * 識別子である (`'toulmin'`)。op-log と template のソースの両方に生で現れるので、
+ * 読める文字列であることに意味がある (`PropertyName` が branded UUID でないのと同じ)。
+ * 混同を防ぐ目的 (規約 2 の趣旨) は brand が果たすので、brand だけ掛けて UUID は課さない。
+ *
+ * **ここに置いてあるのは循環を切るため**でもある。`sheet.create` (`events/unified`) が
+ * これを要り、`template/types` は `PropertyName` (同じく `events/unified`) を要る。
+ * id を `schemas` 側に置くと、`schemas → events → template` の一方向になる。
+ */
+export const TemplateIdSchema = z.string().min(1).brand<'TemplateId'>();
+export type TemplateId = z.infer<typeof TemplateIdSchema>;
+
 // --- Branded ID types ---
 export type NodeId = z.infer<typeof NodeIdSchema>;
 export type EdgeId = z.infer<typeof EdgeIdSchema>;
@@ -95,6 +110,11 @@ export const SheetSchema = z.object({
   id: SheetIdSchema,
   name: z.string(),
   description: z.string().optional(),
+  /**
+   * このシートに当てられている template (設計 D1)。作成時に決まり、後から変わらない。
+   * 省略は「template 無し」— **種別メニューを出さない**根拠になる。
+   */
+  templateIds: z.array(TemplateIdSchema).optional(),
   nodes: z.array(GraphNodeSchema),
   edges: z.array(GraphEdgeSchema),
   layouts: z.array(NodeLayoutSchema).optional(),

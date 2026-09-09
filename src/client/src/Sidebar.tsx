@@ -1,11 +1,13 @@
 import {
   BRANCH_STATUS,
   type BranchMeta,
+  BUILTIN_TEMPLATES,
   type ConversensusFile,
   type GraphFile,
   type GraphFileListItem,
   parseConversensusFile,
   type SheetId,
+  type TemplateId,
 } from '@conversensus/shared';
 import { useRef, useState } from 'react';
 import { AlertDialog } from './AlertDialog';
@@ -32,7 +34,8 @@ type Props = {
   onToggleExpand: (id: string) => void;
   onOpenFile: (id: string) => void;
   onSelectSheet: (sheetId: SheetId) => void;
-  onAddSheet: () => void;
+  /** template を当てずに作るなら省略する (Phase 5 D1: 紐づけは作成時のみ) */
+  onAddSheet: (templateIds?: TemplateId[]) => void;
   onSetPopupTarget: (target: PopupTarget | null) => void;
   onSaveFileSettings: (fileId: string, name: string, desc: string) => void;
   onDeleteFile: (id: string) => void;
@@ -129,6 +132,11 @@ export function Sidebar({
 }: Props) {
   const newFileComposingRef = useRef(false);
   const importInputRef = useRef<HTMLInputElement>(null);
+  // どのファイルの「▾」を開いているか。ファイル単位で持つのは、一覧に複数の
+  // ファイルが並ぶため (1 つ開くと全部開く、を避ける)
+  const [templateMenuFileId, setTemplateMenuFileId] = useState<string | null>(
+    null,
+  );
   const [alertState, setAlertState] = useState<{
     message: string;
     resolve: () => void;
@@ -654,14 +662,13 @@ export function Sidebar({
                     );
                   })}
 
-                  {/* シート追加 */}
-                  <li>
+                  {/* シート追加。template 付きは別口にして、素の追加は 1 クリックのまま残す */}
+                  <li style={{ display: 'flex', alignItems: 'center' }}>
                     <button
                       type="button"
-                      onClick={onAddSheet}
+                      onClick={() => onAddSheet()}
                       style={{
-                        display: 'block',
-                        width: '100%',
+                        flex: 1,
                         textAlign: 'left',
                         padding: '3px 4px 3px 20px',
                         fontSize: 12,
@@ -673,7 +680,52 @@ export function Sidebar({
                     >
                       + シートを追加
                     </button>
+                    <button
+                      type="button"
+                      aria-label="template 付きでシートを追加"
+                      aria-expanded={templateMenuFileId === f.id}
+                      onClick={() =>
+                        setTemplateMenuFileId(
+                          templateMenuFileId === f.id ? null : f.id,
+                        )
+                      }
+                      style={{
+                        padding: '3px 8px',
+                        fontSize: 12,
+                        color: '#4f6ef7',
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      ▾
+                    </button>
                   </li>
+                  {templateMenuFileId === f.id &&
+                    BUILTIN_TEMPLATES.map((t) => (
+                      <li key={t.id}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setTemplateMenuFileId(null);
+                            onAddSheet([t.id]);
+                          }}
+                          style={{
+                            display: 'block',
+                            width: '100%',
+                            textAlign: 'left',
+                            padding: '3px 4px 3px 36px',
+                            fontSize: 11,
+                            color: '#4f6ef7',
+                            background: 'none',
+                            border: 'none',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          + {t.name} のシート
+                        </button>
+                      </li>
+                    ))}
                 </ul>
               )}
             </li>

@@ -5,6 +5,7 @@ import {
   type GraphFile,
   type Sheet,
   type SheetId,
+  type TemplateId,
 } from '@conversensus/shared';
 import { useCallback, useRef, useState } from 'react';
 import { AcceptInvitationDialog } from './AcceptInvitationDialog';
@@ -185,42 +186,48 @@ export default function App() {
     [fileOps.setActiveSheetId, branchOps.resetBranchState],
   );
 
-  const handleAddSheet = useCallback(() => {
-    if (!fileOps.activeFile) return;
-    // 🔴 シート追加は **trunk のファイルを土台に**行う。branch 表示中の activeFile は
-    // 該当シートが branch の内容なので、それを土台にすると branch の内容が trunk へ移る。
-    // branch は per-sheet なので、シートを増やす操作は branch を抜けてから行うのが筋
-    // (シート切替 `handleSelectSheet` が branch を抜けるのと同じ扱い)。
-    const trunkFile = branchOps.isTrunk
-      ? fileOps.activeFile
-      : (branchOps.resetBranchState() ?? fileOps.activeFile);
-    const newSheet: Sheet = {
-      id: generateId() as SheetId,
-      name: `Sheet ${trunkFile.sheets.length + 1}`,
-      nodes: [],
-      edges: [],
-    };
-    const updated: GraphFile = {
-      ...trunkFile,
-      sheets: [...trunkFile.sheets, newSheet],
-    };
-    // op-log へ sheet.create を emit する (dual-write, W3c1)
-    fileOps.syncRecord({
-      ...makeEventBase('file'),
-      type: 'SHEET_CREATED',
-      sheetId: newSheet.id,
-      name: newSheet.name,
-    });
-    fileOps.setActiveSheetId(newSheet.id);
-    fileOps.updateFileState(updated);
-  }, [
-    fileOps.activeFile,
-    fileOps.setActiveSheetId,
-    fileOps.updateFileState,
-    fileOps.syncRecord,
-    branchOps.isTrunk,
-    branchOps.resetBranchState,
-  ]);
+  const handleAddSheet = useCallback(
+    (templateIds?: TemplateId[]) => {
+      if (!fileOps.activeFile) return;
+      // 🔴 シート追加は **trunk のファイルを土台に**行う。branch 表示中の activeFile は
+      // 該当シートが branch の内容なので、それを土台にすると branch の内容が trunk へ移る。
+      // branch は per-sheet なので、シートを増やす操作は branch を抜けてから行うのが筋
+      // (シート切替 `handleSelectSheet` が branch を抜けるのと同じ扱い)。
+      const trunkFile = branchOps.isTrunk
+        ? fileOps.activeFile
+        : (branchOps.resetBranchState() ?? fileOps.activeFile);
+      const newSheet: Sheet = {
+        id: generateId() as SheetId,
+        name: `Sheet ${trunkFile.sheets.length + 1}`,
+        nodes: [],
+        edges: [],
+        // 紐づけは作成時にしか持たない (Phase 5 D1)。空配列は「無し」と区別しないので落とす
+        ...(templateIds?.length ? { templateIds } : {}),
+      };
+      const updated: GraphFile = {
+        ...trunkFile,
+        sheets: [...trunkFile.sheets, newSheet],
+      };
+      // op-log へ sheet.create を emit する (dual-write, W3c1)
+      fileOps.syncRecord({
+        ...makeEventBase('file'),
+        type: 'SHEET_CREATED',
+        sheetId: newSheet.id,
+        name: newSheet.name,
+        ...(templateIds?.length ? { templateIds } : {}),
+      });
+      fileOps.setActiveSheetId(newSheet.id);
+      fileOps.updateFileState(updated);
+    },
+    [
+      fileOps.activeFile,
+      fileOps.setActiveSheetId,
+      fileOps.updateFileState,
+      fileOps.syncRecord,
+      branchOps.isTrunk,
+      branchOps.resetBranchState,
+    ],
+  );
 
   // Phase 6 p6-4: セッション確立後の PDS legacy file レコード同期 (`loadAtprotoFiles`)
   /**
