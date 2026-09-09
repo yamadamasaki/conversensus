@@ -182,7 +182,7 @@ template の中で接続規則を書くときに label で照合すると、表�
 | --- | --- | --- |
 | **P0** | **語を直す**。`data.label` → `data.content`、`NODE_RELABELED` → `NODE_CONTENT_CHANGED`。**振舞いは変えない** | 単体 (既存が全部緑のまま) |
 | **P1** ✅ | `node.setLabel` op の追加 (schema / `OP_CATEGORY` = content / projection + **merge の単位キー**)。cascade は無関係 | 単体 (+14 件、計 1600 緑) |
-| **P2** | template の型と toulmin の直書き (`shared/template/`) + 畳み方 (`kindsOf` / `isConnectionAllowed`) | 単体 + 性質 |
+| **P2** ✅ | template の型と toulmin の直書き (`shared/template/`) + 畳み方 (`nodeKindsOf` / `edgeKindsOf` / `isConnectionAllowed`) | 単体 + 性質 (+31 件、計 1631 緑) |
 | **P3** | **紐づけ**。`sheet.create` に `templateIds` + シート作成時に選ぶ | 単体 |
 | **P4** | node の種別を出す・選ぶ。`NodeTypeMenu` を 2 段 + 後から変える口 | 単体 |
 | **P5** | edge の種別メニュー (`edge.setLabel` を自由入力から選択に) | 単体 |
@@ -209,6 +209,44 @@ template の中で接続規則を書くときに label で照合すると、表�
 
 **cascade は無関係、`applicability` は写しの維持、`merge` は本物の設計判断**、という
 三者三様だった。「無関係」と書いた所は実装前に一度は開く。
+
+### P2 で分かったこと (2026-09-09)
+
+**「和」の素朴な読みが 2 度誤っていた。**どちらも性質テストが反例で見つけた。
+
+1. **空の `templateIds` は和の単位元ではない。**「規則が無い = 全部許す」なので、
+   1 つ目を当てた瞬間に許容は必ず減る。したがって「template を足すと許容が減らない」
+   (単調性) は成り立たない
+2. **`undetermined` を「許す」と数えてはいけない。**語彙を知らない template を足しただけで
+   既存の警告が全部消える。**和を取るのは規則であって許容ではない**
+
+判定は 3 値 (`allowed` / `violation` / `undetermined`) にし、
+**「許すものが在れば許す → 無くて違反が在れば警告 → あとは許す」**の順に畳む。
+§4 の「どの template の規則にも合わないときだけ警告」はこの形を指している。
+
+**単調性は意図的に課さなかった。**課すと 2 の誤った実装しか通らない。
+*課さなかった性質は、課した性質と同じだけ設計を述べている。*
+
+その他:
+
+- **D5 (種別が空なら警告しない) に専用の分岐は要らなかった。**`NodeKind.label` /
+  `EdgeKind.label` が `min(1)` なので、空も未設定も**どの種別とも一致しない**。
+  「まだ種別を付けていない」と「知らない種別名」は判定の上で同じ*語彙に無い*である。
+  最初はガード節を書いたが、**どのテストでも区別できない枝**だったので落とした
+  (変異で確認)。`TemplateSchema` の `min(1)` がこれを支えている
+- **label → 種別の解決は template ごとに行う。**和の上で解決すると、T1 の edge 規則を
+  T2 の node 種別で満たす混線が起こる (id は template をまたいで一意ではない)
+- **`TemplateSchema` に参照整合性の検査を入れた。**`EdgeKind.from` / `to` の綴り違いは
+  型を通り、「その規則が誰にも当たらない」という静かな失敗になる。作り込みの toulmin は
+  import 時にここを通るので、間違いは起動時に落ちる。step3 でユーザ定義になったとき、
+  同じ検査がそのまま入力の検証になる
+- **`TemplateId` / `NodeKindId` / `EdgeKindId` は branded だが UUID ではない。**
+  他の id は実行時に作られる*個体*の識別子だが、これらは*コードに書かれた定義*の
+  識別子である (`'toulmin'` / `'claim'`)。op-log と template のソースの両方に生で現れる
+  ので読める文字列であることに意味がある (`PropertyName` と同じ立場)。規約 2 の趣旨
+  (混同を防ぐ) は brand が果たす
+- 関数名は `kindsOf` ではなく **`nodeKindsOf` / `edgeKindsOf`** に分けた。
+  node の種別メニュー (P4) と edge の種別メニュー (P5) が別々に引くため
 
 **P3 が P4/P5 より前**なのは、メニューが「この sheet に当たっている template」を訊く先を
 必要とするからである。先に UI を作ると、その問い合わせ先が「常に toulmin」に固定される。
