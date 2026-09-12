@@ -446,7 +446,27 @@ P3 で「知らない id は黙って落とす」を選んだ理由は「相手�
 5. **toulmin でない node が絡む edge は、今までどおり自由に繋げてラベルも付けられる**
 6. **競合の通知と上書きの報告に、種別名が本文と並んで出る**
 
-1・2・3・4・5 は単体で測れる。4 と 5 の「繋がる / 繋がらない」は実機でも見る。
+### 到達 (2026-09-13)
+
+**6 項目すべて満たした。**対応するテストは以下である (計 1695 緑)。
+
+| Exit | テスト |
+| --- | --- |
+| 1 | `NodeTypeMenu` 「template が当たっていれば 2 段になる」 |
+| 2 | `NodeTypeMenu` 「template が当たっていなければ「種別」の段そのものが無い」 |
+| 3 | `EditableNode` 「template の種別は編集の口を出さない」 / `EditableLabelEdge` 「ラベルは出すが、ダブルクリックしても編集に入らない」 |
+| 4 | `templateEdge` 「候補 1 なら種類を返す」「許されない組は拒否する」 |
+| 5 | `templateEdge` 「片端が普通のノードなら許す」 / `EditableLabelEdge` 「種類を持たない edge は今までどおり編集できる」 / `EditableNode` 「その他の node のラベルは編集できる」 |
+| 6 | `conflicts` 「ラベルがあれば「ラベル: 本文の先頭」にする」 |
+
+**実機で見たもの** (4 と 5 の「繋がる / 繋がらない」):
+
+- toulmin の sheet で 2 段メニューが出て、`node.add` に `label` と
+  `properties["jp.co.metabolics.toulmin.kind"]` が **1 op で**載る
+- template なしの sheet では種別の段が**出ない**
+- 主張 → データ は**繋がらず**、データ → 主張 は `label:"支える"` 付きで繋がる
+- その edge のラベルはダブルクリックしても**編集に入らない**
+- その他の node にはラベルを付けられ、`node.setLabel` が op-log に載る
 
 **Phase 6 に依存しない。**dialogue graph が無くても、template を当てた sheet を作れば
 全部測れる。Phase 6 は同じ紐づけに toulmin を渡すだけである。

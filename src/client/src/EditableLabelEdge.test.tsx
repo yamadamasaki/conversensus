@@ -85,6 +85,44 @@ describe('EditableLabelEdge', () => {
     expect(input.value).toBe('');
   });
 
+  describe('template の種類を持つ edge (Phase 5)', () => {
+    const KIND = 'jp.co.metabolics.toulmin.kind';
+    const fromTemplate = (): TestEdgeProps => ({
+      ...makeProps('支える'),
+      data: { properties: { [KIND]: 'supports' } },
+    });
+
+    it('ラベルは出すが、ダブルクリックしても編集に入らない', () => {
+      // 種類は両端の node から決まるものなので、人が名前を付けるものではない
+      // (仕様 OnMutation: label は変更できない)
+      render(<EditableLabelEdge {...fromTemplate()} />);
+
+      fireEvent.dblClick(screen.getByText('支える'));
+
+      expect(screen.queryByRole('textbox')).toBeNull();
+    });
+
+    it('エッジの線をダブルクリックしても編集に入らない', () => {
+      // 入口が 2 つある (ラベルと線) ので、片方だけ塞いでも意味が無い
+      const { container } = render(<EditableLabelEdge {...fromTemplate()} />);
+      const path = container.querySelector('path[stroke="transparent"]');
+      if (!path) throw new Error('当たり判定の path が無い');
+
+      fireEvent.dblClick(path);
+
+      expect(screen.queryByRole('textbox')).toBeNull();
+    });
+
+    it('種類を持たない edge は今までどおり編集できる', () => {
+      // toulmin でない node が絡む edge は自由である (仕様)
+      render(<EditableLabelEdge {...makeProps('つながり')} />);
+
+      fireEvent.dblClick(screen.getByText('つながり'));
+
+      expect(screen.getByRole('textbox')).toBeDefined();
+    });
+  });
+
   it('Enter で確定し EDGE_RELABELED を dispatch する', () => {
     render(<EditableLabelEdge {...makeProps('テストラベル')} />);
     fireEvent.dblClick(screen.getByText('テストラベル'));
