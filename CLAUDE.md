@@ -115,48 +115,70 @@ const DEFAULT_SHEET_NAME = 'Sheet 1';
 - 自明でないロジックにはコメントが付加されていること
 - それぞれの言語やライブラリ, ツールのベスト・プラクティスに従っていること
 
-<!-- gitnexus:start -->
-# GitNexus — Code Intelligence
+# GitNexus — 任意の道具
 
-This project is indexed by GitNexus as **conversensus** (6145 symbols, 14017 relationships, 354 execution flows).
+このリポジトリは GitNexus で index されている (`.gitnexus/`)。ただし **常用はしない**。
+呼び出しは義務ではなく、下記の「効く場面」に当たったときだけ引く。
 
-> Index stale? Run `node .gitnexus/run.cjs analyze --index-only` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? Bootstrap with `npx`, `bunx`, or `pnpm dlx` — e.g. `bunx gitnexus@latest analyze` (npm 11 npx crash; #1939).
+## なぜ格下げしたか (2026-09-09)
 
-## Always Do
+GitNexus が見るのは **named symbol の呼び出しグラフ**である。一方このコードベースの
+結合は, その多くが symbol ではない所を通っている。
 
-- **MUST run impact analysis before editing.** Use `impact({target: "symbolName", direction: "upstream"})` (MCP) or `node .gitnexus/run.cjs impact "symbolName" --direction upstream --repo .` (CLI fallback); report callers, processes, and risk. Never substitute grep for graph analysis.
-- **MUST analyze graph changes before committing.** Use `detect_changes({scope: "all"})` (MCP) or `node .gitnexus/run.cjs detect-changes --scope all --repo .` (CLI fallback). `partial: true` or `truncated: true` is not a clean check — a zero means unseen, not unaffected; re-run it. For regression review: `detect_changes({scope: "compare", base_ref: "main"})` or `node .gitnexus/run.cjs detect-changes --scope compare --base-ref "main" --repo .`.
-- **MUST warn the user** if impact analysis returns HIGH or CRITICAL risk before proceeding with edits.
-- **MUST treat `risk: UNKNOWN` as unresolved, not as low.** An empty caller set is not evidence the symbol is unused — it can also mean the callers are not resolvable by the index (plain-object property access, dynamic dispatch, cross-language calls). `impact` pairs `UNKNOWN` with a `riskNote` saying so. Confirm with a text search before treating the symbol as safe to change or delete; do not proceed on the strength of a zero.
-- When exploring unfamiliar code, use `query({search_query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.
-- When you need full context on a specific symbol — callers, callees, which execution flows it participates in — use `context({name: "symbolName"})`.
-- For security review, `explain({target: "fileOrSymbol"})` lists taint findings (source→sink flows; needs `analyze --pdg`).
+- 判別共用体の **文字列リテラル** (`'NODE_CONTENT_CHANGED'` などの event type)
+- React Flow の `data` のような **`Record<string, unknown>` のキー** (`data.content`)
+- Zod schema と branded 型, op の projection
 
-## Never Do
+実例: Phase 5 P0 の改称 (`NODE_RELABELED` → `NODE_CONTENT_CHANGED`,
+`data.label` → `data.content`) は 24 ファイル・70 箇所近くに及んだが,
+`context "NODE_CONTENT_CHANGED"` は `not found` を返す。範囲を出したのは grep で,
+食い違いを捕まえたのは **型検査ではなくテスト 17 件** だった。
 
-- NEVER edit a function, class, or method before MCP/CLI impact analysis.
-- NEVER ignore HIGH or CRITICAL risk warnings from impact analysis, and never read `UNKNOWN` as an all-clear — it means the walk could not answer, which is the one verdict that requires confirming by other means.
-- NEVER rename symbols with find-and-replace — use `rename` which understands the call graph.
-- NEVER commit before MCP/CLI graph change analysis.
+つまり step2 の作業 (op / projection / event type) は GitNexus が最も苦手な形をしている。
+464 ファイル・テスト 1586 件・テストコードまで typecheck が通る状態では,
+**grep + typecheck + test** で足りている。
+
+## 効く場面 (このときだけ引く)
+
+- named な関数・クラス・メソッドの **rename / extract / move**。`rename` は呼び出しグラフを
+  理解するので find-and-replace より安全
+- 触ったことのない領域の **呼び出し関係を俯瞰したい** とき — `query({search_query: "概念"})`,
+  `context({name: "symbolName"})`
+- ハブになっている symbol を変える前の当たり確認 — `impact({target, direction: "upstream"})`
+
+## 読むときの注意
+
+- `risk: UNKNOWN` は「低リスク」ではなく **「グラフが答えられなかった」**。呼び出し元 0 件は
+  未使用の証拠にならない (動的ディスパッチ, plain object のプロパティ経由, 文字列キー)。
+  必ず grep で裏を取る
+- index が古いときは実ファイルが正。`.gitnexus/meta.json` の `lastCommit` を HEAD と見比べる
+
+## 再 index と version 整合
+
+```bash
+gitnexus analyze --force        # brew 側 (node 26) の gitnexus が走る
+```
+
+**注意**: gitnexus が複数入っていると, analyze した側が DB の storage version を上げて
+MCP サーバ側が読めなくなる (`Database file version: 43, Current build storage version: 42`)。
+MCP の command と, シェルで解決される `gitnexus` を **同じ実体に揃えておく**こと
+(`which -a gitnexus` で確認)。
+
+MCP が読めないときも CLI は動く: `gitnexus impact "sym" --direction upstream --repo .`
 
 ## Resources
 
 | Resource | Use for |
 | --- | --- |
-| `gitnexus://repo/conversensus/context` | Codebase overview, check index freshness |
-| `gitnexus://repo/conversensus/clusters` | All functional areas |
-| `gitnexus://repo/conversensus/processes` | All execution flows |
-| `gitnexus://repo/conversensus/process/{name}` | Step-by-step execution trace |
+| `gitnexus://repo/conversensus/context` | Codebase overview, index の鮮度確認 |
+| `gitnexus://repo/conversensus/processes` | 実行フロー一覧 |
+| `gitnexus://repo/conversensus/process/{name}` | 実行フローの追跡 |
 
-## CLI
+CLI とツールの詳細は `.claude/skills/gitnexus-*/SKILL.md` を参照。
 
-| Task | Read this skill file |
-| --- | --- |
-| Understand architecture / "How does X work?" | `.claude/skills/gitnexus-exploring/SKILL.md` |
-| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus-impact-analysis/SKILL.md` |
-| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus-debugging/SKILL.md` |
-| Rename / extract / split / refactor | `.claude/skills/gitnexus-refactoring/SKILL.md` |
-| Tools, resources, schema reference | `.claude/skills/gitnexus-guide/SKILL.md` |
-| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus-cli/SKILL.md` |
+> このファイル末尾の `<!-- gitnexus:start -->` 〜 `<!-- gitnexus:end -->` は
+> `gitnexus analyze` が自動生成する枠で, 上書きされる。**判断はこの節が正**であり,
+> 枠の中の "MUST" は無効とする。
 
+<!-- gitnexus:start -->
 <!-- gitnexus:end -->

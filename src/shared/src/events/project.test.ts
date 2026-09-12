@@ -8,6 +8,7 @@ import {
   NodeIdSchema,
   type SheetId,
   SheetIdSchema,
+  TemplateIdSchema,
 } from '../schemas';
 import { isFileDeleted, projectBatches, projectFile, toSheet } from './project';
 import { SYSTEM_PROPERTY_PREFIX } from './properties';
@@ -734,5 +735,187 @@ describe('isFileDeleted (ANA-127)', () => {
     );
     expect(file.name).toBe('F');
     expect(file.sheets).toHaveLength(1);
+  });
+});
+
+describe('node.add の label (Phase 5 P4)', () => {
+  test('作成時の種別をそのまま持つ', () => {
+    const a = nid();
+    const g = projectBatches([
+      batch(1, [{ kind: 'node.add', target: a, content: '', label: '主張' }]),
+    ]);
+    expect(g.nodes.get(a)?.label).toBe('主張');
+  });
+
+  test('種別なしで作れば label を持たない', () => {
+    const a = nid();
+    const g = projectBatches([
+      batch(1, [{ kind: 'node.add', target: a, content: '' }]),
+    ]);
+    expect(g.nodes.get(a)?.label).toBeUndefined();
+  });
+
+  test('後から node.setLabel で上書きできる', () => {
+    const a = nid();
+    const g = projectBatches([
+      batch(1, [{ kind: 'node.add', target: a, content: '', label: '主張' }]),
+      batch(2, [{ kind: 'node.setLabel', target: a, label: '反論' }]),
+    ]);
+    expect(g.nodes.get(a)?.label).toBe('反論');
+  });
+
+  test('空文字を載せると種別が外れる', () => {
+    const a = nid();
+    const g = projectBatches([
+      batch(1, [{ kind: 'node.add', target: a, content: '', label: '主張' }]),
+      batch(2, [{ kind: 'node.setLabel', target: a, label: '' }]),
+    ]);
+    expect(g.nodes.get(a)?.label).toBe('');
+  });
+});
+
+describe('node.setLabel (Phase 5 P1)', () => {
+  test('種別名を node.label に書き、本文 (content) は触らない', () => {
+    const a = nid();
+    const g = projectBatches([
+      batch(1, [{ kind: 'node.add', target: a, content: '本文' }]),
+      batch(2, [{ kind: 'node.setLabel', target: a, label: '主張' }]),
+    ]);
+    expect(g.nodes.get(a)?.label).toBe('主張');
+    expect(g.nodes.get(a)?.content).toBe('本文');
+  });
+
+  test('label と content は互いを消さない (別のフィールドである)', () => {
+    const a = nid();
+    const g = projectBatches([
+      batch(1, [{ kind: 'node.add', target: a, content: '初期' }]),
+      batch(2, [{ kind: 'node.setLabel', target: a, label: '反論' }]),
+      batch(3, [{ kind: 'node.setContent', target: a, content: '書き直した' }]),
+    ]);
+    expect(g.nodes.get(a)?.label).toBe('反論');
+    expect(g.nodes.get(a)?.content).toBe('書き直した');
+  });
+
+  test('label は clock 昇順の畳み込みで LWW になる (投入順に依存しない)', () => {
+    const a = nid();
+    const seed = batch(0, [{ kind: 'node.add', target: a, content: 'init' }]);
+    const older = batch(1, [{ kind: 'node.setLabel', target: a, label: '旧' }]);
+    const newer = batch(2, [{ kind: 'node.setLabel', target: a, label: '新' }]);
+    const g = projectBatches([newer, seed, older]);
+    expect(g.nodes.get(a)?.label).toBe('新');
+  });
+
+  test('既存ノードは label を持たない (種別は空でよい)', () => {
+    const a = nid();
+    const g = projectBatches([
+      batch(1, [{ kind: 'node.add', target: a, content: 'A' }]),
+    ]);
+    expect(g.nodes.get(a)?.label).toBeUndefined();
+  });
+
+  test('対象が居なければ no-op (node を作らない)', () => {
+    const g = projectBatches([
+      batch(1, [{ kind: 'node.setLabel', target: nid(), label: '主張' }]),
+    ]);
+    expect(g.nodes.size).toBe(0);
+  });
+
+  test('削除済みノードへの setLabel は node.setContent と同じく復活させる', () => {
+    const a = nid();
+    const g = projectBatches([
+      batch(1, [{ kind: 'node.add', target: a, content: 'A' }]),
+      batch(2, [{ kind: 'node.remove', target: a }]),
+      batch(3, [{ kind: 'node.setLabel', target: a, label: '主張' }]),
+    ]);
+    expect(g.nodes.get(a)?.label).toBe('主張');
+  });
+
+  test('toSheet は label を持ち出す', () => {
+    const a = nid();
+    const s = sid();
+    const g = projectBatches([
+      batch(1, [{ kind: 'node.add', target: a, content: 'A' }]),
+      batch(2, [{ kind: 'node.setLabel', target: a, label: 'データ' }]),
+    ]);
+    const sheet = toSheet(g, { id: s, name: 'S' });
+    expect(sheet.nodes[0]?.label).toBe('データ');
+  });
+});
+
+describe('sheet.create の templateIds (Phase 5 P3)', () => {
+  test('紐づけを projection から Sheet まで運ぶ', () => {
+    const f = fid();
+    const s = sid();
+    const file = projectFile(
+      [
+        batch(1, [
+          {
+            kind: 'sheet.create',
+            target: s,
+            name: 'DtR',
+            templateIds: [TemplateIdSchema.parse('jp.co.metabolics.toulmin')],
+          },
+        ]),
+      ],
+      f,
+    );
+    expect(file.sheets[0]?.templateIds).toEqual([
+      TemplateIdSchema.parse('jp.co.metabolics.toulmin'),
+    ]);
+  });
+
+  test('templateIds を持たない既存の op-log はそのまま通る (移行は要らない)', () => {
+    const f = fid();
+    const s = sid();
+    const file = projectFile(
+      [batch(1, [{ kind: 'sheet.create', target: s, name: 'S1' }])],
+      f,
+    );
+    expect(file.sheets[0]?.name).toBe('S1');
+    expect(file.sheets[0]?.templateIds).toBeUndefined();
+  });
+
+  test('sheet.setName では紐づけが変わらない (作成時にしか持たない, D1)', () => {
+    const f = fid();
+    const s = sid();
+    const file = projectFile(
+      [
+        batch(1, [
+          {
+            kind: 'sheet.create',
+            target: s,
+            name: 'DtR',
+            templateIds: [TemplateIdSchema.parse('jp.co.metabolics.toulmin')],
+          },
+        ]),
+        batch(2, [{ kind: 'sheet.setName', target: s, name: '改名' }]),
+      ],
+      f,
+    );
+    expect(file.sheets[0]?.name).toBe('改名');
+    expect(file.sheets[0]?.templateIds).toEqual([
+      TemplateIdSchema.parse('jp.co.metabolics.toulmin'),
+    ]);
+  });
+
+  test('シートを消して作り直すと紐づけも作り直される (add-wins の帰結)', () => {
+    const f = fid();
+    const s = sid();
+    const file = projectFile(
+      [
+        batch(1, [
+          {
+            kind: 'sheet.create',
+            target: s,
+            name: 'DtR',
+            templateIds: [TemplateIdSchema.parse('jp.co.metabolics.toulmin')],
+          },
+        ]),
+        batch(2, [{ kind: 'sheet.remove', target: s }]),
+        batch(3, [{ kind: 'sheet.create', target: s, name: '再作成' }]),
+      ],
+      f,
+    );
+    expect(file.sheets[0]?.templateIds).toBeUndefined();
   });
 });

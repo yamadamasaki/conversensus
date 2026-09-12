@@ -16,6 +16,11 @@ export * from './events/properties';
 export * from './events/unified';
 export * from './migrations';
 export * from './schemas';
+export * from './template/fold';
+export * from './template/kind';
+export * from './template/registry';
+export * from './template/toulmin';
+export * from './template/types';
 
 // --- HTTP API request/response schemas ---
 export const CreateFileRequestSchema = z.object({

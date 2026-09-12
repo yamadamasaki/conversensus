@@ -7,6 +7,7 @@ import {
   projectBatches,
   type SheetId,
   SheetIdSchema,
+  TemplateIdSchema,
 } from '@conversensus/shared';
 import type { GraphEvent } from './GraphEvent';
 import { makeEventBase } from './GraphEvent';
@@ -293,7 +294,7 @@ describe('graphEventToOps: 全 21 イベント型を網羅する', () => {
     },
     {
       ...makeEventBase('content'),
-      type: 'NODE_RELABELED',
+      type: 'NODE_CONTENT_CHANGED',
       nodeId,
       from: 'a',
       to: 'b',
@@ -378,6 +379,35 @@ describe('graphEventToOps: 全 21 イベント型を網羅する', () => {
 
 describe('graphEventToOps: file 構造イベント (W3c1)', () => {
   const sid = (): SheetId => SheetIdSchema.parse(crypto.randomUUID());
+
+  test('SHEET_CREATED → sheet.create (templateIds 付き, Phase 5 P3)', () => {
+    const sheetId = sid();
+    const ops = graphEventToOps({
+      ...makeEventBase('file'),
+      type: 'SHEET_CREATED',
+      sheetId,
+      name: 'DtR',
+      templateIds: [TemplateIdSchema.parse('jp.co.metabolics.toulmin')],
+    });
+    expect(ops).toEqual([
+      {
+        kind: 'sheet.create',
+        target: sheetId,
+        name: 'DtR',
+        templateIds: [TemplateIdSchema.parse('jp.co.metabolics.toulmin')],
+      },
+    ]);
+  });
+
+  test('templateIds が無ければ op にも載せない (既存の op-log と同じ形)', () => {
+    const ops = graphEventToOps({
+      ...makeEventBase('file'),
+      type: 'SHEET_CREATED',
+      sheetId: sid(),
+      name: 'S1',
+    });
+    expect(ops[0]).not.toHaveProperty('templateIds');
+  });
 
   test('SHEET_CREATED → sheet.create (description 付き)', () => {
     const sheetId = sid();
@@ -479,7 +509,7 @@ describe('graphEventToBatch: content の sheet-aware 化 (W3c2)', () => {
     const nodeId = nid();
     return {
       ...makeEventBase('content'),
-      type: 'NODE_RELABELED',
+      type: 'NODE_CONTENT_CHANGED',
       nodeId,
       from: 'a',
       to: 'b',
@@ -563,5 +593,61 @@ describe('layout 値の整数化 (W3d5-7)', () => {
     for (const v of [op.x, op.y]) {
       expect(Number.isInteger(v)).toBe(true);
     }
+  });
+});
+
+describe('graphEventToOps: node の種別 (Phase 5 P4)', () => {
+  test('NODE_ADDED は種別を node.add に載せる (作成が 1 batch のままである)', () => {
+    const nodeId = nid();
+    const ops = graphEventToOps({
+      ...makeEventBase('structure'),
+      type: 'NODE_ADDED',
+      nodeId,
+      data: { id: nodeId, content: '', label: '主張' },
+      layout: { nodeId, x: 0, y: 0 },
+    });
+    expect(ops[0]).toMatchObject({
+      kind: 'node.add',
+      target: nodeId,
+      label: '主張',
+    });
+  });
+
+  test('種別が無ければ node.add にも載せない', () => {
+    const nodeId = nid();
+    const ops = graphEventToOps({
+      ...makeEventBase('structure'),
+      type: 'NODE_ADDED',
+      nodeId,
+      data: { id: nodeId, content: '' },
+      layout: { nodeId, x: 0, y: 0 },
+    });
+    expect(ops[0]).not.toHaveProperty('label');
+  });
+
+  test('NODE_LABEL_CHANGED → node.setLabel', () => {
+    const nodeId = nid();
+    expect(
+      graphEventToOps({
+        ...makeEventBase('content'),
+        type: 'NODE_LABEL_CHANGED',
+        nodeId,
+        from: '主張',
+        to: 'データ',
+      }),
+    ).toEqual([{ kind: 'node.setLabel', target: nodeId, label: 'データ' }]);
+  });
+
+  test('種別を外すのは空文字を載せることである (op が消えるのではない)', () => {
+    const nodeId = nid();
+    expect(
+      graphEventToOps({
+        ...makeEventBase('content'),
+        type: 'NODE_LABEL_CHANGED',
+        nodeId,
+        from: '主張',
+        to: '',
+      }),
+    ).toEqual([{ kind: 'node.setLabel', target: nodeId, label: '' }]);
   });
 });

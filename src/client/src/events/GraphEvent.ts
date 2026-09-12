@@ -7,6 +7,7 @@ import type {
   NodeId,
   NodeLayout,
   SheetId,
+  TemplateId,
 } from '@conversensus/shared';
 
 type Position = { x: number; y: number };
@@ -152,10 +153,35 @@ export type NodesPastedUndoEvent = EventBase & {
 };
 
 // --- Content ---
-export type NodeRelabeledEvent = EventBase & {
+/**
+ * ノードの本文 (markdown) の編集。
+ *
+ * **かつて `NODE_RELABELED` という名前だった** (step2 Phase 5 P0 で改称)。写る先は
+ * `node.setContent` で、実体は最初から本文の編集だった — 「ラベルを変えた」という名前が
+ * 嘘をついていた。**Phase 5 で node に本物の label (種別名) が入る**ので、
+ * その前に語を空けてある。`edge.setLabel` の label は本物なのでそのままである。
+ */
+export type NodeContentChangedEvent = EventBase & {
   category: 'content';
-  type: 'NODE_RELABELED';
+  type: 'NODE_CONTENT_CHANGED';
   nodeId: NodeId;
+  from: string;
+  to: string;
+};
+/**
+ * ノードの**種別**を変えた (Phase 5 P4)。本文の編集は `NODE_CONTENT_CHANGED` で、
+ * こちらは template が与える種別名 (`主張` など) を付け替える。
+ * `EDGE_RELABELED` と対になる — edge 側は最初から label が本物だった。
+ *
+ * **空いた `NODE_RELABELED` の名は再利用しない。**かつてその名で本文を指していたので、
+ * 同じ綴りを別の意味に付け替えると、過去のコードや記録を読むたびにどちらの意味か
+ * 判断することになる。`NODE_CONTENT_CHANGED` と対の綴りにしてある。
+ */
+export type NodeLabelChangedEvent = EventBase & {
+  category: 'content';
+  type: 'NODE_LABEL_CHANGED';
+  nodeId: NodeId;
+  /** 種別を外すときは空文字。undefined は「変えない」ではなく使わない */
   from: string;
   to: string;
 };
@@ -229,6 +255,8 @@ export type SheetCreatedEvent = EventBase & {
   sheetId: SheetId;
   name: string;
   description?: string;
+  /** 作成時に当てる template (Phase 5 D1)。後から変える口は無い */
+  templateIds?: TemplateId[];
 };
 export type SheetRemovedEvent = EventBase & {
   category: 'file';
@@ -280,7 +308,8 @@ export type GraphEvent =
   | NodesRestoredEvent
   | NodesPastedEvent
   | NodesPastedUndoEvent
-  | NodeRelabeledEvent
+  | NodeContentChangedEvent
+  | NodeLabelChangedEvent
   | EdgeRelabeledEvent
   | NodePropertiesChangedEvent
   | EdgePropertiesChangedEvent

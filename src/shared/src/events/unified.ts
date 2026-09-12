@@ -29,6 +29,7 @@ import {
   NodeIdSchema,
   SheetIdSchema,
   StyleSchema,
+  TemplateIdSchema,
 } from '../schemas';
 
 // --- メタ ---
@@ -125,6 +126,12 @@ export const OpSchema = z.discriminatedUnion('kind', [
     kind: z.literal('node.add'),
     target: NodeIdSchema,
     content: z.string(),
+    /**
+     * 作成時の種別 (Phase 5 P4)。**`properties` と同じ立場**である — 後から
+     * `node.setLabel` で変えられるが、作成時に決まっているものを別 op に割ると
+     * 「1 ユーザー操作 = 1 batch」が崩れ、undo が 2 段になる
+     */
+    label: z.string().optional(),
     properties: NodePropertiesSchema.optional(),
     nodeType: z.enum(['group', 'image']).optional(),
     parentId: NodeIdSchema.optional(),
@@ -157,6 +164,12 @@ export const OpSchema = z.discriminatedUnion('kind', [
     kind: z.literal('node.setContent'),
     target: NodeIdSchema,
     content: z.string(),
+  }),
+  z.object({
+    kind: z.literal('node.setLabel'),
+    target: NodeIdSchema,
+    /** node の種別名。`edge.setLabel` と同じ概念 — 本文を変えるのは `node.setContent` */
+    label: z.string(),
   }),
   z.object({
     kind: z.literal('node.setProperty'),
@@ -226,6 +239,15 @@ export const OpSchema = z.discriminatedUnion('kind', [
     target: SheetIdSchema,
     name: z.string(),
     description: z.string().optional(),
+    /**
+     * このシートに当てる template (設計 D1)。**作成時にしか持たない** — 後から
+     * 変える op は作らない (外したときに既存ノードの種別をどう扱うかは step3)。
+     *
+     * **複数を前提にする。**当面は 1 つしか当てないが、単数で作ると複数にするときに
+     * op の形が変わって移行が要る。省略は「template 無し」であり、既存の op-log
+     * (このフィールドを持たない `sheet.create`) はそのまま通る。
+     */
+    templateIds: z.array(TemplateIdSchema).optional(),
   }),
   z.object({ kind: z.literal('sheet.remove'), target: SheetIdSchema }),
   z.object({
@@ -327,6 +349,7 @@ export const OP_CATEGORY: Record<OpKind, Category> = {
   'edge.remove': 'structure',
   'edge.reconnect': 'structure',
   'node.setContent': 'content',
+  'node.setLabel': 'content',
   'node.setProperty': 'content',
   'node.setProperties': 'content',
   'edge.setLabel': 'content',
@@ -365,6 +388,7 @@ export function isFileOp(op: Op): op is FileOp {
 export type ContentOp = Extract<Op, { kind: ContentOpKind }>;
 type ContentOpKind =
   | 'node.setContent'
+  | 'node.setLabel'
   | 'node.setProperty'
   | 'node.setProperties'
   | 'edge.setLabel'

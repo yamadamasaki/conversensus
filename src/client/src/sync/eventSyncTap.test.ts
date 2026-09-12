@@ -2,7 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import type { Batch, NodeId, NodeLayout, SheetId } from '@conversensus/shared';
 import { LamportClock, SheetIdSchema } from '@conversensus/shared';
 import type {
-  NodeRelabeledEvent,
+  NodeContentChangedEvent,
   NodeStyleChangedEvent,
 } from '../events/GraphEvent';
 import { graphEventToBatch } from '../events/toUnified';
@@ -16,11 +16,11 @@ const uuid = () => {
 };
 
 /** node.setContent を 1 件生む content イベント (ops あり) */
-const relabel = (): NodeRelabeledEvent => ({
+const relabel = (): NodeContentChangedEvent => ({
   id: uuid(),
   timestamp: Date.now(),
   category: 'content',
-  type: 'NODE_RELABELED',
+  type: 'NODE_CONTENT_CHANGED',
   nodeId: uuid() as NodeId,
   from: 'a',
   to: 'b',

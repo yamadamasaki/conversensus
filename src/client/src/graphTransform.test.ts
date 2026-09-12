@@ -46,13 +46,13 @@ describe('toFlowNodes', () => {
     expect(result[0]).toMatchObject({
       id: 'n1',
       position: { x: 10, y: 20 },
-      data: { label: 'ノード1' },
+      data: { content: 'ノード1' },
       type: 'editableNode',
     });
     expect(result[1]).toMatchObject({
       id: 'n2',
       position: { x: 100, y: 200 },
-      data: { label: 'ノード2' },
+      data: { content: 'ノード2' },
       type: 'editableNode',
     });
   });
@@ -64,6 +64,65 @@ describe('toFlowNodes', () => {
   it('レイアウトがない場合は位置が (0, 0) になる', () => {
     const result = toFlowNodes(graphNodes);
     expect(result[0].position).toEqual({ x: 0, y: 0 });
+  });
+});
+
+describe('種別 (label) の往復 (Phase 5 P4)', () => {
+  // **ここが唯一の境界である** (P0 の判断)。型が守らない所なので往復で見る —
+  // React Flow の data は Record<string, unknown> で、キーの綴り違いは tsc を通る
+  const withKind = [
+    { id: 'n1' as NodeId, content: '本文', label: '主張' },
+    { id: 'n2' as NodeId, content: '種別なし' },
+  ];
+
+  it('toFlowNodes は label を data.label に写し、無ければ入れない', () => {
+    const [a, b] = toFlowNodes(withKind);
+    expect(a.data.label).toBe('主張');
+    expect(a.data.content).toBe('本文');
+    expect(b.data).not.toHaveProperty('label');
+  });
+
+  it('fromFlowNodes で戻す (往復して変わらない)', () => {
+    const { nodes } = fromFlowNodes(toFlowNodes(withKind));
+    expect(nodes[0]).toMatchObject({ content: '本文', label: '主張' });
+    expect(nodes[1]).not.toHaveProperty('label');
+  });
+
+  it('空文字の種別も往復する — 「外した」は「無い」と区別される', () => {
+    // op-log には label:'' が積まれるので、空文字が undefined に潰れてはいけない
+    const { nodes } = fromFlowNodes(
+      toFlowNodes([{ id: 'n1' as NodeId, content: '本文', label: '' }]),
+    );
+    expect(nodes[0].label).toBe('');
+  });
+});
+
+describe('edge の種別 (properties) の往復 (Phase 5)', () => {
+  const KIND = 'jp.co.metabolics.toulmin.kind';
+  const withKind = [
+    {
+      id: 'e1' as EdgeId,
+      source: 'n1' as NodeId,
+      target: 'n2' as NodeId,
+      label: '支える',
+      properties: { [KIND]: 'supports' },
+    },
+    { id: 'e2' as EdgeId, source: 'n1' as NodeId, target: 'n2' as NodeId },
+  ];
+
+  it('toFlowEdges は properties を data に写し、無ければ入れない', () => {
+    const [a, b] = toFlowEdges(withKind);
+    expect(a.data?.properties).toEqual({ [KIND]: 'supports' });
+    expect(b.data).not.toHaveProperty('properties');
+  });
+
+  it('fromFlowEdges で戻す (往復して変わらない)', () => {
+    const { edges } = fromFlowEdges(toFlowEdges(withKind));
+    expect(edges[0]).toMatchObject({
+      label: '支える',
+      properties: { [KIND]: 'supports' },
+    });
+    expect(edges[1]).not.toHaveProperty('properties');
   });
 });
 
@@ -191,7 +250,7 @@ describe('fromFlowNodes', () => {
       {
         id: 'n1',
         position: { x: 10, y: 20 },
-        data: { label: 'ノード1' },
+        data: { content: 'ノード1' },
         type: 'default',
       },
     ];
@@ -367,7 +426,7 @@ describe('fromFlowNodes: parentId / groupNode', () => {
         id: 'n1',
         parentId: 'g1',
         position: { x: 20, y: 50 },
-        data: { label: 'child' },
+        data: { content: 'child' },
         type: 'editableNode',
       },
     ];
@@ -381,7 +440,7 @@ describe('fromFlowNodes: parentId / groupNode', () => {
       {
         id: 'g1',
         position: { x: 0, y: 0 },
-        data: { label: 'グループ' },
+        data: { content: 'グループ' },
         type: 'groupNode',
       },
     ];
@@ -394,7 +453,7 @@ describe('fromFlowNodes: parentId / groupNode', () => {
       {
         id: 'i1',
         position: { x: 0, y: 0 },
-        data: { label: '画像' },
+        data: { content: '画像' },
         type: 'imageNode',
       },
     ];
@@ -649,7 +708,7 @@ describe('toFlowEdges → fromFlowEdges: sourceHandle / targetHandle の対称�
 const makeNode = (id: string, selected = false, parentId?: string): Node => ({
   id,
   position: { x: 10, y: 20 },
-  data: { label: id },
+  data: { content: id },
   type: 'editableNode',
   selected,
   parentId,
@@ -695,7 +754,7 @@ describe('collectCopyData', () => {
     const group: Node = {
       id: 'g1',
       position: { x: 0, y: 0 },
-      data: { label: 'group' },
+      data: { content: 'group' },
       type: 'groupNode',
       selected: true,
     };
@@ -712,14 +771,14 @@ describe('collectCopyData', () => {
     const outer: Node = {
       id: 'g1',
       position: { x: 0, y: 0 },
-      data: { label: 'outer' },
+      data: { content: 'outer' },
       type: 'groupNode',
       selected: true,
     };
     const inner: Node = {
       id: 'g2',
       position: { x: 0, y: 0 },
-      data: { label: 'inner' },
+      data: { content: 'inner' },
       type: 'groupNode',
       selected: false,
       parentId: 'g1',
@@ -770,8 +829,8 @@ describe('buildPastedData', () => {
     const child = makeNode('n1', true, 'g1');
     const clipboard = { nodes: [parent, child], edges: [] };
     const { nodes } = buildPastedData(clipboard, 0);
-    const newParent = nodes.find((n) => n.data.label === 'g1');
-    const newChild = nodes.find((n) => n.data.label === 'n1');
+    const newParent = nodes.find((n) => n.data.content === 'g1');
+    const newChild = nodes.find((n) => n.data.content === 'n1');
     expect(newChild?.parentId).toBe(newParent?.id);
   });
 
@@ -787,8 +846,8 @@ describe('buildPastedData', () => {
     const child = makeNode('n1', true, 'g1'); // position { x:10, y:20 } (relative)
     const clipboard = { nodes: [parent, child], edges: [] };
     const { nodes } = buildPastedData(clipboard, 30);
-    const newParent = nodes.find((n) => n.data.label === 'g1');
-    const newChild = nodes.find((n) => n.data.label === 'n1');
+    const newParent = nodes.find((n) => n.data.content === 'g1');
+    const newChild = nodes.find((n) => n.data.content === 'n1');
     // 親のみオフセット: 10+30=40, 20+30=50
     expect(newParent?.position).toEqual({ x: 40, y: 50 });
     // 子は相対座標のままオフセットなし
@@ -801,8 +860,8 @@ describe('buildPastedData', () => {
     // 意図的に子→親の順でクリップボードに入れる
     const clipboard = { nodes: [child, parent], edges: [] };
     const { nodes } = buildPastedData(clipboard, 0);
-    const parentIdx = nodes.findIndex((n) => n.data.label === 'g1');
-    const childIdx = nodes.findIndex((n) => n.data.label === 'n1');
+    const parentIdx = nodes.findIndex((n) => n.data.content === 'g1');
+    const childIdx = nodes.findIndex((n) => n.data.content === 'n1');
     expect(parentIdx).toBeLessThan(childIdx);
   });
 });

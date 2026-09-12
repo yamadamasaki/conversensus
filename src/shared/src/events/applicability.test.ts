@@ -100,6 +100,18 @@ describe('analyzeApplicability', () => {
     ]);
   });
 
+  test('対象不在の node.setLabel も missing-target になる (Phase 5 P1)', () => {
+    // node.setContent と同じく applyOp が `if (node)` で守っている分岐なので、
+    // REQUIRES_TARGET に載せないと落ちた op を数え損なう
+    const s = sid();
+    const report = analyzeApplicability([
+      createSheet(1, s),
+      batch(2, [{ kind: 'node.setLabel', target: nid(), label: '主張' }], s),
+    ]);
+
+    expect(report.drops.map((d) => d.reason)).toEqual(['missing-target']);
+  });
+
   test('op 時点で対象が存在すれば、後で削除されても missing-target にしない', () => {
     const s = sid();
     const a = nid();

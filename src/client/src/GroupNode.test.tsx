@@ -32,7 +32,7 @@ const GROUP_ID = 'group-1';
 // biome-ignore lint/suspicious/noExplicitAny: テスト用 NodeProps スタブ
 const makeProps = (): any => ({
   id: GROUP_ID,
-  data: { label: 'グループ' },
+  data: { content: 'グループ' },
   type: 'groupNode',
   isConnectable: true,
   selected: false,
@@ -72,7 +72,7 @@ describe('GroupNode', () => {
     expect(mockDispatch).not.toHaveBeenCalled();
   });
 
-  it('タイトルバーのダブルクリックではメニューを開かない (ラベル編集)', () => {
+  it('タイトルバーのダブルクリックではメニューを開かない (内容の編集)', () => {
     const { container, getByDisplayValue } = render(
       <GroupNode {...makeProps()} />,
     );

@@ -337,6 +337,69 @@ describe('mergeBranches — プロパティはキー単位で判定する (#208)
     expect(conflicts[0].propertyName).toBe('foo');
   });
 
+  test('node の本文と種別は別の単位で、混ざらない (Phase 5 P1)', () => {
+    // content と label は同じ node の別のフィールドである。target だけで括ると
+    // 「片方が本文を直し、片方が種別を付けた」が対立に見えてしまう
+    const a = nid();
+    const { conflicts } = mergeBranches(
+      NO_BASE,
+      [batch(2, [{ kind: 'node.setContent', target: a, content: 'trunk' }])],
+      [batch(3, [{ kind: 'node.setLabel', target: a, label: '主張' }])],
+    );
+    expect(conflicts).toHaveLength(0);
+  });
+
+  test('同じノードに二人が別の種別を付けると content の対立になる (D4)', () => {
+    const a = nid();
+    const { merged, conflicts } = mergeBranches(
+      NO_BASE,
+      [
+        batch(
+          2,
+          [{ kind: 'node.setLabel', target: a, label: '主張' }],
+          'alice',
+        ),
+      ],
+      [
+        batch(
+          3,
+          [{ kind: 'node.setLabel', target: a, label: 'データ' }],
+          'bob',
+        ),
+      ],
+    );
+
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0].target).toBe(a);
+    expect(conflicts[0].category).toBe('content');
+
+    // 暫定確定は LWW — clock 最大の 'データ' が勝つ
+    const base = [batch(1, [{ kind: 'node.add', target: a, content: 'init' }])];
+    const g = projectBatches([...base, ...merged]);
+    expect(g.nodes.get(a)?.label).toBe('データ');
+  });
+
+  test('同じ種別を二人が付けたときは対立にしない', () => {
+    const a = nid();
+    const { conflicts } = mergeBranches(
+      NO_BASE,
+      [batch(2, [{ kind: 'node.setLabel', target: a, label: '反論' }])],
+      [batch(3, [{ kind: 'node.setLabel', target: a, label: '反論' }])],
+    );
+    expect(conflicts).toHaveLength(0);
+  });
+
+  test('異なるノードへの種別変更は対立しない', () => {
+    const a = nid();
+    const b = nid();
+    const { conflicts } = mergeBranches(
+      NO_BASE,
+      [batch(2, [{ kind: 'node.setLabel', target: a, label: '主張' }])],
+      [batch(3, [{ kind: 'node.setLabel', target: b, label: '主張' }])],
+    );
+    expect(conflicts).toHaveLength(0);
+  });
+
   test('プロパティの対立は content の対立と混ざらない', () => {
     // 同じノードの content とプロパティは別の単位である
     const a = nid();

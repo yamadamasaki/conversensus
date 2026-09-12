@@ -152,6 +152,7 @@ function prerequisitesOf(op: Op): string[] {
 
     // 既存要素の中身を変える — 対象が要る
     case 'node.setContent':
+    case 'node.setLabel':
     case 'node.setProperty':
     case 'node.setProperties':
     case 'edge.setLabel':
@@ -195,6 +196,17 @@ function flattenOps(batches: Batch[], keep: (op: Op) => boolean): TaggedOp[] {
  */
 function propertyKeyOf(target: string, name: PropertyName): string {
   return `${target}\u0000${canonicalPropertyName(name)}`;
+}
+
+/**
+ * 単一フィールドを書き換える content op の単位キー。プロパティ・layout と同じ形にする。
+ *
+ * **target だけでは足りない。** node は本文 (`content`) と種別 (`label`) の 2 つの
+ * フィールドを持つので、target だけで括ると「片方が本文を直し、片方が種別を付けた」が
+ * 対立として出てしまう。別のフィールドは別の単位である (プロパティを名前ごとに割るのと同じ)。
+ */
+function fieldKeyOf(target: string, field: 'content' | 'label'): string {
+  return `${target}\u0000field:${field}`;
 }
 
 /** layout の単位キー。プロパティの単位キーと同じ形にして衝突を避ける */
@@ -260,6 +272,11 @@ function unitsOf(t: TaggedOp): ConflictUnit[] {
   const { op } = t;
   if (isLayoutOp(op)) return layoutUnitsOf(t, op);
   switch (op.kind) {
+    case 'node.setContent':
+      return [{ ...t, key: fieldKeyOf(op.target, 'content'), value: op }];
+    case 'node.setLabel':
+    case 'edge.setLabel':
+      return [{ ...t, key: fieldKeyOf(op.target, 'label'), value: op }];
     case 'node.setProperty':
     case 'edge.setProperty':
       return [

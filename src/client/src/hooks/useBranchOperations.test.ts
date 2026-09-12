@@ -112,7 +112,7 @@ const relabel = (to: string, nodeId: string = uuid()) => ({
   id: uuid(),
   timestamp: 1,
   category: 'content' as const,
-  type: 'NODE_RELABELED' as const,
+  type: 'NODE_CONTENT_CHANGED' as const,
   // biome-ignore lint/suspicious/noExplicitAny: branded NodeId をテストで作らない
   nodeId: nodeId as any,
   from: '',

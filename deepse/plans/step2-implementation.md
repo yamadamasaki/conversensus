@@ -412,6 +412,17 @@ step2 では意味を持たない (型が値の従属変数なので「決まっ
 **Exit は「通常の sheet に toulmin template を当てて種別が選べる」とする。**「対話グラフで
 選べる」にすると Phase 6 の成果物に依存して測れなくなり、依存が双方向になってしまう。
 
+> **⚠️ 設計は `step2-phase5-template.md` に分割した (2026-09-08)。**レビューで
+> **「toulmin を当てるのは DtR の dialogue graph だけ」**が確認され、当初案の
+> 「全 sheet に作り込みで適用済」は却下された (普通のグラフにも種別メニューが出てしまう)。
+> **紐づけを `sheet.create` の `templateIds` で持つ** (作成時のみ・複数前提)。
+> この形なら上の Exit の「**当てて**」がそのまま操作として成立し、Phase 6 への依存も
+> 生まれない — Phase 6 は同じ紐づけに toulmin を渡すだけである。
+>
+> あわせて **node label はクラス名**であることが確認された (一つの対話グラフに「反論」は
+> 複数ある)。**通知に効くのは絞り込みまでで、特定は step3** (参照を popover するとグラフ中の
+> 対応ノードが光る、など)。
+
 ### Phase 6: DtR graph
 
 仕様: [dialogueToResolveGraph](../requirements/spec/dialogueToResolveGraph.md)

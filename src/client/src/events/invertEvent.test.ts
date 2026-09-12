@@ -278,21 +278,57 @@ describe('NODES_DELETED ↔ NODES_RESTORED', () => {
 
 // --- content ---
 
-describe('NODE_RELABELED', () => {
+describe('NODE_LABEL_CHANGED (Phase 5 P4)', () => {
   it('from/to を入れ替える', () => {
     const event: GraphEvent = {
       ...base,
       category: 'content',
-      type: 'NODE_RELABELED',
+      type: 'NODE_LABEL_CHANGED',
+      nodeId: 'n1' as NodeId,
+      from: '主張',
+      to: 'データ',
+    };
+    const inv = invertEvent(event) as Extract<
+      GraphEvent,
+      { type: 'NODE_LABEL_CHANGED' }
+    >;
+    expect(inv.type).toBe('NODE_LABEL_CHANGED');
+    expect(inv.from).toBe('データ');
+    expect(inv.to).toBe('主張');
+  });
+
+  it('種別を与えた操作を戻すと種別が外れる (from が空文字)', () => {
+    const event: GraphEvent = {
+      ...base,
+      category: 'content',
+      type: 'NODE_LABEL_CHANGED',
+      nodeId: 'n1' as NodeId,
+      from: '',
+      to: '主張',
+    };
+    const inv = invertEvent(event) as Extract<
+      GraphEvent,
+      { type: 'NODE_LABEL_CHANGED' }
+    >;
+    expect(inv.to).toBe('');
+  });
+});
+
+describe('NODE_CONTENT_CHANGED', () => {
+  it('from/to を入れ替える', () => {
+    const event: GraphEvent = {
+      ...base,
+      category: 'content',
+      type: 'NODE_CONTENT_CHANGED',
       nodeId: 'n1' as NodeId,
       from: '旧ラベル',
       to: '新ラベル',
     };
     const inv = invertEvent(event) as Extract<
       GraphEvent,
-      { type: 'NODE_RELABELED' }
+      { type: 'NODE_CONTENT_CHANGED' }
     >;
-    expect(inv.type).toBe('NODE_RELABELED');
+    expect(inv.type).toBe('NODE_CONTENT_CHANGED');
     expect(inv.from).toBe('新ラベル');
     expect(inv.to).toBe('旧ラベル');
   });
@@ -463,11 +499,11 @@ describe('二重反転対称性: invertEvent(invertEvent(e)).type === e.type', (
       },
     },
     {
-      label: 'NODE_RELABELED',
+      label: 'NODE_CONTENT_CHANGED',
       event: {
         ...base,
         category: 'content',
-        type: 'NODE_RELABELED',
+        type: 'NODE_CONTENT_CHANGED',
         nodeId: 'n1' as NodeId,
         from: 'a',
         to: 'b',

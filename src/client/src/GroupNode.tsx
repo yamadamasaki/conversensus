@@ -52,7 +52,7 @@ export function GroupNode({ id, data, selected }: NodeProps) {
     },
     [id, openNodeTypeMenu],
   );
-  const label = String(data.label ?? '');
+  const content = String(data.content ?? '');
   const diffType = data.diffType as 'add' | 'update' | undefined;
   const ghost = data.ghost === true;
 
@@ -65,13 +65,13 @@ export function GroupNode({ id, data, selected }: NodeProps) {
     startEdit,
     confirm,
     cancel,
-  } = useInlineEdit(label, (value) => {
-    if (value !== label) {
+  } = useInlineEdit(content, (value) => {
+    if (value !== content) {
       dispatch({
         ...makeEventBase('content'),
-        type: 'NODE_RELABELED',
+        type: 'NODE_CONTENT_CHANGED',
         nodeId: id as NodeId,
-        from: label,
+        from: content,
         to: value,
       });
     }
@@ -107,7 +107,7 @@ export function GroupNode({ id, data, selected }: NodeProps) {
           }}
         >
           <span style={{ textDecoration: 'line-through' }}>
-            {label || 'グループ'}
+            {content || 'グループ'}
           </span>
         </div>
         <div style={{ flex: 1 }} />
@@ -196,7 +196,7 @@ export function GroupNode({ id, data, selected }: NodeProps) {
               }}
             />
           ) : (
-            <span>{label || 'グループ'}</span>
+            <span>{content || 'グループ'}</span>
           )}
         </div>
         {/* biome-ignore lint/a11y/noStaticElementInteractions: 本体エリアはダブルクリックで子ノードを追加する */}

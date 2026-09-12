@@ -73,3 +73,12 @@ step1 Phase 4d の受入基準 6 (「適用不能 op が 0 件」) を機械判�
 - **実物との突き合わせ**: `unknown-sheet` を報告したケースについて、`projectFile` の
   実際の出力からもノードが消えていることを確認する。第 2 の実装が本物からずれていないか
   を、判定と実物の両方を走らせて裏取りする。
+
+### node.setLabel も対象不在を数える (Phase 5 P1)
+
+`REQUIRES_TARGET` は「`applyOp` が `if (node)` / `if (edge)` で守っている分岐」の写しである。
+`node.setLabel` はその分岐を持つので、載せないと**落ちた op を数え損なう**。
+
+型が守ってくれない所であることに注意する — `REQUIRES_TARGET` は
+`Partial<Record<Op['kind'], ...>>` なので、**新しい op を足しても抜けは型検査に出ない**。
+テストで見るしかない。

@@ -4,9 +4,11 @@ import type {
   GraphEdge,
   GraphNode,
   NodeId,
+  NodeKindRef,
   NodeLayout,
   SheetId,
 } from '@conversensus/shared';
+import { kindPropertyOf, nodeKindsOf, templatesOf } from '@conversensus/shared';
 import {
   Background,
   type Connection,
@@ -45,6 +47,7 @@ import {
   draggedNodesOf,
   resolveDropTargets,
 } from './graph/dragStop';
+import { canConnectByTemplate, edgeKindFor } from './graph/templateEdge';
 import {
   DEFAULT_EDGE_PATH_TYPE,
   DEFAULT_NODE_STYLE,
@@ -141,6 +144,14 @@ function GraphEditorInner({
   // **props ではなく context で受ける** — 途中の層はこの値に用が無い
   const readOnly = useReadOnly();
   const activeSheet = file.sheets.find((s) => s.id === activeSheetId);
+
+  // このシートに当たっている template。**当たっていなければ空**で、空であることが
+  // 「種別の段を出さない」「接続に制約をかけない」の両方の根拠になる (設計 D1/D3/D5)
+  const templates = useMemo(
+    () => templatesOf(activeSheet?.templateIds),
+    [activeSheet?.templateIds],
+  );
+  const nodeKinds = useMemo(() => nodeKindsOf(templates), [templates]);
 
   const ghostDeletedNodeIds = useMemo(
     () => new Set((deletedNodes ?? []).map((n) => n.id)),
@@ -456,13 +467,53 @@ function GraphEditorInner({
     [dispatch],
   );
 
+  /**
+   * 両端の種別から edge の種類を決める (設計 D5)。**候補 1 のときだけ自動で当てる。**
+   *
+   * 候補 0 は「繋げない」だが、それを止めるのは `isValidConnection` の仕事である
+   * (P6)。ここは既に繋がると決まったものに種類を与えるだけなので、**候補 1 以外は
+   * 何もしない** — 候補が複数のときに選ばせる UI は step2 では作らない (D5)。
+   */
+
+  /**
+   * template の規則に反する接続を**繋がせない** (設計 D5)。React Flow が繋ぐ前に
+   * 訊いてくるので、**警告ではなく拒否**として実現できる。
+   *
+   * 拒否するのは **template の要素どうし**だけである。普通のノードが絡む接続は
+   * 今までどおり自由に繋げる。
+   */
+  const isValidConnection = useCallback(
+    (c: Connection | Edge) =>
+      canConnectByTemplate(
+        templates,
+        getNodes(),
+        c.source as string,
+        c.target as string,
+      ),
+    [templates, getNodes],
+  );
+
   const onConnect: OnConnect = useCallback(
     (connection) => {
       const edgeId = crypto.randomUUID() as EdgeId;
+      const kind = edgeKindFor(
+        templates,
+        getNodes(),
+        connection.source as string,
+        connection.target as string,
+      );
       const graphEdge: GraphEdge = {
         id: edgeId,
         source: connection.source as NodeId,
         target: connection.target as NodeId,
+        // 仕様 OnCreation の `edge.label ← edge の種類名`。node と同じく
+        // **id が実体で label は表示**なので、両方を 1 つの op に載せる
+        ...(kind
+          ? {
+              label: kind.kind.label,
+              properties: { [kindPropertyOf(kind.templateId)]: kind.kind.id },
+            }
+          : {}),
       };
       const edgeLayout: EdgeLayout = {
         edgeId,
@@ -478,7 +529,7 @@ function GraphEditorInner({
         edgeLayout,
       });
     },
-    [dispatch],
+    [dispatch, templates, getNodes],
   );
 
   const addNode = useCallback(
@@ -486,6 +537,8 @@ function GraphEditorInner({
       position?: { x: number; y: number },
       nodeType?: NodeTypeOption,
       properties?: Record<string, unknown>,
+      // 作成時の種別 (Phase 5)。**作成時にしか決まらない** (設計 D3)
+      kind?: NodeKindRef,
       // 生成先のグループ。指定時 position はそのグループから見た相対座標
       parentId?: NodeId,
     ) => {
@@ -497,9 +550,22 @@ function GraphEditorInner({
       const graphNode: GraphNode = {
         id: nodeId,
         content: '',
+        // 仕様 OnCreation の `node.label ← node の種類名` をそのまま写す。
+        // **`kind` (id) が実体で `label` は表示**だが、通知や op-log を読むだけの側が
+        // template を引かずに済むよう label も持つ。変更できないので食い違わない
+        ...(kind ? { label: kind.kind.label } : {}),
         ...(nodeType === 'group' ? { nodeType: GROUP_NODE_TYPE } : {}),
         ...(nodeType === 'image' ? { nodeType: IMAGE_NODE_TYPE } : {}),
-        ...(properties ? { properties } : {}),
+        ...(properties || kind
+          ? {
+              properties: {
+                ...properties,
+                ...(kind
+                  ? { [kindPropertyOf(kind.templateId)]: kind.kind.id }
+                  : {}),
+              },
+            }
+          : {}),
         ...(parentId ? { parentId } : {}),
       };
       const layout: NodeLayout = {
@@ -563,7 +629,7 @@ function GraphEditorInner({
     async (source: Blob, position: { x: number; y: number }) => {
       try {
         const ref = await saveImageBlob(source);
-        addNode(position, 'image', imagePropertiesOf(ref));
+        addNode(position, 'image', imagePropertiesOf(ref), undefined);
       } catch (err) {
         // 握り潰さない (設計 D7)。旧実装は console.error だけだったので、
         // 上限超過は「落としたのに何も起きない」ようにしか見えなかった
@@ -802,6 +868,7 @@ function GraphEditorInner({
               onEdgesChange={handleEdgesChange}
               connectionMode={ConnectionMode.Loose}
               onConnect={onConnect}
+              isValidConnection={isValidConnection}
               onReconnect={onReconnect}
               onNodeDragStart={onNodeDragStart}
               onNodeDrag={onNodeDrag}
@@ -923,11 +990,13 @@ function GraphEditorInner({
             {nodeTypeMenu && (
               <NodeTypeMenu
                 position={nodeTypeMenu.screenPos}
-                onSelect={(nodeType) => {
+                nodeKinds={nodeKinds}
+                onSelect={(nodeType, kind) => {
                   addNode(
                     nodeTypeMenu.position,
                     nodeType,
                     undefined,
+                    kind,
                     nodeTypeMenu.containerId,
                   );
                   clearNodeTypeMenu();

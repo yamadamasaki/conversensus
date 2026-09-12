@@ -46,3 +46,27 @@
 | ghost ノードの `selectable` / `draggable` | `false` のまま (既存の振る舞いの回帰) |
 | 通常ノードの `connectable` | `undefined` のまま — ghost の対策が生存ノードに漏れていない |
 | ghost ノードの id / 位置 | `ghost-` 接頭辞が付き、位置は削除前のまま残る (ghost エッジの端点として要る) |
+
+### 種別 (label) の往復 (Phase 5 P4)
+
+**`graphTransform` が唯一の境界である** (P0 の判断)。ドメインの `GraphNode.label` と
+React Flow の `data.label` を写す所がここしかないので、往復で見る。
+
+**型が守らない。**React Flow の `data` は `Record<string, unknown>` なので、キーの綴り違いは
+`tsc` を通る。P0 の改称 (`data.label` → `data.content`) を捕まえたのも型検査ではなく
+テスト 17 件だった。同じ理由でここもテストで固定する。
+
+- **`label` を `data.label` に写し、無ければ入れない**: `content` を触らないことも併せて見る。
+- **往復して変わらない**: `fromFlowNodes(toFlowNodes(x)) = x`。
+- **空文字の種別も往復する**: 「外した」(空文字) が「無い」(`undefined`) に潰れてはいけない。
+  op-log には `label: ''` が積まれるので、潰すと**外した操作が読み戻せない**。
+
+
+### edge の種別 (properties) の往復 (Phase 5)
+
+edge も node と同じく、種別は `properties` に載る。React Flow へ運ぶのは
+**ラベルの編集を止める根拠**として要るためである — toulmin の edge は種類もラベルも
+変更できない (仕様 OnMutation)。
+
+- **`properties` を `data` に写し、無ければ入れない**: 普通の edge の `data` を汚さない。
+- **往復して変わらない**: `fromFlowEdges(toFlowEdges(x)) = x`。ここも型が守らない境界である。

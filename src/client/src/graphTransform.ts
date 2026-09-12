@@ -48,7 +48,13 @@ export function toFlowNodes(
         y: layout.y ?? 0,
       },
       data: {
-        label: n.content,
+        // **React Flow の data のキーは `content` である** (step2 Phase 5 P0)。
+        // かつて `label` だったが、入っているのは最初から本文だった。Phase 5 で
+        // node に本物の label (template の種別名) が入るので、語を空けてある
+        content: n.content,
+        // **`label` は種別名である** (Phase 5)。P0 で本文を `content` に移し、
+        // ここが空いた。template が当たっていないシートでは undefined のまま
+        ...(n.label !== undefined ? { label: n.label } : {}),
         diffType,
         ...(n.properties ? { properties: n.properties } : {}),
       },
@@ -131,6 +137,9 @@ export function toFlowEdges(
         pathType: layout?.pathType ?? DEFAULT_EDGE_PATH_TYPE,
         labelOffsetX: layout?.labelOffsetX ?? 0,
         labelOffsetY: layout?.labelOffsetY ?? 0,
+        // template の種別 (Phase 5)。**label の編集を止める根拠**になる —
+        // toulmin の edge は種類もラベルも変更できない (仕様 OnMutation)
+        ...(e.properties ? { properties: e.properties } : {}),
         diffType,
       },
     };
@@ -144,7 +153,8 @@ export function fromFlowNodes(nodes: Node[]): {
 } {
   const graphNodes: GraphNode[] = nodes.map((n) => ({
     id: n.id as NodeId,
-    content: String(n.data.label ?? ''),
+    content: String(n.data.content ?? ''),
+    ...(n.data.label !== undefined ? { label: String(n.data.label) } : {}),
     ...(n.type === RF_GROUP_NODE_TYPE ? { nodeType: GROUP_NODE_TYPE } : {}),
     ...(n.type === RF_IMAGE_NODE_TYPE ? { nodeType: IMAGE_NODE_TYPE } : {}),
     ...(n.parentId ? { parentId: n.parentId as NodeId } : {}),
@@ -370,6 +380,9 @@ export function fromFlowEdges(edges: Edge[]): {
     source: e.source as NodeId,
     target: e.target as NodeId,
     label: typeof e.label === 'string' ? e.label : undefined,
+    ...(e.data?.properties
+      ? { properties: e.data.properties as Record<string, unknown> }
+      : {}),
   }));
 
   const edgeLayouts: EdgeLayout[] = edges.map((e) => ({
