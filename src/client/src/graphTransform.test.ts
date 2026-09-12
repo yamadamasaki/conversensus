@@ -97,6 +97,35 @@ describe('種別 (label) の往復 (Phase 5 P4)', () => {
   });
 });
 
+describe('edge の種別 (properties) の往復 (Phase 5)', () => {
+  const KIND = 'jp.co.metabolics.toulmin.kind';
+  const withKind = [
+    {
+      id: 'e1' as EdgeId,
+      source: 'n1' as NodeId,
+      target: 'n2' as NodeId,
+      label: '支える',
+      properties: { [KIND]: 'supports' },
+    },
+    { id: 'e2' as EdgeId, source: 'n1' as NodeId, target: 'n2' as NodeId },
+  ];
+
+  it('toFlowEdges は properties を data に写し、無ければ入れない', () => {
+    const [a, b] = toFlowEdges(withKind);
+    expect(a.data?.properties).toEqual({ [KIND]: 'supports' });
+    expect(b.data).not.toHaveProperty('properties');
+  });
+
+  it('fromFlowEdges で戻す (往復して変わらない)', () => {
+    const { edges } = fromFlowEdges(toFlowEdges(withKind));
+    expect(edges[0]).toMatchObject({
+      label: '支える',
+      properties: { [KIND]: 'supports' },
+    });
+    expect(edges[1]).not.toHaveProperty('properties');
+  });
+});
+
 describe('toFlowAndGhostNodes', () => {
   const deletedNodes: GraphNode[] = [
     { id: 'd1' as NodeId, content: '削除予定' },

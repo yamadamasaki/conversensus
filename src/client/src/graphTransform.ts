@@ -137,6 +137,9 @@ export function toFlowEdges(
         pathType: layout?.pathType ?? DEFAULT_EDGE_PATH_TYPE,
         labelOffsetX: layout?.labelOffsetX ?? 0,
         labelOffsetY: layout?.labelOffsetY ?? 0,
+        // template の種別 (Phase 5)。**label の編集を止める根拠**になる —
+        // toulmin の edge は種類もラベルも変更できない (仕様 OnMutation)
+        ...(e.properties ? { properties: e.properties } : {}),
         diffType,
       },
     };
@@ -377,6 +380,9 @@ export function fromFlowEdges(edges: Edge[]): {
     source: e.source as NodeId,
     target: e.target as NodeId,
     label: typeof e.label === 'string' ? e.label : undefined,
+    ...(e.data?.properties
+      ? { properties: e.data.properties as Record<string, unknown> }
+      : {}),
   }));
 
   const edgeLayouts: EdgeLayout[] = edges.map((e) => ({

@@ -1,6 +1,7 @@
 import type { PropertyName } from '../events/unified';
 import type { TemplateId } from '../schemas';
-import type { EdgeKind, NodeKind, NodeKindId, Template } from './types';
+import type { EdgeKindRef } from './fold';
+import type { NodeKind, NodeKindId, Template } from './types';
 
 /**
  * この template が「どの種別か」を記録するプロパティ名 (設計 D3)。
@@ -20,7 +21,30 @@ import type { EdgeKind, NodeKind, NodeKindId, Template } from './types';
  * これは一般化として正しい — 制約が働くのは 1 つの template の中だからである。
  */
 export function kindPropertyOf(templateId: TemplateId): PropertyName {
-  return `${templateId}.kind`;
+  return `${templateId}${KIND_SUFFIX}`;
+}
+
+/** 種別プロパティの語尾。`kindPropertyOf` が付けるものと必ず揃える */
+const KIND_SUFFIX = '.kind';
+
+/**
+ * その名前が**どれかの template の種別プロパティか**。
+ *
+ * どの template のものかを問わない判定である。「編集させてよいか」のように
+ * **template を特定する必要が無い問い**に使う — 描画側に template を配るより、
+ * 規約をここに 1 つ置く方が漏れない。
+ *
+ * custom (`.` を含まない) が誤ってこれに当たることは無い (`spec/propertyEditor.md`)。
+ */
+export function isKindProperty(name: string): boolean {
+  return name.endsWith(KIND_SUFFIX);
+}
+
+/** その要素がどれかの template の種別を持つか (= template が付けたものか) */
+export function hasTemplateKind(
+  properties: Readonly<Record<string, unknown>> | undefined,
+): boolean {
+  return Object.keys(properties ?? {}).some(isKindProperty);
 }
 
 /**
@@ -62,19 +86,22 @@ export function nodeKindIn(
  * **判定は template ごとに閉じる。**両端が同じ template の種別を持つときだけ、その
  * template の規則が効く。混ぜて引くと、T1 の edge 規則を T2 の node 種別で満たす
  * 混線が起こる。
+ *
+ * 返すのが `EdgeKindRef` (種別 + template) なのは、**種別を書き込むプロパティ名が
+ * template ごとに分かれる**ためである (`kindPropertyOf`)。
  */
 export function edgeKindCandidates(
   templates: readonly Template[],
   fromProperties: Readonly<Record<string, unknown>> | undefined,
   toProperties: Readonly<Record<string, unknown>> | undefined,
-): EdgeKind[] {
+): EdgeKindRef[] {
   return templates.flatMap((t) => {
     const from = kindIdIn(t, fromProperties);
     const to = kindIdIn(t, toProperties);
     if (from === undefined || to === undefined) return [];
-    return t.edgeKinds.filter(
-      (ek) => ek.from.includes(from) && ek.to.includes(to),
-    );
+    return t.edgeKinds
+      .filter((ek) => ek.from.includes(from) && ek.to.includes(to))
+      .map((kind) => ({ templateId: t.id, kind }));
   });
 }
 

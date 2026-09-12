@@ -2,6 +2,8 @@ import { describe, expect, test } from 'bun:test';
 import { SYSTEM_PROPERTY_PREFIX } from '../events/properties';
 import {
   edgeKindCandidates,
+  hasTemplateKind,
+  isKindProperty,
   isTemplateEdge,
   kindIdIn,
   kindPropertyOf,
@@ -89,7 +91,7 @@ describe('edgeKindCandidates', () => {
         [TOULMIN_TEMPLATE],
         asKind('data'),
         asKind('claim'),
-      ).map((k) => k.label),
+      ).map((r) => r.kind.label),
     ).toEqual(['支える']);
   });
 
@@ -127,7 +129,7 @@ describe('edgeKindCandidates', () => {
     const kp = kindPropertyOf(ambiguous.id);
     expect(
       edgeKindCandidates([ambiguous], { [kp]: 'a' }, { [kp]: 'b' }).map(
-        (k) => k.label,
+        (r) => r.kind.label,
       ),
     ).toEqual(['支持', '反対']);
   });
@@ -159,6 +161,30 @@ describe('edgeKindCandidates', () => {
         { [kindPropertyOf(t2.id)]: 'x' },
       ),
     ).toEqual([]);
+  });
+});
+
+describe('isKindProperty / hasTemplateKind', () => {
+  test('種別プロパティを名前だけで見分ける', () => {
+    expect(isKindProperty(kindPropertyOf(TOULMIN_TEMPLATE.id))).toBe(true);
+    expect(isKindProperty('com.example.other.kind')).toBe(true);
+  });
+
+  test('custom は当たらない — `.` を含まない名前は編集者のものである', () => {
+    expect(isKindProperty('kind')).toBe(false);
+    expect(isKindProperty('期限')).toBe(false);
+  });
+
+  test('種別以外の拡張プロパティも当たらない', () => {
+    expect(isKindProperty('com.example.other.weight')).toBe(false);
+  });
+
+  test('hasTemplateKind は template を特定せずに判定する', () => {
+    // 「ラベルを編集させるか」のように template を知る必要が無い問いに使う
+    expect(hasTemplateKind(asKind('claim'))).toBe(true);
+    expect(hasTemplateKind({ 'com.example.unknown.kind': 'x' })).toBe(true);
+    expect(hasTemplateKind({ 期限: '明日' })).toBe(false);
+    expect(hasTemplateKind(undefined)).toBe(false);
   });
 });
 

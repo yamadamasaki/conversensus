@@ -1,4 +1,8 @@
-import type { EdgeId, EdgePathType } from '@conversensus/shared';
+import {
+  type EdgeId,
+  type EdgePathType,
+  hasTemplateKind,
+} from '@conversensus/shared';
 import {
   BaseEdge,
   EdgeLabelRenderer,
@@ -68,6 +72,16 @@ export function EditableLabelEdge({
 
   const offsetX = (data?.labelOffsetX as number | undefined) ?? 0;
   const offsetY = (data?.labelOffsetY as number | undefined) ?? 0;
+
+  /**
+   * template の種別を持つ edge は**ラベルを編集できない** (仕様 OnMutation)。
+   * 種類は両端の node から決まるものであって、人が名前を付けるものではない。
+   *
+   * **どの template かは見ない。**ここで要るのは「編集させるか」だけである。
+   */
+  const fromTemplate = hasTemplateKind(
+    data?.properties as Record<string, unknown> | undefined,
+  );
 
   const {
     editing,
@@ -186,10 +200,14 @@ export function EditableLabelEdge({
         stroke="transparent"
         fill="none"
         style={{ cursor: 'pointer' }}
-        onDoubleClick={(e) => {
-          e.stopPropagation();
-          startEdit();
-        }}
+        onDoubleClick={
+          fromTemplate
+            ? undefined
+            : (e) => {
+                e.stopPropagation();
+                startEdit();
+              }
+        }
       />
       <EdgeLabelRenderer>
         <button
@@ -205,7 +223,7 @@ export function EditableLabelEdge({
           }}
           className="nodrag nopan"
           onDoubleClick={
-            !editing
+            !editing && !fromTemplate
               ? (e) => {
                   if (!isDraggingRef.current) {
                     e.stopPropagation();

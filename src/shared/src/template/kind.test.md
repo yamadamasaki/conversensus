@@ -58,6 +58,18 @@ edge 側の主題は **「繋げない」と「制約の対象外」を取り違
   書き直さずに済むことが確かめられる。
 - **判定は template ごとに閉じる**: 両端が**同じ** template の種別を持つときだけ、その
   template の規則が効く。同じ `NodeKindId` でも template が違えば別物である。
+- **返すのは `EdgeKindRef` (種類 + template)**: 種類を書き込むプロパティ名が template
+  ごとに分かれるので、どの template の種類かを失ってはいけない。
+
+### 種別プロパティの見分け (`isKindProperty` / `hasTemplateKind`)
+
+**どの template のものかを問わない判定**である。「ラベルを編集させてよいか」のように
+template を特定する必要が無い問いに使う — 描画側 (`EditableLabelEdge`) に template を
+配るより、規約をここに 1 つ置く方が漏れない。
+
+- **種別プロパティを名前だけで見分ける / custom は当たらない**: `.` を含まない名前は
+  編集者のものなので、誤って当たることは無い (`spec/propertyEditor.md`)。
+- **種別以外の拡張プロパティも当たらない**: 語尾が `.kind` であることが判定である。
 - **候補 0 と「制約の対象外」は別物**: `edgeKindsBetween` はどちらも空を返すので、
   **`isTemplateEdge` が両者を分ける唯一の手段**である。ここを 1 本のテストで
   並べて示してある。

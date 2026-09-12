@@ -60,3 +60,13 @@ React Flow の `data.label` を写す所がここしかないので、往復で�
 - **往復して変わらない**: `fromFlowNodes(toFlowNodes(x)) = x`。
 - **空文字の種別も往復する**: 「外した」(空文字) が「無い」(`undefined`) に潰れてはいけない。
   op-log には `label: ''` が積まれるので、潰すと**外した操作が読み戻せない**。
+
+
+### edge の種別 (properties) の往復 (Phase 5)
+
+edge も node と同じく、種別は `properties` に載る。React Flow へ運ぶのは
+**ラベルの編集を止める根拠**として要るためである — toulmin の edge は種類もラベルも
+変更できない (仕様 OnMutation)。
+
+- **`properties` を `data` に写し、無ければ入れない**: 普通の edge の `data` を汚さない。
+- **往復して変わらない**: `fromFlowEdges(toFlowEdges(x)) = x`。ここも型が守らない境界である。
