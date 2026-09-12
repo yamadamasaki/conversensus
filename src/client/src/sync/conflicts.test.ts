@@ -224,6 +224,63 @@ describe('labelsOfConflicts', () => {
     expect(labels.get(B)).toBe('');
   });
 
+  test('ラベルがあれば「ラベル: 本文の先頭」にする (Phase 5 P7)', () => {
+    const g = projectBatches([
+      batch('b1', 'a', 1, [
+        {
+          kind: 'node.add',
+          target: A,
+          content: '気温の記録は信頼できない',
+          label: '反論',
+        },
+      ]),
+    ]);
+    expect(labelsOfConflicts(g, [conflictOn(A)]).get(A)).toBe(
+      '反論: 気温の記録は信頼できない',
+    );
+  });
+
+  test('本文が長ければ先頭だけにする — 通知の 1 行に収める', () => {
+    const long = 'あ'.repeat(30);
+    const g = projectBatches([
+      batch('b1', 'a', 1, [
+        { kind: 'node.add', target: A, content: long, label: '主張' },
+      ]),
+    ]);
+    const name = labelsOfConflicts(g, [conflictOn(A)]).get(A) ?? '';
+    expect(name).toBe(`主張: ${'あ'.repeat(20)}…`);
+  });
+
+  test('切っていなければ … を付けない', () => {
+    const g = projectBatches([
+      batch('b1', 'a', 1, [
+        { kind: 'node.add', target: A, content: 'あ'.repeat(20) },
+      ]),
+    ]);
+    expect(labelsOfConflicts(g, [conflictOn(A)]).get(A)).not.toContain('…');
+  });
+
+  test('ラベルが空なら「: 」を出さない', () => {
+    // 空のラベルで区切りだけが浮くと、名前が壊れて見える
+    const g = projectBatches([
+      batch('b1', 'a', 1, [
+        { kind: 'node.add', target: A, content: '本文', label: '' },
+      ]),
+    ]);
+    expect(labelsOfConflicts(g, [conflictOn(A)]).get(A)).toBe('本文');
+  });
+
+  test('edge は label のまま — 種類名そのものが名前である', () => {
+    const g = projectBatches([
+      batch('b1', 'a', 1, [
+        { kind: 'node.add', target: A, content: 'A' },
+        { kind: 'node.add', target: B, content: 'B' },
+        { kind: 'edge.add', target: E, source: A, dest: B, label: '支える' },
+      ]),
+    ]);
+    expect(labelsOfConflicts(g, [conflictOn(E)]).get(E)).toBe('支える');
+  });
+
   test('分岐点に無い対象は入れない', () => {
     const unknown = 'dddddddd-0000-4000-8000-000000000000';
     const labels = labelsOfConflicts(base(), [conflictOn(unknown)]);

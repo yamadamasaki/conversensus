@@ -12,8 +12,27 @@ import type {
 } from '@conversensus/shared';
 import { mergeBranches, projectBatches } from '@conversensus/shared';
 
+/** 名前に載せる本文の長さ。通知の 1 行に収まり、かつ区別がつく程度 */
+const CONTENT_HEAD_LENGTH = 20;
+
+/** 本文の先頭だけを取る。切ったことが分かるように `…` を付ける */
+function headOf(content: string): string {
+  const head = content.slice(0, CONTENT_HEAD_LENGTH);
+  return head.length < content.length ? `${head}…` : head;
+}
+
 /**
- * 競合の対象の**分岐点での名前** (node の content / edge の label)。
+ * 競合の対象の**分岐点での名前**。
+ *
+ * node は **「ラベル + 本文の先頭」** (`反論: 気温の記録は…`)、edge は label である
+ * (Phase 5 P7)。**ラベルだけでは足りない** — ラベルはクラス名の位置づけなので
+ * 「反論」は一つのグラフに複数ある。Phase 5 が通知にもたらすのは**絞り込みであって
+ * 特定ではない** (通知から実物のノードを指すのは step3)。本文だけの現状より狭まる、
+ * というのが効きの正確な大きさである。
+ *
+ * **ここで template を引かない。**node が `label` を**値として持っている**ので
+ * (設計 D3 の「label も併せて持つ」)、op-log を読むだけの側が template を要らない。
+ * これがその判断の主な受益者である。
  *
  * **適用後の projection からは引けない。**削除依存の対象はまさに消された要素なので、
  * 適用後のグラフには居ない。分岐点には必ず在る — 相手がそれを前提にした op を出せた
@@ -35,7 +54,9 @@ export function labelsOfConflicts(
     if (labels.has(target)) continue;
     const node = base.nodes.get(target as NodeId);
     if (node) {
-      labels.set(target, node.content);
+      const head = headOf(node.content);
+      // ラベルが無ければ本文だけ。**空のラベルで `: ` が浮くのを避ける**
+      labels.set(target, node.label ? `${node.label}: ${head}` : head);
       continue;
     }
     const edge = base.edges.get(target as EdgeId);
