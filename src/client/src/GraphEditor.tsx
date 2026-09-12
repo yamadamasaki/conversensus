@@ -4,11 +4,11 @@ import type {
   GraphEdge,
   GraphNode,
   NodeId,
-  NodeKind,
+  NodeKindRef,
   NodeLayout,
   SheetId,
 } from '@conversensus/shared';
-import { KIND_PROPERTY, nodeKindsOf, templatesOf } from '@conversensus/shared';
+import { kindPropertyOf, nodeKindsOf, templatesOf } from '@conversensus/shared';
 import {
   Background,
   type Connection,
@@ -489,7 +489,7 @@ function GraphEditorInner({
       nodeType?: NodeTypeOption,
       properties?: Record<string, unknown>,
       // 作成時の種別 (Phase 5)。**作成時にしか決まらない** (設計 D3)
-      kind?: NodeKind,
+      kind?: NodeKindRef,
       // 生成先のグループ。指定時 position はそのグループから見た相対座標
       parentId?: NodeId,
     ) => {
@@ -504,14 +504,16 @@ function GraphEditorInner({
         // 仕様 OnCreation の `node.label ← node の種類名` をそのまま写す。
         // **`kind` (id) が実体で `label` は表示**だが、通知や op-log を読むだけの側が
         // template を引かずに済むよう label も持つ。変更できないので食い違わない
-        ...(kind ? { label: kind.label } : {}),
+        ...(kind ? { label: kind.kind.label } : {}),
         ...(nodeType === 'group' ? { nodeType: GROUP_NODE_TYPE } : {}),
         ...(nodeType === 'image' ? { nodeType: IMAGE_NODE_TYPE } : {}),
         ...(properties || kind
           ? {
               properties: {
                 ...properties,
-                ...(kind ? { [KIND_PROPERTY]: kind.id } : {}),
+                ...(kind
+                  ? { [kindPropertyOf(kind.templateId)]: kind.kind.id }
+                  : {}),
               },
             }
           : {}),

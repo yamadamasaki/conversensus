@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'bun:test';
+import { OpSchema } from '../events/unified';
 import { TemplateSchema } from './types';
 
 const ok = {
-  id: 't',
+  id: 'com.example.t',
   name: 'T',
   nodeKinds: [
     { id: 'a', label: 'あ' },
@@ -87,10 +88,29 @@ describe('TemplateSchema', () => {
     ).toEqual(['edgeKinds.0.from']);
   });
 
+  test('id が逆順ドメインでなければ落とす — プロパティの名前空間を兼ねるため', () => {
+    // `.` を含まない id から導いたプロパティ名は custom (編集者のもの) に見えてしまう
+    expect(issuePaths({ ...ok, id: 'toulmin' })).toEqual(['id']);
+  });
+
+  test('その規約を課すのは定義側だけ — op-log から読む側は受け入れる', () => {
+    // op-log は追記のみで書き換えられないので、既に書かれた値に対してスキーマを
+    // 厳しくするのは破壊的変更である (実際に `templateIds: ['toulmin']` が
+    // 書かれた後でこれを強制し、ファイルが開けなくなった)
+    expect(
+      OpSchema.safeParse({
+        kind: 'sheet.create',
+        target: crypto.randomUUID(),
+        name: 'S',
+        templateIds: ['toulmin'],
+      }).success,
+    ).toBe(true);
+  });
+
   test('種別を持たない template は受理する (空の語彙は誤りではない)', () => {
     expect(
       TemplateSchema.safeParse({
-        id: 't',
+        id: 'com.example.t',
         name: 'T',
         nodeKinds: [],
         edgeKinds: [],

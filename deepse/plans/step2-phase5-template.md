@@ -125,8 +125,8 @@ label という語が 2 つの意味を持ったまま template を載せると�
 **種別は `nodeType` ではなく `properties` に載せる。**
 
 ```
-node.properties['app.conversensus.kind'] = 'claim'   // toulmin node の印
-node.label                               = '主張'    // OnCreation で種類名が入る
+node.properties['jp.co.metabolics.toulmin.kind'] = 'claim'   // toulmin node の印
+node.label                                       = '主張'    // OnCreation で種類名
 ```
 
 - **`nodeType` (markdown / グループ / 画像) の軸ではない。**toulmin node は見た目としては
@@ -135,12 +135,17 @@ node.label                               = '主張'    // OnCreation で種類�
 - **既存の機構に乗る。**`node.setProperty` は既にあり、merge の対立単位も
   **プロパティ名ごとに割れている** (P1 で `fieldKeyOf` を入れたときに確認した)。
   新しい op も新しい競合規則も要らない
-- **システム接頭辞を付ける。**`.` を含まない名前は編集者のものである
-  (`spec/propertyEditor.md`「名前」)。template が使う名前は編集者のものではない
-- **template ごとに分けず 1 つの `kind` にする。**複数 template は**和**で畳む (§4) ので、
-  template ごとに `kind` を持つと 1 つの node が 2 つの種別を持ててしまう。
-  値は `NodeKindId` で、当たっている template を順に見て最初に一致したものが効く
-  (種別一覧の「先勝ち」と同じ規則)
+- **template は「拡張 (extension)」である。**`spec/propertyEditor.md`「名前」は
+  system (`app.conversensus.*`) / extension (提供者のドメイン逆順) / custom (`.` 無し) の
+  **3 つ**を定める。template は本体のものではないので **system に置いてはいけない** —
+  仕様が拡張のために用意した枠を使う (仕様の例がまさに `jp.co.metabolics.claim` である)
+- **名前空間は `TemplateId` が兼ねる。**`TemplateId` を逆順ドメインにし、
+  プロパティ名を `` `${templateId}.kind` `` で導く。id は既に `sheet.create.templateIds` と
+  して op-log に出ているので、**識別子と名前空間を別々に持つ必要が無い**
+- **したがって種別は template ごとに分かれる。**1 つの node が複数の template の種別を
+  同時に持てるが、これは一般化として正しい — **制約が働くのは 1 つの template の中**で
+  あり、その中では種別は 1 つ (キーが 1 つ) である。副産物として、旧 §7 の未決
+  (2 つの template が同じ `NodeKindId` を使うと曖昧) **も消えた**
 
 **label も併せて持つ。**仕様の `OnCreation` が `node.label ← node の種類名` と**代入**で
 書いているとおりにする。`kind` から都度導出してもよいが、そうすると**通知 (P7) や
@@ -377,6 +382,19 @@ template の中で接続規則を書くときに label で照合すると、表�
   判定が種別 id に変わったので意味論ごと置き換わった。**性質テストが見つけた 2 つの
   誤り (空は単位元でない / `undetermined` を許容と数えない) の教訓は `kind.ts` に
   引き継いである** — 「候補 0」と「制約の対象外」を分けたのがそれである
+### 名前空間を直したときに壊したもの (2026-09-12)
+
+`TemplateId` に逆順ドメインを**強制**したところ、**前日に書いた op-log が parse に失敗し、
+ファイルが開かなくなった** (`templateIds: ["toulmin"]`)。
+
+**op-log は追記のみで書き換えられないので、既にログに載った値に対してスキーマを厳しく
+するのは破壊的変更である。**規約を課すのは**定義側** (`TemplateSchema`) だけにし、
+ログから読む側 (`sheet.create.templateIds`) は受け入れる。知らない id は `templatesOf` が
+黙って落とす (P3 の判断) ので、**「template を当てていないシート」に縮退する**。
+
+P3 で「知らない id は黙って落とす」を選んだ理由は「相手の template を自分が持たない
+場合」だったが、**自分の過去のログにも同じ形で効いた**。
+
 ## 6. Exit
 
 1. **toulmin を当てた sheet を作る**と、ノード作成時にその種別が選べる
@@ -399,13 +417,12 @@ template の中で接続規則を書くときに label で照合すると、表�
   光る、といった仕組みが要る。**step3**
 - **複数候補のときの選択メニューを作っていない** (D5)。step2 では到達しないので判定だけ
   一般の形にしてある。**step3** で UI を足す
-- **`kind` の値が template をまたいで一意でない。**`NodeKindId` は template 内で一意なだけ
-  なので、2 つの template が同じ id を使うと、当たっている順に最初に一致したものが効く
-  (種別一覧の「先勝ち」と同じ)。1 つしか当てない間は起こらない。**step3**
 - **プロパティの定義を食う画面が無い** (事実 D)。Phase 4 の property editor が入るまで、
   `EdgeKind.properties` は宣言されているだけである。**`kind` も property なので、
   property editor が出来たときに「編集させてはいけない property」が初めて問題になる**
-  (今は編集する画面が無いので起きない)
+  (今は編集する画面が無いので起きない)。仕様は extension について
+  「一部は不可視。可視性は拡張システム側で制御する」と言っているので、**template が
+  自分のプロパティの可視性を宣言する**形になるはずである
 - **型チェックは行わない。**仕様が 1 点矛盾している (`template.md` は step2 に置き、
   `propertyEditor.md` は step3 送り) が、**propertyEditor 側を採る** — template の制約の
   仕組み一般が step3 送りである以上、その一部だけを step2 に置く理由が無い。
@@ -413,5 +430,8 @@ template の中で接続規則を書くときに label で照合すると、表�
 - **作成後の適用変更**は step3 (仕様の指定)。**外したときに既存ノードの種別をどう扱うか**を
   そこで決める。器は複数 template を前提に作ってあるので、増やす側は形を変えずに済む
 - ~~**template 側で種別名を変えると、既存ノードが孤児になる**~~ **解消した (2026-09-12)**。
-  node が `properties.kind` に **id** を持つようになったので、種別名を変えても対応は切れない
+  node が **id** を持つようになったので、種別名を変えても対応は切れない
   (label が古いまま残る点は、label が変更不可である以上 step3 の移行の話になる)
+- ~~**`kind` の値が template をまたいで一意でない**~~ **解消した (2026-09-12)**。
+  プロパティ名が `` `${templateId}.kind` `` で分かれるので、同じ `NodeKindId` でも
+  別の template のものは混ざらない

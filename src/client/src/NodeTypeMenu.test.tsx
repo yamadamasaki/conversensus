@@ -43,9 +43,10 @@ describe('NodeTypeMenu', () => {
     expect(onSelect).toHaveBeenCalledWith('group');
   });
 
-  it('種別を選ぶと見た目は markdown に決まり、NodeKind ごと渡す', () => {
+  it('種別を選ぶと見た目は markdown に決まり、NodeKindRef ごと渡す', () => {
     // 種別を持つのは意味のあるノードだけなので、種別の選択で見た目を訊き直さない。
-    // 渡すのは label ではなく NodeKind — **id が実体で label は表示**である (D3)
+    // 渡すのは label ではなく NodeKindRef — id が実体で label は表示であり (D3)、
+    // さらに書き込み先のプロパティ名が template ごとに分かれるので template も要る
     const onSelect = mock(() => {});
     render(
       <NodeTypeMenu position={POS} nodeKinds={KINDS} onSelect={onSelect} />,
@@ -55,7 +56,10 @@ describe('NodeTypeMenu', () => {
 
     expect(onSelect).toHaveBeenCalledWith(
       'markdown',
-      expect.objectContaining({ id: 'rebuttal', label: '反論' }),
+      expect.objectContaining({
+        templateId: 'jp.co.metabolics.toulmin',
+        kind: expect.objectContaining({ id: 'rebuttal', label: '反論' }),
+      }),
     );
   });
 

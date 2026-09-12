@@ -387,14 +387,14 @@ describe('graphEventToOps: file 構造イベント (W3c1)', () => {
       type: 'SHEET_CREATED',
       sheetId,
       name: 'DtR',
-      templateIds: [TemplateIdSchema.parse('toulmin')],
+      templateIds: [TemplateIdSchema.parse('jp.co.metabolics.toulmin')],
     });
     expect(ops).toEqual([
       {
         kind: 'sheet.create',
         target: sheetId,
         name: 'DtR',
-        templateIds: [TemplateIdSchema.parse('toulmin')],
+        templateIds: [TemplateIdSchema.parse('jp.co.metabolics.toulmin')],
       },
     ]);
   });

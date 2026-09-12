@@ -11,7 +11,9 @@ import { type Template, TemplateSchema } from './types';
  * (「プロパティと視覚属性の間の対応付け」)。ここには持ち込まない。
  */
 export const TOULMIN_TEMPLATE: Template = TemplateSchema.parse({
-  id: 'toulmin',
+  // **逆順ドメイン。**id がプロパティの名前空間を兼ねる (`jp.co.metabolics.toulmin.kind`)。
+  // template は拡張なので、提供者のドメインを前置する (`spec/propertyEditor.md`「名前」)
+  id: 'jp.co.metabolics.toulmin',
   name: 'Toulmin model',
   nodeKinds: [
     { id: 'claim', label: '主張', description: '論証が示そうとしている結論' },

@@ -1,88 +1,111 @@
 import { describe, expect, test } from 'bun:test';
 import { SYSTEM_PROPERTY_PREFIX } from '../events/properties';
 import {
-  edgeKindsBetween,
+  edgeKindCandidates,
   isTemplateEdge,
-  KIND_PROPERTY,
-  kindIdOf,
-  nodeKindById,
+  kindIdIn,
+  kindPropertyOf,
+  nodeKindIn,
 } from './kind';
 import { TOULMIN_TEMPLATE } from './toulmin';
-import { type NodeKindId, NodeKindIdSchema, TemplateSchema } from './types';
+import { TemplateSchema } from './types';
 
-const kid = (s: string): NodeKindId => NodeKindIdSchema.parse(s);
-const CLAIM = kid('claim');
-const DATA = kid('data');
-const WARRANT = kid('warrant');
+const KIND = kindPropertyOf(TOULMIN_TEMPLATE.id);
+/** その種別を持つノードの properties */
+const asKind = (id: string) => ({ [KIND]: id });
 
-describe('KIND_PROPERTY', () => {
-  test('システム接頭辞を持つ — 編集者の名前空間を侵さない', () => {
-    expect(KIND_PROPERTY).toBe(`${SYSTEM_PROPERTY_PREFIX}kind`);
-    // `.` を含むことが「編集者のものではない」の判定規則そのものである
-    expect(KIND_PROPERTY).toContain('.');
-  });
-});
-
-describe('kindIdOf', () => {
-  test('property から種別 id を読む', () => {
-    expect(kindIdOf({ [KIND_PROPERTY]: 'claim' })).toBe(CLAIM);
+describe('kindPropertyOf', () => {
+  test('template の id から名前空間ごと導く — 拡張の規約に従う', () => {
+    expect(KIND).toBe('jp.co.metabolics.toulmin.kind');
   });
 
-  test('property が無い / kind が無いなら undefined (= template の要素ではない)', () => {
-    expect(kindIdOf(undefined)).toBeUndefined();
-    expect(kindIdOf({})).toBeUndefined();
-    expect(kindIdOf({ 期限: '明日' })).toBeUndefined();
+  test('system (app.conversensus.*) ではない — template は本体ではなく拡張である', () => {
+    expect(KIND.startsWith(SYSTEM_PROPERTY_PREFIX)).toBe(false);
   });
 
-  test('空文字は種別なしとして読む', () => {
-    expect(kindIdOf({ [KIND_PROPERTY]: '' })).toBeUndefined();
+  test('custom にも見えない — `.` を含むことが判定規則そのものである', () => {
+    expect(KIND).toContain('.');
   });
 
-  test('文字列でない値は種別なしとして読む (他人の書いたログを信用しない)', () => {
-    expect(kindIdOf({ [KIND_PROPERTY]: 42 })).toBeUndefined();
-    expect(kindIdOf({ [KIND_PROPERTY]: null })).toBeUndefined();
-  });
-});
-
-describe('nodeKindById', () => {
-  test('id から種別を引く', () => {
-    expect(nodeKindById([TOULMIN_TEMPLATE], CLAIM)?.label).toBe('主張');
-  });
-
-  test('知らない id / 未指定は undefined', () => {
-    expect(nodeKindById([TOULMIN_TEMPLATE], kid('unknown'))).toBeUndefined();
-    expect(nodeKindById([TOULMIN_TEMPLATE], undefined)).toBeUndefined();
-  });
-
-  test('同じ id を持つ template が 2 つあれば先勝ち (種別一覧と同じ規則)', () => {
+  test('template が違えば別のプロパティになる (同時に持てる)', () => {
     const other = TemplateSchema.parse({
-      id: 'other',
+      id: 'com.example.other',
       name: 'other',
       nodeKinds: [{ id: 'claim', label: '言い分' }],
       edgeKinds: [],
     });
-    expect(nodeKindById([TOULMIN_TEMPLATE, other], CLAIM)?.label).toBe('主張');
-    expect(nodeKindById([other, TOULMIN_TEMPLATE], CLAIM)?.label).toBe(
-      '言い分',
-    );
+    expect(kindPropertyOf(other.id)).not.toBe(KIND);
   });
 });
 
-describe('edgeKindsBetween', () => {
+describe('kindIdIn / nodeKindIn', () => {
+  test('その template の種別 id を読む', () => {
+    expect(String(kindIdIn(TOULMIN_TEMPLATE, asKind('claim')))).toBe('claim');
+    expect(nodeKindIn(TOULMIN_TEMPLATE, asKind('claim'))?.label).toBe('主張');
+  });
+
+  test('プロパティが無ければ undefined (= その template の要素ではない)', () => {
+    expect(kindIdIn(TOULMIN_TEMPLATE, undefined)).toBeUndefined();
+    expect(kindIdIn(TOULMIN_TEMPLATE, {})).toBeUndefined();
+    expect(kindIdIn(TOULMIN_TEMPLATE, { 期限: '明日' })).toBeUndefined();
+  });
+
+  test('別の template のプロパティは読まない', () => {
+    expect(
+      kindIdIn(TOULMIN_TEMPLATE, { 'com.example.other.kind': 'claim' }),
+    ).toBeUndefined();
+  });
+
+  test('その template に無い id は種別なしとして読む', () => {
+    expect(kindIdIn(TOULMIN_TEMPLATE, asKind('unknown'))).toBeUndefined();
+  });
+
+  test('文字列でない値・空文字は種別なし (他人の書いたログを信用しない)', () => {
+    expect(kindIdIn(TOULMIN_TEMPLATE, { [KIND]: '' })).toBeUndefined();
+    expect(kindIdIn(TOULMIN_TEMPLATE, { [KIND]: 42 })).toBeUndefined();
+    expect(kindIdIn(TOULMIN_TEMPLATE, { [KIND]: null })).toBeUndefined();
+  });
+
+  test('1 つの node が複数の template の種別を同時に持てる', () => {
+    const other = TemplateSchema.parse({
+      id: 'com.example.other',
+      name: 'other',
+      nodeKinds: [{ id: 'question', label: '問い' }],
+      edgeKinds: [],
+    });
+    const props = {
+      [KIND]: 'claim',
+      [kindPropertyOf(other.id)]: 'question',
+    };
+    expect(nodeKindIn(TOULMIN_TEMPLATE, props)?.label).toBe('主張');
+    expect(nodeKindIn(other, props)?.label).toBe('問い');
+  });
+});
+
+describe('edgeKindCandidates', () => {
   test('許される組は候補 1 — 自動で決まる', () => {
-    const ks = edgeKindsBetween([TOULMIN_TEMPLATE], DATA, CLAIM);
-    expect(ks.map((k) => k.label)).toEqual(['支える']);
+    expect(
+      edgeKindCandidates(
+        [TOULMIN_TEMPLATE],
+        asKind('data'),
+        asKind('claim'),
+      ).map((k) => k.label),
+    ).toEqual(['支える']);
   });
 
   test('許されない組は候補 0 — 繋げない', () => {
-    expect(edgeKindsBetween([TOULMIN_TEMPLATE], CLAIM, DATA)).toEqual([]);
-    expect(edgeKindsBetween([TOULMIN_TEMPLATE], DATA, WARRANT)).toEqual([]);
+    expect(
+      edgeKindCandidates([TOULMIN_TEMPLATE], asKind('claim'), asKind('data')),
+    ).toEqual([]);
   });
 
   test('toulmin では候補が 2 以上にならない (5x5 のうち 5 組が全て候補 1)', () => {
     const ids = TOULMIN_TEMPLATE.nodeKinds.map((k) => k.id);
     const counts = ids.flatMap((f) =>
-      ids.map((t) => edgeKindsBetween([TOULMIN_TEMPLATE], f, t).length),
+      ids.map(
+        (t) =>
+          edgeKindCandidates([TOULMIN_TEMPLATE], asKind(f), asKind(t)).length,
+      ),
     );
     expect(counts.filter((n) => n === 1)).toHaveLength(5);
     expect(counts.filter((n) => n > 1)).toHaveLength(0);
@@ -90,7 +113,7 @@ describe('edgeKindsBetween', () => {
 
   test('候補が複数になる template では複数返す (step3 の道を塞がない)', () => {
     const ambiguous = TemplateSchema.parse({
-      id: 'ambiguous',
+      id: 'com.example.ambiguous',
       name: 'ambiguous',
       nodeKinds: [
         { id: 'a', label: 'あ' },
@@ -101,47 +124,65 @@ describe('edgeKindsBetween', () => {
         { id: 'e2', label: '反対', from: ['a'], to: ['b'] },
       ],
     });
+    const kp = kindPropertyOf(ambiguous.id);
     expect(
-      edgeKindsBetween([ambiguous], kid('a'), kid('b')).map((k) => k.label),
+      edgeKindCandidates([ambiguous], { [kp]: 'a' }, { [kp]: 'b' }).map(
+        (k) => k.label,
+      ),
     ).toEqual(['支持', '反対']);
   });
 
-  test('端点に種別が無ければ候補は空 (制約の対象外と区別するのは isTemplateEdge)', () => {
-    expect(edgeKindsBetween([TOULMIN_TEMPLATE], undefined, CLAIM)).toEqual([]);
-    expect(edgeKindsBetween([TOULMIN_TEMPLATE], DATA, undefined)).toEqual([]);
+  test('端点に種別が無ければ候補は空', () => {
+    expect(
+      edgeKindCandidates([TOULMIN_TEMPLATE], undefined, asKind('claim')),
+    ).toEqual([]);
   });
 
-  test('解決は template ごと — 和の上で混線させない', () => {
+  test('判定は template ごとに閉じる — 混ぜて引かない', () => {
     const t1 = TemplateSchema.parse({
-      id: 't1',
+      id: 'com.example.t1',
       name: 't1',
-      nodeKinds: [{ id: 'x', label: 'X1' }],
+      nodeKinds: [{ id: 'x', label: 'X' }],
       edgeKinds: [{ id: 'e', label: '繋ぐ', from: ['x'], to: ['x'] }],
     });
     const t2 = TemplateSchema.parse({
-      id: 't2',
+      id: 'com.example.t2',
       name: 't2',
-      nodeKinds: [{ id: 'y', label: 'Y2' }],
+      nodeKinds: [{ id: 'x', label: 'X2' }],
       edgeKinds: [],
     });
-    // x は t1 に、y は t2 にしかない。t1 の規則を t2 の種別で満たしてはならない
-    expect(edgeKindsBetween([t1, t2], kid('x'), kid('y'))).toEqual([]);
+    // from は t1 の x、to は t2 の x。同じ id だが別の template なので規則は効かない
+    expect(
+      edgeKindCandidates(
+        [t1, t2],
+        { [kindPropertyOf(t1.id)]: 'x' },
+        { [kindPropertyOf(t2.id)]: 'x' },
+      ),
+    ).toEqual([]);
   });
 });
 
 describe('isTemplateEdge', () => {
-  test('両端とも種別を持つときだけ template の規則に従う', () => {
-    expect(isTemplateEdge(DATA, CLAIM)).toBe(true);
-    expect(isTemplateEdge(DATA, undefined)).toBe(false);
-    expect(isTemplateEdge(undefined, undefined)).toBe(false);
+  test('両端が同じ template の種別を持つときだけ規則に従う', () => {
+    expect(
+      isTemplateEdge([TOULMIN_TEMPLATE], asKind('data'), asKind('claim')),
+    ).toBe(true);
+    expect(isTemplateEdge([TOULMIN_TEMPLATE], asKind('data'), undefined)).toBe(
+      false,
+    );
+    expect(isTemplateEdge([TOULMIN_TEMPLATE], undefined, undefined)).toBe(
+      false,
+    );
   });
 
   test('候補 0 と「制約の対象外」は別物である', () => {
-    // どちらも edgeKindsBetween は空だが、意味が違う
-    expect(edgeKindsBetween([TOULMIN_TEMPLATE], CLAIM, DATA)).toEqual([]);
-    expect(isTemplateEdge(CLAIM, DATA)).toBe(true); // 繋げない
+    // どちらも edgeKindCandidates は空だが、意味が違う
+    const bad = [asKind('claim'), asKind('data')] as const;
+    expect(edgeKindCandidates([TOULMIN_TEMPLATE], ...bad)).toEqual([]);
+    expect(isTemplateEdge([TOULMIN_TEMPLATE], ...bad)).toBe(true); // 繋げない
 
-    expect(edgeKindsBetween([TOULMIN_TEMPLATE], CLAIM, undefined)).toEqual([]);
-    expect(isTemplateEdge(CLAIM, undefined)).toBe(false); // 自由に繋げる
+    const free = [asKind('claim'), undefined] as const;
+    expect(edgeKindCandidates([TOULMIN_TEMPLATE], ...free)).toEqual([]);
+    expect(isTemplateEdge([TOULMIN_TEMPLATE], ...free)).toBe(false); // 自由
   });
 });

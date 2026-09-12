@@ -853,14 +853,14 @@ describe('sheet.create の templateIds (Phase 5 P3)', () => {
             kind: 'sheet.create',
             target: s,
             name: 'DtR',
-            templateIds: [TemplateIdSchema.parse('toulmin')],
+            templateIds: [TemplateIdSchema.parse('jp.co.metabolics.toulmin')],
           },
         ]),
       ],
       f,
     );
     expect(file.sheets[0]?.templateIds).toEqual([
-      TemplateIdSchema.parse('toulmin'),
+      TemplateIdSchema.parse('jp.co.metabolics.toulmin'),
     ]);
   });
 
@@ -885,7 +885,7 @@ describe('sheet.create の templateIds (Phase 5 P3)', () => {
             kind: 'sheet.create',
             target: s,
             name: 'DtR',
-            templateIds: [TemplateIdSchema.parse('toulmin')],
+            templateIds: [TemplateIdSchema.parse('jp.co.metabolics.toulmin')],
           },
         ]),
         batch(2, [{ kind: 'sheet.setName', target: s, name: '改名' }]),
@@ -894,7 +894,7 @@ describe('sheet.create の templateIds (Phase 5 P3)', () => {
     );
     expect(file.sheets[0]?.name).toBe('改名');
     expect(file.sheets[0]?.templateIds).toEqual([
-      TemplateIdSchema.parse('toulmin'),
+      TemplateIdSchema.parse('jp.co.metabolics.toulmin'),
     ]);
   });
 
@@ -908,7 +908,7 @@ describe('sheet.create の templateIds (Phase 5 P3)', () => {
             kind: 'sheet.create',
             target: s,
             name: 'DtR',
-            templateIds: [TemplateIdSchema.parse('toulmin')],
+            templateIds: [TemplateIdSchema.parse('jp.co.metabolics.toulmin')],
           },
         ]),
         batch(2, [{ kind: 'sheet.remove', target: s }]),

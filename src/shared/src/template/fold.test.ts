@@ -14,7 +14,7 @@ function template(
 
 /** toulmin と語彙が重ならない 2 つ目の template (和を測るための対照) */
 const OTHER = template(
-  'other',
+  'com.example.other',
   [
     { id: 'question', label: '問い' },
     { id: 'answer', label: '答え' },
@@ -24,14 +24,14 @@ const OTHER = template(
 
 describe('nodeKindsOf / edgeKindsOf', () => {
   test('toulmin の 5 種別と 5 つの接続をそのまま返す', () => {
-    expect(nodeKindsOf([TOULMIN_TEMPLATE]).map((k) => k.label)).toEqual([
+    expect(nodeKindsOf([TOULMIN_TEMPLATE]).map((r) => r.kind.label)).toEqual([
       '主張',
       'データ',
       '論拠',
       '反論',
       '裏付け',
     ]);
-    expect(edgeKindsOf([TOULMIN_TEMPLATE]).map((k) => k.label)).toEqual([
+    expect(edgeKindsOf([TOULMIN_TEMPLATE]).map((r) => r.kind.label)).toEqual([
       '支える',
       '正当化する',
       '強化する',
@@ -46,16 +46,18 @@ describe('nodeKindsOf / edgeKindsOf', () => {
   });
 
   test('複数 template は和になる — 狭めない', () => {
-    const labels = nodeKindsOf([TOULMIN_TEMPLATE, OTHER]).map((k) => k.label);
+    const labels = nodeKindsOf([TOULMIN_TEMPLATE, OTHER]).map(
+      (r) => r.kind.label,
+    );
     expect(labels).toContain('主張');
     expect(labels).toContain('問い');
     expect(labels).toHaveLength(7);
   });
 
   test('同じ id は先に来た方を残す (並びを安定させる)', () => {
-    const a = template('a', [{ id: 'x', label: 'A の X' }], []);
-    const b = template('b', [{ id: 'x', label: 'B の X' }], []);
-    expect(nodeKindsOf([a, b]).map((k) => k.label)).toEqual(['A の X']);
-    expect(nodeKindsOf([b, a]).map((k) => k.label)).toEqual(['B の X']);
+    const a = template('com.example.a', [{ id: 'x', label: 'A の X' }], []);
+    const b = template('com.example.b', [{ id: 'x', label: 'B の X' }], []);
+    expect(nodeKindsOf([a, b]).map((r) => r.kind.label)).toEqual(['A の X']);
+    expect(nodeKindsOf([b, a]).map((r) => r.kind.label)).toEqual(['B の X']);
   });
 });

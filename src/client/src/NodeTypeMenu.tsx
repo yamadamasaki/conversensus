@@ -1,4 +1,4 @@
-import type { NodeKind } from '@conversensus/shared';
+import type { NodeKindRef } from '@conversensus/shared';
 import { DIALOG_Z_INDEX } from './ConfirmDialog';
 
 export type NodeTypeOption = 'markdown' | 'group' | 'image';
@@ -9,12 +9,13 @@ type Props = {
    * このシートで選べる node の種別。**空なら段そのものを出さない** (設計 D3)。
    * template が当たっていない普通のグラフに、意味の種別を出してはいけない
    */
-  nodeKinds: NodeKind[];
+  nodeKinds: NodeKindRef[];
   /**
-   * 種別を選んだときは `NodeKind` をそのまま渡す — **id が実体で label は表示**である
-   * (設計 D3)。label だけ渡すと、呼び出し側が id を引き直すことになる
+   * 種別を選んだときは `NodeKindRef` をそのまま渡す — **id が実体で label は表示**で
+   * あり (設計 D3)、さらに**どの template の種別か**が要る。書き込み先のプロパティ名は
+   * template ごとに分かれるためである (`kindPropertyOf`)
    */
-  onSelect: (nodeType: NodeTypeOption, kind?: NodeKind) => void;
+  onSelect: (nodeType: NodeTypeOption, kind?: NodeKindRef) => void;
 };
 
 const HEADING: React.CSSProperties = {
@@ -91,15 +92,15 @@ export function NodeTypeMenu({ position, nodeKinds, onSelect }: Props) {
       {nodeKinds.length > 0 && (
         <>
           <div style={{ ...HEADING, marginTop: 4 }}>ノードの種別</div>
-          {nodeKinds.map((kind) => (
+          {nodeKinds.map((ref) => (
             <button
-              key={kind.id}
+              key={`${ref.templateId}/${ref.kind.id}`}
               type="button"
-              title={kind.description}
-              onClick={() => onSelect('markdown', kind)}
+              title={ref.kind.description}
+              onClick={() => onSelect('markdown', ref)}
               style={ITEM}
             >
-              {kind.label}
+              {ref.kind.label}
             </button>
           ))}
         </>

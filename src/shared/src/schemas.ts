@@ -10,12 +10,23 @@ export const SheetIdSchema = z.string().uuid().brand<'SheetId'>();
 export const FileIdSchema = z.string().uuid().brand<'FileId'>();
 
 /**
- * template の識別子。**UUID ではない。**
+ * template の識別子。**UUID ではなく逆順ドメインである。**
  *
  * 他の id は実行時に作られる**個体**の識別子だが、template は**コードに書かれた定義**の
- * 識別子である (`'toulmin'`)。op-log と template のソースの両方に生で現れるので、
- * 読める文字列であることに意味がある (`PropertyName` が branded UUID でないのと同じ)。
- * 混同を防ぐ目的 (規約 2 の趣旨) は brand が果たすので、brand だけ掛けて UUID は課さない。
+ * 識別子である。op-log と template のソースの両方に生で現れるので、読める文字列である
+ * ことに意味がある (`PropertyName` が branded UUID でないのと同じ)。
+ *
+ * **識別子と名前空間を兼ねる。**template は `spec/propertyEditor.md` の言う**拡張
+ * (extension)** であり、拡張のプロパティは「提供者のドメイン (逆順)」を前置する。
+ * template が使うプロパティ名を id から導く (`kindPropertyOf`) ので、
+ * **id が逆順ドメインであること自体がプロパティの名前空間になる**。副産物として、
+ * 2 つの template が同じ `NodeKindId` を使っても曖昧にならない。
+ *
+ * **ここでは逆順ドメインを強制しない。**op-log は追記のみで書き換えられないので、
+ * **既にログに載った値に対してスキーマを厳しくするのは破壊的変更**である
+ * (`sheet.create.templateIds` は既に書かれている)。規約を課すのは**定義側**
+ * (`TemplateSchema`) だけにし、ログから読む側は受け入れる — 知らない id は
+ * `templatesOf` が黙って落とすので、「template を当てていないシート」に縮退する。
  *
  * **ここに置いてあるのは循環を切るため**でもある。`sheet.create` (`events/unified`) が
  * これを要り、`template/types` は `PropertyName` (同じく `events/unified`) を要る。

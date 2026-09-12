@@ -1,3 +1,4 @@
+import type { TemplateId } from '../schemas';
 import type { EdgeKind, NodeKind, Template } from './types';
 
 /**
@@ -11,24 +12,49 @@ import type { EdgeKind, NodeKind, Template } from './types';
  * template は語彙を**足す**ものであって、狭めるものではない。
  */
 
-/** id で重複を除いた和。**先に来た template の定義を残す** (メニューの並びを安定させる) */
-function unionById<T extends { id: string }>(kinds: readonly T[]): T[] {
+/**
+ * 種別 id で重複を除いた和。**先に来た template の定義を残す** (メニューの並びを安定させる)。
+ *
+ * 別々の template が同じ id を使うと片方が消えるが、**メニューは表示の話**なので
+ * それでよい。書き込み先のプロパティは template ごとに分かれているので、
+ * **実体としては衝突しない** (`kindPropertyOf`)。
+ */
+function unionByKindId<T extends { kind: { id: string } }>(
+  refs: readonly T[],
+): T[] {
   const seen = new Set<string>();
   const out: T[] = [];
-  for (const k of kinds) {
-    if (seen.has(k.id)) continue;
-    seen.add(k.id);
-    out.push(k);
+  for (const r of refs) {
+    if (seen.has(r.kind.id)) continue;
+    seen.add(r.kind.id);
+    out.push(r);
   }
   return out;
 }
 
+/**
+ * 種別と、**それを定義した template**。
+ *
+ * 種別だけでは足りない — 種別を書き込むプロパティ名は template ごとに分かれる
+ * (`kindPropertyOf`) ので、**選んだ種別がどの template のものかを失ってはいけない**。
+ */
+export type NodeKindRef = { templateId: TemplateId; kind: NodeKind };
+export type EdgeKindRef = { templateId: TemplateId; kind: EdgeKind };
+
 /** 選べる node の種別。適用された template の `nodeKinds` の和 */
-export function nodeKindsOf(templates: readonly Template[]): NodeKind[] {
-  return unionById(templates.flatMap((t) => t.nodeKinds));
+export function nodeKindsOf(templates: readonly Template[]): NodeKindRef[] {
+  return unionByKindId(
+    templates.flatMap((t) =>
+      t.nodeKinds.map((kind) => ({ templateId: t.id, kind })),
+    ),
+  );
 }
 
 /** 選べる edge の種別。適用された template の `edgeKinds` の和 */
-export function edgeKindsOf(templates: readonly Template[]): EdgeKind[] {
-  return unionById(templates.flatMap((t) => t.edgeKinds));
+export function edgeKindsOf(templates: readonly Template[]): EdgeKindRef[] {
+  return unionByKindId(
+    templates.flatMap((t) =>
+      t.edgeKinds.map((kind) => ({ templateId: t.id, kind })),
+    ),
+  );
 }

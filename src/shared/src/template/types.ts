@@ -62,6 +62,18 @@ export const TemplateSchema = z
    * この検査がそのまま入力の検証になる。
    */
   .superRefine((t, ctx) => {
+    // **逆順ドメインを要求するのは定義側だけである。**プロパティ名を id から導く
+    // (`kindPropertyOf`) ので、`.` を含まないと導いた名前が custom (編集者のもの) に
+    // 見えてしまう。op-log 側で強制しないのは、既に書かれた値を壊せないためである
+    if (!t.id.includes('.')) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['id'],
+        message:
+          'template の id は逆順ドメインでなければならない (プロパティの名前空間を兼ねるため)',
+      });
+    }
+
     for (const [path, ids] of [
       ['nodeKinds', t.nodeKinds.map((k) => k.id)],
       ['edgeKinds', t.edgeKinds.map((k) => k.id)],
