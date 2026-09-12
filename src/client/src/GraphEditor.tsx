@@ -4,10 +4,11 @@ import type {
   GraphEdge,
   GraphNode,
   NodeId,
+  NodeKind,
   NodeLayout,
   SheetId,
 } from '@conversensus/shared';
-import { nodeKindsOf, templatesOf } from '@conversensus/shared';
+import { KIND_PROPERTY, nodeKindsOf, templatesOf } from '@conversensus/shared';
 import {
   Background,
   type Connection,
@@ -67,7 +68,6 @@ import { useClipboard } from './hooks/useClipboard';
 import { useEdgeContextMenu } from './hooks/useEdgeContextMenu';
 import { type UndoState, useEventStore } from './hooks/useEventStore';
 import { useGroupNodes } from './hooks/useGroupNodes';
-import { useNodeKindMenu } from './hooks/useNodeKindMenu';
 import { useNodeTypeMenu } from './hooks/useNodeTypeMenu';
 import { ImageNode } from './ImageNode';
 import {
@@ -83,7 +83,6 @@ import { pasteImage as routeImagePaste } from './images/pasteImage';
 import { pickImagePasteTarget } from './images/pasteTarget';
 import { replaceNodeImage } from './images/replaceNodeImage';
 import { NodeCreationContext } from './NodeCreationContext';
-import { NodeKindMenu } from './NodeKindMenu';
 import type { NodeTypeOption } from './NodeTypeMenu';
 import { NodeTypeMenu } from './NodeTypeMenu';
 import { useReadOnly } from './readOnlyContext';
@@ -489,8 +488,8 @@ function GraphEditorInner({
       position?: { x: number; y: number },
       nodeType?: NodeTypeOption,
       properties?: Record<string, unknown>,
-      // 作成時の種別 (Phase 5 P4)。node.add に載るので undo は 1 段のまま
-      label?: string,
+      // 作成時の種別 (Phase 5)。**作成時にしか決まらない** (設計 D3)
+      kind?: NodeKind,
       // 生成先のグループ。指定時 position はそのグループから見た相対座標
       parentId?: NodeId,
     ) => {
@@ -502,10 +501,20 @@ function GraphEditorInner({
       const graphNode: GraphNode = {
         id: nodeId,
         content: '',
-        ...(label ? { label } : {}),
+        // 仕様 OnCreation の `node.label ← node の種類名` をそのまま写す。
+        // **`kind` (id) が実体で `label` は表示**だが、通知や op-log を読むだけの側が
+        // template を引かずに済むよう label も持つ。変更できないので食い違わない
+        ...(kind ? { label: kind.label } : {}),
         ...(nodeType === 'group' ? { nodeType: GROUP_NODE_TYPE } : {}),
         ...(nodeType === 'image' ? { nodeType: IMAGE_NODE_TYPE } : {}),
-        ...(properties ? { properties } : {}),
+        ...(properties || kind
+          ? {
+              properties: {
+                ...properties,
+                ...(kind ? { [KIND_PROPERTY]: kind.id } : {}),
+              },
+            }
+          : {}),
         ...(parentId ? { parentId } : {}),
       };
       const layout: NodeLayout = {
@@ -751,11 +760,6 @@ function GraphEditorInner({
     () => nodeKindsOf(templatesOf(activeSheet?.templateIds)),
     [activeSheet?.templateIds],
   );
-  const { nodeKindMenu, onNodeContextMenu, setNodeKind } = useNodeKindMenu(
-    getNodes,
-    nodeKinds,
-    dispatch,
-  );
 
   // --- PNG export ---
   const handleExportPng = useCallback(() => {
@@ -831,7 +835,6 @@ function GraphEditorInner({
               edgesReconnectable={!readOnly}
               onPaneClick={onPaneClick}
               onEdgeContextMenu={onEdgeContextMenu}
-              onNodeContextMenu={onNodeContextMenu}
               zoomOnDoubleClick={false}
               deleteKeyCode={null}
               fitView
@@ -943,20 +946,17 @@ function GraphEditorInner({
               <NodeTypeMenu
                 position={nodeTypeMenu.screenPos}
                 nodeKinds={nodeKinds}
-                onSelect={(nodeType, label) => {
+                onSelect={(nodeType, kind) => {
                   addNode(
                     nodeTypeMenu.position,
                     nodeType,
                     undefined,
-                    label,
+                    kind,
                     nodeTypeMenu.containerId,
                   );
                   clearNodeTypeMenu();
                 }}
               />
-            )}
-            {nodeKindMenu && (
-              <NodeKindMenu menu={nodeKindMenu} onSelect={setNodeKind} />
             )}
             {contextMenu && (
               <EdgeContextMenu

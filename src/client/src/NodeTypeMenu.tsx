@@ -10,7 +10,11 @@ type Props = {
    * template が当たっていない普通のグラフに、意味の種別を出してはいけない
    */
   nodeKinds: NodeKind[];
-  onSelect: (nodeType: NodeTypeOption, label?: string) => void;
+  /**
+   * 種別を選んだときは `NodeKind` をそのまま渡す — **id が実体で label は表示**である
+   * (設計 D3)。label だけ渡すと、呼び出し側が id を引き直すことになる
+   */
+  onSelect: (nodeType: NodeTypeOption, kind?: NodeKind) => void;
 };
 
 const HEADING: React.CSSProperties = {
@@ -50,6 +54,9 @@ const APPEARANCES: [NodeTypeOption, string][] = [
  * 見た目は必ず決まるが種別は決まらなくてよいので、**上段は即座に作り、
  * 下段は上段の選択を伴う**という非対称な形にはしない — 下段を選ぶときも
  * 見た目は markdown で確定する (種別を持つのは意味のあるノードだけである)。
+ *
+ * **ここが種別を決める唯一の場所である** (設計 D3, 2026-09-12)。toulmin node の
+ * 種別とラベルは作成時に決まり、その後変更できない。
  */
 export function NodeTypeMenu({ position, nodeKinds, onSelect }: Props) {
   return (
@@ -89,7 +96,7 @@ export function NodeTypeMenu({ position, nodeKinds, onSelect }: Props) {
               key={kind.id}
               type="button"
               title={kind.description}
-              onClick={() => onSelect('markdown', kind.label)}
+              onClick={() => onSelect('markdown', kind)}
               style={ITEM}
             >
               {kind.label}

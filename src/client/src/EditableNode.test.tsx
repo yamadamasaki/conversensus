@@ -125,6 +125,35 @@ describe('EditableNode', () => {
     expect(screen.getByRole('textbox')).toBeDefined(); // まだ編集中
   });
 
+  describe('種別名 (Phase 5)', () => {
+    const withKind = (kind?: string): TestNodeProps => ({
+      ...makeProps('本文'),
+      data: { content: '本文', ...(kind ? { label: kind } : {}) },
+    });
+
+    it('種別があれば本文と並べて出す', () => {
+      render(<EditableNode {...withKind('主張')} />);
+
+      expect(screen.getByText('主張')).toBeDefined();
+      expect(screen.getByText('本文')).toBeDefined();
+    });
+
+    it('種別が無ければ何も出さない (普通のグラフを侵さない)', () => {
+      const { container } = render(<EditableNode {...withKind()} />);
+
+      expect(container.querySelector('[data-node-label]')).toBeNull();
+    });
+
+    it('種別に編集の口を出さない — 作成時に決まり変更できない (D3)', () => {
+      const { container } = render(<EditableNode {...withKind('主張')} />);
+      const chip = container.querySelector('[data-node-label]');
+
+      // ボタンでも input でもない = 押しても編集に入らない
+      expect(chip?.tagName.toLowerCase()).toBe('div');
+      expect(chip?.querySelector('button, input, textarea')).toBeNull();
+    });
+  });
+
   describe('ghost (削除予定表示)', () => {
     const makeGhostProps = (label = '削除予定'): TestNodeProps => ({
       ...makeProps(label),

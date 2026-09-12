@@ -50,6 +50,12 @@ export function EditableNode({ id, data, selected }: NodeProps) {
   );
 
   const content = String(data.content ?? '');
+  /**
+   * 種別名 (Phase 5)。**本文 (`content`) とは別物**である — `content` は markdown の
+   * 本文で、`label` は template が与える「主張」「反論」などの種別名。
+   * template が当たっていないシートでは空なので、その場合は何も描かない
+   */
+  const label = String(data.label ?? '');
   const diffType = data.diffType as 'add' | 'update' | undefined;
   const ghost = data.ghost === true;
 
@@ -163,6 +169,23 @@ export function EditableNode({ id, data, selected }: NodeProps) {
         }}
         onDoubleClick={!editing ? startEdit : undefined}
       >
+        {/* 種別名。**作成時に決まり変更できない** (設計 D3) ので編集の口は出さない */}
+        {label && (
+          <div
+            data-node-label
+            style={{
+              fontSize: 10,
+              color: '#4f6ef7',
+              background: '#eef2ff',
+              borderRadius: 3,
+              padding: '1px 5px',
+              marginBottom: 4,
+              display: 'inline-block',
+            }}
+          >
+            {label}
+          </div>
+        )}
         {editing ? (
           <textarea
             // biome-ignore lint/a11y/noAutofocus: ノード編集開始時に即座に入力できるよう autoFocus が必要
