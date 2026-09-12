@@ -43,6 +43,26 @@ step 3 以降は, JSON, Node, Edge, File, Sheet, RDF schema などを追加す�
 
 システムによるチェックは少なくとも step 2 では行わない (→ step 3).
 
+### 実際に使われている extension
+
+step 2 で唯一の extension は [template](./template.md) である. **template は本体のもの
+(system) ではなく拡張なので, system の枠 (`app.conversensus.*`) には置かない.**
+
+| キー | 意味 |
+| --- | --- |
+| `jp.co.metabolics.toulmin.kind` | その node / edge が toulmin template のどの種類か |
+
+名前空間は **template の識別子がそのまま兼ねている** (`jp.co.metabolics.toulmin` から
+`` `${templateId}.kind` `` で導く). template ごとに分かれるので, 一つの node が複数の
+template の種類を同時に持てる — 制約が働くのは一つの template の中だからである.
+
+**この property は編集させてはいけない.** toulmin node / edge の種類は作成時に決まり
+変更できない ([template](./template.md) の OnMutation). ただし step 2 の property editor は
+まだ無いので, 「編集させてはいけない property をどう表すか」が問題になるのは
+property editor を作るとき (Phase 4) である. 仕様が extension について
+「一部は不可視. 可視性は拡張システム側で制御する」と言っているとおり,
+**template が自分のプロパティの可視性を宣言する**形になるはずである.
+
 ## 既存のプロパティ
 
 現時点で実際に使われているプロパティは, すべて画像に関するものである.

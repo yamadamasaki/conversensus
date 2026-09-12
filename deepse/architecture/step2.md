@@ -404,10 +404,12 @@ DtR graph が 2 つのグラフから成ることも、この見方と整合す�
   trunk の上に競合を重ねて表示する
 
 resolve graph は node label に依存すると
-[dialogueToResolveGraph](../requirements/spec/dialogueToResolveGraph.md) は書いているが、
-**これは順序の根拠としては弱い** — resolve graph が扱う競合は 7 種で、node label はその 1 つに
-すぎない。node label が無いと欠けるのは仕様の一項目であって、resolve graph 自体は成立する。
-順序の根拠は上の dialogue graph 側にある。
+[dialogueToResolveGraph](../requirements/spec/dialogueToResolveGraph.md) は書いていたが、
+**これは順序の根拠としては弱かった** — resolve graph が扱う競合は 7 種で、node label はその
+1 つにすぎない。node label が無くて欠けるのは仕様の一項目であって、resolve graph 自体は
+成立する。順序の根拠は上の dialogue graph 側にある。
+
+**node label は Phase 5 で入ったので、この依存は解消済みである。**
 
 ### 「全員が承認したか」は記録された集合への判定である
 

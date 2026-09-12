@@ -43,7 +43,7 @@ merge 先となる現時点での trunk の上に, trunk と merge 対象であ�
 - node の 内容
 - node の property
 
-なお, 現時点で node は label を持たない. node の label は [template](./template.md) で追加されるものなので, resolve graph の実装は template の label 追加に依存する.
+なお, node の label は [template](./template.md) で追加された (step 2 Phase 5). かつてこの依存は resolve graph の実装を待たせるものだったが, 現在は解消している.
 
 conversensus 側で解決したが, ユーザの意図に合わない可能性があるもの.
 

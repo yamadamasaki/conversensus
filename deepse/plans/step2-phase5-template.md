@@ -1,6 +1,7 @@
 # step2 Phase 5: template (toulmin) + node label
 
-仕様: [template](../requirements/spec/template.md) /
+仕様: [template](../requirements/spec/template.md)
+(意味論は同ファイルの「template semantics」節。2026-09-12 に Notion から取り込まれた) /
 関連: [propertyEditor](../requirements/spec/propertyEditor.md), [merging](../requirements/spec/merging.md)
 
 ## 1. なぜ Phase 3 T7 より先に来たか
@@ -58,7 +59,7 @@ T4 の競合通知と T8 の上書きの報告は、どちらも「**どれの�
 
 ## 3. 決めたこと
 
-> **2026-09-12: 仕様 `spec/template semantics` が意味論を確定させ、D3 と D5 が
+> **2026-09-12: 仕様が意味論を確定させ、D3 と D5 が
 > 置き換わった。**要点は 2 つ。
 >
 > 1. **toulmin node と「その他の node」を最初から分ける。**toulmin node の種別と
@@ -115,7 +116,8 @@ label という語が 2 つの意味を持ったまま template を載せると�
 
 ### D3. 種別は property に載せ、作成時に決まり変更できない
 
-> **2026-09-12 に `spec/template semantics` で全面的に置き換わった。**当初は
+> **2026-09-12 に仕様 ([template](../requirements/spec/template.md) の
+> 「template semantics」節) で全面的に置き換わった。**当初は
 > 「作成時に選び、**後からも変えられる**」としていたが、仕様は **OnMutation で
 > label を変更できない**と定めた。旧案の論拠 (「空のまま存在するノードに種別を
 > 与える道が無ければ既存のノードを持ち込めない」) は、仕様が **toulmin node と
@@ -473,6 +475,21 @@ P3 で「知らない id は黙って落とす」を選んだ理由は「相手�
 
 ## 7. 未決
 
+- **⚠️ toulmin edge の繋ぎ替えに制約をかけていない** (2026-09-13、仕様の取り込みで発見)。
+  仕様は **「edge の種類が変わらない範囲でのみ接続を変更できる」** と定めた
+  (データA → 主張A を データA → 主張B にするのは可、論拠A → 主張A にするのは不可)。
+  **実装はこれを見ていない** — 繋ぎ替え先が有効な組でありさえすれば通るので、
+  データ → 主張 (`支える`) を 論拠 → 主張 に繋ぎ替えると**ラベルが `支える` のまま残る**。
+  - `isValidConnection` は繋ぎ替えの経路でも呼ばれる (React Flow の `onPointerDown` が
+    `edgeUpdaterType` と同じ経路を通る) ので、**「toulmin node 以外へは変えられない」は
+    既に効いている**。足りないのは「**元の種類と同じ組か**」の判定である
+  - `isValidConnection` の引数は `Connection` だけで、**どの edge を繋ぎ替え中かが分からない**。
+    `onReconnectStart(event, edge, handleType)` で対象の edge を ref に控え、
+    `isValidConnection` がそれを見る形にすれば、ドラッグ中に正しく弾ける
+  - **これは仕様の矛盾ではなく実装の抜けである。**当初は仕様の 2 つの規則が矛盾すると
+    読んだが、**矛盾するのは種類が変わる繋ぎ替えだけ**で、種類を保つ繋ぎ替え
+    (支える先の主張を付け替える) は普通に起こる編集である。規則をそこに絞れば
+    label の不変性に例外を作らずに済む
 - **⚠️ 通知から実物のノードを指せない。**label はクラス名なので「反論」は複数あり、
   **絞り込みはできても特定はできない** (§1)。参照を popover するとグラフ中の対応ノードが
   光る、といった仕組みが要る。**step3**
