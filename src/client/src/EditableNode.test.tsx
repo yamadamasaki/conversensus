@@ -125,32 +125,108 @@ describe('EditableNode', () => {
     expect(screen.getByRole('textbox')).toBeDefined(); // まだ編集中
   });
 
-  describe('種別名 (Phase 5)', () => {
-    const withKind = (kind?: string): TestNodeProps => ({
+  describe('ラベル (Phase 5)', () => {
+    const KIND = 'jp.co.metabolics.toulmin.kind';
+    /** template の種別を持つ node (ラベルは変更できない) */
+    const templateNode = (label: string): TestNodeProps => ({
       ...makeProps('本文'),
-      data: { content: '本文', ...(kind ? { label: kind } : {}) },
+      data: { content: '本文', label, properties: { [KIND]: 'claim' } },
+    });
+    /** その他の node (ラベルは自由) */
+    const withKind = (label?: string, selected = false): TestNodeProps => ({
+      ...makeProps('本文'),
+      selected,
+      data: { content: '本文', ...(label ? { label } : {}) },
     });
 
-    it('種別があれば本文と並べて出す', () => {
-      render(<EditableNode {...withKind('主張')} />);
+    it('ラベルがあれば本文と並べて出す', () => {
+      render(<EditableNode {...templateNode('主張')} />);
 
       expect(screen.getByText('主張')).toBeDefined();
       expect(screen.getByText('本文')).toBeDefined();
     });
 
-    it('種別が無ければ何も出さない (普通のグラフを侵さない)', () => {
+    it('ラベルが無く選択もされていなければ何も出さない', () => {
+      // 常に出すと、ラベルを使わない普通のグラフが賑やかになる
       const { container } = render(<EditableNode {...withKind()} />);
 
       expect(container.querySelector('[data-node-label]')).toBeNull();
     });
 
-    it('種別に編集の口を出さない — 作成時に決まり変更できない (D3)', () => {
-      const { container } = render(<EditableNode {...withKind('主張')} />);
+    it('template の種別は編集の口を出さない — 変更できない (仕様 OnMutation)', () => {
+      const { container } = render(<EditableNode {...templateNode('主張')} />);
       const chip = container.querySelector('[data-node-label]');
 
-      // ボタンでも input でもない = 押しても編集に入らない
+      // **button ではなく div。**押せそうに見えて押せない要素にしない
       expect(chip?.tagName.toLowerCase()).toBe('div');
-      expect(chip?.querySelector('button, input, textarea')).toBeNull();
+      expect(chip?.getAttribute('data-editable')).toBeNull();
+    });
+
+    it('その他の node のラベルは編集できる — 仕様が「自由に付け、変更できる」と言う', () => {
+      const { container } = render(<EditableNode {...withKind('私見')} />);
+      const chip = container.querySelector('[data-node-label]');
+
+      expect(chip?.tagName.toLowerCase()).toBe('button');
+      expect(chip?.getAttribute('data-editable')).toBe('true');
+    });
+
+    it('ラベルを持たない node には、選択中だけ付ける口を出す', () => {
+      const { container } = render(
+        <EditableNode {...withKind(undefined, true)} />,
+      );
+      const chip = container.querySelector('[data-node-label]');
+
+      expect(chip?.textContent).toBe('ラベル');
+      expect(chip?.tagName.toLowerCase()).toBe('button');
+    });
+
+    it('template の種別を持つ node では、選択中でも付ける口を出さない', () => {
+      // 既に種別があり、しかも変更できないので、足す口があってはいけない
+      const props = {
+        ...templateNode('主張'),
+        selected: true,
+      } as TestNodeProps;
+      const { container } = render(<EditableNode {...props} />);
+
+      expect(container.querySelector('[data-editable]')).toBeNull();
+    });
+
+    it('クリック 1 回で編集に入り、確定すると NODE_LABEL_CHANGED を出す', () => {
+      const { container } = render(<EditableNode {...withKind('私見')} />);
+      const chip = container.querySelector('[data-node-label]');
+      if (!chip) throw new Error('ラベルが無い');
+
+      fireEvent.click(chip);
+      const input = container.querySelector('[data-node-label-input]');
+      if (!input) throw new Error('編集に入っていない');
+
+      fireEvent.change(input, { target: { value: '反対意見' } });
+      fireEvent.blur(input);
+
+      expect(mockDispatch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'NODE_LABEL_CHANGED',
+          from: '私見',
+          to: '反対意見',
+        }),
+      );
+    });
+
+    it('値が変わらなければ op-log に積まない', () => {
+      const { container } = render(<EditableNode {...withKind('私見')} />);
+      const chip = container.querySelector('[data-node-label]');
+      if (!chip) throw new Error('ラベルが無い');
+
+      fireEvent.click(chip);
+      const input = container.querySelector('[data-node-label-input]');
+      if (!input) throw new Error('編集に入っていない');
+      fireEvent.blur(input);
+
+      expect(
+        mockDispatch.mock.calls.filter(
+          (c) => (c[0] as { type: string }).type === 'NODE_LABEL_CHANGED',
+        ),
+      ).toHaveLength(0);
     });
   });
 
