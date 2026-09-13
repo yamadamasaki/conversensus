@@ -10,16 +10,20 @@ import {
   SheetIdSchema,
 } from '../schemas';
 import {
-  BRANCH_STATUS,
   type Branch,
   batchesUpTo,
   branchSheet,
-  COMMIT_KIND,
   makeCommit,
   makeMergeCommit,
   tipClock,
 } from './branchLog';
-import { type Batch, BatchIdSchema, type Op } from './unified';
+import {
+  type Batch,
+  BatchIdSchema,
+  BRANCH_STATUS,
+  COMMIT_KIND,
+  type Op,
+} from './unified';
 
 const nid = (): NodeId => NodeIdSchema.parse(crypto.randomUUID());
 const cid = (): CommitId => CommitIdSchema.parse(crypto.randomUUID());

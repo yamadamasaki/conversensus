@@ -23,8 +23,11 @@
 
 import { z } from 'zod';
 import {
+  BranchIdSchema,
+  CommitIdSchema,
   EdgeIdSchema,
   EdgePathTypeSchema,
+  FileIdSchema,
   type NodeId,
   NodeIdSchema,
   SheetIdSchema,
@@ -119,6 +122,78 @@ const NodePropertiesSchema = z.record(z.string(), z.unknown());
  */
 export const PropertyNameSchema = z.string().min(1);
 export type PropertyName = z.infer<typeof PropertyNameSchema>;
+
+// --- branch / commit / fork (step1 Phase 2 → step2 Phase 3 T7 で op-log に昇格) ---
+//
+// **ここ (`unified.ts`) に置くのは循環 import を避けるため**である。branch の op を
+// `OpSchema` に載せるにはこれらのスキーマが要るが、`branchLog.ts` は `project.ts` を
+// 実行時に読み、`project.ts` はこのファイルを読む。定義を `branchLog.ts` に残して
+// ここから読むと `unified → branchLog → project → unified` になる (Phase 5 P3 で実行時に
+// 落ちたのと同じ形)。
+
+export const BRANCH_STATUS = {
+  CREATING: 'creating',
+  OPEN: 'open',
+  MERGED: 'merged',
+  CLOSED: 'closed',
+} as const;
+export type BranchStatus = (typeof BRANCH_STATUS)[keyof typeof BRANCH_STATUS];
+
+/**
+ * コミットの種別 (ANA-122)。**merge も一級の記録**にするための区別。
+ *
+ * merge は「branch batches を trunk 先端の後へ再スタンプして追記する」操作なので、
+ * 追記後の trunk 先端を指すオフセットとして commit と同じ形で表せる。種別を分けるのは
+ * 「いつ・誰が・何のために merge したか」を trunk の履歴から commit と一列に引くため。
+ */
+export const COMMIT_KIND = {
+  COMMIT: 'commit',
+  MERGE: 'merge',
+} as const;
+export type CommitKind = (typeof COMMIT_KIND)[keyof typeof COMMIT_KIND];
+
+export const CommitSchema = z.object({
+  id: CommitIdSchema,
+  message: z.string(),
+  at: z.number().int().nonnegative(),
+  authorActor: z.string(),
+  // 既定値を持たせるのは互換のため — `kind` を持たない既存のコミット行や、
+  // branches テーブルへ列展開されている base コミット (種別を持たない) が
+  // そのまま通る。出力側では必須なのでドメイン型 `Commit` と一致する。
+  kind: z.nativeEnum(COMMIT_KIND).default(COMMIT_KIND.COMMIT),
+  sourceBranchId: BranchIdSchema.optional(),
+  sourceAt: z.number().int().nonnegative().optional(),
+});
+
+/**
+ * fork の片側の凍結された記述 (`ForkSide` の op-log 上の形)。
+ *
+ * **`op` はここでは検証しない (`z.unknown()`)。**素直に `OpSchema` で検証すると、
+ * fork を運ぶ `branch.create` が `OpSchema` の一員なので**スキーマが自分自身を含む**再帰に
+ * なり、型推論が壊れる。仕様はこの記述を「畳み込みの入力ではない、人間向けの記述」と
+ * 定めている (`spec/merging.md`「fork に競合の原因を記述する」) ので、op-log の段では
+ * 形を強制せず、**読み出す畳み込みの側で `OpSchema` にかけ、合わなければ記述だけ落とす**。
+ * 他の参加者が書いたログを信用しない方針とも揃う。
+ */
+export const ForkSideSchema = z.object({
+  batchId: BatchIdSchema,
+  actor: z.string(),
+  clock: z.number().int().nonnegative(),
+  op: z.unknown(),
+});
+
+/** fork を生んだ競合の記述 (`ForkOrigin` の op-log 上の形)。検出時点で凍結する */
+export const ForkOriginSchema = z.object({
+  category: z.enum(['content', 'structure', 'layout']),
+  kind: z.enum(['removeDependency', 'parallelChange']).optional(),
+  aspect: z.enum(['position', 'size', 'route']).optional(),
+  target: z.string(),
+  targetLabel: z.string(),
+  propertyName: PropertyNameSchema.optional(),
+  ours: ForkSideSchema,
+  theirs: ForkSideSchema,
+  baseAt: z.number().int().nonnegative(),
+});
 
 export const OpSchema = z.discriminatedUnion('kind', [
   // structure
@@ -273,6 +348,39 @@ export const OpSchema = z.discriminatedUnion('kind', [
    * ファイルの削除 (ANA-127)。**target を取らない** — batch は既に fileId 単位に
    * 束ねられているので、自分が載っている op-log のファイルを指す。
    */
+  /**
+   * branch を切る (step2 Phase 3 T7)。**trunk の op-log に書く**ので、trunk を畳めば
+   * branch の一覧と branch 専用 file_id が分かる (設計 事実 D)。
+   *
+   * fork は branch の一種なので同じ op で書き、`conflictKey` と `origin` を持つ。
+   * 以前はこの 2 つが daemon の SQLite に保存されず失われていた (設計 事実 G)。
+   */
+  z.object({
+    kind: z.literal('branch.create'),
+    target: BranchIdSchema,
+    name: z.string(),
+    sheetId: SheetIdSchema,
+    branchFileId: FileIdSchema,
+    base: CommitSchema,
+    conflictKey: z.string().optional(),
+    origin: ForkOriginSchema.optional(),
+  }),
+  /** branch の状態を変える。複数人が付けたら clock 順の LWW */
+  z.object({
+    kind: z.literal('branch.setStatus'),
+    target: BranchIdSchema,
+    status: z.nativeEnum(BRANCH_STATUS),
+  }),
+  /**
+   * コミットを記録する。`branchId` が無ければ trunk のコミット (merge を含む)。
+   * **コミット本体を `commit` の下に入れる** — `Commit` は `kind` (commit / merge) を持ち、
+   * op の判別キー `kind` と名前がぶつかるため。
+   */
+  z.object({
+    kind: z.literal('commit.add'),
+    branchId: BranchIdSchema.optional(),
+    commit: CommitSchema,
+  }),
   z.object({ kind: z.literal('file.remove') }),
 ]);
 export type Op = z.infer<typeof OpSchema>;
@@ -332,6 +440,10 @@ export const FILE_OP_KINDS = [
   'file.setName',
   'file.setDescription',
   'file.remove',
+  // branch / commit のメタ (T7)。file 構造と同じくグラフの畳み込みから外す
+  'branch.create',
+  'branch.setStatus',
+  'commit.add',
 ] as const;
 export type FileOpKind = (typeof FILE_OP_KINDS)[number];
 
@@ -368,6 +480,9 @@ export const OP_CATEGORY: Record<OpKind, Category> = {
   'file.setName': 'file',
   'file.setDescription': 'file',
   'file.remove': 'file',
+  'branch.create': 'file',
+  'branch.setStatus': 'file',
+  'commit.add': 'file',
 };
 
 export function opCategory(op: Op): Category {

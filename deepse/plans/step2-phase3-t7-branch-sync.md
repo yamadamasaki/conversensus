@@ -145,7 +145,7 @@ T7 で fork を `branch.create` op に載せれば構造的に直るが、その
 
 | | 内容 | 検証 |
 | --- | --- | --- |
-| **T7-0** | 語彙 (`branch.create` / `branch.setStatus` / `commit.add`) と畳み込み (fork の同一視・status の LWW) | 単体 + 性質 (順序非依存・冪等) |
+| **T7-0** ✅ | 語彙 (`branch.create` / `branch.setStatus` / `commit.add`) と畳み込み `foldBranches` (fork の同一視・status の LWW) | 単体 + 性質 (計 1719 緑) |
 | **T7-1** | 書き込みを trunk の op-log へ、読み取りを畳み込みの結果へ (SQLite を置き換える) | 単体 |
 | **T7-2** | branch file_id を push する + 発見に 0 シート基準 | 単体 |
 | **T7-3** | 参加者の branch を引く (畳み込みから branch file_id を得て、trunk の名簿でフィルタ) | 単体 |
@@ -153,6 +153,24 @@ T7 で fork を `branch.create` op に載せれば構造的に直るが、その
 | **T7-5** | fork の到着の通知 (未決 4 次第) | 単体 + 実機 |
 | **T7-6** | 既存データ (未決 2 次第) | 単体 |
 | **T7-7** | 2 アカウントの実 PDS で通しで確認 | 実 PDS |
+
+### T7-0 で分かったこと (2026-09-13)
+
+- **スキーマの置き場は `unified.ts`。**`BRANCH_STATUS` / `COMMIT_KIND` / `CommitSchema` を
+  `branchLog.ts` から移した。`branchLog.ts` は `project.ts` を実行時に読み、`project.ts` は
+  `unified.ts` を読むので、`OpSchema` のためにここから `branchLog.ts` を読むと循環する
+  (Phase 5 P3 と同じ形)。パッケージの入口を実行時に読み込んで確かめた
+- **fork の記述の中の op は op-log の段では検証しない。**`OpSchema` で検証すると fork を運ぶ
+  `branch.create` が自分自身を含む再帰になる。仕様は記述を「畳み込みの入力ではない」と
+  定めているので、`foldBranches` が読み出すときに検証し、合わなければ記述だけ落とす
+- **性質テストが冪等性の不具合を見つけた。**batch の中で `setStatus` が `create` より前にあると、
+  1 回目は無視されるが、同じ batch を再び渡すと 2 回目に効く。受信は同じ batch を何度も
+  持ってくるので実際に起こりうる。**畳み込みの中で batch を id で重複除去**して直した
+- **`fork.ts` に生の NUL 文字が混ざっていた。**`conflictKeyOf` の区切り `join('\x00')` が
+  エスケープではなく生のバイトで、grep (ugrep) がファイルごとバイナリ扱いして **`makeFork` が
+  検索から消えていた**。`'\u0000'` のエスケープ表記に直した (値は同じなので `conflictKey` は不変)
+- 変異で確認: 重複除去を外すと冪等性の 2 件、fork の同一視を外すと 4 件、別名の解決を外すと
+  1 件が落ちる
 
 ## 7. Exit
 

@@ -16,7 +16,6 @@ import {
   type BranchId,
   BranchIdSchema,
   type CommitId,
-  CommitIdSchema,
   type FileId,
   FileIdSchema,
   type Sheet,
@@ -24,28 +23,15 @@ import {
   SheetIdSchema,
 } from '../schemas';
 import { projectBatches, toSheet } from './project';
-import type { Batch, Lamport } from './unified';
-
-export const BRANCH_STATUS = {
-  CREATING: 'creating',
-  OPEN: 'open',
-  MERGED: 'merged',
-  CLOSED: 'closed',
-} as const;
-export type BranchStatus = (typeof BRANCH_STATUS)[keyof typeof BRANCH_STATUS];
-
-/**
- * コミットの種別 (ANA-122)。**merge も一級の記録**にするための区別。
- *
- * merge は「branch batches を trunk 先端の後へ再スタンプして追記する」操作なので、
- * 追記後の trunk 先端を指すオフセットとして commit と同じ形で表せる。種別を分けるのは
- * 「いつ・誰が・何のために merge したか」を trunk の履歴から commit と一列に引くため。
- */
-export const COMMIT_KIND = {
-  COMMIT: 'commit',
-  MERGE: 'merge',
-} as const;
-export type CommitKind = (typeof COMMIT_KIND)[keyof typeof COMMIT_KIND];
+import {
+  type Batch,
+  BRANCH_STATUS,
+  type BranchStatus,
+  COMMIT_KIND,
+  type CommitKind,
+  CommitSchema,
+  type Lamport,
+} from './unified';
 
 /** コミット = 操作ログ上のラベル付きオフセット */
 export type Commit = {
@@ -80,19 +66,6 @@ export type Branch = {
 // HTTP 境界で外来 JSON を検証するための対 (CLAUDE.md 規約 2)。両者の乖離は
 // `parse` の結果をドメイン型の引数へ渡す呼び出し側 (server の saveCommit /
 // saveBranch) でコンパイル時に検出される。
-
-export const CommitSchema = z.object({
-  id: CommitIdSchema,
-  message: z.string(),
-  at: z.number().int().nonnegative(),
-  authorActor: z.string(),
-  // 既定値を持たせるのは互換のため — `kind` を持たない既存のコミット行や、
-  // branches テーブルへ列展開されている base コミット (種別を持たない) が
-  // そのまま通る。出力側では必須なのでドメイン型 `Commit` と一致する。
-  kind: z.nativeEnum(COMMIT_KIND).default(COMMIT_KIND.COMMIT),
-  sourceBranchId: BranchIdSchema.optional(),
-  sourceAt: z.number().int().nonnegative().optional(),
-});
 
 /**
  * ブランチのメタ情報 = ドメインの `Branch` + 永続化・配線に要る補足。

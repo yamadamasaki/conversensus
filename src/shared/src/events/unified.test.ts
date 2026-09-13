@@ -147,3 +147,66 @@ describe('node.setLabel (Phase 5 P1)', () => {
     expect(isSyncable(setLabel)).toBe(true);
   });
 });
+
+describe('branch / commit の op (step2 Phase 3 T7)', () => {
+  const id = () => crypto.randomUUID();
+  const base = { id: id(), message: 'base', at: 1, authorActor: 'a' };
+
+  test('3 つとも file カテゴリで、グラフの畳み込みから外れる', () => {
+    for (const kind of [
+      'branch.create',
+      'branch.setStatus',
+      'commit.add',
+    ] as const) {
+      expect(OP_CATEGORY[kind]).toBe('file');
+      expect((FILE_OP_KINDS as readonly string[]).includes(kind)).toBe(true);
+    }
+  });
+
+  test('fork の branch.create は、記述の中の op の形を問わず parse できる', () => {
+    // 中の op はここでは検証しない (スキーマが自分自身を含む再帰を避ける)。
+    // 検証は読み出す畳み込み (foldBranches) の側で行う
+    const side = {
+      batchId: id(),
+      actor: 'a',
+      clock: 1,
+      op: { kind: '何でも' },
+    };
+    const r = OpSchema.safeParse({
+      kind: 'branch.create',
+      target: id(),
+      name: 'fork',
+      sheetId: id(),
+      branchFileId: id(),
+      base,
+      conflictKey: 'k',
+      origin: {
+        category: 'content',
+        target: 'n',
+        targetLabel: '',
+        ours: side,
+        theirs: side,
+        baseAt: 1,
+      },
+    });
+    expect(r.success).toBe(true);
+  });
+
+  test('commit.add はコミット本体を commit の下に持つ (判別キー kind との衝突を避ける)', () => {
+    const r = OpSchema.safeParse({
+      kind: 'commit.add',
+      commit: { ...base, kind: 'merge' },
+    });
+    expect(r.success).toBe(true);
+  });
+
+  test('status は定数の値しか受け付けない', () => {
+    expect(
+      OpSchema.safeParse({
+        kind: 'branch.setStatus',
+        target: id(),
+        status: 'archived',
+      }).success,
+    ).toBe(false);
+  });
+});
