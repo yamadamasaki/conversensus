@@ -372,6 +372,13 @@ export const OpSchema = z.discriminatedUnion('kind', [
     status: z.nativeEnum(BRANCH_STATUS),
   }),
   /**
+   * branch を削除する (T7)。**一度消したら戻らない** — `file.remove` と同じ remove-wins。
+   * 同期する以上、手元の行を物理的に消すだけでは畳み直せば復活し、相手の手元からは
+   * 最初から消えない。相手の repo にある branch の編集記録そのものは消せないので、
+   * 畳み込みで見えなくする
+   */
+  z.object({ kind: z.literal('branch.remove'), target: BranchIdSchema }),
+  /**
    * コミットを記録する。`branchId` が無ければ trunk のコミット (merge を含む)。
    * **コミット本体を `commit` の下に入れる** — `Commit` は `kind` (commit / merge) を持ち、
    * op の判別キー `kind` と名前がぶつかるため。
@@ -443,6 +450,7 @@ export const FILE_OP_KINDS = [
   // branch / commit のメタ (T7)。file 構造と同じくグラフの畳み込みから外す
   'branch.create',
   'branch.setStatus',
+  'branch.remove',
   'commit.add',
 ] as const;
 export type FileOpKind = (typeof FILE_OP_KINDS)[number];
@@ -482,6 +490,7 @@ export const OP_CATEGORY: Record<OpKind, Category> = {
   'file.remove': 'file',
   'branch.create': 'file',
   'branch.setStatus': 'file',
+  'branch.remove': 'file',
   'commit.add': 'file',
 };
 

@@ -199,6 +199,76 @@ describe('foldBranches — fork', () => {
   });
 });
 
+describe('foldBranches — 削除', () => {
+  test('branch.remove で branch もそのコミットも見えなくなる', () => {
+    const id = bid();
+    const { branches, branchCommits } = foldBranches(
+      [
+        batch(1, [create(id)]),
+        batch(2, [{ kind: 'commit.add', branchId: id, commit: commit(2) }]),
+        batch(3, [{ kind: 'branch.remove', target: id }]),
+      ],
+      TRUNK,
+    );
+    expect(branches.has(id)).toBe(false);
+    expect(branchCommits.has(id)).toBe(false);
+  });
+
+  test('一度消したら戻らない — 後から同じ id を作っても出てこない', () => {
+    const id = bid();
+    const { branches } = foldBranches(
+      [
+        batch(1, [create(id)]),
+        batch(2, [{ kind: 'branch.remove', target: id }]),
+        batch(3, [create(id)]),
+      ],
+      TRUNK,
+    );
+    expect(branches.has(id)).toBe(false);
+  });
+
+  test('fork の別名を消すと正の fork ごと消え、同じ競合の fork は復活しない', () => {
+    const a = bid();
+    const b = bid();
+    const c = bid();
+    const { branches } = foldBranches(
+      [
+        batch(1, [create(a, { conflictKey: 'k', origin: origin() })], 'alice'),
+        batch(2, [create(b, { conflictKey: 'k', origin: origin() })], 'bob'),
+        batch(3, [{ kind: 'branch.remove', target: b }], 'bob'),
+        batch(4, [create(c, { conflictKey: 'k', origin: origin() })], 'carol'),
+      ],
+      TRUNK,
+    );
+    expect(branches.size).toBe(0);
+  });
+
+  test('削除が作成より前に並ぶ log でも、並びが正しい log と同じ結果になる', () => {
+    // 因果に反するが、参加期間のフィルタなどで起こりうる。削除を見つけた時点で当てると、
+    // 同じ競合の fork が別の id で復活して結果が食い違う
+    const a = bid();
+    const b = bid();
+    const causal = foldBranches(
+      [
+        batch(1, [create(a, { conflictKey: 'k', origin: origin() })]),
+        batch(2, [create(b, { conflictKey: 'k', origin: origin() })]),
+        batch(3, [{ kind: 'branch.remove', target: a }]),
+      ],
+      TRUNK,
+    );
+    const inverted = foldBranches(
+      [
+        batch(1, [{ kind: 'branch.remove', target: a }]),
+        batch(2, [create(a, { conflictKey: 'k', origin: origin() })]),
+        batch(3, [create(b, { conflictKey: 'k', origin: origin() })]),
+      ],
+      TRUNK,
+    );
+    expect(inverted.branches).toEqual(causal.branches);
+    expect(causal.branches.size).toBe(0);
+  });
+});
+
 describe('foldBranches — 同じ batch が再び届く', () => {
   test('同じ batch を 2 回渡しても、中の setStatus が後から効いたりしない', () => {
     // 性質テストが見つけた反例。batch の中で setStatus が create より前にあると、
@@ -285,6 +355,10 @@ const opArb: fc.Arbitrary<Op> = fc.oneof(
       BRANCH_STATUS.CLOSED,
     ),
   }),
+  fc.record({
+    kind: fc.constant('branch.remove' as const),
+    target: fc.constantFrom(...IDS),
+  }),
   fc
     .record({
       kind: fc.constant('commit.add' as const),
@@ -334,6 +408,18 @@ describe('性質: 畳み込みは入力の並びと重複に依存しない', ()
         expect(foldBranches([...log, ...log], TRUNK)).toEqual(
           foldBranches(log, TRUNK),
         );
+      }),
+    );
+  });
+
+  test('削除された id は結果に現れない', () => {
+    fc.assert(
+      fc.property(logArb, (log) => {
+        const removed = log
+          .flatMap((b) => b.ops)
+          .flatMap((o) => (o.kind === 'branch.remove' ? [o.target] : []));
+        const { branches } = foldBranches(log, TRUNK);
+        for (const id of removed) expect(branches.has(id)).toBe(false);
       }),
     );
   });

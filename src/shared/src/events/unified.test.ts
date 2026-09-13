@@ -152,10 +152,11 @@ describe('branch / commit の op (step2 Phase 3 T7)', () => {
   const id = () => crypto.randomUUID();
   const base = { id: id(), message: 'base', at: 1, authorActor: 'a' };
 
-  test('3 つとも file カテゴリで、グラフの畳み込みから外れる', () => {
+  test('4 つとも file カテゴリで、グラフの畳み込みから外れる', () => {
     for (const kind of [
       'branch.create',
       'branch.setStatus',
+      'branch.remove',
       'commit.add',
     ] as const) {
       expect(OP_CATEGORY[kind]).toBe('file');

@@ -18,6 +18,10 @@
  * - **status は LWW。**`branch.setStatus` の最後のものが効く。作成直後は `open`
  * - **commit は id で重複を除く。**同じ commit が複数の経路から届いても 1 回に数える
  * - **batch も id で重複を除く。**畳み込みは batch の並びではなく集合の関数である
+ * - **削除は最後にまとめて当てる (remove-wins)。**`branch.remove` を見つけた時点で当てると、
+ *   それが `branch.create` より前に並ぶ log (因果に反するが、参加期間のフィルタなどで起こりうる)
+ *   で、同じ競合の fork が別の id で復活する余地が残り、並びで結果が変わる。**別名を最後に
+ *   解決してから**消すので、fork の別名を消しても正の fork ごと消える
  *
  * ## fork の記述は信用しない
  *
@@ -83,6 +87,8 @@ export function foldBranches(
   const seenCommits = new Set<string>();
 
   const canonical = (id: BranchId): BranchId => alias.get(id) ?? id;
+  /** 削除された id (別名のまま)。解決は最後に行う */
+  const removedRaw = new Set<BranchId>();
 
   // **同じ batch は 1 回だけ畳む。**受信は同じ batch を何度も持ってくるので、重複を
   // そのまま畳むと冪等でなくなる — 1 回目は「まだ居ない branch への setStatus」として
@@ -127,6 +133,9 @@ export function foldBranches(
           if (target) target.status = op.status; // LWW: 後に畳んだものが残る
           break;
         }
+        case 'branch.remove':
+          removedRaw.add(op.target);
+          break;
         case 'commit.add': {
           if (seenCommits.has(op.commit.id)) break;
           seenCommits.add(op.commit.id);
@@ -142,6 +151,12 @@ export function foldBranches(
         }
       }
     }
+  }
+  // 削除は最後に当てる。別名はここで解決する (上の「削除は最後にまとめて」)
+  for (const raw of removedRaw) {
+    const id = canonical(raw);
+    branches.delete(id);
+    branchCommits.delete(id);
   }
   return { branches, trunkCommits, branchCommits };
 }

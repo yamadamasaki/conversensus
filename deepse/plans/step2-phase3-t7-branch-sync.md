@@ -108,6 +108,7 @@ T7 で fork を `branch.create` op に載せれば構造的に直るが、その
 | --- | --- |
 | `branch.create` | `target: BranchId`, `name`, `sheetId`, `branchFileId`, `base: Commit`。fork なら `conflictKey` と `origin` も持つ |
 | `branch.setStatus` | `target: BranchId`, `status` |
+| `branch.remove` | `target: BranchId`。一度消したら戻らない (決定 7) |
 | `commit.add` | `target: CommitId`, 所属 (`trunk` か `BranchId`), `message`, `at`, `kind`, `sourceBranchId?`, `sourceAt?` |
 
 - **status は LWW。**2 人が同時に merged / closed を付けたら clock 順で決まる
@@ -132,6 +133,11 @@ T7 で fork を `branch.create` op に載せれば構造的に直るが、その
    **T7 が入るまで重複防止は働かないまま**であることを受け入れる
 6. **既存の fork は普通の branch として載せ直す。**名前・分岐点・status は残し、
    fork としての同一性と理由は保存データに無いので復元しない (決定 2 の fork への適用)
+7. **branch の削除は `branch.remove` op にし、一度消したら戻らない** (`file.remove` と同じ
+   remove-wins)。同期する以上、手元の行を物理的に消すだけでは畳み直せば復活し、相手の手元
+   からは最初から消えない。相手の repo にある branch の編集記録そのものは消せないので、
+   畳み込みで見えなくする。**削除は畳み込みの最後にまとめ、別名を解決してから当てる** —
+   見つけた時点で当てると、削除が作成より前に並ぶ log で同じ競合の fork が復活する
 
 ### 設計者が決める技術的な点 (実装時に単体で固める)
 

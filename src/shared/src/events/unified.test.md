@@ -32,7 +32,8 @@
 
 ### branch / commit の op (step2 Phase 3 T7)
 
-branch のメタを trunk の op-log に載せるための 3 つの op を見る。
+branch のメタを trunk の op-log に載せるための 4 つの op (`branch.create` / `branch.setStatus` /
+`branch.remove` / `commit.add`) を見る。
 
 - **file カテゴリで、グラフの畳み込みから外れる**: `FILE_OP_KINDS` に入れることで
   `projectBatches` が読み飛ばす。グラフの projection に branch のメタが混ざらない。
