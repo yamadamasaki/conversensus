@@ -34,6 +34,14 @@
             "type": "string",
             "description": "Optional. The originating sheet of a content batch (mirrors Batch.sheetId). Absent for file-structure batches (sheet.*/file.*) and for legacy records predating W3d5."
           },
+          "restampedBy": {
+            "type": "string",
+            "description": "Optional. The actor (did#deviceId) who re-stamped this batch into the trunk by an explicit merge (step2 Phase 3 T7-4). `actor` keeps the original author. Repo placement and participation-period checks use restampedBy when present. When the same batch id exists with several clocks (concurrent merges), the copy with the smallest (clock, restampedBy ?? actor) is canonical."
+          },
+          "mergedIn": {
+            "type": "string",
+            "description": "Optional. The merge commit id (UUID) this re-stamped copy belongs to (step2 Phase 3 T7-4). Kept so that a future fold which treats merges as references can recognise copies and avoid applying them twice."
+          },
           "createdAt": {
             "type": "string",
             "format": "datetime",

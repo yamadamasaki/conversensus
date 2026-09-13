@@ -559,8 +559,60 @@ export const BatchSchema = z.object({
   // file 構造 batch (sheet.*/file.* のみ) は sheetId を持たない (§3.1)。
   sheetId: SheetIdSchema.optional(),
   ops: z.array(OpSchema).min(1),
+  /**
+   * merge で trunk へ積み直した人 (step2 Phase 3 T7-4)。書いた人 (`actor`) とは別に持つ。
+   *
+   * 積み直しは id と `actor` を保つので、これが無いと「誰の repo に置くか」「誰の参加期間で
+   * 判定するか」を書いた人で決めてしまい、**書いた人と違う人の merge が相手に届かない**。
+   * 判定は `stackedBy` を通すこと
+   */
+  restampedBy: z.string().optional(),
+  /**
+   * どの merge コミットによる写しか (step2 Phase 3 T7-4)。
+   *
+   * **将来 merge を参照 (写さない形) に移すための印である** (設計 T7 §6a)。op-log は追記のみで
+   * 相手の PDS からも消せないので、移行後の畳み込みは写しを認識して merge コミットの参照と
+   * 重複させない必要があり、そのとき写しを merge コミットに対応づける手がかりがこれになる
+   */
+  mergedIn: CommitIdSchema.optional(),
 });
 export type Batch = z.infer<typeof BatchSchema>;
+
+/**
+ * この batch を op-log に積んだ人 (step2 Phase 3 T7-4)。merge の写しなら積み直した人、
+ * そうでなければ書いた人。**送信の著者判定と参加期間の判定はこれで行う。**
+ */
+export function stackedBy(batch: Pick<Batch, 'actor' | 'restampedBy'>): string {
+  return batch.restampedBy ?? batch.actor;
+}
+
+/**
+ * 同じ id の写しが複数あるとき、どれを正とするか (step2 Phase 3 T7-4)。`a` を正とすべきなら負。
+ *
+ * 2 人が同じ branch を merge すると、同じ id の batch が別々の clock で trunk に積まれる。
+ * 手元が先着を残すと届いた順で位置が変わり収束しないので、**(clock, 積んだ人) が最小の写し**を
+ * 正とする。写しの ops は同一なので、変わるのは位置だけである。
+ *
+ * **全順序でなければならない。**同点を残すと、同点の写しのどちらが残るかが届いた順で決まり、
+ * 規則を置いた意味が無くなる。(clock, 積んだ人) が同じでも印の有無や merge コミットが違う
+ * 写しはありうる (書いた人自身が同じ clock の印の無い batch と並ぶ等) ので、最後に `mergedIn` で
+ * 決める (印の無い写しを先にする)。性質テストが同点の反例を見つけた
+ *
+ * **暫定の規則である** — merge を参照に移すと写しが生まれなくなり不要になる (設計 T7 §6a)
+ */
+export function compareCopies(
+  a: Pick<Batch, 'clock' | 'actor' | 'restampedBy' | 'mergedIn'>,
+  b: Pick<Batch, 'clock' | 'actor' | 'restampedBy' | 'mergedIn'>,
+): number {
+  if (a.clock !== b.clock) return a.clock - b.clock;
+  const byStacker = compareStrings(stackedBy(a), stackedBy(b));
+  if (byStacker !== 0) return byStacker;
+  return compareStrings(a.mergedIn ?? '', b.mergedIn ?? '');
+}
+
+function compareStrings(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
 
 // --- genesis (snapshot → 初期 batch) の予約値 (§3.4) ---
 

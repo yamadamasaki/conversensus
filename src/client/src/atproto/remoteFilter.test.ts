@@ -167,6 +167,26 @@ describe('filterBatchesForRemote', () => {
       expect(filterBatchesForRemote([b], MY_DID)).toHaveLength(1);
     });
 
+    it('他人が書いた batch でも、自分が merge で積み直した写しは送る (T7-4)', () => {
+      // 書いた人で見ると、他人の branch を merge した分が自分の repo に 1 件も出ず、
+      // 相手には「merged なのに trunk に中身が無い」と見える
+      const b = batch({
+        actor: OTHER_DID,
+        restampedBy: `${MY_DID}#device-1`,
+        ops: [addNode('n1')],
+      });
+      expect(filterBatchesForRemote([b], MY_DID)).toHaveLength(1);
+    });
+
+    it('自分が書いた batch でも、他人が積み直した写しは送らない (T7-4)', () => {
+      const b = batch({
+        actor: MY_DID,
+        restampedBy: `${OTHER_DID}#device-9`,
+        ops: [addNode('n1')],
+      });
+      expect(filterBatchesForRemote([b], MY_DID)).toEqual([]);
+    });
+
     it('genesis は著者判定の対象外で、誰の repo からでも通る', () => {
       // File の起源であって誰かの判断ではない。content-addressed なので
       // 複数 repo に載っても受信側の batch id dedup が畳む

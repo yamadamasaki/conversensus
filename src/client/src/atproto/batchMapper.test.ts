@@ -130,6 +130,37 @@ describe('batchMapper', () => {
     });
   });
 
+  describe('merge の写しの印 (step2 Phase 3 T7-4)', () => {
+    const restamped = (): Batch => ({
+      ...sampleContentBatch(),
+      restampedBy: 'did:plc:bob#dev-b',
+      mergedIn: '33333333-3333-4333-8333-333333333333' as Batch['mergedIn'],
+    });
+
+    it('restampedBy / mergedIn を往復させる', () => {
+      const record = batchToRecord(restamped(), FILE);
+      expect(record.restampedBy).toBe('did:plc:bob#dev-b');
+      expect(
+        recordToBatch(restamped().id, {
+          $type: 'app.conversensus.graph.batch',
+          ...record,
+        }),
+      ).toEqual(restamped());
+    });
+
+    it('写しでない batch は record にも Batch にも印を付けない', () => {
+      const record = batchToRecord(sampleBatch(), FILE);
+      expect('restampedBy' in record).toBe(false);
+      expect('mergedIn' in record).toBe(false);
+    });
+
+    it('印が string 以外のレコードは弾く', () => {
+      const base = batchToRecord(sampleBatch(), FILE);
+      expect(isBatchRecordValue({ ...base, restampedBy: 1 })).toBe(false);
+      expect(isBatchRecordValue({ ...base, mergedIn: {} })).toBe(false);
+    });
+  });
+
   describe('isBatchRecordValue', () => {
     it('BatchRecord 構造を満たす値を受理する', () => {
       const record = {

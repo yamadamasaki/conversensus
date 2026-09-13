@@ -242,6 +242,25 @@ describe('mergeBranchOnOplog', () => {
     expect((logs[BRANCH_LOG] ?? []).map((b) => b.clock)).toEqual([3, 4]);
   });
 
+  it('写しは書いた人を保ち、積み直した人と merge コミットを持つ (step2 Phase 3 T7-4)', async () => {
+    // 積み直した人で送信先と参加期間を決め、merge コミットは将来 merge を参照に移すときの印になる
+    const logs = { [TRUNK]: trunkLog(), [BRANCH_LOG]: branchLog() };
+    const { deps } = makeDeps(logs);
+    const merger = 'did:plc:bob#dev-b';
+    const result = await mergeBranchOnOplog(
+      branchMeta(),
+      { message: '取り込む', actor: merger },
+      deps,
+    );
+    const copies = (logs[TRUNK] ?? []).slice(3);
+    expect(copies.map((b) => b.actor)).toEqual([ACTOR, ACTOR]);
+    expect(copies.map((b) => b.restampedBy)).toEqual([merger, merger]);
+    expect(copies.map((b) => b.mergedIn)).toEqual([
+      result.mergeCommit.id,
+      result.mergeCommit.id,
+    ]);
+  });
+
   it('timestamp は編集が起きた時刻のまま残す (順序付けは clock)', async () => {
     const logs = { [TRUNK]: trunkLog(), [BRANCH_LOG]: branchLog() };
     const { deps } = makeDeps(logs);

@@ -73,6 +73,10 @@ export type BatchRecord = {
   clock: number;
   timestamp: number;
   ops: unknown[]; // Op[] を JSON として格納 (records は任意 JSON を許容)
+  /** merge で積み直した人 (統一語彙 Batch.restampedBy と対等, step2 Phase 3 T7-4) */
+  restampedBy?: string;
+  /** どの merge コミットの写しか (統一語彙 Batch.mergedIn と対等, step2 Phase 3 T7-4) */
+  mergedIn?: string;
   /**
    * content batch の発生元シート (統一語彙 Batch.sheetId と対等)。
    * file 構造 batch (sheet./file. 系の op) は sheetId を持たないため optional。

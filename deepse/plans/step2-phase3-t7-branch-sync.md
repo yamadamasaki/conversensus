@@ -263,6 +263,95 @@ T7 で fork を `branch.create` op に載せれば構造的に直るが、その
   こと (一覧は読み直すが、`activeBranch` は開いた時点のメタのまま)。Exit 3 と合わせて T7-7 の
   実機で確かめる
 
+## 6a. T7-4 の設計: 2 人が merge したとき (2026-09-13)
+
+> **決定 (2026-09-13): 案 A に `mergedIn` を足した「B へ移れる A」を採る。**
+>
+> - **merge は conversensus の第一級の概念である** (利用者の位置づけ)。データ構造として最終的に
+>   正しいのは B (merge を判断の記録として持ち、結果を導出する) で、U6-P2 の「判断の畳み込みを
+>   述語にしてグラフの畳み込みの前に落とす」や「implicit merge は書かずに導出する」と同じ流れに
+>   乗る。A は explicit merge だけが「結果を書き込む」例外として残る
+> - それでも今は A を採る。B は trunk を読む全経路 (projection・一覧・競合検出・上書きの報告・
+>   先読み) の書き直しで、T7 の範囲を大きく超える
+> - **後から B へ移れる条件は「写しから、どの merge による写しかが分かること」**である。
+>   op-log は追記のみで相手の PDS からも消せないので、移行は「B の畳み込みが A の写しを
+>   認識し、merge コミットの参照から導くものと重複させない」形になる。そのため写しに
+>   **`mergedIn: CommitId`** を持たせる (`restampedBy` だけでは 2 人が merge したときに
+>   写しを merge コミットへ対応づけられない)。step1 以来の印の無い写しは「trunk と branch の
+>   op-log に同じ id がある」ことで特定できる (branch の op-log は削除しても残る)
+> - **B へ移る合図**: 次のどれかが仕様に現れたとき。遅くとも Phase 6 (DtR) の設計で merge の
+>   承認・取り消しが決まった時点で判断する
+>   1. merge を取り消す / 承認されるまで効かせない (DtR の「双方の承認で再 merge」)
+>   2. 一部だけの取り込み (cherry-pick) や merge の merge
+>   3. vector clock への移行 (写しは写した時点の scalar clock に因果が固定される)
+> - **A で足す「同じ id の写しは最小のものを正として置き換える」規則は暫定である。**
+>   B に移ると写しが生まれないので不要になる
+> - 遅らせたときのコストは、データ量ではなく**畳み込みが扱い続ける形の数** (印の無い step1 の
+>   写し / `mergedIn` 付きの写し / B の参照) と、その間に増える「写しを前提にしたコード」である
+
+### 事実
+
+- **merge は branch の batch を「同じ id・元の actor」のまま trunk の新しい clock に積み直す**
+  (`mergeBranch.ts`)。id を保つのは再 merge のべき等性のため (2 回目は `trunkIds` で落ちる)
+- **ローカル正典は同じ id の 2 つ目の写しを黙って捨てる** (`appendBatch` が `INSERT OR IGNORE`、
+  `UNIQUE(file_id, batch_id)`)。clock が違っても区別しない
+- **送信キューは actor が自分の batch しか送らない** (S0, `remoteFilter.ts`)。受信の参加期間
+  フィルタも `batch.actor` と `batch.clock` で判定する
+- `BatchSchema` は「誰が積み直したか」を持つ場所が無い
+
+### 問題は 2 つある (1 の方が重い)
+
+1. **merge が相手に届かないことがある。**merge した人と branch の batch を書いた人が違うと、
+   積み直した batch の actor は書いた人のままなので、**merge した人の repo に 1 件も出ない**。
+   一方 `branch.setStatus` と merge コミットは merge した人の batch として届く。相手には
+   **「merged なのに trunk に中身が無い」**と見える。branch に複数人が書いた場合も、merge した人
+   以外が書いた分だけが欠ける。Exit 3 は「alice が自分の branch を merge」なら通るので
+   テストの形によっては見逃す
+2. **2 人が同じ branch を merge すると手元ごとに結果がずれる。**alice は trunk clock 20、
+   bob は 18 で同じ id を積み直す。それぞれの手元は自分の写しを先に持つので相手の写しを捨て、
+   **projection の順序が端末ごとに違う**。収束の不変条件が破れる
+
+### 案
+
+| | A: 積み直した人を batch に持たせる | B: 積み直さず参照にする | C: merge した人の新しい batch にする |
+| --- | --- | --- | --- |
+| 形 | `Batch.restampedBy?: Actor` を足す。id と元の actor は保つ | trunk に複製しない。merge コミット (`sourceBranchId`, `sourceAt`, `at`) を畳み込みが読み、branch op-log の範囲を merge 位置に差し込む | actor を merge した人に、id を `(merge コミット, 元の id)` から決定論的に作る |
+| 1 (届かない) | 送信と参加期間の判定を `restampedBy ?? actor` で見る | 消える (branch の batch は書いた人の repo にある) | 消える |
+| 2 (ずれる) | **同じ id の写しが複数あれば `(clock, restampedBy)` が最小のものを正とする**。保存も「より小さい写しなら置き換える」にする | 同じ範囲への merge は最小の `at` を採る | 残る。**2 回適用になる** — 間に挟まった trunk の編集を 2 回目が巻き戻す |
+| 変更の量 | shared の schema (optional なので移行不要) / `appendBatch` / S0 / 期間フィルタ / merge | **trunk を読む全経路** (projection・競合検出・上書きの報告・受信) が branch op-log を要る。§3 で B を退けた理由と同型 | merge だけ。ただし再 merge のべき等性を失い status に頼る (T7 以前に避けた形) |
+| 著者 | 保たれる (表示・上書きの報告は元の actor) | 保たれる | **失われる** (書いた人が merge した人に化ける) |
+
+**A を推す。**B は正しいが T7 の範囲を大きく超え、C は収束を壊す。
+
+### T7-4 で分かったこと (2026-09-13)
+
+- **印は 4 層を通す必要があった。**shared の `BatchSchema` / ATProto のレコード定義 (`batch.json`) と
+  変換 (`batchMapper`) / daemon の SQLite 列 (`restamped_by` / `merged_in`) / merge の書き込み。
+  どこか 1 つで落ちると、写しが「書いた人の batch」に戻る。変換は往復テストで固定した
+- **判定の入口を `stackedBy` 1 つにした。**S0 と参加期間フィルタが同じ「積んだ人」を見る。
+  書いた人を見るべき場面 (表示・上書きの報告) は `actor` のまま
+- **merge コミットの id を写しより先に採番する。**`mergedIn` に入れるため
+- **`compareCopies` は全順序でなければならない (性質テストが発見)。**当初は (clock, 積んだ人) の
+  2 キーで、clock 4 の印の無い写しと、書いた本人 alice が同じ clock 4 で積み直した写しが同点に
+  なった。同点だと残る写しが届いた順で決まり、規則を置いた意味が無い。第 3 キーに `mergedIn`
+  (印の無い写しを先) を足した。反例は例のテストとして残した
+- **置き換えも「変わった」(true) として数える。**受信の着地で画面を差し替える契機 (`appended > 0`)
+  に乗せるため。位置が変わると projection の順序が変わる
+- 変異で確認: S0 を書いた人で判定すると 2 件、参加期間を書いた人で判定すると 1 件、`restampedBy` を
+  付けないと 1 件、`mergedIn` を付けないと 1 件、置き換えをしないと 4 件、第 3 キーを外すと 2 件、
+  変換が印を落とすと 1 件が落ちる。型検査・lint 緑, テスト 1750 件緑
+- **まだ見ていないもの**: 2 人の merge を実 PDS で通すこと (T7-7)。receive 経路 (`pushReceivedBatches`
+  → `appendReceivedBatches`) が置き換えを通すことは `appendBatch` を共有する構造で担保しているが、
+  HTTP 境界の `BatchSchema` 検証で印が落ちないことは実機で確かめる
+
+### A で決めること
+
+- **置き換えは「追記のみ」の例外になる。**同じ id の写しが並行に 2 つ生まれるのは並行 merge の
+  ときだけで、写しの中身 (ops) は同一なので、変わるのは位置だけである。それでも手元の
+  projection が後から動くことは受け入れる
+- **期間フィルタは積み直した人の期間で判定する。**元の actor の期間で見ると、離脱した人の
+  branch を残った人が merge したときに取り込みが落ちる
+
 ## 7. Exit
 
 1. alice が切った branch が、bob の branch 一覧に出る

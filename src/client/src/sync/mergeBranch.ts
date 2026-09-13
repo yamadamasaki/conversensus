@@ -206,10 +206,16 @@ export async function mergeBranchOnOplog(
   // 再スタンプの起点を trunk 先端まで進める。自端末 clock が trunk より遅れていると
   // (別経路の受信などで) branch が trunk の下に潜り込み「上に乗る」不変条件が壊れる。
   deps.seedClock(tipClock(trunkBatches));
+  // merge コミットの id を先に採る。写しに「どの merge の写しか」を持たせるため (T7-4)
+  const mergeCommitId = deps.newId() as CommitId;
   const restamped: Batch[] = toAppend.map((batch) => ({
     ...batch,
     // timestamp は表示用なので編集が起きた時刻のまま残す (順序付けは clock→actor→id, 4d-3)
     clock: deps.tick(),
+    // 書いた人 (`actor`) は保ち、積み直した人と merge を別に持つ (step2 Phase 3 T7-4)。
+    // 送信と参加期間は積み直した人で判定し、`mergedIn` は merge を参照に移すときの印になる
+    restampedBy: params.actor,
+    mergedIn: mergeCommitId,
   }));
 
   const appended =
@@ -227,7 +233,7 @@ export async function mergeBranchOnOplog(
   // `at` は記録の batch を積む**前**に求める。記録そのものは file 構造の op なので
   // グラフの位置には数えない。
   const mergeCommit = makeMergeCommit(
-    deps.newId() as CommitId,
+    mergeCommitId,
     params.message,
     params.actor,
     [...trunkBatches, ...restamped],

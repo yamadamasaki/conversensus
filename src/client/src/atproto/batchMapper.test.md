@@ -55,3 +55,13 @@ optional なので、無いレコードは通し (後方互換)、有るなら s
   「PDS が float を拒否して全 push が 400、しかしコンソールは無言」という事故があったため、
   静かに捨てる経路を新たに作らない。
 - `recordToRemoteBatch` が適用先 fileId と Batch の対を復元すること (受信経路 4d-5 で使う)。
+
+## merge の写しの印 (step2 Phase 3 T7-4)
+
+`Batch.restampedBy` (積み直した人) と `mergedIn` (どの merge コミットの写しか) が PDS を往復して
+**欠けない**ことを固定する。欠けると、受信した写しが「書いた人の batch」に戻り、送信先と参加期間の
+判定が崩れる。`mergedIn` は将来 merge を参照に移すときに写しを見分ける唯一の手がかりでもある。
+
+- **印を往復させる**: record に載り、`recordToBatch` で元の Batch に一致する
+- **写しでない batch には印を付けない**: `sheetId` と同じく、無 → 無を保つ
+- **印が string 以外のレコードは弾く**: 壊れたレコードを取り込まない
