@@ -167,6 +167,9 @@ export default function App() {
     trunkRecord: fileOps.syncRecord,
     // branch の編集も remote へ出す (step2 Phase 3 T7-2)
     remoteQueue,
+    // 参加者の branch を引き、trunk の受信で branch 一覧を読み直す (T7-3)
+    roster,
+    receiveEpoch: fileOps.receiveEpoch,
   });
 
   // Cross-domain wired callbacks

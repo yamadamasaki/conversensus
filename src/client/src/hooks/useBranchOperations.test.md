@@ -125,6 +125,23 @@ deps は `createInMemoryBranchOplogDeps` (batches / branches / commits の in-me
   branch op-log に構造 op が入ると branch がファイル一覧に現れる (`eventStore.test.ts` が
   この条件ごと固定している)。
 
+### 参加者の branch (step2 Phase 3 T7-3)
+
+T7-1 で branch のメタが trunk の op-log に、T7-2 で branch の編集が remote に載った。
+それでも**画面に出る契機が無ければ**、相手の branch も相手の編集も見えない。受信は
+ローカル正典に着地するだけで、一覧も開いている branch も自分からは読み直さないからである。
+
+- **相手が作った branch は trunk の受信 (`receiveEpoch`) で一覧に出る**: 2 つのフックに
+  1 つの op-log を共有させ、片方で branch を作る (= 相手の `branch.create` が受信で届いた
+  状態)。もう片方の一覧は `receiveEpoch` を進めるまで空で、進めると現れる。一覧は
+  シートの切り替えでしか読み直していなかった
+- **開いている branch に相手の編集が届くと、画面の branch を組み直す**: 相手の repo だけが
+  branch の編集を返す remote キューと、自分と相手が clock 0 から参加している名簿
+  (`history` の accept を持たせる) を渡して branch を開く。同期のサイクルで編集が branch の
+  op-log に着地し、最後に画面へ渡したファイルのシートにそのノードが出ること。
+  受信の書き込み口は `oplogDeps.appendReceived` で in-memory ストアへ差し替えている
+  (既定は実 fetch)
+
 ### commit — ログ上のオフセット
 - 保存されるのは `{message, at}` であって差分ではない。`at` は branch op-log の先端。
 - 変更が無ければコミットしない。

@@ -32,7 +32,10 @@ import type { DetectedConflicts } from '../sync/conflicts';
 import { EventSyncTap } from '../sync/eventSyncTap';
 import { LocalServerSyncProvider } from '../sync/localServerSyncProvider';
 import type { DetectedOverwrites } from '../sync/overwrites';
-import { receiveParticipantBatches } from '../sync/receiveParticipantBatches';
+import {
+  collectParticipantBatches,
+  receiveParticipantBatches,
+} from '../sync/receiveParticipantBatches';
 import { receiveRemoteBatches } from '../sync/receiveRemoteBatches';
 import type { RosterSource } from '../sync/rosterSource';
 import type { SyncProvider } from '../sync/syncProvider';
@@ -82,6 +85,20 @@ export type UseEventSyncTapOptions = {
    * 固定される」ので、他 actor の op-log を読むにはまず名簿が要る。
    */
   roster?: RosterSource | null;
+  /**
+   * この op-log が branch のものであるときの trunk (step2 Phase 3 T7-3)。
+   *
+   * 渡すと受信が 2 点で変わる:
+   *
+   * - **名簿は trunk のものを読む。**branch は名簿を持たない。誰がいつ参加していたかは
+   *   trunk の判断ログが決め、branch の編集もその期間で絞る
+   * - **参加者の受信は「集めて追記する」だけにする。**implicit merge の競合検出・fork・
+   *   上書きの報告は trunk の受信のものである。branch で走らせると fork が branch の
+   *   op-log に書かれる。branch と trunk の対立は explicit merge が検出する
+   *
+   * 名簿の通知 (`onRoster`) も呼ばない — 共有状態の表示は trunk の tap が担う。
+   */
+  trunkFileId?: FileId;
   /** テスト用: ローカル正典 provider の差し替え (既定 `LocalServerSyncProvider`) */
   createLocalProvider?: (fileId: FileId) => SyncProvider;
   /**
@@ -204,6 +221,7 @@ export function useEventSyncTap(
     remoteQueue = null,
     actor,
     roster = null,
+    trunkFileId,
     pollIntervalMs = SYNC_POLL_INTERVAL_MS,
     clockFloor,
     createLocalProvider,
@@ -339,7 +357,8 @@ export function useEventSyncTap(
       });
       if (!roster) return own;
 
-      const seen = await roster.read(fileId);
+      // branch は名簿を持たないので trunk の名簿を読む (T7-3)
+      const seen = await roster.read(trunkFileId ?? fileId);
 
       // ⚠️ **判断ログの clock も観測する** (2026-09-05 実機で発覚)。
       //
@@ -359,8 +378,9 @@ export function useEventSyncTap(
 
       const participation = seen.participation;
       // 共有状態の表示元 (2026-09-05)。読んだ名簿をそのまま渡す —
-      // 表示のために名簿をもう一度読むと、参加者分のリクエストが倍になる
-      onRoster?.(fileId, participation);
+      // 表示のために名簿をもう一度読むと、参加者分のリクエストが倍になる。
+      // branch の tap は通知しない (T7-3) — 共有状態は trunk の File のものである
+      if (!trunkFileId) onRoster?.(fileId, participation);
 
       // **自分が参加者でなければ他 actor の repo を読まない** (2026-09-05 実機で発覚)。
       //
@@ -379,6 +399,32 @@ export function useEventSyncTap(
           `[sync] ${fileId}: この File の参加者ではないので他 actor の repo を読まない`,
         );
         return own;
+      }
+
+      // branch の受信は集めて追記するだけ (T7-3)。implicit merge の検出と fork は
+      // trunk の受信のものなので走らせない (オプションの説明を参照)
+      if (trunkFileId) {
+        const collected = await collectParticipantBatches(
+          fileId,
+          participation,
+          didFromActor(actor),
+          {
+            pullRemoteForFile: (id, repo) =>
+              remoteQueue.pullRemoteForFile(id, repo),
+          },
+        );
+        const appended =
+          collected.batches.length > 0
+            ? await appendReceived(fileId, collected.batches)
+            : 0;
+        // 受信規則。書き込みが成功してから前進させる (`receiveParticipantBatches` と同じ)
+        tap.observeRemote(
+          collected.batches.reduce((m, b) => Math.max(m, b.clock), 0),
+        );
+        return {
+          received: own.received + collected.batches.length,
+          appended: own.appended + appended,
+        };
       }
 
       const others = await receiveParticipantBatches(
@@ -465,6 +511,7 @@ export function useEventSyncTap(
     remoteQueue,
     tap,
     roster,
+    trunkFileId,
     actor,
     appendReceived,
     fetchLocal,

@@ -228,9 +228,40 @@ T7 で fork を `branch.create` op に載せれば構造的に直るが、その
   判断ログに残る。消す口は無いので記録だけ)
 - 変異で確認: キューの鍵を batch id に戻すと 1 件、branch の tap に `remoteQueue` を渡さないと
   1 件、bootstrap の 0 シート検査を外すと 1 件が落ちる
-- **⚠️ T7-4 への申し送り**: 送信キューは著者で絞る (S0)。他人の branch を merge すると、
+- **⚠️ T7-4 への申し送り (T7-2)**: 送信キューは著者で絞る (S0)。他人の branch を merge すると、
   再スタンプした batch の actor は元の著者のままなので**自分の repo へ送られない**。
   2 人目が merge を行う形を T7-4 で決めるときに、この制約とぶつかる
+
+### T7-3 で分かったこと (2026-09-13)
+
+- **branch の tap は trunk の受信をそのまま使えない。**違いは 2 点で、`useEventSyncTap` に
+  `trunkFileId` を足して切り替えた
+  - **名簿は trunk のものを読む。**判断ログは trunk の fileId にしか無い。branch の fileId で
+    読むと名簿が空になり、誰の repo も読まない
+  - **参加者の受信は「集めて (`collectParticipantBatches`) 追記する」だけにする。**
+    `receiveParticipantBatches` は implicit merge の競合を検出して fork を書き、既定の器は
+    その tap の `record` なので、**branch で走らせると fork が branch の op-log に書かれる**。
+    branch と trunk の対立は explicit merge が検出する。上書きの報告と `onRoster` も trunk 側の役目
+- **届いても画面に出る契機が無かった (計画に無かった穴が 2 つ)。**受信はローカル正典に
+  着地するだけで、画面は自分からは読み直さない
+  - **branch 一覧**はシートの切り替えでしか読み直していなかった。相手の `branch.create` は
+    trunk の受信で届くので、trunk の差し替え (`receiveEpoch`) を契機に足した。
+    **これが無いと Exit 1 が成り立たない**
+  - **開いている branch** は開いた時点の projection のまま。branch の tap の `onReceived` で
+    `selectBranchFromOplog` を呼び直す。未 flush の編集が残っている間は見送る (trunk の
+    `reprojectAfterReceive` と同じ判断)。組み直しは tap の callback より後で定義されるので
+    ref で繋いだ (callback を安定参照に保つため)
+- **branch の受信の書き込み口に差し替え口が無かった。**trunk は `deps.pushReceivedBatches` を
+  通すが branch の tap は既定の実 fetch を使っていた。`BranchOplogDeps.appendReceived` を足し、
+  開いている branch の組み直しを単体で通せるようにした
+- **テストの名簿には `history` が要る。**参加期間は `participating` ではなく `history` の
+  出来事 (accept など) から導かれるので、名前だけの名簿では相手の編集が期間の外として落ちる
+- 変異で確認: 名簿を branch の fileId で読むと 1 件、branch の受信の分岐を外すと 2 件、
+  `onRoster` を branch でも呼ぶと 1 件、一覧の読み直しから `receiveEpoch` を外すと 1 件、
+  受信後の組み直しを止めると 1 件が落ちる。型検査・lint 緑, テスト 1737 件緑
+- **まだ見ていないもの**: 相手が merge した status が、**開いている branch** の表示に反映される
+  こと (一覧は読み直すが、`activeBranch` は開いた時点のメタのまま)。Exit 3 と合わせて T7-7 の
+  実機で確かめる
 
 ## 7. Exit
 

@@ -166,6 +166,10 @@ async function renderTap(opts: {
   pollIntervalMs?: number;
   /** 名簿の供給元 (step2 Phase 2 S2)。省略すると自分の repo だけを見る */
   roster?: Parameters<typeof useEventSyncTap>[1]['roster'];
+  /** branch の tap にするときの trunk (step2 Phase 3 T7-3) */
+  trunkFileId?: FileId;
+  onRoster?: Parameters<typeof useEventSyncTap>[1]['onRoster'];
+  fetchLocal?: Parameters<typeof useEventSyncTap>[1]['fetchLocal'];
 }) {
   const createLocalProvider = () => opts.local;
   const view = renderHook(() =>
@@ -179,6 +183,9 @@ async function renderTap(opts: {
         pollIntervalMs: opts.pollIntervalMs,
       }),
       ...(opts.roster && { roster: opts.roster }),
+      ...(opts.trunkFileId && { trunkFileId: opts.trunkFileId }),
+      ...(opts.onRoster && { onRoster: opts.onRoster }),
+      ...(opts.fetchLocal && { fetchLocal: opts.fetchLocal }),
       createLocalProvider,
       appendReceived,
       ...(opts.onReceived && { onReceived: opts.onReceived }),
@@ -331,6 +338,92 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
       await settle();
 
       expect(pulled).toEqual([undefined, OTHER]);
+    });
+  });
+
+  describe('branch の tap (step2 Phase 3 T7-3)', () => {
+    const OTHER = 'did:plc:bob';
+    const TRUNK = '00000000-0000-4000-8000-0000000071a0' as FileId;
+
+    /**
+     * 相手の branch に編集が 1 件ある状態を作る。名簿は自分と相手が clock 0 から参加している
+     * (`history` の accept が参加期間を開く — 期間の外の batch は受信で落ちる)
+     */
+    const setup = () => {
+      const remote = new RecordingProvider();
+      const remoteQueue = new RemoteSyncQueue({
+        provider: remote,
+        did: MY_DID,
+      });
+      const pulled: Array<[FileId, string | undefined]> = [];
+      const spied = Object.assign(
+        Object.create(Object.getPrototypeOf(remoteQueue)),
+        remoteQueue,
+      ) as typeof remoteQueue;
+      const edit = batch('b1', { actor: `${OTHER}#dev-9`, clock: 5 });
+      spied.pullRemoteForFile = async (id, repo) => {
+        pulled.push([id, repo]);
+        return repo === OTHER ? [{ fileId: id, batch: edit }] : [];
+      };
+      const readFor: FileId[] = [];
+      const base = rosterWith(1, [MY_DID, OTHER]);
+      const accepted = { kind: 'accept', clock: 0, timestamp: 0, by: OTHER };
+      const roster = {
+        read: async (id: FileId) => {
+          readFor.push(id);
+          const result = await base.read();
+          result.participation.history = new Map([
+            [MY_DID, [accepted]],
+            [OTHER, [accepted]],
+          ]);
+          return result;
+        },
+        readFresh: base.readFresh,
+      };
+      return { remoteQueue: spied, pulled, readFor, roster, edit };
+    };
+
+    it('名簿は trunk の fileId で読み、相手の branch の編集を branch の fileId へ追記する', async () => {
+      // branch は名簿を持たない。trunk の名簿で読む相手と期間を決める
+      const { remoteQueue, pulled, readFor, roster, edit } = setup();
+      await renderTap({
+        local: new RecordingProvider(),
+        remoteQueue,
+        roster,
+        trunkFileId: TRUNK,
+      });
+      await settle();
+
+      expect(readFor).toEqual([TRUNK]);
+      expect(pulled).toEqual([
+        [FID, undefined],
+        [FID, OTHER],
+      ]);
+      expect(receivedWrites).toEqual([{ fileId: FID, batches: [edit] }]);
+    });
+
+    it('implicit merge の検出を走らせず、名簿の通知もしない', async () => {
+      // 検出は受信前の手元 (`fetchLocal`) を読むところから始まる。branch で走らせると
+      // fork が branch の op-log に書かれる。共有状態の表示は trunk の tap の役目である
+      const { remoteQueue, roster } = setup();
+      const fetchLocalFor: FileId[] = [];
+      const rosterNotified: FileId[] = [];
+      await renderTap({
+        local: new RecordingProvider(),
+        remoteQueue,
+        roster,
+        trunkFileId: TRUNK,
+        fetchLocal: async (id) => {
+          fetchLocalFor.push(id);
+          return [];
+        },
+        onRoster: (id) => rosterNotified.push(id),
+      });
+      await settle();
+
+      expect(receivedWrites).toHaveLength(1); // 受信そのものは走っている
+      expect(fetchLocalFor).toEqual([]);
+      expect(rosterNotified).toEqual([]);
     });
   });
 

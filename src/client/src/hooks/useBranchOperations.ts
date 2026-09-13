@@ -36,8 +36,14 @@ import {
   mergeBranchOnOplog,
   previewMerge,
 } from '../sync/mergeBranch';
+import type { RosterSource } from '../sync/rosterSource';
 import type { SyncProvider } from '../sync/syncProvider';
-import { type TapClock, useEventSyncTap } from './useEventSyncTap';
+import {
+  type ReceivedSummary,
+  type TapClock,
+  type TapHandle,
+  useEventSyncTap,
+} from './useEventSyncTap';
 
 /**
  * ブランチの差分状態 (ANA-119/120, S3)。
@@ -154,6 +160,11 @@ export interface BranchOplogDeps {
   newId: () => string;
   /** branch 編集の書き込み先 provider (テスト差し替え用。既定はローカルデーモン) */
   createBranchProvider?: (fileId: FileId) => SyncProvider;
+  /**
+   * branch の受信の書き込み口 (テスト差し替え用, T7-3)。既定は `api.pushReceivedBatches`。
+   * **安定参照であること** (tap の受信 effect が張り直される)
+   */
+  appendReceived?: (fileId: FileId, batches: Batch[]) => Promise<number>;
 }
 
 export const defaultBranchOplogDeps: BranchOplogDeps = {
@@ -197,6 +208,17 @@ interface UseBranchOperationsParams {
    * null なら local-only (未ログイン時)。trunk の tap に渡すものと同じキューであること
    */
   remoteQueue?: RemoteSyncQueue | null;
+  /**
+   * 名簿の供給元 (step2 Phase 3 T7-3)。渡すと参加者の branch の編集を引く。
+   * branch は名簿を持たないので、trunk の名簿で読む相手と期間を決める
+   */
+  roster?: RosterSource | null;
+  /**
+   * trunk の受信で画面が差し替わった回数 (step2 Phase 3 T7-3)。変わったら branch 一覧を
+   * 読み直す — 相手が作った branch のメタは trunk の受信で届くので、これが無いと
+   * シートを切り替えるまで一覧に出ない
+   */
+  receiveEpoch?: number;
   deps?: BranchOpsDeps;
   oplogDeps?: BranchOplogDeps;
 }
@@ -214,6 +236,8 @@ export function useBranchOperations({
   trunkClock,
   trunkRecord,
   remoteQueue = null,
+  roster = null,
+  receiveEpoch = 0,
   deps = defaultBranchOpsDeps,
   oplogDeps = defaultBranchOplogDeps,
 }: UseBranchOperationsParams) {
@@ -249,6 +273,20 @@ export function useBranchOperations({
   // branch を開いている間だけ、編集の宛先を branch 専用 op-log にする。
   // **これが載せ替えの要**: 旧経路では branch 中の編集も trunk の tap に流れていたため、
   // branch の編集が trunk の op-log を汚していた (W3d で branch を凍結した際の積み残し)。
+  // 受信で branch の中身を組み直す口 (T7-3)。組み直しは下で定義する `selectBranchFromOplog`
+  // を使うので ref で後から繋ぐ — tap に渡す callback は安定参照でなければならない
+  const reselectOnReceiveRef = useRef<() => void>(() => {});
+  const handleBranchReceived = useCallback(
+    (_fileId: FileId, _result: ReceivedSummary, tap: TapHandle) => {
+      void tap.settled().then(() => {
+        // 未 flush の編集が残っているうちは組み直さない (画面の編集を失わないため。
+        // trunk の `reprojectAfterReceive` と同じ判断)。次の受信契機が拾う
+        if (tap.pending() === 0) reselectOnReceiveRef.current();
+      });
+    },
+    [],
+  );
+
   const { record: branchSyncRecord, settled: branchSettled } = useEventSyncTap(
     activeBranch?.branchFileId ?? null,
     {
@@ -260,6 +298,13 @@ export function useBranchOperations({
       // local 専用」はここで外れる。別の端末・相手が branch の中身を読むための前提である。
       // 名簿 (roster) は渡さない — 参加者の branch を引くのは T7-3 で、trunk の名簿を借りる
       remoteQueue,
+      // 参加者の branch の編集を引く (T7-3)。読む相手と期間は trunk の名簿が決める
+      roster,
+      ...(activeBranch && { trunkFileId: activeBranch.trunkFileId }),
+      onReceived: handleBranchReceived,
+      ...(oplogDeps.appendReceived && {
+        appendReceived: oplogDeps.appendReceived,
+      }),
       ...(oplogDeps.createBranchProvider && {
         createLocalProvider: oplogDeps.createBranchProvider,
       }),
@@ -475,6 +520,15 @@ export function useBranchOperations({
     },
     [setAlertState, backToTrunk, selectBranchFromOplog],
   );
+
+  // 受信した branch の編集を画面に出す (T7-3)。開いている branch を op-log から組み直す。
+  // 失敗しても画面は受信前のまま残るだけなので、ダイアログは出さず診断ログに留める
+  reselectOnReceiveRef.current = () => {
+    if (!activeBranch || activeBranch.name === TRUNK_PREFIX) return;
+    selectBranchFromOplog(activeBranch.sheetId, activeBranch).catch((err) =>
+      console.warn('[branch] reprojection after receive failed:', err),
+    );
+  };
 
   const handleCreateBranch = useCallback(
     async (sheetId: SheetId) => {
@@ -759,8 +813,10 @@ export function useBranchOperations({
     ],
   );
 
-  // activeSheetId が変わったら branches を fetch
+  // activeSheetId が変わったら branches を fetch。trunk の受信 (`receiveEpoch`) でも読み直す —
+  // 相手の branch のメタは trunk の受信で届く (T7-3)
   const trunkFileId = activeFile?.id;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: receiveEpoch は読み直しの契機としてだけ使う
   useEffect(() => {
     if (!activeSheetId) return;
     // branch メタは trunk の op-log にあるので畳んでシートで絞る (T7-1)。ファイル未選択の
@@ -785,7 +841,7 @@ export function useBranchOperations({
         // (W3d5-7 の「無言の失敗」の教訓)。
         console.warn('[branch] ブランチ一覧の取得に失敗しました:', err);
       });
-  }, [activeSheetId, oplogDeps, trunkFileId]);
+  }, [activeSheetId, oplogDeps, trunkFileId, receiveEpoch]);
 
   return {
     activeBranch,

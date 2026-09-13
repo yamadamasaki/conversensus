@@ -164,6 +164,9 @@ export function createInMemoryBranchOplogDeps(): BranchOplogDeps & {
       return `id-${idCounter}`;
     },
 
+    // branch の受信の書き込み口 (T7-3)。本物と同じく新規に追記した件数を返す
+    appendReceived: async (fileId, items) => append(fileId, items),
+
     // branch tap の宛先。同じ batches ストアへ書くので、書いた直後の projection に載る
     createBranchProvider: (fileId) => ({
       push: async (items: Batch[]) => {
