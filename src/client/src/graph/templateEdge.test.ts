@@ -5,8 +5,12 @@ import {
   TemplateSchema,
   TOULMIN_TEMPLATE,
 } from '@conversensus/shared';
-import type { Node } from '@xyflow/react';
-import { canConnectByTemplate, edgeKindFor } from './templateEdge';
+import type { Edge, Node } from '@xyflow/react';
+import {
+  canConnectByTemplate,
+  canReconnectByTemplate,
+  edgeKindFor,
+} from './templateEdge';
 
 const KIND = kindPropertyOf(TOULMIN_TEMPLATE.id);
 const T = [TOULMIN_TEMPLATE];
@@ -26,6 +30,9 @@ const NODES = [
   node('warrant', 'warrant'),
   node('plain'),
 ];
+
+/** 主張が 2 つある集合。**繋ぎ替え先が同じ種類**という場合を作るために要る */
+const NODES2 = [...NODES, node('claim2', 'claim')];
 
 describe('edgeKindFor', () => {
   it('候補 1 なら種類を返す — 両端が決まれば自動で決まる', () => {
@@ -105,5 +112,64 @@ describe('canConnectByTemplate', () => {
 
   it('居ないノードを指すときは許す (止める根拠が無い)', () => {
     expect(canConnectByTemplate(T, NODES, 'missing', 'claim')).toBe(true);
+  });
+});
+
+describe('canReconnectByTemplate', () => {
+  /** その種類を持つ edge (実際に onConnect が書く形) */
+  const edgeOf = (kindId?: string): Edge =>
+    ({
+      id: 'e1',
+      source: 'data',
+      target: 'claim',
+      ...(kindId ? { data: { properties: { [KIND]: kindId } } } : {}),
+    }) as Edge;
+
+  it('種類が変わらない繋ぎ替えは許す — 支える先の主張を付け替える', () => {
+    // データA → 主張A を データA → 主張B に。組は (データ, 主張) のまま
+    expect(
+      canReconnectByTemplate(T, NODES2, edgeOf('supports'), 'data', 'claim2'),
+    ).toBe(true);
+  });
+
+  it('種類が変わる繋ぎ替えは拒否する — label が古いまま残るため', () => {
+    // データ → 主張 (支える) を 論拠 → 主張 に。種類は「正当化する」になる
+    expect(
+      canReconnectByTemplate(T, NODES2, edgeOf('supports'), 'warrant', 'claim'),
+    ).toBe(false);
+  });
+
+  it('toulmin node 以外への繋ぎ替えは拒否する — 種類が無くなる', () => {
+    expect(
+      canReconnectByTemplate(T, NODES2, edgeOf('supports'), 'data', 'plain'),
+    ).toBe(false);
+  });
+
+  it('許されない組への繋ぎ替えも拒否する', () => {
+    expect(
+      canReconnectByTemplate(T, NODES2, edgeOf('supports'), 'claim', 'data'),
+    ).toBe(false);
+  });
+
+  it('種類を持たない edge は今までどおり自由に繋ぎ替えられる', () => {
+    // **`canConnectByTemplate` と違い、元の edge を見るのがこの関数である**
+    expect(canReconnectByTemplate(T, NODES2, edgeOf(), 'claim', 'data')).toBe(
+      true,
+    );
+    expect(canReconnectByTemplate(T, NODES2, edgeOf(), 'data', 'plain')).toBe(
+      true,
+    );
+  });
+
+  it('template が当たっていなければ何でも許す', () => {
+    expect(
+      canReconnectByTemplate(
+        [],
+        NODES2,
+        edgeOf('supports'),
+        'warrant',
+        'claim',
+      ),
+    ).toBe(true);
   });
 });
