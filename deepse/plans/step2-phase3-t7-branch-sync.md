@@ -61,6 +61,27 @@ batch が違えば、同じ branch でも分岐点の状態が変わる** — �
 
 `BatchSchema` の範囲は `sheetId` だけで、branch を表すフィールドは無い。
 
+### 事実 G: T6 の fork は保存の時点で同一性と理由を失っている (2026-09-13 発見)
+
+fork は `ForkMeta = BranchMeta & { conflictKey, origin }` だが、**daemon の `saveBranch` は
+branch の列しか SQLite に書かない**。`conflictKey` と `origin` はどこにも保存されず、
+読み戻すと普通の branch になる (`isFork` が偽)。**`ForkOrigin` / `ForkMeta` には
+Zod スキーマも無い。**
+
+- 実データ (:3000) の「競合: …」という名前の branch 5 件は、**どれも `origin` /
+  `conflictKey` を持たない**
+- `writeForks` の重複防止は「読み戻した branch のうち `isFork` のものの `conflictKey`」と
+  突き合わせる (`writeForks.ts:86-88`)。**照合相手が常に空なので、重複防止が働いていない**。
+  T5 の検出は新着だけを見るので実際に重複するとは限らないが、「fork は二度と復活しない」
+  という書く理由そのものの保証が失われている
+- **テストでは見えなかった。**`inMemoryDeps` は `saveBranch` でオブジェクトを丸ごと
+  保持するので、欠落が起きない
+
+**T7 への影響**: 決定 2「既存の fork を op にして載せ直す」は、fork については
+**名前・分岐点・status しか復元できない** (理由と同一性は保存データに残っていない)。
+T7 で fork を `branch.create` op に載せれば構造的に直るが、そのためには `ForkOrigin` の
+スキーマが先に要る。
+
 ## 3. 中心の判断: 同期したとき branch の batch をどこに置くか
 
 | | A: branch 専用 file_id を同期する | B: trunk の fileId 内に branch の範囲を切る |
@@ -106,6 +127,11 @@ batch が違えば、同じ branch でも分岐点の状態が変わる** — �
    ずれうることは**既知の制約として記録する**。vector clock は step3 の第一候補として保留中
    なので、それと揃える
 4. **fork の到着の通知は T7 に含める。**受信で未知の fork を畳んだら通知する
+5. **事実 G (T6 の fork の欠落) は T7 の中で直す。**fork を `branch.create` op に載せれば
+   構造的に直る。SQLite に列を足す別の修正は、T7 で保存先ごと置き換えるので捨てる作業になる。
+   **T7 が入るまで重複防止は働かないまま**であることを受け入れる
+6. **既存の fork は普通の branch として載せ直す。**名前・分岐点・status は残し、
+   fork としての同一性と理由は保存データに無いので復元しない (決定 2 の fork への適用)
 
 ### 設計者が決める技術的な点 (実装時に単体で固める)
 
