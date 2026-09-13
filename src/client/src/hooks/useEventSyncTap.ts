@@ -21,17 +21,13 @@ import type {
 } from '@conversensus/shared';
 import { didFromActor } from '@conversensus/shared';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
-import {
-  fetchBatches,
-  fetchBranches,
-  pushReceivedBatches,
-  saveBranch,
-} from '../api';
+import { fetchBatches, pushReceivedBatches } from '../api';
 import { FanoutSyncProvider } from '../atproto/fanoutSyncProvider';
 import type { RemoteSyncQueue } from '../atproto/remoteSyncQueue';
 import { SYNC_POLL_INTERVAL_MS } from '../config';
 import type { GraphEvent } from '../events/GraphEvent';
 import { maxJudgmentClock } from '../sync/appendJudgment';
+import { branchMetaRecorder, readBranchMeta } from '../sync/branchMetaLog';
 import type { DetectedConflicts } from '../sync/conflicts';
 import { EventSyncTap } from '../sync/eventSyncTap';
 import { LocalServerSyncProvider } from '../sync/localServerSyncProvider';
@@ -41,13 +37,6 @@ import { receiveRemoteBatches } from '../sync/receiveRemoteBatches';
 import type { RosterSource } from '../sync/rosterSource';
 import type { SyncProvider } from '../sync/syncProvider';
 import type { ForkWriterDeps } from '../sync/writeForks';
-
-/** fork の器の既定。api をそのまま使う (deps は安定参照でなければならない) */
-const defaultForkDeps: ForkWriterDeps = {
-  fetchBranches,
-  saveBranch,
-  newId: () => crypto.randomUUID(),
-};
 
 /**
  * 受信通知に添える tap の待ち合わせ点 (Phase 4e-3, critic MED3)。
@@ -109,6 +98,9 @@ export type UseEventSyncTapOptions = {
   /**
    * fork の器 (step2 Phase 3 T6)。競合を保留した記録を branch として書く。
    * **安定参照であること** (`appendReceived` と同じ理由)。
+   *
+   * 省略すると **この tap の `record` で trunk の op-log に書き、`fetchLocal` の畳み込みから
+   * 読む** (T7-1)。fork は受信した File の trunk にぶら下がるので、宛先はこの tap である。
    */
   forkDeps?: ForkWriterDeps;
   /**
@@ -217,7 +209,7 @@ export function useEventSyncTap(
     createLocalProvider,
     appendReceived = pushReceivedBatches,
     fetchLocal = fetchBatches,
-    forkDeps = defaultForkDeps,
+    forkDeps: forkDepsOverride,
     onReceived,
     onRoster,
     onConflicts,
@@ -250,6 +242,21 @@ export function useEventSyncTap(
           })
         : null,
     [provider, actor, clockFloor],
+  );
+
+  // fork の器 (T7-1)。既定は tap の `record` から組み立てる — tap が作り直されたら
+  // 器も作り直す (古い tap の outbox へ書かない)
+  const forkDeps = useMemo<ForkWriterDeps>(
+    () =>
+      forkDepsOverride ?? {
+        readBranches: async (trunkFileId) => [
+          ...(await readBranchMeta(fetchLocal, trunkFileId)).branches.values(),
+        ],
+        recordBranchCreated: branchMetaRecorder((event) => tap?.record(event))
+          .branchCreated,
+        newId: () => crypto.randomUUID(),
+      },
+    [forkDepsOverride, fetchLocal, tap],
   );
 
   // clock は tap の作り直しをまたいで同じ参照でいてほしい (merge の deps に渡すため)

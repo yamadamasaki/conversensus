@@ -178,6 +178,30 @@ T7 で fork を `branch.create` op に載せれば構造的に直るが、その
 - 変異で確認: 重複除去を外すと冪等性の 2 件、fork の同一視を外すと 4 件、別名の解決を外すと
   1 件が落ちる
 
+### T7-1 で分かったこと (2026-09-13)
+
+- **書き込みの口を出来事ごとに分けた。**`saveBranch(meta)` は作成も状態の変更も同じ関数で
+  表していたので、op にするには差分から意図を推し量るしかない。`branchMetaRecorder` は
+  `branchCreated` / `statusChanged` / `removed` / `commitAdded` の 4 つで、trunk の tap の
+  `record` から作る。**sheetId を渡さない** — 渡すと content batch としてシートの projection に混ざる
+- **コミットの宛先は file_id ではなく `branchId` の有無になった。**以前は `saveCommit(fileId, …)` で
+  branch のコミットを branch 専用 file_id に、merge を trunk に書き分けていた。いまはどちらも
+  trunk の op-log に載り、畳み込みが `trunkCommits` / `branchCommits` に振り分ける。
+  `mergeBranch` の `recordCommit` は file_id も branchId も取らない — merge を branch 側に
+  書く経路そのものを作らない
+- **merge コミットの `at` は記録の batch を積む前に求める。**`branch.setStatus` / `commit.add` も
+  trunk の clock を進めるが、グラフの位置ではないので merge 位置に数えない
+- **削除で branch 専用 op-log の行が残る。**以前の server 側 1 tx の削除は SQLite のメタ行から
+  branch file_id を引いていたので、メタを op-log に移すと効かない (404 を成功扱いにしている)。
+  見えなくなるのは畳み込みによる。ローカルの掃除は T7-2 以降 (発見の基準と合わせて) で扱う
+- **fork の既定の器は tap の中で組み立てる。**以前は api を直に使うモジュール定数だったが、
+  記録先がこの File の trunk の tap になったので、tap が作り直されたら器も作り直す
+- `invertEvent` の網羅性検査が branch の 4 種を拾った。file 構造と同じく undo を通さないので
+  「反転不可」の枝に入れた
+- 変異で確認: merge で status を記録しないと 5 件、commit に branchId を付けないと 2 件、
+  fork を記録しないと 2 件、削除を記録しないと 1 件、fork の既存一覧を読まないと 1 件が落ちる。
+  **fork の既定の器 (`useEventSyncTap` の配線) を直接見るテストは無い** — T7-7 の実機で確かめる
+
 ## 7. Exit
 
 1. alice が切った branch が、bob の branch 一覧に出る

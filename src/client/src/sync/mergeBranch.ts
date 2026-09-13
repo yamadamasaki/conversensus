@@ -37,6 +37,7 @@ import {
   BRANCH_STATUS,
   type BranchId,
   type BranchMeta,
+  type BranchStatus,
   COMMIT_KIND,
   type Commit,
   type CommitId,
@@ -62,10 +63,16 @@ export type MergePreviewDeps = {
 export type MergeBranchDeps = MergePreviewDeps & {
   /** trunk op-log へ追記する。@returns 新規に追記された件数 */
   appendBatches: (fileId: FileId, batches: Batch[]) => Promise<number>;
-  /** branch メタを保存する (status を merged にする) */
-  saveBranch: (meta: BranchMeta) => Promise<BranchMeta>;
-  /** merge の記録を trunk 側へ保存する (ANA-122) */
-  saveCommit: (fileId: FileId, commit: Commit) => Promise<Commit>;
+  /**
+   * branch の status が変わったことを **trunk の op-log に記録する** (step2 Phase 3 T7-1)。
+   * 以前は daemon の SQLite へ保存していた (`saveBranch`) が、それでは相手に届かない
+   */
+  recordStatus: (branchId: BranchId, status: BranchStatus) => void;
+  /**
+   * merge の記録を **trunk のコミットとして** op-log に残す (ANA-122, T7-1)。
+   * 宛先の file_id を取らない — merge は trunk の履歴に属するので、branch 側に書く経路を作らない
+   */
+  recordCommit: (commit: Commit) => void;
   /** merge コミットの id を採番する */
   newId: () => string;
   /**
@@ -205,25 +212,23 @@ export async function mergeBranchOnOplog(
       ? await deps.appendBatches(meta.trunkFileId, restamped)
       : 0;
 
-  const branch = await deps.saveBranch({
-    ...meta,
-    status: BRANCH_STATUS.MERGED,
-  });
+  deps.recordStatus(meta.id, BRANCH_STATUS.MERGED);
+  const branch: BranchMeta = { ...meta, status: BRANCH_STATUS.MERGED };
 
   // merge を trunk 側の一級の記録として残す (ANA-122)。commit と同じ「ラベル付き
   // オフセット」の形なので、trunk の履歴から commit と merge を一列に引ける。
   // `at` は追記後の trunk 先端、`sourceAt` は取り込んだ branch op-log の先端 —
   // **両者は別系列の clock** なので片方だけでは merge 位置を復元できない。
-  const mergeCommit = await deps.saveCommit(
-    meta.trunkFileId,
-    makeMergeCommit(
-      deps.newId() as CommitId,
-      params.message,
-      params.actor,
-      [...trunkBatches, ...restamped],
-      { branchId: meta.id, at: tipClock(branchBatches) },
-    ),
+  // `at` は記録の batch を積む**前**に求める。記録そのものは file 構造の op なので
+  // グラフの位置には数えない。
+  const mergeCommit = makeMergeCommit(
+    deps.newId() as CommitId,
+    params.message,
+    params.actor,
+    [...trunkBatches, ...restamped],
+    { branchId: meta.id, at: tipClock(branchBatches) },
   );
+  deps.recordCommit(mergeCommit);
 
   // 再 projection: 追記後の trunk を読み直して畳む (畳み込みの第 2 実装を作らない)。
   // **ここでの失敗は merge の失敗ではない** — 追記も status 更新も既に成功している。

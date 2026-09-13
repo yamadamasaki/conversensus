@@ -1,7 +1,5 @@
 import {
   type Batch,
-  type BranchMeta,
-  type Commit,
   type CommitOperation,
   type FileId,
   type GraphFile,
@@ -141,12 +139,8 @@ export function createInMemoryFileSheetOpsDeps(): FileSheetOpsDeps & {
  */
 export function createInMemoryBranchOplogDeps(): BranchOplogDeps & {
   _batches: Map<string, Batch[]>;
-  _branches: Map<string, BranchMeta>;
-  _commits: Map<string, Commit[]>;
 } {
   const batches = new Map<string, Batch[]>();
-  const branches = new Map<string, BranchMeta>();
-  const commits = new Map<string, Commit[]>();
   let idCounter = 0;
 
   const append = (fileId: string, items: Batch[]): number => {
@@ -159,31 +153,10 @@ export function createInMemoryBranchOplogDeps(): BranchOplogDeps & {
 
   return {
     _batches: batches,
-    _branches: branches,
-    _commits: commits,
 
+    // branch / commit のメタもこのストアの trunk の op-log に載る (step2 Phase 3 T7-1)
     fetchBatches: async (fileId) => [...(batches.get(fileId) ?? [])],
     appendBatches: async (fileId, items) => append(fileId, items),
-
-    saveBranch: async (meta) => {
-      branches.set(meta.id, meta);
-      return meta;
-    },
-    fetchBranches: async (trunkFileId) =>
-      [...branches.values()].filter((b) => b.trunkFileId === trunkFileId),
-    deleteBranch: async (_trunkFileId, branchId) => {
-      const meta = branches.get(branchId);
-      if (!meta) return;
-      branches.delete(branchId);
-      batches.delete(meta.branchFileId);
-      commits.delete(meta.branchFileId);
-    },
-
-    saveCommit: async (fileId, commit) => {
-      commits.set(fileId, [...(commits.get(fileId) ?? []), commit]);
-      return commit;
-    },
-    fetchCommits: async (fileId) => [...(commits.get(fileId) ?? [])],
 
     // 決定論的な id。projection の tiebreak (clock→actor→id) を安定させる
     newId: () => {

@@ -44,7 +44,11 @@ export type BranchProjectionDeps = {
   /** file_id の op-log を取得する (trunk / branch とも同じ口) */
   fetchBatches: (fileId: FileId) => Promise<Batch[]>;
   /** branch メタを永続化する */
-  saveBranch: (meta: BranchMeta) => Promise<BranchMeta>;
+  /**
+   * branch を切ったことを **trunk の op-log に記録する** (step2 Phase 3 T7-1)。
+   * 以前は daemon の SQLite へ保存していた (`saveBranch`) が、それでは相手に届かない
+   */
+  recordBranchCreated: (meta: BranchMeta) => void;
   /** id を採番する (branch id / base コミット id / branch 専用 file_id) */
   newId: () => string;
 };
@@ -70,7 +74,8 @@ const baseCommitMessage = (branchName: string): string =>
  * メタとして保存するだけ。branch の中身は「base までの trunk + これから branch 側に
  * 積まれる batch」として読取時に導出される。
  *
- * 作成しても **trunk op-log には 1 件も書かない** ため、trunk の projection は不変。
+ * trunk の op-log には `branch.create` を 1 件書く (T7-1) が、file 構造の op なので
+ * **trunk のグラフの projection は不変**である。
  */
 export async function createBranchOnOplog(
   params: CreateBranchParams,
@@ -93,7 +98,8 @@ export async function createBranchOnOplog(
     trunkFileId: params.trunkFileId,
     branchFileId: deps.newId() as FileId,
   };
-  return deps.saveBranch(meta);
+  deps.recordBranchCreated(meta);
+  return meta;
 }
 
 /** UI が同時に要る 4 つの時点 (p5-4, ANA-119 S6)。1 回の読取から導出する */

@@ -90,9 +90,8 @@ function makeDeps(logs: Record<string, Batch[]>) {
   let seq = 0;
   const deps: BranchProjectionDeps = {
     fetchBatches: async (fileId) => logs[fileId] ?? [],
-    saveBranch: async (meta) => {
+    recordBranchCreated: (meta) => {
       saved.push(meta);
-      return meta;
     },
     newId: () => {
       seq += 1;

@@ -36,9 +36,16 @@ import {
 import type { DetectedConflicts } from './conflicts';
 
 export type ForkWriterDeps = {
-  /** trunk にぶら下がる branch (fork を含む) を引く。重複を避けるのに使う */
-  fetchBranches: (trunkFileId: FileId) => Promise<BranchMeta[]>;
-  saveBranch: (meta: BranchMeta) => Promise<BranchMeta>;
+  /**
+   * trunk にぶら下がる branch (fork を含む) を**trunk の op-log の畳み込みから**引く。
+   * 重複を避けるのに使う (step2 Phase 3 T7-1)
+   */
+  readBranches: (trunkFileId: FileId) => Promise<BranchMeta[]>;
+  /**
+   * fork を **trunk の op-log に記録する** (T7-1)。以前は SQLite へ保存していたが、
+   * その時点で `conflictKey` と `origin` が落ちていた (設計 事実 G)
+   */
+  recordBranchCreated: (meta: BranchMeta) => void;
   newId: () => string;
 };
 
@@ -83,7 +90,7 @@ export async function writeForksForConflicts(
   const needsFork = input.detected.conflicts.filter(requiresConfirmation);
   if (needsFork.length === 0) return [];
 
-  const existing = await deps.fetchBranches(input.trunkFileId);
+  const existing = await deps.readBranches(input.trunkFileId);
   const known = new Set(
     existing.filter(isFork).map((fork) => fork.conflictKey),
   );
@@ -111,7 +118,7 @@ export async function writeForksForConflicts(
       authorActor: input.actor,
       newId: deps.newId,
     });
-    await deps.saveBranch(fork);
+    deps.recordBranchCreated(fork);
     written.push(fork);
   }
   return written;

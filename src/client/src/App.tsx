@@ -163,6 +163,8 @@ export default function App() {
     actor,
     // merge の再スタンプは trunk と同じ発番器で行う (p5-4)
     trunkClock: fileOps.trunkClock,
+    // branch / commit のメタは trunk の op-log に記録する (step2 Phase 3 T7-1)
+    trunkRecord: fileOps.syncRecord,
   });
 
   // Cross-domain wired callbacks

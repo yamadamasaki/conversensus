@@ -102,10 +102,9 @@ function fakeRemote(
         return byRepo[repo] ?? [];
       },
       fetchLocal: async (_fileId: FileId) => local,
-      fetchBranches: async (_trunkFileId: FileId) => branches,
-      saveBranch: async (meta: BranchMeta) => {
+      readBranches: async (_trunkFileId: FileId) => branches,
+      recordBranchCreated: (meta: BranchMeta) => {
         branches.push(meta);
-        return meta;
       },
       newId: () => {
         idSeq += 1;

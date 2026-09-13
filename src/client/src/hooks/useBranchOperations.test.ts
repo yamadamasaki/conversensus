@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test';
 import type {
+  Batch,
   BranchMeta,
   CommitOperation,
   FileId,
@@ -7,6 +8,7 @@ import type {
   NodeId,
   SheetId,
 } from '@conversensus/shared';
+import type { GraphEvent } from '../events/GraphEvent';
 import {
   createInMemoryBranchOplogDeps,
   createInMemoryBranchOpsDeps,
@@ -25,7 +27,18 @@ const {
   resolveBranchDiffState,
   useBranchOperations,
 } = await import('./useBranchOperations');
-const { LamportClock } = await import('@conversensus/shared');
+const { LamportClock, tipClock } = await import('@conversensus/shared');
+const { graphEventToBatch } = await import('../events/toUnified');
+const { readBranchMeta } = await import('../sync/branchMetaLog');
+
+/** trunk の op-log を畳んだ branch / commit のメタ (T7-1: SQLite の代わり) */
+const metaOf = (oplogDeps: {
+  fetchBatches: (id: FileId) => Promise<Batch[]>;
+}) => readBranchMeta(oplogDeps.fetchBatches, TRUNK_ID);
+
+/** trunk のグラフの batch だけ (branch / commit のメタの batch を除く) */
+const graphBatchesOf = (log: Batch[] | undefined) =>
+  (log ?? []).filter((b) => b.sheetId !== undefined);
 
 /** merge の再スタンプ用 clock。本番では trunk の tap のものを渡す */
 const makeClock = () => {
@@ -192,6 +205,21 @@ async function renderOplog(
     };
   }
   const clock = makeClock();
+  /**
+   * trunk の tap の代わり (T7-1)。本物の tap と同じく **op-log の先端から発番**して
+   * trunk の op-log に積む。同期的に積むので、書いた直後の畳み込みに載る
+   */
+  const trunkRecord = (event: GraphEvent) => {
+    const log = oplogDeps._batches.get(TRUNK_ID) ?? [];
+    clock.seed(tipClock(log));
+    oplogDeps._batches.set(TRUNK_ID, [
+      ...log,
+      graphEventToBatch(event, {
+        clock: clock.tick(),
+        actor: 'did:plc:alice#dev1',
+      }),
+    ]);
+  };
   const view = renderHook(
     ({ activeFile, activeSheetId, activeSheet }) =>
       useBranchOperations({
@@ -207,6 +235,7 @@ async function renderOplog(
         oplogDeps,
         actor: 'did:plc:alice#dev1',
         trunkClock: clock,
+        trunkRecord,
       }),
     {
       initialProps: {
@@ -265,7 +294,7 @@ async function selectWithStatus(
   view: Awaited<ReturnType<typeof withOpenBranch>>,
   status: 'open' | 'merged' | 'closed',
 ) {
-  const meta = await view.oplogDeps.saveBranch({ ...view.branch, status });
+  const meta: BranchMeta = { ...view.branch, status };
   await act(async () => {
     await view.result.current.handleSelectBranch(SHEET_ID, meta);
   });
@@ -459,9 +488,16 @@ describe('useBranchOperations — branch 操作 (op-log)', () => {
       // base は現在のログ先端 (tipClock)
       expect(meta.base.at).toBe(3);
       expect(meta.trunkFileId).toBe(TRUNK_ID);
-      // trunk は 1 件も増えず、branch 専用 op-log も空のまま (複製しない)
-      expect(oplogDeps._batches.get(TRUNK_ID)).toHaveLength(1);
+      // trunk のグラフは 1 件も増えず、branch 専用 op-log も空のまま (複製しない)
+      const trunkLog = oplogDeps._batches.get(TRUNK_ID);
+      expect(graphBatchesOf(trunkLog)).toHaveLength(1);
       expect(oplogDeps._batches.get(meta.branchFileId) ?? []).toHaveLength(0);
+      // 増えるのは trunk の op-log の `branch.create` 1 件だけ (T7-1: 相手に届く)
+      expect(trunkLog?.flatMap((b) => b.ops).map((op) => op.kind)).toEqual([
+        'node.add',
+        'branch.create',
+      ]);
+      expect((await metaOf(oplogDeps)).branches.get(meta.id)).toEqual(meta);
     });
   });
 
@@ -472,7 +508,9 @@ describe('useBranchOperations — branch 操作 (op-log)', () => {
       const passed = mockOnSetActiveFile.mock.calls.at(-1)?.[0];
       const sheet = passed?.sheets.find((s) => s.id === SHEET_ID);
       expect(sheet?.nodes.map((n) => n.content)).toEqual(['trunk']);
-      expect(oplogDeps._branches.get(branch.id)?.status).toBe('open');
+      expect((await metaOf(oplogDeps)).branches.get(branch.id)?.status).toBe(
+        'open',
+      );
     });
 
     it('trunk に戻ると分岐前のファイルへ復帰する', async () => {
@@ -512,7 +550,8 @@ describe('useBranchOperations — branch 操作 (op-log)', () => {
         await new Promise((r) => setTimeout(r, 10));
       });
 
-      expect(oplogDeps._batches.get(TRUNK_ID)).toHaveLength(1); // trunk 不変
+      // trunk のグラフは不変
+      expect(graphBatchesOf(oplogDeps._batches.get(TRUNK_ID))).toHaveLength(1);
       const branchLog = oplogDeps._batches.get(branch.branchFileId) ?? [];
       expect(branchLog).toHaveLength(1);
       expect(branchLog[0]?.actor).toBe('did:plc:alice#dev1');
@@ -550,7 +589,8 @@ describe('useBranchOperations — branch 操作 (op-log)', () => {
         await result.current.handleCommit('編集をコミット');
       });
 
-      const commits = oplogDeps._commits.get(branch.branchFileId) ?? [];
+      const commits =
+        (await metaOf(oplogDeps)).branchCommits.get(branch.id) ?? [];
       expect(commits).toHaveLength(1);
       // at = branch op-log の先端。差分そのものは持たない
       const branchLog = oplogDeps._batches.get(branch.branchFileId) ?? [];
@@ -574,7 +614,8 @@ describe('useBranchOperations — branch 操作 (op-log)', () => {
       });
 
       const branchLog = oplogDeps._batches.get(branch.branchFileId) ?? [];
-      const commits = oplogDeps._commits.get(branch.branchFileId) ?? [];
+      const commits =
+        (await metaOf(oplogDeps)).branchCommits.get(branch.id) ?? [];
       expect(branchLog).toHaveLength(1);
       expect(commits[0]?.at).toBe(branchLog[0]?.clock as number);
     });
@@ -584,7 +625,9 @@ describe('useBranchOperations — branch 操作 (op-log)', () => {
       await act(async () => {
         await result.current.handleCommit('空コミット');
       });
-      expect(oplogDeps._commits.get(branch.branchFileId) ?? []).toHaveLength(0);
+      expect(
+        (await metaOf(oplogDeps)).branchCommits.get(branch.id) ?? [],
+      ).toHaveLength(0);
     });
   });
 
@@ -623,12 +666,15 @@ describe('useBranchOperations — branch 操作 (op-log)', () => {
     it('理由を入力しなければ merge しない', async () => {
       const { result, branch, oplogDeps } = await withOpenBranch();
       answerMergeReason('   '); // 空白だけ = 入力ダイアログのキャンセルと同じ
+      const before = (oplogDeps._batches.get(TRUNK_ID) ?? []).length;
       await act(async () => {
         await result.current.handleMergeBranch(branch);
       });
-      expect(oplogDeps._batches.get(TRUNK_ID)).toHaveLength(1);
-      expect(oplogDeps._branches.get(branch.id)?.status).toBe('open');
-      expect(oplogDeps._commits.get(TRUNK_ID) ?? []).toHaveLength(0);
+      expect(oplogDeps._batches.get(TRUNK_ID)).toHaveLength(before);
+      expect((await metaOf(oplogDeps)).branches.get(branch.id)?.status).toBe(
+        'open',
+      );
+      expect((await metaOf(oplogDeps)).trunkCommits).toHaveLength(0);
     });
 
     it('merge の記録が trunk 側の commits に kind=merge で残る', async () => {
@@ -642,7 +688,7 @@ describe('useBranchOperations — branch 操作 (op-log)', () => {
         await result.current.handleMergeBranch(branch);
       });
 
-      const commits = oplogDeps._commits.get(TRUNK_ID) ?? [];
+      const commits = (await metaOf(oplogDeps)).trunkCommits;
       expect(commits).toHaveLength(1);
       expect(commits[0]?.kind).toBe('merge');
       expect(commits[0]?.message).toBe('案 A を採用したため');
@@ -694,8 +740,10 @@ describe('useBranchOperations — branch 操作 (op-log)', () => {
         );
         // **1 件も載らない。**理由の入力にも進まない (押さなければ何も起きない)
         expect(oplogDeps._batches.get(TRUNK_ID) ?? []).toHaveLength(before);
-        expect(oplogDeps._branches.get(branch.id)?.status).toBe('open');
-        expect(oplogDeps._commits.get(TRUNK_ID) ?? []).toHaveLength(0);
+        expect((await metaOf(oplogDeps)).branches.get(branch.id)?.status).toBe(
+          'open',
+        );
+        expect((await metaOf(oplogDeps)).trunkCommits).toHaveLength(0);
         expect(mockSetInputState).not.toHaveBeenCalled();
       });
 
@@ -712,8 +760,10 @@ describe('useBranchOperations — branch 操作 (op-log)', () => {
         expect((oplogDeps._batches.get(TRUNK_ID) ?? []).length).toBeGreaterThan(
           before,
         );
-        expect(oplogDeps._branches.get(branch.id)?.status).toBe('merged');
-        expect(oplogDeps._commits.get(TRUNK_ID) ?? []).toHaveLength(1);
+        expect((await metaOf(oplogDeps)).branches.get(branch.id)?.status).toBe(
+          'merged',
+        );
+        expect((await metaOf(oplogDeps)).trunkCommits).toHaveLength(1);
       });
 
       it('🔴 layout の対立だけなら確認を出さない (3 段の一番下, Phase 3 T3)', async () => {
@@ -737,9 +787,9 @@ describe('useBranchOperations — branch 操作 (op-log)', () => {
         });
 
         expect(mockSetConfirmState).not.toHaveBeenCalled();
-        expect(view.oplogDeps._branches.get(view.branch.id)?.status).toBe(
-          'merged',
-        );
+        expect(
+          (await metaOf(view.oplogDeps)).branches.get(view.branch.id)?.status,
+        ).toBe('merged');
       });
 
       it('🔴 適用した結果の対立を画面へ渡す (Phase 3 T4)', async () => {
@@ -790,7 +840,9 @@ describe('useBranchOperations — branch 操作 (op-log)', () => {
         });
 
         expect(mockSetConfirmState).not.toHaveBeenCalled();
-        expect(oplogDeps._branches.get(branch.id)?.status).toBe('merged');
+        expect((await metaOf(oplogDeps)).branches.get(branch.id)?.status).toBe(
+          'merged',
+        );
       });
     });
   });
@@ -804,11 +856,13 @@ describe('useBranchOperations — branch 操作 (op-log)', () => {
       await act(async () => {
         await result.current.handleCloseBranch(branch);
       });
-      expect(oplogDeps._branches.get(branch.id)?.status).toBe('closed');
+      expect((await metaOf(oplogDeps)).branches.get(branch.id)?.status).toBe(
+        'closed',
+      );
       expect(result.current.activeBranch).toBeNull();
     });
 
-    it('delete はメタと branch 専用 op-log をまとめて消す', async () => {
+    it('delete は branch.remove を記録し、一覧から消える (一度消したら戻らない)', async () => {
       const { result, branch, oplogDeps } = await withOpenBranch();
       await act(async () => {
         result.current.branchSyncRecord?.(relabel('編集'), SHEET_ID);
@@ -820,8 +874,12 @@ describe('useBranchOperations — branch 操作 (op-log)', () => {
       await act(async () => {
         await result.current.handleDeleteBranch(branch);
       });
-      expect(oplogDeps._branches.has(branch.id)).toBe(false);
-      expect(oplogDeps._batches.has(branch.branchFileId)).toBe(false);
+      expect((await metaOf(oplogDeps)).branches.has(branch.id)).toBe(false);
+      expect(
+        (oplogDeps._batches.get(TRUNK_ID) ?? [])
+          .flatMap((b) => b.ops)
+          .some((op) => op.kind === 'branch.remove'),
+      ).toBe(true);
       expect(result.current.sheetBranches.get(SHEET_ID)).toEqual([]);
     });
   });
@@ -1055,7 +1113,7 @@ describe('useBranchOperations — 差分状態 (ANA-120)', () => {
         realChanges: true,
         reuse: view.oplogDeps,
       });
-      const merged = (await view.oplogDeps.fetchBranches(TRUNK_ID)).find(
+      const merged = [...(await metaOf(view.oplogDeps)).branches.values()].find(
         (b) => b.id === view.branch.id,
       );
       if (!merged) throw new Error('merge 済み branch が見つからない');

@@ -32,6 +32,7 @@ import {
   type Batch,
   BatchIdSchema,
   diffProperties,
+  isFork,
   nodeSetLayoutOp,
   type Op,
 } from '@conversensus/shared';
@@ -317,6 +318,43 @@ export function graphEventToOps(event: GraphEvent): Op[] {
       ];
     case 'FILE_DELETED':
       return [{ kind: 'file.remove' }];
+    // branch / commit のメタ (step2 Phase 3 T7)
+    case 'BRANCH_CREATED': {
+      const { meta } = event;
+      return [
+        {
+          kind: 'branch.create',
+          target: meta.id,
+          name: meta.name,
+          sheetId: meta.sheetId,
+          branchFileId: meta.branchFileId,
+          base: meta.base,
+          // fork の同一性と理由も載せる。以前は保存の時点で失われていた (設計 事実 G)
+          ...(isFork(meta) && {
+            conflictKey: meta.conflictKey,
+            origin: meta.origin,
+          }),
+        },
+      ];
+    }
+    case 'BRANCH_STATUS_CHANGED':
+      return [
+        {
+          kind: 'branch.setStatus',
+          target: event.branchId,
+          status: event.status,
+        },
+      ];
+    case 'BRANCH_REMOVED':
+      return [{ kind: 'branch.remove', target: event.branchId }];
+    case 'COMMIT_ADDED':
+      return [
+        {
+          kind: 'commit.add',
+          commit: event.commit,
+          ...(event.branchId !== undefined && { branchId: event.branchId }),
+        },
+      ];
     default:
       return [];
   }

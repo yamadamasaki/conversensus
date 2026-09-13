@@ -4,6 +4,7 @@ import {
   BRANCH_STATUS,
   type BranchId,
   type BranchMeta,
+  type BranchStatus,
   COMMIT_KIND,
   type Commit,
   type CommitId,
@@ -89,9 +90,10 @@ const mergeParams = () => ({ message: '案A を取り込む', actor: ACTOR });
  */
 function makeDeps(logs: Record<string, Batch[]>, initialClock = 0) {
   const clock = new LamportClock(initialClock);
-  const saved: BranchMeta[] = [];
-  /** file_id ごとに保存されたコミット (merge の記録の宛先を検証する) */
-  const commits: Record<string, Commit[]> = {};
+  /** trunk の op-log に記録された status の変更 */
+  const saved: { branchId: BranchId; status: BranchStatus }[] = [];
+  /** trunk の op-log に記録されたコミット (宛先は常に trunk) */
+  const commits: Commit[] = [];
   let idSeq = 0;
   const deps: MergeBranchDeps = {
     fetchBatches: async (fileId) => [...(logs[fileId] ?? [])],
@@ -102,13 +104,11 @@ function makeDeps(logs: Record<string, Batch[]>, initialClock = 0) {
       logs[fileId] = [...log, ...fresh];
       return fresh.length;
     },
-    saveBranch: async (meta) => {
-      saved.push(meta);
-      return meta;
+    recordStatus: (branchId, status) => {
+      saved.push({ branchId, status });
     },
-    saveCommit: async (fileId, commit) => {
-      commits[fileId] = [...(commits[fileId] ?? []), commit];
-      return commit;
+    recordCommit: (commit) => {
+      commits.push(commit);
     },
     newId: () => {
       idSeq += 1;
@@ -162,7 +162,7 @@ describe('previewMerge (Phase 3 T1)', () => {
       expect(logs[TRUNK]).toEqual(before.trunk);
       expect(logs[BRANCH_LOG]).toEqual(before.branch);
       expect(saved).toEqual([]); // branch は open のまま
-      expect(commits).toEqual({});
+      expect(commits).toEqual([]);
     });
   });
 
@@ -306,8 +306,9 @@ describe('mergeBranchOnOplog', () => {
     const { deps, saved } = makeDeps(logs);
     const result = await mergeBranchOnOplog(branchMeta(), mergeParams(), deps);
     expect(result.branch.status).toBe(BRANCH_STATUS.MERGED);
-    expect(saved).toHaveLength(1);
-    expect(saved[0]?.status).toBe(BRANCH_STATUS.MERGED);
+    expect(saved).toEqual([
+      { branchId: branchMeta().id, status: BRANCH_STATUS.MERGED },
+    ]);
   });
 
   // 🔴 M3 の核心。id を保持しているので 2 回目は appendBatch のべき等性で無視される。
@@ -390,7 +391,8 @@ describe('mergeBranchOnOplog', () => {
    * 「いつ・誰が・何のために merge したか」がどこにも残らなかった。
    */
   describe('merge の記録', () => {
-    it('trunk 側の commits に kind=merge として残る', async () => {
+    it('trunk のコミットとして kind=merge で記録される', async () => {
+      // 宛先は `recordCommit` が trunk 固定であることで保証する (branch 側に書く口が無い)
       const logs = { [TRUNK]: trunkLog(), [BRANCH_LOG]: branchLog() };
       const { deps, commits } = makeDeps(logs);
       const result = await mergeBranchOnOplog(
@@ -399,14 +401,12 @@ describe('mergeBranchOnOplog', () => {
         deps,
       );
 
-      expect(commits[TRUNK]).toHaveLength(1);
-      const recorded = commits[TRUNK]?.[0];
+      expect(commits).toHaveLength(1);
+      const recorded = commits[0];
       expect(recorded).toEqual(result.mergeCommit);
       expect(recorded?.kind).toBe(COMMIT_KIND.MERGE);
       expect(recorded?.message).toBe('案A を取り込む');
       expect(recorded?.authorActor).toBe(ACTOR);
-      // branch 側の commits には書かない (merge は trunk の履歴に属する)
-      expect(commits[BRANCH_LOG]).toBeUndefined();
     });
 
     it('at は追記後の trunk 先端、sourceAt は branch op-log の先端を指す', async () => {
@@ -435,7 +435,7 @@ describe('mergeBranchOnOplog', () => {
       );
 
       expect(result.appended).toBe(0);
-      expect(commits[TRUNK]).toHaveLength(1);
+      expect(commits).toHaveLength(1);
       // 載せたものが無いので trunk 先端は元のまま、branch 側は空なので 0
       expect(result.mergeCommit.at).toBe(3);
       expect(result.mergeCommit.sourceAt).toBe(0);
@@ -447,9 +447,9 @@ describe('mergeBranchOnOplog', () => {
       await mergeBranchOnOplog(branchMeta(), mergeParams(), deps);
       await mergeBranchOnOplog(branchMeta(), mergeParams(), deps);
 
-      expect(commits[TRUNK]).toHaveLength(2);
+      expect(commits).toHaveLength(2);
       // id は採番のたびに変わるので、2 件が別の記録として残る
-      expect(commits[TRUNK]?.[0]?.id).not.toBe(commits[TRUNK]?.[1]?.id);
+      expect(commits[0]?.id).not.toBe(commits[1]?.id);
     });
   });
 });
