@@ -5,6 +5,7 @@ import {
   type ConversensusFile,
   type Did,
   type FileId,
+  type ForkMeta,
   type GraphFile,
   type GraphFileListItem,
   type Lamport,
@@ -127,6 +128,11 @@ interface UseFileSheetOperationsParams {
    * この報告は自動では出ない印なので、上書きすると人が見に行く前に消える。
    */
   onOverwrites: (detected: DetectedOverwrites) => void;
+  /**
+   * 相手が書いた fork (保留した競合) の到着を画面へ渡す (step2 Phase 3 T7-5)。
+   * 上書きの報告と同じく**受け手が溜める**。省略すると通知しない
+   */
+  onForksArrived?: (forks: readonly ForkMeta[]) => void;
   deps?: FileSheetOpsDeps;
   /**
    * テスト用: op-log tap の record を差し替える。未指定なら内部 tap (LocalServerSyncProvider)。
@@ -158,6 +164,7 @@ export function useFileSheetOperations({
   setAlertState,
   setConflictNotice,
   onOverwrites,
+  onForksArrived,
   deps = defaultFileSheetOpsDeps,
   syncRecord: syncRecordOverride,
   remoteQueue = null,
@@ -257,6 +264,14 @@ export function useFileSheetOperations({
       onOverwrites(detected);
     },
     [onOverwrites],
+  );
+
+  /** 相手が保留した競合の到着を画面へ渡す (T7-5)。競合の通知に出るが、溜めるのは受け手 */
+  const handleForksArrived = useCallback(
+    (_fileId: FileId, forks: ForkMeta[]) => {
+      onForksArrived?.(forks);
+    },
+    [onForksArrived],
   );
 
   const handleRoster = useCallback(
@@ -413,6 +428,7 @@ export function useFileSheetOperations({
     onRoster: handleRoster,
     onConflicts: handleConflicts,
     onOverwrites: handleOverwrites,
+    onForksArrived: handleForksArrived,
     onSynced: handleSynced,
   });
   const syncRecord = syncRecordOverride ?? internalSyncRecord;

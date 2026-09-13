@@ -50,6 +50,7 @@ import type {
 } from '@conversensus/shared';
 import type { RemoteBatch } from '../atproto/types';
 import { type DetectedConflicts, detectIncomingConflicts } from './conflicts';
+import { detectArrivedForks } from './forkArrival';
 import {
   type DetectedOverwrites,
   detectOverwrites,
@@ -122,6 +123,13 @@ export type ReceiveParticipantResult = CollectParticipantResult & {
    * 理由を凍結できないからである。
    */
   forks: ForkMeta[];
+  /**
+   * この受信で届いた、**相手が書いた** fork (step2 Phase 3 T7-5)。
+   *
+   * `forks` の裏側である。競合を検出するのは LWW で勝つ側だけなので、負けた側は
+   * 自分では fork を書かず、相手の fork の到着でしか保留があることを知らない
+   */
+  arrivedForks: ForkMeta[];
 };
 
 /**
@@ -220,6 +228,7 @@ export async function receiveParticipantBatches(
       conflicts: noConflicts,
       overwrites: NO_OVERWRITES,
       forks: [],
+      arrivedForks: [],
     };
 
   // **追記の前に検出する** (step2 Phase 3 T5)。分岐点は受信前の手元の状態なので、
@@ -250,6 +259,15 @@ export async function receiveParticipantBatches(
     deps,
   );
 
+  // **相手が書いた fork の到着も同じ分岐点で採る** (step2 Phase 3 T7-5)。追記の後では
+  // 受信前に知っていた fork と区別できない。自分が今書いた fork は競合の通知が伝えるので除く
+  const arrivedForks = detectArrivedForks({
+    trunkFileId: fileId,
+    local,
+    incoming,
+    written: forks,
+  });
+
   const appended = await deps.appendReceived(fileId, collected.batches);
 
   // 受信規則。**書き込みが成功してから前進させる** — 失敗して取り込めていないのに
@@ -265,5 +283,6 @@ export async function receiveParticipantBatches(
     conflicts,
     overwrites,
     forks,
+    arrivedForks,
   };
 }

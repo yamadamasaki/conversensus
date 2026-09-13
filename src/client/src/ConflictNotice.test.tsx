@@ -1,9 +1,13 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test';
-import type {
-  Batch,
-  EdgeId,
-  MergeConflict,
-  NodeId,
+import {
+  type Batch,
+  type EdgeId,
+  type FileId,
+  type ForkMeta,
+  type MergeConflict,
+  makeFork,
+  type NodeId,
+  type SheetId,
 } from '@conversensus/shared';
 
 const { render, screen, fireEvent, cleanup } = await import(
@@ -206,6 +210,72 @@ describe('ConflictNotice', () => {
     // 人が押した merge は保留ではなく取り込みである
     renderNotice([content(NODE)]);
     expect(screen.queryByText(/保留として記録/)).toBeNull();
+  });
+
+  describe('相手が保留した競合の到着 (Phase 3 T7-5)', () => {
+    let idSeq = 0;
+    /** 本物と同じ経路で作った fork。名前と「何が起きたか」は記述 (`origin`) から出る */
+    const fork = (conflict: MergeConflict, targetLabel: string): ForkMeta =>
+      makeFork({
+        conflict,
+        targetLabel,
+        batchOf: () => undefined,
+        localBatches: [],
+        sheetId: 'ssssssss-0000-4000-8000-000000000000' as SheetId,
+        trunkFileId: 'ffffffff-0000-4000-8000-000000000000' as FileId,
+        authorActor: 'did:plc:bob#dev-b',
+        newId: () => {
+          idSeq += 1;
+          return `${idSeq.toString(16).padStart(8, '0')}-0000-4000-8000-000000000000`;
+        },
+      });
+
+    it('🔴 競合が無くても、届いた保留があれば出す (負けた側の唯一の知らせ)', () => {
+      render(
+        <ConflictNotice
+          conflicts={[]}
+          labelOf={labelOf}
+          arrivedForks={[fork(content(NODE), '要件A')]}
+          onClose={onClose}
+        />,
+      );
+      expect(
+        screen.getByText('相手が保留した競合が 1 件届きました'),
+      ).toBeTruthy();
+      expect(screen.getByText('要件A')).toBeTruthy();
+      // 検出した競合と同じ言い方にする (別の出来事に見せない)
+      expect(screen.getByText(/内容を二人が別々に書き換えました/)).toBeTruthy();
+    });
+
+    it('競合と並べて出す (見出しは検出した競合の件数)', () => {
+      render(
+        <ConflictNotice
+          conflicts={[layout(NODE, 'position')]}
+          labelOf={labelOf}
+          arrivedForks={[fork(structure(OTHER, 'removeDependency'), '要件B')]}
+          onClose={onClose}
+        />,
+      );
+      expect(
+        screen.getByText('merge で 1 件の競合を検出しました'),
+      ).toBeTruthy();
+      expect(screen.getByText(/相手が保留した競合 1 件/)).toBeTruthy();
+      expect(
+        screen.getByText(/片方が消したものを、もう片方が使っています/),
+      ).toBeTruthy();
+    });
+
+    it('名前が無い要素は、無いと分かる形で出す', () => {
+      render(
+        <ConflictNotice
+          conflicts={[]}
+          labelOf={labelOf}
+          arrivedForks={[fork(content(NODE), '')]}
+          onClose={onClose}
+        />,
+      );
+      expect(screen.getByText('(名前のない要素)')).toBeTruthy();
+    });
   });
 
   it('閉じられる', () => {

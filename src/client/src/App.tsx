@@ -2,6 +2,7 @@ import {
   BRANCH_STATUS,
   type Did,
   type FileId,
+  type ForkMeta,
   type GraphFile,
   type Sheet,
   type SheetId,
@@ -38,6 +39,7 @@ import { ParticipationHistoryDialog } from './ParticipationHistoryDialog';
 import { ReadOnlyProvider } from './readOnlyContext';
 import { FLOATING_UI_Z_INDEX } from './SettingsPopup';
 import { Sidebar } from './Sidebar';
+import { accumulateArrivedForks, NO_ARRIVED_FORKS } from './sync/forkArrival';
 import {
   accumulateOverwrites,
   type DetectedOverwrites,
@@ -77,6 +79,16 @@ export default function App() {
     useState<OverwriteNoticeState>(NO_OVERWRITE_NOTICE);
   const handleOverwrites = useCallback((detected: DetectedOverwrites) => {
     setOverwriteNotice((prev) => accumulateOverwrites(prev, detected));
+  }, []);
+  /**
+   * 相手が保留した競合 (fork) の到着 (Phase 3 T7-5)。**競合の通知に出す** — 仕様は fork の
+   * 通知を対話グラフ (DtR) への入口とする。ただし競合の検出は毎回置き換わるので、同じ state に
+   * 入れると次の検出で消える。受信サイクルをまたいで溜め、通知を閉じたときに一緒に消す
+   */
+  const [arrivedForks, setArrivedForks] =
+    useState<readonly ForkMeta[]>(NO_ARRIVED_FORKS);
+  const handleForksArrived = useCallback((forks: readonly ForkMeta[]) => {
+    setArrivedForks((prev) => accumulateArrivedForks(prev, forks));
   }, []);
   /** 上書きの報告の対象名。競合と同じ「分岐点での名前」から引く */
   const overwriteLabelOf = useCallback(
@@ -143,6 +155,7 @@ export default function App() {
     setAlertState,
     setConflictNotice,
     onOverwrites: handleOverwrites,
+    onForksArrived: handleForksArrived,
     remoteQueue,
     actor,
     // 多アクタ同期は名簿を先に読む (step2 Phase 2 S2)。ダイアログと同じ供給元である
@@ -559,9 +572,11 @@ export default function App() {
           conflicts={conflictNotice.conflicts}
           labelOf={conflictLabelOf}
           forkCount={conflictNotice.forkCount ?? 0}
-          onClose={() =>
-            setConflictNotice({ conflicts: [], labels: new Map() })
-          }
+          arrivedForks={arrivedForks}
+          onClose={() => {
+            setConflictNotice({ conflicts: [], labels: new Map() });
+            setArrivedForks(NO_ARRIVED_FORKS);
+          }}
         />
         <OverwriteNotice
           reports={overwriteNotice.reports}

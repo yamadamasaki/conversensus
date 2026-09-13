@@ -15,6 +15,7 @@ import type {
   Actor,
   Batch,
   FileId,
+  ForkMeta,
   Lamport,
   Participation,
   SheetId,
@@ -163,6 +164,14 @@ export type UseEventSyncTapOptions = {
    */
   onOverwrites?: (fileId: FileId, detected: DetectedOverwrites) => void;
   /**
+   * 相手が書いた fork が届いたときの通知 (step2 Phase 3 T7-5)。
+   *
+   * **0 件のときは呼ばない** (`onConflicts` と同じ理由)。受け手は溜める — 競合の通知は
+   * 検出のたびに置き換わるので、同じ入れ物だと次の検出で消える。
+   * **安定参照であること**。
+   */
+  onForksArrived?: (fileId: FileId, forks: ForkMeta[]) => void;
+  /**
    * 受信のサイクルが**最後まで走った**ことの合図 (step2 Phase 2 S6)。
    *
    * **`onReceived` では代わりにならない** — あれは着地した batch があるときだけ
@@ -232,6 +241,7 @@ export function useEventSyncTap(
     onRoster,
     onConflicts,
     onOverwrites,
+    onForksArrived,
     onSynced,
   }: UseEventSyncTapOptions,
 ): UseEventSyncTapResult {
@@ -450,6 +460,10 @@ export function useEventSyncTap(
       if (others.overwrites.reports.length > 0) {
         onOverwrites?.(fileId, others.overwrites);
       }
+      // 相手が保留した競合の到着 (T7-5)。自分が書いた fork は `onConflicts` が伝えている
+      if (others.arrivedForks.length > 0) {
+        onForksArrived?.(fileId, others.arrivedForks);
+      }
       if (others.readRepos.length > 0 || others.outsidePeriod > 0) {
         console.info(
           `[sync] read ${others.readRepos.length} participant repo(s): ` +
@@ -520,6 +534,7 @@ export function useEventSyncTap(
     onRoster,
     onConflicts,
     onOverwrites,
+    onForksArrived,
     onSynced,
   ]);
 

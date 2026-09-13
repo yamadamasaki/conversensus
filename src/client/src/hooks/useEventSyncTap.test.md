@@ -145,6 +145,25 @@ clock 0 から参加している名簿を用意する。**名簿には `history`
 - **implicit merge の検出を走らせず、名簿の通知もしない**: 受信は走っている (追記 1 件) のに、
   検出の入口である `fetchLocal` が 1 度も呼ばれず、`onRoster` も呼ばれない
 
+## 相手が保留した競合の到着 (step2 Phase 3 T7-5)
+
+### なぜ
+
+`receiveParticipantBatches` が到着した fork を結果に載せても、**このフックが `onForksArrived` を
+呼ばなければ画面に届かない**。競合を検出するのは LWW で勝つ側だけなので、負けた側が保留を知る
+道はこの配線しか無い。変異 (呼び出しを消す) で、この配線を見るテストが他に 1 件も無いことを
+確かめてから足した。
+
+### どのように
+
+参加者 (bob) の repo だけが fork の batch を返す remote キューと、自分と bob が clock 0 から
+参加している名簿を用意して、普通の trunk の tap を張る。fork は本物の経路で作る —
+`makeFork` → T7-1 の記録口 (`branchMetaRecorder`) → `graphEventToBatch`。記述はスキーマで
+検証されるので id は UUID にする (崩れると普通の branch に化け、到着が見えない)。
+
+- **参加者の repo から届いた fork を `onForksArrived` で知らせる**: 1 回だけ、この File の id と
+  その fork の `conflictKey` で呼ばれる
+
 ## 定期ポーリング (step2 Phase 2 S4 / #202)
 
 step1 は定期取得を**採らなかった** — 1 回あたり remote 取得 1 往復のコストを常時払う
