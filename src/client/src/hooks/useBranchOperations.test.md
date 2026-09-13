@@ -114,6 +114,12 @@ deps は `createInMemoryBranchOplogDeps` (batches / branches / commits の in-me
   放っておくと clock 1 から発番し、`branchSheet` の projection で base 時点の
   trunk batch (より大きい clock) に LWW で負ける。
 - trunk 表示中は `branchSyncRecord` が null = trunk 用 tap を使う、という切替点も固定する。
+- **ログイン中は branch の編集も branch 専用 file_id 宛てで remote へ出る** (step2 Phase 3 T7-2)。
+  step1 §9.2 の「branch batch は local 専用」を外した点である。相手や別の端末が branch の
+  中身を読むには、branch の op-log そのものが remote に載っていなければならない。
+  `RemoteSyncQueue` を記録用の偽 provider で作って渡し、送られたエンベロープの fileId が
+  `branch.branchFileId` であることを見る (trunk の fileId で送られると、trunk のグラフに
+  branch の編集が混ざる)
 - なお **structure op (`sheet.create` 等) は branch op-log へ流れない** — 構造操作は
   `useFileSheetOperations` の syncRecord (trunk 用) から出るため、経路が構造的に分かれる。
   branch op-log に構造 op が入ると branch がファイル一覧に現れる (`eventStore.test.ts` が

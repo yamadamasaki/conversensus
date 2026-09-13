@@ -43,6 +43,15 @@ step1 の File は単一 actor で作られているので取り違えは起き�
 - **既に判断ログがある File は触らない**
 - **他人の op を含む File には書かない**
 - **削除済みの File には書かない。**起点を置いても誰も招待しない
+- **シートを持たない op-log には書かない** (step2 Phase 3 T7-2)。branch 専用 file_id が
+  これにあたる — `sheet.create` を持たない content batch だけでできていて、書いたのは
+  自分だけなので `isSolelyOwnedBy` を通ってしまう。T7-2 で branch の op-log が remote へ
+  出て別の端末に materialize されるようになったので、落とさないと判断ログに File でない
+  ものの起点が並ぶ。基準はファイル一覧 (`listOplogFiles`) の 0 シート除外と同じ
+
+fixture の既定 (`gb`) は `sheet.create` を含む。シートの無い op-log が「File ではない」と
+判定されるようになったので、既定を File の形にしておかないと他の条件のテストがすべて
+この検査で落ちる。
 
 ### clock 0 で書く
 

@@ -8,6 +8,11 @@ import type {
   NodeId,
   SheetId,
 } from '@conversensus/shared';
+import {
+  type RemoteBatchTarget,
+  RemoteSyncQueue,
+} from '../atproto/remoteSyncQueue';
+import type { RemoteBatch } from '../atproto/types';
 import type { GraphEvent } from '../events/GraphEvent';
 import {
   createInMemoryBranchOplogDeps,
@@ -183,6 +188,8 @@ async function renderOplog(
      * React の ref や state は消えるが、ログに書いたものは残る (ANA-119 S6 の検証用)。
      */
     reuse?: ReturnType<typeof createInMemoryBranchOplogDeps>;
+    /** remote 送信キュー (T7-2)。渡すとログイン中の構成になる */
+    remoteQueue?: RemoteSyncQueue;
   } = {},
 ) {
   const deps = createInMemoryBranchOpsDeps();
@@ -236,6 +243,7 @@ async function renderOplog(
         actor: 'did:plc:alice#dev1',
         trunkClock: clock,
         trunkRecord,
+        remoteQueue: options.remoteQueue ?? null,
       }),
     {
       initialProps: {
@@ -567,6 +575,36 @@ describe('useBranchOperations — branch 操作 (op-log)', () => {
       });
       const branchLog = oplogDeps._batches.get(branch.branchFileId) ?? [];
       expect(branchLog[0]?.clock).toBeGreaterThan(branch.base.at);
+    });
+
+    it('ログイン中は branch の編集も branch 専用 file_id 宛てで remote へ出る (step2 Phase 3 T7-2)', async () => {
+      // step1 §9.2 では branch batch は local 専用だった。相手や別の端末が branch の
+      // 中身を読むには、branch の op-log そのものが remote に載っている必要がある
+      const pushed: RemoteBatch[] = [];
+      const provider: RemoteBatchTarget = {
+        pushRemote: async (entries) => {
+          pushed.push(...entries);
+        },
+        createRemote: async () => {},
+        pullAllRemoteForMigration: async () => [],
+        pullRemoteForFile: async () => [],
+        listRemoteFiles: async () => [],
+      };
+      const remoteQueue = new RemoteSyncQueue({
+        provider,
+        did: 'did:plc:alice',
+      });
+      const { result, branch } = await withOpenBranch(undefined, [], {
+        remoteQueue,
+      });
+      await act(async () => {
+        result.current.branchSyncRecord?.(relabel('branch の編集'), SHEET_ID);
+        await new Promise((r) => setTimeout(r, 10));
+      });
+
+      const edits = pushed.filter((e) => e.fileId === branch.branchFileId);
+      expect(edits).toHaveLength(1);
+      expect(edits[0]?.batch.sheetId).toBe(SHEET_ID);
     });
 
     it('trunk 表示中は branchSyncRecord が null (trunk 用 tap を使う)', async () => {

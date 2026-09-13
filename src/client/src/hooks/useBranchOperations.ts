@@ -21,6 +21,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as api from '../api';
 import { TRUNK_PREFIX } from '../atproto';
+import type { RemoteSyncQueue } from '../atproto/remoteSyncQueue';
 import type { GraphEvent } from '../events/GraphEvent';
 import { branchMetaRecorder, readBranchMeta } from '../sync/branchMetaLog';
 import {
@@ -191,6 +192,11 @@ interface UseBranchOperationsParams {
    * どこにも残らない。**安定参照であること** (記録口を作り直すと依存する callback が張り直される)
    */
   trunkRecord: (event: GraphEvent) => void;
+  /**
+   * remote 送信キュー (step2 Phase 3 T7-2)。渡すと branch 上の編集も remote へ出る。
+   * null なら local-only (未ログイン時)。trunk の tap に渡すものと同じキューであること
+   */
+  remoteQueue?: RemoteSyncQueue | null;
   deps?: BranchOpsDeps;
   oplogDeps?: BranchOplogDeps;
 }
@@ -207,6 +213,7 @@ export function useBranchOperations({
   actor,
   trunkClock,
   trunkRecord,
+  remoteQueue = null,
   deps = defaultBranchOpsDeps,
   oplogDeps = defaultBranchOplogDeps,
 }: UseBranchOperationsParams) {
@@ -249,7 +256,10 @@ export function useBranchOperations({
       // 分岐点の後から発番する。空の branch op-log は clock 1 から始まってしまい、
       // それでは base 時点の trunk batch に LWW で負ける (§p5-4)。
       ...(activeBranch && { clockFloor: activeBranch.base.at }),
-      // remoteQueue は渡さない = branch batches は remote へ出ない (設計 §9.2)
+      // branch の編集も remote へ出す (step2 Phase 3 T7-2)。step1 §9.2 の「branch batch は
+      // local 専用」はここで外れる。別の端末・相手が branch の中身を読むための前提である。
+      // 名簿 (roster) は渡さない — 参加者の branch を引くのは T7-3 で、trunk の名簿を借りる
+      remoteQueue,
       ...(oplogDeps.createBranchProvider && {
         createLocalProvider: oplogDeps.createBranchProvider,
       }),

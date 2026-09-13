@@ -61,8 +61,21 @@ remote レコードは fileId を必要とする。そこで `enqueue(batches, f
 - **別ファイルの batch がそれぞれの fileId で積まれること** — 1 つのキューが複数ファイルの
   batch を同時に抱えうる (セッション単位なので) ため、取り違えないことを固定する。
 
-重複排除キーは `batch.id` のまま (fileId は運搬のために添えるだけ)。`catchUp` も適用先の
-fileId を受け取る。
+`catchUp` も適用先の fileId を受け取る。
+
+### 重複排除の鍵は (fileId, batch id) の組 (step2 Phase 3 T7-2)
+
+以前の鍵は `batch.id` だけだった (fileId は運搬のために添えるだけ)。step1 では branch の
+op-log を remote へ出さなかったので、1 つの id が 2 つの fileId に現れることが無かった。
+
+T7-2 で branch の op-log も remote へ出す。**merge は branch の batch を同じ id のまま
+trunk へ再スタンプする**ので、branch 側の送信が保留中 (オフライン等) に merge すると、
+同じ id が 2 つの fileId で同時にキューに乗る。id だけを鍵にすると trunk への取り込みが
+**黙って捨てられ**、次の catch-up まで相手に届かない (step1 の C1 がキューに残っていた形)。
+
+- **同じ id・別 fileId は両方積む**: オフラインで branch 分 (clock 3) と trunk 分 (clock 7) を
+  積み、両方が保留 (2 件) になり、復帰後にそれぞれの fileId で送られること
+- **同じ id・同じ fileId は 1 つに畳む**: べき等性は保つ
 
 ## catchUp の fileId フィルタ (Phase 4d-4, 設計 §1.11 D-6)
 

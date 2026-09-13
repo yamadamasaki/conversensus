@@ -74,7 +74,8 @@ export type Branch = {
  *   - `sheetId`: branch は per-sheet を維持する (設計 §9.5-1)
  *   - `trunkFileId`: どの trunk から分岐したか
  *   - `branchFileId`: branch batches を貯める専用 file_id (§3.1-B)。
- *     **local 専用で remote へ push しない** (§9.2 の不変条件)
+ *     step1 では local 専用だった (§9.2) が、**step2 Phase 3 T7-2 で remote へ push する**
+ *     ようになった。シートを持たないので File の一覧には出ない
  * が要る。ドメイン型を汚さずメタ側で補う。
  */
 export type BranchMeta = Branch & {

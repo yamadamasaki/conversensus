@@ -16,10 +16,10 @@
  *   `branchSheet(branch, trunkBatches, branchBatches, meta)` = 「base までの trunk」に
  *   「branch 側の追記」を重ねた projection で導出する。
  *
- * **branch batches は branch 専用 file_id の op-log に貯める** (§3.1-B)。この file_id は
- * **local 専用で remote へ push しない** (§9.2 の不変条件)。単一端末スコープなので
- * 決定論的な id 採番は不要で、無関係な UUID を採番して `branches.branch_file_id` で
- * 紐付ければよい (cross-device の dedup 都合は後続 phase)。
+ * **branch batches は branch 専用 file_id の op-log に貯める** (§3.1-B)。無関係な UUID を
+ * 採番し、`branch.create` op の `branchFileId` で紐付ける。step1 ではこの file_id を
+ * local 専用にしていた (§9.2) が、**step2 Phase 3 T7-2 で remote へ push する**ように
+ * なった。remote の rkey が fileId を含むので、決定論的な採番は今も要らない。
  *
  * ⚠️ **branch op-log へ構造 op (`sheet.create` 等) を流してはならない**。branch が
  * ファイル一覧に現れてしまう (p5-1 の `eventStore.test.ts` が条件ごと固定している)。

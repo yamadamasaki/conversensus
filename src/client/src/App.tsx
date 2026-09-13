@@ -165,6 +165,8 @@ export default function App() {
     trunkClock: fileOps.trunkClock,
     // branch / commit のメタは trunk の op-log に記録する (step2 Phase 3 T7-1)
     trunkRecord: fileOps.syncRecord,
+    // branch の編集も remote へ出す (step2 Phase 3 T7-2)
+    remoteQueue,
   });
 
   // Cross-domain wired callbacks

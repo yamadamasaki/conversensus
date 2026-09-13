@@ -44,6 +44,11 @@ merge の再スタンプ (trunk へ、別の clock で) は衝突しない。
 (branch の op-log は `sheet.create` を持たないので 0 シートになる, step1 §8.4)。
 **同じ基準を発見に足せば、メタの到着を待たずに自己完結で除外できる。**
 
+> **⚠️ T7-2 で訂正 (2026-09-13)**: 「サイドバーに branch が File として並ぶ」は起きない。
+> サイドバーの一覧 `GET /files` は `listOplogFiles` そのもので、発見が取り込んだ fileId も
+> 同じ 0 シート除外を通る (`eventStore.test.ts` の p5-1 が固定済)。発見に基準を足す必要は
+> 無く、足すとかえって害がある — T7-2 の節を参照
+
 ### 事実 D: 他の参加者の branch は、取りに行く手段が無い
 
 参加者の repo からは**既知の fileId ごとに**引く (`pullRemoteForFile(fileId, did)`)。
@@ -152,8 +157,8 @@ T7 で fork を `branch.create` op に載せれば構造的に直るが、その
 | | 内容 | 検証 |
 | --- | --- | --- |
 | **T7-0** ✅ | 語彙 (`branch.create` / `branch.setStatus` / `commit.add`) と畳み込み `foldBranches` (fork の同一視・status の LWW) | 単体 + 性質 (計 1719 緑) |
-| **T7-1** | 書き込みを trunk の op-log へ、読み取りを畳み込みの結果へ (SQLite を置き換える) | 単体 |
-| **T7-2** | branch file_id を push する + 発見に 0 シート基準 | 単体 |
+| **T7-1** ✅ | 書き込みを trunk の op-log へ、読み取りを畳み込みの結果へ (SQLite を置き換える) | 単体 (計 1729 緑) |
+| **T7-2** ✅ | branch file_id を push する + ~~発見に 0 シート基準~~ 送信キューの鍵と bootstrap の 0 シート除外 | 単体 |
 | **T7-3** | 参加者の branch を引く (畳み込みから branch file_id を得て、trunk の名簿でフィルタ) | 単体 |
 | **T7-4** | 2 人が merge したときの畳み方 | 単体 + 性質 |
 | **T7-5** | fork の到着の通知 (未決 4 次第) | 単体 + 実機 |
@@ -201,6 +206,31 @@ T7 で fork を `branch.create` op に載せれば構造的に直るが、その
 - 変異で確認: merge で status を記録しないと 5 件、commit に branchId を付けないと 2 件、
   fork を記録しないと 2 件、削除を記録しないと 1 件、fork の既存一覧を読まないと 1 件が落ちる。
   **fork の既定の器 (`useEventSyncTap` の配線) を直接見るテストは無い** — T7-7 の実機で確かめる
+
+### T7-2 で分かったこと (2026-09-13)
+
+- **branch の tap に `remoteQueue` を渡すだけで push は成立した。**`FanoutSyncProvider` が
+  branch file_id で remote へ積み、catch-up も同じ tap の同期サイクルで走る。名簿は渡さない
+  (参加者の branch を引くのは T7-3)
+- **発見に 0 シート基準は足さなかった (事実 C の訂正)。**サイドバーの一覧は既に 0 シートを
+  落としていて、発見が branch file_id を取り込んでも File としては並ばない。逆に発見の側で
+  弾くと、取り込まれないので既知集合に入らず、**起動のたびに branch の本体を引き直す**。
+  取り込めば別の端末にも branch の中身が手元に来る
+- **代わりに C1 が送信キューに残っていた。**`RemoteSyncQueue` の重複排除の鍵が batch id
+  だけで、merge は branch の batch を**同じ id のまま** trunk へ再スタンプする。branch 分が
+  保留中 (オフライン等) に merge すると、**trunk 分が黙って捨てられ**、次の catch-up まで
+  相手に届かない。rkey と同じく (fileId, batch id) の組を鍵にした。事実 B は remote の
+  キーについては正しかったが、手前のキューには及んでいなかった
+- **名簿の起点 (bootstrap) が branch file_id にも genesis を書いていた。**0 シートを見ずに
+  「自分だけが書いた op-log」なら書くので、branch の op-log が通ってしまう。T7-2 で branch が
+  別の端末に materialize されると判断ログに File でない起点が並ぶので、一覧と同じ 0 シート
+  除外を入れた。**既に bootstrap を済ませた端末では過去に書かれている可能性がある** (無害だが
+  判断ログに残る。消す口は無いので記録だけ)
+- 変異で確認: キューの鍵を batch id に戻すと 1 件、branch の tap に `remoteQueue` を渡さないと
+  1 件、bootstrap の 0 シート検査を外すと 1 件が落ちる
+- **⚠️ T7-4 への申し送り**: 送信キューは著者で絞る (S0)。他人の branch を merge すると、
+  再スタンプした batch の actor は元の著者のままなので**自分の repo へ送られない**。
+  2 人目が merge を行う形を T7-4 で決めるときに、この制約とぶつかる
 
 ## 7. Exit
 

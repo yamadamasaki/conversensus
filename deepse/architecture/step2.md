@@ -253,9 +253,11 @@ fork が**作られること自体は自動**である (判断が要るのはそ
 
 1. **DtR のグラフ本体の置き場。** これは trunk の fileId 内に**新しい sheet scope を切る**ことで
    batch collection に乗る。`projectFile` は live でない sheetId の content batch を無視する
-   ので、DtR の sheet を知らない端末の projection を壊さない。**fileId を新しく切ってはならない** —
-   `discoverRemoteFiles` が未知の fileId を新しい File として materialize するので、
-   競合のたびに左サイドバーに File が増える
+   ので、DtR の sheet を知らない端末の projection を壊さない。**File の一覧に並ぶ fileId を
+   新しく切ってはならない** — `discoverRemoteFiles` が未知の fileId を materialize するので、
+   シートを持つ fileId を切ると競合のたびに左サイドバーに File が増える。
+   branch 専用 file_id はシートを持たず一覧の 0 シート除外で落ちるので、この制約に当たらない
+   (step2 Phase 3 T7-2 で同期するようになった)
 2. **承認の畳み込み意味論。** 承認は「呼び出された actor であること」「その時点で名簿にいること」を
    pre 条件として検証し、満たさないものを**捨てる** op である。**§3 が collection を分けた理由
    そのものが、batch collection の内側で再発する。**

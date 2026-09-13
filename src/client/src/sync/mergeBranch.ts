@@ -25,8 +25,13 @@
  * 保持すると**再 merge のべき等性が構造的に得られる** — 既に merge 済みの batch は
  * 同じ id で trunk に居るので、2 回目は `appendBatch` のべき等性で無視される。
  * 新規採番すると branch の status フラグに頼ることになり、フラグ更新に失敗した瞬間に
- * 二重適用する。単一端末スコープでは remote の rkey 衝突懸念が消えている (§9.2 の
- * 不変条件で C1 解消済) ので、保持を妨げる理由が無い。
+ * 二重適用する。
+ *
+ * step1 では「branch batch を remote へ出さない」(§9.2) ことで remote の rkey 衝突 (C1) を
+ * 避けていた。step2 Phase 3 T7-2 で branch も remote へ出すが、**rkey が
+ * `v1~<fileId>~<clock>~<batchId>` なので同じ id でも fileId が違えば別のキー**であり、
+ * 保持を妨げる理由は今も無い。送信キュー (`RemoteSyncQueue`) の重複排除も同じ理由で
+ * (fileId, batch id) の組を鍵にしている。
  *
  * branch op-log 側には元の clock のまま残り、trunk 側には再スタンプ後の clock で入る。
  * file_id が違うので `UNIQUE(file_id, batch_id)` とも両立する。

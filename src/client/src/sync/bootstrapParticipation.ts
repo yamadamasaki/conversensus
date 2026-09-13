@@ -30,6 +30,7 @@ import {
   type JudgmentBatch,
   LOCAL_DID,
   participationGenesisBatch,
+  projectFile,
 } from '@conversensus/shared';
 import { safeLocalStorage } from './safeStorage';
 
@@ -67,6 +68,8 @@ export type BootstrapParticipationResult =
       skippedForeign: number;
       /** 削除済みなので触らなかった File 数 */
       skippedDeleted: number;
+      /** シートを持たない op-log (branch 専用 file_id など) なので触らなかった数 */
+      skippedSheetless: number;
       elapsedMs: number;
     };
 
@@ -103,6 +106,7 @@ export async function bootstrapParticipation(
   let skippedExisting = 0;
   let skippedForeign = 0;
   let skippedDeleted = 0;
+  let skippedSheetless = 0;
 
   for (const fileId of await deps.listLocalFileIds()) {
     if (existing.has(fileId)) {
@@ -113,6 +117,15 @@ export async function bootstrapParticipation(
     // 削除済みの File に起点を置いても意味がない (誰も招待しない)
     if (isFileDeleted(batches)) {
       skippedDeleted += 1;
+      continue;
+    }
+    // シートを持たない op-log は File ではない (step2 Phase 3 T7-2)。branch 専用 file_id が
+    // これにあたる。branch は `sheet.create` を持たないので 0 シートになり、一覧
+    // (`listOplogFiles`) からも同じ基準で落ちる。T7-2 で branch の op-log が remote へ出て
+    // 別の端末に materialize されるので、ここで落とさないと branch に起点が書かれ、
+    // 判断ログに File でないものが並ぶ
+    if (projectFile(batches, fileId).sheets.length === 0) {
+      skippedSheetless += 1;
       continue;
     }
     if (!isSolelyOwnedBy(batches, did)) {
@@ -133,6 +146,7 @@ export async function bootstrapParticipation(
     skippedExisting,
     skippedForeign,
     skippedDeleted,
+    skippedSheetless,
     elapsedMs: Date.now() - startedAt,
   };
 }

@@ -7,6 +7,7 @@ import {
   GENESIS_ACTOR,
   type JudgmentBatch,
   type NodeId,
+  type SheetId,
 } from '@conversensus/shared';
 import {
   type BootstrapParticipationDeps,
@@ -19,11 +20,13 @@ const BOB = 'did:plc:bob';
 const ACTOR = `${ALICE}#dev-1`;
 const F1 = '11111111-1111-4111-8111-111111111111' as FileId;
 const F2 = '22222222-2222-4222-8222-222222222222' as FileId;
+const SHEET = '33333333-3333-4333-8333-333333333333' as SheetId;
 
 let seq = 0;
 const bid = () =>
   `00000000-0000-4000-8000-${String(++seq).padStart(12, '0')}` as BatchId;
 
+/** 既定はシートを 1 つ持つ File の op-log (シートが無いと File として扱われない, T7-2) */
 const gb = (actor: string, ops: Batch['ops'] = []): Batch => ({
   id: bid(),
   actor,
@@ -32,6 +35,7 @@ const gb = (actor: string, ops: Batch['ops'] = []): Batch => ({
   ops: ops.length
     ? ops
     : ([
+        { kind: 'sheet.create', target: SHEET, name: 'S' },
         { kind: 'node.add', target: 'n1' as NodeId, content: 'x' },
       ] as Batch['ops']),
 });
@@ -157,6 +161,25 @@ describe('bootstrapParticipation', () => {
       status: 'done',
       wrote: 0,
       skippedDeleted: 1,
+    });
+    expect(written).toHaveLength(0);
+  });
+
+  test('シートを持たない op-log (branch 専用 file_id) には書かない (step2 Phase 3 T7-2)', async () => {
+    // branch の op-log は `sheet.create` を持たない content batch だけでできている。
+    // 自分だけが書いたものなので、シートの検査が無いと起点が書かれてしまう
+    const branchEdit = gb(ACTOR, [
+      { kind: 'node.setContent', target: 'n1' as NodeId, content: 'y' },
+    ] as Batch['ops']);
+    const { deps, written } = makeDeps({
+      fetchBatches: async () => [{ ...branchEdit, sheetId: SHEET }],
+    });
+    const result = await bootstrapParticipation(deps);
+
+    expect(result).toMatchObject({
+      status: 'done',
+      wrote: 0,
+      skippedSheetless: 1,
     });
     expect(written).toHaveLength(0);
   });
