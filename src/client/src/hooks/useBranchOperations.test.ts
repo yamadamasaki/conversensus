@@ -353,6 +353,65 @@ describe('useBranchOperations — 表示状態', () => {
     });
   });
 
+  describe('SQLite に残る古いメタの載せ直し (step2 Phase 3 T7-6)', () => {
+    /** T7-1 より前に SQLite へ保存された branch。op-log には何も無い */
+    const legacy = {
+      id: 'legacy-branch' as BranchMeta['id'],
+      name: '古い branch',
+      base: {
+        id: 'legacy-base' as BranchMeta['base']['id'],
+        kind: 'commit',
+        message: '分岐点',
+        at: 1,
+        authorActor: 'seed#dev',
+      },
+      status: 'merged',
+      sheetId: SHEET_ID,
+      trunkFileId: TRUNK_ID,
+      branchFileId: 'legacy-log' as FileId,
+    } as BranchMeta;
+
+    const withLegacy = () => {
+      const oplogDeps = createInMemoryBranchOplogDeps();
+      oplogDeps._legacyBranches.push(legacy);
+      oplogDeps._legacyCommits.set(legacy.branchFileId, [
+        {
+          id: 'legacy-commit' as BranchMeta['base']['id'],
+          kind: 'commit',
+          message: '古いコミット',
+          at: 3,
+          authorActor: 'seed#dev',
+        },
+      ]);
+      return oplogDeps;
+    };
+
+    it('🔴 SQLite にだけある branch が、開いたときに op-log へ載って一覧に出る', async () => {
+      // 載せ直さないと、読み口が op-log の畳み込みになった T7-1 以降は一覧から消える
+      const oplogDeps = withLegacy();
+      const { result } = await renderOplog(undefined, { reuse: oplogDeps });
+
+      const listed = result.current.sheetBranches.get(SHEET_ID) ?? [];
+      expect(listed.map((b) => [b.name, b.status])).toEqual([
+        ['古い branch', 'merged'],
+      ]);
+      const meta = await metaOf(oplogDeps);
+      expect(
+        (meta.branchCommits.get(legacy.id) ?? []).map((c) => c.message),
+      ).toEqual(['古いコミット']);
+    });
+
+    it('開き直しても載せ直しは重複しない (べき等)', async () => {
+      const oplogDeps = withLegacy();
+      const first = await renderOplog(undefined, { reuse: oplogDeps });
+      const recorded = (oplogDeps._batches.get(TRUNK_ID) ?? []).length;
+      first.unmount();
+
+      await renderOplog(undefined, { reuse: oplogDeps });
+      expect(oplogDeps._batches.get(TRUNK_ID) ?? []).toHaveLength(recorded);
+    });
+  });
+
   describe('handleCreateBranch', () => {
     it('相手が作った branch は trunk の受信 (receiveEpoch) で一覧に出る (step2 Phase 3 T7-3)', async () => {
       // 2 つのフックが 1 つの op-log を共有する = 相手の branch.create が受信で手元に届いた状態。

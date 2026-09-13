@@ -183,6 +183,8 @@ export default function App() {
     // 参加者の branch を引き、trunk の受信で branch 一覧を読み直す (T7-3)
     roster,
     receiveEpoch: fileOps.receiveEpoch,
+    // SQLite から載せ直したメタを読む前に trunk の記録を待つ (T7-6)
+    trunkSettled: fileOps.trunkSettled,
   });
 
   // Cross-domain wired callbacks

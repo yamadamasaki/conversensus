@@ -139,7 +139,16 @@ export function createInMemoryFileSheetOpsDeps(): FileSheetOpsDeps & {
  */
 export function createInMemoryBranchOplogDeps(): BranchOplogDeps & {
   _batches: Map<string, Batch[]>;
+  /** SQLite に残る branch 行 (T7-6 の載せ直しの元)。テストが直接入れる */
+  _legacyBranches: import('@conversensus/shared').BranchMeta[];
+  /** SQLite に残る commit 行 (file_id → 行)。テストが直接入れる */
+  _legacyCommits: Map<string, import('@conversensus/shared').Commit[]>;
 } {
+  const legacyBranches: import('@conversensus/shared').BranchMeta[] = [];
+  const legacyCommits = new Map<
+    string,
+    import('@conversensus/shared').Commit[]
+  >();
   const batches = new Map<string, Batch[]>();
   let idCounter = 0;
 
@@ -153,6 +162,15 @@ export function createInMemoryBranchOplogDeps(): BranchOplogDeps & {
 
   return {
     _batches: batches,
+    _legacyBranches: legacyBranches,
+    _legacyCommits: legacyCommits,
+
+    // SQLite の古いメタの読み口 (T7-6)。既定は空 = 載せ直すものが無い
+    fetchLegacyBranches: async (trunkFileId) =>
+      legacyBranches.filter((b) => b.trunkFileId === trunkFileId),
+    fetchLegacyCommits: async (fileId) => [
+      ...(legacyCommits.get(fileId) ?? []),
+    ],
 
     // branch / commit のメタもこのストアの trunk の op-log に載る (step2 Phase 3 T7-1)
     fetchBatches: async (fileId) => [...(batches.get(fileId) ?? [])],

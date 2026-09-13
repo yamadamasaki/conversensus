@@ -2,6 +2,7 @@ import type {
   Actor,
   Batch,
   BranchMeta,
+  Commit,
   CommitId,
   EdgeLayout,
   FileId,
@@ -36,6 +37,7 @@ import {
   mergeBranchOnOplog,
   previewMerge,
 } from '../sync/mergeBranch';
+import { migrateBranchMeta } from '../sync/migrateBranchMeta';
 import type { RosterSource } from '../sync/rosterSource';
 import type { SyncProvider } from '../sync/syncProvider';
 import {
@@ -165,13 +167,25 @@ export interface BranchOplogDeps {
    * **安定参照であること** (tap の受信 effect が張り直される)
    */
   appendReceived?: (fileId: FileId, batches: Batch[]) => Promise<number>;
+  /**
+   * SQLite に残る branch 行を読む (step2 Phase 3 T7-6 の載せ直し専用)。
+   * 省略すると載せ直しを行わない
+   */
+  fetchLegacyBranches?: (trunkFileId: FileId) => Promise<BranchMeta[]>;
+  /** SQLite に残る commit 行を読む (T7-6 の載せ直し専用) */
+  fetchLegacyCommits?: (fileId: FileId) => Promise<Commit[]>;
 }
 
 export const defaultBranchOplogDeps: BranchOplogDeps = {
   fetchBatches: (fileId) => api.fetchBatches(fileId),
   appendBatches: api.pushBatches,
   newId: () => crypto.randomUUID(),
+  fetchLegacyBranches: api.fetchBranches,
+  fetchLegacyCommits: api.fetchCommits,
 };
+
+/** `trunkSettled` の既定。**モジュール定数にする** — 毎レンダー作ると effect が張り直される */
+const resolvedSettled = () => Promise.resolve();
 
 interface UseBranchOperationsParams {
   activeFile: GraphFile | null;
@@ -219,6 +233,11 @@ interface UseBranchOperationsParams {
    * シートを切り替えるまで一覧に出ない
    */
   receiveEpoch?: number;
+  /**
+   * trunk の tap の drain 完了を待つ (step2 Phase 3 T7-6)。SQLite から載せ直したメタを
+   * 一覧に読む前に待つ。省略すると待たない (記録が同期的なテスト用)
+   */
+  trunkSettled?: () => Promise<void>;
   deps?: BranchOpsDeps;
   oplogDeps?: BranchOplogDeps;
 }
@@ -238,6 +257,7 @@ export function useBranchOperations({
   remoteQueue = null,
   roster = null,
   receiveEpoch = 0,
+  trunkSettled = resolvedSettled,
   deps = defaultBranchOpsDeps,
   oplogDeps = defaultBranchOplogDeps,
 }: UseBranchOperationsParams) {
@@ -816,16 +836,70 @@ export function useBranchOperations({
   // activeSheetId が変わったら branches を fetch。trunk の受信 (`receiveEpoch`) でも読み直す —
   // 相手の branch のメタは trunk の受信で届く (T7-3)
   const trunkFileId = activeFile?.id;
+  /**
+   * SQLite の branch / commit を載せ直した trunk (step2 Phase 3 T7-6)。**セッション内で
+   * File ごとに 1 回**にする — 一覧は受信のたびに読み直すので、毎回 SQLite を読みに行かない。
+   * 載せ直し自体はべき等なので、再起動で再び走っても op-log は汚れない
+   */
+  const migratedTrunksRef = useRef(new Set<FileId>());
+  const migrateLegacyMeta = useCallback(
+    async (id: FileId) => {
+      const { fetchLegacyBranches, fetchLegacyCommits } = oplogDeps;
+      if (!fetchLegacyBranches || !fetchLegacyCommits) return;
+      if (migratedTrunksRef.current.has(id)) return;
+      migratedTrunksRef.current.add(id);
+      try {
+        const result = await migrateBranchMeta(id, {
+          fetchBatches: oplogDeps.fetchBatches,
+          fetchLegacyBranches,
+          fetchLegacyCommits,
+          recorder: branchMeta,
+        });
+        if (result.branches.length === 0 && result.commits === 0) return;
+        // 1 回きりの手続きなので記録が残る形で出す (無言にしない)
+        console.info(
+          `[branch] SQLite から ${result.branches.length} 個の branch と ` +
+            `${result.commits} 件の commit を op-log へ載せ直しました`,
+        );
+        // 記録は非同期に flush するので、一覧を読む前に待つ
+        await trunkSettled();
+        // 移した branch の中身も remote へ出す (T7-2 の送信は branch を開いたときにしか
+        // 走らないので、開かれない古い branch は相手に届かない)。一覧の表示は待たない
+        if (remoteQueue) {
+          for (const meta of result.branches) {
+            void oplogDeps
+              .fetchBatches(meta.branchFileId)
+              .then((batches) =>
+                remoteQueue.catchUp(batches, meta.branchFileId),
+              )
+              .catch((err) =>
+                console.warn('[branch] 載せ直した branch の送信に失敗:', err),
+              );
+          }
+        }
+      } catch (err) {
+        // 失敗したら次の契機で再試行する (何も書かずに投げる契約なので半端は残らない)
+        migratedTrunksRef.current.delete(id);
+        console.warn('[branch] SQLite からの載せ直しに失敗しました:', err);
+      }
+    },
+    [oplogDeps, branchMeta, trunkSettled, remoteQueue],
+  );
+
   // biome-ignore lint/correctness/useExhaustiveDependencies: receiveEpoch は読み直しの契機としてだけ使う
   useEffect(() => {
     if (!activeSheetId) return;
     // branch メタは trunk の op-log にあるので畳んでシートで絞る (T7-1)。ファイル未選択の
     // 間は空一覧を入れる (前のファイルの branch を出したままにしない)。
+    // **先に SQLite の古いメタを載せ直す** (T7-6)。載せ直さないと T7-1 以前の branch が出ない
     const load = trunkFileId
-      ? readBranchMeta(oplogDeps.fetchBatches, trunkFileId as FileId).then(
-          ({ branches }) =>
+      ? migrateLegacyMeta(trunkFileId as FileId)
+          .then(() =>
+            readBranchMeta(oplogDeps.fetchBatches, trunkFileId as FileId),
+          )
+          .then(({ branches }) =>
             [...branches.values()].filter((b) => b.sheetId === activeSheetId),
-        )
+          )
       : Promise.resolve<BranchMeta[]>([]);
     load
       .then((bs) => {
@@ -841,7 +915,7 @@ export function useBranchOperations({
         // (W3d5-7 の「無言の失敗」の教訓)。
         console.warn('[branch] ブランチ一覧の取得に失敗しました:', err);
       });
-  }, [activeSheetId, oplogDeps, trunkFileId, receiveEpoch]);
+  }, [activeSheetId, oplogDeps, trunkFileId, receiveEpoch, migrateLegacyMeta]);
 
   return {
     activeBranch,

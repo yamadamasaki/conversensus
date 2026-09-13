@@ -142,6 +142,21 @@ T7-1 で branch のメタが trunk の op-log に、T7-2 で branch の編集が
   受信の書き込み口は `oplogDeps.appendReceived` で in-memory ストアへ差し替えている
   (既定は実 fetch)
 
+### SQLite に残る古いメタの載せ直し (step2 Phase 3 T7-6)
+
+T7-1 で branch 一覧の読み口を trunk の op-log の畳み込みにしたので、**T7-1 より前に SQLite へ
+保存された branch は、載せ直さないと一覧から消える**。載せ直しの判断そのものは
+`migrateBranchMeta.test.ts` が固定し、ここでは「画面を開いたときに走り、一覧に届く」ことを見る。
+
+in-memory の deps に SQLite の行 (`_legacyBranches` / `_legacyCommits`) を入れ、op-log は空のまま
+`reuse` で hook を作る。
+
+- **🔴 SQLite にだけある branch が、開いたときに op-log へ載って一覧に出る**: 名前と status (merged) が
+  一覧に出て、trunk の畳み込みに branch のコミットも載っている
+- **開き直しても載せ直しは重複しない**: 1 回目の後の trunk の batch 数を覚え、hook を作り直しても
+  増えない。hook の中の「セッションで 1 回」の柵は作り直しで消えるので、ここで効いているのは
+  **載せ直しのべき等性** (生の op で判定する) の方である
+
 ### commit — ログ上のオフセット
 - 保存されるのは `{message, at}` であって差分ではない。`at` は branch op-log の先端。
 - 変更が無ければコミットしない。

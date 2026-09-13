@@ -414,6 +414,7 @@ export function useFileSheetOperations({
   const {
     record: internalSyncRecord,
     clock: trunkClock,
+    settled: trunkSettled,
     syncNow,
   } = useEventSyncTap(activeFile?.id ?? null, {
     remoteQueue,
@@ -1001,6 +1002,9 @@ export function useFileSheetOperations({
     // trunk の Lamport 発番器 (p5-4)。merge が branch batches を trunk へ再スタンプ
     // するときに使う — 発番器を分けると同 (clock, actor) の batch が生まれる。
     trunkClock,
+    // trunk の tap の drain 完了を待つ (step2 Phase 3 T7-6)。記録した branch のメタを
+    // 読み直す前に待たないと、畳み込みに載っていない
+    trunkSettled,
     receiveEpoch,
     // 「今すぐ同期」(SyncStatusIndicator) の口。開いている間に他所で起きた変更を
     // 取りに行く手段がこれしかない (GitHub #202)
