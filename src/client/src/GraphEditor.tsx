@@ -47,7 +47,11 @@ import {
   draggedNodesOf,
   resolveDropTargets,
 } from './graph/dragStop';
-import { canConnectByTemplate, edgeKindFor } from './graph/templateEdge';
+import {
+  canConnectByTemplate,
+  canReconnectByTemplate,
+  edgeKindFor,
+} from './graph/templateEdge';
 import {
   DEFAULT_EDGE_PATH_TYPE,
   DEFAULT_NODE_STYLE,
@@ -482,14 +486,31 @@ function GraphEditorInner({
    * 拒否するのは **template の要素どうし**だけである。普通のノードが絡む接続は
    * 今までどおり自由に繋げる。
    */
+  /**
+   * いま繋ぎ替え中の edge。**`isValidConnection` の引数からは分からない** —
+   * React Flow は `Connection` (source/target/handle) しか渡さないので、
+   * 新規の接続と繋ぎ替えを区別できない。`onReconnectStart` で控えておく。
+   */
+  const reconnectingEdge = useRef<Edge | null>(null);
+  const onReconnectStart = useCallback((_e: unknown, edge: Edge) => {
+    reconnectingEdge.current = edge;
+  }, []);
+  const onReconnectEnd = useCallback(() => {
+    reconnectingEdge.current = null;
+  }, []);
+
   const isValidConnection = useCallback(
-    (c: Connection | Edge) =>
-      canConnectByTemplate(
-        templates,
-        getNodes(),
-        c.source as string,
-        c.target as string,
-      ),
+    (c: Connection | Edge) => {
+      const nodes = getNodes();
+      const source = c.source as string;
+      const target = c.target as string;
+      const editing = reconnectingEdge.current;
+      // 繋ぎ替えは**種類が変わらない範囲でのみ**許す (仕様 OnMutation)。
+      // 新規の接続とは規則が違うので、対象の edge が在るときはそちらを見る
+      return editing
+        ? canReconnectByTemplate(templates, nodes, editing, source, target)
+        : canConnectByTemplate(templates, nodes, source, target);
+    },
     [templates, getNodes],
   );
 
@@ -870,6 +891,8 @@ function GraphEditorInner({
               onConnect={onConnect}
               isValidConnection={isValidConnection}
               onReconnect={onReconnect}
+              onReconnectStart={onReconnectStart}
+              onReconnectEnd={onReconnectEnd}
               onNodeDragStart={onNodeDragStart}
               onNodeDrag={onNodeDrag}
               onNodeDragStop={onNodeDragStop}
