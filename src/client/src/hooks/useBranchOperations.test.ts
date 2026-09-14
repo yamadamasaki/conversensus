@@ -747,10 +747,14 @@ describe('useBranchOperations — branch 操作 (op-log)', () => {
         read: async () => rosterResult,
         readFresh: async () => rosterResult,
       };
-      const { branch, oplogDeps } = await withOpenBranch(undefined, [], {
-        remoteQueue: new RemoteSyncQueue({ provider, did: 'did:plc:alice' }),
-        roster,
-      });
+      const { result, branch, oplogDeps } = await withOpenBranch(
+        undefined,
+        [],
+        {
+          remoteQueue: new RemoteSyncQueue({ provider, did: 'did:plc:alice' }),
+          roster,
+        },
+      );
       await act(async () => {
         await new Promise((r) => setTimeout(r, 50));
       });
@@ -760,6 +764,10 @@ describe('useBranchOperations — branch 操作 (op-log)', () => {
       const shown = mockOnSetActiveFile.mock.calls.at(-1)?.[0];
       const sheet = shown?.sheets.find((s) => s.id === SHEET_ID);
       expect(sheet?.nodes.map((n) => n.id as string)).toContain('n-remote');
+      // 🔴 **state だけでは canvas に出ない** (T7-7 実機で発覚)。GraphEditor は
+      // receiveEpoch が進んだときにしか再 seed しないので、組み直したら epoch を進める
+      // (branch を開く待ちの間に受信と組み直しは済んでいる。フックは 0 から始まる)
+      expect(result.current.branchReceiveEpoch).toBeGreaterThan(0);
     });
 
     it('trunk 表示中は branchSyncRecord が null (trunk 用 tap を使う)', async () => {

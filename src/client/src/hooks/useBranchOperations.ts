@@ -280,6 +280,14 @@ export function useBranchOperations({
     new Map(),
   );
   const [newCommitsSinceMerge, setNewCommitsSinceMerge] = useState(0);
+  /**
+   * 受信で開いている branch を組み直した回数 (step2 Phase 3 T7-3 の修正, T7-7 実機で発覚)。
+   *
+   * **state を差し替えるだけでは canvas に出ない。**GraphEditor が React Flow を再 seed する
+   * 契機は file.id / シート / `receiveEpoch` の変化だけで、組み直しはどれも変えない。
+   * trunk の受信 (`fileOps.receiveEpoch`) と同じ役目なので、App が足し合わせて渡す
+   */
+  const [branchReceiveEpoch, setBranchReceiveEpoch] = useState(0);
   const [commitDialogOpen, setCommitDialogOpen] = useState(false);
 
   const [lastCommitBase, setLastCommitBase] = useState<Sheet | null>(null);
@@ -545,9 +553,12 @@ export function useBranchOperations({
   // 失敗しても画面は受信前のまま残るだけなので、ダイアログは出さず診断ログに留める
   reselectOnReceiveRef.current = () => {
     if (!activeBranch || activeBranch.name === TRUNK_PREFIX) return;
-    selectBranchFromOplog(activeBranch.sheetId, activeBranch).catch((err) =>
-      console.warn('[branch] reprojection after receive failed:', err),
-    );
+    selectBranchFromOplog(activeBranch.sheetId, activeBranch)
+      // 組み直した state を canvas に出す (GraphEditor の再 seed の契機)
+      .then(() => setBranchReceiveEpoch((epoch) => epoch + 1))
+      .catch((err) =>
+        console.warn('[branch] reprojection after receive failed:', err),
+      );
   };
 
   const handleCreateBranch = useCallback(
@@ -946,6 +957,11 @@ export function useBranchOperations({
      * op-log へ流さないための切替点。
      */
     branchSyncRecord: activeBranch ? branchSyncRecord : null,
+    /**
+     * 受信で開いている branch を組み直した回数 (T7-3)。App は trunk の `receiveEpoch` と
+     * 足して GraphEditor に渡す — どちらが進んでも canvas を再 seed する
+     */
+    branchReceiveEpoch,
     handleSelectBranch,
     handleCreateBranch,
     handleMergeBranch,

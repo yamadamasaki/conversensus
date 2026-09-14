@@ -163,7 +163,7 @@ T7 で fork を `branch.create` op に載せれば構造的に直るが、その
 | **T7-4** ✅ | 2 人が merge したときの畳み方 (§6a: 写しに `restampedBy` / `mergedIn`) | 単体 + 性質 (計 1750 緑) |
 | **T7-5** ✅ | fork の到着の通知 | 単体 (計 1765 緑)。実機は T7-7 |
 | **T7-6** ✅ | 既存データ (SQLite の branch / commit を op-log へ載せ直す) | 単体 + 性質 (計 1776 緑) |
-| **T7-7** | 2 アカウントの実 PDS で通しで確認 | 実 PDS |
+| **T7-7** ✅ | 2 アカウントの実 PDS で通しで確認 (Exit 1〜5 すべて通過) | 実 PDS (Playwright) |
 
 ### T7-0 で分かったこと (2026-09-13)
 
@@ -394,6 +394,43 @@ T7 で fork を `branch.create` op に載せれば構造的に直るが、その
   2 件、trunk の commit を移さないと 1 件、branch の commit から所属を落とすと 1 件、フックが載せ直さないと
   1 件、**判定を畳み込みの結果にすると性質テスト (べき等) の 1 件**が落ちる。型検査・lint 緑, テスト 1776 件緑
 - **まだ見ていないもの**: 実データ (:3000 の SQLite にある「競合: …」の branch 5 件など) を載せ直すこと (T7-7)
+
+### T7-7 で分かったこと (2026-09-14)
+
+**構成**: 実 PDS (:2583) に alice.test / bob.test。alice はデーモン :3100 + クライアント :5174
+(`data-t77-a`)、bob は :3200 + :5176 (`data-t77-b`)。**デーモンを分ける** — 共有するとローカル正典が
+共有されて同期を確かめられない (Phase 2 #202)。Playwright (chromium) の 2 つの browser context で操作し、
+判定は画面に加えて**両デーモンの op-log と PDS のレコード**で行った。参加の準備 (invite / accept) は
+スクリプトから実 PDS に書いた (参加ダイアログは Phase 2 で確認済み)。スクリプトは `src/client/data-t77/`
+(gitignore 済み, 投棄前提)。
+
+**結果: Exit 1〜5 すべて通過**
+
+| Exit | 観測 |
+| --- | --- |
+| 1 | alice が切った branch が bob の一覧に出た |
+| 2 | bob が branch を開くと alice の編集が画面に出た (下の不具合を直した後) |
+| 3 | alice の merge が bob の trunk に取り込まれ、両者の一覧で `(merged)`。bob の trunk の写し 2 件がどちらも `restampedBy` = alice と `mergedIn` を持つ (T7-4) |
+| 4 | PDS への通信を両側で止めて同じノードを編集 → 戻して同期。alice が検出して保留を記録し、bob に「相手が保留した競合」が出た。fork の `conflictKey` は両者とも生の op で 1 つ、畳み込みで 1 つ |
+| 5 | 両デーモンの File 一覧に branch 専用 file_id (2 個) が 1 つも無い |
+
+**実機で見つけた不具合 (直した)**: **T7-3 の「受信で開いている branch を組み直す」が canvas に出ていなかった。**
+bob のデーモンには alice の branch の編集が届いていた (受信 2 件新規) のに、画面は古いまま。組み直しは
+`activeFile` を差し替えるが、GraphEditor が React Flow を再 seed する契機は file.id / シート / `receiveEpoch` の
+変化だけで、どれも変えていなかった。**単体テストは state に新しいノードが入ったことしか見ておらず通っていた**
+(「op-log は正しいのに画面が古い」の型)。`useBranchOperations` に `branchReceiveEpoch` を足して組み直しで進め、
+App が trunk の `receiveEpoch` と足して渡す。テストは epoch が進むことを見る (変異で確認)。
+
+**実機で見つけた既存の不具合 (直していない, 報告)**: **branch で編集しても下部バーに「(N 変更)」が出ず、
+コミットが押せないことがある** (本番フロー 5 回中 2〜3 回, ログインなしでも起きる)。canvas には新しいノードが
+見え、branch 専用 op-log にも編集があり、**trunk に戻して branch を開き直すと回復する** — `activeSheet` だけが
+編集を含んでいない。T7 の同期とは独立。GraphEditor の onChange 抑制フラグ (`conflictUpdatePendingRef` /
+`readyForSave`) が疑わしいが、ブラウザでの計測をしないと特定できない。
+
+**その他**:
+- 自動操作の注意: branch を押してから表示が切り替わるまで ~1.5 秒かかる。重なったノードのダブルクリックは
+  遮られる。PDS への通信を止める (`context.route`) と `requestfailed` / `Failed to fetch` が出るのは意図どおり
+- 失敗の差分に NUL 区切りの `conflictKey` が出ると `grep` がバイナリ扱いで何も出さない (`grep -a`)
 
 ### A で決めること
 

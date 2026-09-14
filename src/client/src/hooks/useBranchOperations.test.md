@@ -140,7 +140,10 @@ T7-1 で branch のメタが trunk の op-log に、T7-2 で branch の編集が
   (`history` の accept を持たせる) を渡して branch を開く。同期のサイクルで編集が branch の
   op-log に着地し、最後に画面へ渡したファイルのシートにそのノードが出ること。
   受信の書き込み口は `oplogDeps.appendReceived` で in-memory ストアへ差し替えている
-  (既定は実 fetch)
+  (既定は実 fetch)。**加えて `branchReceiveEpoch` が進むこと**を見る — GraphEditor は
+  file.id / シート / `receiveEpoch` の変化でしか React Flow を再 seed しないので、state を
+  差し替えただけでは canvas に出ない。**T7-7 の実機 (2 アカウント) で、op-log には相手の編集が
+  届いているのに画面に出ないことで発覚した** (当初のテストは state しか見ておらず通っていた)
 
 ### SQLite に残る古いメタの載せ直し (step2 Phase 3 T7-6)
 

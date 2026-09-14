@@ -422,7 +422,11 @@ export default function App() {
                 deletedEdges={branchOps.deletedEdges}
                 deletedNodeLayouts={branchOps.deletedNodeLayouts}
                 deletedEdgeLayouts={branchOps.deletedEdgeLayouts}
-                receiveEpoch={fileOps.receiveEpoch}
+                // 受信による差し替えの契機。trunk の受信と、開いている branch の受信
+                // (step2 Phase 3 T7-3) の和 — どちらかが進めば React Flow を再 seed する
+                receiveEpoch={
+                  fileOps.receiveEpoch + branchOps.branchReceiveEpoch
+                }
               />
             </BlobOriginProvider>
           </ReadOnlyProvider>
