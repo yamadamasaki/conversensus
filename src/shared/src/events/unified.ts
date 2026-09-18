@@ -102,12 +102,25 @@ export function compareByClockActorId(
   );
 }
 
+/**
+ * op の分類。**3 つの層が混ざっている**ことに注意 (Phase 6 の決めたこと 8)。
+ *
+ * - `structure` / `content` / `layout` / `presentation` … **基本語彙 (LPG)** の中の軸。
+ *   同期の対象と競合の扱いを分けるためのもの
+ * - `file` … **器** (シート / ファイル)
+ * - `semantic` … **意味論 (拡張)**。branch / commit / DtR。LPG そのものではなく、
+ *   LPG の上に載せた解釈である
+ *
+ * 基本語彙の 4 つだけが「グラフの中身」の軸で、残り 2 つは層の名前である。
+ * 同じ列挙に並んでいるのは歴史的な経緯による (層の分離は `*_OP_KINDS` が担う)。
+ */
 export const EVENT_CATEGORIES = [
   'structure',
   'content',
   'layout',
   'presentation',
   'file',
+  'semantic',
 ] as const;
 export type Category = (typeof EVENT_CATEGORIES)[number];
 
@@ -196,6 +209,10 @@ export const ForkOriginSchema = z.object({
 });
 
 export const OpSchema = z.discriminatedUnion('kind', [
+  // ============================================================
+  // 基本語彙 (LPG)。**conversensus が「グラフである」ことの語彙**であり、
+  // ここは意味論の追加では増えない (Phase 6 の決めたこと 8)
+  // ============================================================
   // structure
   z.object({
     kind: z.literal('node.add'),
@@ -308,7 +325,9 @@ export const OpSchema = z.discriminatedUnion('kind', [
     offsetX: z.number(),
     offsetY: z.number(),
   }),
-  // file (シート/ファイル構造)。グラフ内容 op と別カテゴリで routing する
+  // ============================================================
+  // 器。グラフを入れる箱 (シート / ファイル)。`foldFileStructure` が畳む
+  // ============================================================
   z.object({
     kind: z.literal('sheet.create'),
     target: SheetIdSchema,
@@ -348,6 +367,13 @@ export const OpSchema = z.discriminatedUnion('kind', [
    * ファイルの削除 (ANA-127)。**target を取らない** — batch は既に fileId 単位に
    * 束ねられているので、自分が載っている op-log のファイルを指す。
    */
+  z.object({ kind: z.literal('file.remove') }),
+
+  // ============================================================
+  // 意味論 (拡張)。**LPG の上に載せた解釈**であり、基本語彙ではない。
+  // ここは今後も増えるし、意味論どうしが整合しないこともある
+  // (Phase 6 の決めたこと 8)。畳み込みは意味論ごとに別に持つ
+  // ============================================================
   /**
    * branch を切る (step2 Phase 3 T7)。**trunk の op-log に書く**ので、trunk を畳めば
    * branch の一覧と branch 専用 file_id が分かる (設計 事実 D)。
@@ -388,7 +414,6 @@ export const OpSchema = z.discriminatedUnion('kind', [
     branchId: BranchIdSchema.optional(),
     commit: CommitSchema,
   }),
-  z.object({ kind: z.literal('file.remove') }),
 ]);
 export type Op = z.infer<typeof OpSchema>;
 export type OpKind = Op['kind'];
@@ -437,8 +462,10 @@ export function nodeSetLayoutOp(
   };
 }
 
-/** file カテゴリ (シート/ファイル構造) の op kind。content/structure の判別に使う */
-export const FILE_OP_KINDS = [
+/**
+ * **器**の op。グラフを入れる箱 (シート / ファイル)。`foldFileStructure` が畳む。
+ */
+export const CONTAINER_OP_KINDS = [
   'sheet.create',
   'sheet.remove',
   'sheet.setName',
@@ -447,17 +474,44 @@ export const FILE_OP_KINDS = [
   'file.setName',
   'file.setDescription',
   'file.remove',
-  // branch / commit のメタ (T7)。file 構造と同じくグラフの畳み込みから外す
+] as const;
+export type ContainerOpKind = (typeof CONTAINER_OP_KINDS)[number];
+
+/**
+ * **意味論 (拡張)**の op。LPG そのものではなく、その上に載せた解釈である。
+ *
+ * **ここは今後も増える**し、意味論どうしが整合しないこともある (Phase 6 の決めたこと 8)。
+ * 増やすときは基本語彙 (`node.*` / `edge.*`) には触らず、この層にだけ足す。
+ * 畳み込みは意味論ごとに別に持つ (branch / commit は `foldBranches`)。
+ */
+export const SEMANTIC_OP_KINDS = [
   'branch.create',
   'branch.setStatus',
   'branch.remove',
   'commit.add',
 ] as const;
+export type SemanticOpKind = (typeof SEMANTIC_OP_KINDS)[number];
+
+/**
+ * 器と意味論を合わせた「**グラフの畳み込みに入れない op**」。
+ *
+ * **否定形の分類である**ことに注意 — `projectBatches` が素通りさせる対象を指すだけで、
+ * 器と意味論はここでは区別されない。層で分けたいときは `CONTAINER_OP_KINDS` /
+ * `SEMANTIC_OP_KINDS` を使う。名前は経緯による (routing の判定として広く使われている)。
+ */
+export const FILE_OP_KINDS = [
+  ...CONTAINER_OP_KINDS,
+  ...SEMANTIC_OP_KINDS,
+] as const;
 export type FileOpKind = (typeof FILE_OP_KINDS)[number];
 
-/** シート/ファイル構造を畳み込む op (projectFile が処理) */
+/** 器の op (`foldFileStructure` が処理) */
+export type ContainerOp = Extract<Op, { kind: ContainerOpKind }>;
+/** 意味論の op (`foldBranches` など、意味論ごとの畳み込みが処理) */
+export type SemanticOp = Extract<Op, { kind: SemanticOpKind }>;
+/** グラフの畳み込みに入れない op (器 + 意味論) */
 export type FileOp = Extract<Op, { kind: FileOpKind }>;
-/** グラフ内容を畳み込む op (projectBatches / applyOp が処理) */
+/** **基本語彙 (LPG)** の op。グラフ内容を畳み込む (projectBatches / applyOp が処理) */
 export type GraphOp = Exclude<Op, FileOp>;
 
 /** op の種別 → カテゴリ。同期対象の振り分け (structure/content/layout=同期, presentation=ローカル) に使う */
@@ -488,10 +542,12 @@ export const OP_CATEGORY: Record<OpKind, Category> = {
   'file.setName': 'file',
   'file.setDescription': 'file',
   'file.remove': 'file',
-  'branch.create': 'file',
-  'branch.setStatus': 'file',
-  'branch.remove': 'file',
-  'commit.add': 'file',
+  // 意味論 (拡張)。器 (`file`) と**同じカテゴリに置かない** — 否定形の分類では
+  // 「シートという器」と「バージョン管理という意味論」が同じに見える
+  'branch.create': 'semantic',
+  'branch.setStatus': 'semantic',
+  'branch.remove': 'semantic',
+  'commit.add': 'semantic',
 };
 
 export function opCategory(op: Op): Category {
@@ -503,9 +559,22 @@ export function isSyncable(op: Op): boolean {
   return opCategory(op) !== 'presentation';
 }
 
-/** file カテゴリ (シート/ファイル構造) の op か。projection の routing に使う */
-export function isFileOp(op: Op): op is FileOp {
+/** 器 (シート / ファイル構造) の op か */
+export function isContainerOp(op: Op): op is ContainerOp {
   return opCategory(op) === 'file';
+}
+
+/** 意味論 (branch / commit / …) の op か */
+export function isSemanticOp(op: Op): op is SemanticOp {
+  return opCategory(op) === 'semantic';
+}
+
+/**
+ * **グラフの畳み込みに入れない** op か (器 + 意味論)。projection の routing に使う。
+ * 層で分けたいときは `isContainerOp` / `isSemanticOp` を使う
+ */
+export function isFileOp(op: Op): op is FileOp {
+  return isContainerOp(op) || isSemanticOp(op);
 }
 
 /** グラフ内容 (LWW + 対立検出の対象) の op */
