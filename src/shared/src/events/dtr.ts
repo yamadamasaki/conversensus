@@ -21,7 +21,7 @@
  * ここが出すのは判定の材料 (記録された呼び出し対象と、積み上がった承認) までである。
  */
 
-import type { Did, DtrId, SheetId } from '../schemas';
+import type { BranchId, Did, DtrId, SheetId } from '../schemas';
 import type { JudgmentBatch, JudgmentOp } from './judgment';
 import {
   type Actor,
@@ -60,6 +60,8 @@ export type RejectedDtrJudgment = {
 /** 1 つの DtR の状態 */
 export type Dtr = {
   id: DtrId;
+  /** 何がこの DtR を必要にしたか (merge した branch、または競合が作った fork) */
+  branchId: BranchId;
   /** dialogue graph の器 (trunk の fileId の中の sheet) */
   sheetId: SheetId;
   /**
@@ -86,6 +88,7 @@ export type DtrJudgments = {
 /** 畳み込みの途中だけ可変にする。外へ出すのは読み取り専用の `Dtr` である */
 type MutableDtr = {
   id: DtrId;
+  branchId: BranchId;
   sheetId: SheetId;
   callees: Set<Did>;
   approvals: Set<Did>;
@@ -128,6 +131,7 @@ export function foldDtr(batches: readonly JudgmentBatch[]): DtrJudgments {
           }
           dtrs.set(op.target, {
             id: op.target,
+            branchId: op.branchId,
             sheetId: op.sheetId,
             callees: new Set(op.callees),
             approvals: new Set(),

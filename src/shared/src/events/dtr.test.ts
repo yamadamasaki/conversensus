@@ -1,6 +1,11 @@
 import { describe, expect, test } from 'bun:test';
 import fc from 'fast-check';
-import { type Did, DtrIdSchema, SheetIdSchema } from '../schemas';
+import {
+  BranchIdSchema,
+  type Did,
+  DtrIdSchema,
+  SheetIdSchema,
+} from '../schemas';
 import { allApproved, type DtrJudgments, foldDtr } from './dtr';
 import type { JudgmentBatch, JudgmentOp } from './judgment';
 import { BatchIdSchema } from './unified';
@@ -8,6 +13,8 @@ import { BatchIdSchema } from './unified';
 const DTR = DtrIdSchema.parse(crypto.randomUUID());
 const OTHER_DTR = DtrIdSchema.parse(crypto.randomUUID());
 const SHEET = SheetIdSchema.parse(crypto.randomUUID());
+/** 起動の原因となった branch (merge した branch, または競合が作った fork) */
+const BRANCH = BranchIdSchema.parse(crypto.randomUUID());
 
 const A: Did = 'did:plc:a';
 const B: Did = 'did:plc:b';
@@ -29,6 +36,7 @@ function batch(clock: number, actor: string, ops: JudgmentOp[]): JudgmentBatch {
 const open = (callees: readonly Did[]): JudgmentOp => ({
   kind: 'dtr.open',
   target: DTR,
+  branchId: BRANCH,
   sheetId: SHEET,
   callees: [...callees],
 });
@@ -53,6 +61,8 @@ describe('foldDtr', () => {
     expect([...dtr.callees].sort()).toEqual([A, B]);
     expect(dtr.approvals.size).toBe(0);
     expect(dtr.sheetId).toBe(SHEET);
+    // 何がこの DtR を必要にしたか。仕様は merge 操作 / fork に紐づけると定める
+    expect(dtr.branchId).toBe(BRANCH);
     expect(dtr.openedAt).toBe(1);
     expect(j.rejected).toEqual([]);
   });

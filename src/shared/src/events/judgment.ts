@@ -19,7 +19,7 @@
  */
 
 import { z } from 'zod';
-import { DtrIdSchema, SheetIdSchema } from '../schemas';
+import { BranchIdSchema, DtrIdSchema, SheetIdSchema } from '../schemas';
 import { deterministicUuid } from './genesis';
 import { type Actor, BatchIdSchema, type Lamport } from './unified';
 
@@ -138,6 +138,18 @@ export const JudgmentOpSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('dtr.open'),
     target: DtrIdSchema,
+    /**
+     * **何がこの DtR を必要にしたか。**
+     *
+     * 仕様は DtR を「この競合を引き起こした merge 操作 (op-log) に」または
+     * 「この競合によって作られた fork に」紐づけると定める。どちらも branch として
+     * 指せる (fork は `conflictKey` と凍結記述を持つ branch である) ので、
+     * **1 つのフィールドで両方の起動を表す**。
+     *
+     * **必須にしてある。**追記のみのログでは、後から必須フィールドを足すのは
+     * 破壊的変更になる — レコードが 1 件も書かれていないうちに形を決める。
+     */
+    branchId: BranchIdSchema,
     /**
      * dialogue graph の器。trunk の fileId の**中に**切った sheet を指す。
      * fileId を新たに切らないのは、`discoverRemoteFiles` がそれを File として

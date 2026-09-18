@@ -228,6 +228,39 @@ revert の経路が無い。人が押す操作なので、人の判断が要る�
   分けると、次のローカル編集が merge 済み batch と同じ `(clock, actor)` を持ちうる。
 - 理由の入力をキャンセルしたときも trunk も branch の status も動かない。
 
+### content 競合からの DtR の強制起動 (step2 Phase 6 D1)
+
+**ここで見るのは配線だけである。**起動するかどうかの線引き (`needsForcedStart`) と呼び出し
+対象の既定値 (`defaultCallees`) は `sync/startDtr.test.ts` が持っている。偽物
+(`createInMemoryBranchOpsDeps`) は本物の線引きを**再実装せず**、渡された入力を記録して
+`null` を返すだけにしてある — 両方に規則を置くと、偽物の側が正しいことを確かめているだけに
+なり、しかも**放っておくとずれる** (T0 で `applicability` の写しが `applyOp` とずれていたのと
+同じ形である)。
+
+固定するのは 4 つ。
+
+- **適用した競合ごと渡す**: 材料は先読み (`previewMerge`) ではなく `mergeBranchOnOplog` の
+  結果である。先読みと適用の間に trunk が動けば件数は食い違う — 競合の通知が既に同じ
+  判断をしているので、それと揃える
+- **名簿の参加者と自分の DID を渡す**: 名簿は**既定値を供給するだけ**である (仕様
+  「承認の判定」)。`viewer` は `actor` (`did#deviceId`) ではなく **DID** で渡す —
+  承認は端末単位ではなく人単位だからで、ここを取り違えると 2 台持ちの人が別人になる
+- **未ログインでは、理由を示して依頼しない**: 判断ログの書き先は自分の repo なので、
+  PDS が無ければ書きようがない。**merge そのものは成立する**ことも併せて見る。
+  **理由まで見るのは変異試験が教えた** — 「依頼しない」だけを固定すると、番人
+  (`if (!roster)`) を外す変異が**生き残った**。外しても `roster.read` が null で例外を
+  投げ、それを merge 側の `try`/`catch` が拾うので、依頼が 0 件で merge が成功する点は
+  変わらないからである。変わるのは**出る理由**で、番人が無いと TypeError が
+  「DtR の起動に失敗した」として報告される — **ログインしていないだけなのに PDS の
+  障害を疑わせる**。そこで `console.warn` を捕まえて「未ログイン」が出ることを固定した
+  (捕まえた後は `finally` で必ず戻す。戻さないと以降のテストの警告まで拾い続ける)
+- **🔴 起動に失敗しても merge を失敗として報告しない**: merge は既に trunk に載っている。
+  同じ `try` に入れると「merge に失敗しました」と嘘を報告し、**載った変更を人が探しに行く**
+
+content の競合は `trunkBatch` (node.add) → branch で `relabel` → trunk で `trunkContentBatch`
+の三手で作る。**三手とも同じノードを指すこと**が要で、`relabel` が `nodeId` を受け取れるように
+してあるのはそのためである。
+
 ### close / delete
 - close は status を closed にし、branch op-log は残す (再開の余地を残す)。
 - delete は **メタと branch 専用 op-log をまとめて**消す (server 側は 1 tx)。
