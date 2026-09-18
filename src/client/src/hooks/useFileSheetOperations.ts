@@ -157,6 +157,24 @@ interface UseFileSheetOperationsParams {
    * **安定参照であること** (ref 経由を推奨)。未指定 = 常に編集中でない扱い。
    */
   isEditingActive?: () => boolean;
+  /**
+   * branch を開いているなら true を返す (T7-7 の実機で発覚した欠陥, 2026-09-17)。
+   *
+   * **受信の差し替えは trunk の projection である。**branch を開いている間にそれを
+   * `activeFile` へ入れると、画面のシートが trunk の姿に化ける — 消したノードが戻り、
+   * branch の編集が消え、差分が空になってコミットできなくなる。branch の表示は
+   * branch 側 (`useBranchOperations`) が組み直すので、ここでは画面に触らない。
+   * **安定参照であること** (`isEditingActive` と同じ理由)。未指定 = 常に trunk 扱い。
+   */
+  isBranchOpen?: () => boolean;
+  /**
+   * branch を開いている間に受信した trunk を控える (同上)。
+   *
+   * 差し替えを見送るだけだと、**branch を閉じたときに branch へ入る前の trunk が出る**
+   * (`useBranchOperations` は入る前の写しを復元するため)。受信した分をここで渡して
+   * 控えを更新する。**安定参照であること**。
+   */
+  keepTrunkForReturn?: (file: GraphFile) => void;
 }
 
 export function useFileSheetOperations({
@@ -171,6 +189,8 @@ export function useFileSheetOperations({
   actor,
   roster = null,
   isEditingActive,
+  isBranchOpen,
+  keepTrunkForReturn,
 }: UseFileSheetOperationsParams) {
   const [files, setFiles] = useState<GraphFileListItem[]>([]);
   const [activeFile, setActiveFile] = useState<GraphFile | null>(null);
@@ -340,6 +360,16 @@ export function useFileSheetOperations({
           // 受信対象のファイルを開いたままのときだけ差し替える (再 projection 中に
           // ファイルを切り替えていたら何もしない)
           if (activeFileRef.current?.id !== fileId) return;
+          // **branch を開いている間は画面に触らない** (2026-09-17)。ここで入れるのは
+          // trunk の projection なので、入れると branch のシートが trunk の姿に化ける。
+          // 受信そのものは既にローカル正典へ着地しており、失われるものは無い
+          if (isBranchOpen?.()) {
+            keepTrunkForReturn?.(result.file);
+            // **epoch は進める。**branch の一覧はこれを契機に読み直す (T7-3) ので、
+            // 止めると相手の branch や merge が branch を閉じるまで出ない
+            setReceiveEpoch((epoch) => epoch + 1);
+            return;
+          }
           setActiveFile(result.file);
           // GraphEditor に React Flow の再 seed を伝える (同一 file.id の差し替えは
           // これが無いと画面に出ない — 4e-4 実機で発見)
@@ -356,7 +386,7 @@ export function useFileSheetOperations({
         )
         .finally(() => swappingRef.current.delete(fileId));
     },
-    [deps, isEditingActive, foreignCount],
+    [deps, isEditingActive, isBranchOpen, keepTrunkForReturn, foreignCount],
   );
 
   const handleReceived = useCallback(

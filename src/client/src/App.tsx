@@ -149,6 +149,22 @@ export default function App() {
     );
   }, []);
 
+  /**
+   * branch の表示状態への口 (2026-09-17)。**`fileOps` は `branchOps` より先に作られる**ので、
+   * 値では渡せない。`isEditingActive` と同じく安定した関数にして、中身を ref で差す
+   */
+  const branchViewRef = useRef<{
+    isBranchOpen: boolean;
+    keepTrunkForReturn: (file: GraphFile) => void;
+  } | null>(null);
+  const isBranchOpen = useCallback(
+    () => branchViewRef.current?.isBranchOpen ?? false,
+    [],
+  );
+  const keepTrunkForReturn = useCallback((file: GraphFile) => {
+    branchViewRef.current?.keepTrunkForReturn(file);
+  }, []);
+
   // File & sheet operations
   const fileOps = useFileSheetOperations({
     setConfirmState,
@@ -161,6 +177,9 @@ export default function App() {
     // 多アクタ同期は名簿を先に読む (step2 Phase 2 S2)。ダイアログと同じ供給元である
     roster,
     isEditingActive,
+    // branch を開いている間は受信で画面を差し替えない (2026-09-17)
+    isBranchOpen,
+    keepTrunkForReturn,
   });
 
   // Branch operations
@@ -186,6 +205,13 @@ export default function App() {
     // SQLite から載せ直したメタを読む前に trunk の記録を待つ (T7-6)
     trunkSettled: fileOps.trunkSettled,
   });
+
+  // `fileOps` へ渡した口の中身をここで差す (上の branchViewRef の注を参照)。
+  // **レンダーごとに更新する** — branch を開閉するたびに判定が変わる
+  branchViewRef.current = {
+    isBranchOpen: !branchOps.isTrunk,
+    keepTrunkForReturn: branchOps.keepTrunkForReturn,
+  };
 
   // Cross-domain wired callbacks
   //

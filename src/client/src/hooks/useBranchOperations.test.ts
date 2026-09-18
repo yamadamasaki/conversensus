@@ -770,6 +770,24 @@ describe('useBranchOperations — branch 操作 (op-log)', () => {
       expect(result.current.branchReceiveEpoch).toBeGreaterThan(0);
     });
 
+    it('🔴 branch を開いている間に受信した trunk が、戻ったときに出る (2026-09-17)', async () => {
+      // 受信の差し替えは branch 表示中は見送る (画面が trunk の姿に化けるため)。
+      // 見送るだけだと**戻ったときに branch へ入る前の trunk が出る**ので、控えを更新する
+      const view = await withOpenBranch();
+      const received: GraphFile = {
+        ...mockActiveFile,
+        name: '受信で進んだ trunk',
+      };
+      act(() => {
+        view.result.current.keepTrunkForReturn(received);
+      });
+      mockOnSetActiveFile.mockClear();
+      await act(async () => {
+        await view.result.current.handleSelectBranch(SHEET_ID, null);
+      });
+      expect(mockOnSetActiveFile).toHaveBeenLastCalledWith(received);
+    });
+
     it('trunk 表示中は branchSyncRecord が null (trunk 用 tap を使う)', async () => {
       const { result } = await renderOplog();
       expect(result.current.branchSyncRecord).toBeNull();

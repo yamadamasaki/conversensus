@@ -454,6 +454,18 @@ export function useBranchOperations({
     return restored;
   }, [onSetActiveFile]);
 
+  /**
+   * branch を開いている間に受信した trunk を、戻ったときに見せるために控え直す
+   * (T7-7 の実機で発覚した欠陥, 2026-09-17)。
+   *
+   * 戻り先は「branch へ入る前の trunk の写し」なので、受信した分を入れ直さないと
+   * **閉じた瞬間に古い trunk が出る**。branch を開いていないときは何もしない
+   * (写しが無いので、trunk の表示は受信の差し替えがそのまま担う)。
+   */
+  const keepTrunkForReturn = useCallback((file: GraphFile) => {
+    if (preBranchFile.current) preBranchFile.current = file;
+  }, []);
+
   /** trunk へ戻る。branch 側の内容は branch tap が既に op-log へ書いている */
   const backToTrunk = useCallback(
     (branch: BranchMeta | null) => {
@@ -962,6 +974,11 @@ export function useBranchOperations({
      * 足して GraphEditor に渡す — どちらが進んでも canvas を再 seed する
      */
     branchReceiveEpoch,
+    /**
+     * branch を開いている間に受信した trunk の控え先 (2026-09-17)。
+     * App が `useFileSheetOperations` へ渡す
+     */
+    keepTrunkForReturn,
     handleSelectBranch,
     handleCreateBranch,
     handleMergeBranch,
