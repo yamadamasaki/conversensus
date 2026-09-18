@@ -1,0 +1,146 @@
+# step2 Phase 6: DtR graph
+
+親: [step2-implementation](./step2-implementation.md) §3 Phase 6 /
+仕様: [dialogueToResolveGraph](../requirements/spec/dialogueToResolveGraph.md)・[merging](../requirements/spec/merging.md) /
+前提: [phase3-conflict](./step2-phase3-conflict.md)・[phase3-t7-branch-sync](./step2-phase3-t7-branch-sync.md)
+
+## 1. なぜやるか
+
+**完了基準 2 の唯一の担い手である。**
+
+> 2. 一方が branch を切って merge し、競合したときに DtR graph が起動し、双方の承認で再 merge される
+
+1 と 3 は Phase 2 で揃った。Phase 3 が器 (競合の検出・3 段の扱い分け・fork・branch/merge の同期) を
+作ったので、ここに残るのは **DtR の中身**である。
+
+## 2. コードで固めた事実
+
+計画には無いが、着手前にコードを読んで分かったこと。**どれも設計の形を変える。**
+
+### 事実 A: DtR の sheet は、何もしなければ普通のタブとして並ぶ
+
+`projectFile` は `sheet.create` を持つ sheet を**すべて** `GraphFile.sheets` に出し、サイドバーは
+それを素直に描く。`activeSheetId` の既定は `sheets[0]` である。DtR のグラフ本体を新しい
+sheet scope に置く (U6 で確定) と、**除外しない限り通常のシートとして並ぶ**。
+
+`foldBranches` の結果 (`BranchMeta.sheetId`) から DtR が指す sheetId を引けるので、
+**除外の材料は既にある**。
+
+### 事実 B: 判断ログに DtR の op を足すと、古い版は batch ごと捨てる
+
+`recordToJudgmentBatch` は **op が 1 つでも語彙に合わなければ `null`** を返す (判断は複数 op の
+原子性を前提にしているため、一部だけ通さない)。そして一括依頼は **1 batch に複数の
+`participation.invite` を入れる** (`useParticipation` の `invite`)。
+
+→ **DtR の op を名簿の op と同じ batch に混ぜてはならない。**混ぜると、DtR を知らない版の
+手元では**名簿の更新ごと失われる**。
+
+一方 `foldParticipation` の `switch` には `default` が無く、**知らない `kind` は黙って素通りする**
+(`reject` は各 case の中でしか呼ばれない)。したがって DtR の op が同じ collection にあっても
+**名簿の「捨てた op」には入らず**、Phase 1 で直した警告 (「名簿に反映できなかった判断がある」) が
+誤って出ることはない。
+
+### 事実 C: U7 の「7 種類」は、既存の 3 カテゴリの上に乗る
+
+U7 は resolve graph が扱う競合を 7 種類と数え、うち 2 つ (**edge の接続先**、**グループの所属関係**) を
+「conversensus 側で解決したが、ユーザの意図に合わない可能性があるもの」として別枠に置いていた。
+
+実装を見ると、`isParallelStructureOp` は **`node.setParent` と `edge.reconnect` を含む**。
+`OP_CATEGORY` でも両方 `structure` である。つまりこの 2 つは**すでに structure の並行変更として
+検出されている**。resolve graph は新しい分類を作らず、**既存の 3 カテゴリ (content / structure /
+layout) をそのまま使える**。
+
+### 事実 D: merge の cancel は、今の器では表せない
+
+- `BRANCH_STATUS` は `creating` / `open` / `merged` / `closed`。**`creating` は定義だけで参照が
+  1 件も無い** (未使用の枠)
+- `statusChanged` の呼び出しは close と merge だけで、**merged から戻す経路が無い**
+- Phase 3 の決定 ②: 「trunk op-log への追記に **revert の経路は無い**」
+
+→ 仕様の「原因となった merge をキャンセルし、merge 前の最後の commit の状態に戻る」は、
+**打ち消しの op を新たに決めない限り実装できない。**
+
+### 事実 E: fork からの起動は、凍結された記述だけが頼り
+
+explicit merge は `previewMerge` で競合を**取り直せる**。implicit merge の側は取り直せない —
+畳み直すと「今の競合」になり、そもそも競合が消えていることがある (`merging.md`)。
+`ForkOrigin` は両側の `op` / `actor` / `clock` と `baseAt` を凍結して持ち、畳み込みが
+`OpSchema` にかけて復元する (合わなければ記述だけ落とす)。**resolve graph の材料は
+ここから作る。**
+
+## 3. 中心の判断: 機構と見せ方を分ける
+
+**利用者の判断 (2026-09-18)。**
+
+> step 2 のここまでの段階で, branch/commit/merge, {explicit,implicit}-merge, それらの競合の解消は
+> 普通の人にとっては複雑で, もう一度見直す (少なくとも UX のレベルで) 必要がありそう
+
+Phase 6 は **DtR という概念をさらに 2 つ (dialogue graph / resolve graph) 増やす Phase** であり、
+この懸念が最も当たる場所である。そこで、
+
+- **機構を先に作る。**起動・呼び出し対象の記録・承認の畳み込み・再 merge の pre 条件。
+  これは見せ方をどう変えても要る
+- **見せ方は骨だけにする。**「差し替える前提」と明記して作る。計画も「UI の量が多い」と
+  書いており、作り込んでから見直すと捨てる量が大きい
+
+**見直しの実物を先に用意する**という順序でもある。今回の T7 で「同じ競合が画面の 3 か所に出る」
+ことが実機で初めて見えたように、見せ方の判断材料は動くものからしか出てこない。
+
+## 4. 決めたこと
+
+1. **merge の cancel は先送りする** (利用者決定 2026-09-18)。**いまは merge をやり切るしかない。**
+   - **完了基準 2 に cancel は要らない** (起動・承認・再 merge が揃えば Exit に届く)
+   - **止める手段は入口にある。**Phase 3 の決定 ②「事前検査 + 人の確認」。押さなければ branch は
+     open のまま。仕様の cancel は「押した**後で**戻す」もので、revert を要求する
+   - **追記のみという全体の筋と整合する。**revert は器に関わる決定なので、vector clock
+     (step3 の優先事項) と同じく**器を見直すときに一緒に扱う**
+2. **⚠️ 「保留」の意味を読み替える。**仕様は
+   > 保留の間, trunk には merge されない. branch はそのまま生き続ける
+
+   と書くが、これは **merge がまだ適用されていない前提**であり、Phase 3 の決定 ② と噛み合わない。
+   実際には **merge は押した時点で適用される**ので、保留は
+   **「trunk には既に入っているが、決着していない」**状態になる。
+   利用者から見た意味が違う (「待つ間は安全」ではなく「入った後で話している」)。
+   **§5.5 の形で仕様に戻す論点とする。**
+3. **承認は判断ログ、グラフ本体は trunk の fileId 内の sheet scope** (U6 で確定済)。
+   fileId を新しく切らない (`discoverRemoteFiles` が File として materialize する)
+4. **DtR の op は名簿の op と同じ batch に書かない** (事実 B)
+5. **DtR の sheet は File のタブに出さない** (事実 A)。除外の基準は「DtR が指す sheetId」
+6. **resolve graph は既存の 3 カテゴリの上に作る** (事実 C)。新しい分類を作らない
+7. **呼び出し対象は起動時に確定して記録する。**再 merge は pre 条件つきの操作にし、判定は
+   名簿への生きた問い合わせではなく**記録された集合**に対して行う (仕様「承認の判定」)
+
+## 5. 未決 — 設計の中で決める
+
+| | 内容 |
+| --- | --- |
+| **V1** | **DtR の器を `branch.create` に相乗りさせるか、新しい op にするか。**fork は `conflictKey` / `origin` を足して branch に相乗りしている (先例)。DtR は**グラフを 2 つ**持ち、`branchFileId` (必須) の意味も違う。相乗りは畳み込みと UI を再利用できるが、`BranchMeta` が 3 つの意味を背負う |
+| **V2** | **resolve graph の見せ方** (U7 から引き継ぎ)。事実 C で分類は既存の 3 つに決まったので、残るのは「trunk の上に競合をどう重ねるか」と「すべての要素が編集可能」の担保 |
+| **V3** | **dialogue graph に toulmin を当てるか。**`sheet.create` の `templateIds` で当てられる (Phase 5)。仕様は「template 機構が導入されたら、その一つの例として」と書く |
+| **V4** | **保留の可視化。**「未決着の merge がある」を左サイドバーに出す。決定 2 の読み替え (既に trunk に入っている) を踏まえた言葉にする必要がある |
+| **V5** | **DtR の op の語彙。**`participation.*` と同じ collection に置くので、接頭辞を分ける (`dtr.*` など)。起動 / 呼び出し対象の変更 / 承認 / 再 merge の 4 つで足りるか |
+
+## 6. スライス
+
+**機構を先に、見せ方は骨だけ** (§3)。
+
+| | 内容 | 検証 |
+| --- | --- | --- |
+| **D0** | 語彙と畳み込み (V1 / V5 を決める)。DtR の記録と、承認の集合を畳む | 単体 + 性質 |
+| **D1** | explicit merge の content 競合からの**強制起動**。呼び出し対象の既定値 (共同作業者全員) を記録する | 単体 |
+| **D2** | **承認**と、再 merge の **pre 条件**。承認しないまま参加を取りやめた actor は自動的に外れる | 単体 + 性質 |
+| **D3** | **再 merge**。承認が揃ってから。再び競合したら繰り返す | 単体 |
+| **D4** | **fork からの起動** (implicit)。既定の呼び出し対象は自分だけ。材料は凍結記述 (事実 E) | 単体 |
+| **D5** | **見せ方の骨** (V2 / V4)。サイドバーに branch と同じレベルで出し、通常の branch と違うと分かる形。DtR の sheet はタブに出さない (事実 A) | 単体 + 実機 |
+| **D6** | 2 アカウントの実 PDS で通しで確認 | 実 PDS |
+
+## 7. Exit
+
+**完了基準 2 が揃う。**
+
+1. alice が branch を切って編集し、trunk と競合する状態で merge する
+2. content の競合で **DtR が強制起動**し、呼び出し対象が記録される
+3. bob の手元にも DtR が現れ、**双方が承認**する
+4. **再 merge** が通り、承認が揃っていなければ pre 条件で捨てられる
+5. DtR の sheet が **File のタブに並ばない**
+6. 承認しないまま bob が参加を取りやめたら、**残りの全員で判定が進む**
