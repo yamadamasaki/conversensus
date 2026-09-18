@@ -117,6 +117,53 @@ tap は承認を観測しなければならない。名簿を読む場所 (`sync
 > ローカル正典はそのまま残る (自分の写しである)。止まるのは取り込みだけで、
 > 「共有が切れている」ことを画面に出す責務は別にある。
 
+## branch の tap (step2 Phase 3 T7-3)
+
+### なぜ
+
+T7-2 で branch の op-log が remote に載ったので、参加者の branch の編集を引けるようになった。
+ただし branch は trunk と 2 点で違い、そのまま trunk と同じ受信を走らせると壊れる。
+
+- **branch は名簿を持たない。**判断ログは trunk の fileId にしか無いので、branch の fileId で
+  名簿を読むと空になり、誰の repo も読まない
+- **implicit merge の検出と fork は trunk の受信のものである。**`receiveParticipantBatches` は
+  競合を検出すると fork を `forkDeps` に書く。既定の器はこの tap の `record` なので、
+  branch で走らせると **fork が branch の op-log に書かれる**。branch と trunk の対立は
+  explicit merge が検出する
+
+`trunkFileId` を渡すとこの 2 点が切り替わる。
+
+### どのように
+
+相手 (`did:plc:bob`) の repo だけが branch の編集を 1 件返す remote キューと、自分と相手が
+clock 0 から参加している名簿を用意する。**名簿には `history` の accept を持たせる** —
+参加期間は `history` から導かれるので、`participating` だけでは期間の外として落ちる。
+
+- **名簿は trunk の fileId で読み、相手の branch の編集を branch の fileId へ追記する**:
+  名簿の読み出しが `[TRUNK]`、取得が「自分の repo → 相手の repo」の順でどちらも branch の
+  fileId、追記が branch の fileId に相手の編集 1 件
+- **implicit merge の検出を走らせず、名簿の通知もしない**: 受信は走っている (追記 1 件) のに、
+  検出の入口である `fetchLocal` が 1 度も呼ばれず、`onRoster` も呼ばれない
+
+## 相手が保留した競合の到着 (step2 Phase 3 T7-5)
+
+### なぜ
+
+`receiveParticipantBatches` が到着した fork を結果に載せても、**このフックが `onForksArrived` を
+呼ばなければ画面に届かない**。競合を検出するのは LWW で勝つ側だけなので、負けた側が保留を知る
+道はこの配線しか無い。変異 (呼び出しを消す) で、この配線を見るテストが他に 1 件も無いことを
+確かめてから足した。
+
+### どのように
+
+参加者 (bob) の repo だけが fork の batch を返す remote キューと、自分と bob が clock 0 から
+参加している名簿を用意して、普通の trunk の tap を張る。fork は本物の経路で作る —
+`makeFork` → T7-1 の記録口 (`branchMetaRecorder`) → `graphEventToBatch`。記述はスキーマで
+検証されるので id は UUID にする (崩れると普通の branch に化け、到着が見えない)。
+
+- **参加者の repo から届いた fork を `onForksArrived` で知らせる**: 1 回だけ、この File の id と
+  その fork の `conflictKey` で呼ばれる
+
 ## 定期ポーリング (step2 Phase 2 S4 / #202)
 
 step1 は定期取得を**採らなかった** — 1 回あたり remote 取得 1 往復のコストを常時払う

@@ -16,7 +16,6 @@ import {
   type BranchId,
   BranchIdSchema,
   type CommitId,
-  CommitIdSchema,
   type FileId,
   FileIdSchema,
   type Sheet,
@@ -24,28 +23,15 @@ import {
   SheetIdSchema,
 } from '../schemas';
 import { projectBatches, toSheet } from './project';
-import type { Batch, Lamport } from './unified';
-
-export const BRANCH_STATUS = {
-  CREATING: 'creating',
-  OPEN: 'open',
-  MERGED: 'merged',
-  CLOSED: 'closed',
-} as const;
-export type BranchStatus = (typeof BRANCH_STATUS)[keyof typeof BRANCH_STATUS];
-
-/**
- * コミットの種別 (ANA-122)。**merge も一級の記録**にするための区別。
- *
- * merge は「branch batches を trunk 先端の後へ再スタンプして追記する」操作なので、
- * 追記後の trunk 先端を指すオフセットとして commit と同じ形で表せる。種別を分けるのは
- * 「いつ・誰が・何のために merge したか」を trunk の履歴から commit と一列に引くため。
- */
-export const COMMIT_KIND = {
-  COMMIT: 'commit',
-  MERGE: 'merge',
-} as const;
-export type CommitKind = (typeof COMMIT_KIND)[keyof typeof COMMIT_KIND];
+import {
+  type Batch,
+  BRANCH_STATUS,
+  type BranchStatus,
+  COMMIT_KIND,
+  type CommitKind,
+  CommitSchema,
+  type Lamport,
+} from './unified';
 
 /** コミット = 操作ログ上のラベル付きオフセット */
 export type Commit = {
@@ -81,19 +67,6 @@ export type Branch = {
 // `parse` の結果をドメイン型の引数へ渡す呼び出し側 (server の saveCommit /
 // saveBranch) でコンパイル時に検出される。
 
-export const CommitSchema = z.object({
-  id: CommitIdSchema,
-  message: z.string(),
-  at: z.number().int().nonnegative(),
-  authorActor: z.string(),
-  // 既定値を持たせるのは互換のため — `kind` を持たない既存のコミット行や、
-  // branches テーブルへ列展開されている base コミット (種別を持たない) が
-  // そのまま通る。出力側では必須なのでドメイン型 `Commit` と一致する。
-  kind: z.nativeEnum(COMMIT_KIND).default(COMMIT_KIND.COMMIT),
-  sourceBranchId: BranchIdSchema.optional(),
-  sourceAt: z.number().int().nonnegative().optional(),
-});
-
 /**
  * ブランチのメタ情報 = ドメインの `Branch` + 永続化・配線に要る補足。
  *
@@ -101,7 +74,8 @@ export const CommitSchema = z.object({
  *   - `sheetId`: branch は per-sheet を維持する (設計 §9.5-1)
  *   - `trunkFileId`: どの trunk から分岐したか
  *   - `branchFileId`: branch batches を貯める専用 file_id (§3.1-B)。
- *     **local 専用で remote へ push しない** (§9.2 の不変条件)
+ *     step1 では local 専用だった (§9.2) が、**step2 Phase 3 T7-2 で remote へ push する**
+ *     ようになった。シートを持たないので File の一覧には出ない
  * が要る。ドメイン型を汚さずメタ側で補う。
  */
 export type BranchMeta = Branch & {

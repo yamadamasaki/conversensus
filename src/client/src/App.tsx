@@ -2,6 +2,7 @@ import {
   BRANCH_STATUS,
   type Did,
   type FileId,
+  type ForkMeta,
   type GraphFile,
   type Sheet,
   type SheetId,
@@ -38,6 +39,7 @@ import { ParticipationHistoryDialog } from './ParticipationHistoryDialog';
 import { ReadOnlyProvider } from './readOnlyContext';
 import { FLOATING_UI_Z_INDEX } from './SettingsPopup';
 import { Sidebar } from './Sidebar';
+import { accumulateArrivedForks, NO_ARRIVED_FORKS } from './sync/forkArrival';
 import {
   accumulateOverwrites,
   type DetectedOverwrites,
@@ -77,6 +79,16 @@ export default function App() {
     useState<OverwriteNoticeState>(NO_OVERWRITE_NOTICE);
   const handleOverwrites = useCallback((detected: DetectedOverwrites) => {
     setOverwriteNotice((prev) => accumulateOverwrites(prev, detected));
+  }, []);
+  /**
+   * 相手が保留した競合 (fork) の到着 (Phase 3 T7-5)。**競合の通知に出す** — 仕様は fork の
+   * 通知を対話グラフ (DtR) への入口とする。ただし競合の検出は毎回置き換わるので、同じ state に
+   * 入れると次の検出で消える。受信サイクルをまたいで溜め、通知を閉じたときに一緒に消す
+   */
+  const [arrivedForks, setArrivedForks] =
+    useState<readonly ForkMeta[]>(NO_ARRIVED_FORKS);
+  const handleForksArrived = useCallback((forks: readonly ForkMeta[]) => {
+    setArrivedForks((prev) => accumulateArrivedForks(prev, forks));
   }, []);
   /** 上書きの報告の対象名。競合と同じ「分岐点での名前」から引く */
   const overwriteLabelOf = useCallback(
@@ -137,17 +149,37 @@ export default function App() {
     );
   }, []);
 
+  /**
+   * branch の表示状態への口 (2026-09-17)。**`fileOps` は `branchOps` より先に作られる**ので、
+   * 値では渡せない。`isEditingActive` と同じく安定した関数にして、中身を ref で差す
+   */
+  const branchViewRef = useRef<{
+    isBranchOpen: boolean;
+    keepTrunkForReturn: (file: GraphFile) => void;
+  } | null>(null);
+  const isBranchOpen = useCallback(
+    () => branchViewRef.current?.isBranchOpen ?? false,
+    [],
+  );
+  const keepTrunkForReturn = useCallback((file: GraphFile) => {
+    branchViewRef.current?.keepTrunkForReturn(file);
+  }, []);
+
   // File & sheet operations
   const fileOps = useFileSheetOperations({
     setConfirmState,
     setAlertState,
     setConflictNotice,
     onOverwrites: handleOverwrites,
+    onForksArrived: handleForksArrived,
     remoteQueue,
     actor,
     // 多アクタ同期は名簿を先に読む (step2 Phase 2 S2)。ダイアログと同じ供給元である
     roster,
     isEditingActive,
+    // branch を開いている間は受信で画面を差し替えない (2026-09-17)
+    isBranchOpen,
+    keepTrunkForReturn,
   });
 
   // Branch operations
@@ -163,7 +195,23 @@ export default function App() {
     actor,
     // merge の再スタンプは trunk と同じ発番器で行う (p5-4)
     trunkClock: fileOps.trunkClock,
+    // branch / commit のメタは trunk の op-log に記録する (step2 Phase 3 T7-1)
+    trunkRecord: fileOps.syncRecord,
+    // branch の編集も remote へ出す (step2 Phase 3 T7-2)
+    remoteQueue,
+    // 参加者の branch を引き、trunk の受信で branch 一覧を読み直す (T7-3)
+    roster,
+    receiveEpoch: fileOps.receiveEpoch,
+    // SQLite から載せ直したメタを読む前に trunk の記録を待つ (T7-6)
+    trunkSettled: fileOps.trunkSettled,
   });
+
+  // `fileOps` へ渡した口の中身をここで差す (上の branchViewRef の注を参照)。
+  // **レンダーごとに更新する** — branch を開閉するたびに判定が変わる
+  branchViewRef.current = {
+    isBranchOpen: !branchOps.isTrunk,
+    keepTrunkForReturn: branchOps.keepTrunkForReturn,
+  };
 
   // Cross-domain wired callbacks
   //
@@ -400,7 +448,11 @@ export default function App() {
                 deletedEdges={branchOps.deletedEdges}
                 deletedNodeLayouts={branchOps.deletedNodeLayouts}
                 deletedEdgeLayouts={branchOps.deletedEdgeLayouts}
-                receiveEpoch={fileOps.receiveEpoch}
+                // 受信による差し替えの契機。trunk の受信と、開いている branch の受信
+                // (step2 Phase 3 T7-3) の和 — どちらかが進めば React Flow を再 seed する
+                receiveEpoch={
+                  fileOps.receiveEpoch + branchOps.branchReceiveEpoch
+                }
               />
             </BlobOriginProvider>
           </ReadOnlyProvider>
@@ -552,9 +604,11 @@ export default function App() {
           conflicts={conflictNotice.conflicts}
           labelOf={conflictLabelOf}
           forkCount={conflictNotice.forkCount ?? 0}
-          onClose={() =>
-            setConflictNotice({ conflicts: [], labels: new Map() })
-          }
+          arrivedForks={arrivedForks}
+          onClose={() => {
+            setConflictNotice({ conflicts: [], labels: new Map() });
+            setArrivedForks(NO_ARRIVED_FORKS);
+          }}
         />
         <OverwriteNotice
           reports={overwriteNotice.reports}

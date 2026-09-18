@@ -91,6 +91,19 @@ describe('isWithinParticipation', () => {
     expect(isWithinParticipation(p, batch(`${BOB}#device-2`, 15))).toBe(false);
   });
 
+  it('merge の写しは積み直した人の期間で判定する (T7-4)', () => {
+    // bob が書いた branch を、bob の離脱後に alice が merge した。積み直しの clock で
+    // op-log に積んだのは alice なので、bob の期間で見ると取り込みが落ちる
+    const p = roster({
+      [ALICE]: [event('accept', 10)],
+      [BOB]: [event('accept', 10), event('revoke', 20)],
+    });
+    const mergedByAlice = { ...batch(BOB, 30), restampedBy: `${ALICE}#dev-a` };
+    const mergedByBob = { ...batch(ALICE, 30), restampedBy: `${BOB}#dev-b` };
+    expect(isWithinParticipation(p, mergedByAlice)).toBe(true);
+    expect(isWithinParticipation(p, mergedByBob)).toBe(false);
+  });
+
   it('genesis は期間を持たないが通す (File の起源)', () => {
     // 落とすと承認した側が起源を持たない op-log を畳むことになる
     const p = roster({ [ALICE]: [event('accept', 10)] });

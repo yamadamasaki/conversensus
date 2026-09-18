@@ -1,7 +1,5 @@
 import {
   type Batch,
-  type BranchMeta,
-  type Commit,
   type CommitOperation,
   type FileId,
   type GraphFile,
@@ -141,12 +139,17 @@ export function createInMemoryFileSheetOpsDeps(): FileSheetOpsDeps & {
  */
 export function createInMemoryBranchOplogDeps(): BranchOplogDeps & {
   _batches: Map<string, Batch[]>;
-  _branches: Map<string, BranchMeta>;
-  _commits: Map<string, Commit[]>;
+  /** SQLite に残る branch 行 (T7-6 の載せ直しの元)。テストが直接入れる */
+  _legacyBranches: import('@conversensus/shared').BranchMeta[];
+  /** SQLite に残る commit 行 (file_id → 行)。テストが直接入れる */
+  _legacyCommits: Map<string, import('@conversensus/shared').Commit[]>;
 } {
+  const legacyBranches: import('@conversensus/shared').BranchMeta[] = [];
+  const legacyCommits = new Map<
+    string,
+    import('@conversensus/shared').Commit[]
+  >();
   const batches = new Map<string, Batch[]>();
-  const branches = new Map<string, BranchMeta>();
-  const commits = new Map<string, Commit[]>();
   let idCounter = 0;
 
   const append = (fileId: string, items: Batch[]): number => {
@@ -159,37 +162,28 @@ export function createInMemoryBranchOplogDeps(): BranchOplogDeps & {
 
   return {
     _batches: batches,
-    _branches: branches,
-    _commits: commits,
+    _legacyBranches: legacyBranches,
+    _legacyCommits: legacyCommits,
 
+    // SQLite の古いメタの読み口 (T7-6)。既定は空 = 載せ直すものが無い
+    fetchLegacyBranches: async (trunkFileId) =>
+      legacyBranches.filter((b) => b.trunkFileId === trunkFileId),
+    fetchLegacyCommits: async (fileId) => [
+      ...(legacyCommits.get(fileId) ?? []),
+    ],
+
+    // branch / commit のメタもこのストアの trunk の op-log に載る (step2 Phase 3 T7-1)
     fetchBatches: async (fileId) => [...(batches.get(fileId) ?? [])],
     appendBatches: async (fileId, items) => append(fileId, items),
-
-    saveBranch: async (meta) => {
-      branches.set(meta.id, meta);
-      return meta;
-    },
-    fetchBranches: async (trunkFileId) =>
-      [...branches.values()].filter((b) => b.trunkFileId === trunkFileId),
-    deleteBranch: async (_trunkFileId, branchId) => {
-      const meta = branches.get(branchId);
-      if (!meta) return;
-      branches.delete(branchId);
-      batches.delete(meta.branchFileId);
-      commits.delete(meta.branchFileId);
-    },
-
-    saveCommit: async (fileId, commit) => {
-      commits.set(fileId, [...(commits.get(fileId) ?? []), commit]);
-      return commit;
-    },
-    fetchCommits: async (fileId) => [...(commits.get(fileId) ?? [])],
 
     // 決定論的な id。projection の tiebreak (clock→actor→id) を安定させる
     newId: () => {
       idCounter += 1;
       return `id-${idCounter}`;
     },
+
+    // branch の受信の書き込み口 (T7-3)。本物と同じく新規に追記した件数を返す
+    appendReceived: async (fileId, items) => append(fileId, items),
 
     // branch tap の宛先。同じ batches ストアへ書くので、書いた直後の projection に載る
     createBranchProvider: (fileId) => ({

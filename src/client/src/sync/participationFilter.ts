@@ -40,6 +40,7 @@ import type { Batch, Participation } from '@conversensus/shared';
 import {
   didFromActor,
   GENESIS_ACTOR,
+  stackedBy,
   wasParticipatingAt,
 } from '@conversensus/shared';
 
@@ -55,9 +56,12 @@ export function isWithinParticipation(
   batch: Batch,
 ): boolean {
   if (batch.actor === GENESIS_ACTOR) return true;
+  // **積んだ人の期間で判定する** (T7-4)。merge の写しは書いた人の actor を保つが、
+  // その clock で op-log に積んだのは merge した人である。書いた人で見ると、離脱した人の
+  // branch を残った人が merge したときに取り込みが落ちる
   return wasParticipatingAt(
     participation,
-    didFromActor(batch.actor),
+    didFromActor(stackedBy(batch)),
     batch.clock,
   );
 }

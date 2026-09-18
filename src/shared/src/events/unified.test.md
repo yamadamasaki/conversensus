@@ -29,3 +29,18 @@
 
 なお「schema の全 kind が `OP_CATEGORY` に載っている」ことは既存の網羅テストが見ている
 ので、ここでは繰り返さない。
+
+### branch / commit の op (step2 Phase 3 T7)
+
+branch のメタを trunk の op-log に載せるための 4 つの op (`branch.create` / `branch.setStatus` /
+`branch.remove` / `commit.add`) を見る。
+
+- **file カテゴリで、グラフの畳み込みから外れる**: `FILE_OP_KINDS` に入れることで
+  `projectBatches` が読み飛ばす。グラフの projection に branch のメタが混ざらない。
+- **fork の記述の中の op は形を問わず parse できる**: 素直に `OpSchema` で検証すると、
+  fork を運ぶ `branch.create` が `OpSchema` の一員なので**スキーマが自分自身を含む**。
+  仕様はこの記述を「畳み込みの入力ではない」と定めているので、op-log の段では強制せず、
+  `foldBranches` が読み出すときに検証する。
+- **`commit.add` はコミット本体を `commit` の下に持つ**: `Commit` 自身が `kind`
+  (commit / merge) を持ち、op の判別キーとぶつかるため。
+- **status は定数の値しか受け付けない**: `BRANCH_STATUS` と機械的に揃えてある。

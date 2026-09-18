@@ -1,4 +1,8 @@
 import type {
+  BranchId,
+  BranchMeta,
+  BranchStatus,
+  Commit,
   EdgeId,
   EdgeLayout,
   EdgePathType,
@@ -295,6 +299,37 @@ export type FileDeletedEvent = EventBase & {
   type: 'FILE_DELETED';
 };
 
+// --- branch / commit (step2 Phase 3 T7) ---
+// file / sheet 構造と同じく **undo を通さず** trunk の tap (`syncRecord`) で直接 op-log へ流す。
+// branch のメタを daemon の SQLite ではなく trunk の op-log に書くことで、**相手に届く**。
+// どの trunk かは持たない — この event が流れる先の op-log がそのまま対象になる。
+
+/** branch を切った。fork なら `meta` が `conflictKey` / `origin` を持つ */
+export type BranchCreatedEvent = EventBase & {
+  category: 'file';
+  type: 'BRANCH_CREATED';
+  meta: BranchMeta;
+};
+export type BranchStatusChangedEvent = EventBase & {
+  category: 'file';
+  type: 'BRANCH_STATUS_CHANGED';
+  branchId: BranchId;
+  status: BranchStatus;
+};
+/** branch を削除した。一度消したら戻らない (`branch.remove`) */
+export type BranchRemovedEvent = EventBase & {
+  category: 'file';
+  type: 'BRANCH_REMOVED';
+  branchId: BranchId;
+};
+/** コミットを記録した。`branchId` が無ければ trunk のコミット (merge を含む) */
+export type CommitAddedEvent = EventBase & {
+  category: 'file';
+  type: 'COMMIT_ADDED';
+  commit: Commit;
+  branchId?: BranchId;
+};
+
 export type GraphEvent =
   | NodeAddedEvent
   | NodeDeletedEvent
@@ -324,7 +359,11 @@ export type GraphEvent =
   | SheetDescribedEvent
   | FileRenamedEvent
   | FileDescribedEvent
-  | FileDeletedEvent;
+  | FileDeletedEvent
+  | BranchCreatedEvent
+  | BranchStatusChangedEvent
+  | BranchRemovedEvent
+  | CommitAddedEvent;
 
 export function makeEventBase<C extends GraphEvent['category']>(
   category: C,

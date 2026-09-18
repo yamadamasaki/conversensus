@@ -5,6 +5,7 @@ import {
   type ConversensusFile,
   type Did,
   type FileId,
+  type ForkMeta,
   type GraphFile,
   type GraphFileListItem,
   type Lamport,
@@ -127,6 +128,11 @@ interface UseFileSheetOperationsParams {
    * この報告は自動では出ない印なので、上書きすると人が見に行く前に消える。
    */
   onOverwrites: (detected: DetectedOverwrites) => void;
+  /**
+   * 相手が書いた fork (保留した競合) の到着を画面へ渡す (step2 Phase 3 T7-5)。
+   * 上書きの報告と同じく**受け手が溜める**。省略すると通知しない
+   */
+  onForksArrived?: (forks: readonly ForkMeta[]) => void;
   deps?: FileSheetOpsDeps;
   /**
    * テスト用: op-log tap の record を差し替える。未指定なら内部 tap (LocalServerSyncProvider)。
@@ -151,6 +157,24 @@ interface UseFileSheetOperationsParams {
    * **安定参照であること** (ref 経由を推奨)。未指定 = 常に編集中でない扱い。
    */
   isEditingActive?: () => boolean;
+  /**
+   * branch を開いているなら true を返す (T7-7 の実機で発覚した欠陥, 2026-09-17)。
+   *
+   * **受信の差し替えは trunk の projection である。**branch を開いている間にそれを
+   * `activeFile` へ入れると、画面のシートが trunk の姿に化ける — 消したノードが戻り、
+   * branch の編集が消え、差分が空になってコミットできなくなる。branch の表示は
+   * branch 側 (`useBranchOperations`) が組み直すので、ここでは画面に触らない。
+   * **安定参照であること** (`isEditingActive` と同じ理由)。未指定 = 常に trunk 扱い。
+   */
+  isBranchOpen?: () => boolean;
+  /**
+   * branch を開いている間に受信した trunk を控える (同上)。
+   *
+   * 差し替えを見送るだけだと、**branch を閉じたときに branch へ入る前の trunk が出る**
+   * (`useBranchOperations` は入る前の写しを復元するため)。受信した分をここで渡して
+   * 控えを更新する。**安定参照であること**。
+   */
+  keepTrunkForReturn?: (file: GraphFile) => void;
 }
 
 export function useFileSheetOperations({
@@ -158,12 +182,15 @@ export function useFileSheetOperations({
   setAlertState,
   setConflictNotice,
   onOverwrites,
+  onForksArrived,
   deps = defaultFileSheetOpsDeps,
   syncRecord: syncRecordOverride,
   remoteQueue = null,
   actor,
   roster = null,
   isEditingActive,
+  isBranchOpen,
+  keepTrunkForReturn,
 }: UseFileSheetOperationsParams) {
   const [files, setFiles] = useState<GraphFileListItem[]>([]);
   const [activeFile, setActiveFile] = useState<GraphFile | null>(null);
@@ -259,6 +286,14 @@ export function useFileSheetOperations({
     [onOverwrites],
   );
 
+  /** 相手が保留した競合の到着を画面へ渡す (T7-5)。競合の通知に出るが、溜めるのは受け手 */
+  const handleForksArrived = useCallback(
+    (_fileId: FileId, forks: ForkMeta[]) => {
+      onForksArrived?.(forks);
+    },
+    [onForksArrived],
+  );
+
   const handleRoster = useCallback(
     (fileId: FileId, participation: Participation) => {
       const viewer = didFromActor(actor);
@@ -325,6 +360,16 @@ export function useFileSheetOperations({
           // 受信対象のファイルを開いたままのときだけ差し替える (再 projection 中に
           // ファイルを切り替えていたら何もしない)
           if (activeFileRef.current?.id !== fileId) return;
+          // **branch を開いている間は画面に触らない** (2026-09-17)。ここで入れるのは
+          // trunk の projection なので、入れると branch のシートが trunk の姿に化ける。
+          // 受信そのものは既にローカル正典へ着地しており、失われるものは無い
+          if (isBranchOpen?.()) {
+            keepTrunkForReturn?.(result.file);
+            // **epoch は進める。**branch の一覧はこれを契機に読み直す (T7-3) ので、
+            // 止めると相手の branch や merge が branch を閉じるまで出ない
+            setReceiveEpoch((epoch) => epoch + 1);
+            return;
+          }
           setActiveFile(result.file);
           // GraphEditor に React Flow の再 seed を伝える (同一 file.id の差し替えは
           // これが無いと画面に出ない — 4e-4 実機で発見)
@@ -341,7 +386,7 @@ export function useFileSheetOperations({
         )
         .finally(() => swappingRef.current.delete(fileId));
     },
-    [deps, isEditingActive, foreignCount],
+    [deps, isEditingActive, isBranchOpen, keepTrunkForReturn, foreignCount],
   );
 
   const handleReceived = useCallback(
@@ -399,6 +444,7 @@ export function useFileSheetOperations({
   const {
     record: internalSyncRecord,
     clock: trunkClock,
+    settled: trunkSettled,
     syncNow,
   } = useEventSyncTap(activeFile?.id ?? null, {
     remoteQueue,
@@ -413,6 +459,7 @@ export function useFileSheetOperations({
     onRoster: handleRoster,
     onConflicts: handleConflicts,
     onOverwrites: handleOverwrites,
+    onForksArrived: handleForksArrived,
     onSynced: handleSynced,
   });
   const syncRecord = syncRecordOverride ?? internalSyncRecord;
@@ -985,6 +1032,9 @@ export function useFileSheetOperations({
     // trunk の Lamport 発番器 (p5-4)。merge が branch batches を trunk へ再スタンプ
     // するときに使う — 発番器を分けると同 (clock, actor) の batch が生まれる。
     trunkClock,
+    // trunk の tap の drain 完了を待つ (step2 Phase 3 T7-6)。記録した branch のメタを
+    // 読み直す前に待たないと、畳み込みに載っていない
+    trunkSettled,
     receiveEpoch,
     // 「今すぐ同期」(SyncStatusIndicator) の口。開いている間に他所で起きた変更を
     // 取りに行く手段がこれしかない (GitHub #202)

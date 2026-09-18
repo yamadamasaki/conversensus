@@ -34,6 +34,11 @@
  * - **既知ファイルの batch はここでは書かない** — 開いているファイルは (a) が担い、
  *   開いていない既知ファイルへの追記は次に開いたときの (a) が回収する (べき等なので
  *   二重責務にしない)。
+ * - **branch 専用 file_id も取り込む** (step2 Phase 3 T7-2)。branch の op-log も remote へ
+ *   出るので、別の端末ではここで未知の fileId として見つかる。**取り込んでよい** —
+ *   シートを持たないので一覧 (`listOplogFiles`) の 0 シート除外で File としては並ばず、
+ *   取り込めば既知集合に入るので次から本体を引き直さない。発見の側で弾くと、
+ *   branch の数だけ起動のたびに本体を転送することになる
  * - **Lamport observe はしない** — clock は開いているファイルの tap が持ち、
  *   materialize したファイルに tap は無い。後で開いたとき `ensureRestored` が
  *   local pull の max(clock) から seed する (W3a) ので受信分を必ず追い越す。

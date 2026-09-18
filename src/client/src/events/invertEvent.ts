@@ -223,6 +223,11 @@ export function invertEvent(event: GraphEvent): GraphEvent {
     case 'FILE_RENAMED':
     case 'FILE_DESCRIBED':
     case 'FILE_DELETED':
+    // branch / commit のメタ (step2 Phase 3 T7) も同じく trunk の tap へ直接流す
+    case 'BRANCH_CREATED':
+    case 'BRANCH_STATUS_CHANGED':
+    case 'BRANCH_REMOVED':
+    case 'COMMIT_ADDED':
       throw new Error(
         `invertEvent: 構造イベントは反転不可 (undo 対象外): ${event.type}`,
       );

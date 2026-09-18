@@ -111,6 +111,21 @@ GraphEditor の reset effect の依存に加えることで再 seed を発火さ
 - **既知分のみの再受信 (appended = 0)**: onReceived 自体が呼ばれず、swap も epoch 増加も
   起きないこと (べき等再受信で画面を無駄に触らない)。
 
+#### branch を開いている間は画面を差し替えない (2026-09-17)
+
+差し替えが `activeFile` に入れるのは **trunk の projection** である。branch を開いている間に
+それを入れると、**画面のシートが trunk の姿に化ける** — branch で消したノードが戻り、branch の
+編集が消え、差分が空になってコミットできなくなる。利用者の実機シナリオ (Notion 2026.09.17) で
+発覚した。**op-log は正しく、画面だけが壊れる**形なので、op-log を見るテストでは捕まらない。
+
+- **🔴 branch 表示中は画面を差し替えず、受信した trunk を控えに渡す**: `activeFile` に受信ノードが
+  入らないこと、控え (`keepTrunkForReturn`) には入ること、**`receiveEpoch` は進むこと**の 3 つを見る。
+  epoch まで止めると、branch の一覧 (T7-3 がこれを契機に読み直す) が branch を閉じるまで更新されない
+
+受信そのものはローカル正典に着地済みなので、見送っても失われるものは無い。branch の表示は
+branch 側 (`useBranchOperations`) が組み直し、戻ったときの trunk は控えから出る
+(`useBranchOperations.test.md`「branch を開いている間の受信」)。
+
 ## rkey 移行の配線 (Phase 7 p7-4)
 
 発見 (`discoverRemoteFiles`) の**前に** rkey 移行を 1 回だけ通す配線を検証する。

@@ -1,7 +1,6 @@
 import type {
   Actor,
   Batch,
-  BranchId,
   BranchMeta,
   Commit,
   CommitId,
@@ -23,6 +22,9 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as api from '../api';
 import { TRUNK_PREFIX } from '../atproto';
+import type { RemoteSyncQueue } from '../atproto/remoteSyncQueue';
+import type { GraphEvent } from '../events/GraphEvent';
+import { branchMetaRecorder, readBranchMeta } from '../sync/branchMetaLog';
 import {
   type BranchProjectionDeps,
   createBranchOnOplog,
@@ -35,8 +37,15 @@ import {
   mergeBranchOnOplog,
   previewMerge,
 } from '../sync/mergeBranch';
+import { migrateBranchMeta } from '../sync/migrateBranchMeta';
+import type { RosterSource } from '../sync/rosterSource';
 import type { SyncProvider } from '../sync/syncProvider';
-import { type TapClock, useEventSyncTap } from './useEventSyncTap';
+import {
+  type ReceivedSummary,
+  type TapClock,
+  type TapHandle,
+  useEventSyncTap,
+} from './useEventSyncTap';
 
 /**
  * ブランチの差分状態 (ANA-119/120, S3)。
@@ -138,29 +147,45 @@ export const defaultBranchOpsDeps: BranchOpsDeps = {
 };
 
 /**
- * op-log 経路の I/O (step1 Phase 5 p5-4)。すべてローカルデーモン向けで
- * **remote (ATProto) へは出さない** (設計 §9.2 の不変条件: branch は local 専用)。
+ * op-log 経路の I/O (step1 Phase 5 p5-4)。すべてローカルデーモン向け。
+ *
+ * **branch / commit のメタはここに無い** (step2 Phase 3 T7-1)。以前は daemon の SQLite の
+ * 行 (`saveBranch` / `fetchBranches` / `saveCommit` / `fetchCommits` / `deleteBranch`) で、
+ * 相手に届かなかった。いまは trunk の tap (`trunkRecord`) で op-log に記録し、trunk を
+ * 畳み込んで読む。
  */
-export interface BranchOplogDeps extends BranchProjectionDeps {
+export interface BranchOplogDeps {
+  /** file_id の op-log を取得する (trunk / branch とも同じ口) */
+  fetchBatches: (fileId: FileId) => Promise<Batch[]>;
   appendBatches: (fileId: FileId, batches: Batch[]) => Promise<number>;
-  fetchBranches: (trunkFileId: FileId) => Promise<BranchMeta[]>;
-  deleteBranch: (trunkFileId: FileId, branchId: BranchId) => Promise<void>;
-  saveCommit: (fileId: FileId, commit: Commit) => Promise<Commit>;
-  fetchCommits: (fileId: FileId) => Promise<Commit[]>;
+  /** id を採番する (branch id / コミット id / branch 専用 file_id) */
+  newId: () => string;
   /** branch 編集の書き込み先 provider (テスト差し替え用。既定はローカルデーモン) */
   createBranchProvider?: (fileId: FileId) => SyncProvider;
+  /**
+   * branch の受信の書き込み口 (テスト差し替え用, T7-3)。既定は `api.pushReceivedBatches`。
+   * **安定参照であること** (tap の受信 effect が張り直される)
+   */
+  appendReceived?: (fileId: FileId, batches: Batch[]) => Promise<number>;
+  /**
+   * SQLite に残る branch 行を読む (step2 Phase 3 T7-6 の載せ直し専用)。
+   * 省略すると載せ直しを行わない
+   */
+  fetchLegacyBranches?: (trunkFileId: FileId) => Promise<BranchMeta[]>;
+  /** SQLite に残る commit 行を読む (T7-6 の載せ直し専用) */
+  fetchLegacyCommits?: (fileId: FileId) => Promise<Commit[]>;
 }
 
 export const defaultBranchOplogDeps: BranchOplogDeps = {
   fetchBatches: (fileId) => api.fetchBatches(fileId),
   appendBatches: api.pushBatches,
-  saveBranch: api.saveBranch,
-  fetchBranches: api.fetchBranches,
-  deleteBranch: api.deleteBranch,
-  saveCommit: api.saveCommit,
-  fetchCommits: api.fetchCommits,
   newId: () => crypto.randomUUID(),
+  fetchLegacyBranches: api.fetchBranches,
+  fetchLegacyCommits: api.fetchCommits,
 };
+
+/** `trunkSettled` の既定。**モジュール定数にする** — 毎レンダー作ると effect が張り直される */
+const resolvedSettled = () => Promise.resolve();
 
 interface UseBranchOperationsParams {
   activeFile: GraphFile | null;
@@ -186,6 +211,33 @@ interface UseBranchOperationsParams {
    * **既定値を持たせない** — no-op に落とすと clock 0 の batch が trunk に入る。
    */
   trunkClock: TapClock;
+  /**
+   * trunk の tap の `record`。branch / commit のメタをここから op-log に記録する
+   * (step2 Phase 3 T7-1)。**既定値を持たせない** — no-op に落とすと branch を作っても
+   * どこにも残らない。**安定参照であること** (記録口を作り直すと依存する callback が張り直される)
+   */
+  trunkRecord: (event: GraphEvent) => void;
+  /**
+   * remote 送信キュー (step2 Phase 3 T7-2)。渡すと branch 上の編集も remote へ出る。
+   * null なら local-only (未ログイン時)。trunk の tap に渡すものと同じキューであること
+   */
+  remoteQueue?: RemoteSyncQueue | null;
+  /**
+   * 名簿の供給元 (step2 Phase 3 T7-3)。渡すと参加者の branch の編集を引く。
+   * branch は名簿を持たないので、trunk の名簿で読む相手と期間を決める
+   */
+  roster?: RosterSource | null;
+  /**
+   * trunk の受信で画面が差し替わった回数 (step2 Phase 3 T7-3)。変わったら branch 一覧を
+   * 読み直す — 相手が作った branch のメタは trunk の受信で届くので、これが無いと
+   * シートを切り替えるまで一覧に出ない
+   */
+  receiveEpoch?: number;
+  /**
+   * trunk の tap の drain 完了を待つ (step2 Phase 3 T7-6)。SQLite から載せ直したメタを
+   * 一覧に読む前に待つ。省略すると待たない (記録が同期的なテスト用)
+   */
+  trunkSettled?: () => Promise<void>;
   deps?: BranchOpsDeps;
   oplogDeps?: BranchOplogDeps;
 }
@@ -201,14 +253,41 @@ export function useBranchOperations({
   setConflictNotice,
   actor,
   trunkClock,
+  trunkRecord,
+  remoteQueue = null,
+  roster = null,
+  receiveEpoch = 0,
+  trunkSettled = resolvedSettled,
   deps = defaultBranchOpsDeps,
   oplogDeps = defaultBranchOplogDeps,
 }: UseBranchOperationsParams) {
+  // branch / commit のメタの書き込み口 (T7-1)。読み取りは `readBranchMeta` で trunk を畳む
+  const branchMeta = useMemo(
+    () => branchMetaRecorder(trunkRecord),
+    [trunkRecord],
+  );
+  const projectionDeps = useMemo<BranchProjectionDeps>(
+    () => ({
+      fetchBatches: oplogDeps.fetchBatches,
+      newId: oplogDeps.newId,
+      recordBranchCreated: branchMeta.branchCreated,
+    }),
+    [oplogDeps, branchMeta],
+  );
+
   const [activeBranch, setActiveBranch] = useState<BranchMeta | null>(null);
   const [sheetBranches, setSheetBranches] = useState<Map<string, BranchMeta[]>>(
     new Map(),
   );
   const [newCommitsSinceMerge, setNewCommitsSinceMerge] = useState(0);
+  /**
+   * 受信で開いている branch を組み直した回数 (step2 Phase 3 T7-3 の修正, T7-7 実機で発覚)。
+   *
+   * **state を差し替えるだけでは canvas に出ない。**GraphEditor が React Flow を再 seed する
+   * 契機は file.id / シート / `receiveEpoch` の変化だけで、組み直しはどれも変えない。
+   * trunk の受信 (`fileOps.receiveEpoch`) と同じ役目なので、App が足し合わせて渡す
+   */
+  const [branchReceiveEpoch, setBranchReceiveEpoch] = useState(0);
   const [commitDialogOpen, setCommitDialogOpen] = useState(false);
 
   const [lastCommitBase, setLastCommitBase] = useState<Sheet | null>(null);
@@ -222,6 +301,20 @@ export function useBranchOperations({
   // branch を開いている間だけ、編集の宛先を branch 専用 op-log にする。
   // **これが載せ替えの要**: 旧経路では branch 中の編集も trunk の tap に流れていたため、
   // branch の編集が trunk の op-log を汚していた (W3d で branch を凍結した際の積み残し)。
+  // 受信で branch の中身を組み直す口 (T7-3)。組み直しは下で定義する `selectBranchFromOplog`
+  // を使うので ref で後から繋ぐ — tap に渡す callback は安定参照でなければならない
+  const reselectOnReceiveRef = useRef<() => void>(() => {});
+  const handleBranchReceived = useCallback(
+    (_fileId: FileId, _result: ReceivedSummary, tap: TapHandle) => {
+      void tap.settled().then(() => {
+        // 未 flush の編集が残っているうちは組み直さない (画面の編集を失わないため。
+        // trunk の `reprojectAfterReceive` と同じ判断)。次の受信契機が拾う
+        if (tap.pending() === 0) reselectOnReceiveRef.current();
+      });
+    },
+    [],
+  );
+
   const { record: branchSyncRecord, settled: branchSettled } = useEventSyncTap(
     activeBranch?.branchFileId ?? null,
     {
@@ -229,7 +322,17 @@ export function useBranchOperations({
       // 分岐点の後から発番する。空の branch op-log は clock 1 から始まってしまい、
       // それでは base 時点の trunk batch に LWW で負ける (§p5-4)。
       ...(activeBranch && { clockFloor: activeBranch.base.at }),
-      // remoteQueue は渡さない = branch batches は remote へ出ない (設計 §9.2)
+      // branch の編集も remote へ出す (step2 Phase 3 T7-2)。step1 §9.2 の「branch batch は
+      // local 専用」はここで外れる。別の端末・相手が branch の中身を読むための前提である。
+      // 名簿 (roster) は渡さない — 参加者の branch を引くのは T7-3 で、trunk の名簿を借りる
+      remoteQueue,
+      // 参加者の branch の編集を引く (T7-3)。読む相手と期間は trunk の名簿が決める
+      roster,
+      ...(activeBranch && { trunkFileId: activeBranch.trunkFileId }),
+      onReceived: handleBranchReceived,
+      ...(oplogDeps.appendReceived && {
+        appendReceived: oplogDeps.appendReceived,
+      }),
       ...(oplogDeps.createBranchProvider && {
         createLocalProvider: oplogDeps.createBranchProvider,
       }),
@@ -351,6 +454,18 @@ export function useBranchOperations({
     return restored;
   }, [onSetActiveFile]);
 
+  /**
+   * branch を開いている間に受信した trunk を、戻ったときに見せるために控え直す
+   * (T7-7 の実機で発覚した欠陥, 2026-09-17)。
+   *
+   * 戻り先は「branch へ入る前の trunk の写し」なので、受信した分を入れ直さないと
+   * **閉じた瞬間に古い trunk が出る**。branch を開いていないときは何もしない
+   * (写しが無いので、trunk の表示は受信の差し替えがそのまま担う)。
+   */
+  const keepTrunkForReturn = useCallback((file: GraphFile) => {
+    if (preBranchFile.current) preBranchFile.current = file;
+  }, []);
+
   /** trunk へ戻る。branch 側の内容は branch tap が既に op-log へ書いている */
   const backToTrunk = useCallback(
     (branch: BranchMeta | null) => {
@@ -377,16 +492,18 @@ export function useBranchOperations({
       // merge 済み branch を再オープンしたときの起点は **trunk の merge コミット**から
       // 導く (ANA-119 S6)。以前はセッション内の ref に頼っていたので、アプリを開き直すと
       // merge 済みの内容まで差分に出ていた。
-      const [commits, trunkCommits] = await Promise.all([
-        oplogDeps.fetchCommits(meta.branchFileId),
-        oplogDeps.fetchCommits(meta.trunkFileId),
-      ]);
+      // コミットは branch のものも trunk のものも trunk の op-log にある (T7-1)
+      const { trunkCommits, branchCommits } = await readBranchMeta(
+        oplogDeps.fetchBatches,
+        meta.trunkFileId,
+      );
+      const commits = branchCommits.get(meta.id) ?? [];
       const lastCommit = commits[commits.length - 1];
       const lastMergeAt = lastMergeSourceAt(trunkCommits, meta.id);
       const { current, atLastCommit, atLastMerge } = await readBranchSheets(
         meta,
         { id: sheetMeta.id, name: sheetMeta.name },
-        oplogDeps,
+        projectionDeps,
         {
           ...(lastCommit && { lastCommitAt: lastCommit.at }),
           ...(lastMergeAt !== undefined && { lastMergeAt }),
@@ -415,7 +532,7 @@ export function useBranchOperations({
       setNewCommitsSinceMerge(countCommitsAfter(commits, lastMergeAt));
       setActiveBranch(meta);
     },
-    [activeFile, activeBranch, onSetActiveFile, oplogDeps],
+    [activeFile, activeBranch, onSetActiveFile, oplogDeps, projectionDeps],
   );
 
   const handleSelectBranch = useCallback(
@@ -444,6 +561,18 @@ export function useBranchOperations({
     [setAlertState, backToTrunk, selectBranchFromOplog],
   );
 
+  // 受信した branch の編集を画面に出す (T7-3)。開いている branch を op-log から組み直す。
+  // 失敗しても画面は受信前のまま残るだけなので、ダイアログは出さず診断ログに留める
+  reselectOnReceiveRef.current = () => {
+    if (!activeBranch || activeBranch.name === TRUNK_PREFIX) return;
+    selectBranchFromOplog(activeBranch.sheetId, activeBranch)
+      // 組み直した state を canvas に出す (GraphEditor の再 seed の契機)
+      .then(() => setBranchReceiveEpoch((epoch) => epoch + 1))
+      .catch((err) =>
+        console.warn('[branch] reprojection after receive failed:', err),
+      );
+  };
+
   const handleCreateBranch = useCallback(
     async (sheetId: SheetId) => {
       const name = await new Promise<string>((resolve) => {
@@ -460,7 +589,7 @@ export function useBranchOperations({
             trunkFileId: activeFile.id as FileId,
             authorActor: actor,
           },
-          oplogDeps,
+          projectionDeps,
         );
         setSheetBranches((prev) => {
           const next = new Map(prev);
@@ -478,7 +607,7 @@ export function useBranchOperations({
         });
       }
     },
-    [activeFile, setInputState, setAlertState, oplogDeps, actor],
+    [activeFile, setInputState, setAlertState, projectionDeps, actor],
   );
 
   /** merge 後の後始末 */
@@ -558,8 +687,9 @@ export function useBranchOperations({
           {
             fetchBatches: oplogDeps.fetchBatches,
             appendBatches: oplogDeps.appendBatches,
-            saveBranch: oplogDeps.saveBranch,
-            saveCommit: oplogDeps.saveCommit,
+            recordStatus: branchMeta.statusChanged,
+            // merge は trunk のコミットなので branchId を付けない
+            recordCommit: (commit) => branchMeta.commitAdded(commit),
             newId: oplogDeps.newId,
             seedClock: trunkClock.seed,
             tick: trunkClock.tick,
@@ -594,6 +724,7 @@ export function useBranchOperations({
       setAlertState,
       setConflictNotice,
       oplogDeps,
+      branchMeta,
       trunkClock,
       actor,
       afterMerge,
@@ -620,10 +751,11 @@ export function useBranchOperations({
       });
       if (!ok) return;
       try {
-        const closedBranch = await oplogDeps.saveBranch({
+        branchMeta.statusChanged(branch.id, BRANCH_STATUS.CLOSED);
+        const closedBranch: BranchMeta = {
           ...branch,
           status: BRANCH_STATUS.CLOSED,
-        });
+        };
         setSheetBranches((prev) => {
           const next = new Map(prev);
           const sheetId = branch.sheetId;
@@ -642,7 +774,7 @@ export function useBranchOperations({
         });
       }
     },
-    [setConfirmState, setAlertState, oplogDeps, clearActiveBranch],
+    [setConfirmState, setAlertState, branchMeta, clearActiveBranch],
   );
 
   const handleDeleteBranch = useCallback(
@@ -655,8 +787,10 @@ export function useBranchOperations({
       });
       if (!ok) return;
       try {
-        // メタと branch 専用 op-log をまとめて消す (server 側 1 tx)
-        await oplogDeps.deleteBranch(branch.trunkFileId, branch.id);
+        // `branch.remove` を trunk に記録する。一度消したら戻らない (設計 決定 7)。
+        // branch 専用 op-log の行はローカルに残る — 以前の server 側 1 tx の削除は
+        // SQLite のメタ行から branch file_id を引いていたので、メタを op-log に移すと効かない
+        branchMeta.removed(branch.id);
         setSheetBranches((prev) => {
           const next = new Map(prev);
           const sheetId = branch.sheetId;
@@ -674,7 +808,7 @@ export function useBranchOperations({
         });
       }
     },
-    [setConfirmState, setAlertState, oplogDeps, clearActiveBranch],
+    [setConfirmState, setAlertState, branchMeta, clearActiveBranch],
   );
 
   const handleCommit = useCallback(
@@ -697,7 +831,7 @@ export function useBranchOperations({
           actor,
           branchBatches,
         );
-        await oplogDeps.saveCommit(activeBranch.branchFileId, commit);
+        branchMeta.commitAdded(commit, activeBranch.id);
 
         setLastCommitBase(activeSheet);
         setNewCommitsSinceMerge((prev) => prev + 1);
@@ -716,21 +850,79 @@ export function useBranchOperations({
       pendingChanges,
       setAlertState,
       oplogDeps,
+      branchMeta,
       actor,
       branchSettled,
     ],
   );
 
-  // activeSheetId が変わったら branches を fetch
+  // activeSheetId が変わったら branches を fetch。trunk の受信 (`receiveEpoch`) でも読み直す —
+  // 相手の branch のメタは trunk の受信で届く (T7-3)
   const trunkFileId = activeFile?.id;
+  /**
+   * SQLite の branch / commit を載せ直した trunk (step2 Phase 3 T7-6)。**セッション内で
+   * File ごとに 1 回**にする — 一覧は受信のたびに読み直すので、毎回 SQLite を読みに行かない。
+   * 載せ直し自体はべき等なので、再起動で再び走っても op-log は汚れない
+   */
+  const migratedTrunksRef = useRef(new Set<FileId>());
+  const migrateLegacyMeta = useCallback(
+    async (id: FileId) => {
+      const { fetchLegacyBranches, fetchLegacyCommits } = oplogDeps;
+      if (!fetchLegacyBranches || !fetchLegacyCommits) return;
+      if (migratedTrunksRef.current.has(id)) return;
+      migratedTrunksRef.current.add(id);
+      try {
+        const result = await migrateBranchMeta(id, {
+          fetchBatches: oplogDeps.fetchBatches,
+          fetchLegacyBranches,
+          fetchLegacyCommits,
+          recorder: branchMeta,
+        });
+        if (result.branches.length === 0 && result.commits === 0) return;
+        // 1 回きりの手続きなので記録が残る形で出す (無言にしない)
+        console.info(
+          `[branch] SQLite から ${result.branches.length} 個の branch と ` +
+            `${result.commits} 件の commit を op-log へ載せ直しました`,
+        );
+        // 記録は非同期に flush するので、一覧を読む前に待つ
+        await trunkSettled();
+        // 移した branch の中身も remote へ出す (T7-2 の送信は branch を開いたときにしか
+        // 走らないので、開かれない古い branch は相手に届かない)。一覧の表示は待たない
+        if (remoteQueue) {
+          for (const meta of result.branches) {
+            void oplogDeps
+              .fetchBatches(meta.branchFileId)
+              .then((batches) =>
+                remoteQueue.catchUp(batches, meta.branchFileId),
+              )
+              .catch((err) =>
+                console.warn('[branch] 載せ直した branch の送信に失敗:', err),
+              );
+          }
+        }
+      } catch (err) {
+        // 失敗したら次の契機で再試行する (何も書かずに投げる契約なので半端は残らない)
+        migratedTrunksRef.current.delete(id);
+        console.warn('[branch] SQLite からの載せ直しに失敗しました:', err);
+      }
+    },
+    [oplogDeps, branchMeta, trunkSettled, remoteQueue],
+  );
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: receiveEpoch は読み直しの契機としてだけ使う
   useEffect(() => {
     if (!activeSheetId) return;
-    // branch メタは trunk 単位で保存されているのでシートで絞る。ファイル未選択の間は
-    // 空一覧を入れる (前のファイルの branch を出したままにしない)。
+    // branch メタは trunk の op-log にあるので畳んでシートで絞る (T7-1)。ファイル未選択の
+    // 間は空一覧を入れる (前のファイルの branch を出したままにしない)。
+    // **先に SQLite の古いメタを載せ直す** (T7-6)。載せ直さないと T7-1 以前の branch が出ない
     const load = trunkFileId
-      ? oplogDeps
-          .fetchBranches(trunkFileId as FileId)
-          .then((bs) => bs.filter((b) => b.sheetId === activeSheetId))
+      ? migrateLegacyMeta(trunkFileId as FileId)
+          .then(() =>
+            readBranchMeta(oplogDeps.fetchBatches, trunkFileId as FileId),
+          )
+          .then(({ branches }) =>
+            [...branches.values()].filter((b) => b.sheetId === activeSheetId),
+          )
       : Promise.resolve<BranchMeta[]>([]);
     load
       .then((bs) => {
@@ -746,7 +938,7 @@ export function useBranchOperations({
         // (W3d5-7 の「無言の失敗」の教訓)。
         console.warn('[branch] ブランチ一覧の取得に失敗しました:', err);
       });
-  }, [activeSheetId, oplogDeps, trunkFileId]);
+  }, [activeSheetId, oplogDeps, trunkFileId, receiveEpoch, migrateLegacyMeta]);
 
   return {
     activeBranch,
@@ -777,6 +969,16 @@ export function useBranchOperations({
      * op-log へ流さないための切替点。
      */
     branchSyncRecord: activeBranch ? branchSyncRecord : null,
+    /**
+     * 受信で開いている branch を組み直した回数 (T7-3)。App は trunk の `receiveEpoch` と
+     * 足して GraphEditor に渡す — どちらが進んでも canvas を再 seed する
+     */
+    branchReceiveEpoch,
+    /**
+     * branch を開いている間に受信した trunk の控え先 (2026-09-17)。
+     * App が `useFileSheetOperations` へ渡す
+     */
+    keepTrunkForReturn,
     handleSelectBranch,
     handleCreateBranch,
     handleMergeBranch,

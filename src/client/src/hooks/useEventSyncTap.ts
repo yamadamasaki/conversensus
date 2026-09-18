@@ -15,39 +15,32 @@ import type {
   Actor,
   Batch,
   FileId,
+  ForkMeta,
   Lamport,
   Participation,
   SheetId,
 } from '@conversensus/shared';
 import { didFromActor } from '@conversensus/shared';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
-import {
-  fetchBatches,
-  fetchBranches,
-  pushReceivedBatches,
-  saveBranch,
-} from '../api';
+import { fetchBatches, pushReceivedBatches } from '../api';
 import { FanoutSyncProvider } from '../atproto/fanoutSyncProvider';
 import type { RemoteSyncQueue } from '../atproto/remoteSyncQueue';
 import { SYNC_POLL_INTERVAL_MS } from '../config';
 import type { GraphEvent } from '../events/GraphEvent';
 import { maxJudgmentClock } from '../sync/appendJudgment';
+import { branchMetaRecorder, readBranchMeta } from '../sync/branchMetaLog';
 import type { DetectedConflicts } from '../sync/conflicts';
 import { EventSyncTap } from '../sync/eventSyncTap';
 import { LocalServerSyncProvider } from '../sync/localServerSyncProvider';
 import type { DetectedOverwrites } from '../sync/overwrites';
-import { receiveParticipantBatches } from '../sync/receiveParticipantBatches';
+import {
+  collectParticipantBatches,
+  receiveParticipantBatches,
+} from '../sync/receiveParticipantBatches';
 import { receiveRemoteBatches } from '../sync/receiveRemoteBatches';
 import type { RosterSource } from '../sync/rosterSource';
 import type { SyncProvider } from '../sync/syncProvider';
 import type { ForkWriterDeps } from '../sync/writeForks';
-
-/** fork の器の既定。api をそのまま使う (deps は安定参照でなければならない) */
-const defaultForkDeps: ForkWriterDeps = {
-  fetchBranches,
-  saveBranch,
-  newId: () => crypto.randomUUID(),
-};
 
 /**
  * 受信通知に添える tap の待ち合わせ点 (Phase 4e-3, critic MED3)。
@@ -93,6 +86,20 @@ export type UseEventSyncTapOptions = {
    * 固定される」ので、他 actor の op-log を読むにはまず名簿が要る。
    */
   roster?: RosterSource | null;
+  /**
+   * この op-log が branch のものであるときの trunk (step2 Phase 3 T7-3)。
+   *
+   * 渡すと受信が 2 点で変わる:
+   *
+   * - **名簿は trunk のものを読む。**branch は名簿を持たない。誰がいつ参加していたかは
+   *   trunk の判断ログが決め、branch の編集もその期間で絞る
+   * - **参加者の受信は「集めて追記する」だけにする。**implicit merge の競合検出・fork・
+   *   上書きの報告は trunk の受信のものである。branch で走らせると fork が branch の
+   *   op-log に書かれる。branch と trunk の対立は explicit merge が検出する
+   *
+   * 名簿の通知 (`onRoster`) も呼ばない — 共有状態の表示は trunk の tap が担う。
+   */
+  trunkFileId?: FileId;
   /** テスト用: ローカル正典 provider の差し替え (既定 `LocalServerSyncProvider`) */
   createLocalProvider?: (fileId: FileId) => SyncProvider;
   /**
@@ -109,6 +116,9 @@ export type UseEventSyncTapOptions = {
   /**
    * fork の器 (step2 Phase 3 T6)。競合を保留した記録を branch として書く。
    * **安定参照であること** (`appendReceived` と同じ理由)。
+   *
+   * 省略すると **この tap の `record` で trunk の op-log に書き、`fetchLocal` の畳み込みから
+   * 読む** (T7-1)。fork は受信した File の trunk にぶら下がるので、宛先はこの tap である。
    */
   forkDeps?: ForkWriterDeps;
   /**
@@ -153,6 +163,14 @@ export type UseEventSyncTapOptions = {
    * **安定参照であること**。
    */
   onOverwrites?: (fileId: FileId, detected: DetectedOverwrites) => void;
+  /**
+   * 相手が書いた fork が届いたときの通知 (step2 Phase 3 T7-5)。
+   *
+   * **0 件のときは呼ばない** (`onConflicts` と同じ理由)。受け手は溜める — 競合の通知は
+   * 検出のたびに置き換わるので、同じ入れ物だと次の検出で消える。
+   * **安定参照であること**。
+   */
+  onForksArrived?: (fileId: FileId, forks: ForkMeta[]) => void;
   /**
    * 受信のサイクルが**最後まで走った**ことの合図 (step2 Phase 2 S6)。
    *
@@ -212,16 +230,18 @@ export function useEventSyncTap(
     remoteQueue = null,
     actor,
     roster = null,
+    trunkFileId,
     pollIntervalMs = SYNC_POLL_INTERVAL_MS,
     clockFloor,
     createLocalProvider,
     appendReceived = pushReceivedBatches,
     fetchLocal = fetchBatches,
-    forkDeps = defaultForkDeps,
+    forkDeps: forkDepsOverride,
     onReceived,
     onRoster,
     onConflicts,
     onOverwrites,
+    onForksArrived,
     onSynced,
   }: UseEventSyncTapOptions,
 ): UseEventSyncTapResult {
@@ -250,6 +270,21 @@ export function useEventSyncTap(
           })
         : null,
     [provider, actor, clockFloor],
+  );
+
+  // fork の器 (T7-1)。既定は tap の `record` から組み立てる — tap が作り直されたら
+  // 器も作り直す (古い tap の outbox へ書かない)
+  const forkDeps = useMemo<ForkWriterDeps>(
+    () =>
+      forkDepsOverride ?? {
+        readBranches: async (trunkFileId) => [
+          ...(await readBranchMeta(fetchLocal, trunkFileId)).branches.values(),
+        ],
+        recordBranchCreated: branchMetaRecorder((event) => tap?.record(event))
+          .branchCreated,
+        newId: () => crypto.randomUUID(),
+      },
+    [forkDepsOverride, fetchLocal, tap],
   );
 
   // clock は tap の作り直しをまたいで同じ参照でいてほしい (merge の deps に渡すため)
@@ -332,7 +367,8 @@ export function useEventSyncTap(
       });
       if (!roster) return own;
 
-      const seen = await roster.read(fileId);
+      // branch は名簿を持たないので trunk の名簿を読む (T7-3)
+      const seen = await roster.read(trunkFileId ?? fileId);
 
       // ⚠️ **判断ログの clock も観測する** (2026-09-05 実機で発覚)。
       //
@@ -352,8 +388,9 @@ export function useEventSyncTap(
 
       const participation = seen.participation;
       // 共有状態の表示元 (2026-09-05)。読んだ名簿をそのまま渡す —
-      // 表示のために名簿をもう一度読むと、参加者分のリクエストが倍になる
-      onRoster?.(fileId, participation);
+      // 表示のために名簿をもう一度読むと、参加者分のリクエストが倍になる。
+      // branch の tap は通知しない (T7-3) — 共有状態は trunk の File のものである
+      if (!trunkFileId) onRoster?.(fileId, participation);
 
       // **自分が参加者でなければ他 actor の repo を読まない** (2026-09-05 実機で発覚)。
       //
@@ -372,6 +409,32 @@ export function useEventSyncTap(
           `[sync] ${fileId}: この File の参加者ではないので他 actor の repo を読まない`,
         );
         return own;
+      }
+
+      // branch の受信は集めて追記するだけ (T7-3)。implicit merge の検出と fork は
+      // trunk の受信のものなので走らせない (オプションの説明を参照)
+      if (trunkFileId) {
+        const collected = await collectParticipantBatches(
+          fileId,
+          participation,
+          didFromActor(actor),
+          {
+            pullRemoteForFile: (id, repo) =>
+              remoteQueue.pullRemoteForFile(id, repo),
+          },
+        );
+        const appended =
+          collected.batches.length > 0
+            ? await appendReceived(fileId, collected.batches)
+            : 0;
+        // 受信規則。書き込みが成功してから前進させる (`receiveParticipantBatches` と同じ)
+        tap.observeRemote(
+          collected.batches.reduce((m, b) => Math.max(m, b.clock), 0),
+        );
+        return {
+          received: own.received + collected.batches.length,
+          appended: own.appended + appended,
+        };
       }
 
       const others = await receiveParticipantBatches(
@@ -396,6 +459,10 @@ export function useEventSyncTap(
       // ことはあるが、同じ単位が両方に出ることはない (検出条件が補集合である)
       if (others.overwrites.reports.length > 0) {
         onOverwrites?.(fileId, others.overwrites);
+      }
+      // 相手が保留した競合の到着 (T7-5)。自分が書いた fork は `onConflicts` が伝えている
+      if (others.arrivedForks.length > 0) {
+        onForksArrived?.(fileId, others.arrivedForks);
       }
       if (others.readRepos.length > 0 || others.outsidePeriod > 0) {
         console.info(
@@ -458,6 +525,7 @@ export function useEventSyncTap(
     remoteQueue,
     tap,
     roster,
+    trunkFileId,
     actor,
     appendReceived,
     fetchLocal,
@@ -466,6 +534,7 @@ export function useEventSyncTap(
     onRoster,
     onConflicts,
     onOverwrites,
+    onForksArrived,
     onSynced,
   ]);
 

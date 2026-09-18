@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import type {
+  Actor,
   Batch,
   BranchMeta,
   Did,
@@ -12,6 +13,8 @@ import type {
 } from '@conversensus/shared';
 import { GENESIS_ACTOR } from '@conversensus/shared';
 import type { RemoteBatch } from '../atproto/types';
+import { graphEventToBatch } from '../events/toUnified';
+import { branchMetaRecorder } from './branchMetaLog';
 import { receiveParticipantBatches } from './receiveParticipantBatches';
 
 const FILE = '11111111-1111-4111-8111-111111111111' as FileId;
@@ -102,10 +105,9 @@ function fakeRemote(
         return byRepo[repo] ?? [];
       },
       fetchLocal: async (_fileId: FileId) => local,
-      fetchBranches: async (_trunkFileId: FileId) => branches,
-      saveBranch: async (meta: BranchMeta) => {
+      readBranches: async (_trunkFileId: FileId) => branches,
+      recordBranchCreated: (meta: BranchMeta) => {
         branches.push(meta);
-        return meta;
       },
       newId: () => {
         idSeq += 1;
@@ -379,6 +381,96 @@ describe('receiveParticipantBatches', () => {
         remote.deps,
       );
       expect(result.overwrites.reports).toEqual([]);
+    });
+  });
+
+  describe('相手が保留した競合の到着 (Phase 3 T7-5)', () => {
+    // fork の記述はスキーマで検証されるので、batch id は UUID にする
+    // (`${actor}-${clock}` の形だと記述が落ちて普通の branch に化け、到着が見えなくなる)
+    const ADD = '00000000-0000-4000-8000-0000000000a3';
+    const REMOVE = '00000000-0000-4000-8000-0000000000a8';
+    const EDIT = '00000000-0000-4000-8000-0000000000b9';
+    const SHEET_ID = '00000000-0000-4000-8000-00000000005e' as SheetId;
+    const withId = (id: string, b: Batch): Batch => ({
+      ...b,
+      id: id as Batch['id'],
+    });
+    const aliceAdd = withId(ADD, batch(ME, 3, [addNode(NODE)], SHEET_ID));
+    const aliceRemove = withId(REMOVE, batch(ME, 8, [removeNode()], SHEET_ID));
+    const bobEdit = withId(
+      EDIT,
+      batch(BOB, 9, [setContent('bob の編集')], SHEET_ID),
+    );
+    const both = roster({
+      [ME]: [event('genesis', 1)],
+      [BOB]: [event('accept', 2)],
+    });
+
+    /** 勝った bob の手元: alice の削除を受け取り、競合を検出して fork を書く */
+    const bobWritesFork = async () => {
+      const bob = fakeRemote(
+        { [ME]: [envelope(FILE, aliceAdd), envelope(FILE, aliceRemove)] },
+        [aliceAdd, bobEdit],
+      );
+      const result = await receiveParticipantBatches(FILE, both, BOB, bob.deps);
+      const [fork] = result.forks;
+      if (!fork) throw new Error('bob が fork を書いていない');
+      const batches: Batch[] = [];
+      branchMetaRecorder((e) =>
+        batches.push(
+          graphEventToBatch(e, { clock: 10, actor: `${BOB}#dev-b` as Actor }),
+        ),
+      ).branchCreated(fork);
+      return { fork, forkBatches: batches, bobResult: result };
+    };
+
+    it('🔴 勝った側が書いた fork が、負けた側に「届いた」として返る', async () => {
+      const { fork, forkBatches, bobResult } = await bobWritesFork();
+      // 勝った側は自分で書いたので、到着としては数えない
+      expect(bobResult.arrivedForks).toEqual([]);
+
+      // 負けた alice の手元: bob の編集と fork を受け取る。alice は競合を検出しない
+      const alice = fakeRemote(
+        {
+          [BOB]: [
+            envelope(FILE, bobEdit),
+            ...forkBatches.map((b) => envelope(FILE, b)),
+          ],
+        },
+        [aliceAdd, aliceRemove],
+      );
+      const result = await receiveParticipantBatches(
+        FILE,
+        both,
+        ME,
+        alice.deps,
+      );
+
+      expect(result.conflicts.conflicts).toEqual([]);
+      expect(result.forks).toEqual([]);
+      expect(result.arrivedForks.map((f) => f.conflictKey)).toEqual([
+        fork.conflictKey,
+      ]);
+    });
+
+    it('次のサイクルでは再び返さない (取り込み済み)', async () => {
+      const { forkBatches } = await bobWritesFork();
+      const alice = fakeRemote(
+        {
+          [BOB]: [
+            envelope(FILE, bobEdit),
+            ...forkBatches.map((b) => envelope(FILE, b)),
+          ],
+        },
+        [aliceAdd, aliceRemove, bobEdit, ...forkBatches],
+      );
+      const result = await receiveParticipantBatches(
+        FILE,
+        both,
+        ME,
+        alice.deps,
+      );
+      expect(result.arrivedForks).toEqual([]);
     });
   });
 

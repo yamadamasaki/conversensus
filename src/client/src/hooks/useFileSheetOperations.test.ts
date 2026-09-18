@@ -37,6 +37,11 @@ afterEach(() => {
 type RenderOpts = {
   deps?: ReturnType<typeof createInMemoryFileSheetOpsDeps>;
   remoteQueue?: import('../atproto/remoteSyncQueue').RemoteSyncQueue;
+  /** branch を開いているか (2026-09-17)。受信の差し替えの分岐 */
+  isBranchOpen?: () => boolean;
+  keepTrunkForReturn?: Parameters<
+    typeof useFileSheetOperations
+  >[0]['keepTrunkForReturn'];
 };
 
 async function renderWith(opts: RenderOpts = {}) {
@@ -55,6 +60,10 @@ async function renderWith(opts: RenderOpts = {}) {
       // rkey 移行 marker (p7-4) がこの actor の DID 部分をキーにする
       actor: TEST_ACTOR,
       ...(opts.remoteQueue !== undefined && { remoteQueue: opts.remoteQueue }),
+      ...(opts.isBranchOpen && { isBranchOpen: opts.isBranchOpen }),
+      ...(opts.keepTrunkForReturn && {
+        keepTrunkForReturn: opts.keepTrunkForReturn,
+      }),
     }),
   );
   // Flush async effects (fetchFiles + ATProto sync)
@@ -912,6 +921,52 @@ describe('useFileSheetOperations', () => {
         ),
       ).toBe(true);
       // GraphEditor の React Flow 再 seed トリガ (4e-4 実機で発見した欠陥の回帰試験)
+      expect(result.current.receiveEpoch).toBe(1);
+    });
+
+    it('🔴 branch を開いている間は画面を差し替えず、受信した trunk を控えに渡す (2026-09-17)', async () => {
+      // **差し替えが渡すのは trunk の projection である。**branch を開いている間に
+      // 入れると、画面のシートが trunk の姿に化ける — 消したノードが戻り、差分が空に
+      // なってコミットできなくなる (利用者の実機シナリオ, Notion 2026.09.17)。
+      // 受信そのものはローカル正典に着地済みなので、失われるものは無い
+      const deps = createInMemoryFileSheetOpsDeps();
+      const file = await deps.createFile('branch 表示中');
+      deps.pushReceivedBatches = async (fileId, batches) => {
+        deps._files.get(fileId)?.sheets[0]?.nodes.push({
+          id: RECV_NODE,
+          content: 'B の編集',
+        } as (typeof file.sheets)[0]['nodes'][number]);
+        return batches.length;
+      };
+      const remoteQueue = await makeRemoteQueueFor(file.id);
+      const kept: { sheets: { nodes: { id: string }[] }[] }[] = [];
+
+      const { result } = await renderWith({
+        deps,
+        remoteQueue,
+        isBranchOpen: () => true,
+        keepTrunkForReturn: (f) => {
+          kept.push(f);
+        },
+      });
+      await act(async () => {
+        await result.current.openFile(file.id);
+      });
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 30));
+      });
+
+      // 画面は branch のまま (trunk の projection を入れない)
+      expect(
+        result.current.activeFile?.sheets[0]?.nodes.some(
+          (n) => n.id === RECV_NODE,
+        ),
+      ).toBe(false);
+      // 受信した trunk は「戻ったとき用」の控えへ渡る
+      expect(
+        kept.at(-1)?.sheets[0]?.nodes.some((n) => n.id === RECV_NODE),
+      ).toBe(true);
+      // **epoch は進める** — branch の一覧はこれを契機に読み直す (T7-3)
       expect(result.current.receiveEpoch).toBe(1);
     });
 

@@ -114,10 +114,65 @@ deps は `createInMemoryBranchOplogDeps` (batches / branches / commits の in-me
   放っておくと clock 1 から発番し、`branchSheet` の projection で base 時点の
   trunk batch (より大きい clock) に LWW で負ける。
 - trunk 表示中は `branchSyncRecord` が null = trunk 用 tap を使う、という切替点も固定する。
+- **ログイン中は branch の編集も branch 専用 file_id 宛てで remote へ出る** (step2 Phase 3 T7-2)。
+  step1 §9.2 の「branch batch は local 専用」を外した点である。相手や別の端末が branch の
+  中身を読むには、branch の op-log そのものが remote に載っていなければならない。
+  `RemoteSyncQueue` を記録用の偽 provider で作って渡し、送られたエンベロープの fileId が
+  `branch.branchFileId` であることを見る (trunk の fileId で送られると、trunk のグラフに
+  branch の編集が混ざる)
 - なお **structure op (`sheet.create` 等) は branch op-log へ流れない** — 構造操作は
   `useFileSheetOperations` の syncRecord (trunk 用) から出るため、経路が構造的に分かれる。
   branch op-log に構造 op が入ると branch がファイル一覧に現れる (`eventStore.test.ts` が
   この条件ごと固定している)。
+
+### 参加者の branch (step2 Phase 3 T7-3)
+
+T7-1 で branch のメタが trunk の op-log に、T7-2 で branch の編集が remote に載った。
+それでも**画面に出る契機が無ければ**、相手の branch も相手の編集も見えない。受信は
+ローカル正典に着地するだけで、一覧も開いている branch も自分からは読み直さないからである。
+
+- **相手が作った branch は trunk の受信 (`receiveEpoch`) で一覧に出る**: 2 つのフックに
+  1 つの op-log を共有させ、片方で branch を作る (= 相手の `branch.create` が受信で届いた
+  状態)。もう片方の一覧は `receiveEpoch` を進めるまで空で、進めると現れる。一覧は
+  シートの切り替えでしか読み直していなかった
+- **開いている branch に相手の編集が届くと、画面の branch を組み直す**: 相手の repo だけが
+  branch の編集を返す remote キューと、自分と相手が clock 0 から参加している名簿
+  (`history` の accept を持たせる) を渡して branch を開く。同期のサイクルで編集が branch の
+  op-log に着地し、最後に画面へ渡したファイルのシートにそのノードが出ること。
+  受信の書き込み口は `oplogDeps.appendReceived` で in-memory ストアへ差し替えている
+  (既定は実 fetch)。**加えて `branchReceiveEpoch` が進むこと**を見る — GraphEditor は
+  file.id / シート / `receiveEpoch` の変化でしか React Flow を再 seed しないので、state を
+  差し替えただけでは canvas に出ない。**T7-7 の実機 (2 アカウント) で、op-log には相手の編集が
+  届いているのに画面に出ないことで発覚した** (当初のテストは state しか見ておらず通っていた)
+
+### SQLite に残る古いメタの載せ直し (step2 Phase 3 T7-6)
+
+T7-1 で branch 一覧の読み口を trunk の op-log の畳み込みにしたので、**T7-1 より前に SQLite へ
+保存された branch は、載せ直さないと一覧から消える**。載せ直しの判断そのものは
+`migrateBranchMeta.test.ts` が固定し、ここでは「画面を開いたときに走り、一覧に届く」ことを見る。
+
+in-memory の deps に SQLite の行 (`_legacyBranches` / `_legacyCommits`) を入れ、op-log は空のまま
+`reuse` で hook を作る。
+
+- **🔴 SQLite にだけある branch が、開いたときに op-log へ載って一覧に出る**: 名前と status (merged) が
+  一覧に出て、trunk の畳み込みに branch のコミットも載っている
+- **開き直しても載せ直しは重複しない**: 1 回目の後の trunk の batch 数を覚え、hook を作り直しても
+  増えない。hook の中の「セッションで 1 回」の柵は作り直しで消えるので、ここで効いているのは
+  **載せ直しのべき等性** (生の op で判定する) の方である
+
+### branch を開いている間の受信 (2026-09-17)
+
+受信の差し替えが渡してくるのは **trunk の projection** なので、branch を開いている間に画面へ
+入れると、シートが trunk の姿に化ける (消したノードが戻り、差分が空になりコミットできなくなる)。
+そこで `useFileSheetOperations` 側は branch 表示中に画面を差し替えず、**受信した trunk を
+`keepTrunkForReturn` で控えに渡す**。
+
+- **🔴 branch を開いている間に受信した trunk が、戻ったときに出る**: 戻り先は「branch へ入る前の
+  trunk の写し」なので、控えを更新しないと**閉じた瞬間に古い trunk が出る**。控えを渡してから
+  trunk へ戻り、画面に渡されたファイルが受信後のものであることを見る
+
+利用者の実機シナリオ (Notion 2026.09.17) で発覚した。**op-log は正しく、画面だけが壊れる**形なので、
+op-log を見るテストでは捕まらない。
 
 ### commit — ログ上のオフセット
 - 保存されるのは `{message, at}` であって差分ではない。`at` は branch op-log の先端。

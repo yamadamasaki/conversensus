@@ -31,6 +31,9 @@ export function batchToRecord(
     ops: batch.ops,
     // content batch のみ sheetId を持つ。undefined なら省略し、往復で無 → 無を保つ。
     ...(batch.sheetId !== undefined && { sheetId: batch.sheetId }),
+    // merge の写しだけが持つ (T7-4)。無ければ省略し、往復で無 → 無を保つ
+    ...(batch.restampedBy !== undefined && { restampedBy: batch.restampedBy }),
+    ...(batch.mergedIn !== undefined && { mergedIn: batch.mergedIn }),
     createdAt: new Date(batch.timestamp).toISOString() as ISODateString,
   };
 }
@@ -56,7 +59,10 @@ export function isBatchRecordValue(value: unknown): value is BatchRecord {
     Array.isArray(v.ops) &&
     // sheetId は optional。無いレコード (file 構造 batch) も通すが、
     // 有るなら string でなければ壊れたレコードとして弾く。
-    (v.sheetId === undefined || typeof v.sheetId === 'string')
+    (v.sheetId === undefined || typeof v.sheetId === 'string') &&
+    // merge の写しの印 (T7-4) も optional。有るなら string でなければ弾く
+    (v.restampedBy === undefined || typeof v.restampedBy === 'string') &&
+    (v.mergedIn === undefined || typeof v.mergedIn === 'string')
   );
 }
 
@@ -75,6 +81,10 @@ export function recordToBatch(batchId: BatchId, value: BatchRecord): Batch {
     // sheetId 無しレコードは Batch にも sheetId を付けない (undefined を保つ)。
     ...(value.sheetId !== undefined && {
       sheetId: value.sheetId as Batch['sheetId'],
+    }),
+    ...(value.restampedBy !== undefined && { restampedBy: value.restampedBy }),
+    ...(value.mergedIn !== undefined && {
+      mergedIn: value.mergedIn as Batch['mergedIn'],
     }),
   };
 }

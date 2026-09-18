@@ -3,6 +3,7 @@ import { GraphFileSchema } from './schemas';
 
 export * from './blob';
 export * from './events/applicability';
+export * from './events/branchFold';
 export * from './events/branchLog';
 export * from './events/cascade';
 export * from './events/fork';

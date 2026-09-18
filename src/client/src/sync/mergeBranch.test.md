@@ -130,3 +130,14 @@ merge 済みの内容まで差分に出ていた**。
 
 `countCommitsAfter`: 「前回 merge 以降に commit があるか」= 次の merge の対象があるか。
 基準が無ければ全件 (未 merge)、merge 直後は 0 (= 差分状態が「無変更」になる)。
+
+### 写しの印 (step2 Phase 3 T7-4)
+
+写しは **書いた人 (`actor`) を保ち、積み直した人 (`restampedBy`) と merge コミット (`mergedIn`) を
+持つ**。書いた人と違う人が merge する形 (bob が alice の branch を merge) で固定する — 同じ人の
+merge では `actor` と `restampedBy` が一致し、取り違えがテストに出ない。
+
+- `restampedBy` は送信先と参加期間の判定に使う (`stackedBy`)
+- `mergedIn` はこの merge で記録した merge コミットの id と一致する。merge を参照に移すとき、
+  写しをどの merge に対応づけるかの手がかりになる (設計 T7 §6a)。**merge コミットの id を
+  写しより先に採番する**のはこのため
