@@ -49,6 +49,19 @@ import type {
 
 export type StartDtrDeps = {
   /**
+   * resolve graph の器を作る (step2 Phase 6 D3)。trunk から branch を 1 本切る。
+   *
+   * **新しい merge 機構を作らないための選択である** — resolve graph は
+   * 「競合を解消するために編集できる」= trunk の作業複製そのものなので、branch にすれば
+   * 再 merge が既存の `mergeBranchOnOplog` で済む。
+   */
+  createResolveBranch: (params: {
+    name: string;
+    /** 分岐元のシート。branch は per-sheet なので、競合したシートから切る */
+    sheetId: SheetId;
+    trunkFileId: FileId;
+  }) => Promise<BranchId>;
+  /**
    * dialogue graph の器を trunk の op-log に作る。
    * `branchMetaRecorder` と同じく **trunk の tap の `record`** に流す口である。
    */
@@ -72,6 +85,11 @@ export type StartDtrInput = {
   conflicts: readonly MergeConflict[];
   /** 起動の原因となった branch (fork もここに来る) */
   branchId: BranchId;
+  /**
+   * 競合が起きたシート。**解決 branch をここから切る** (branch は per-sheet)。
+   * 原因の branch が対象にしていたシートと同じである
+   */
+  sourceSheetId: SheetId;
   /** 器の名前に使う。人が一覧で見分けるためだけの値である */
   branchName: string;
   /** 名簿の参加者。**既定値を供給するだけ**であって呼び出し対象そのものではない */
@@ -82,7 +100,10 @@ export type StartDtrInput = {
 
 export type StartedDtr = {
   dtrId: DtrId;
+  /** dialogue graph の器 */
   sheetId: SheetId;
+  /** resolve graph の器 (切った作業用 branch) */
+  resolveBranchId: BranchId;
   callees: Did[];
 };
 
@@ -127,17 +148,24 @@ export async function startDtrForConflicts(
   const sheetId = deps.newSheetId();
   const callees = defaultCallees(input.participants, input.viewer);
 
-  // 器が先、判断が後。逆だと器を指す判断だけが書かれた瞬間が生まれる
+  // **器が先、判断が後。**逆だと器を指す判断だけが書かれた瞬間が生まれる。
+  // 器は 2 つある (解決 = branch / 対話 = sheet) ので、両方を先に作る
+  const resolveBranchId = await deps.createResolveBranch({
+    name: `DtR 解決: ${input.branchName}`,
+    sheetId: input.sourceSheetId,
+    trunkFileId: input.trunkFileId,
+  });
   deps.recordSheetCreated(sheetId, `DtR: ${input.branchName}`);
   await deps.appendJudgment(input.trunkFileId, [
     {
       kind: 'dtr.open',
       target: dtrId,
       branchId: input.branchId,
+      resolveBranchId,
       sheetId,
       callees,
     },
   ]);
 
-  return { dtrId, sheetId, callees };
+  return { dtrId, sheetId, resolveBranchId, callees };
 }

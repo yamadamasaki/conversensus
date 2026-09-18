@@ -87,6 +87,37 @@ T7 で私が書いたコメントがそれを言っている。
 **op のカテゴリは永続化されていない** (op-log に載るのは `kind` であってカテゴリではない)。
 `isFileOp` の呼び出し元は 3 箇所 (`projectBatches` / `foldFileStructure` / `applicability`)。
 
+### 事実 G: U6-P1 が branch 案を退けた根拠は失効している (2026-09-19, D3 の着手時に判明)
+
+U6-P1 は「DtR の器は trunk の fileId 内の新しい sheetId でよい」を Go とし、あわせて
+こう書いている。
+
+> **旧案 (DtR graph を branch として書いて読み戻す) を実装してはならない**という判断
+> (事実 5: **branch batches は remote へ出ない**ので local で完結して通ってしまう)
+
+**この根拠は T7-2 で覆った。**`branchLog.ts` 自身がそう記している — 「step1 では local 専用
+だった (§9.2) が、**step2 Phase 3 T7-2 で remote へ push する**ようになった」。
+
+器を sheet にした判定 (①他 actor から読める ②既存 projection が壊れない ③File が増えない)
+は**そのまま有効**である。失効したのは**branch 案を退けた部分だけ**である。
+
+**これが D3 に効く。**再 merge の機構 (`buildMergePlan`) は `BranchMeta` を要求し、
+**2 本の op-log** (`trunkFileId` と `branchFileId`) の batch id を突き合わせて差分を取る。
+**sheet はこの機構に渡せない。**したがって D3 は次のどちらかになる。
+
+- **解決グラフを branch にする** — 再 merge は既存の merge をそのまま使える。
+  dialogue graph は sheet のままでよい (対話は器を要るが merge の対象ではない)。
+  仕様の「DtR graph は Sheet の branch と**同じレベルで**サイドバーに表示される」とも揃う
+- **sheet のまま、「別 sheet の内容を元の sheet へ取り込む」機構を新しく作る** —
+  merge 機構の拡張になる
+
+### 仕様の未実装条件: 「その後の変更がなければ」
+
+> 呼び出された actor 全員が承認したら (**そして, その後の変更がなければ**), 再 merge が可能になる
+
+D2 の `canRemergeAt` は `satisfiedAt < clock` しか見ておらず、この括弧を満たしていない。
+判定材料が判断ログの**外** (DtR グラフの内容が最後に動いた位置) にあるためである。**D3 で補う。**
+
 ## 3. 中心の判断: 機構と見せ方を分ける
 
 **利用者の判断 (2026-09-18)。**
@@ -149,6 +180,49 @@ Phase 6 は **DtR という概念をさらに 2 つ (dialogue graph / resolve gr
    **その外側の別の collection** であり、層ではなく collection で分かれている。したがって
    `dtr.*` はこの表には載らない (当初ここに書いていたのは誤りだった → V5)。
 
+9. **merge は写しのまま (案 A) を維持する** (利用者決定 2026-09-19)。
+
+   T7-4 の §6a が登録した「**B へ移る合図**」— *「merge を取り消す / 承認されるまで効かせない
+   (DtR の「双方の承認で再 merge」)」* — が **D3 で発火した**。§6a は「遅くとも Phase 6 の
+   設計で判断する」と定めていたので、ここがその時点である。
+
+   **判断: A のまま進める。**pre 条件は「写しを書かない」ではなく「**書いた写しを projection の
+   手前で落とす**」で表せる (U6-P2 spike の `admissible`)。`Commit` に `dtrId` を足し、
+   写しが既に持つ `mergedIn: CommitId` から辿る — これは §6a が **B へ移るために**用意した
+   印そのものなので、移行の妨げにならず、むしろその経路を先に使うことになる。
+
+   | | 触る | 触らない |
+   | --- | --- | --- |
+   | A (採用) | `CommitSchema` / `branchLog.Commit` / `makeMergeCommit` / 各 projection 経路 | `BatchSchema` / lexicon / `batchMapper` / SQLite |
+   | B (見送り) | trunk を読む**全経路** (projection・競合検出・上書きの報告・先読み・受信・server) | — |
+
+   **⚠️ 調査で出た、A の見積もりを押し上げる事実**: 絞り込みを挿せる**単一の関所が無い**。
+   trunk を projection する経路は `useFileSheetOperations` (2) / `conflicts.ts` /
+   `overwrites.ts` / `mergeBranch.ts` (2) / server の `eventStore.ts` (2) に散っている。
+   規則が散ると T0 で踏んだ「**写しは放っておくとずれる**」に近い形になるので、
+   **適用点を 1 箇所に畳む工夫が D3 の設計の中心**になる。
+
+10. **resolve graph は branch、dialogue graph は sheet** (利用者決定 2026-09-19)。
+
+    事実 G のとおり、U6-P1 が branch 案を退けた根拠 (branch batches が remote に出ない) は
+    T7-2 で失効した。**2 つのグラフは役割が違うので器も分ける。**
+
+    | | 器 | なぜ |
+    | --- | --- | --- |
+    | **dialogue graph** (対話) | trunk の fileId 内の **sheet** | 対話は器を要るが **merge の対象ではない**。U6-P1 の判定 (①②③) がそのまま効く |
+    | **resolve graph** (解決) | **branch** | 「実際に競合しているグラフを可視化し、**競合を解消するために編集できる**」= trunk の編集可能な作業複製そのもの。再 merge は `mergeBranchOnOplog` をそのまま使える |
+
+    **新しい merge 機構を作らない**のが決め手である。`buildMergePlan` は `BranchMeta` と
+    2 本の op-log を要求するので、sheet のままだと分岐点・べき等性・再スタンプを
+    **全部作り直す**ことになる。仕様の「DtR graph は Sheet の branch と**同じレベルで**
+    サイドバーに表示される」「利用者からは**特殊な branch のように感じられる**かもしれない」
+    とも揃う。
+
+    **D1 の記録の形を直す** — `dtr.open` に `resolveBranchId` を足す。`branchId` (この DtR を
+    必要にした原因) と**別物**なので、名前で取り違えないようにする。**レコードはまだ
+    1 件も書かれていない**ので、いま直せば移行は要らない (D0 で `branchId` を足したときと
+    同じ理由)。
+
 ## 5. 未決 — 設計の中で決める
 
 | | 内容 |
@@ -167,7 +241,7 @@ Phase 6 は **DtR という概念をさらに 2 つ (dialogue graph / resolve gr
 | --- | --- | --- |
 | **L0** | **レイヤを型と分類で表す** (決めたこと 8)。`OpSchema` を 基本 / 器 / 意味論 の 3 つに組み替え、`OP_CATEGORY` の `file` を割る。**値は変えない**ので op-log は完全に互換。**DtR を載せる前に層を整える** — 積まれた後ほど動かしにくい。**完了** (2026-09-18)。変異試験で分かったこと: 分類を固定するだけでは**層の振る舞いは固定されない**。「意味論の op はシートのスコープに属さない」は `applicability` 側に置いた | 単体 |
 | **D0** | 語彙と畳み込み (V5 で決着)。`dtr.*` を**判断ログの語彙に**足し、DtR の記録と承認の集合を畳む。畳み込みは `foldParticipation` と**同じ collection を別に畳む** — 互いの `kind` を素通りさせる (事実 B) | 単体 + 性質 |
-| **D1** | explicit merge の content 競合からの**強制起動**。呼び出し対象の既定値 (共同作業者全員) を記録する。**完了** (2026-09-18)。線引きは `requiresConfirmation` と**共有しない** (あちらは content + structure、こちらは content だけ) / 起動は merge を**適用した後**で、材料は先読みではなく適用結果 / 器 (sheet) を先に、判断を後に書く (2 つのログに原子性が無いので、残りやすい側を先に) / **起動の失敗で merge を失敗と報告しない** (merge は既に trunk に載っている) / `dtr.open` に `branchId` を足した (仕様の「merge 操作に紐づく」「fork に紐づく」を 1 つで表す。レコードが 0 件のうちに形を決めた) | 単体 |
+| **D1** | explicit merge の content 競合からの**強制起動**。呼び出し対象の既定値 (共同作業者全員) を記録する。**完了** (2026-09-18)。線引きは `requiresConfirmation` と**共有しない** (あちらは content + structure、こちらは content だけ) / 起動は merge を**適用した後**で、材料は先読みではなく適用結果 / 器 (sheet) を先に、判断を後に書く (2 つのログに原子性が無いので、残りやすい側を先に) / **起動の失敗で merge を失敗と報告しない** (merge は既に trunk に載っている) / `dtr.open` に `branchId` を足した (仕様の「merge 操作に紐づく」「fork に紐づく」を 1 つで表す。レコードが 0 件のうちに形を決めた)。**2026-09-19 に追補**: 決めたこと 10 により、起動時に**解決グラフの器 (branch) も切る**ようになった。`dtr.open` に `resolveBranchId` が加わり、器は 2 つ (解決 = branch / 対話 = sheet)。解決 branch は**競合が起きたシート**から切る (branch は per-sheet なので、別シートから切ると解決の場が別物の複製になる) | 単体 |
 | **D2** | **承認**と、再 merge の **pre 条件**。承認しないまま参加を取りやめた actor は自動的に外れる。**完了** (2026-09-19)。`foldDtr` が `Participation` を依存に取る (DtR → 名簿の一方向。`isLocalDid` と同じく省略可能にしない) / 決着は真偽値でなく**位置** `satisfiedAt` で持ち、**離脱も満了の引き金**になる (batch ごとに見る) / 外すのは「**観測できた離脱**」だけ — 名簿に一度も現れない DID は「見えていない」だけなので残す (外すと名簿の食い違いがそのまま判定の食い違いになる) / **全員が去った DtR は決着させない** (空集合を「全員承認」と読まない) / `canRemergeAt` は**同着を許さない** (「より前」の意味) | 単体 + 性質 |
 | **D3** | **再 merge**。承認が揃ってから。再び競合したら繰り返す | 単体 |
 | **D4** | **fork からの起動** (implicit)。既定の呼び出し対象は自分だけ。材料は凍結記述 (事実 E) | 単体 |

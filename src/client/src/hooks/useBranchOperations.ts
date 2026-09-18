@@ -686,11 +686,21 @@ export function useBranchOperations({
           trunkFileId,
           conflicts,
           branchId: branch.id,
+          // 解決 branch は**競合した merge が対象にしていたシート**から切る
+          sourceSheetId: branch.sheetId,
           branchName: branch.name,
           participants: participation.participating,
           viewer: didFromActor(actor),
         },
         {
+          // 解決グラフの器 (D3)。branch を切る口は既に手元にある (`projectionDeps`)
+          createResolveBranch: async (params) =>
+            (
+              await createBranchOnOplog(
+                { ...params, authorActor: actor },
+                projectionDeps,
+              )
+            ).id,
           // 器は trunk の op-log へ。branch / commit のメタと同じ tap の `record` を通す
           recordSheetCreated: (sheetId, name) =>
             trunkRecord({
@@ -719,7 +729,7 @@ export function useBranchOperations({
         },
       );
     },
-    [roster, deps, actor, trunkRecord, trunkClock],
+    [roster, deps, actor, trunkRecord, trunkClock, projectionDeps],
   );
 
   const handleMergeBranch = useCallback(

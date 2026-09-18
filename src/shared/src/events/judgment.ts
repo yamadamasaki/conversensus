@@ -151,6 +151,18 @@ export const JudgmentOpSchema = z.discriminatedUnion('kind', [
      */
     branchId: BranchIdSchema,
     /**
+     * **解決グラフ (resolve graph) の器** (step2 Phase 6 D3, 利用者決定 2026-09-19)。
+     *
+     * trunk から切った branch を指す。resolve graph は「実際に競合しているグラフを
+     * 可視化し、**競合を解消するために編集できる**」もの = trunk の編集可能な作業複製
+     * そのものなので、branch がその器である。おかげで**再 merge は既存の merge を
+     * そのまま使える** (新しい merge 機構を作らずに済む)。
+     *
+     * **`branchId` とは別物である。**あちらは「この DtR を必要にした原因」(merge した
+     * branch / 競合が作った fork)、こちらは「解決のために切った作業用 branch」。
+     */
+    resolveBranchId: BranchIdSchema,
+    /**
      * dialogue graph の器。trunk の fileId の**中に**切った sheet を指す。
      * fileId を新たに切らないのは、`discoverRemoteFiles` がそれを File として
      * materialize してしまうためである (U6 で確定)。

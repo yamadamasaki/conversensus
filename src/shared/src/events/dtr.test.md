@@ -2,8 +2,18 @@
 
 ## 何を
 
-判断ログから DtR の状態 (記録された呼び出し対象・積み上がった承認) を導く `foldDtr` と、
-「全員が承認したか」を言う `allApproved` を検証する。
+判断ログから DtR の状態を導く `foldDtr` と、そこから引く 2 つの述語を検証する。
+
+| | 何を言うか |
+| --- | --- |
+| `foldDtr` | 記録された呼び出し対象 / 積み上がった承認 / **承認が揃った位置** (`satisfiedAt`) / 2 つの器 |
+| `allApproved` | 揃ったか (`satisfiedAt` の導出) |
+| `canRemergeAt` | **その位置で再 merge が許されるか** = 仕様の pre 条件そのもの |
+
+DtR は器を 2 つ持つ — **`resolveBranchId`** (解決グラフ = trunk から切った作業用 branch) と
+**`sheetId`** (対話グラフ = trunk の fileId 内の sheet)。さらに **`branchId`** (この DtR を
+必要にした原因の branch / fork) があり、**BranchId が 2 つ並ぶ**。取り違えないことを
+起動のテストで固定する。
 
 ## なぜ
 

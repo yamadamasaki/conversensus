@@ -78,6 +78,11 @@ export type Dtr = {
   id: DtrId;
   /** 何がこの DtR を必要にしたか (merge した branch、または競合が作った fork) */
   branchId: BranchId;
+  /**
+   * 解決グラフの器 (trunk から切った作業用 branch, D3)。
+   * **`branchId` とは別物** — あちらは原因、こちらは解決の場である
+   */
+  resolveBranchId: BranchId;
   /** dialogue graph の器 (trunk の fileId の中の sheet) */
   sheetId: SheetId;
   /**
@@ -115,6 +120,7 @@ export type DtrJudgments = {
 type MutableDtr = {
   id: DtrId;
   branchId: BranchId;
+  resolveBranchId: BranchId;
   sheetId: SheetId;
   callees: Set<Did>;
   approvals: Set<Did>;
@@ -170,6 +176,7 @@ export function foldDtr(
           dtrs.set(op.target, {
             id: op.target,
             branchId: op.branchId,
+            resolveBranchId: op.resolveBranchId,
             sheetId: op.sheetId,
             callees: new Set(op.callees),
             approvals: new Set(),

@@ -48,10 +48,14 @@ const fold = (batches: JudgmentBatch[]): DtrJudgments =>
     participation: foldParticipation(batches, { isLocalDid: () => true }),
   });
 
+/** 解決グラフの器として切った作業用 branch (D3)。原因の BRANCH とは別物 */
+const RESOLVE = BranchIdSchema.parse(crypto.randomUUID());
+
 const open = (callees: readonly Did[]): JudgmentOp => ({
   kind: 'dtr.open',
   target: DTR,
   branchId: BRANCH,
+  resolveBranchId: RESOLVE,
   sheetId: SHEET,
   callees: [...callees],
 });
@@ -97,6 +101,8 @@ describe('foldDtr', () => {
     expect(dtr.sheetId).toBe(SHEET);
     // 何がこの DtR を必要にしたか。仕様は merge 操作 / fork に紐づけると定める
     expect(dtr.branchId).toBe(BRANCH);
+    // 解決の場。原因 (branchId) と取り違えないことを固定する
+    expect(dtr.resolveBranchId).toBe(RESOLVE);
     expect(dtr.openedAt).toBe(1);
     expect(j.rejected).toEqual([]);
   });
