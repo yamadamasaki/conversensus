@@ -141,6 +141,14 @@ type Props = {
    * 競合なので、こちらの projection からは引けないことがある
    */
   arrivedForks?: readonly ForkMeta[];
+  /**
+   * その fork から DtR を起動する (step2 Phase 6 D4/D5)。
+   *
+   * 仕様は implicit merge の競合を「とりあえず fork されるが, 競合が通知されるので,
+   * **そこから手動で選択的に起動**」と定める。通知がその入口なので、口はここに置く。
+   * **未ログインなら渡さない** — 判断ログの書き先が自分の repo なので起動できない。
+   */
+  onStartDtr?: (fork: ForkMeta) => void;
   onClose: () => void;
 };
 
@@ -149,6 +157,7 @@ export function ConflictNotice({
   labelOf,
   forkCount = 0,
   arrivedForks = [],
+  onStartDtr,
   onClose,
 }: Props) {
   if (conflicts.length === 0 && arrivedForks.length === 0) return null;
@@ -249,6 +258,21 @@ export function ConflictNotice({
                     : fork.origin.targetLabel}
                 </span>
                 : {describe(fork.origin)}
+                {/* 起動の口 (D5)。押せるのはログイン中だけ */}
+                {onStartDtr && (
+                  <button
+                    type="button"
+                    onClick={() => onStartDtr(fork)}
+                    style={{
+                      marginLeft: 6,
+                      fontSize: 11,
+                      padding: '1px 6px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    対話を始める
+                  </button>
+                )}
               </li>
             ))}
           </ul>

@@ -20,7 +20,11 @@ import {
 } from '@conversensus/shared';
 import {
   calleesFromFork,
+  DTR_RESOLVE_BRANCH_PREFIX,
+  DTR_SHEET_PREFIX,
   defaultCallees,
+  isDtrResolveBranchName,
+  isDtrSheetName,
   needsForcedStart,
   type StartDtrDeps,
   startDtrForConflicts,
@@ -264,6 +268,49 @@ const fork = (oursActor: string, theirsActor: string): ForkMeta =>
     },
     // biome-ignore lint/suspicious/noExplicitAny: テストの最小 ForkMeta
   }) as any;
+
+// --- 器の名前による判別 (step2 Phase 6 D5, 仮の実装) ---
+//
+// ⚠️ これは「どれが DtR の器か」を**名前で当てる**仮の判別である (利用者判断: 最小コスト)。
+// 本来は `dtr.open` の記録から引くべきで、名前は人が変えられる。
+
+describe('DtR の器の名前 (D5 の仮判別)', () => {
+  test('dialogue graph の sheet を判別する', () => {
+    expect(isDtrSheetName(`${DTR_SHEET_PREFIX}feature-x`)).toBe(true);
+    expect(isDtrSheetName('Sheet 1')).toBe(false);
+  });
+
+  test('resolve graph の branch を判別する', () => {
+    expect(
+      isDtrResolveBranchName(`${DTR_RESOLVE_BRANCH_PREFIX}feature-x`),
+    ).toBe(true);
+    expect(isDtrResolveBranchName('feature-x')).toBe(false);
+  });
+
+  // 通常の branch を DtR と誤認すると、サイドバーの印が嘘になる
+  test('🔴 対話用の sheet 名を branch の判別に通さない (接頭辞が別物)', () => {
+    expect(isDtrResolveBranchName(`${DTR_SHEET_PREFIX}feature-x`)).toBe(false);
+  });
+
+  /**
+   * **生成と判別が対であることを固定する。**名前を作るのも判別するのも同じモジュール
+   * だが、片方だけ直すと画面から DtR が消える (あるいは通常の branch が DtR に見える)。
+   * 実際に起動させて、出てきた名前が判別を通ることで確かめる — 接頭辞の定数を
+   * 突き合わせるだけでは、**生成側が定数を使うのをやめた**ときに気づけない。
+   */
+  test('🔴 起動が作る名前は、必ず判別を通る', async () => {
+    const { deps, calls } = fakeDeps();
+    await startDtrForConflicts(input([content()]), deps);
+
+    const branch = calls.find((c) => c.call === 'branch');
+    const sheet = calls.find((c) => c.call === 'sheet');
+    if (branch?.call !== 'branch' || sheet?.call !== 'sheet')
+      throw new Error('器が作られていない');
+
+    expect(isDtrResolveBranchName(branch.name)).toBe(true);
+    expect(isDtrSheetName(sheet.name)).toBe(true);
+  });
+});
 
 describe('calleesFromFork', () => {
   /**

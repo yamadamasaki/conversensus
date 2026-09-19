@@ -8,9 +8,11 @@ import type {
   DtrId,
   EdgeLayout,
   FileId,
+  ForkMeta,
   GraphEdge,
   GraphFile,
   GraphNode,
+  JudgmentBatch,
   MergeConflict,
   NodeLayout,
   Sheet,
@@ -44,7 +46,11 @@ import {
 } from '../sync/mergeBranch';
 import { migrateBranchMeta } from '../sync/migrateBranchMeta';
 import type { RosterSource } from '../sync/rosterSource';
-import { startDtrForConflicts } from '../sync/startDtr';
+import {
+  type StartDtrDeps,
+  startDtrForConflicts,
+  startDtrFromFork,
+} from '../sync/startDtr';
 import type { SyncProvider } from '../sync/syncProvider';
 import {
   type ReceivedSummary,
@@ -668,6 +674,64 @@ export function useBranchOperations({
    * 無ければ書きようがない。**黙って飛ばさない** — 競合そのものは起きているので、
    * 起動できなかったことは警告に出す (無言の見送りを作らない, Phase 2 の教訓)。
    */
+  /**
+   * DtR を起こすための口の束 (step2 Phase 6 D3/D4)。**2 つの起動で同じものを使う。**
+   *
+   * `batches` を引数に取るのは、判断ログの clock の seed に要るものが
+   * **名簿を読んだ結果**だからである (`roster.read` の外では決まらない)。
+   */
+  const dtrDeps = useCallback(
+    (batches: readonly JudgmentBatch[]): StartDtrDeps => ({
+      // 解決グラフの器 (D3)。branch を切る口は既に手元にある (`projectionDeps`)
+      createResolveBranch: async (params) =>
+        (
+          await createBranchOnOplog(
+            { ...params, authorActor: actor },
+            projectionDeps,
+          )
+        ).id,
+      // 器は trunk の op-log へ。branch / commit のメタと同じ tap の `record` を通す
+      recordSheetCreated: (sheetId, name) =>
+        trunkRecord({
+          ...makeEventBase('file'),
+          type: 'SHEET_CREATED',
+          sheetId,
+          name,
+        }),
+      appendJudgment: (fileId, ops) =>
+        appendJudgment(
+          {
+            // merge 先の trunk は必ず開いているので tap の clock を使ってよい
+            clock: trunkClock,
+            actor,
+            putJudgment,
+            newBatchId: () => crypto.randomUUID() as BatchId,
+          },
+          fileId,
+          ops,
+          batches,
+        ),
+      // **`oplogDeps.newId` を使わない。**判断ログもシートの作成も API 境界で
+      // uuid を要求するが、あちらは連番を返す実装がありうる (テストの偽物がそう)
+      newSheetId: () => crypto.randomUUID() as SheetId,
+      newDtrId: () => crypto.randomUUID() as DtrId,
+    }),
+    [actor, trunkRecord, trunkClock, projectionDeps],
+  );
+
+  /**
+   * **一覧を読み直させる** (step2 Phase 6 D5)。
+   *
+   * 解決 branch は `startDtrForConflicts` / `startDtrFromFork` の中で
+   * `createBranchOnOplog` が作るので、`handleCreateBranch` のように `sheetBranches` を
+   * 直に足す経路を通らない。読み直しの effect は `receiveEpoch` を契機にしているので、
+   * それを 1 つ進めれば trunk を畳み直して載る — T7-3 で同じ問題を解いた機構である
+   * (**state を差し替えるだけでは画面に出ない**)。
+   */
+  const reloadBranchList = useCallback(() => {
+    setBranchReceiveEpoch((epoch) => epoch + 1);
+  }, []);
+
   const startDtr = useCallback(
     async (branch: BranchMeta, conflicts: readonly MergeConflict[]) => {
       if (!roster) {
@@ -692,44 +756,42 @@ export function useBranchOperations({
           participants: participation.participating,
           viewer: didFromActor(actor),
         },
-        {
-          // 解決グラフの器 (D3)。branch を切る口は既に手元にある (`projectionDeps`)
-          createResolveBranch: async (params) =>
-            (
-              await createBranchOnOplog(
-                { ...params, authorActor: actor },
-                projectionDeps,
-              )
-            ).id,
-          // 器は trunk の op-log へ。branch / commit のメタと同じ tap の `record` を通す
-          recordSheetCreated: (sheetId, name) =>
-            trunkRecord({
-              ...makeEventBase('file'),
-              type: 'SHEET_CREATED',
-              sheetId,
-              name,
-            }),
-          appendJudgment: (fileId, ops) =>
-            appendJudgment(
-              {
-                // merge 先の trunk は必ず開いているので tap の clock を使ってよい
-                clock: trunkClock,
-                actor,
-                putJudgment,
-                newBatchId: () => crypto.randomUUID() as BatchId,
-              },
-              fileId,
-              ops,
-              batches,
-            ),
-          // **`oplogDeps.newId` を使わない。**判断ログもシートの作成も API 境界で
-          // uuid を要求するが、あちらは連番を返す実装がありうる (テストの偽物がそう)
-          newSheetId: () => crypto.randomUUID() as SheetId,
-          newDtrId: () => crypto.randomUUID() as DtrId,
-        },
+        dtrDeps(batches),
       );
+      reloadBranchList();
     },
-    [roster, deps, actor, trunkRecord, trunkClock, projectionDeps],
+    [roster, deps, actor, dtrDeps, reloadBranchList],
+  );
+
+  /**
+   * fork から DtR を起こす (step2 Phase 6 D4/D5)。**人が通知を見て押す口である。**
+   *
+   * 既定の呼び出し対象は**凍結記述から引く** (`startDtrFromFork` が行う) ので、名簿は
+   * 判断ログを取るためだけに読む。未ログインなら押せる口を出さないので、ここに来ない。
+   */
+  const handleStartDtrFromFork = useCallback(
+    async (fork: ForkMeta) => {
+      if (!roster) return;
+      try {
+        const { batches } = await roster.read(fork.trunkFileId);
+        await startDtrFromFork(
+          {
+            trunkFileId: fork.trunkFileId,
+            fork,
+            viewer: didFromActor(actor),
+          },
+          dtrDeps(batches),
+        );
+        reloadBranchList();
+      } catch (err) {
+        // **黙って失敗しない。**押したのに何も起きないのが一番分かりにくい
+        console.warn('[dtr] fork からの起動に失敗した:', err);
+        await new Promise<void>((resolve) => {
+          setAlertState({ message: '対話の開始に失敗しました。', resolve });
+        });
+      }
+    },
+    [roster, actor, dtrDeps, reloadBranchList, setAlertState],
   );
 
   const handleMergeBranch = useCallback(
@@ -1072,6 +1134,11 @@ export function useBranchOperations({
      * 足して GraphEditor に渡す — どちらが進んでも canvas を再 seed する
      */
     branchReceiveEpoch,
+    /**
+     * fork から DtR を起こす (step2 Phase 6 D5)。通知 (`ConflictNotice`) の各行に渡す。
+     * **未ログインなら渡さない** — 判断ログの書き先が自分の repo なので起動できない
+     */
+    handleStartDtrFromFork,
     /**
      * branch を開いている間に受信した trunk の控え先 (2026-09-17)。
      * App が `useFileSheetOperations` へ渡す

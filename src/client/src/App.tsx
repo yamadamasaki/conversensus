@@ -605,6 +605,11 @@ export default function App() {
           labelOf={conflictLabelOf}
           forkCount={conflictNotice.forkCount ?? 0}
           arrivedForks={arrivedForks}
+          // fork から対話を始める口 (step2 Phase 6 D5)。**ログイン中だけ渡す** —
+          // 判断ログの書き先は自分の repo なので、未ログインでは起動できない
+          {...(atprotoSession && {
+            onStartDtr: branchOps.handleStartDtrFromFork,
+          })}
           onClose={() => {
             setConflictNotice({ conflicts: [], labels: new Map() });
             setArrivedForks(NO_ARRIVED_FORKS);
