@@ -9,6 +9,7 @@ import {
   DtrIdSchema,
   type FileId,
   FileIdSchema,
+  type ForkMeta,
   type JudgmentBatch,
   type JudgmentOp,
   type MergeConflict,
@@ -18,10 +19,12 @@ import {
   SheetIdSchema,
 } from '@conversensus/shared';
 import {
+  calleesFromFork,
   defaultCallees,
   needsForcedStart,
   type StartDtrDeps,
   startDtrForConflicts,
+  startDtrFromFork,
 } from './startDtr';
 
 const TRUNK: FileId = FileIdSchema.parse(crypto.randomUUID());
@@ -225,5 +228,126 @@ describe('startDtrForConflicts', () => {
 
     expect(started).toBeNull();
     expect(calls).toEqual([]);
+  });
+});
+
+// --- fork からの起動 (step2 Phase 6 D4) ---
+//
+// 仕様の起動 3: 「implicit merge で競合が生じた場合 → とりあえず fork されるが,
+// 競合が通知されるので, **そこから手動で選択的に起動**」。D1 と入口だけが違う。
+
+const FORK_BRANCH: BranchId = BranchIdSchema.parse(crypto.randomUUID());
+const FORK_SHEET: SheetId = SheetIdSchema.parse(crypto.randomUUID());
+
+/**
+ * fork の偽物。**凍結記述 (`origin`) がすべてである** — 起動の材料はここから引き、
+ * 畳み直さない (畳み直すと「今」の競合になり、消えていることがある)。
+ */
+const fork = (oursActor: string, theirsActor: string): ForkMeta =>
+  ({
+    id: FORK_BRANCH,
+    name: 'fork',
+    base: { id: 'c1', message: '分岐点', at: 1, authorActor: oursActor },
+    status: 'open',
+    sheetId: FORK_SHEET,
+    trunkFileId: TRUNK,
+    branchFileId: FileIdSchema.parse(crypto.randomUUID()),
+    conflictKey: 'k',
+    origin: {
+      category: 'layout',
+      aspect: 'position',
+      target: 'n1',
+      targetLabel: '',
+      ours: { batchId: bid(), actor: oursActor, clock: 3, op: side().op },
+      theirs: { batchId: bid(), actor: theirsActor, clock: 4, op: side().op },
+      baseAt: 2,
+    },
+    // biome-ignore lint/suspicious/noExplicitAny: テストの最小 ForkMeta
+  }) as any;
+
+describe('calleesFromFork', () => {
+  /**
+   * 仕様 (`merging.md`「fork に競合の原因を記述する」): 凍結記述の用途は
+   * 「この fork から DtR を起動するときの、**呼び出し対象の既定値を供給する**」。
+   */
+  test('🔴 凍結記述の両側の actor を既定値にする (畳み直さない)', () => {
+    expect(
+      calleesFromFork(fork('did:plc:a#dev1', 'did:plc:b#dev1'), A),
+    ).toEqual([A, B]);
+  });
+
+  // actor は端末単位、承認は人単位。落とさないと 2 台目が別人として数えられ、
+  // 承認が永久に揃わない
+  test('🔴 同じ人の 2 台目は 1 人に畳む (DID へ落とす)', () => {
+    expect(
+      calleesFromFork(fork('did:plc:a#dev1', 'did:plc:a#dev2'), A),
+    ).toEqual([A]);
+  });
+
+  test('起動した本人は必ず含まれる', () => {
+    expect(
+      calleesFromFork(fork('did:plc:b#dev1', 'did:plc:b#dev2'), A),
+    ).toEqual([A, B]);
+  });
+});
+
+describe('startDtrFromFork', () => {
+  /**
+   * **線引きをしない。**D1 は自動起動なので content だけに絞るが、こちらは人が通知を
+   * 見て押している。種別で拒むと「通知に出ているのに起動できない」という説明のつかない
+   * 状態が生まれる。この fork の凍結記述は layout であることに注意 —
+   * `needsForcedStart` なら false になる種別である。
+   */
+  test('🔴 layout の fork でも起動する (押された以上は起動する)', async () => {
+    const { deps, calls } = fakeDeps();
+    const started = await startDtrFromFork(
+      {
+        trunkFileId: TRUNK,
+        fork: fork('did:plc:a#dev1', 'did:plc:b#dev1'),
+        viewer: A,
+      },
+      deps,
+    );
+
+    expect(started.dtrId).toBe(DTR);
+    expect(started.callees).toEqual([A, B]);
+    expect(calls.map((c) => c.call)).toEqual(['branch', 'sheet', 'judgment']);
+  });
+
+  // fork は branch なので、解決 branch は **fork と同じシート**から切る
+  test('🔴 解決 branch は fork のシートから切る', async () => {
+    const { deps, calls } = fakeDeps();
+    await startDtrFromFork(
+      {
+        trunkFileId: TRUNK,
+        fork: fork('did:plc:a#dev1', 'did:plc:b#dev1'),
+        viewer: A,
+      },
+      deps,
+    );
+
+    const branch = calls.find((c) => c.call === 'branch');
+    if (branch?.call !== 'branch') throw new Error('branch が切られていない');
+    expect(branch.sheetId).toBe(FORK_SHEET);
+  });
+
+  test('原因の branch として fork を記録する', async () => {
+    const { deps, calls } = fakeDeps();
+    await startDtrFromFork(
+      {
+        trunkFileId: TRUNK,
+        fork: fork('did:plc:a#dev1', 'did:plc:b#dev1'),
+        viewer: A,
+      },
+      deps,
+    );
+
+    const written = calls.find((c) => c.call === 'judgment');
+    if (written?.call !== 'judgment') throw new Error('判断が書かれていない');
+    expect(written.ops[0]).toMatchObject({
+      kind: 'dtr.open',
+      branchId: FORK_BRANCH,
+      resolveBranchId: RESOLVE,
+    });
   });
 });

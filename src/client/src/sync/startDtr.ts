@@ -41,11 +41,13 @@ import type {
   Did,
   DtrId,
   FileId,
+  ForkMeta,
   JudgmentBatch,
   JudgmentOp,
   MergeConflict,
   SheetId,
 } from '@conversensus/shared';
+import { didFromActor } from '@conversensus/shared';
 
 export type StartDtrDeps = {
   /**
@@ -134,6 +136,71 @@ export function defaultCallees(
 }
 
 /**
+ * **fork からの起動の既定値** (step2 Phase 6 D4)。
+ *
+ * 仕様 (`merging.md`「fork に競合の原因を記述する」) はこう定める。
+ *
+ * > ただし一つだけ用途がある。**この fork から DtR graph を起動するときの、
+ * > 呼び出し対象の既定値を供給する**。既定値の供給源であって呼び出し対象そのもの
+ * > ではない点は、名簿と同じである。
+ *
+ * **畳み直して求めない。**凍結記述から引く — 畳み直すと「今」の競合になり、
+ * そもそも競合が消えていることがある (事実 E)。
+ *
+ * **explicit merge と違って全員は集めない。**仕様は implicit を「自分だけ」と定め、
+ * 「あるいは競合している操作を行った actor たち」を許す。揉めた当人が分かっているなら
+ * 声を掛けない理由が無いので、**凍結記述の両側 + 起動した本人**を既定値にする。
+ * 気に入らなければ `dtr.setCallees` で変えられる (既定値であって確定ではない)。
+ *
+ * `actor` は端末単位なので **DID へ落とす** — 承認は人単位である。
+ */
+export function calleesFromFork(fork: ForkMeta, viewer: Did): Did[] {
+  return [
+    ...new Set<Did>([
+      didFromActor(fork.origin.ours.actor),
+      didFromActor(fork.origin.theirs.actor),
+      viewer,
+    ]),
+  ].sort();
+}
+
+export type StartDtrFromForkInput = {
+  trunkFileId: FileId;
+  /** 起動の材料。**凍結記述がすべてである** (畳み直さない) */
+  fork: ForkMeta;
+  /** 起動した人の DID */
+  viewer: Did;
+};
+
+/**
+ * fork から DtR を起動する (step2 Phase 6 D4, 仕様の起動 3)。
+ *
+ * > implicit merge で競合が生じた場合 → とりあえず fork されるが, 競合が通知されるので,
+ * > **そこから手動で選択的に起動**
+ *
+ * **線引きをしない。**D1 (explicit の content 競合) は自動起動なので `needsForcedStart` で
+ * 絞るが、こちらは**人が通知を見て選んで押す**。押された以上は起動する — 種別で拒むと、
+ * 「通知に出ているのに起動できない」という説明のつかない状態が生まれる。
+ *
+ * fork は branch なので、解決 branch は **fork と同じシート**から切る。
+ */
+export async function startDtrFromFork(
+  input: StartDtrFromForkInput,
+  deps: StartDtrDeps,
+): Promise<StartedDtr> {
+  return openDtr(
+    {
+      trunkFileId: input.trunkFileId,
+      branchId: input.fork.id,
+      sourceSheetId: input.fork.sheetId,
+      branchName: input.fork.name,
+      callees: calleesFromFork(input.fork, input.viewer),
+    },
+    deps,
+  );
+}
+
+/**
  * content 競合があれば DtR を起動する。
  *
  * @returns 起動したらその記録、起動が要らなければ `null`
@@ -143,10 +210,38 @@ export async function startDtrForConflicts(
   deps: StartDtrDeps,
 ): Promise<StartedDtr | null> {
   if (!needsForcedStart(input.conflicts)) return null;
+  return openDtr(
+    {
+      trunkFileId: input.trunkFileId,
+      branchId: input.branchId,
+      sourceSheetId: input.sourceSheetId,
+      branchName: input.branchName,
+      callees: defaultCallees(input.participants, input.viewer),
+    },
+    deps,
+  );
+}
 
+/**
+ * 2 つの起動の**共通部分**。器を 2 つ作り、判断ログに `dtr.open` を 1 件書く。
+ *
+ * 違うのは**入口だけ** — 何を引き金にするか (競合の集合 / 押された fork) と、
+ * 呼び出し対象の既定値をどこから引くか (名簿 / 凍結記述)。**器の作り方と記録の形は
+ * 同じ**なので、ここに 1 つ置く。分けて持つと、片方だけ直す事故が起きる (T0 で踏んだ形)。
+ */
+async function openDtr(
+  input: {
+    trunkFileId: FileId;
+    branchId: BranchId;
+    sourceSheetId: SheetId;
+    branchName: string;
+    callees: Did[];
+  },
+  deps: StartDtrDeps,
+): Promise<StartedDtr> {
+  const { callees } = input;
   const dtrId = deps.newDtrId();
   const sheetId = deps.newSheetId();
-  const callees = defaultCallees(input.participants, input.viewer);
 
   // **器が先、判断が後。**逆だと器を指す判断だけが書かれた瞬間が生まれる。
   // 器は 2 つある (解決 = branch / 対話 = sheet) ので、両方を先に作る
