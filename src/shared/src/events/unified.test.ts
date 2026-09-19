@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
   BatchSchema,
+  CONTAINER_OP_KINDS,
   FILE_OP_KINDS,
   isContentOp,
   isFileOp,
@@ -9,6 +10,7 @@ import {
   OP_CATEGORY,
   OpSchema,
   opCategory,
+  SEMANTIC_OP_KINDS,
 } from './unified';
 
 describe('OP_CATEGORY', () => {
@@ -40,7 +42,7 @@ describe('OP_CATEGORY', () => {
     );
   });
 
-  test('file カテゴリ op は同期対象 (§3.2)', () => {
+  test('器 (file) カテゴリ op は同期対象 (§3.2)', () => {
     expect(opCategory({ kind: 'file.setName', name: 'F' })).toBe('file');
     expect(isSyncable({ kind: 'file.setName', name: 'F' })).toBe(true);
     expect(
@@ -58,9 +60,26 @@ describe('isFileOp', () => {
     ).toBe(false);
   });
 
-  test('FILE_OP_KINDS は OP_CATEGORY で file に揃っている', () => {
-    for (const kind of FILE_OP_KINDS) {
+  test('🔴 器と意味論は別のカテゴリである (Phase 6 の決めたこと 8)', () => {
+    // 否定形の分類 (「LPG ではない」) では、シートという**器**とバージョン管理という
+    // **意味論**が同じに見える。層が型と分類に出ていることを固定する
+    for (const kind of CONTAINER_OP_KINDS) {
       expect(OP_CATEGORY[kind]).toBe('file');
+    }
+    for (const kind of SEMANTIC_OP_KINDS) {
+      expect(OP_CATEGORY[kind]).toBe('semantic');
+    }
+    // FILE_OP_KINDS は両者の合成 = 「グラフの畳み込みに入れない op」
+    expect([...FILE_OP_KINDS].sort()).toEqual(
+      [...CONTAINER_OP_KINDS, ...SEMANTIC_OP_KINDS].sort(),
+    );
+  });
+
+  test('🔴 基本語彙 (LPG) は意味論を含まない', () => {
+    // conversensus の本質は LPG であり、基本語彙は node / edge だけである。
+    // 意味論 (branch / commit / DtR) を足してもここは増えない
+    for (const kind of FILE_OP_KINDS) {
+      expect(kind.startsWith('node.') || kind.startsWith('edge.')).toBe(false);
     }
   });
 });
@@ -152,14 +171,18 @@ describe('branch / commit の op (step2 Phase 3 T7)', () => {
   const id = () => crypto.randomUUID();
   const base = { id: id(), message: 'base', at: 1, authorActor: 'a' };
 
-  test('4 つとも file カテゴリで、グラフの畳み込みから外れる', () => {
+  test('4 つとも意味論の層にあり、グラフの畳み込みから外れる', () => {
     for (const kind of [
       'branch.create',
       'branch.setStatus',
       'branch.remove',
       'commit.add',
     ] as const) {
-      expect(OP_CATEGORY[kind]).toBe('file');
+      expect(OP_CATEGORY[kind]).toBe('semantic');
+      expect((SEMANTIC_OP_KINDS as readonly string[]).includes(kind)).toBe(
+        true,
+      );
+      // 畳み込みの routing では器と一緒に外れる (否定形の分類)
       expect((FILE_OP_KINDS as readonly string[]).includes(kind)).toBe(true);
     }
   });

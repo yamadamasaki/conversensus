@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  BranchIdSchema,
+  CommitIdSchema,
   type EdgeId,
   EdgeIdSchema,
   FileIdSchema,
@@ -9,8 +11,9 @@ import {
   SheetIdSchema,
 } from '../schemas';
 import { analyzeApplicability } from './applicability';
+import type { Commit } from './branchLog';
 import { projectFile } from './project';
-import { type Batch, BatchIdSchema, type Op } from './unified';
+import { type Batch, BatchIdSchema, COMMIT_KIND, type Op } from './unified';
 
 const nid = (): NodeId => NodeIdSchema.parse(crypto.randomUUID());
 const eid = (): EdgeId => EdgeIdSchema.parse(crypto.randomUUID());
@@ -324,5 +327,36 @@ describe('analyzeApplicability', () => {
 
     expect(allNodes.find((n) => n.id === lost)).toBeUndefined();
     expect(analyzeApplicability(batches).drops).toHaveLength(1);
+  });
+
+  /**
+   * 意味論 (branch / commit) の op は「どのシートの話か」を持たない。器と同じ早期 continue で
+   * スコープ判定を素通りさせないと、sheetId のない branch batch が丸ごと `no-scope` で
+   * 落ちたことになる。層を分けた後もこの routing が保たれることを固定する (Phase 6 L0)。
+   */
+  test('🔴 意味論の op は sheetId を持たなくても applied に数えられる', () => {
+    const base: Commit = {
+      id: CommitIdSchema.parse(crypto.randomUUID()),
+      message: 'base',
+      at: 0,
+      authorActor: 'a',
+      kind: COMMIT_KIND.COMMIT,
+    };
+    const report = analyzeApplicability([
+      batch(1, [
+        {
+          kind: 'branch.create',
+          target: BranchIdSchema.parse(crypto.randomUUID()),
+          name: 'b',
+          sheetId: sid(),
+          branchFileId: fid(),
+          base,
+        },
+        { kind: 'commit.add', commit: base },
+      ]),
+    ]);
+
+    expect(report.drops).toEqual([]);
+    expect(report.appliedOps).toBe(2);
   });
 });

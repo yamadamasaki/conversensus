@@ -1,9 +1,11 @@
 import type {
   Actor,
   Batch,
+  BatchId,
   BranchMeta,
   Commit,
   CommitId,
+  DtrId,
   EdgeLayout,
   FileId,
   GraphEdge,
@@ -16,14 +18,17 @@ import type {
 } from '@conversensus/shared';
 import {
   BRANCH_STATUS,
+  didFromActor,
   makeCommit,
   requiresConfirmation,
 } from '@conversensus/shared';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as api from '../api';
 import { TRUNK_PREFIX } from '../atproto';
+import { putJudgment } from '../atproto/judgmentStore';
 import type { RemoteSyncQueue } from '../atproto/remoteSyncQueue';
-import type { GraphEvent } from '../events/GraphEvent';
+import { type GraphEvent, makeEventBase } from '../events/GraphEvent';
+import { appendJudgment } from '../sync/appendJudgment';
 import { branchMetaRecorder, readBranchMeta } from '../sync/branchMetaLog';
 import {
   type BranchProjectionDeps,
@@ -39,6 +44,7 @@ import {
 } from '../sync/mergeBranch';
 import { migrateBranchMeta } from '../sync/migrateBranchMeta';
 import type { RosterSource } from '../sync/rosterSource';
+import { startDtrForConflicts } from '../sync/startDtr';
 import type { SyncProvider } from '../sync/syncProvider';
 import {
   type ReceivedSummary,
@@ -140,10 +146,19 @@ export type AlertState = {
  */
 export interface BranchOpsDeps {
   computeSheetChanges: typeof computeSheetChanges;
+  /**
+   * content の競合から DtR を起動する (step2 Phase 6 D1)。
+   *
+   * **起動するかどうかの判断は向こう側にある。**ここは呼ぶだけで、競合の種別で
+   * 絞らない — 線引き (`needsForcedStart`) を呼び出し側にも置くと、同じ規則が
+   * 2 箇所に分かれて「放っておくとずれる」(T0 で踏んだ形である)
+   */
+  startDtrForConflicts: typeof startDtrForConflicts;
 }
 
 export const defaultBranchOpsDeps: BranchOpsDeps = {
   computeSheetChanges,
+  startDtrForConflicts,
 };
 
 /**
@@ -643,6 +658,80 @@ export function useBranchOperations({
     [activeFile, activeSheet],
   );
 
+  /**
+   * content の競合から DtR を起動する (step2 Phase 6 D1)。
+   *
+   * **merge を適用した後に呼ぶ。**仕様は DtR を「この競合を引き起こした merge 操作
+   * (op-log) に」紐づけると定めており、材料も先読みではなく**適用した結果**を使う。
+   *
+   * **未ログインでは起動できない。**判断ログの書き先は自分の repo なので、PDS が
+   * 無ければ書きようがない。**黙って飛ばさない** — 競合そのものは起きているので、
+   * 起動できなかったことは警告に出す (無言の見送りを作らない, Phase 2 の教訓)。
+   */
+  const startDtr = useCallback(
+    async (branch: BranchMeta, conflicts: readonly MergeConflict[]) => {
+      if (!roster) {
+        if (conflicts.some((c) => c.category === 'content'))
+          console.warn(
+            '[dtr] 未ログインのため DtR を起動できない (競合は LWW で確定済み)',
+          );
+        return;
+      }
+      const trunkFileId = branch.trunkFileId;
+      // 名簿は**既定値を供給するだけ**である。同じ読みで clock の seed に要る判断ログ
+      // (`batches`) も受け取る — 取り直すと二重に読むうえ、その間に増えた分とずれる
+      const { participation, batches } = await roster.read(trunkFileId);
+      await deps.startDtrForConflicts(
+        {
+          trunkFileId,
+          conflicts,
+          branchId: branch.id,
+          // 解決 branch は**競合した merge が対象にしていたシート**から切る
+          sourceSheetId: branch.sheetId,
+          branchName: branch.name,
+          participants: participation.participating,
+          viewer: didFromActor(actor),
+        },
+        {
+          // 解決グラフの器 (D3)。branch を切る口は既に手元にある (`projectionDeps`)
+          createResolveBranch: async (params) =>
+            (
+              await createBranchOnOplog(
+                { ...params, authorActor: actor },
+                projectionDeps,
+              )
+            ).id,
+          // 器は trunk の op-log へ。branch / commit のメタと同じ tap の `record` を通す
+          recordSheetCreated: (sheetId, name) =>
+            trunkRecord({
+              ...makeEventBase('file'),
+              type: 'SHEET_CREATED',
+              sheetId,
+              name,
+            }),
+          appendJudgment: (fileId, ops) =>
+            appendJudgment(
+              {
+                // merge 先の trunk は必ず開いているので tap の clock を使ってよい
+                clock: trunkClock,
+                actor,
+                putJudgment,
+                newBatchId: () => crypto.randomUUID() as BatchId,
+              },
+              fileId,
+              ops,
+              batches,
+            ),
+          // **`oplogDeps.newId` を使わない。**判断ログもシートの作成も API 境界で
+          // uuid を要求するが、あちらは連番を返す実装がありうる (テストの偽物がそう)
+          newSheetId: () => crypto.randomUUID() as SheetId,
+          newDtrId: () => crypto.randomUUID() as DtrId,
+        },
+      );
+    },
+    [roster, deps, actor, trunkRecord, trunkClock, projectionDeps],
+  );
+
   const handleMergeBranch = useCallback(
     async (branch: BranchMeta) => {
       if (!activeSheetId || !activeFile) return;
@@ -708,6 +797,14 @@ export function useBranchOperations({
             result.conflicts,
           );
         }
+        // content の競合は DtR を強制起動する (step2 Phase 6 D1)。
+        // **ここで投げても merge は成功している。**同じ try に入れると
+        // 「merge に失敗しました」と嘘を報告し、trunk に載った変更を人が探しに行く
+        try {
+          await startDtr(branch, result.conflicts);
+        } catch (err) {
+          console.warn('[dtr] 起動に失敗した:', err);
+        }
         afterMerge(activeSheetId, result.branch, result.trunk);
       } catch (err) {
         console.warn('[branch] merge failed:', err);
@@ -729,6 +826,7 @@ export function useBranchOperations({
       actor,
       afterMerge,
       branchSettled,
+      startDtr,
     ],
   );
 

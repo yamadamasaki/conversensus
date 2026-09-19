@@ -168,6 +168,46 @@ const trunkMoveBatch = (
     // biome-ignore lint/suspicious/noExplicitAny: テストの最小 Batch (branded 型は実行時に無関係)
   }) as any;
 
+/** trunk op-log でノードの本文を変える batch (content の並行変更を作る用) */
+const trunkContentBatch = (
+  id: string,
+  clock: number,
+  nodeId: string,
+  text: string,
+) =>
+  ({
+    id,
+    actor: 'seed#dev',
+    clock,
+    timestamp: clock,
+    sheetId: SHEET_ID,
+    ops: [{ kind: 'node.setContent', target: nodeId, content: text }],
+    // biome-ignore lint/suspicious/noExplicitAny: テストの最小 Batch (branded 型は実行時に無関係)
+  }) as any;
+
+/**
+ * 名簿の偽物 (step2 Phase 6 D1)。DtR の呼び出し対象の**既定値**がここから来る。
+ *
+ * `batches` まで持つのは本物の形に合わせるため — 判断ログを書くときの clock の seed に
+ * 使われるので、「名簿を読むと判断ログも一緒に返る」という性質ごと写しておく
+ */
+const fakeRoster = (participating: string[]): RosterSource => {
+  const result = {
+    participation: {
+      participating: new Set(participating),
+      invited: new Map(),
+      departed: new Map(),
+      history: new Map(),
+      rejected: [],
+    },
+    batches: [],
+    readRepos: [],
+    unreadable: [],
+    // biome-ignore lint/suspicious/noExplicitAny: テストの最小 ReadRosterResult
+  } as any;
+  return { read: async () => result, readFresh: async () => result };
+};
+
 /** 確認ダイアログに答える。`ok=false` はキャンセル */
 const answerMergeConfirm = (ok: boolean) => {
   mockSetConfirmState.mockImplementationOnce((s) => {
@@ -913,6 +953,136 @@ describe('useBranchOperations — branch 操作 (op-log)', () => {
       expect(commits[0]?.message).toBe('案 A を採用したため');
       expect(commits[0]?.authorActor).toBe('did:plc:alice#dev1');
       expect(commits[0]?.sourceBranchId).toBe(branch.id);
+    });
+
+    /**
+     * Phase 6 D1: **content の競合は DtR を強制起動する。**
+     *
+     * ここで見るのは**配線**である — 起動するかどうかの線引き (`needsForcedStart`) と
+     * 呼び出し対象の既定値 (`defaultCallees`) は `startDtr.test.ts` が持っているので、
+     * 偽物はそれを再実装せず「フックが何を渡したか」だけを記録する。
+     */
+    describe('content 競合からの DtR の強制起動 (Phase 6 D1)', () => {
+      /** trunk と branch が同じノードの**本文**を変えた状態 (content の並行変更) */
+      async function contentConflictingBranch(roster?: RosterSource) {
+        const node = uuid();
+        const view = await withOpenBranch(
+          [trunkBatch('t1', 3, node, 'trunk')],
+          [],
+          roster ? { roster } : {},
+        );
+        await act(async () => {
+          view.result.current.branchSyncRecord?.(
+            relabel('branch の編集', node),
+            SHEET_ID,
+          );
+          await new Promise((r) => setTimeout(r, 10));
+        });
+        // 分岐後に trunk 側が同じノードの本文を変える
+        view.oplogDeps._batches.set(TRUNK_ID, [
+          ...(view.oplogDeps._batches.get(TRUNK_ID) ?? []),
+          trunkContentBatch('t2', 9, node, 'trunk の後発編集'),
+        ]);
+        // branch 作成が名前の入力を 1 回使っているので、ここから数え直す
+        mockSetInputState.mockClear();
+        return { ...view, node };
+      }
+
+      // **適用した結果**を渡す (先読みではない)。先読みと適用の間に trunk が動けば
+      // 件数は食い違いうる — 通知が同じ判断をしているのと揃える
+      it('🔴 merge を適用した後に、適用した競合ごと起動を依頼する', async () => {
+        const { result, branch, deps } = await contentConflictingBranch(
+          fakeRoster(['did:plc:alice', 'did:plc:bob']),
+        );
+        answerMergeConfirm(true);
+        answerMergeReason('取り込む');
+        await act(async () => {
+          await result.current.handleMergeBranch(branch);
+        });
+
+        expect(deps._startDtrCalls).toHaveLength(1);
+        const call = deps._startDtrCalls[0];
+        expect(call?.branchId).toBe(branch.id);
+        expect(call?.conflicts.some((c) => c.category === 'content')).toBe(
+          true,
+        );
+      });
+
+      // 名簿は**既定値を供給するだけ**である (仕様「承認の判定」)。viewer は
+      // actor (`did#deviceId`) ではなく DID で渡す — 承認は人単位だからである
+      it('名簿の参加者と、自分の DID を渡す', async () => {
+        const { result, branch, deps } = await contentConflictingBranch(
+          fakeRoster(['did:plc:alice', 'did:plc:bob']),
+        );
+        answerMergeConfirm(true);
+        answerMergeReason('取り込む');
+        await act(async () => {
+          await result.current.handleMergeBranch(branch);
+        });
+
+        const call = deps._startDtrCalls[0];
+        expect([...(call?.participants ?? [])].sort()).toEqual([
+          'did:plc:alice',
+          'did:plc:bob',
+        ]);
+        expect(call?.viewer).toBe('did:plc:alice');
+      });
+
+      /**
+       * 判断ログの書き先は自分の repo なので、PDS が無ければ書きようがない。
+       *
+       * **理由まで固定する。**「依頼しない」だけを見ると変異が生き残る (実際に確かめた) —
+       * 番人を外しても `roster.read` が null で例外を投げ、それを merge 側の
+       * `try`/`catch` が拾うので、依頼が 0 件で merge が成功する点は変わらないためである。
+       * 変わるのは**出る理由**で、番人が無いと TypeError が「DtR の起動に失敗した」として
+       * 報告される — **ログインしていないだけなのに PDS の障害を疑わせる**。
+       */
+      it('🔴 未ログイン (名簿なし) では、理由を示して起動を依頼しない', async () => {
+        const { result, branch, deps } = await contentConflictingBranch();
+        const warnings: string[] = [];
+        const realWarn = console.warn;
+        console.warn = (...args: unknown[]) => {
+          warnings.push(args.map(String).join(' '));
+        };
+        answerMergeConfirm(true);
+        answerMergeReason('取り込む');
+        try {
+          await act(async () => {
+            await result.current.handleMergeBranch(branch);
+          });
+        } finally {
+          // **必ず戻す。**戻さないと以降のテストの警告まで捕まえ続ける
+          console.warn = realWarn;
+        }
+
+        expect(deps._startDtrCalls).toHaveLength(0);
+        expect(warnings.some((w) => w.includes('未ログイン'))).toBe(true);
+        // merge そのものは成立する
+        expect(result.current.activeBranch?.status).toBe('merged');
+      });
+
+      /**
+       * **merge は既に成功している。**同じ try に入れると「merge に失敗しました」と
+       * 嘘を報告し、trunk に載った変更を人が探しに行くことになる。
+       */
+      it('🔴 起動に失敗しても merge を失敗として報告しない', async () => {
+        const { result, branch, deps, oplogDeps } =
+          await contentConflictingBranch(fakeRoster(['did:plc:alice']));
+        deps.startDtrForConflicts = async () => {
+          throw new Error('PDS が応答しない');
+        };
+        answerMergeConfirm(true);
+        answerMergeReason('取り込む');
+        await act(async () => {
+          await result.current.handleMergeBranch(branch);
+        });
+
+        expect(mockSetAlertState).not.toHaveBeenCalled();
+        expect((await metaOf(oplogDeps)).branches.get(branch.id)?.status).toBe(
+          'merged',
+        );
+        expect((await metaOf(oplogDeps)).trunkCommits).toHaveLength(1);
+      });
     });
 
     /**

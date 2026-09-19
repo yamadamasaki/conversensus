@@ -30,6 +30,40 @@
 なお「schema の全 kind が `OP_CATEGORY` に載っている」ことは既存の網羅テストが見ている
 ので、ここでは繰り返さない。
 
+### 語彙の 3 層 (step2 Phase 6 の決めたこと 8)
+
+**conversensus の本質は LPG なので、基本語彙はそれに関するものだけであるべきである** (利用者の
+指摘 2026-09-18)。その上に branch / fork / DtR といった**意味論**が載る。意味論は今後も増え、
+**意味論どうしが整合しないこともある**。だから層が型と分類に出ていてほしい。
+
+| 層 | op | 畳み込み |
+| --- | --- | --- |
+| 基本 (LPG) | `node.*` / `edge.*` | `projectBatches` |
+| 器 | `sheet.*` / `file.*` (`CONTAINER_OP_KINDS`) | `foldFileStructure` |
+| 意味論 (拡張) | `branch.*` / `commit.add` (`SEMANTIC_OP_KINDS`) | `foldBranches` |
+
+T7 までは意味論の op も器と同じ `file` カテゴリに置いていた。コメントは「file 構造と同じく
+**グラフの畳み込みから外す**」と書いており、**否定形でしか分類していなかった** — 否定形では
+「シートという器」と「バージョン管理という意味論」が同じに見える。実装 (`foldFileStructure` は
+`sheet.*` / `file.*` しか持たない) は既に層を知っていたのに、型と分類が言っていなかった。
+
+- **🔴 器と意味論は別のカテゴリである**: `CONTAINER_OP_KINDS` は `file`、`SEMANTIC_OP_KINDS` は
+  `semantic`。`FILE_OP_KINDS` は両者の合成であることも固定する — これは
+  「**グラフの畳み込みに入れない op**」という routing の判定で、層の区別ではない
+- **🔴 基本語彙 (LPG) は意味論を含まない**: `FILE_OP_KINDS` に `node.*` / `edge.*` が 1 つも
+  無いこと。意味論を足しても基本語彙は増えない、という不変条件である
+
+**ここで固定しているのは分類であって、振る舞いではない。**「意味論の op がグラフの畳み込みに
+入らない」という契約は、ここには無い。変異試験で確かめた — `isFileOp` を器だけにする変異
+(和の片方を落とす) を入れても、**1779 件が全部緑のままだった**。型も守らない
+(`op is FileOp` の述語は実装の健全性を検査しない)。振る舞いの差が出るのは
+`analyzeApplicability` だけなので、契約はそちらに置いた (`applicability.test.md`
+「意味論の op はシートのスコープに属さない」)。`projectBatches` 側では `applyOp` の switch が
+意味論にあたる case を持たず、素通りしても結果が変わらないため観測できない。
+
+**値は変えていない。**op-log に載るのは `kind` であってカテゴリではないので、既存のログと
+完全に互換である。
+
 ### branch / commit の op (step2 Phase 3 T7)
 
 branch のメタを trunk の op-log に載せるための 4 つの op (`branch.create` / `branch.setStatus` /

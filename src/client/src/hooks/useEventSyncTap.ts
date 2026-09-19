@@ -14,13 +14,14 @@
 import type {
   Actor,
   Batch,
+  DtrJudgments,
   FileId,
   ForkMeta,
   Lamport,
   Participation,
   SheetId,
 } from '@conversensus/shared';
-import { didFromActor } from '@conversensus/shared';
+import { didFromActor, foldDtr } from '@conversensus/shared';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { fetchBatches, pushReceivedBatches } from '../api';
 import { FanoutSyncProvider } from '../atproto/fanoutSyncProvider';
@@ -141,7 +142,18 @@ export type UseEventSyncTapOptions = {
    * 「自分はまだ参加者か」が追加のリクエスト無しで分かる。
    * **安定参照であること** (`onReceived` と同じ理由)。
    */
-  onRoster?: (fileId: FileId, participation: Participation) => void;
+  onRoster?: (
+    fileId: FileId,
+    participation: Participation,
+    /**
+     * 同じ判断ログから畳んだ DtR (step2 Phase 6 D3)。
+     *
+     * **畳んだ結果を渡す。**生の判断 batch を上へ出さないのは `participation` と同じ扱いで、
+     * 判断ログの語彙をフック側に漏らさないためである。表示はこれを使って、承認を経ていない
+     * 再 merge の写しを projection の手前で落とす (`admissibleBatches`)。
+     */
+    dtrs: DtrJudgments,
+  ) => void;
   /**
    * implicit merge で競合を検出したときの通知 (step2 Phase 3 T5)。
    *
@@ -389,8 +401,17 @@ export function useEventSyncTap(
       const participation = seen.participation;
       // 共有状態の表示元 (2026-09-05)。読んだ名簿をそのまま渡す —
       // 表示のために名簿をもう一度読むと、参加者分のリクエストが倍になる。
-      // branch の tap は通知しない (T7-3) — 共有状態は trunk の File のものである
-      if (!trunkFileId) onRoster?.(fileId, participation);
+      // branch の tap は通知しない (T7-3) — 共有状態は trunk の File のものである。
+      //
+      // **DtR もここで畳む** (step2 Phase 6 D3)。同じ判断ログを読んだこの場に
+      // 生の batch と名簿の両方があるので、もう一度読まずに済む。名簿と同じく
+      // **畳んだ結果だけ**を上へ渡す
+      if (!trunkFileId)
+        onRoster?.(
+          fileId,
+          participation,
+          foldDtr(seen.batches, { participation }),
+        );
 
       // **自分が参加者でなければ他 actor の repo を読まない** (2026-09-05 実機で発覚)。
       //

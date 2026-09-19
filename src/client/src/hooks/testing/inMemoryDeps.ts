@@ -8,6 +8,7 @@ import {
   type SheetId,
 } from '@conversensus/shared';
 import type { SheetChange } from '../../sync/computeOperations';
+import type { StartDtrInput } from '../../sync/startDtr';
 import { INITIAL_CURSOR } from '../../sync/syncProvider';
 import type { BranchOplogDeps, BranchOpsDeps } from '../useBranchOperations';
 import type { FileSheetOpsDeps } from '../useFileSheetOperations';
@@ -207,11 +208,27 @@ export function createInMemoryBranchOplogDeps(): BranchOplogDeps & {
  */
 export function createInMemoryBranchOpsDeps(): BranchOpsDeps & {
   _setComputeOps: (ops: CommitOperation[]) => void;
+  /**
+   * DtR の起動を依頼された入力 (step2 Phase 6 D1)。
+   *
+   * **本物の線引きを再実装しない。**「content なら起動する」は `startDtr.ts` の単体と
+   * 変異試験で固定済みなので、ここで二重に持つと**偽物の側が正しいことを確かめている**
+   * だけになる。ここが見るのは「フックが何を渡したか」である
+   */
+  _startDtrCalls: StartDtrInput[];
 } {
   let _changes: SheetChange[] = [];
+  const startDtrCalls: StartDtrInput[] = [];
 
   return {
     computeSheetChanges: () => _changes,
+    _startDtrCalls: startDtrCalls,
+
+    // 記録するだけで、起動はしたことにしない (器も判断も書かない)
+    startDtrForConflicts: async (input) => {
+      startDtrCalls.push(input);
+      return null;
+    },
 
     // 呼び出し側は op だけを与えればよい。カテゴリは op の種別から素直に決まる
     // (追加・削除は structure、更新は content) ので、テストの記述量を増やさない。

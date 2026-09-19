@@ -160,6 +160,16 @@ export type BranchId = z.infer<typeof BranchIdSchema>;
 export const CommitIdSchema = z.string().uuid().brand<'CommitId'>();
 export type CommitId = z.infer<typeof CommitIdSchema>;
 
+/**
+ * DtR (dialogue to resolve) graph の識別子 (step2 Phase 6)。
+ *
+ * **判断ログの op が指す対象である。**DtR は sheet を器に持つが、id を `SheetId` で
+ * 代用しない — 器と意味論は別の層であり (Phase 6 の決めたこと 8)、「どの sheet に
+ * 描かれているか」は DtR の属性であって DtR そのものではないためである。
+ */
+export const DtrIdSchema = z.string().uuid().brand<'DtrId'>();
+export type DtrId = z.infer<typeof DtrIdSchema>;
+
 export const CommitOperationSchema = z.discriminatedUnion('op', [
   z.object({
     op: z.literal('node.add'),

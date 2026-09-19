@@ -1,11 +1,14 @@
 import {
   type Actor,
+  admissibleBatches,
   type Batch,
   type BlobCid,
   type ConversensusFile,
   type Did,
+  type DtrJudgments,
   type FileId,
   type ForkMeta,
+  foldBranches,
   type GraphFile,
   type GraphFileListItem,
   type Lamport,
@@ -294,9 +297,35 @@ export function useFileSheetOperations({
     [onForksArrived],
   );
 
+  /**
+   * File ごとの DtR の畳み込み結果 (step2 Phase 6 D3)。
+   *
+   * **state ではなく ref で持つ。**読むのは表示の projection で、そこは安定参照を要求する
+   * `useCallback` の中にある — state にすると依存配列に入れることになり、名簿を読むたびに
+   * callback が張り直される。同じ理由で `projectedForeignRef` らも ref である。
+   *
+   * **空のときは絞らない** (fail-open)。同期サイクルが一度も走っていない段階や未ログインで
+   * 落とすと、merge 済みの内容が画面から消える方の失敗になる。
+   */
+  const dtrJudgmentsRef = useRef(new Map<FileId, DtrJudgments>());
+
+  /** 承認を経ていない再 merge の写しを落とす (D3)。畳み込みに**入れる前に**落とす */
+  const admissible = useCallback(
+    (fileId: FileId, batches: Batch[]): Batch[] => {
+      const judgments = dtrJudgmentsRef.current.get(fileId);
+      if (!judgments) return batches;
+      return admissibleBatches(batches, {
+        commits: foldBranches(batches, fileId).trunkCommits,
+        dtrs: judgments.dtrs,
+      });
+    },
+    [],
+  );
+
   const handleRoster = useCallback(
-    (fileId: FileId, participation: Participation) => {
+    (fileId: FileId, participation: Participation, dtrs: DtrJudgments) => {
       const viewer = didFromActor(actor);
+      dtrJudgmentsRef.current.set(fileId, dtrs);
       setSharing({ fileId, state: fileSharing(participation, viewer) });
 
       const since = rejoinObligation(participation, viewer);
@@ -348,7 +377,9 @@ export function useFileSheetOperations({
           const batches = await deps.fetchBatches(fileId);
           setBlobOrigins(collectBlobOrigins(batches));
           projectedForeignRef.current.set(fileId, foreignCount(batches));
-          return projectFile(batches, fileId);
+          // 承認を経ていない再 merge の写しは画面に出さない (D3)。**落とすのは読みで
+          // あって書きではない** — 写しは trunk に載ったままで、承認が揃えば出てくる
+          return projectFile(admissible(fileId, batches), fileId);
         },
         ...(isEditingActive && { isEditing: isEditingActive }),
       })
@@ -386,7 +417,14 @@ export function useFileSheetOperations({
         )
         .finally(() => swappingRef.current.delete(fileId));
     },
-    [deps, isEditingActive, isBranchOpen, keepTrunkForReturn, foreignCount],
+    [
+      deps,
+      isEditingActive,
+      isBranchOpen,
+      keepTrunkForReturn,
+      foreignCount,
+      admissible,
+    ],
   );
 
   const handleReceived = useCallback(
@@ -472,7 +510,8 @@ export function useFileSheetOperations({
   const loadFile = useCallback(
     async (id: string): Promise<GraphFile> => {
       const batches = await deps.fetchBatches(id as FileId);
-      const file = projectFile(batches, id as FileId);
+      // 承認を経ていない再 merge の写しは画面に出さない (D3)
+      const file = projectFile(admissible(id as FileId, batches), id as FileId);
       // 画像 blob の由来は **op-log にしか無い** (step2 Phase 2 S5)。projection の
       // 出力 (`GraphFile`) には載せないので、batch を読んだこの場で導いて持つ
       setBlobOrigins(collectBlobOrigins(batches));
@@ -485,7 +524,7 @@ export function useFileSheetOperations({
       }
       return file;
     },
-    [deps, foreignCount],
+    [deps, foreignCount, admissible],
   );
 
   const openFile = useCallback(

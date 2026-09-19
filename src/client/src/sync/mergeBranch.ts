@@ -46,6 +46,7 @@ import {
   COMMIT_KIND,
   type Commit,
   type CommitId,
+  type DtrId,
   type FileId,
   type GraphFile,
   type Lamport,
@@ -118,6 +119,14 @@ export type MergeBranchParams = {
   message: string;
   /** merge を実行した操作主体 `<did>#<deviceId>` */
   actor: string;
+  /**
+   * **再 merge のとき、決着させる DtR** (step2 Phase 6 D3)。通常の merge は持たない。
+   *
+   * これが merge コミットに刻まれ、写しは `mergedIn` でそのコミットを指すので、
+   * **承認を経ていない再 merge の写しを projection の手前で落とせる**
+   * (`admissibleBatches`)。印を写しごとに複製しないための経路である。
+   */
+  dtrId?: DtrId;
 };
 
 /** 先読みの結果。**op-log は一切変えていない** */
@@ -237,7 +246,12 @@ export async function mergeBranchOnOplog(
     params.message,
     params.actor,
     [...trunkBatches, ...restamped],
-    { branchId: meta.id, at: tipClock(branchBatches) },
+    {
+      branchId: meta.id,
+      at: tipClock(branchBatches),
+      // 再 merge だけが持つ。通常の merge では undefined なので刻まれない
+      ...(params.dtrId !== undefined && { dtrId: params.dtrId }),
+    },
   );
   deps.recordCommit(mergeCommit);
 
