@@ -49,6 +49,47 @@ import type {
 } from '@conversensus/shared';
 import { didFromActor } from '@conversensus/shared';
 
+// --- 器の名前と、その名前による判別 (step2 Phase 6 D5) ---
+//
+// ⚠️ **これは D5 限りの仮の判別である。**「どれが DtR の器か」は本来 `dtr.open` の記録
+// (`sheetId` / `resolveBranchId`) から引くべきもので、**名前は人が変えられる**。畳み込みの
+// 結果を画面へ供給する配線を作れば正しく引けるが、**見せ方は差し替える前提** (§3) なので、
+// いまは最小コストを採った (利用者判断 2026-09-19)。
+//
+// **名前を作る場所と判別を同じ所に置く**のは、捨てるときに剥がす範囲をここ 1 つに
+// 閉じ込めるためである。画面側はこの述語を呼ぶだけにし、接頭辞の文字列を他所へ散らさない。
+
+/** dialogue graph の器 (sheet) の名前の接頭辞 */
+export const DTR_SHEET_PREFIX = 'DtR: ';
+/** resolve graph の器 (branch) の名前の接頭辞 */
+export const DTR_RESOLVE_BRANCH_PREFIX = 'DtR 解決: ';
+
+/** その sheet は DtR の対話グラフか (D5 の仮判別) */
+export function isDtrSheetName(name: string): boolean {
+  return name.startsWith(DTR_SHEET_PREFIX);
+}
+
+/** その branch は DtR の解決グラフか (D5 の仮判別) */
+export function isDtrResolveBranchName(name: string): boolean {
+  return name.startsWith(DTR_RESOLVE_BRANCH_PREFIX);
+}
+
+/**
+ * 解決 branch の名前から、対になる**対話グラフ (sheet) の名前**を導く (D5 の仮判別)。
+ *
+ * 2 つの器は同じ `branchName` から作られるので、接頭辞を差し替えれば対応が付く。
+ * **本来は `dtr.open` の記録 (`resolveBranchId` と `sheetId`) が対を持っている**ので、
+ * 記録を画面へ供給する形に直せばこの関数は要らなくなる。
+ *
+ * @returns 解決 branch でなければ `undefined`
+ */
+export function dialogueSheetNameOf(
+  resolveBranchName: string,
+): string | undefined {
+  if (!isDtrResolveBranchName(resolveBranchName)) return undefined;
+  return `${DTR_SHEET_PREFIX}${resolveBranchName.slice(DTR_RESOLVE_BRANCH_PREFIX.length)}`;
+}
+
 export type StartDtrDeps = {
   /**
    * resolve graph の器を作る (step2 Phase 6 D3)。trunk から branch を 1 本切る。
@@ -246,11 +287,11 @@ async function openDtr(
   // **器が先、判断が後。**逆だと器を指す判断だけが書かれた瞬間が生まれる。
   // 器は 2 つある (解決 = branch / 対話 = sheet) ので、両方を先に作る
   const resolveBranchId = await deps.createResolveBranch({
-    name: `DtR 解決: ${input.branchName}`,
+    name: `${DTR_RESOLVE_BRANCH_PREFIX}${input.branchName}`,
     sheetId: input.sourceSheetId,
     trunkFileId: input.trunkFileId,
   });
-  deps.recordSheetCreated(sheetId, `DtR: ${input.branchName}`);
+  deps.recordSheetCreated(sheetId, `${DTR_SHEET_PREFIX}${input.branchName}`);
   await deps.appendJudgment(input.trunkFileId, [
     {
       kind: 'dtr.open',

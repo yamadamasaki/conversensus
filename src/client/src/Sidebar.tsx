@@ -18,6 +18,11 @@ import { SettingsPopup } from './SettingsPopup';
 import { ShareStatusIcon } from './ShareStatusIcon';
 import { SyncStatusIndicator } from './SyncStatusIndicator';
 import type { FileSharing } from './sync/rosterView';
+import {
+  dialogueSheetNameOf,
+  isDtrResolveBranchName,
+  isDtrSheetName,
+} from './sync/startDtr';
 
 type Props = {
   files: GraphFileListItem[];
@@ -395,193 +400,269 @@ export function Sidebar({
               {/* シート一覧 (展開時) */}
               {isExpanded && fileData && (
                 <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-                  {fileData.sheets.map((s) => {
-                    const isActiveSheet = activeSheetId === s.id;
-                    const isSheetPopupOpen =
-                      popupTarget?.type === 'sheet' &&
-                      popupTarget.sheetId === s.id;
+                  {/* DtR の対話グラフはタブに出さない (設計 Phase 6 の決めたこと 5)。
+                      器は trunk の fileId の中の sheet なので、除外しないと通常の
+                      シートとして並ぶ (事実 A) */}
+                  {fileData.sheets
+                    .filter((s) => !isDtrSheetName(s.name))
+                    .map((s) => {
+                      const isActiveSheet = activeSheetId === s.id;
+                      const isSheetPopupOpen =
+                        popupTarget?.type === 'sheet' &&
+                        popupTarget.sheetId === s.id;
 
-                    return (
-                      <li key={s.id}>
-                        <div
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 2,
-                            padding: '3px 4px 3px 20px',
-                            borderRadius: 4,
-                            background: isActiveSheet
-                              ? '#c8dcfe'
-                              : 'transparent',
-                            position: 'relative',
-                          }}
-                        >
-                          {/* シート名 (hover で description を表示) */}
-                          <button
-                            type="button"
-                            title={s.description ?? undefined}
+                      return (
+                        <li key={s.id}>
+                          <div
                             style={{
-                              flex: 1,
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap',
-                              fontSize: 12,
-                              background: 'none',
-                              border: 'none',
-                              cursor: 'pointer',
-                              textAlign: 'left',
-                              padding: 0,
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 2,
+                              padding: '3px 4px 3px 20px',
+                              borderRadius: 4,
+                              background: isActiveSheet
+                                ? '#c8dcfe'
+                                : 'transparent',
+                              position: 'relative',
                             }}
-                            onClick={() => onSelectSheet(s.id)}
                           >
-                            {s.name}
-                          </button>
+                            {/* シート名 (hover で description を表示) */}
+                            <button
+                              type="button"
+                              title={s.description ?? undefined}
+                              style={{
+                                flex: 1,
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                                fontSize: 12,
+                                background: 'none',
+                                border: 'none',
+                                cursor: 'pointer',
+                                textAlign: 'left',
+                                padding: 0,
+                              }}
+                              onClick={() => onSelectSheet(s.id)}
+                            >
+                              {s.name}
+                            </button>
 
-                          {/* ギアボタン */}
-                          <button
-                            type="button"
-                            title="設定"
-                            style={{ ...gearBtnStyle, fontSize: 12 }}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onSetPopupTarget(
-                                isSheetPopupOpen
-                                  ? null
-                                  : {
-                                      type: 'sheet',
-                                      fileId: f.id,
-                                      sheetId: s.id,
-                                    },
+                            {/* ギアボタン */}
+                            <button
+                              type="button"
+                              title="設定"
+                              style={{ ...gearBtnStyle, fontSize: 12 }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onSetPopupTarget(
+                                  isSheetPopupOpen
+                                    ? null
+                                    : {
+                                        type: 'sheet',
+                                        fileId: f.id,
+                                        sheetId: s.id,
+                                      },
+                                );
+                              }}
+                            >
+                              ⚙
+                            </button>
+
+                            {/* シート設定ポップアップ */}
+                            {isSheetPopupOpen && (
+                              <SettingsPopup
+                                name={s.name}
+                                description={s.description ?? ''}
+                                onSave={(name, desc) =>
+                                  onSaveSheetSettings(s.id, name, desc)
+                                }
+                                onDelete={() => onDeleteSheet(s.id)}
+                                onClose={() => onSetPopupTarget(null)}
+                                deleteLabel="シートを削除"
+                              />
+                            )}
+                          </div>
+
+                          {/* Branch 一覧 (シート選択時に表示) */}
+                          {isActiveSheet &&
+                            (() => {
+                              const bs = (sheetBranches.get(s.id) ?? []).filter(
+                                (b) => b.name !== TRUNK_PREFIX,
                               );
-                            }}
-                          >
-                            ⚙
-                          </button>
-
-                          {/* シート設定ポップアップ */}
-                          {isSheetPopupOpen && (
-                            <SettingsPopup
-                              name={s.name}
-                              description={s.description ?? ''}
-                              onSave={(name, desc) =>
-                                onSaveSheetSettings(s.id, name, desc)
-                              }
-                              onDelete={() => onDeleteSheet(s.id)}
-                              onClose={() => onSetPopupTarget(null)}
-                              deleteLabel="シートを削除"
-                            />
-                          )}
-                        </div>
-
-                        {/* Branch 一覧 (シート選択時に表示) */}
-                        {isActiveSheet &&
-                          (() => {
-                            const bs = (sheetBranches.get(s.id) ?? []).filter(
-                              (b) => b.name !== TRUNK_PREFIX,
-                            );
-                            return (
-                              <ul
-                                style={{
-                                  listStyle: 'none',
-                                  margin: 0,
-                                  padding: 0,
-                                }}
-                              >
-                                {bs.map((branch) => {
-                                  const isActiveBranch =
-                                    activeBranchId === branch.id;
-                                  const isMerged =
-                                    branch.status === BRANCH_STATUS.MERGED;
-                                  const isClosed =
-                                    branch.status === BRANCH_STATUS.CLOSED;
-                                  const bgColor = isActiveBranch
-                                    ? '#dde8ff'
-                                    : isMerged
-                                      ? '#fff7ed'
-                                      : 'transparent';
-                                  const textColor = isMerged
-                                    ? '#9a3412'
-                                    : isClosed
-                                      ? '#999'
-                                      : '#333';
-                                  return (
-                                    <li key={branch.id}>
-                                      <div
-                                        style={{
-                                          display: 'flex',
-                                          alignItems: 'center',
-                                          gap: 2,
-                                          padding: '2px 4px 2px 36px',
-                                          borderRadius: 4,
-                                          background: bgColor,
-                                        }}
-                                      >
-                                        <button
-                                          type="button"
+                              return (
+                                <ul
+                                  style={{
+                                    listStyle: 'none',
+                                    margin: 0,
+                                    padding: 0,
+                                  }}
+                                >
+                                  {bs.map((branch) => {
+                                    const isActiveBranch =
+                                      activeBranchId === branch.id;
+                                    const isMerged =
+                                      branch.status === BRANCH_STATUS.MERGED;
+                                    const isClosed =
+                                      branch.status === BRANCH_STATUS.CLOSED;
+                                    const bgColor = isActiveBranch
+                                      ? '#dde8ff'
+                                      : isMerged
+                                        ? '#fff7ed'
+                                        : 'transparent';
+                                    const textColor = isMerged
+                                      ? '#9a3412'
+                                      : isClosed
+                                        ? '#999'
+                                        : '#333';
+                                    return (
+                                      <li key={branch.id}>
+                                        <div
                                           style={{
-                                            flex: 1,
-                                            overflow: 'hidden',
-                                            textOverflow: 'ellipsis',
-                                            whiteSpace: 'nowrap',
-                                            fontSize: 11,
-                                            fontFamily: 'monospace',
-                                            background: 'none',
-                                            border: 'none',
-                                            cursor: 'pointer',
-                                            textAlign: 'left',
-                                            padding: 0,
-                                            color: textColor,
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: 2,
+                                            padding: '2px 4px 2px 36px',
+                                            borderRadius: 4,
+                                            background: bgColor,
                                           }}
-                                          onClick={() =>
-                                            onSelectBranch(
-                                              s.id,
-                                              isActiveBranch ? null : branch,
-                                            )
-                                          }
                                         >
-                                          ⎇ {branch.name}
-                                          {isMerged ? ' (merged)' : ''}
-                                          {isClosed ? ' (closed)' : ''}
-                                        </button>
-                                        {/* open + active: merge ↑ / close ✕ */}
-                                        {isActiveBranch &&
-                                          !isMerged &&
-                                          !isClosed && (
-                                            <>
-                                              <button
-                                                type="button"
-                                                title="trunk に merge"
-                                                style={{
-                                                  ...gearBtnStyle,
-                                                  fontSize: 10,
-                                                }}
-                                                onClick={(e) => {
-                                                  e.stopPropagation();
-                                                  onMergeBranch(branch);
-                                                }}
-                                              >
-                                                ↑
-                                              </button>
-                                              <button
-                                                type="button"
-                                                title="close"
-                                                style={{
-                                                  ...gearBtnStyle,
-                                                  fontSize: 10,
-                                                }}
-                                                onClick={(e) => {
-                                                  e.stopPropagation();
-                                                  onCloseBranch(branch);
-                                                }}
-                                              >
-                                                ✕
-                                              </button>
-                                            </>
+                                          <button
+                                            type="button"
+                                            style={{
+                                              flex: 1,
+                                              overflow: 'hidden',
+                                              textOverflow: 'ellipsis',
+                                              whiteSpace: 'nowrap',
+                                              fontSize: 11,
+                                              fontFamily: 'monospace',
+                                              background: 'none',
+                                              border: 'none',
+                                              cursor: 'pointer',
+                                              textAlign: 'left',
+                                              padding: 0,
+                                              color: textColor,
+                                            }}
+                                            onClick={() =>
+                                              onSelectBranch(
+                                                s.id,
+                                                isActiveBranch ? null : branch,
+                                              )
+                                            }
+                                          >
+                                            {/* DtR の解決グラフは branch と同じレベルに
+                                              出すが、**通常の branch と違うと分かる形**に
+                                              する (仕様)。記号だけを変える骨の実装 */}
+                                            {isDtrResolveBranchName(branch.name)
+                                              ? '⇄ '
+                                              : '⎇ '}
+                                            {branch.name}
+                                            {isMerged ? ' (merged)' : ''}
+                                            {isClosed ? ' (closed)' : ''}
+                                          </button>
+                                          {/* 対話グラフを開く口 (D5 の追補, 2026-09-20)。
+                                              対話用の sheet はタブから隠してあるので
+                                              (決めたこと 5)、**開く口が無いと到達できない**。
+                                              解決 branch と対で作られるので、名前から引く */}
+                                          {isDtrResolveBranchName(
+                                            branch.name,
+                                          ) && (
+                                            <button
+                                              type="button"
+                                              title="対話グラフを開く"
+                                              style={{
+                                                ...gearBtnStyle,
+                                                fontSize: 10,
+                                              }}
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                const name =
+                                                  dialogueSheetNameOf(
+                                                    branch.name,
+                                                  );
+                                                const sheet =
+                                                  fileData.sheets.find(
+                                                    (x) => x.name === name,
+                                                  );
+                                                if (sheet)
+                                                  onSelectSheet(sheet.id);
+                                              }}
+                                            >
+                                              💬
+                                            </button>
                                           )}
-                                        {/* open + not active: delete 🗑 */}
-                                        {!isActiveBranch &&
-                                          !isMerged &&
-                                          !isClosed && (
+                                          {/* open + active: merge ↑ / close ✕ */}
+                                          {isActiveBranch &&
+                                            !isMerged &&
+                                            !isClosed && (
+                                              <>
+                                                <button
+                                                  type="button"
+                                                  title="trunk に merge"
+                                                  style={{
+                                                    ...gearBtnStyle,
+                                                    fontSize: 10,
+                                                  }}
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    onMergeBranch(branch);
+                                                  }}
+                                                >
+                                                  ↑
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  title="close"
+                                                  style={{
+                                                    ...gearBtnStyle,
+                                                    fontSize: 10,
+                                                  }}
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    onCloseBranch(branch);
+                                                  }}
+                                                >
+                                                  ✕
+                                                </button>
+                                              </>
+                                            )}
+                                          {/* open + not active: delete 🗑 */}
+                                          {!isActiveBranch &&
+                                            !isMerged &&
+                                            !isClosed && (
+                                              <button
+                                                type="button"
+                                                title="削除"
+                                                style={{
+                                                  ...gearBtnStyle,
+                                                  fontSize: 10,
+                                                }}
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  onDeleteBranch(branch);
+                                                }}
+                                              >
+                                                🗑
+                                              </button>
+                                            )}
+                                          {/* merged: close ✕ */}
+                                          {isMerged && (
+                                            <button
+                                              type="button"
+                                              title="close"
+                                              style={{
+                                                ...gearBtnStyle,
+                                                fontSize: 10,
+                                              }}
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                onCloseBranch(branch);
+                                              }}
+                                            >
+                                              ✕
+                                            </button>
+                                          )}
+                                          {/* closed: delete 🗑 */}
+                                          {isClosed && (
                                             <button
                                               type="button"
                                               title="削除"
@@ -597,70 +678,36 @@ export function Sidebar({
                                               🗑
                                             </button>
                                           )}
-                                        {/* merged: close ✕ */}
-                                        {isMerged && (
-                                          <button
-                                            type="button"
-                                            title="close"
-                                            style={{
-                                              ...gearBtnStyle,
-                                              fontSize: 10,
-                                            }}
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              onCloseBranch(branch);
-                                            }}
-                                          >
-                                            ✕
-                                          </button>
-                                        )}
-                                        {/* closed: delete 🗑 */}
-                                        {isClosed && (
-                                          <button
-                                            type="button"
-                                            title="削除"
-                                            style={{
-                                              ...gearBtnStyle,
-                                              fontSize: 10,
-                                            }}
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              onDeleteBranch(branch);
-                                            }}
-                                          >
-                                            🗑
-                                          </button>
-                                        )}
-                                      </div>
-                                    </li>
-                                  );
-                                })}
-                                {/* 新しい branch を作成 */}
-                                <li>
-                                  <button
-                                    type="button"
-                                    onClick={() => onCreateBranch(s.id)}
-                                    style={{
-                                      display: 'block',
-                                      width: '100%',
-                                      textAlign: 'left',
-                                      padding: '2px 4px 2px 36px',
-                                      fontSize: 11,
-                                      color: '#4f6ef7',
-                                      background: 'none',
-                                      border: 'none',
-                                      cursor: 'pointer',
-                                    }}
-                                  >
-                                    + branch
-                                  </button>
-                                </li>
-                              </ul>
-                            );
-                          })()}
-                      </li>
-                    );
-                  })}
+                                        </div>
+                                      </li>
+                                    );
+                                  })}
+                                  {/* 新しい branch を作成 */}
+                                  <li>
+                                    <button
+                                      type="button"
+                                      onClick={() => onCreateBranch(s.id)}
+                                      style={{
+                                        display: 'block',
+                                        width: '100%',
+                                        textAlign: 'left',
+                                        padding: '2px 4px 2px 36px',
+                                        fontSize: 11,
+                                        color: '#4f6ef7',
+                                        background: 'none',
+                                        border: 'none',
+                                        cursor: 'pointer',
+                                      }}
+                                    >
+                                      + branch
+                                    </button>
+                                  </li>
+                                </ul>
+                              );
+                            })()}
+                        </li>
+                      );
+                    })}
 
                   {/* シート追加。template 付きは別口にして、素の追加は 1 クリックのまま残す */}
                   <li style={{ display: 'flex', alignItems: 'center' }}>

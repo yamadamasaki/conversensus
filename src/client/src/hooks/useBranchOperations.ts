@@ -8,9 +8,11 @@ import type {
   DtrId,
   EdgeLayout,
   FileId,
+  ForkMeta,
   GraphEdge,
   GraphFile,
   GraphNode,
+  JudgmentBatch,
   MergeConflict,
   NodeLayout,
   Sheet,
@@ -44,7 +46,11 @@ import {
 } from '../sync/mergeBranch';
 import { migrateBranchMeta } from '../sync/migrateBranchMeta';
 import type { RosterSource } from '../sync/rosterSource';
-import { startDtrForConflicts } from '../sync/startDtr';
+import {
+  type StartDtrDeps,
+  startDtrForConflicts,
+  startDtrFromFork,
+} from '../sync/startDtr';
 import type { SyncProvider } from '../sync/syncProvider';
 import {
   type ReceivedSummary,
@@ -668,6 +674,77 @@ export function useBranchOperations({
    * 無ければ書きようがない。**黙って飛ばさない** — 競合そのものは起きているので、
    * 起動できなかったことは警告に出す (無言の見送りを作らない, Phase 2 の教訓)。
    */
+  /**
+   * DtR を起こすための口の束 (step2 Phase 6 D3/D4)。**2 つの起動で同じものを使う。**
+   *
+   * `batches` を引数に取るのは、判断ログの clock の seed に要るものが
+   * **名簿を読んだ結果**だからである (`roster.read` の外では決まらない)。
+   */
+  const dtrDeps = useCallback(
+    (batches: readonly JudgmentBatch[]): StartDtrDeps => ({
+      // 解決グラフの器 (D3)。branch を切る口は既に手元にある (`projectionDeps`)
+      createResolveBranch: async (params) =>
+        (
+          await createBranchOnOplog(
+            { ...params, authorActor: actor },
+            projectionDeps,
+          )
+        ).id,
+      // 器は trunk の op-log へ。branch / commit のメタと同じ tap の `record` を通す
+      recordSheetCreated: (sheetId, name) =>
+        trunkRecord({
+          ...makeEventBase('file'),
+          type: 'SHEET_CREATED',
+          sheetId,
+          name,
+        }),
+      appendJudgment: (fileId, ops) =>
+        appendJudgment(
+          {
+            // merge 先の trunk は必ず開いているので tap の clock を使ってよい
+            clock: trunkClock,
+            actor,
+            putJudgment,
+            newBatchId: () => crypto.randomUUID() as BatchId,
+          },
+          fileId,
+          ops,
+          batches,
+        ),
+      // **`oplogDeps.newId` を使わない。**判断ログもシートの作成も API 境界で
+      // uuid を要求するが、あちらは連番を返す実装がありうる (テストの偽物がそう)
+      newSheetId: () => crypto.randomUUID() as SheetId,
+      newDtrId: () => crypto.randomUUID() as DtrId,
+    }),
+    [actor, trunkRecord, trunkClock, projectionDeps],
+  );
+
+  /**
+   * 一覧を読み直す実体。**定義は後ろ** (`migrateLegacyMeta` に依存するため) なので、
+   * ref 経由で差す — 依存配列に後方の関数を直接書くと評価時に未定義になる。
+   * レンダーごとに最新を差す形は App の `branchViewRef` と同じである。
+   */
+  const loadBranchListRef = useRef<(() => Promise<void>) | null>(null);
+
+  /**
+   * **一覧を読み直す** (step2 Phase 6 D5。2026-09-20 に実機で直した)。
+   *
+   * 解決 branch は `startDtrForConflicts` / `startDtrFromFork` の中で
+   * `createBranchOnOplog` が作るので、`handleCreateBranch` のように `sheetBranches` を
+   * 直に足す経路を通らない。
+   *
+   * **⚠️ 当初は `branchReceiveEpoch` を進めるだけにしていたが、それでは届かなかった。**
+   * あれは App が `fileOps.receiveEpoch` と足して**引数として渡し直す**値なので、
+   * 同じレンダーの中では反映されない。しかも直後に `afterMerge` が `existing.map(...)` で
+   * 一覧を上書きし、**増えた解決 branch を落とす** (`map` は置換しかしない)。
+   * 結果、merge した本人にだけ解決 branch が出なかった (相手は受信サイクルが別途
+   * 読み直すので出ていた)。**T7-3 の機構は受信経路のものなので、自分の操作の直後には
+   * 当てはまらない** — 前例を確かめずに当てはめた誤りである。
+   */
+  const reloadBranchList = useCallback(async () => {
+    await loadBranchListRef.current?.();
+  }, []);
+
   const startDtr = useCallback(
     async (branch: BranchMeta, conflicts: readonly MergeConflict[]) => {
       if (!roster) {
@@ -692,44 +769,43 @@ export function useBranchOperations({
           participants: participation.participating,
           viewer: didFromActor(actor),
         },
-        {
-          // 解決グラフの器 (D3)。branch を切る口は既に手元にある (`projectionDeps`)
-          createResolveBranch: async (params) =>
-            (
-              await createBranchOnOplog(
-                { ...params, authorActor: actor },
-                projectionDeps,
-              )
-            ).id,
-          // 器は trunk の op-log へ。branch / commit のメタと同じ tap の `record` を通す
-          recordSheetCreated: (sheetId, name) =>
-            trunkRecord({
-              ...makeEventBase('file'),
-              type: 'SHEET_CREATED',
-              sheetId,
-              name,
-            }),
-          appendJudgment: (fileId, ops) =>
-            appendJudgment(
-              {
-                // merge 先の trunk は必ず開いているので tap の clock を使ってよい
-                clock: trunkClock,
-                actor,
-                putJudgment,
-                newBatchId: () => crypto.randomUUID() as BatchId,
-              },
-              fileId,
-              ops,
-              batches,
-            ),
-          // **`oplogDeps.newId` を使わない。**判断ログもシートの作成も API 境界で
-          // uuid を要求するが、あちらは連番を返す実装がありうる (テストの偽物がそう)
-          newSheetId: () => crypto.randomUUID() as SheetId,
-          newDtrId: () => crypto.randomUUID() as DtrId,
-        },
+        dtrDeps(batches),
       );
+      // 読み直しは呼び出し側が行う — `handleMergeBranch` では `afterMerge` の**後**で
+      // なければ一覧を上書きされる
     },
-    [roster, deps, actor, trunkRecord, trunkClock, projectionDeps],
+    [roster, deps, actor, dtrDeps],
+  );
+
+  /**
+   * fork から DtR を起こす (step2 Phase 6 D4/D5)。**人が通知を見て押す口である。**
+   *
+   * 既定の呼び出し対象は**凍結記述から引く** (`startDtrFromFork` が行う) ので、名簿は
+   * 判断ログを取るためだけに読む。未ログインなら押せる口を出さないので、ここに来ない。
+   */
+  const handleStartDtrFromFork = useCallback(
+    async (fork: ForkMeta) => {
+      if (!roster) return;
+      try {
+        const { batches } = await roster.read(fork.trunkFileId);
+        await startDtrFromFork(
+          {
+            trunkFileId: fork.trunkFileId,
+            fork,
+            viewer: didFromActor(actor),
+          },
+          dtrDeps(batches),
+        );
+        reloadBranchList();
+      } catch (err) {
+        // **黙って失敗しない。**押したのに何も起きないのが一番分かりにくい
+        console.warn('[dtr] fork からの起動に失敗した:', err);
+        await new Promise<void>((resolve) => {
+          setAlertState({ message: '対話の開始に失敗しました。', resolve });
+        });
+      }
+    },
+    [roster, actor, dtrDeps, reloadBranchList, setAlertState],
   );
 
   const handleMergeBranch = useCallback(
@@ -806,6 +882,10 @@ export function useBranchOperations({
           console.warn('[dtr] 起動に失敗した:', err);
         }
         afterMerge(activeSheetId, result.branch, result.trunk);
+        // **`afterMerge` の後に読み直す** (2026-09-20 の実機で判明)。あちらは
+        // `existing.map(...)` で一覧を写すだけなので、DtR の起動で増えた解決 branch を
+        // 落とす。順序を逆にすると、merge した本人にだけ解決 branch が出ない
+        await reloadBranchList();
       } catch (err) {
         console.warn('[branch] merge failed:', err);
         await new Promise<void>((resolve) => {
@@ -825,6 +905,7 @@ export function useBranchOperations({
       trunkClock,
       actor,
       afterMerge,
+      reloadBranchList,
       branchSettled,
       startDtr,
     ],
@@ -1007,36 +1088,48 @@ export function useBranchOperations({
     [oplogDeps, branchMeta, trunkSettled, remoteQueue],
   );
 
+  /**
+   * branch の一覧を trunk の op-log から読み直す。
+   *
+   * **effect と `reloadBranchList` の両方がここを呼ぶ** — 同じ畳み込みを 2 箇所に
+   * 書くと、放っておくとずれる (T0 で `applicability` の写しが `applyOp` とずれていた)。
+   */
+  const loadBranchList = useCallback(async () => {
+    if (!activeSheetId) return;
+    try {
+      // branch メタは trunk の op-log にあるので畳んでシートで絞る (T7-1)。ファイル未選択の
+      // 間は空一覧を入れる (前のファイルの branch を出したままにしない)。
+      // **先に SQLite の古いメタを載せ直す** (T7-6)。載せ直さないと T7-1 以前の branch が出ない
+      const bs = trunkFileId
+        ? await migrateLegacyMeta(trunkFileId as FileId)
+            .then(() =>
+              readBranchMeta(oplogDeps.fetchBatches, trunkFileId as FileId),
+            )
+            .then(({ branches }) =>
+              [...branches.values()].filter((b) => b.sheetId === activeSheetId),
+            )
+        : [];
+      setSheetBranches((prev) => {
+        const next = new Map(prev);
+        next.set(activeSheetId, bs);
+        return next;
+      });
+    } catch (err) {
+      // op-log 経路は ATProto に依存しないので、ここが失敗するのは daemon 障害の
+      // ときだけ。黙って古い一覧を出し続けないよう診断ログに残す
+      // (W3d5-7 の「無言の失敗」の教訓)。
+      console.warn('[branch] ブランチ一覧の取得に失敗しました:', err);
+    }
+  }, [activeSheetId, oplogDeps, trunkFileId, migrateLegacyMeta]);
+
+  // 後方定義の実体を ref に差す (前半の `reloadBranchList` から呼ぶため)。
+  // **レンダーごとに最新へ** — 依存が変わった読み直しを古い closure で呼ばない
+  loadBranchListRef.current = loadBranchList;
+
   // biome-ignore lint/correctness/useExhaustiveDependencies: receiveEpoch は読み直しの契機としてだけ使う
   useEffect(() => {
-    if (!activeSheetId) return;
-    // branch メタは trunk の op-log にあるので畳んでシートで絞る (T7-1)。ファイル未選択の
-    // 間は空一覧を入れる (前のファイルの branch を出したままにしない)。
-    // **先に SQLite の古いメタを載せ直す** (T7-6)。載せ直さないと T7-1 以前の branch が出ない
-    const load = trunkFileId
-      ? migrateLegacyMeta(trunkFileId as FileId)
-          .then(() =>
-            readBranchMeta(oplogDeps.fetchBatches, trunkFileId as FileId),
-          )
-          .then(({ branches }) =>
-            [...branches.values()].filter((b) => b.sheetId === activeSheetId),
-          )
-      : Promise.resolve<BranchMeta[]>([]);
-    load
-      .then((bs) => {
-        setSheetBranches((prev) => {
-          const next = new Map(prev);
-          next.set(activeSheetId, bs);
-          return next;
-        });
-      })
-      .catch((err) => {
-        // op-log 経路は ATProto に依存しないので、ここが失敗するのは daemon 障害の
-        // ときだけ。黙って古い一覧を出し続けないよう診断ログに残す
-        // (W3d5-7 の「無言の失敗」の教訓)。
-        console.warn('[branch] ブランチ一覧の取得に失敗しました:', err);
-      });
-  }, [activeSheetId, oplogDeps, trunkFileId, receiveEpoch, migrateLegacyMeta]);
+    void loadBranchList();
+  }, [loadBranchList, receiveEpoch]);
 
   return {
     activeBranch,
@@ -1072,6 +1165,11 @@ export function useBranchOperations({
      * 足して GraphEditor に渡す — どちらが進んでも canvas を再 seed する
      */
     branchReceiveEpoch,
+    /**
+     * fork から DtR を起こす (step2 Phase 6 D5)。通知 (`ConflictNotice`) の各行に渡す。
+     * **未ログインなら渡さない** — 判断ログの書き先が自分の repo なので起動できない
+     */
+    handleStartDtrFromFork,
     /**
      * branch を開いている間に受信した trunk の控え先 (2026-09-17)。
      * App が `useFileSheetOperations` へ渡す
