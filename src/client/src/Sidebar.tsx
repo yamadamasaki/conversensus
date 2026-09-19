@@ -18,7 +18,11 @@ import { SettingsPopup } from './SettingsPopup';
 import { ShareStatusIcon } from './ShareStatusIcon';
 import { SyncStatusIndicator } from './SyncStatusIndicator';
 import type { FileSharing } from './sync/rosterView';
-import { isDtrResolveBranchName, isDtrSheetName } from './sync/startDtr';
+import {
+  dialogueSheetNameOf,
+  isDtrResolveBranchName,
+  isDtrSheetName,
+} from './sync/startDtr';
 
 type Props = {
   files: GraphFileListItem[];
@@ -555,6 +559,37 @@ export function Sidebar({
                                             {isMerged ? ' (merged)' : ''}
                                             {isClosed ? ' (closed)' : ''}
                                           </button>
+                                          {/* 対話グラフを開く口 (D5 の追補, 2026-09-20)。
+                                              対話用の sheet はタブから隠してあるので
+                                              (決めたこと 5)、**開く口が無いと到達できない**。
+                                              解決 branch と対で作られるので、名前から引く */}
+                                          {isDtrResolveBranchName(
+                                            branch.name,
+                                          ) && (
+                                            <button
+                                              type="button"
+                                              title="対話グラフを開く"
+                                              style={{
+                                                ...gearBtnStyle,
+                                                fontSize: 10,
+                                              }}
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                const name =
+                                                  dialogueSheetNameOf(
+                                                    branch.name,
+                                                  );
+                                                const sheet =
+                                                  fileData.sheets.find(
+                                                    (x) => x.name === name,
+                                                  );
+                                                if (sheet)
+                                                  onSelectSheet(sheet.id);
+                                              }}
+                                            >
+                                              💬
+                                            </button>
+                                          )}
                                           {/* open + active: merge ↑ / close ✕ */}
                                           {isActiveBranch &&
                                             !isMerged &&

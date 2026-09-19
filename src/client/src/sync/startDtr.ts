@@ -74,6 +74,22 @@ export function isDtrResolveBranchName(name: string): boolean {
   return name.startsWith(DTR_RESOLVE_BRANCH_PREFIX);
 }
 
+/**
+ * 解決 branch の名前から、対になる**対話グラフ (sheet) の名前**を導く (D5 の仮判別)。
+ *
+ * 2 つの器は同じ `branchName` から作られるので、接頭辞を差し替えれば対応が付く。
+ * **本来は `dtr.open` の記録 (`resolveBranchId` と `sheetId`) が対を持っている**ので、
+ * 記録を画面へ供給する形に直せばこの関数は要らなくなる。
+ *
+ * @returns 解決 branch でなければ `undefined`
+ */
+export function dialogueSheetNameOf(
+  resolveBranchName: string,
+): string | undefined {
+  if (!isDtrResolveBranchName(resolveBranchName)) return undefined;
+  return `${DTR_SHEET_PREFIX}${resolveBranchName.slice(DTR_RESOLVE_BRANCH_PREFIX.length)}`;
+}
+
 export type StartDtrDeps = {
   /**
    * resolve graph の器を作る (step2 Phase 6 D3)。trunk から branch を 1 本切る。

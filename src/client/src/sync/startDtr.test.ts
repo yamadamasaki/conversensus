@@ -23,6 +23,7 @@ import {
   DTR_RESOLVE_BRANCH_PREFIX,
   DTR_SHEET_PREFIX,
   defaultCallees,
+  dialogueSheetNameOf,
   isDtrResolveBranchName,
   isDtrSheetName,
   needsForcedStart,
@@ -290,6 +291,27 @@ describe('DtR の器の名前 (D5 の仮判別)', () => {
   // 通常の branch を DtR と誤認すると、サイドバーの印が嘘になる
   test('🔴 対話用の sheet 名を branch の判別に通さない (接頭辞が別物)', () => {
     expect(isDtrResolveBranchName(`${DTR_SHEET_PREFIX}feature-x`)).toBe(false);
+  });
+
+  /**
+   * **2 つの器の名前が対で引けること。**対話グラフの sheet はタブから隠してあるので
+   * (決めたこと 5)、解決 branch から名前で引けないと**到達する口が無くなる**。
+   */
+  test('🔴 解決 branch の名前から、対になる対話 sheet の名前が引ける', async () => {
+    const { deps, calls } = fakeDeps();
+    await startDtrForConflicts(input([content()]), deps);
+
+    const branch = calls.find((c) => c.call === 'branch');
+    const sheet = calls.find((c) => c.call === 'sheet');
+    if (branch?.call !== 'branch' || sheet?.call !== 'sheet')
+      throw new Error('器が作られていない');
+
+    expect(dialogueSheetNameOf(branch.name)).toBe(sheet.name);
+  });
+
+  test('解決 branch でない名前からは引けない', () => {
+    expect(dialogueSheetNameOf('feature-x')).toBeUndefined();
+    expect(dialogueSheetNameOf(`${DTR_SHEET_PREFIX}feature-x`)).toBeUndefined();
   });
 
   /**
