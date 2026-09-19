@@ -25,6 +25,7 @@ import { z } from 'zod';
 import {
   BranchIdSchema,
   CommitIdSchema,
+  DtrIdSchema,
   EdgeIdSchema,
   EdgePathTypeSchema,
   FileIdSchema,
@@ -176,6 +177,14 @@ export const CommitSchema = z.object({
   kind: z.nativeEnum(COMMIT_KIND).default(COMMIT_KIND.COMMIT),
   sourceBranchId: BranchIdSchema.optional(),
   sourceAt: z.number().int().nonnegative().optional(),
+  /**
+   * **この merge がどの DtR の決着なのか** (step2 Phase 6 D3)。再 merge だけが持つ。
+   *
+   * 再 merge の pre 条件は畳み込みの**手前**で判定する。判定する側は写し (`Batch`) から
+   * 辿れなければならないが、写しは既に `mergedIn: CommitId` で自分の merge コミットを
+   * 指しているので、**印はコミット側に 1 つ置けば足りる** — 写しごとに複製しない。
+   */
+  dtrId: DtrIdSchema.optional(),
 });
 
 /**

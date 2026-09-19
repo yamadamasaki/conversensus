@@ -2,14 +2,23 @@ import { describe, expect, test } from 'bun:test';
 import fc from 'fast-check';
 import {
   BranchIdSchema,
+  type CommitId,
+  CommitIdSchema,
   type Did,
   DtrIdSchema,
   SheetIdSchema,
 } from '../schemas';
-import { allApproved, canRemergeAt, type DtrJudgments, foldDtr } from './dtr';
+import type { Commit } from './branchLog';
+import {
+  admissibleBatches,
+  allApproved,
+  canRemergeAt,
+  type DtrJudgments,
+  foldDtr,
+} from './dtr';
 import type { JudgmentBatch, JudgmentOp } from './judgment';
 import { foldParticipation } from './participation';
-import { BatchIdSchema } from './unified';
+import { type Batch, BatchIdSchema, COMMIT_KIND } from './unified';
 
 const DTR = DtrIdSchema.parse(crypto.randomUUID());
 const OTHER_DTR = DtrIdSchema.parse(crypto.randomUUID());
@@ -317,6 +326,104 @@ describe('canRemergeAt', () => {
     expect(dtr.satisfiedAt).toBe(2);
     expect(canRemergeAt(dtr, 2)).toBe(false);
     expect(canRemergeAt(dtr, 3)).toBe(true);
+  });
+});
+
+// --- 承認を経ていない再 merge の写しを落とす (step2 Phase 6 D3) ---
+
+describe('admissibleBatches', () => {
+  const COMMIT = CommitIdSchema.parse(crypto.randomUUID());
+
+  /** trunk の写し 1 件。`mergedIn` があれば merge で積み直されたものである */
+  const copy = (mergedIn?: CommitId): Batch =>
+    ({
+      id: BatchIdSchema.parse(crypto.randomUUID()),
+      actor: A1,
+      clock: 10,
+      timestamp: 10,
+      sheetId: SHEET,
+      ops: [{ kind: 'node.add', target: SHEET, content: 'x' }],
+      ...(mergedIn !== undefined && { mergedIn }),
+      // biome-ignore lint/suspicious/noExplicitAny: テストの最小 Batch
+    }) as any;
+
+  /** 再 merge のコミット。`at` が「その操作の位置」である */
+  const remergeCommit = (at: number, dtrId = DTR): Commit => ({
+    id: COMMIT,
+    message: '再 merge',
+    at,
+    authorActor: A1,
+    kind: COMMIT_KIND.MERGE,
+    dtrId,
+  });
+
+  /** 承認が clock 2 で揃った DtR */
+  const settled = () =>
+    fold([batch(1, A1, [open([A])]), batch(2, A1, [approve()])]).dtrs;
+
+  test('写しでない batch は常に通す (グラフ側の前提を保つ)', () => {
+    const b = copy();
+    expect(admissibleBatches([b], { commits: [], dtrs: settled() })).toEqual([
+      b,
+    ]);
+  });
+
+  test('DtR の印が無い merge の写しは通す (通常の merge)', () => {
+    const b = copy(COMMIT);
+    const plain: Commit = {
+      id: COMMIT,
+      message: 'merge',
+      at: 9,
+      authorActor: A1,
+      kind: COMMIT_KIND.MERGE,
+    };
+    expect(
+      admissibleBatches([b], { commits: [plain], dtrs: settled() }),
+    ).toEqual([b]);
+  });
+
+  // 仕様「早まった再 merge を出しても、それを出した本人の手元でも捨てられる」
+  test('🔴 承認が揃う前の再 merge の写しは落とす', () => {
+    const b = copy(COMMIT);
+    // 承認は clock 2 で揃うので、位置 2 の再 merge は「より前」を満たさない
+    expect(
+      admissibleBatches([b], {
+        commits: [remergeCommit(2)],
+        dtrs: settled(),
+      }),
+    ).toEqual([]);
+  });
+
+  test('承認が揃った後の再 merge の写しは通す', () => {
+    const b = copy(COMMIT);
+    expect(
+      admissibleBatches([b], {
+        commits: [remergeCommit(3)],
+        dtrs: settled(),
+      }),
+    ).toEqual([b]);
+  });
+
+  /**
+   * **分からないときは通す** (未決 V7 の決着)。判断ログは非同期に読むもので、
+   * 未ログイン・初回読み込みでは正当に見えていない。そこで落とすと
+   * **merge 済みの内容が画面から消える**方の失敗になる。
+   */
+  test('🔴 DtR が見えていないときは通す (fail-open)', () => {
+    const b = copy(COMMIT);
+    expect(
+      admissibleBatches([b], {
+        commits: [remergeCommit(2)],
+        dtrs: new Map(), // 判断ログがまだ読めていない
+      }),
+    ).toEqual([b]);
+  });
+
+  test('merge コミットが見えていないときも通す', () => {
+    const b = copy(COMMIT);
+    expect(admissibleBatches([b], { commits: [], dtrs: settled() })).toEqual([
+      b,
+    ]);
   });
 });
 

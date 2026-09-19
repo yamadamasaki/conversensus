@@ -32,7 +32,8 @@
  * 配線を忘れた瞬間に「誰も去らない」名簿で畳むことになり、決着しない DtR が静かに増える。
  */
 
-import type { BranchId, Did, DtrId, SheetId } from '../schemas';
+import type { BranchId, CommitId, Did, DtrId, SheetId } from '../schemas';
+import type { Commit } from './branchLog';
 import type { JudgmentBatch, JudgmentOp } from './judgment';
 import {
   hasEverParticipated,
@@ -41,6 +42,7 @@ import {
 } from './participation';
 import {
   type Actor,
+  type Batch,
   type BatchId,
   compareByClockActorId,
   didFromActor,
@@ -298,4 +300,82 @@ export function allApproved(dtr: Dtr): boolean {
  */
 export function canRemergeAt(dtr: Dtr, clock: Lamport): boolean {
   return dtr.satisfiedAt !== undefined && dtr.satisfiedAt < clock;
+}
+
+/** 再 merge の写しを判定するのに要るもの (step2 Phase 6 D3) */
+export type RemergeGateDeps = {
+  /** trunk のコミット。`foldBranches` の `trunkCommits` をそのまま渡す */
+  commits: readonly Commit[];
+  /** 判断ログから畳んだ DtR (`foldDtr` の `dtrs`) */
+  dtrs: ReadonlyMap<DtrId, Dtr>;
+};
+
+/**
+ * **承認を経ていない再 merge の写しか** (step2 Phase 6 D3)。
+ *
+ * 仕様「満たさない再 merge は畳み込みの段階で捨てられる」「古い情報を見て早まった再 merge を
+ * 出しても、**それを出した本人の手元でも捨てられる**」を実装する述語である。
+ *
+ * **写しから DtR へは merge コミットを経由して辿る。**写しは既に `mergedIn: CommitId` で
+ * 自分の merge コミットを指しているので、印はコミット側 (`Commit.dtrId`) に 1 つ置けば足りる。
+ * これは T7-4 が「merge を参照に移す (案 B)」ために用意した橋で、A を維持したまま先に渡る形
+ * である (Phase 6 の決めたこと 9)。
+ *
+ * **判定の位置は merge コミットの `at`** である。写しの clock は再スタンプで散るが、
+ * 「その操作」は 1 つなので位置も 1 つに決まる。
+ *
+ * ## 分からないときは通す (fail-open, 未決 V7 の決着)
+ *
+ * 判断ログは非同期に読むもので、未ログイン・オフライン・初回読み込みでは**正当に
+ * 見えていない**。そこで落とすと **merge 済みの内容が画面から消える**方の失敗になる。
+ * 仕様が「本人の手元でも捨てられる」と言うのは **DtR が見えていて未承認**の場合であり、
+ * データが無い場合とは別である。読めない判断データを黙って落として縮退するのは、
+ * `templatesOf` (知らない template id を落とす) や名簿の「読めた範囲で作る」と同じ筋。
+ */
+export function isAdmissibleCopy(
+  batch: Pick<Batch, 'mergedIn'>,
+  { commits, dtrs }: RemergeGateDeps,
+): boolean {
+  return gate(batch, (id) => commits.find((c) => c.id === id), dtrs);
+}
+
+/**
+ * 判定の本体。**コミットの索き方を引数にする** — 1 件だけ見るときは線形探索でよいが、
+ * ログ全体を絞るときは Map で索かないと batch 数 × コミット数の走査になる。
+ */
+function gate(
+  batch: Pick<Batch, 'mergedIn'>,
+  commitOf: (id: CommitId) => Commit | undefined,
+  dtrs: ReadonlyMap<DtrId, Dtr>,
+): boolean {
+  // 写しでない batch は常に有効 (グラフ側の「op はすべて有効」の前提を保つ)。
+  // **この枝は振る舞いを変えない** (外しても後続が同じ答えを返す) が、大半の batch は
+  // 写しではないので、コミットを索く前にここで返す意味がある
+  if (batch.mergedIn === undefined) return true;
+  const commit = commitOf(batch.mergedIn);
+  // コミットが見えていない / DtR の印が無い (= 通常の merge)。どちらも通す
+  if (!commit?.dtrId) return true;
+  const dtr = dtrs.get(commit.dtrId);
+  if (!dtr) return true; // DtR が見えていない。通す (fail-open)
+  return canRemergeAt(dtr, commit.at);
+}
+
+/**
+ * 承認を経ていない再 merge の写しを落とす (step2 Phase 6 D3)。
+ *
+ * **グラフの畳み込みに入れる前に落とす。**畳み込み器の中で判定すると、「無効な op がある」
+ * という判断ログ側の意味論がグラフ側へ入り込む (`spikes/u6/judgmentFold.ts` の `admissible`)。
+ * `projectBatches` は 1 行も変わらない。
+ *
+ * **落とすのは読みであって書きではない。**op-log は追記のみで、写しは trunk に載ったまま
+ * である — 承認が揃えば同じログから出てくる。
+ */
+export function admissibleBatches(
+  batches: readonly Batch[],
+  { commits, dtrs }: RemergeGateDeps,
+): Batch[] {
+  // **索き表は 1 度だけ組む。**batch ごとにコミット列を舐めると、大半が写しでない
+  // グラフのログに対して batch 数 × コミット数の走査になる
+  const byId = new Map(commits.map((commit) => [commit.id, commit]));
+  return batches.filter((batch) => gate(batch, (id) => byId.get(id), dtrs));
 }

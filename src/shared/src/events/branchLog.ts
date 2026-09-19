@@ -16,6 +16,7 @@ import {
   type BranchId,
   BranchIdSchema,
   type CommitId,
+  type DtrId,
   type FileId,
   FileIdSchema,
   type Sheet,
@@ -50,6 +51,19 @@ export type Commit = {
    * これで判定できる。
    */
   sourceAt?: Lamport;
+  /**
+   * **この merge がどの DtR の決着なのか** (step2 Phase 6 D3)。再 merge だけが持つ。
+   *
+   * 再 merge の pre 条件 (「記録された呼び出し対象の全員の承認が、この操作より前に
+   * 記録されていること」) は**畳み込みの手前で**判定する必要がある。判定する側は
+   * 写し (`Batch`) から辿れなければならないが、写しは既に `mergedIn: CommitId` で
+   * 自分の merge コミットを指しているので、**印はコミット側に 1 つ置けば足りる** —
+   * 写しごとに DtR を複製しない。
+   *
+   * `mergedIn` は T7-4 が「merge を参照に移す (案 B)」ための橋として置いたものだが、
+   * A を維持したまま**先にその橋を渡る**形になる (Phase 6 の決めたこと 9)。
+   */
+  dtrId?: DtrId;
 };
 
 /** ブランチ = base コミットからの分岐 */
@@ -127,7 +141,15 @@ export function makeMergeCommit(
   message: string,
   authorActor: string,
   trunkBatches: Batch[],
-  source: { branchId: BranchId; at: Lamport },
+  source: {
+    branchId: BranchId;
+    at: Lamport;
+    /**
+     * 再 merge のとき、決着させる DtR (step2 Phase 6 D3)。
+     * **通常の merge は持たない** — 持つのは「承認を経た取り込み」だけである
+     */
+    dtrId?: DtrId;
+  },
 ): Commit {
   return {
     id,
@@ -137,6 +159,7 @@ export function makeMergeCommit(
     kind: COMMIT_KIND.MERGE,
     sourceBranchId: source.branchId,
     sourceAt: source.at,
+    ...(source.dtrId !== undefined && { dtrId: source.dtrId }),
   };
 }
 
