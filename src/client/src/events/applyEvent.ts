@@ -310,8 +310,32 @@ export function applyEvent(
         edges,
       };
 
+    // node 側と**同じ規則で畳む** (step2 Phase 4 Q0)。ここが no-op だった間、edge の
+    // プロパティ変更は op-log に載るのに画面へ出なかった — リロードすると現れる、という
+    // 食い違いである (R4 が node 側で潰した不変条件の、edge 側の取りこぼし)。
+    //
+    // **step1 の設計段階で発見され、宣言されたまま落ちていた穴である**
+    // (`deepse/spikes/o3-report.md` の「Phase 1 に引き継ぐ課題」4 — 他の 4 件は
+    // 解決済み)。発行元が 1 つも無かったので誰も踏まずに残った。property editor が
+    // edge のプロパティを編集可能にするので、ここで塞ぐ。
     case 'EDGE_PROPERTIES_CHANGED':
-      return { nodes, edges };
+      return {
+        nodes,
+        edges: edges.map((e) =>
+          e.id === event.edgeId
+            ? {
+                ...e,
+                data: {
+                  ...e.data,
+                  properties: applyPropertyChanges(
+                    e.data?.properties as Properties | undefined,
+                    diffProperties(event.from, event.to),
+                  ),
+                },
+              }
+            : e,
+        ),
+      };
 
     default:
       return { nodes, edges };

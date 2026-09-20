@@ -377,6 +377,51 @@ step2 では意味を持たない (型が値の従属変数なので「決まっ
 
 **独立性が高い**。クリティカルパスの待ちが出たら、ここを進める。
 
+**Exit**: node / edge のプロパティを一覧で見られ (名前・型・値)、custom を追加・変更・削除
+できる。system は出さない。template が付けた種別 (`*.kind`) は見えるが編集できない。
+
+#### 着手時の調査で分かったこと (2026-09-20)
+
+**① 未決だった「編集させてはいけない property をどう表すか」は決着済みだった。**
+Phase 5 が `shared/template/kind.ts` に `isKindProperty` (語尾 `.kind` で判定) を置いており、
+コメントが「**『編集させてよいか』のように template を特定する必要が無い問い**に使う」と
+用途まで名指ししている。**`Template` 型に可視性の欄を足す必要は無い** — 規約 1 つで表せる。
+`EditableNode` と `EditableLabelEdge` が既に `hasTemplateKind` で同じ判断をしている
+(ラベルを編集させるかの分かれ目) ので、**property editor はその 3 例目**になる。
+
+**② `EdgeKind.properties` が Phase 4 を名指しで待っている。**Phase 5 が
+「**step2 では宣言だけ**である。これを食う property editor は Phase 4 が作る (事実 D)」と
+書いて置いた。仕様の「プロパティの追加時に名前を選択するメニュー」がこれを食う。
+
+**③ ⚠️ `applyEvent` の `EDGE_PROPERTIES_CHANGED` が no-op である。**`return { nodes, edges }`
+で素通りしており、**edge のプロパティ変更が画面に反映されない**。
+
+これは **step1 の設計段階で発見され、宣言されたまま落ちた穴**である —
+`deepse/spikes/o3-report.md` の「Phase 1 に引き継ぐ課題」5 件のうちの 1 件
+(「`applyEvent` の `EDGE_PROPERTIES_CHANGED` が現状 no-op。**統一時に実装を補う**」) で、
+**他の 4 件は解決済み、これだけが引き継がれなかった**。
+
+**発行元が無いので今まで誰も踏んでいない** (`EDGE_PROPERTIES_CHANGED` を dispatch する
+画面は 1 つも無く、`invertEvent` の undo と `toUnified` の op 化だけが実装済み)。
+op-log 側の畳み込み (`project.ts` の `edge.setProperty`) も正しい。**欠けているのは
+ローカル reducer だけ**である。
+
+**Phase 4 が edge のプロパティを編集可能にした瞬間に踏む**ので、**最初のスライスで塞ぐ**。
+`applyEvent.test.ts` は 20 種のイベントを扱いながらこれだけ一度も現れないので、
+**テストの網羅から漏れていたことも併せて直す**。
+
+#### スライス
+
+| | 内容 |
+| --- | --- |
+| **Q0** | `applyEvent` の `EDGE_PROPERTIES_CHANGED` を実装し、テストで固定する (上記 ③) |
+| **Q1** | 一覧の中身を作る純粋関数 — 表示するプロパティの選別 (system を除く) と、名前・型・値の組み立て。型は `inferPropertyType` (Phase 7 が置いた) を使う |
+| **Q2** | property editor の画面。node / edge の選択で出し、custom は編集・追加・削除、`*.kind` は読み取り専用 |
+| **Q3** | 実機で通す |
+
+**設計文書は起こさない。**§4 の基準は「大きい Phase (2, 3, 6)」であり、Phase 4 は
+差し込み枠なのでここに書く (Phase 7 と同じ扱い)。
+
 ### Phase 5: template (toulmin) + node label
 
 > **⚠️ 順序を入れ替えた (2026-09-08)。**Phase 3 の T0-T6 で Exit が揃った時点で一旦閉じ、

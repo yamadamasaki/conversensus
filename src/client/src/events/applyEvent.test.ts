@@ -868,4 +868,120 @@ describe('round-trip: apply → invert → apply = 元の状態', () => {
     const { edges: restored } = applyEvent(invertEvent(event), [], after);
     expect(restored[0].data?.pathType).toBe('bezier');
   });
+
+  // --- EDGE_PROPERTIES_CHANGED (step2 Phase 4 Q0) ---
+  //
+  // **このイベントは、このファイルに一度も現れていなかった。**20 種を扱いながら
+  // これだけが抜けており、`applyEvent` の側も no-op のまま残っていた
+  // (step1 の `o3-report.md` が「統一時に実装を補う」と書いたまま落ちた穴)。
+  // 網羅から漏れたものは、実装からも漏れる。
+
+  const edgeProps = (edges: Edge[]) =>
+    edges[0].data?.properties as Record<string, unknown> | undefined;
+
+  it('EDGE_PROPERTIES_CHANGED — 触ったキーだけが変わり、知らないキーは残る', () => {
+    // 全体置換だと、他者が並行して足したキーが消える (#208 がキー単位にした理由)。
+    //
+    // **手元にしかないキー (`出典`) を必ず混ぜる。**`from`/`to` の両方に同じ値で
+    // 載せてしまうと、差分を採っても `to` を全体代入しても結果が一致し、
+    // **置換の意味論へ戻す変異が生き残る** (実際に生き残った)。
+    // 発行元が知らないキーこそが、キー単位化で守りたいものである
+    const withProps: Edge = {
+      ...e1,
+      data: {
+        ...e1.data,
+        properties: { 期限: '2026-09-20', 出典: '甲', 他者のキー: '乙' },
+      },
+    };
+    const event: GraphEvent = {
+      ...base,
+      category: 'content',
+      type: 'EDGE_PROPERTIES_CHANGED',
+      edgeId: 'e1' as EdgeId,
+      // **from/to は置き換え後の全体**である (node 側と同じ契約)。差分は reducer が採る。
+      // 発行元は `他者のキー` を知らないので、どちらにも載せない
+      from: { 期限: '2026-09-20', 出典: '甲' },
+      to: { 期限: '2026-12-31' },
+    };
+    const { edges: after } = applyEvent(event, [], [withProps]);
+    expect(edgeProps(after)).toEqual({
+      期限: '2026-12-31',
+      // `to` から消えたので削除される
+      // (出典 は無い)
+      他者のキー: '乙',
+    });
+  });
+
+  it('EDGE_PROPERTIES_CHANGED — 追加と削除', () => {
+    const add: GraphEvent = {
+      ...base,
+      category: 'content',
+      type: 'EDGE_PROPERTIES_CHANGED',
+      edgeId: 'e1' as EdgeId,
+      from: {},
+      to: { 優先度: 3 },
+    };
+    const { edges: added } = applyEvent(add, [], [e1]);
+    expect(edgeProps(added)).toEqual({ 優先度: 3 });
+
+    // `to` から消えたキーは削除になる (値を省いた変更として落ちる)
+    const remove: GraphEvent = {
+      ...base,
+      category: 'content',
+      type: 'EDGE_PROPERTIES_CHANGED',
+      edgeId: 'e1' as EdgeId,
+      from: { 優先度: 3 },
+      to: {},
+    };
+    const { edges: removed } = applyEvent(remove, [], added);
+    expect(edgeProps(removed)).toEqual({});
+  });
+
+  it('EDGE_PROPERTIES_CHANGED — 他の data と他の edge は触らない', () => {
+    // **他の edge には既に別の値を入れておく。**空のままだと、対象で絞らない変異を
+    // 当てても「undefined が {期限} になる」ではなく「元から無いものが増える」形に
+    // なり、見る側が `toBeUndefined()` だと弱い。既存の値が**書き換わらない**ことを
+    // 見る方が、絞りの欠落を確実に捕まえる
+    const other: Edge = {
+      ...e1,
+      id: 'e2',
+      data: { ...e1.data, properties: { 期限: '別の値' } },
+    };
+    const event: GraphEvent = {
+      ...base,
+      category: 'content',
+      type: 'EDGE_PROPERTIES_CHANGED',
+      edgeId: 'e1' as EdgeId,
+      from: {},
+      to: { 期限: '2026-09-20' },
+    };
+    const { edges: after } = applyEvent(event, [], [e1, other]);
+    // 経路やラベル位置を巻き込まない (data を丸ごと置き換えていないこと)
+    expect(after[0].data?.pathType).toBe('bezier');
+    expect(after[0].data?.labelOffsetX).toBe(5);
+    expect(after[0].data?.properties).toEqual({ 期限: '2026-09-20' });
+    // **対象外の edge は元のまま**である
+    expect(after[1].data?.properties).toEqual({ 期限: '別の値' });
+  });
+
+  it('EDGE_PROPERTIES_CHANGED — undo で戻る', () => {
+    // `invertEvent` は先に実装されていた。**reducer だけが欠けていた**ので、
+    // 往復が成り立つことでその対応を固定する
+    const event: GraphEvent = {
+      ...base,
+      category: 'content',
+      type: 'EDGE_PROPERTIES_CHANGED',
+      edgeId: 'e1' as EdgeId,
+      from: { 期限: '2026-09-20' },
+      to: { 期限: '2026-12-31' },
+    };
+    const start: Edge = {
+      ...e1,
+      data: { ...e1.data, properties: { 期限: '2026-09-20' } },
+    };
+    const { edges: after } = applyEvent(event, [], [start]);
+    expect(edgeProps(after)).toEqual({ 期限: '2026-12-31' });
+    const { edges: undone } = applyEvent(invertEvent(event), [], after);
+    expect(edgeProps(undone)).toEqual({ 期限: '2026-09-20' });
+  });
 });
