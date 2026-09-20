@@ -6,6 +6,8 @@ import {
   canonicalProperties,
   canonicalPropertyName,
   diffProperties,
+  inferPropertyType,
+  propertyCategory,
   SYSTEM_PROPERTY_PREFIX,
 } from './properties';
 
@@ -179,5 +181,59 @@ describe('名前の正規化 (#137)', () => {
     expect(applyPropertyChange({ [IMAGE]: 'a' }, { name: 'image' })).toEqual(
       {},
     );
+  });
+});
+
+describe('種類の判定 (propertyCategory)', () => {
+  test('app.conversensus.* は system', () => {
+    expect(propertyCategory(IMAGE)).toBe('system');
+    expect(propertyCategory(IMAGE_URL)).toBe('system');
+  });
+
+  test('template は extension であって system ではない', () => {
+    // 本体のものではないので `app.conversensus.*` の枠には入らない。ここを取り違えると
+    // template の種別が property editor から消え、検索にも出なくなる
+    expect(propertyCategory('jp.co.metabolics.toulmin.kind')).toBe('extension');
+  });
+
+  test('. を含まない名前は custom', () => {
+    // custom に名前空間を要求しないことが規約である
+    expect(propertyCategory('期限')).toBe('custom');
+    expect(propertyCategory('imageBlobCid')).toBe('custom');
+  });
+});
+
+describe('型の推論 (inferPropertyType)', () => {
+  test('値の形から型を決める', () => {
+    expect(inferPropertyType('abc')).toBe('string');
+    expect(inferPropertyType(42)).toBe('number');
+    expect(inferPropertyType(true)).toBe('boolean');
+    expect(inferPropertyType(['a', 'b'])).toBe('array');
+    // 仕様の一覧には無いが要る — `app.conversensus.image` が構造体だからである
+    expect(inferPropertyType({ cid: 'x', mimeType: 'image/png' })).toBe(
+      'object',
+    );
+  });
+
+  test('datetime を date より先に見る', () => {
+    // 日時の文字列は先頭が日付の形をしているので、date から先に当てると
+    // 時刻が落ちた型になる
+    expect(inferPropertyType('2026-09-20T10:30')).toBe('datetime');
+    expect(inferPropertyType('2026-09-20T10:30:00Z')).toBe('datetime');
+    // 実地で書かれる空白区切りも日時として読む
+    expect(inferPropertyType('2026-09-20 10:30')).toBe('datetime');
+    expect(inferPropertyType('2026-09-20')).toBe('date');
+  });
+
+  test('日付の形をしていない文字列は string', () => {
+    expect(inferPropertyType('2026-09')).toBe('string');
+    expect(inferPropertyType('2026-09-20 の予定')).toBe('string');
+  });
+
+  test('値が無ければ string', () => {
+    // 「型が無い」を表に出すと表示側が空欄を扱うことになるが、値の無いプロパティは
+    // step 2 では削除と同じ意味なので区別する利得が無い
+    expect(inferPropertyType(undefined)).toBe('string');
+    expect(inferPropertyType(null)).toBe('string');
   });
 });
