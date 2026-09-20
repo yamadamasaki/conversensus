@@ -130,7 +130,9 @@ function readOnlyReasonOf(
   value: unknown,
 ): ReadOnlyReason | undefined {
   if (isKindProperty(name)) return 'templateKind';
-  if (Array.isArray(value)) return 'structuredValue';
+  // **配列もここに入る** — `typeof [] === 'object'` だからである。
+  // 当初は `Array.isArray` の行を別に置いていたが、**変異試験で等価と分かった**ので
+  // 外した (配列が真なら必ずこちらも真になる)。
   if (value !== null && typeof value === 'object') return 'structuredValue';
   return undefined;
 }
