@@ -197,7 +197,13 @@ function GraphEditorInner({
 
   // 検索 (step2 Phase 7)。**状態をここに置く**のは、結果からグラフの要素を示すのに
   // setNodes / setEdges / setCenter が要るからである。App へ持ち上げても、これらを
-  // 渡し直すことになるだけで得が無い
+  // 渡し直すことになるだけで得が無い。
+  //
+  // **シートや trunk/branch を切り替えると、この state は初期値に戻る** — App が
+  // `key={`${activeSheetId}/${branchId}`}` を渡しており、切り替えると此処ごと
+  // 再マウントされるからである。**窓も閉じる。**別のグラフへ移った時点で結果は
+  // 無効なので、それでよいと決めた (利用者判断 2026-09-20 → 見直しは step 3)。
+  // 捨てる effect を別に置く必要は無い (置いても再マウントが先で一度も発火しない)
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchHits, setSearchHits] = useState<SearchHit[]>([]);
   // 「まだ引いていない」と「引いて 0 件」を分ける。同じ見た目にすると、開いた
@@ -305,14 +311,6 @@ function GraphEditorInner({
     }, RF_INIT_DELAY_MS);
     return () => clearTimeout(t);
   }, [file.id, activeSheetId, receiveEpoch, setNodes, setEdges]);
-
-  // シートやファイルが替わったら検索結果を捨てる。別のグラフの結果を持ち越すと、
-  // 押したときに**居ない要素**を指すことになる (何も起きないので壊れて見える)
-  // biome-ignore lint/correctness/useExhaustiveDependencies: file.id / activeSheetId の変化のみをトリガーにする意図的な設計
-  useEffect(() => {
-    setSearchHits([]);
-    setSearched(false);
-  }, [file.id, activeSheetId]);
 
   // コンフリクト状態が変わったらノード/エッジのスタイルだけ更新
   // NOTE: setNodes/setEdges は nodes/edges state を変化させるため onChange effect が
