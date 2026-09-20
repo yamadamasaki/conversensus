@@ -112,8 +112,10 @@ describe('system のプロパティは検索に出さない', () => {
     );
     expect(hits).toHaveLength(1);
     expect(hits[0].propertyName).toBe('期限');
-    // 型は値から推論する (step 2 には「型が先に決まっている」状態が無い)
-    expect(hits[0].propertyType).toBe('date');
+    // **型は宣言から来る** (値から推論しない、利用者判断 2026-09-20)。
+    // step 2 に宣言の仕組みは無いので文字列である。`2026-09-20` に「日付」と
+    // 出すのは、宣言されていない型の推測になる
+    expect(hits[0].propertyType).toBe('string');
   });
 });
 
@@ -229,12 +231,15 @@ describe('プロパティの値の文字列化', () => {
     expect(searchSheet(s, '[')).toEqual([]);
   });
 
-  test('配列の型は array になる', () => {
+  test('配列でも型は文字列である (値から推論しない)', () => {
+    // 値の形は「配列を並べて検索できる」ことに効くが、**型は宣言から来る**。
+    // property editor 側も同じ規則で、そちらは配列を編集させない判断に
+    // **値の形**を使っている (型ではない)
     const hits = searchSheet(
       sheet([node({ properties: { 出典: ['甲'] } })]),
       '甲',
     );
-    expect(hits[0].propertyType).toBe('array');
+    expect(hits[0].propertyType).toBe('string');
   });
 
   test('値が無いプロパティは拾わない', () => {

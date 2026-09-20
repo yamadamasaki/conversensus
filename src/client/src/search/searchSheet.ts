@@ -22,7 +22,6 @@
 import {
   type GraphEdge,
   type GraphNode,
-  inferPropertyType,
   type PropertyName,
   type PropertyType,
   propertyCategory,
@@ -159,7 +158,11 @@ function collectFrom(
     if (propertyCategory(name) === 'system') continue;
     push('property', toSearchText(value), {
       propertyName: name,
-      propertyType: inferPropertyType(value),
+      // **型は宣言から来る** — 実装コードか template のような拡張が指定するもので、
+      // 値から推論してはならない (利用者判断 2026-09-20)。step2 に宣言の仕組みは
+      // 無く、編集できるプロパティはすべて custom なので文字列である。
+      // `2026-09-20` という文字列に「日付」と出すのは、宣言されていない型の推測
+      propertyType: 'string',
     });
   }
 }

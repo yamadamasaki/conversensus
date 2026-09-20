@@ -117,39 +117,20 @@ export type PropertyType =
   | 'array'
   | 'object';
 
-/** `YYYY-MM-DD`。**日付だけ**で時刻を伴わないもの */
-const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
-/** `YYYY-MM-DDThh:mm` 以降。区切りは ISO 8601 の `T` と、実地で書かれる空白を許す */
-const DATETIME_PATTERN = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/;
-
 /**
- * 値から型を推論する。
+ * **値から型を推論する関数は置かない** (利用者判断 2026-09-20)。
  *
- * **step 2 に「型が先に決まっている」状態は存在しない** (仕様 =「型は値の従属変数で
- * ある」)。`node.setProperty` / `edge.setProperty` は `{名前, 値}` であって型を運ばない
- * ので、型を知る道はここしかない。**property editor (Phase 4) と検索の結果一覧
- * (Phase 7) が同じ型を表示する**ための唯一の定義である。
+ * かつて `inferPropertyType` がここに在ったが撤去した。**型を指定するのは実装コードか
+ * template のような拡張であって、入力された値ではない**からである。カスタムの
+ * プロパティは node のインスタンスごとに値が違いうるので、その場の値から型を決めても
+ * **その型を使う場面が無い**。
  *
- * 値が無い (`undefined` / `null`) ときは `string` とする。「型が無い」を表に出すと
- * 表示側が空欄を扱わねばならなくなるが、値の無いプロパティは step 2 では削除と
- * 同じ意味なので、区別する利得が無い。
+ * 害もあった: 入力から型を決めて値を寄せると、`3` と打っただけで数値になり、
+ * **文字列の `"3"` を入れる手段が無くなる** (step 2 に型を指定する口は無い)。
+ *
+ * step 2 は型の宣言の仕組みを持たないので、編集できるプロパティはすべて custom =
+ * **文字列**である。宣言から型を引く形は step 3 (`PropertyType` はそのときの語彙)。
  */
-export function inferPropertyType(value: unknown): PropertyType {
-  if (Array.isArray(value)) return 'array';
-  if (typeof value === 'boolean') return 'boolean';
-  if (typeof value === 'number') return 'number';
-  if (typeof value === 'string') {
-    // **2 つのパターンは排他的なので、順序は結果を変えない** (変異で確認した)。
-    // `DATE_PATTERN` が `$` で終端を留めているため、日時の文字列には当たらないからである。
-    // **効いているのは順序ではなく終端の留めの方**で、`$` を外すと初めて順序に意味が
-    // 出る (そして日時が date になる)。動かしてはならないのは `$` である
-    if (DATETIME_PATTERN.test(value)) return 'datetime';
-    if (DATE_PATTERN.test(value)) return 'date';
-    return 'string';
-  }
-  if (value !== null && typeof value === 'object') return 'object';
-  return 'string';
-}
 
 /** プロパティ 1 つの変更。`value` の省略はそのプロパティの**削除** */
 export type PropertyChange = { name: PropertyName; value?: unknown };
