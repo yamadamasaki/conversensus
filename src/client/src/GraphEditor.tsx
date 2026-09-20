@@ -90,6 +90,8 @@ import { replaceNodeImage } from './images/replaceNodeImage';
 import { NodeCreationContext } from './NodeCreationContext';
 import type { NodeTypeOption } from './NodeTypeMenu';
 import { NodeTypeMenu } from './NodeTypeMenu';
+import { PropertyEditor } from './PropertyEditor';
+import { addablePropertyNames, propertyRows } from './property/propertyRows';
 import { useReadOnly } from './readOnlyContext';
 import { SearchPanel } from './SearchPanel';
 import { type SearchHit, searchSheet } from './search/searchSheet';
@@ -210,6 +212,11 @@ function GraphEditorInner({
   // 瞬間に「見つかりません」と出る
   const [searched, setSearched] = useState(false);
 
+  // property editor (step2 Phase 4 Q2)。**選択の観測経路がこれまで無かった** —
+  // `onSelectionChange` も `onNodeClick` も配線されておらず、選択は React Flow の
+  // nodes/edges にしか無い。そこから読む
+  const [propertyOpen, setPropertyOpen] = useState(false);
+
   // 常に最新の file / activeSheetId / onChange / deleted items を参照するための ref
   const fileRef = useRef(file);
   fileRef.current = file;
@@ -232,6 +239,37 @@ function GraphEditorInner({
   const readyForSave = useRef(false);
   // コンフリクトスタイル更新 (見た目のみ) による onChange 誤発火を抑制するフラグ
   const conflictUpdatePendingRef = useRef(false);
+
+  /**
+   * property editor が対象にしている要素 (step2 Phase 4 Q2)。
+   *
+   * **node を優先する。**両方選ばれていることがあり得るが、editor は 1 つの要素の
+   * 表である。ゴーストは対象外 — 消された要素のプロパティを編集させても行き先が無い。
+   */
+  const propertyTarget = useMemo(() => {
+    const node = nodes.find((n) => n.selected && !n.data?.ghost);
+    if (node)
+      return {
+        kind: 'node' as const,
+        id: node.id,
+        // **id をそのまま出さない** — UUID は人に読めない。本文か種別で呼ぶ
+        title: String(node.data?.content || node.data?.label || 'ノード'),
+        properties: node.data?.properties as
+          | Record<string, unknown>
+          | undefined,
+      };
+    const edge = edges.find((e) => e.selected && !e.data?.ghost);
+    if (edge)
+      return {
+        kind: 'edge' as const,
+        id: edge.id,
+        title: String(edge.label || '辺'),
+        properties: edge.data?.properties as
+          | Record<string, unknown>
+          | undefined,
+      };
+    return undefined;
+  }, [nodes, edges]);
 
   // **いま表示しているシートだけを引く** (仕様 searching.md「グラフ: 現在表示して
   // いる sheet, あるいは branch」)。branch を開くと activeFile.sheets の当該シートが
@@ -434,6 +472,47 @@ function GraphEditorInner({
   );
   const { dispatch, undo, redo, setDragging, exportState, importState } =
     useEventStore(nodes, edges, setNodes, setEdges, recordContent);
+
+  /**
+   * プロパティ 1 つの変更を op へ流す (step2 Phase 4 Q2)。
+   *
+   * **ここが「全体を載せる」契約を守る唯一の場所である。**`NODE_PROPERTIES_CHANGED` /
+   * `EDGE_PROPERTIES_CHANGED` の from/to は**置き換え後の全体**で、op に落ちる差分は
+   * その差から採る (#208 / レビュー R4)。画面が差分だけを載せると、他のキーが
+   * 「削除された」と読まれて消える (`ImageNode` が同じ約束を守っている)。
+   *
+   * **値の省略は削除**である (`diffProperties` の規則)。
+   *
+   * **`dispatch` より後ろに置く。**`propertyTarget` は nodes/edges だけに依るので
+   * 前に置けるが、こちらは `useEventStore` の戻りを使う
+   */
+  const applyPropertyChange = useCallback(
+    (name: string, value: unknown) => {
+      if (!propertyTarget) return;
+      const from = { ...(propertyTarget.properties ?? {}) };
+      const to = { ...from };
+      if (value === undefined) delete to[name];
+      else to[name] = value;
+      dispatch(
+        propertyTarget.kind === 'node'
+          ? {
+              ...makeEventBase('content'),
+              type: 'NODE_PROPERTIES_CHANGED',
+              nodeId: propertyTarget.id as NodeId,
+              from,
+              to,
+            }
+          : {
+              ...makeEventBase('content'),
+              type: 'EDGE_PROPERTIES_CHANGED',
+              edgeId: propertyTarget.id as EdgeId,
+              from,
+              to,
+            },
+      );
+    },
+    [propertyTarget, dispatch],
+  );
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: mount/unmount のみ (React key 変更による再マウント)
   useEffect(() => {
@@ -994,6 +1073,26 @@ function GraphEditorInner({
                 {/* 検索の口 (step2 Phase 7)。仕様「画面右上に検索窓, あるいは
                     検索ボタンで検索窓がポップアップ」の後者を採る — 常時出して
                     いると、この狭い帯が更に狭くなる */}
+                {/* プロパティの口 (step2 Phase 4 Q2)。**選んだ要素に対して出す** —
+                    node と edge の両方で同じ操作になる形を採った (右クリックに足すと
+                    「ノードには右クリックが無い」非対称が残る) */}
+                <button
+                  type="button"
+                  onClick={() => setPropertyOpen((open) => !open)}
+                  title="プロパティ"
+                  style={{
+                    padding: '6px 12px',
+                    fontSize: 13,
+                    cursor: 'pointer',
+                    background: propertyOpen ? '#7c9ef8' : '#e0e0e0',
+                    color: propertyOpen ? '#fff' : '#333',
+                    border: 'none',
+                    borderRadius: 6,
+                    marginRight: 4,
+                  }}
+                >
+                  🏷
+                </button>
                 <button
                   type="button"
                   onClick={() => setSearchOpen((open) => !open)}
@@ -1092,6 +1191,24 @@ function GraphEditorInner({
                 </button>
               </Panel>
             </ReactFlow>
+            {propertyOpen && propertyTarget && (
+              <PropertyEditor
+                title={propertyTarget.title}
+                rows={propertyRows(propertyTarget.properties)}
+                // **候補は edge にしか無い** — 宣言を持つのは `EdgeKind` だけである
+                addable={
+                  propertyTarget.kind === 'edge'
+                    ? addablePropertyNames(templates, propertyTarget.properties)
+                    : []
+                }
+                onSet={applyPropertyChange}
+                onRemove={(name: string) =>
+                  applyPropertyChange(name, undefined)
+                }
+                readOnly={readOnly}
+                onClose={() => setPropertyOpen(false)}
+              />
+            )}
             {searchOpen && (
               <SearchPanel
                 onSearch={handleSearch}
