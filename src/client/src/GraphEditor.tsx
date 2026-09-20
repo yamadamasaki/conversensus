@@ -91,8 +91,14 @@ import { NodeCreationContext } from './NodeCreationContext';
 import type { NodeTypeOption } from './NodeTypeMenu';
 import { NodeTypeMenu } from './NodeTypeMenu';
 import { useReadOnly } from './readOnlyContext';
+import { SearchPanel } from './SearchPanel';
+import { type SearchHit, searchSheet } from './search/searchSheet';
 
 const RF_INIT_DELAY_MS = 150;
+/** 検索結果から要素へ寄せるときの拡大率 (step2 Phase 7) */
+const REVEAL_ZOOM = 1.2;
+/** 寄せるのにかける時間。一瞬で飛ぶと、どこからどこへ動いたのか分からない */
+const REVEAL_DURATION_MS = 400;
 const DROP_TARGET_ATTR = 'data-drop-target'; // グループへ追加しようとしている
 const LEAVING_GROUP_ATTR = 'data-leaving-group'; // グループを出ようとしている
 
@@ -143,7 +149,8 @@ function GraphEditorInner({
   undoStateMap,
   receiveEpoch,
 }: Props) {
-  const { screenToFlowPosition, getNodes, getEdges } = useReactFlow();
+  const { screenToFlowPosition, getNodes, getEdges, setCenter } =
+    useReactFlow();
   // 再参加した後、同期が済むまでは編集させない (step2 Phase 2 S6)。
   // **props ではなく context で受ける** — 途中の層はこの値に用が無い
   const readOnly = useReadOnly();
@@ -188,6 +195,21 @@ function GraphEditorInner({
   // 出す — 既に 14 個ある GraphEditorProps をこのために増やす理由が無い
   const [imageError, setImageError] = useState<string | null>(null);
 
+  // 検索 (step2 Phase 7)。**状態をここに置く**のは、結果からグラフの要素を示すのに
+  // setNodes / setEdges / setCenter が要るからである。App へ持ち上げても、これらを
+  // 渡し直すことになるだけで得が無い。
+  //
+  // **シートや trunk/branch を切り替えると、この state は初期値に戻る** — App が
+  // `key={`${activeSheetId}/${branchId}`}` を渡しており、切り替えると此処ごと
+  // 再マウントされるからである。**窓も閉じる。**別のグラフへ移った時点で結果は
+  // 無効なので、それでよいと決めた (利用者判断 2026-09-20 → 見直しは step 3)。
+  // 捨てる effect を別に置く必要は無い (置いても再マウントが先で一度も発火しない)
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchHits, setSearchHits] = useState<SearchHit[]>([]);
+  // 「まだ引いていない」と「引いて 0 件」を分ける。同じ見た目にすると、開いた
+  // 瞬間に「見つかりません」と出る
+  const [searched, setSearched] = useState(false);
+
   // 常に最新の file / activeSheetId / onChange / deleted items を参照するための ref
   const fileRef = useRef(file);
   fileRef.current = file;
@@ -210,6 +232,46 @@ function GraphEditorInner({
   const readyForSave = useRef(false);
   // コンフリクトスタイル更新 (見た目のみ) による onChange 誤発火を抑制するフラグ
   const conflictUpdatePendingRef = useRef(false);
+
+  // **いま表示しているシートだけを引く** (仕様 searching.md「グラフ: 現在表示して
+  // いる sheet, あるいは branch」)。branch を開くと activeFile.sheets の当該シートが
+  // branch の projection に差し替わるので、ここを読むだけで両方に効く
+  const handleSearch = useCallback((query: string, caseSensitive: boolean) => {
+    const sheet = fileRef.current.sheets.find(
+      (s) => s.id === activeSheetIdRef.current,
+    );
+    setSearchHits(sheet ? searchSheet(sheet, query, { caseSensitive }) : []);
+    setSearched(query !== '');
+  }, []);
+
+  // 結果の 1 件をグラフで示す (仕様「ダブル・クリックにより, グラフ内で対象を
+  // ハイライト表示」)。**React Flow の選択に寄せる** — 差分の色 (diffType の緑/橙) と
+  // 混ざらず、再 seed のたびにハイライトを塗り直す配線も要らない
+  const handleReveal = useCallback(
+    (hit: SearchHit) => {
+      const isNode = hit.elementKind === 'node';
+      setNodes((current) =>
+        current.map((n) => ({ ...n, selected: isNode && n.id === hit.id })),
+      );
+      setEdges((current) =>
+        current.map((e) => ({ ...e, selected: !isNode && e.id === hit.id })),
+      );
+      // 辺そのものは座標を持たないので、**始点のノードに寄せる**。
+      // 画面の外に居る要素を選んだだけでは、選んだことが見えない
+      const target = isNode
+        ? getNodes().find((n) => n.id === hit.id)
+        : getNodes().find(
+            (n) => n.id === getEdges().find((e) => e.id === hit.id)?.source,
+          );
+      if (!target) return;
+      setCenter(
+        target.position.x + (target.measured?.width ?? 0) / 2,
+        target.position.y + (target.measured?.height ?? 0) / 2,
+        { zoom: REVEAL_ZOOM, duration: REVEAL_DURATION_MS },
+      );
+    },
+    [getNodes, getEdges, setCenter, setNodes, setEdges],
+  );
 
   // file.id / activeSheetId が変わったとき、および受信 swap (receiveEpoch の増加,
   // Phase 4e-3) のとき React Flow の state をリセットする。受信 swap は file.id が
@@ -929,6 +991,26 @@ function GraphEditorInner({
               <Controls />
               <MiniMap />
               <Panel position="top-right">
+                {/* 検索の口 (step2 Phase 7)。仕様「画面右上に検索窓, あるいは
+                    検索ボタンで検索窓がポップアップ」の後者を採る — 常時出して
+                    いると、この狭い帯が更に狭くなる */}
+                <button
+                  type="button"
+                  onClick={() => setSearchOpen((open) => !open)}
+                  title="このシートを検索"
+                  style={{
+                    padding: '6px 12px',
+                    fontSize: 13,
+                    cursor: 'pointer',
+                    background: searchOpen ? '#7c9ef8' : '#e0e0e0',
+                    color: searchOpen ? '#fff' : '#333',
+                    border: 'none',
+                    borderRadius: 6,
+                    marginRight: 8,
+                  }}
+                >
+                  🔍
+                </button>
                 <button
                   type="button"
                   onClick={undo}
@@ -1010,6 +1092,19 @@ function GraphEditorInner({
                 </button>
               </Panel>
             </ReactFlow>
+            {searchOpen && (
+              <SearchPanel
+                onSearch={handleSearch}
+                hits={searchHits}
+                searched={searched}
+                onReveal={handleReveal}
+                onClose={() => {
+                  setSearchOpen(false);
+                  setSearchHits([]);
+                  setSearched(false);
+                }}
+              />
+            )}
             {nodeTypeMenu && (
               <NodeTypeMenu
                 position={nodeTypeMenu.screenPos}

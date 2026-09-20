@@ -74,6 +74,83 @@ export function canonicalProperties(
   return next;
 }
 
+/**
+ * プロパティの種類 (`deepse/requirements/spec/propertyEditor.md`「名前」)
+ *
+ * 可視性と変更可能性がここで決まる — system は見えず変更できない、custom は見えて
+ * 変更できる、extension はその中間 (拡張側が制御する)。
+ */
+export type PropertyCategory = 'system' | 'extension' | 'custom';
+
+/**
+ * 名前からプロパティの種類を判定する。
+ *
+ * 仕様の判定規則は **「名前が `.` を含むか否か」の一点**である。`.` を含まない名前は
+ * すべて custom で、含むものは名前空間を持つ = system か extension になる。
+ * system はそのうち `app.conversensus.` で始まるもの (本体のもの) だけである。
+ *
+ * **template は extension である** — 本体のものではないので system の枠には入らない
+ * (仕様「実際に使われている extension」)。
+ */
+export function propertyCategory(name: PropertyName): PropertyCategory {
+  if (name.startsWith(SYSTEM_PROPERTY_PREFIX)) return 'system';
+  return name.includes('.') ? 'extension' : 'custom';
+}
+
+/**
+ * プロパティの型 (`deepse/requirements/spec/propertyEditor.md`「型制約」)
+ *
+ * 仕様が挙げる型のうち**ユニオン・リテラル (`|`) は無い** — ユニオンは「取りうる値の
+ * 集合」を述べるものなので、値 1 つからは推論できない。型を保存する語彙ができる
+ * step 3 で初めて存在しうる。
+ *
+ * 逆に `object` は仕様の一覧に無いが**要る** — `app.conversensus.image` が構造体
+ * (`{cid, mimeType, size}`) だからである (仕様「`image` だけは構造体なので, 型の扱いを
+ * 別に決める必要がある」)。
+ */
+export type PropertyType =
+  | 'string'
+  | 'number'
+  | 'boolean'
+  | 'date'
+  | 'datetime'
+  | 'array'
+  | 'object';
+
+/** `YYYY-MM-DD`。**日付だけ**で時刻を伴わないもの */
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+/** `YYYY-MM-DDThh:mm` 以降。区切りは ISO 8601 の `T` と、実地で書かれる空白を許す */
+const DATETIME_PATTERN = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/;
+
+/**
+ * 値から型を推論する。
+ *
+ * **step 2 に「型が先に決まっている」状態は存在しない** (仕様 =「型は値の従属変数で
+ * ある」)。`node.setProperty` / `edge.setProperty` は `{名前, 値}` であって型を運ばない
+ * ので、型を知る道はここしかない。**property editor (Phase 4) と検索の結果一覧
+ * (Phase 7) が同じ型を表示する**ための唯一の定義である。
+ *
+ * 値が無い (`undefined` / `null`) ときは `string` とする。「型が無い」を表に出すと
+ * 表示側が空欄を扱わねばならなくなるが、値の無いプロパティは step 2 では削除と
+ * 同じ意味なので、区別する利得が無い。
+ */
+export function inferPropertyType(value: unknown): PropertyType {
+  if (Array.isArray(value)) return 'array';
+  if (typeof value === 'boolean') return 'boolean';
+  if (typeof value === 'number') return 'number';
+  if (typeof value === 'string') {
+    // **2 つのパターンは排他的なので、順序は結果を変えない** (変異で確認した)。
+    // `DATE_PATTERN` が `$` で終端を留めているため、日時の文字列には当たらないからである。
+    // **効いているのは順序ではなく終端の留めの方**で、`$` を外すと初めて順序に意味が
+    // 出る (そして日時が date になる)。動かしてはならないのは `$` である
+    if (DATETIME_PATTERN.test(value)) return 'datetime';
+    if (DATE_PATTERN.test(value)) return 'date';
+    return 'string';
+  }
+  if (value !== null && typeof value === 'object') return 'object';
+  return 'string';
+}
+
 /** プロパティ 1 つの変更。`value` の省略はそのプロパティの**削除** */
 export type PropertyChange = { name: PropertyName; value?: unknown };
 
