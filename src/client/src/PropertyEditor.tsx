@@ -5,7 +5,7 @@
  *
  * ## 何を出すかは決めない
  *
- * 行の選別 (system を除く)、型の推論、編集させるかの判断は **Q1 (`propertyRows`) が
+ * 行の選別 (system を除く)、型、編集させるかの判断は **Q1 (`propertyRows`) が
  * 済ませている**。ここは受け取った行を描き、操作を上へ返すだけである。分けているのは、
  * 可視性の判断と見た目を同じ場所に置くと「見た目を直したら system が見えるように
  * なった」が起こりうるからで、プロパティは op-log に載って全参加者に共有されるので
@@ -26,11 +26,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import {
-  coercePropertyValue,
-  type PropertyRow,
-  type ReadOnlyReason,
-} from './property/propertyRows';
+import type { PropertyRow, ReadOnlyReason } from './property/propertyRows';
 import { FLOATING_UI_Z_INDEX } from './SettingsPopup';
 
 /** 検索窓 (800) より下、画面上の浮遊 UI と同じ層 */
@@ -45,6 +41,14 @@ const READ_ONLY_NOTE: Record<ReadOnlyReason, string> = {
   structuredValue: '構造を持つ値はこの画面では編集できません',
 };
 
+/**
+ * 型の表示名。
+ *
+ * **step 2 に来るのは `string` だけである** — 型は宣言から来るもので、step 2 は
+ * 宣言の仕組みを持たないからである (利用者判断 2026-09-20)。残りを残してあるのは
+ * **宣言から型が引ける step 3 のため**で、そのとき拡張が `number` や `date` を
+ * 宣言しうる。消すと、そのたびに表を作り直すことになる。
+ */
 const TYPE_LABEL: Record<string, string> = {
   string: '文字列',
   number: '数値',
@@ -251,7 +255,14 @@ function PropertyField({
 
   const commit = () => {
     if (draft === shown) return; // 変わらないものは op-log に積まない (Phase 5 の判断)
-    onSet(row.name, coercePropertyValue(draft, row.type));
+    // **値は文字列のまま保存する** (利用者判断 2026-09-20)。
+    //
+    // 型を指定するのは**実装コードか template のような拡張**であって、入力された値
+    // ではない。custom のプロパティは node のインスタンスごとに値が違いうるので、
+    // その場の値から型を決めても**その型を使う場面が無い**。
+    // 入力から型を推論して寄せると、`3` と打っただけで数値になり、
+    // 文字列の `"3"` を入れる手段が無くなる (step2 に型を指定する口は無い)。
+    onSet(row.name, draft);
   };
 
   return (

@@ -9,17 +9,23 @@
  * 分ける理由は、この判断が仕様の可視性の表そのものだからで、表と見た目を同じ場所に
  * 置くと「見た目を直したら system が見えるようになった」が起こりうる。
  *
- * ## 型は値から推論する
+ * ## 型は宣言から来る (値から推論しない)
  *
- * **step 2 に「型が先に決まっている」状態は存在しない** (仕様「型は値の従属変数で
- * ある」)。`node.setProperty` / `edge.setProperty` は `{名前, 値}` しか運ばない。
- * 推論は `inferPropertyType` に委ね、検索の結果一覧 (Phase 7) と**同じ型を出す**。
+ * **型を指定するのは実装コードか template のような拡張であって、入力された値では
+ * ない** (利用者判断 2026-09-20)。カスタムのプロパティは node のインスタンスごとに
+ * 値が違いうるので、その場の値から型を決めても**その型を使う場面が無い**。
+ *
+ * step 2 は型の宣言の仕組みを持たないので、編集できるプロパティはすべて custom =
+ * **文字列**である。一覧に「文字列」と出すのは推測ではなく事実で、検索の結果一覧
+ * (Phase 7) も同じ規則に揃えてある。
+ *
+ * **型の出どころと編集可否は別の軸である** — 拡張が定義する属性には、型を持ちつつ
+ * 値をユーザが上書きできるものもありうる。だから `type` と `readOnly` を別に持つ。
  */
 
 import {
   type EdgeKindRef,
   edgeKindsOf,
-  inferPropertyType,
   isKindProperty,
   kindPropertyOf,
   type PropertyName,
@@ -94,9 +100,15 @@ export function propertyRows(
   const rows: PropertyRow[] = [];
   for (const [name, value] of Object.entries(properties ?? {})) {
     if (hidden(name)) continue;
-    const type = inferPropertyType(value);
-    const readOnly = readOnlyReasonOf(name, type);
-    rows.push({ name, value, type, ...(readOnly ? { readOnly } : {}) });
+    const readOnly = readOnlyReasonOf(name, value);
+    // **型は宣言から来る。**step2 に宣言の仕組みは無く、編集できるプロパティは
+    // すべて custom なので文字列である。**推測ではなく事実** — 値が文字列だからである
+    rows.push({
+      name,
+      value,
+      type: 'string',
+      ...(readOnly ? { readOnly } : {}),
+    });
   }
   return rows.sort(byName);
 }
@@ -108,39 +120,19 @@ export function propertyRows(
  * 構造体は「編集の**仕方が無い**」である。両方に当たる値 (種別が配列になっている、
  * など op-log が壊れている場合) では、**禁止の方を出す** — 画面の説明として
  * 「変更できない種別です」の方が正しい。
+ *
+ * **構造体かどうかは値の形から見る。**型は宣言から来るので常に `'string'` であり、
+ * 型を見ても配列を見分けられない。ここで問うているのは「宣言された型」ではなく
+ * 「文字列欄で編集できる形か」なので、値そのものを見るのが正しい。
  */
 function readOnlyReasonOf(
   name: string,
-  type: PropertyType,
+  value: unknown,
 ): ReadOnlyReason | undefined {
   if (isKindProperty(name)) return 'templateKind';
-  if (type === 'array' || type === 'object') return 'structuredValue';
+  if (Array.isArray(value)) return 'structuredValue';
+  if (value !== null && typeof value === 'object') return 'structuredValue';
   return undefined;
-}
-
-/**
- * 文字列欄で編集された値を、**元の型に寄せて**返す。
- *
- * **型は値の従属変数である** (仕様) ので、型を保存する場所は無い。素直に文字列で
- * 保存すると、`優先度: 3` を `4` に直しただけで型が number から string へ黙って
- * 変わる。編集のたびに型が変わるのは、型を表示する意味を失わせる。
- *
- * **寄せられなければ文字列のままにする。**`3` を `やや高い` に直したなら、それは
- * 型が変わったのであって誤りではない。検証は step3 なので、ここで拒まない。
- */
-export function coercePropertyValue(text: string, type: PropertyType): unknown {
-  if (type === 'number') {
-    // **空文字を 0 にしない。**`Number('')` は 0 だが、消したい意図を数値に化かす
-    if (text.trim() === '') return text;
-    const n = Number(text);
-    return Number.isNaN(n) ? text : n;
-  }
-  if (type === 'boolean') {
-    if (text === 'true') return true;
-    if (text === 'false') return false;
-    return text;
-  }
-  return text;
 }
 
 /**

@@ -5,11 +5,7 @@ import {
   TemplateSchema,
   TOULMIN_TEMPLATE,
 } from '@conversensus/shared';
-import {
-  addablePropertyNames,
-  coercePropertyValue,
-  propertyRows,
-} from './propertyRows';
+import { addablePropertyNames, propertyRows } from './propertyRows';
 
 const KIND = 'jp.co.metabolics.toulmin.kind';
 
@@ -128,53 +124,24 @@ describe('構造を持つ値は編集させない', () => {
   });
 });
 
-describe('文字列欄の値を元の型へ寄せる', () => {
-  it('数値は数値に戻る', () => {
-    // 型は値の従属変数なので、素直に文字列で保存すると `3` を `4` に直しただけで
-    // 型が number から string へ黙って変わる
-    expect(coercePropertyValue('4', 'number')).toBe(4);
-    expect(coercePropertyValue('-2.5', 'number')).toBe(-2.5);
-  });
-
-  it('寄せられなければ文字列のまま', () => {
-    // `3` → `やや高い` は型が変わったのであって誤りではない (検証は step3)
-    expect(coercePropertyValue('やや高い', 'number')).toBe('やや高い');
-  });
-
-  it('空文字を 0 にしない', () => {
-    // `Number('')` は 0 だが、消したい意図を数値に化かしてはいけない
-    expect(coercePropertyValue('', 'number')).toBe('');
-    expect(coercePropertyValue('  ', 'number')).toBe('  ');
-  });
-
-  it('真偽値は true/false だけを寄せる', () => {
-    expect(coercePropertyValue('true', 'boolean')).toBe(true);
-    expect(coercePropertyValue('false', 'boolean')).toBe(false);
-    expect(coercePropertyValue('はい', 'boolean')).toBe('はい');
-  });
-
-  it('文字列・日付はそのまま', () => {
-    expect(coercePropertyValue('2026-09-20', 'date')).toBe('2026-09-20');
-    expect(coercePropertyValue('x', 'string')).toBe('x');
-  });
-});
-
-describe('型は値から推論する', () => {
-  it('検索の結果一覧と同じ型が出る', () => {
-    // 同じプロパティが片方で date、片方で string に見えてはいけない
+describe('型は宣言から来る (値から推論しない)', () => {
+  it('どの値でも文字列になる', () => {
+    // **型を指定するのは実装コードか拡張であって、入力された値ではない**
+    // (利用者判断 2026-09-20)。step2 に宣言の仕組みは無く、編集できるプロパティは
+    // すべて custom なので文字列である。`2026-09-20` に「日付」と出すのは、
+    // 宣言されていない型の推測になる
     const rows = propertyRows({
       期限: '2026-09-20',
       優先度: 3,
       確定: true,
       出典: ['甲'],
     });
-    const byName = Object.fromEntries(rows.map((r) => [r.name, r.type]));
-    expect(byName).toEqual({
-      期限: 'date',
-      優先度: 'number',
-      確定: 'boolean',
-      出典: 'array',
-    });
+    expect(rows.every((r) => r.type === 'string')).toBe(true);
+  });
+
+  it('検索の結果一覧と同じ規則である', () => {
+    // 同じプロパティが片方で「日付」、片方で「文字列」に見えてはいけない
+    expect(propertyRows({ 期限: '2026-09-20' })[0].type).toBe('string');
   });
 });
 

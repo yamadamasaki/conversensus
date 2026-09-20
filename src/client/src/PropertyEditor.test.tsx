@@ -18,7 +18,8 @@ afterEach(() => {
 });
 
 function row(over: Partial<PropertyRow> = {}): PropertyRow {
-  return { name: '期限', value: '2026-09-20', type: 'date', ...over };
+  // **型は宣言から来るので文字列である** (値から推論しない、利用者判断 2026-09-20)
+  return { name: '期限', value: '2026-09-20', type: 'string', ...over };
 }
 
 function show(props: Partial<Parameters<typeof PropertyEditor>[0]> = {}) {
@@ -66,7 +67,9 @@ describe('編集できるかで要素そのものを変える', () => {
         row({
           name: '出典',
           value: ['甲', '乙'],
-          type: 'array',
+          // **型は宣言から来るので文字列である** (値から推論しない)。
+          // 構造体かどうかは型ではなく**値の形**で判断している (Q1)
+          type: 'string',
           readOnly: 'structuredValue',
         }),
       ],
@@ -126,23 +129,24 @@ describe('値の確定', () => {
   });
 });
 
-describe('型を保って返す', () => {
-  it('数値は数値のまま返る', () => {
-    // 文字列で返すと型が number から string へ黙って変わり、型を出す意味が失われる
-    show({ rows: [row({ name: '優先度', value: 3, type: 'number' })] });
+describe('値は文字列のまま返す', () => {
+  it('数値に見えても文字列で返る', () => {
+    // **型を指定するのは実装コードか拡張であって、入力された値ではない**
+    // (利用者判断 2026-09-20)。入力から推論して寄せると、`3` と打っただけで
+    // 数値になり、文字列の `"3"` を入れる手段が無くなる
+    show({ rows: [row({ name: '優先度', value: '3', type: 'string' })] });
     const field = screen.getByLabelText('優先度 の値');
     fireEvent.change(field, { target: { value: '4' } });
     fireEvent.keyDown(field, { key: 'Enter' });
-    expect(onSet).toHaveBeenCalledWith('優先度', 4);
+    expect(onSet).toHaveBeenCalledWith('優先度', '4');
   });
 
-  it('寄せられなければ文字列のまま返る', () => {
-    // `3` → `やや高い` は型が変わったのであって誤りではない (検証は step3)
-    show({ rows: [row({ name: '優先度', value: 3, type: 'number' })] });
-    const field = screen.getByLabelText('優先度 の値');
-    fireEvent.change(field, { target: { value: 'やや高い' } });
+  it('真偽値に見えても文字列で返る', () => {
+    show({ rows: [row({ name: '確定', value: 'false', type: 'string' })] });
+    const field = screen.getByLabelText('確定 の値');
+    fireEvent.change(field, { target: { value: 'true' } });
     fireEvent.keyDown(field, { key: 'Enter' });
-    expect(onSet).toHaveBeenCalledWith('優先度', 'やや高い');
+    expect(onSet).toHaveBeenCalledWith('確定', 'true');
   });
 });
 

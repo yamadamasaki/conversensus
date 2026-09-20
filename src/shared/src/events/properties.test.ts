@@ -6,7 +6,6 @@ import {
   canonicalProperties,
   canonicalPropertyName,
   diffProperties,
-  inferPropertyType,
   propertyCategory,
   SYSTEM_PROPERTY_PREFIX,
 } from './properties';
@@ -203,37 +202,13 @@ describe('種類の判定 (propertyCategory)', () => {
   });
 });
 
-describe('型の推論 (inferPropertyType)', () => {
-  test('値の形から型を決める', () => {
-    expect(inferPropertyType('abc')).toBe('string');
-    expect(inferPropertyType(42)).toBe('number');
-    expect(inferPropertyType(true)).toBe('boolean');
-    expect(inferPropertyType(['a', 'b'])).toBe('array');
-    // 仕様の一覧には無いが要る — `app.conversensus.image` が構造体だからである
-    expect(inferPropertyType({ cid: 'x', mimeType: 'image/png' })).toBe(
-      'object',
-    );
-  });
-
-  test('datetime を date より先に見る', () => {
-    // 日時の文字列は先頭が日付の形をしているので、date から先に当てると
-    // 時刻が落ちた型になる
-    expect(inferPropertyType('2026-09-20T10:30')).toBe('datetime');
-    expect(inferPropertyType('2026-09-20T10:30:00Z')).toBe('datetime');
-    // 実地で書かれる空白区切りも日時として読む
-    expect(inferPropertyType('2026-09-20 10:30')).toBe('datetime');
-    expect(inferPropertyType('2026-09-20')).toBe('date');
-  });
-
-  test('日付の形をしていない文字列は string', () => {
-    expect(inferPropertyType('2026-09')).toBe('string');
-    expect(inferPropertyType('2026-09-20 の予定')).toBe('string');
-  });
-
-  test('値が無ければ string', () => {
-    // 「型が無い」を表に出すと表示側が空欄を扱うことになるが、値の無いプロパティは
-    // step 2 では削除と同じ意味なので区別する利得が無い
-    expect(inferPropertyType(undefined)).toBe('string');
-    expect(inferPropertyType(null)).toBe('string');
-  });
-});
+// **型を値から推論する describe はここに在ったが、関数ごと撤去した** (2026-09-20)。
+//
+// 型を指定するのは実装コードか template のような拡張であって、入力された値ではない
+// (利用者判断)。カスタムのプロパティは node のインスタンスごとに値が違いうるので、
+// その場の値から型を決めても**その型を使う場面が無い**。
+//
+// 害もあった: 入力から型を決めて値を寄せると `3` と打っただけで数値になり、
+// **文字列の `"3"` を入れる手段が無くなる** (step 2 に型を指定する口は無い)。
+//
+// 経緯は `properties.test.md` に残してある。`PropertyType` は宣言の語彙として残る。
