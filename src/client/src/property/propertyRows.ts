@@ -31,7 +31,14 @@ import {
 /** なぜ編集できないか。**理由を持つ**のは、画面が「なぜ灰色なのか」を言えるようにするため */
 export type ReadOnlyReason =
   /** template が付けた種別。作成時に決まり変更できない (仕様 OnMutation) */
-  'templateKind';
+  | 'templateKind'
+  /**
+   * 配列・構造体。**編集の仕方が決まっていない** — 文字列欄で直させると、区切りの
+   * 解釈規則をここで発明することになり、`['甲','乙']` と `['甲, 乙']` を分けられない。
+   * 仕様は構造体の型の扱いを「別に決める必要がある」として先送りしている。
+   * **値ごと差し替える口 (削除して追加し直す) は残る**ので、行き止まりにはならない。
+   */
+  | 'structuredValue';
 
 /** property editor の 1 行 */
 export type PropertyRow = {
@@ -87,14 +94,53 @@ export function propertyRows(
   const rows: PropertyRow[] = [];
   for (const [name, value] of Object.entries(properties ?? {})) {
     if (hidden(name)) continue;
-    rows.push({
-      name,
-      value,
-      type: inferPropertyType(value),
-      ...(isKindProperty(name) ? { readOnly: 'templateKind' as const } : {}),
-    });
+    const type = inferPropertyType(value);
+    const readOnly = readOnlyReasonOf(name, type);
+    rows.push({ name, value, type, ...(readOnly ? { readOnly } : {}) });
   }
   return rows.sort(byName);
+}
+
+/**
+ * 編集できない理由。無ければ編集できる。
+ *
+ * **権限が先、能力が後。**種別は「編集して**はいけない**」(仕様 OnMutation)、
+ * 構造体は「編集の**仕方が無い**」である。両方に当たる値 (種別が配列になっている、
+ * など op-log が壊れている場合) では、**禁止の方を出す** — 画面の説明として
+ * 「変更できない種別です」の方が正しい。
+ */
+function readOnlyReasonOf(
+  name: string,
+  type: PropertyType,
+): ReadOnlyReason | undefined {
+  if (isKindProperty(name)) return 'templateKind';
+  if (type === 'array' || type === 'object') return 'structuredValue';
+  return undefined;
+}
+
+/**
+ * 文字列欄で編集された値を、**元の型に寄せて**返す。
+ *
+ * **型は値の従属変数である** (仕様) ので、型を保存する場所は無い。素直に文字列で
+ * 保存すると、`優先度: 3` を `4` に直しただけで型が number から string へ黙って
+ * 変わる。編集のたびに型が変わるのは、型を表示する意味を失わせる。
+ *
+ * **寄せられなければ文字列のままにする。**`3` を `やや高い` に直したなら、それは
+ * 型が変わったのであって誤りではない。検証は step3 なので、ここで拒まない。
+ */
+export function coercePropertyValue(text: string, type: PropertyType): unknown {
+  if (type === 'number') {
+    // **空文字を 0 にしない。**`Number('')` は 0 だが、消したい意図を数値に化かす
+    if (text.trim() === '') return text;
+    const n = Number(text);
+    return Number.isNaN(n) ? text : n;
+  }
+  if (type === 'boolean') {
+    if (text === 'true') return true;
+    if (text === 'false') return false;
+    return text;
+  }
+  return text;
 }
 
 /**

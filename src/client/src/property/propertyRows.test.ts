@@ -5,7 +5,11 @@ import {
   TemplateSchema,
   TOULMIN_TEMPLATE,
 } from '@conversensus/shared';
-import { addablePropertyNames, propertyRows } from './propertyRows';
+import {
+  addablePropertyNames,
+  coercePropertyValue,
+  propertyRows,
+} from './propertyRows';
 
 const KIND = 'jp.co.metabolics.toulmin.kind';
 
@@ -96,6 +100,62 @@ describe('extension は出すが、種別だけは編集させない', () => {
     // isKindProperty は語尾だけを見る。描画側に template を配るより漏れない
     const rows = propertyRows({ 'com.unknown.vendor.kind': 'x' });
     expect(rows[0].readOnly).toBe('templateKind');
+  });
+});
+
+describe('構造を持つ値は編集させない', () => {
+  it('配列と構造体には structuredValue が付く', () => {
+    // 文字列欄で直させると、区切りの解釈規則をここで発明することになり、
+    // `['甲','乙']` と `['甲, 乙']` を分けられない
+    const rows = propertyRows({ 出典: ['甲', '乙'], 諸元: { a: 1 } });
+    const reasons = Object.fromEntries(rows.map((r) => [r.name, r.readOnly]));
+    expect(reasons).toEqual({
+      出典: 'structuredValue',
+      諸元: 'structuredValue',
+    });
+  });
+
+  it('文字列・数値・真偽値は編集できる', () => {
+    const rows = propertyRows({ 備考: 'x', 優先度: 1, 確定: true });
+    expect(rows.every((r) => r.readOnly === undefined)).toBe(true);
+  });
+
+  it('権限が先、能力が後 — 種別が構造体でも templateKind を出す', () => {
+    // op-log が壊れている場合でも、画面の説明としては
+    // 「変更できない種別です」の方が正しい
+    const rows = propertyRows({ 'jp.co.x.kind': ['壊れている'] });
+    expect(rows[0].readOnly).toBe('templateKind');
+  });
+});
+
+describe('文字列欄の値を元の型へ寄せる', () => {
+  it('数値は数値に戻る', () => {
+    // 型は値の従属変数なので、素直に文字列で保存すると `3` を `4` に直しただけで
+    // 型が number から string へ黙って変わる
+    expect(coercePropertyValue('4', 'number')).toBe(4);
+    expect(coercePropertyValue('-2.5', 'number')).toBe(-2.5);
+  });
+
+  it('寄せられなければ文字列のまま', () => {
+    // `3` → `やや高い` は型が変わったのであって誤りではない (検証は step3)
+    expect(coercePropertyValue('やや高い', 'number')).toBe('やや高い');
+  });
+
+  it('空文字を 0 にしない', () => {
+    // `Number('')` は 0 だが、消したい意図を数値に化かしてはいけない
+    expect(coercePropertyValue('', 'number')).toBe('');
+    expect(coercePropertyValue('  ', 'number')).toBe('  ');
+  });
+
+  it('真偽値は true/false だけを寄せる', () => {
+    expect(coercePropertyValue('true', 'boolean')).toBe(true);
+    expect(coercePropertyValue('false', 'boolean')).toBe(false);
+    expect(coercePropertyValue('はい', 'boolean')).toBe('はい');
+  });
+
+  it('文字列・日付はそのまま', () => {
+    expect(coercePropertyValue('2026-09-20', 'date')).toBe('2026-09-20');
+    expect(coercePropertyValue('x', 'string')).toBe('x');
   });
 });
 
