@@ -17,7 +17,8 @@
     "lint": "bun --bun biome check src/ tests/ playwright.config.ts",
     "lint:fix": "bun --bun biome check --write src/ tests/ playwright.config.ts",
     "setup": "cp scripts/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit && echo 'pre-commit hook installed'",
-    "test": "bun test",
+    "test": "bun test && bun run test:app",
+    "test:app": "bun test $(find src -name '*.app-test.tsx' | sed 's|^|./|')",
     "clear-pds-data": "bun run --cwd src/client scripts/clear-pds-data.ts",
     "test:e2e": "playwright test",
     "test:e2e:webkit": "playwright test --project=webkit"

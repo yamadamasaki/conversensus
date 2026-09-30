@@ -25,7 +25,7 @@ bun run setup   # pre-commit hook をインストール (lint + typecheck が co
 - 自明なコード (型定義のみ, fetch の薄いラッパーなど) を除き, 単体テストを書く
 - テストファイルはテスト対象と同じディレクトリに置く: `foo.ts` → `foo.test.ts`
 - テストファイルと同じ場所に `foo.test.md` を置き, **何を・なぜ・どのようにテストするか** を記述する
-- テスト実行: `bun test`
+- テスト実行: `bun run test` (単体 `bun test` + App 結合 `bun run test:app`)
 - **テスト・コードも型検査の対象にする** (`bun run typecheck`)。`bun test` は transpile only で
   走るので, ここで見ないとフェイクと本物のインタフェースの乖離が実行時まで分からない
   - 単体: client は `src/client/tsconfig.test.json` (本番ビルド用の `tsconfig.app.json` と分ける),
@@ -42,6 +42,16 @@ bun run setup   # pre-commit hook をインストール (lint + typecheck が co
   - 値は**広い生成器より小さなプールが効く**ことが多い. 広いと同じ値を引かないので, 「差分が空になる」ような境界に当たらない (実例: `properties.test.md`)
 - 性質が見つけた反例は, **例のテストとして残す**. 乱数が毎回そこを引く保証はない
 - 例ベースのテストを置き換えるのではなく, **全称命題の部分だけを性質にする**. 具体的な振舞いの固定は例の方が読みやすい
+
+### App 結合
+
+- **フックと子の間を一周する値**を見る層 (step3 Phase 0 で新設)。`<App />` を丸ごと描き,
+  通信の境界 (ローカルサーバ / PDS) だけを `fetch` の所で差し替える
+  (`src/client/src/testing/appWorld.ts`)。内側は本物
+- ファイル名は `*.app-test.tsx`, 添える仕様書は `*.app-test.md`
+- 実行: `bun run test:app` (**別プロセス**。`bun run test` は単体の後にこれも走らせる)。
+  既存の `mock.module` がプロセス全体に効くため, 単体と同じプロセスでは走らせない
+- 実機で出た無言の失敗 (op-log は正しいのに画面が古い, など) はここで再現する
 
 ### E2E (ブラウザ)
 
