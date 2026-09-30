@@ -8,48 +8,48 @@
 
 ## 1. 位置づけ
 
-step3 は、step1 (personal use)・step2 (community use) の基盤の上に、(あえて言うならば)
+step 3 は, step 1 (personal use), step 2 (community use) の基盤の上に,  (あえて言うならば)
 the first public release (FPR) してもよいと判断できるグレードまで refinement することが
-中心となる。したがって、開発は plan base ではなく、issue base で行う。
+中心となる. したがって, 開発は plan base ではなく, issue base で行う.
 
 > 注: この方針は §3.1 で「FPR 前はデータモデルの変更を含むので plans、FPR 後は issue」と
 > 分け直した。
 
-### 1.1 step2 で得られた教訓を実現する
+### 1.1 step 2 で得られた教訓を実現する
 
 - [step3-entry.md](../plans/step3-entry.md)
   - 最後の critic review で指摘された問題点
   - vector clock
   - その他我々自身の観点
-- ただし、これは以下に述べる UI/UX refinement を見た上で、その基盤としてどれをどう実装するかを
+- ただし, これは以下に述べる UI/UX refinement を見た上で, その基盤としてどれをどう実装するかを
   一緒に取捨選択したい
-  - 逆に基盤側の視点から、この UI/UX refinement の項目の実現は難しいだろう、というのも知りたい
-- 実装自体は step3 の初期にやった方がよいものが多いだろう
+  - 逆に基盤側の視点から, この UI/UX refinement の項目の実現は難しいだろう, というのも知りたい
+- 実装自体は step 3 の初期にやった方がよいものが多いだろう
 - **既存の op-log との互換性は考慮しなくてよい**
-  - FPR を控えて、きれいにしておきたいから
+  - FPR を控えて, きれいにしておきたいから
 
 ## 2. UI/UX refinement
 
-graph merge は人間にとって (も) 本質的に難しい問題である。したがって、
+graph merge は人間にとって (も) 本質的に難しい問題である. したがって,
 
-- まずは、それをシステムの側から最大限サポートする (step3)
-- しかし、最終的には人間同士の対話が決め手になる (step4 以降)
+- まずは, それをシステムの側から最大限サポートする (Step 3)
+- しかし, 最終的には人間同士の対話が決め手になる (Step 4 以降)
   - リアルタイム同期の提供
     - これを今の段階で実装する価値があるかどうかを議論したい
       - ATProto の範囲で妥当な実装が可能か?
-      - conversensus が想定している計算/通信資源を考えると、その方向で解決していいのか?
+      - conversensus が想定している計算/通信資源を考えると, その方向で解決していいのか?
   - オンライン・チャットなどの利用
-    - 本当はアカウントを共用できる ATProto ベースのものが良いが、今はまだ発展期なので、
+    - 本当はアカウントを共用できる ATProto ベースのものが良いが, 今はまだ発展期なので,
       zoom, slack などで代用する
 
-これを最大の問題点と考え、UI/UX refinement として他の点も含めて以下に列挙する。
+これを最大の問題点と考え, UI/UX refinement として他の点も含めて以下に列挙する.
 
 - i18n
-  - で、英語 (en) も追加する
+  - で, 英語 (en) も追加する
 - user's guide, examples の提供
-  - step3 完了後にやる
+  - Step 3 完了後にやる
 - デザイン言語
-  - 基本的には Notion, Obsidian のような collaborative work や knowledge management 用途に
+  - 基本的には notion, obsidian のような collaborative work や knowledge management 用途に
     広く使われているツールに倣う
   - conversensus の基本的な概念を UI/UX のレベルで明確に言語化する
   - 👉 [design language](./step3/design-language.md)
@@ -58,32 +58,32 @@ graph merge は人間にとって (も) 本質的に難しい問題である。�
   - 👉 [timeline view](./step3/timeline-view.md)
 - ボディ + 右サイドバーの複タブ化
   - これはある程度は web ブラウザのタブ/ウィンドウを複数使用することで置き換えられる
-  - しかし、merge の場面ではアプリケーション内での複タブが望ましいのではないか
-  - 新しいグラフを開く時には、常に新規タブで開くことにする
-    - タブは消すことができるが、変更内容は当然保持され、再度左サイドバーからそのグラフを
+  - しかし, merge の場面ではアプリケーション内での複タブが望ましいのではないか
+  - 新しいグラフを開く時には, 常に新規タブで開くことにする
+    - タブは消すことができるが, 変更内容は当然保持され, 再度左サイドバーからそのグラフを
       開いた時には再現される
 - 通知
   - 👉 [notification](./step3/notification.md)
 - property editor
-  - ボディ内での表示と、右サイドバーでの表示を併用する
+  - ボディ内での表示と, 右サイドバーでの表示を併用する
   - 👉 [property editor](./step3/property-editor.md)
 - metagraph
   - 👉 [metagraph](./step3/metagraph.md)
 - global (op-log) 検索
   - 👉 [global search](./step3/global-search.md)
-- DtR graph による merge は廃止する。その代わりに multiple graph view を使った merge を入れる
+- DtR graph による merge は廃止する. その代わりに multiple graph view を使った merge を入れる
   - 👉 [merger](./step3/merger.md)
-- toulmin template は維持するが、システム埋め込みではなく、template graph による定義とする
+- toulmin template は維持するが, システム埋め込みではなく, template graph による定義とする
   - 👉 [template graph](./step3/template-graph.md)
 - Deep Link + URI schema
   - → 相談
 - tauri → PWA
-  - tauri の利用をテストしてきたが、いまいちな点も多かった。e.g.,
+  - tauri の利用をテストしてきたが, いまいちな点も多かった. e.g.,
     - safari 対応
     - mobile device での利用
-  - conversensus の思想からも、できる限り標準的な web 技術をベースにすべきだろう
-  - なので、二転三転したが、tauri によるパッケージングは止めて、PWA を配信する形に戻ろう
-  - そうすると、storage は SQLite から IndexedDB か OPFS への移行が必要になりそう
+  - conversensus の思想からも, できる限り標準的な web 技術をベースにすべきだろう
+  - なので, 二転三転したが, tauri によるパッケージングは止めて, PWA を配信する形に戻ろう
+  - そうすると, storage は SQLite から indexedDB か OPFS への移行が必要になりそう
 
 ---
 
