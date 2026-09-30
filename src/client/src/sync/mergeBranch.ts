@@ -38,6 +38,7 @@ import {
   type BranchId,
   type BranchMeta,
   type BranchStatus,
+  batchesUpTo,
   type CausalClock,
   COMMIT_KIND,
   type Commit,
@@ -45,6 +46,7 @@ import {
   copyKeyOf,
   type FileId,
   type GraphFile,
+  isUpTo,
   type Lamport,
   type MergeConflict,
   makeMergeCommit,
@@ -162,12 +164,12 @@ async function buildMergePlan(
 
   // 対立検出は「分岐後に trunk 側で起きた変更」と「これから載せる branch の変更」の間で行う。
   // 既に merge 済みの batch を含めても自分自身と突き合わせるだけなので除いてある。
-  const trunkAfterBase = trunkBatches.filter((b) => b.clock > meta.base.at);
+  // 分岐点で切る (step3 Phase 1 D3)。base に入るかは分岐点の vector で決める — clock で切ると、
+  // 分岐時に持っていなかった batch が clock の小ささだけで base 側に入り、対立を取り逃す
+  const trunkAfterBase = trunkBatches.filter((b) => !isUpTo(meta.base, b));
   // **分岐点のグラフ**を渡す (Phase 3 T1)。削除のカスケードをこれに当てて「実際に
   // 消える要素」を求めないと、グループ削除で子への依存を取り逃す
-  const base = projectBatches(
-    trunkBatches.filter((b) => b.clock <= meta.base.at),
-  );
+  const base = projectBatches(batchesUpTo(trunkBatches, meta.base));
   const { conflicts } = mergeBranches(base, trunkAfterBase, toAppend);
   return { trunkBatches, branchBatches, toAppend, conflicts, base };
 }

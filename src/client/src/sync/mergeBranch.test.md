@@ -40,6 +40,14 @@ batch に改めた。
 畳み込みで **branch の編集が勝つ**。git の rebase に近い意味論で、これは設計の意図だが
 「trunk 側の後の編集が消えたように見える」挙動でもあるので、テストで明示的に固定する。
 
+### 4. 分岐点を vector で切る (step3 Phase 1 D3)
+
+対立の検出は「分岐後に trunk 側で起きた変更」と「branch の変更」の間で行う。「分岐後」を scalar の
+`base.at` で決めると、**分岐後に届いたが clock が小さい**trunk 側の変更が base 側に吸い込まれ、
+branch との対立を取り逃す。base コミットの `baseVector` で切る (`isUpTo`)。
+
+- **🔴 分岐後に届いた clock の小さい trunk 側の変更も、対立として検出する** — scalar で切る変異で落ちる
+
 ## どのように
 
 トランク: 分岐点まで (clock 1-2) + 分岐後の trunk 編集 (clock 3, `n1` を書き換え)。

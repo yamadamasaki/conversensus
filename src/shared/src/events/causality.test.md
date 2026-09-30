@@ -57,3 +57,8 @@ batch の点 `(actor, seq)` と依存 `deps` から、2 つの操作が「前・
 | `covers` を `>=` から `>` に | 因果の一致、推移の例 |
 | 受け取った batch の `deps` を知識に取り込まない | 因果の一致 (生成器を直した後)、推移の例 |
 | 到達点に最大の seq を採る (歯抜けを越える) | 到達点の性質、到達点の例 |
+
+## heldMaxima (step3 Phase 1 S1-5)
+
+actor ごとに持っている最大の seq。歯抜けで止まらない点が `contiguousFrontier` と違う。分岐点の vector
+に使う (`branchLog.test.md` の「分岐点は vector で切る」)。例で固定する。

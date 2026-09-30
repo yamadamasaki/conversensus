@@ -22,6 +22,7 @@ import {
   type SheetId,
   SheetIdSchema,
 } from '../schemas';
+import { covers, heldMaxima, type VersionVector } from './causality';
 import { projectBatches, toSheet } from './project';
 import {
   type Batch,
@@ -37,10 +38,15 @@ import {
 export type Commit = {
   id: CommitId;
   message: string;
-  /** このコミットが指すログ位置。clock <= at の batch を含む */
+  /**
+   * このコミットが指すログ位置。clock <= at の batch を含む。
+   * base コミットでは、切り出しの権威は `baseVector` の方にある (`at` は branch の発番の下限と表示に使う)
+   */
   at: Lamport;
   authorActor: string;
   kind: CommitKind;
+  /** 分岐点の vector (step3 Phase 1 D3)。base コミットだけが持つ (`makeBaseCommit`) */
+  baseVector?: VersionVector;
   /** merge のとき、取り込んだ branch。commit では持たない */
   sourceBranchId?: BranchId;
   /**
@@ -100,6 +106,32 @@ export function tipClock(batches: Batch[]): Lamport {
   return batches.reduce((max, b) => Math.max(max, b.clock), 0);
 }
 
+/**
+ * 分岐点のコミットを作る (step3 Phase 1 D3)。`at` に加えて、**分岐した時点で actor ごとに
+ * 持っていた最大の seq** (`baseVector`) を記録する。
+ *
+ * scalar の `at` で切ると、分岐時には持っていなかった batch が、clock が小さいというだけで
+ * 後から base に入る (step3-entry §2.1)。vector で切れば、別の actor の batch が遅れて届いても
+ * base は変わらない。
+ *
+ * - 「知っている範囲」(因果の知識) ではなく「持っていた範囲」を使うのは、base が分岐した人に
+ *   **見えていたもの**でなければならないからである
+ * - 「歯抜けなく持っていた範囲」(`contiguousFrontier`) にしないのは、歯抜けが恒久的に生じうる
+ *   ため (`heldMaxima` の注)。残る穴は「同じ actor の歯抜けが分岐後に埋まる」場合だけで、
+ *   同じ actor の batch は順に送られ順に読まれるので起きにくい
+ */
+export function makeBaseCommit(
+  id: CommitId,
+  message: string,
+  authorActor: string,
+  batches: Batch[],
+): Commit {
+  return {
+    ...makeCommit(id, message, authorActor, batches),
+    baseVector: heldMaxima(batches),
+  };
+}
+
 /** 現在のログ先端にラベル付きコミット (オフセット) を作る */
 export function makeCommit(
   id: CommitId,
@@ -143,9 +175,19 @@ export function makeMergeCommit(
   };
 }
 
-/** base コミット時点までの batches (clock <= base.at) を切り出す */
+/**
+ * batch がそのコミット時点に含まれるか。`baseVector` があればそれに覆われるか
+ * (step3 Phase 1 D3)、無ければ (branch の途中のコミットなど) clock <= at
+ */
+export function isUpTo(commit: Commit, batch: Batch): boolean {
+  return commit.baseVector
+    ? covers(commit.baseVector, batch.actor, batch.seq)
+    : batch.clock <= commit.at;
+}
+
+/** コミット時点までの batches を切り出す (`isUpTo`) */
 export function batchesUpTo(batches: Batch[], commit: Commit): Batch[] {
-  return batches.filter((b) => b.clock <= commit.at);
+  return batches.filter((b) => isUpTo(commit, b));
 }
 
 /**

@@ -125,3 +125,21 @@ export function contiguousFrontier(
   }
   return frontier;
 }
+
+/**
+ * actor ごとに**持っている最大の seq** (歯抜けを気にしない)。分岐点の vector に使う
+ * (`makeBaseCommit`)。
+ *
+ * `contiguousFrontier` と違い歯抜けで止まらない。歯抜けは転送中にだけ生じるとは限らず、
+ * **参加期間のフィルタが離脱中の batch を取り込まない**ので恒久的にも生じる。歯抜けで止まると、
+ * いったん離脱して戻った人のその後の編集が、どの分岐点にも入らなくなる
+ */
+export function heldMaxima(
+  points: Iterable<Pick<CausalPoint, 'actor' | 'seq'>>,
+): VersionVector {
+  const out: Record<Actor, Seq> = {};
+  for (const { actor, seq } of points) {
+    if (seq > (out[actor] ?? 0)) out[actor] = seq;
+  }
+  return out;
+}

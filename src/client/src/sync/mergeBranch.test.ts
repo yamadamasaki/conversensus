@@ -13,6 +13,7 @@ import {
   type FileId,
   type GraphFile,
   LamportClock,
+  makeBaseCommit,
   type NodeId,
   type SheetId,
 } from '@conversensus/shared';
@@ -345,6 +346,44 @@ describe('mergeBranchOnOplog', () => {
     expect(conflict?.category).toBe('content');
     expect(conflict?.ours.batchId).toBe('t3' as Batch['id']); // trunk 側
     expect(conflict?.theirs.batchId).toBe('br1' as Batch['id']); // branch 側
+  });
+
+  /**
+   * 分岐点を vector で切る (step3 Phase 1 D3)。carol の編集は**分岐後に**届いたが clock は小さい。
+   * scalar の `base.at` で切ると base 側に吸い込まれ、branch との対立を取り逃す (step3-entry §2.1)
+   */
+  it('🔴 分岐後に届いた clock の小さい trunk 側の変更も、対立として検出する', async () => {
+    const trunkAtBranch = [
+      structure('t1', 1),
+      content('t2', 2, [addNode('n1', 'trunk ノード1')]),
+    ];
+    const meta: BranchMeta = {
+      ...branchMeta(),
+      base: makeBaseCommit(
+        'commit-1' as CommitId,
+        '分岐点',
+        ACTOR,
+        trunkAtBranch,
+      ),
+    };
+    // 分岐後に届いた carol の編集。clock 1 は分岐点 (at 2) より小さい
+    const lateFromCarol: Batch = {
+      ...content('late', 1, [setContent('n1', 'carol の編集')]),
+      actor: 'did:plc:carol#dev-c',
+      seq: 1,
+    };
+    expect(lateFromCarol.clock).toBeLessThanOrEqual(meta.base.at);
+    const logs = {
+      [TRUNK]: [...trunkAtBranch, lateFromCarol],
+      [BRANCH_LOG]: branchLog(),
+    };
+    const { deps } = makeDeps(logs);
+
+    const result = await mergeBranchOnOplog(meta, mergeParams(), deps);
+
+    expect(result.conflicts.map((c) => c.ours.batchId)).toContain(
+      'late' as Batch['id'],
+    );
   });
 
   it('対立が無ければ conflicts は空', async () => {

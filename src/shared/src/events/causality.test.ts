@@ -7,6 +7,7 @@ import {
   depsFor,
   EMPTY_VECTOR,
   happenedBefore,
+  heldMaxima,
   joinVectors,
   knowledgeOf,
   observe,
@@ -227,6 +228,16 @@ describe('例', () => {
       B: 4,
       C: 2,
     });
+  });
+
+  it('heldMaxima は歯抜けを気にせず、actor ごとの最大の seq を返す', () => {
+    expect(
+      heldMaxima([
+        { actor: 'A', seq: 1 },
+        { actor: 'A', seq: 4 },
+        { actor: 'B', seq: 2 },
+      ]),
+    ).toEqual({ A: 4, B: 2 });
   });
 
   it('到達点は歯抜けの手前で止まる', () => {

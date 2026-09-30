@@ -182,6 +182,12 @@ export const CommitSchema = z.object({
   kind: z.nativeEnum(COMMIT_KIND).default(COMMIT_KIND.COMMIT),
   sourceBranchId: BranchIdSchema.optional(),
   sourceAt: z.number().int().nonnegative().optional(),
+  /**
+   * 分岐点の vector (step3 Phase 1 D3)。branch / fork の base コミットだけが持つ。
+   * 分岐した時点で actor ごとに持っていた最大の seq で、base はこれに覆われる batch
+   * である (`batchesUpTo`)
+   */
+  baseVector: VersionVectorSchema.optional(),
 });
 
 /**
