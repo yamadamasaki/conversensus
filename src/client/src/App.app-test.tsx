@@ -31,6 +31,8 @@ const BOB: FakeAccount = {
   password: 'bob-pw',
 };
 const FILE_NAME = '共有ファイル';
+/** 「何も起きないこと」を見る前に、描画と計測が落ち着くのを待つ時間 */
+const SETTLE_MS = 500;
 const BRANCH_NAME = 'b1';
 
 let world: AppWorld;
@@ -50,6 +52,11 @@ afterEach(async () => {
   expect(world.unhandled).toEqual([]);
   await world.dispose();
 });
+
+/** 下部バーの「(N 変更)」 */
+function pendingLabel(count: number): RegExp {
+  return new RegExp(`\\(${count} 変更\\)`);
+}
 
 /** 端末を切り替えて App を描き、ログインした状態にする */
 async function startOn(deviceName: string, account: FakeAccount) {
@@ -131,5 +138,46 @@ describe('App 結合: 受信した変更が画面まで届く (step2 T7-3 の実
     world.pds.release(ALICE.did);
     await syncNow(user);
     await screen.findByText(branchLabel(BRANCH_NAME), {}, WIRING_TIMEOUT);
+  });
+});
+
+describe('App 結合: canvas の編集が「(N 変更)」に数えられる (step2 T7-7 の実機の失敗)', () => {
+  /** 1 端末・未ログインで File と branch を作り、その branch を開く */
+  async function openFreshBranch() {
+    await world.activate('solo');
+    render(<App />);
+    const user = userEvent.setup();
+    await createFile(user, FILE_NAME);
+    await createBranch(user, BRANCH_NAME);
+    await openBranch(user, BRANCH_NAME);
+    return user;
+  }
+
+  test('branch を開いた直後に置いたノードも、変更として数えられる', async () => {
+    const user = await openFreshBranch();
+
+    // **開いてすぐ置く。**以前は再 seed の後 150ms の間 canvas の変化を時間で捨てていたので、
+    // ノードは描かれるのに activeFile に届かず、コミットできなかった
+    await addNode(user);
+
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+    await screen.findByText(pendingLabel(1), {}, WIRING_TIMEOUT);
+  });
+
+  test('branch を開いただけでは、変更は数えられない', async () => {
+    await openFreshBranch();
+
+    // 寸法の計測や差分の色で canvas の nodes/edges は変わるが、中身は変わらない。
+    // 描画が落ち着くまで待ってから、変更が 0 のままであることを見る
+    await waitFor(
+      () => expect(document.querySelector('.react-flow__pane')).not.toBeNull(),
+      WIRING_TIMEOUT,
+    );
+    await new Promise((resolve) => setTimeout(resolve, SETTLE_MS));
+    expect(screen.queryByText(/変更\)/)).toBeNull();
+    expect(screen.getByRole('button', { name: 'コミット' })).toHaveProperty(
+      'disabled',
+      true,
+    );
   });
 });

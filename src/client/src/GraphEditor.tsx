@@ -41,6 +41,7 @@ import { EditableNode } from './EditableNode';
 import { EventDispatchContext } from './EventDispatchContext';
 import { type GraphEvent, makeEventBase } from './events/GraphEvent';
 import { GroupNode } from './GroupNode';
+import { contentOf, createChangeGate } from './graph/changeGate';
 import { deletionTargets } from './graph/deletion';
 import {
   buildDragStopEvents,
@@ -96,7 +97,6 @@ import { useReadOnly } from './readOnlyContext';
 import { SearchPanel } from './SearchPanel';
 import { type SearchHit, searchSheet } from './search/searchSheet';
 
-const RF_INIT_DELAY_MS = 150;
 /** 検索結果から要素へ寄せるときの拡大率 (step2 Phase 7) */
 const REVEAL_ZOOM = 1.2;
 /** 寄せるのにかける時間。一瞬で飛ぶと、どこからどこへ動いたのか分からない */
@@ -233,12 +233,9 @@ function GraphEditorInner({
   const deletedEdgeLayoutsRef = useRef(deletedEdgeLayouts);
   deletedEdgeLayoutsRef.current = deletedEdgeLayouts;
 
-  // sheet/file 切り替え後、ReactFlow の初期化 (dimensions 計測) が完了するまで
-  // onChange を抑制するフラグ。ReactFlow はノード数分だけ dimensions 変更を発火するため
-  // 1回スキップの mounted フラグでは不十分 → タイマーで抑制期間を設ける。
-  const readyForSave = useRef(false);
-  // コンフリクトスタイル更新 (見た目のみ) による onChange 誤発火を抑制するフラグ
-  const conflictUpdatePendingRef = useRef(false);
+  // canvas の変化のうち中身が変わったものだけを親へ通す (寸法の計測・差分の色・選択は
+  // 通さない)。**時刻や回数ではなく中身で見分ける** — 理由は `graph/changeGate.ts`
+  const changeGate = useRef(createChangeGate()).current;
 
   /**
    * property editor が対象にしている要素 (step2 Phase 4 Q2)。
@@ -318,43 +315,36 @@ function GraphEditorInner({
   // 保証した後にしか起きないので、ここで無条件に再 seed してよい。
   // biome-ignore lint/correctness/useExhaustiveDependencies: file.id / activeSheetId / receiveEpoch の変化のみをトリガーにする意図的な設計
   useEffect(() => {
-    readyForSave.current = false;
     const sheet = fileRef.current.sheets.find(
       (s) => s.id === activeSheetIdRef.current,
     );
-    setNodes(
-      toFlowAndGhostNodes(
-        sheet?.nodes ?? [],
-        sheet?.layouts ?? [],
-        deletedNodesRef.current ?? [],
-        deletedNodeLayoutsRef.current ?? [],
-        addedNodeIds,
-        updatedNodeIds,
-      ),
+    const seededNodes = toFlowAndGhostNodes(
+      sheet?.nodes ?? [],
+      sheet?.layouts ?? [],
+      deletedNodesRef.current ?? [],
+      deletedNodeLayoutsRef.current ?? [],
+      addedNodeIds,
+      updatedNodeIds,
     );
-    setEdges(
-      toFlowAndGhostEdges(
-        sheet?.edges ?? [],
-        sheet?.edgeLayouts ?? [],
-        deletedEdgesRef.current ?? [],
-        deletedEdgeLayoutsRef.current ?? [],
-        new Set((deletedNodesRef.current ?? []).map((n) => n.id)),
-        addedEdgeIds,
-        updatedEdgeIds,
-      ),
+    const seededEdges = toFlowAndGhostEdges(
+      sheet?.edges ?? [],
+      sheet?.edgeLayouts ?? [],
+      deletedEdgesRef.current ?? [],
+      deletedEdgeLayoutsRef.current ?? [],
+      new Set((deletedNodesRef.current ?? []).map((n) => n.id)),
+      addedEdgeIds,
+      updatedEdgeIds,
     );
-    // ReactFlow の初期 dimensions 計測が完了するまで onChange を抑制 (150ms)
-    const t = setTimeout(() => {
-      readyForSave.current = true;
-    }, RF_INIT_DELAY_MS);
-    return () => clearTimeout(t);
+    // 置き直した中身は親が既に知っているので、それ自体は変化として通さない
+    changeGate.seed(contentOf(seededNodes, seededEdges));
+    setNodes(seededNodes);
+    setEdges(seededEdges);
   }, [file.id, activeSheetId, receiveEpoch, setNodes, setEdges]);
 
-  // コンフリクト状態が変わったらノード/エッジのスタイルだけ更新
-  // NOTE: setNodes/setEdges は nodes/edges state を変化させるため onChange effect が
-  // 発火する。これはデータ変更ではなくスタイル変更なので conflictUpdatePendingRef で抑制する。
+  // コンフリクト状態が変わったらノード/エッジのスタイルだけ更新。
+  // nodes/edges が変わるので onChange の effect は走るが、中身は変わらないので
+  // changeGate が通さない
   useEffect(() => {
-    conflictUpdatePendingRef.current = true;
     setNodes((current) =>
       current.map((n) => {
         const dt: 'add' | 'update' | undefined = addedNodeIds?.has(n.id)
@@ -371,7 +361,6 @@ function GraphEditorInner({
   }, [addedNodeIds, updatedNodeIds, setNodes]);
 
   useEffect(() => {
-    conflictUpdatePendingRef.current = true;
     setEdges((current) =>
       current.map((e) => {
         const added = addedEdgeIds?.has(e.id) ?? false;
@@ -397,7 +386,6 @@ function GraphEditorInner({
 
   // 削除ノード/エッジが変わったらゴーストを同期
   useEffect(() => {
-    conflictUpdatePendingRef.current = true;
     setNodes((current) => {
       const active = current.filter((n) => !n.data?.ghost);
       const ghosts = toFlowAndGhostNodes(
@@ -411,7 +399,6 @@ function GraphEditorInner({
   }, [deletedNodes, deletedNodeLayouts, setNodes]);
 
   useEffect(() => {
-    conflictUpdatePendingRef.current = true;
     const dnIds = new Set((deletedNodes ?? []).map((n) => n.id));
     setEdges((current) => {
       const active = current.filter((e) => !e.data?.ghost);
@@ -426,22 +413,17 @@ function GraphEditorInner({
     });
   }, [deletedNodes, deletedEdges, deletedEdgeLayouts, setEdges]);
 
-  // nodes/edges が変わったら親に通知
+  // nodes/edges の中身が変わったら親に通知
   useEffect(() => {
-    // コンフリクトスタイル更新 (見た目のみ) の場合は onChange を呼ばない
-    // readyForSave より先にチェックして pending フラグを必ずリセットする
-    if (conflictUpdatePendingRef.current) {
-      conflictUpdatePendingRef.current = false;
-      return;
-    }
-    // 初期化フェーズ (ReactFlow dimension 計測中) は onChange を呼ばない
-    if (!readyForSave.current) return;
+    const content = contentOf(nodes, edges);
+    if (!changeGate.admit(content)) return;
     const currentSheetId = activeSheetIdRef.current;
-    // ゴーストノード/エッジを除外（保存対象外）
-    const activeNodes = nodes.filter((n) => !n.data?.ghost);
-    const activeEdges = edges.filter((e) => !e.data?.ghost);
-    const { nodes: graphNodes, layouts } = fromFlowNodes(activeNodes);
-    const { edges: graphEdges, edgeLayouts } = fromFlowEdges(activeEdges);
+    const {
+      nodes: graphNodes,
+      layouts,
+      edges: graphEdges,
+      edgeLayouts,
+    } = content;
     onChangeRef.current({
       ...fileRef.current,
       sheets: fileRef.current.sheets.map((s) =>
@@ -450,7 +432,7 @@ function GraphEditorInner({
           : s,
       ),
     });
-  }, [nodes, edges]);
+  }, [nodes, edges, changeGate]);
 
   const nodeTypes = useMemo(
     () => ({
