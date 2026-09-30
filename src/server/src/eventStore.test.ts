@@ -11,12 +11,10 @@ import {
   COMMIT_KIND,
   type Commit,
   type CommitId,
-  compareCopies,
   type FileId,
   type NodeId,
   type SheetId,
 } from '@conversensus/shared';
-import fc from 'fast-check';
 import { EventStore, IN_MEMORY } from './eventStore';
 
 const FILE = 'file-1' as FileId;
@@ -88,92 +86,42 @@ describe('EventStore', () => {
     });
   });
 
-  describe('merge の写しの位置 (step2 Phase 3 T7-4)', () => {
-    /**
-     * b1 を alice の branch で書き、誰かが clock で trunk へ積み直した写し。
-     * **timestamp は写し同士で同じ** — 積み直しは編集が起きた時刻を保つ (`mergeBranch.ts`)
-     */
-    const copy = (clock: number, restampedBy?: string): Batch => ({
-      ...addNode('b1', 'n1', 'branch の編集', clock, 5),
-      actor: 'did:plc:alice#dev-a',
-      // 写しは元の batch と同じ点を保つ (振り直すのは clock だけ)
-      seq: 1,
-      ...(restampedBy !== undefined && {
-        restampedBy,
-        mergedIn: '00000000-0000-4000-8000-00000000c0de' as Batch['mergedIn'],
-      }),
+  /**
+   * merge の写し (step3 Phase 1 D2)。写しは merge した人自身の batch (新しい id) なので、
+   * 保存は**追記のみ**に戻った。step2 では同じ id の写しが別の clock で届くと位置を置き換えて
+   * いたが、その例外は無くなった。同じ元を指す写しの重複は畳み込み (`orderBatches`) が除く
+   */
+  describe('merge の写し (step3 Phase 1 D2)', () => {
+    const copy = (id: string, clock: number, merger: string): Batch => ({
+      ...addNode(id, 'n1', 'branch の編集', clock, 5),
+      actor: merger,
+      copyOf: { actor: 'did:plc:alice#dev-a', seq: 3 },
+      mergedIn: '00000000-0000-4000-8000-00000000c0de' as Batch['mergedIn'],
     });
 
-    it('restampedBy / mergedIn を往復する', () => {
-      store.appendBatch(FILE, copy(7, 'did:plc:bob#dev-b'));
-      expect(store.getBatches(FILE)).toEqual([copy(7, 'did:plc:bob#dev-b')]);
+    it('copyOf / mergedIn を往復する', () => {
+      store.appendBatch(FILE, copy('c1', 7, 'did:plc:bob#dev-b'));
+      expect(store.getBatches(FILE)).toEqual([
+        copy('c1', 7, 'did:plc:bob#dev-b'),
+      ]);
     });
 
-    it('同じ id の小さい写しが後から届けば位置を置き換える', () => {
-      // 2 人が同じ branch を merge した: alice は 20、bob は 18 で積み直した
-      expect(store.appendBatch(FILE, copy(20, 'did:plc:alice#dev-a'))).toBe(
+    it('同じ元を指す別の写しは、両方とも追記される (除くのは畳み込みの役目)', () => {
+      expect(
+        store.appendBatch(FILE, copy('c1', 20, 'did:plc:alice#dev-a')),
+      ).toBe(true);
+      expect(store.appendBatch(FILE, copy('c2', 18, 'did:plc:bob#dev-b'))).toBe(
         true,
       );
-      expect(store.appendBatch(FILE, copy(18, 'did:plc:bob#dev-b'))).toBe(true);
-      expect(store.getBatches(FILE)).toEqual([copy(18, 'did:plc:bob#dev-b')]);
+      expect(store.getBatches(FILE)).toHaveLength(2);
     });
 
-    it('大きい写しは何も変えない (false)', () => {
-      store.appendBatch(FILE, copy(18, 'did:plc:bob#dev-b'));
-      expect(store.appendBatch(FILE, copy(20, 'did:plc:alice#dev-a'))).toBe(
+    it('同じ id は二度追記しない (べき等)', () => {
+      store.appendBatch(FILE, copy('c1', 7, 'did:plc:bob#dev-b'));
+      expect(store.appendBatch(FILE, copy('c1', 7, 'did:plc:bob#dev-b'))).toBe(
         false,
       );
-      expect(store.getBatches(FILE)).toEqual([copy(18, 'did:plc:bob#dev-b')]);
-    });
-
-    it('clock が同じなら積んだ人が小さい写しを採る', () => {
-      store.appendBatch(FILE, copy(18, 'did:plc:bob#dev-b'));
-      store.appendBatch(FILE, copy(18, 'did:plc:alice#dev-a'));
-      expect(store.getBatches(FILE)[0]?.restampedBy).toBe(
-        'did:plc:alice#dev-a',
-      );
-    });
-
-    it('clock も積んだ人も同じなら印の無い写しを採る (性質テストの反例)', () => {
-      // 印の無い写しの積んだ人は書いた本人 alice。alice 自身が同じ clock で積み直すと
-      // (clock, 積んだ人) が同点になり、2 キーで止めると届いた順で残る写しが変わった
-      store.appendBatch(FILE, copy(4, 'did:plc:alice#dev-a'));
-      store.appendBatch(FILE, copy(4));
-      expect(store.getBatches(FILE)).toEqual([copy(4)]);
-
-      const reversed = new EventStore(IN_MEMORY);
-      reversed.appendBatch(FILE, copy(4));
-      reversed.appendBatch(FILE, copy(4, 'did:plc:alice#dev-a'));
-      expect(reversed.getBatches(FILE)).toEqual([copy(4)]);
-    });
-
-    it('性質: どの順で届いても残る写しは同じである', () => {
-      // 生成器は小さなプールにする — clock も積んだ人も重なる場面 (同点) を引かないと
-      // 第 2 キーの規則に当たらない。印の無い写し (step1 以来の元の batch) も混ぜる
-      const copyArb = fc.record({
-        clock: fc.integer({ min: 1, max: 4 }),
-        restampedBy: fc.constantFrom(
-          undefined,
-          'did:plc:alice#dev-a',
-          'did:plc:bob#dev-b',
-        ),
-      });
-      fc.assert(
-        fc.property(
-          fc.array(copyArb, { minLength: 1, maxLength: 6 }),
-          (specs) => {
-            const copies = specs.map((s) => copy(s.clock, s.restampedBy));
-            const forward = new EventStore(IN_MEMORY);
-            const backward = new EventStore(IN_MEMORY);
-            for (const c of copies) forward.appendBatch(FILE, c);
-            for (const c of [...copies].reverse())
-              backward.appendBatch(FILE, c);
-            const expected = [...copies].sort(compareCopies)[0];
-            expect(forward.getBatches(FILE)).toEqual([expected as Batch]);
-            expect(backward.getBatches(FILE)).toEqual([expected as Batch]);
-          },
-        ),
-      );
+      expect(store.getBatches(FILE)).toHaveLength(1);
     });
   });
 

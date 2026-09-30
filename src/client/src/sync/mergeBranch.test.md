@@ -2,9 +2,10 @@
 
 ## 何を
 
-`mergeBranch.ts` (step1 Phase 5 p5-3) をテストする。branch を trunk へ merge する調整層。
-旧 `mergeBranchToTrunk` の**レコード書替**を置換し、merge を「branch batches を trunk
-先端の後へ再スタンプして trunk op-log へ追記する」操作として表現する (設計 §3.3-(i))。
+`mergeBranch.ts` (step1 Phase 5 p5-3 / step3 Phase 1 S1-4) をテストする。branch を trunk へ
+merge する調整層。merge を「branch の batch の**写し**を trunk 先端の後へ追記する」操作として
+表現する (設計 §3.3-(i))。**写しは merge した人自身の batch** で、新しい id と merge した人の
+点 (clock・seq・deps) を持ち、`copyOf` で元の batch の点を指す (step3 Phase 1 D2)。
 
 `branchProjection.ts` と同じく純関数 (I/O は deps 経由)。hook 載せ替えは p5-4。
 
@@ -17,20 +18,25 @@ merge は**書き込みを伴う唯一の branch 操作**で、失敗すると t
 
 `mergeBranches` が返す `merged` は `[...trunkAfterBase, ...branchBatches]` だが、
 **`trunkAfterBase` は既に trunk op-log にある**。設計の「結果 batch を trunk へ追記」を
-字面どおり実装すると、id を保てば `UNIQUE(file_id, batch_id)` で無視されて再スタンプが
-効かず、id を振り直せば二重適用になる。`mergeBranches` は**対立検出のために呼ぶ**。
+字面どおり実装すると `trunkAfterBase` が二重に入る。`mergeBranches` は**対立検出のために呼ぶ**。
 
-### 2. id 保持がべき等性そのもの
+### 2. `copyOf` の集合がべき等性そのもの
 
-clock は再スタンプするが **batch の id は保持する**。同じ branch を 2 回 merge しても、
-既に merge 済みの batch は同じ id で trunk に居るので `appendBatch` のべき等性で無視される。
-新規採番すると branch の status フラグに頼ることになり、フラグ更新に失敗した瞬間に
-二重適用する。単一端末スコープでは remote の rkey 衝突懸念が消えている (§9.2) ので、
-保持を妨げる理由が無い。
+同じ branch を 2 回 merge しても、trunk に既にある写しの `copyOf` が「写し済みの元」の集合に
+なっているので、2 回目は何も写さない。branch の status フラグに頼ると、フラグ更新に失敗した
+瞬間に二重適用する。
+
+step2 までは写しが**元と同じ id**を持ち、`appendBatch` のべき等性でこれを得ていた。しかし
+それは「書いた人の名前で merge した人が clock を振る」ことでもあり、因果の点の前提
+(actor の番号を振るのはその actor だけ) を崩すので、step3 Phase 1 で写しを merge した人自身の
+batch に改めた。
+
+2 人が並行に同じ branch を merge すると、同じ元を指す写しが 2 組できる。どちらを採るかは
+畳み込み (`orderBatches`) が全順序で決める (`shared/src/events/project.test.md`)。
 
 ### 3. branch が trunk の上に乗る (LWW の勝敗)
 
-再スタンプにより branch の clock が trunk 後発編集より大きくなるため、projection の
+写しの clock が trunk 後発編集より大きくなるため、projection の
 畳み込みで **branch の編集が勝つ**。git の rebase に近い意味論で、これは設計の意図だが
 「trunk 側の後の編集が消えたように見える」挙動でもあるので、テストで明示的に固定する。
 
@@ -41,26 +47,26 @@ clock は再スタンプするが **batch の id は保持する**。同じ bran
 = **同じ `n1` を両側が触った並行変更**を含む構成。base は clock 2。
 
 フェイクストアの `appendBatches` は実際の `EventStore` と同じく **batch id でべき等**
-(既存 id は無視して件数に数えない)。clock は実物の `LamportClock` を使う。
+(既存 id は無視して件数に数えない)。発番器は実物の `CausalClock` を使う。
 
-### 追記と再スタンプ
+### 写しの追記
 
-- **trunk 先端の後へ再スタンプ**: 先端 clock 3 → 4, 5 に載る。`seed` の意味論
-  (`+1` しない) なのでちょうど「先端の次」から始まる。
-- **元の相対順序が保たれる** (br1 → br2)。branch 内部の順序は意味を持つ。
-- **id は保持**。branch op-log 側は元の clock (3, 4) のまま残る — file_id が違うので
-  `UNIQUE(file_id, batch_id)` と両立する。
+- **trunk 先端の後へ載る**: 発番器を trunk (先端 clock 3) と branch (先端 clock 4) の両方に
+  追随させるので、写しは 5, 6 に載る。branch を見てから書いた写しなので、branch の元より後に
+  振られるのが Lamport の受信規則である
+- **元の相対順序が保たれる** (br1 → br2 の `copyOf`)。branch 内部の順序は意味を持つ。
+- **写しは新しい id を持ち、branch 側の元はそのまま残る** (clock 3, 4 のまま)
 - **timestamp は編集が起きた時刻のまま**。順序付けは `clock → actor → id` (4d-3) なので
   timestamp を書き換える理由が無く、表示の真実性が下がる。
 - **`trunkAfterBase` は追記しない**: merge 後の trunk が 3 + 2 件で、`t3` が 1 件のまま
-  (再スタンプされて二重に入っていない)。観点 1 の直接の証拠。
-- **自端末 clock が trunk 先端より進んでいれば下げない**: `seed` は下限を上げるだけ。
+  (写されて二重に入っていない)。観点 1 の直接の証拠。
+- **自端末 clock が trunk 先端より進んでいれば下げない**: 復元は下限を上げるだけ。
   下げると既存 batch と clock が重なり LWW の勝敗が id 順で決まってしまう。
   (遅れているケースは他のテストが既定で通っている: 初期値 0 < 先端 3。)
 
 ### 先読み (`previewMerge`, Phase 3 T1)
 
-merge は不可逆である — 再スタンプした branch batches は trunk op-log へ追記され、
+merge は不可逆である — branch の batch の写しは trunk op-log へ追記され、
 **revert の経路が無い** (branch が MERGED になるだけ)。人が押す操作の前に何が起きるかを
 見せるため、検出だけを行う入口を割り出した。
 
@@ -131,13 +137,16 @@ merge 済みの内容まで差分に出ていた**。
 `countCommitsAfter`: 「前回 merge 以降に commit があるか」= 次の merge の対象があるか。
 基準が無ければ全件 (未 merge)、merge 直後は 0 (= 差分状態が「無変更」になる)。
 
-### 写しの印 (step2 Phase 3 T7-4)
+### 写しは merge した人自身の batch (step3 Phase 1 D2)
 
-写しは **書いた人 (`actor`) を保ち、積み直した人 (`restampedBy`) と merge コミット (`mergedIn`) を
-持つ**。書いた人と違う人が merge する形 (bob が alice の branch を merge) で固定する — 同じ人の
-merge では `actor` と `restampedBy` が一致し、取り違えがテストに出ない。
+書いた人と違う人が merge する形 (bob が alice の branch を merge) で固定する — 同じ人の merge
+では書いた人と merge した人が一致し、取り違えがテストに出ない。
 
-- `restampedBy` は送信先と参加期間の判定に使う (`stackedBy`)
-- `mergedIn` はこの merge で記録した merge コミットの id と一致する。merge を参照に移すとき、
-  写しをどの merge に対応づけるかの手がかりになる (設計 T7 §6a)。**merge コミットの id を
+- 写しの `actor` は **merge した人**、seq は merge した人の連番 (1, 2)
+- `copyOf` は元の点 (書いた人の actor と seq) を指す
+- `mergedIn` はこの merge で記録した merge コミットの id と一致する。**merge コミットの id を
   写しより先に採番する**のはこのため
+- 写しの `deps` は branch の元の点を含む — 写しは元を見てから書かれた
+- **写しの写しは、いちばん元の点を指す**。branch に写しが載っていた場合 (branch の上で別の
+  branch を merge した等) も、同じ編集の写しが同じ元を指すので、重複の判定がずれない
+

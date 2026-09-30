@@ -167,33 +167,38 @@ describe('batchMapper', () => {
     });
   });
 
-  describe('merge の写しの印 (step2 Phase 3 T7-4)', () => {
-    const restamped = (): Batch => ({
+  describe('merge の写しの印 (step3 Phase 1 D2)', () => {
+    const copied = (): Batch => ({
       ...sampleContentBatch(),
-      restampedBy: 'did:plc:bob#dev-b',
+      copyOf: { actor: 'did:plc:carol#dev-c', seq: 4 },
       mergedIn: '33333333-3333-4333-8333-333333333333' as Batch['mergedIn'],
     });
 
-    it('restampedBy / mergedIn を往復させる', () => {
-      const record = batchToRecord(restamped(), FILE);
-      expect(record.restampedBy).toBe('did:plc:bob#dev-b');
+    it('copyOf / mergedIn を往復させる', () => {
+      const record = batchToRecord(copied(), FILE);
+      expect(record.copyOf).toEqual({ actor: 'did:plc:carol#dev-c', seq: 4 });
       expect(
         recordToBatch({
           $type: 'app.conversensus.v2.batch',
           ...record,
         }),
-      ).toEqual(restamped());
+      ).toEqual(copied());
     });
 
     it('写しでない batch は record にも Batch にも印を付けない', () => {
       const record = batchToRecord(sampleBatch(), FILE);
-      expect('restampedBy' in record).toBe(false);
+      expect('copyOf' in record).toBe(false);
       expect('mergedIn' in record).toBe(false);
     });
 
-    it('印が string 以外のレコードは弾く', () => {
+    it('印の形が違うレコードは弾く', () => {
       const base = batchToRecord(sampleBatch(), FILE);
-      expect(isBatchRecordValue({ ...base, restampedBy: 1 })).toBe(false);
+      expect(isBatchRecordValue({ ...base, copyOf: 'did:plc:x#d' })).toBe(
+        false,
+      );
+      expect(
+        isBatchRecordValue({ ...base, copyOf: { actor: 'a', seq: 0 } }),
+      ).toBe(false);
       expect(isBatchRecordValue({ ...base, mergedIn: {} })).toBe(false);
     });
   });

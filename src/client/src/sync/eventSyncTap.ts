@@ -141,25 +141,6 @@ export class EventSyncTap {
     for (const point of points) this.causal.observe(point);
   }
 
-  /**
-   * この端末の clock を「自分で発番したが tap を通らなかった batch」のために操作する
-   * (step1 Phase 5 p5-4)。merge の再スタンプが唯一の利用者。
-   *
-   * merge は branch batches を trunk 先端の後へ振り直して trunk op-log へ直接追記する
-   * (`mergeBranchOnOplog`)。**その採番をこの clock で行わないと**、tap 側の clock は
-   * 追記を知らないまま進み、次のローカル編集が merge 済み batch と**同じ actor で
-   * 同じ clock** を発番しうる。同 (clock, actor) は順序が id 任せになり LWW の勝敗が
-   * 不定になるため、発番器を分けずここへ集約する。
-   */
-  get clockControl(): { seed: (floor: Lamport) => void; tick: () => Lamport } {
-    return {
-      seed: (floor) => {
-        this.causal.seedClock(floor);
-      },
-      tick: () => this.causal.tickClock(),
-    };
-  }
-
   private scheduleFlush(): void {
     this.flushChain = this.flushChain.then(() => this.drain());
   }

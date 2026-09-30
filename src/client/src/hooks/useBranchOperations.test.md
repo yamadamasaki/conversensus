@@ -183,7 +183,7 @@ op-log を見るテストでは捕まらない。
   `_setComputeOps` で変更ありの状態を作る (`pendingChanges` は useMemo なので選択後に
   差し込んでも再計算されない)。
 
-### merge — trunk 先端の後へ再スタンプ + 一級の記録 (ANA-122)
+### merge — trunk 先端の後へ写す + 一級の記録 (ANA-122)
 
 - **merge 理由は必須**。理由の入力に答えない (空白だけ) と merge は起きず、trunk も
   branch の status も動かない。テストは `answerMergeReason` で入力に答える —
@@ -191,7 +191,7 @@ op-log を見るテストでは捕まらない。
 
 #### 取り込む前の確認 (Phase 3 T1)
 
-**merge は不可逆である** — 再スタンプした branch batches は trunk op-log へ追記され、
+**merge は不可逆である** — branch の batch の写しは trunk op-log へ追記され、
 revert の経路が無い。人が押す操作なので、人の判断が要る対立 (content / structure) は
 取り込む前に問う。**layout は「通知のみで DtR を起動しない」種別なので止めない**
 (共同編集で二人が同じノードを動かすのは日常的で、毎回止めると確認がノイズになる)。
@@ -222,10 +222,10 @@ revert の経路が無い。人が押す操作なので、人の判断が要る�
 - **merge の記録が trunk 側の commits に `kind=merge` で残る** (理由・実行者・由来 branch)。
   branch の status が MERGED になるだけでは「いつ・誰が・何のために」が残らなかった。
 
-- branch batch が **id を保持したまま** trunk op-log に現れ、clock は merge 時点の
-  trunk 先端より後になる。id 保持が再 merge のべき等性そのもの (p5-3)。
-- 再スタンプの発番は **trunk の tap と同じ clock** で行う (`trunkClock`)。発番器を
-  分けると、次のローカル編集が merge 済み batch と同じ `(clock, actor)` を持ちうる。
+- branch の batch の**写し**が trunk op-log に現れ (`copyOf` が元の点を指す)、clock は merge 時点の
+  trunk 先端より後になる。`copyOf` の集合が再 merge のべき等性そのもの (step3 Phase 1 D2)。
+- 写しの点は **trunk の tap と同じ発番器** で振る (`trunkCausal`)。発番器を分けると、
+  次のローカル編集が写しと同じ点 `(actor, seq)` を持ちうる。
 - 理由の入力をキャンセルしたときも trunk も branch の status も動かない。
 
 ### close / delete

@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import fc from 'fast-check';
 import {
   type EdgeId,
   EdgeIdSchema,
@@ -10,7 +11,13 @@ import {
   SheetIdSchema,
   TemplateIdSchema,
 } from '../schemas';
-import { isFileDeleted, projectBatches, projectFile, toSheet } from './project';
+import {
+  isFileDeleted,
+  orderBatches,
+  projectBatches,
+  projectFile,
+  toSheet,
+} from './project';
 import { SYSTEM_PROPERTY_PREFIX } from './properties';
 import { type Batch, BatchIdSchema, type Op } from './unified';
 
@@ -919,5 +926,110 @@ describe('sheet.create の templateIds (Phase 5 P3)', () => {
       f,
     );
     expect(file.sheets[0]?.templateIds).toBeUndefined();
+  });
+});
+
+/**
+ * merge の写しの重複 (step3 Phase 1 D2)。2 人が並行に同じ branch を merge すると、同じ元を
+ * 指す写しが 2 つ trunk に載る。畳み込みは全順序で最初の 1 つだけを採る。
+ * (step2 では同じ id の写しの位置を保存側で置き換えていたが、写しが merge した人自身の
+ * batch になったので、ここへ移った)
+ */
+describe('orderBatches: 同じ元を指す写しは全順序で最初の 1 つだけを残す', () => {
+  const NODE = '11111111-1111-4111-8111-111111111111';
+  const copy = (
+    id: string,
+    clock: number,
+    actor: string,
+    text: string,
+  ): Batch => ({
+    id: id as Batch['id'],
+    actor,
+    clock,
+    seq: 1,
+    deps: {},
+    timestamp: 0,
+    ops: [{ kind: 'node.setContent', target: NODE as never, content: text }],
+    copyOf: { actor: 'did:plc:alice#dev-a', seq: 3 },
+  });
+
+  test('clock が小さい写しを残す', () => {
+    const early = copy('c-bob', 18, 'did:plc:bob#dev-b', 'bob の写し');
+    const late = copy('c-carol', 20, 'did:plc:carol#dev-c', 'carol の写し');
+    expect(orderBatches([late, early]).map((b) => b.id)).toEqual([early.id]);
+  });
+
+  /**
+   * 重複除去が効くのは、2 つの写しの間に別の編集が挟まったときである。除かないと、
+   * 後ろの写しが元の値を再び書き、間の編集を**巻き戻す**。同じ編集を 2 回当てるだけなら
+   * 結果は変わらないので、これを確かめるにはこの筋書きが要る
+   */
+  test('2 つの写しの間に入った編集を、後ろの写しが巻き戻さない', () => {
+    const add: Batch = {
+      id: 'add' as Batch['id'],
+      actor: 'did:plc:alice#dev-a',
+      clock: 1,
+      seq: 1,
+      deps: {},
+      timestamp: 0,
+      ops: [{ kind: 'node.add', target: NODE as never, content: '' }],
+    };
+    const bobCopy = copy('c-bob', 5, 'did:plc:bob#dev-b', '案');
+    const edit: Batch = {
+      id: 'edit' as Batch['id'],
+      actor: 'did:plc:carol#dev-c',
+      clock: 6,
+      seq: 1,
+      deps: {},
+      timestamp: 0,
+      ops: [
+        { kind: 'node.setContent', target: NODE as never, content: '後の編集' },
+      ],
+    };
+    const aliceCopy = copy('c-alice', 7, 'did:plc:alice#dev-a', '案');
+    const graph = projectBatches([add, bobCopy, edit, aliceCopy]);
+    expect(graph.nodes.get(NODE as never)?.content).toBe('後の編集');
+  });
+
+  test('写しでない batch には何もしない', () => {
+    const plain = { ...copy('p', 1, 'x', 't'), copyOf: undefined };
+    expect(
+      orderBatches([plain, { ...plain, id: 'q' as Batch['id'] }]),
+    ).toHaveLength(2);
+  });
+
+  /**
+   * 生成器は小さなプールにする — clock も actor も重なる場面 (同点) を引かないと
+   * 全順序の第 2・第 3 キーに当たらない。元も 2 つに絞り、同じ元の写しが並ぶようにする
+   */
+  test('性質: どの順で届いても、残る写しの集合は同じである', () => {
+    const arbCopy = fc
+      .record({
+        n: fc.integer({ min: 0, max: 999 }),
+        clock: fc.integer({ min: 1, max: 3 }),
+        actor: fc.constantFrom('did:plc:bob#dev-b', 'did:plc:carol#dev-c'),
+        origin: fc.constantFrom(3, 4),
+      })
+      .map(({ n, clock, actor, origin }) => ({
+        ...copy(`c-${n}`, clock, actor, `${actor}@${clock}`),
+        copyOf: { actor: 'did:plc:alice#dev-a', seq: origin },
+      }));
+    fc.assert(
+      fc.property(
+        fc.uniqueArray(arbCopy, { selector: (b) => b.id, maxLength: 6 }),
+        fc.func(fc.integer()),
+        (copies, key) => {
+          const shuffled = [...copies].sort((a, b) => key(a.id) - key(b.id));
+          const kept = (bs: Batch[]) =>
+            orderBatches(bs)
+              .map((b) => b.id)
+              .sort();
+          expect(kept(shuffled)).toEqual(kept(copies));
+          // 元ごとにちょうど 1 つ
+          const origins = new Set(copies.map((b) => b.copyOf?.seq));
+          expect(orderBatches(copies)).toHaveLength(origins.size);
+        },
+      ),
+    );
   });
 });

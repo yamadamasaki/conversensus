@@ -118,14 +118,14 @@ describe('RemoteSyncQueue', () => {
     });
 
     it('同じ batch id でも fileId が違えば両方積む (step2 Phase 3 T7-2)', async () => {
-      // merge は branch の batch を同じ id のまま trunk へ再スタンプする。branch の op-log も
-      // remote へ出すので、同じ id が 2 つの fileId で同時に保留されうる
+      // 鍵は (fileId, batch id)。step2 では merge の写しが同じ id を持ったので実際に起きた。
+      // step3 で写しは新しい id になったが、鍵の形は保つ (`remoteSyncQueue.ts` の注)
       const branchFile = '44444444-4444-4444-8444-444444444444' as FileId;
       const provider = new FakeProvider();
       provider.online = false;
       const q = new RemoteSyncQueue({ provider, did: MY_DID });
       q.enqueue([batch('1', { clock: 3 })], branchFile);
-      q.enqueue([batch('1', { clock: 7 })], FILE); // merge の再スタンプ
+      q.enqueue([batch('1', { clock: 7 })], FILE);
       expect(q.pendingCount).toBe(2);
 
       provider.online = true;

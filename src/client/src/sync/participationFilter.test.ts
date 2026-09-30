@@ -93,15 +93,21 @@ describe('isWithinParticipation', () => {
     expect(isWithinParticipation(p, batch(`${BOB}#device-2`, 15))).toBe(false);
   });
 
-  it('merge の写しは積み直した人の期間で判定する (T7-4)', () => {
-    // bob が書いた branch を、bob の離脱後に alice が merge した。積み直しの clock で
-    // op-log に積んだのは alice なので、bob の期間で見ると取り込みが落ちる
+  it('merge の写しは merge した人の期間で判定する (写しは merge した人の batch)', () => {
+    // bob が書いた branch を、bob の離脱後に alice が merge した。写しは alice 自身の batch
+    // なので (step3 Phase 1 D2)、actor で判定すれば alice の期間になり、取り込みは落ちない
     const p = roster({
       [ALICE]: [event('accept', 10)],
       [BOB]: [event('accept', 10), event('revoke', 20)],
     });
-    const mergedByAlice = { ...batch(BOB, 30), restampedBy: `${ALICE}#dev-a` };
-    const mergedByBob = { ...batch(ALICE, 30), restampedBy: `${BOB}#dev-b` };
+    const mergedByAlice = {
+      ...batch(`${ALICE}#dev-a`, 30),
+      copyOf: { actor: `${BOB}#dev-b`, seq: 5 },
+    };
+    const mergedByBob = {
+      ...batch(`${BOB}#dev-b`, 30),
+      copyOf: { actor: `${ALICE}#dev-a`, seq: 5 },
+    };
     expect(isWithinParticipation(p, mergedByAlice)).toBe(true);
     expect(isWithinParticipation(p, mergedByBob)).toBe(false);
   });

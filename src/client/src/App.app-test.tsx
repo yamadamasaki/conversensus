@@ -7,10 +7,12 @@ import { NSID } from './atproto/types';
 import {
   addNode,
   branchLabel,
+  commitBranch,
   createBranch,
   createFile,
   invite,
   login,
+  mergeOpenBranch,
   openBranch,
   participate,
   renderedNodeCount,
@@ -254,5 +256,62 @@ describe('App 結合: 因果の点が端末をまたいで載る (step3 Phase 1)
     expect(seqs.length).toBeGreaterThan(2);
     // **同じ点を 2 回使っていない。**別々の発番器だと trunk と branch がそれぞれ 1 から振る
     expect(new Set(seqs).size).toBe(seqs.length);
+  });
+});
+
+describe('App 結合: 同じ branch を 2 人が並行に merge しても収束する (step3 Phase 1 S1-4)', () => {
+  test('写しが 2 組できても、両者の画面は同じグラフになる', async () => {
+    const { code } = await aliceSharesFileWithBob();
+
+    // alice: branch を切ってノードを置き、コミットして送る
+    let user = await startOn('alice', ALICE);
+    await user.click(screen.getByText(FILE_NAME));
+    await createBranch(user, BRANCH_NAME);
+    await openBranch(user, BRANCH_NAME);
+    await addNode(user);
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+    await commitBranch(user, '案');
+    await syncNow(user);
+
+    // bob: 参加して同じ branch を開き、merge する。まだ届かないよう保留する
+    user = await startOn('bob', BOB);
+    await participate(user, code, FILE_NAME);
+    await syncNow(user);
+    await openBranch(user, BRANCH_NAME);
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+    world.pds.withhold(BOB.did);
+    await mergeOpenBranch(user, 'bob が取り込む');
+    await syncNow(user);
+
+    // alice: bob の merge を知らずに、同じ branch を merge する
+    user = await startOn('alice', ALICE);
+    await user.click(screen.getByText(FILE_NAME));
+    await openBranch(user, BRANCH_NAME);
+    await mergeOpenBranch(user, 'alice が取り込む');
+    await syncNow(user);
+
+    // 互いの merge が届く。写しは 2 組あるが、畳み込みは同じ元の写しを 1 つだけ採る
+    world.pds.release(BOB.did);
+    await syncNow(user);
+    await user.click(screen.getByText(FILE_NAME));
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+
+    user = await startOn('bob', BOB);
+    await syncNow(user);
+    await user.click(screen.getByText(FILE_NAME));
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+
+    // PDS には写しが 2 組ある (両方とも書かれている) ことを確かめておく — 重複除去が
+    // 無ければ、ここで同じ編集が二重に畳まれる
+    const copies = [ALICE.did, BOB.did].flatMap((did) =>
+      world.pds
+        .records(did, NSID.batch)
+        .map((r) => r.value as { copyOf?: { actor: string; seq: number } })
+        .filter((v) => v.copyOf),
+    );
+    const origins = new Set(
+      copies.map((v) => `${v.copyOf?.actor}#${v.copyOf?.seq}`),
+    );
+    expect(copies.length).toBe(origins.size * 2);
   });
 });

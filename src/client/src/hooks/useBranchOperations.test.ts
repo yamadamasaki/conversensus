@@ -47,8 +47,8 @@ const graphBatchesOf = (log: Batch[] | undefined) =>
   (log ?? []).filter((b) => b.sheetId !== undefined);
 
 /**
- * merge の再スタンプ用 clock。本番では trunk の tap のものを渡す。
- * trunk の書き込みの代わり (`trunkRecord`) も同じ発番器で点を振る
+ * trunk の因果の発番器。本番では trunk の tap のものを渡す。
+ * trunk の書き込みの代わり (`trunkRecord`) と merge の写しが同じ発番器で点を振る
  */
 const makeClock = () => {
   const causal = new CausalClock('did:plc:alice#dev1');
@@ -56,7 +56,6 @@ const makeClock = () => {
     seed: (floor: number) => {
       causal.seedClock(floor);
     },
-    tick: () => causal.tickClock(),
     causal,
   };
 };
@@ -254,7 +253,7 @@ async function renderOplog(
         deps: options.realChanges ? defaultBranchOpsDeps : deps,
         oplogDeps,
         actor: 'did:plc:alice#dev1',
-        trunkClock: clock,
+        trunkCausal: clock.causal,
         trunkRecord,
         remoteQueue: options.remoteQueue ?? null,
         roster: options.roster ?? null,
@@ -857,15 +856,15 @@ describe('useBranchOperations — branch 操作 (op-log)', () => {
   });
 
   describe('handleMergeBranch', () => {
-    it('branch batches を trunk 先端の後へ再スタンプして追記する', async () => {
+    it('branch の batch の写しを trunk 先端の後へ追記する', async () => {
       const { result, branch, oplogDeps } = await withOpenBranch();
       await act(async () => {
         result.current.branchSyncRecord?.(relabel('branch の編集'), SHEET_ID);
         await new Promise((r) => setTimeout(r, 10));
       });
       const branchLog = oplogDeps._batches.get(branch.branchFileId) ?? [];
-      const branchBatchId = branchLog[0]?.id;
-      // merge 前に trunk が進んだ状況を作る (再スタンプの必要性が出る)
+      const original = branchLog[0];
+      // merge 前に trunk が進んだ状況を作る (写しが先端の後に載ることを見る)
       oplogDeps._batches.set(TRUNK_ID, [
         ...(oplogDeps._batches.get(TRUNK_ID) ?? []),
         trunkBatch('t2', 9, 'n2', 'trunk の後発編集'),
@@ -877,8 +876,12 @@ describe('useBranchOperations — branch 操作 (op-log)', () => {
       });
 
       const trunkLog = oplogDeps._batches.get(TRUNK_ID) ?? [];
-      const merged = trunkLog.find((b) => b.id === branchBatchId);
-      // id は保持 (再 merge のべき等性)、clock は trunk 先端 (9) より後
+      const merged = trunkLog.find(
+        (b) =>
+          b.copyOf?.actor === original?.actor &&
+          b.copyOf?.seq === original?.seq,
+      );
+      // 写しは元の点を指し (再 merge のべき等性)、clock は trunk 先端 (9) より後
       expect(merged).toBeDefined();
       expect(merged?.clock).toBeGreaterThan(9);
       expect(result.current.activeBranch?.status).toBe('merged');
@@ -924,7 +927,7 @@ describe('useBranchOperations — branch 操作 (op-log)', () => {
     /**
      * Phase 3 T1 の決着: **適用前に何が起きるかを見せる。**
      *
-     * merge は不可逆である — 再スタンプした branch batches は trunk op-log へ追記され、
+     * merge は不可逆である — branch の batch の写しは trunk op-log へ追記され、
      * revert の経路が無い (branch が MERGED になるだけ)。人が押す操作なので、
      * 人の判断が要る対立 (content / structure) は取り込む前に問う。
      */

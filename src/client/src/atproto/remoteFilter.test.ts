@@ -181,21 +181,21 @@ describe('filterBatchesForRemote', () => {
       expect(filterBatchesForRemote([b], MY_DID)).toHaveLength(1);
     });
 
-    it('他人が書いた batch でも、自分が merge で積み直した写しは送る (T7-4)', () => {
-      // 書いた人で見ると、他人の branch を merge した分が自分の repo に 1 件も出ず、
+    it('他人が書いた編集でも、自分が merge した写しは送る (写しは自分の batch, step3 Phase 1 D2)', () => {
+      // 写しを送らないと、他人の branch を merge した分が自分の repo に 1 件も出ず、
       // 相手には「merged なのに trunk に中身が無い」と見える
       const b = batch({
-        actor: OTHER_DID,
-        restampedBy: `${MY_DID}#device-1`,
+        actor: `${MY_DID}#device-1`,
+        copyOf: { actor: `${OTHER_DID}#device-9`, seq: 3 },
         ops: [addNode('n1')],
       });
       expect(filterBatchesForRemote([b], MY_DID)).toHaveLength(1);
     });
 
-    it('自分が書いた batch でも、他人が積み直した写しは送らない (T7-4)', () => {
+    it('自分が書いた編集でも、他人が merge した写しは送らない (それは相手の batch)', () => {
       const b = batch({
-        actor: MY_DID,
-        restampedBy: `${OTHER_DID}#device-9`,
+        actor: `${OTHER_DID}#device-9`,
+        copyOf: { actor: `${MY_DID}#device-1`, seq: 3 },
         ops: [addNode('n1')],
       });
       expect(filterBatchesForRemote([b], MY_DID)).toEqual([]);

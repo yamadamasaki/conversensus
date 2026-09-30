@@ -8,7 +8,17 @@
       "key": "any",
       "record": {
         "type": "object",
-        "required": ["id", "fileId", "actor", "clock", "seq", "deps", "timestamp", "ops", "createdAt"],
+        "required": [
+          "id",
+          "fileId",
+          "actor",
+          "clock",
+          "seq",
+          "deps",
+          "timestamp",
+          "ops",
+          "createdAt"
+        ],
         "properties": {
           "id": {
             "type": "string",
@@ -46,13 +56,13 @@
             "type": "string",
             "description": "Optional. The originating sheet of a content batch. Absent for file-structure batches."
           },
-          "restampedBy": {
-            "type": "string",
-            "description": "Optional. The actor who re-stamped this batch into the trunk by an explicit merge (step2 Phase 3 T7-4). Scheduled to be replaced in step3 Phase 1 S1-4, where a merge copy becomes the merger's own batch."
+          "copyOf": {
+            "type": "unknown",
+            "description": "Optional. When this batch is a merge copy, the causal point { actor, seq } of the batch it copies (step3 Phase 1 D2). A merge copy is the merger's own batch — new id, the merger's actor and causal point — so the actor field always names who put the batch into this log. When several copies point at the same origin (concurrent merges of one branch), the fold keeps only the first in (clock, actor, id) order."
           },
           "mergedIn": {
             "type": "string",
-            "description": "Optional. The merge commit id (UUID) this re-stamped copy belongs to."
+            "description": "Optional. The merge commit id (UUID) this copy belongs to."
           },
           "createdAt": {
             "type": "string",

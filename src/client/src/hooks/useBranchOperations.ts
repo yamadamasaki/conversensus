@@ -43,7 +43,6 @@ import type { RosterSource } from '../sync/rosterSource';
 import type { SyncProvider } from '../sync/syncProvider';
 import {
   type ReceivedSummary,
-  type TapClock,
   type TapHandle,
   useEventSyncTap,
 } from './useEventSyncTap';
@@ -208,14 +207,9 @@ interface UseBranchOperationsParams {
    */
   actor: Actor;
   /**
-   * trunk の Lamport 発番器。merge の再スタンプに使う (p5-4)。
-   * **既定値を持たせない** — no-op に落とすと clock 0 の batch が trunk に入る。
-   */
-  trunkClock: TapClock;
-  /**
-   * trunk の因果の発番器 (step3 Phase 1)。**branch の tap はこれを共有する** — trunk と
-   * その branch は同じ因果の範囲にあり、別々に振ると同じ点を 2 回使ってしまう。
-   * File を開いていなければ null (その間 branch は開けない)
+   * trunk の因果の発番器 (step3 Phase 1)。**branch の tap と merge の写しはこれを共有する** —
+   * trunk とその branch は同じ因果の範囲にあり、別々に振ると同じ点を 2 回使ってしまう。
+   * File を開いていなければ null (その間 branch は開けず、merge もできない)
    */
   trunkCausal?: CausalClock | null;
   /**
@@ -259,7 +253,6 @@ export function useBranchOperations({
   setAlertState,
   setConflictNotice,
   actor,
-  trunkClock,
   trunkCausal = null,
   trunkRecord,
   remoteQueue = null,
@@ -690,8 +683,12 @@ export function useBranchOperations({
         });
         if (!message.trim()) return;
 
-        // branch batches を trunk 先端の後へ再スタンプして trunk op-log へ追記する。
-        // 再スタンプの発番は trunk の tap と同じ clock で行う (同 clock の衝突回避)。
+        // branch の batch を写して trunk op-log へ追記する。写しは merge した人自身の batch で、
+        // 点は trunk の tap と同じ発番器で振る (step3 Phase 1 D2)
+        if (!trunkCausal)
+          throw new Error(
+            'merge: trunk の発番器が無い (File が開かれていない)',
+          );
         const result = await mergeBranchOnOplog(
           branch,
           { message: message.trim(), actor },
@@ -702,8 +699,7 @@ export function useBranchOperations({
             // merge は trunk のコミットなので branchId を付けない
             recordCommit: (commit) => branchMeta.commitAdded(commit),
             newId: oplogDeps.newId,
-            seedClock: trunkClock.seed,
-            tick: trunkClock.tick,
+            causal: trunkCausal,
           },
         );
         // 収束は LWW で確定させ、対立は**画面に届ける** (Phase 3 T4)。
@@ -736,7 +732,7 @@ export function useBranchOperations({
       setConflictNotice,
       oplogDeps,
       branchMeta,
-      trunkClock,
+      trunkCausal,
       actor,
       afterMerge,
       branchSettled,

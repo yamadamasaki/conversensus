@@ -47,12 +47,6 @@ describe('CausalClock', () => {
     expect(clock.issue().seq).toBe(6);
   });
 
-  it('tickClock は clock だけを進め、点を振らない (merge の再スタンプ用)', () => {
-    const clock = new CausalClock(ME);
-    clock.tickClock();
-    expect(clock.issue()).toEqual({ clock: 2, seq: 1, deps: {} });
-  });
-
   it('渡した LamportClock を使う (既存の clock を共有する経路)', () => {
     const lamport = new LamportClock(20);
     const clock = new CausalClock(ME, lamport);

@@ -49,7 +49,6 @@ import {
   didFromActor,
   GENESIS_ACTOR,
   isSyncable,
-  stackedBy,
 } from '@conversensus/shared';
 
 /**
@@ -71,13 +70,10 @@ export function filterBatchesForRemote(
 ): Batch[] {
   const result: Batch[] = [];
   for (const batch of batches) {
-    // 他 actor が積んだ batch は送らない (genesis は File の起源なので対象外)。
-    // **書いた人ではなく積んだ人で見る** (T7-4) — merge の写しは書いた人の actor を保つので、
-    // 書いた人で見ると他人の branch を merge した分が自分の repo に出ない
-    if (
-      batch.actor !== GENESIS_ACTOR &&
-      didFromActor(stackedBy(batch)) !== myDid
-    )
+    // 他 actor の batch は送らない (genesis は File の起源なので対象外)。merge の写しは
+    // merge した人自身の batch なので (step3 Phase 1 D2)、他人の branch を merge した分も
+    // actor で見れば自分の repo に出る
+    if (batch.actor !== GENESIS_ACTOR && didFromActor(batch.actor) !== myDid)
       continue;
     // presentation op を除外 (genesis batch も同様に非 presentation だけ通す)
     const ops = batch.ops.filter(isSyncable);

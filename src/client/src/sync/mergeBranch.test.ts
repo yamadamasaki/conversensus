@@ -5,9 +5,11 @@ import {
   type BranchId,
   type BranchMeta,
   type BranchStatus,
+  CausalClock,
   COMMIT_KIND,
   type Commit,
   type CommitId,
+  copyKeyOf,
   type FileId,
   type GraphFile,
   LamportClock,
@@ -92,8 +94,13 @@ const mergeParams = () => ({ message: '案A を取り込む', actor: ACTOR });
  * file_id → op-log の簡易ストア。`appendBatches` は実際の EventStore と同じく
  * **batch id でべき等** (既存 id は無視して件数に数えない)。
  */
-function makeDeps(logs: Record<string, Batch[]>, initialClock = 0) {
-  const clock = new LamportClock(initialClock);
+function makeDeps(
+  logs: Record<string, Batch[]>,
+  initialClock = 0,
+  merger: string = ACTOR,
+) {
+  // merge した人の発番器 (本番では trunk の tap のもの)
+  const causal = new CausalClock(merger, new LamportClock(initialClock));
   /** trunk の op-log に記録された status の変更 */
   const saved: { branchId: BranchId; status: BranchStatus }[] = [];
   /** trunk の op-log に記録されたコミット (宛先は常に trunk) */
@@ -114,16 +121,14 @@ function makeDeps(logs: Record<string, Batch[]>, initialClock = 0) {
     recordCommit: (commit) => {
       commits.push(commit);
     },
+    // merge コミットと写しの id を採る
     newId: () => {
       idSeq += 1;
-      return `merge-commit-${idSeq}`;
+      return `merge-id-${idSeq}`;
     },
-    seedClock: (floor) => {
-      clock.seed(floor);
-    },
-    tick: () => clock.tick(),
+    causal,
   };
-  return { deps, saved, commits, logs, clock };
+  return { deps, saved, commits, logs, causal };
 }
 
 /** trunk: 分岐点まで (clock 1-2) + 分岐後の編集 (clock 3) */
@@ -225,44 +230,72 @@ describe('previewMerge (Phase 3 T1)', () => {
 });
 
 describe('mergeBranchOnOplog', () => {
-  it('branch batches を trunk 先端の後へ再スタンプして追記する', async () => {
+  it('branch の batch の写しを trunk 先端の後へ追記する', async () => {
     const logs = { [TRUNK]: trunkLog(), [BRANCH_LOG]: branchLog() };
     const { deps } = makeDeps(logs);
     const result = await mergeBranchOnOplog(branchMeta(), mergeParams(), deps);
 
     expect(result.appended).toBe(2);
-    // trunk 先端は clock 3。再スタンプは seed 意味論なのでちょうど 4, 5 になる
+    // 発番器は trunk (先端 3) と branch (先端 4) の両方を観測するので、写しはその後の 5, 6。
+    // branch を見てから書いた写しなので、branch の元より後に振られるのが Lamport の受信規則である
     const appended = (logs[TRUNK] ?? []).slice(3);
-    expect(appended.map((b) => b.clock)).toEqual([4, 5]);
+    expect(appended.map((b) => b.clock)).toEqual([5, 6]);
     // 元の相対順序 (br1 → br2) が保たれる
-    expect(appended.map((b) => b.id as string)).toEqual(['br1', 'br2']);
+    expect(appended.map((b) => b.copyOf)).toEqual([
+      { actor: ACTOR, seq: 3 },
+      { actor: ACTOR, seq: 4 },
+    ]);
   });
 
-  it('batch の id は保持する (再 merge のべき等性の土台)', async () => {
+  it('写しは新しい id を持ち、branch 側の元はそのまま残る', async () => {
     const logs = { [TRUNK]: trunkLog(), [BRANCH_LOG]: branchLog() };
     const { deps } = makeDeps(logs);
     await mergeBranchOnOplog(branchMeta(), mergeParams(), deps);
-    // branch op-log 側は元の clock のまま残る (file_id が違うので両立する)
+    const copies = (logs[TRUNK] ?? []).slice(3);
+    expect(copies.map((b) => b.id as string)).not.toContain('br1');
+    expect(copies.map((b) => b.id as string)).not.toContain('br2');
     expect((logs[BRANCH_LOG] ?? []).map((b) => b.clock)).toEqual([3, 4]);
   });
 
-  it('写しは書いた人を保ち、積み直した人と merge コミットを持つ (step2 Phase 3 T7-4)', async () => {
-    // 積み直した人で送信先と参加期間を決め、merge コミットは将来 merge を参照に移すときの印になる
+  /**
+   * 写しは merge した人自身の batch である (step3 Phase 1 D2)。書いた人の名前で merge した人が
+   * 番号を振ると、「actor の番号を振るのはその actor だけ」という因果の点の前提が崩れる
+   */
+  it('写しは merge した人自身の点を持ち、元の点と merge コミットを指す', async () => {
     const logs = { [TRUNK]: trunkLog(), [BRANCH_LOG]: branchLog() };
-    const { deps } = makeDeps(logs);
     const merger = 'did:plc:bob#dev-b';
+    const { deps } = makeDeps(logs, 0, merger);
     const result = await mergeBranchOnOplog(
       branchMeta(),
       { message: '取り込む', actor: merger },
       deps,
     );
     const copies = (logs[TRUNK] ?? []).slice(3);
-    expect(copies.map((b) => b.actor)).toEqual([ACTOR, ACTOR]);
-    expect(copies.map((b) => b.restampedBy)).toEqual([merger, merger]);
+    expect(copies.map((b) => b.actor)).toEqual([merger, merger]);
+    expect(copies.map((b) => b.seq)).toEqual([1, 2]);
+    expect(copies.map((b) => b.copyOf?.actor)).toEqual([ACTOR, ACTOR]);
     expect(copies.map((b) => b.mergedIn)).toEqual([
       result.mergeCommit.id,
       result.mergeCommit.id,
     ]);
+    // 写しは元を見てから書かれた — deps は branch の元の点を含む
+    expect(copies[0]?.deps[ACTOR]).toBeGreaterThanOrEqual(4);
+  });
+
+  it('写しの写しは、いちばん元の点を指す (何段写しても重複の判定がずれない)', async () => {
+    const original = { actor: 'did:plc:carol#dev-c', seq: 7 };
+    const logs = {
+      [TRUNK]: trunkLog(),
+      [BRANCH_LOG]: [
+        {
+          ...content('br1', 3, [setContent('n1', '写しの写し')]),
+          copyOf: original,
+        },
+      ],
+    };
+    const { deps } = makeDeps(logs);
+    await mergeBranchOnOplog(branchMeta(), mergeParams(), deps);
+    expect((logs[TRUNK] ?? []).at(-1)?.copyOf).toEqual(original);
   });
 
   it('timestamp は編集が起きた時刻のまま残す (順序付けは clock)', async () => {
@@ -277,7 +310,7 @@ describe('mergeBranchOnOplog', () => {
     const logs = { [TRUNK]: trunkLog(), [BRANCH_LOG]: branchLog() };
     const { deps } = makeDeps(logs);
     await mergeBranchOnOplog(branchMeta(), mergeParams(), deps);
-    // 3 (元の trunk) + 2 (branch) のみ。t3 が再スタンプされて二重に入っていない
+    // 3 (元の trunk) + 2 (branch の写し) のみ。t3 が写されて二重に入っていない
     expect(logs[TRUNK]).toHaveLength(5);
     expect((logs[TRUNK] ?? []).filter((b) => b.id === 't3')).toHaveLength(1);
   });
@@ -293,9 +326,9 @@ describe('mergeBranchOnOplog', () => {
     ]);
   });
 
-  // 設計 §3.3-(i): branch が trunk の**上に乗る**。再スタンプで branch の clock が
+  // 設計 §3.3-(i): branch が trunk の**上に乗る**。写しの clock が
   // trunk 後発編集より大きくなるので、LWW の畳み込みで branch が勝つ。
-  it('branch の編集が trunk の後発編集に勝つ (再スタンプの帰結)', async () => {
+  it('branch の編集が trunk の後発編集に勝つ (写しが先端の後に載る帰結)', async () => {
     const logs = { [TRUNK]: trunkLog(), [BRANCH_LOG]: branchLog() };
     const { deps } = makeDeps(logs);
     const result = await mergeBranchOnOplog(branchMeta(), mergeParams(), deps);
@@ -334,7 +367,7 @@ describe('mergeBranchOnOplog', () => {
     ]);
   });
 
-  // 🔴 M3 の核心。id を保持しているので 2 回目は appendBatch のべき等性で無視される。
+  // 🔴 M3 の核心。trunk の写しの `copyOf` が「写し済みの元」の集合なので、2 回目は何も写さない
   describe('べき等 (再 merge で二重適用しない)', () => {
     it('2 回目の merge は appended 0 で trunk を変えない', async () => {
       const logs = { [TRUNK]: trunkLog(), [BRANCH_LOG]: branchLog() };
@@ -378,7 +411,10 @@ describe('mergeBranchOnOplog', () => {
         deps,
       );
       expect(second.appended).toBe(1);
-      expect((logs[TRUNK] ?? []).at(-1)?.id).toBe('br3' as Batch['id']);
+      const last = (logs[TRUNK] ?? []).at(-1);
+      expect(last?.copyOf && copyKeyOf(last.copyOf)).toBe(
+        copyKeyOf({ actor: ACTOR, seq: 5 }),
+      );
       const sheet = trunkOf(second).sheets.find((s) => s.id === SHEET);
       expect(sheet?.nodes.map((n) => n.id as string).sort()).toEqual([
         'n1',
@@ -398,8 +434,8 @@ describe('mergeBranchOnOplog', () => {
   });
 
   // clock が trunk 先端より**遅れている**ケースは他のテストが既定で通っている
-  // (makeDeps の初期値 0 < trunk 先端 3)。seed が引き上げるので 4, 5 に載る。
-  // ここは逆に**進んでいる**ケース: seed は下限を上げるだけなので clock を下げない。
+  // (makeDeps の初期値 0 < 先端)。復元が引き上げるので先端の後に載る。
+  // ここは逆に**進んでいる**ケース: 復元は下限を上げるだけなので clock を下げない。
   // 下げてしまうと既存 batch と clock が重なり、LWW の勝敗が id 順で決まってしまう。
   it('自端末 clock が trunk 先端より進んでいれば下げない', async () => {
     const logs = { [TRUNK]: trunkLog(), [BRANCH_LOG]: branchLog() };
@@ -443,7 +479,7 @@ describe('mergeBranchOnOplog', () => {
         deps,
       );
 
-      expect(result.mergeCommit.at).toBe(5); // 再スタンプ後の trunk 先端 (4, 5)
+      expect(result.mergeCommit.at).toBe(6); // 写しを載せた後の trunk 先端 (5, 6)
       expect(result.mergeCommit.sourceAt).toBe(4); // branch 側の先端 (3, 4)
       expect(result.mergeCommit.sourceBranchId).toBe(branchMeta().id);
     });

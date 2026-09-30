@@ -429,7 +429,6 @@ export function useFileSheetOperations({
   // remote キューがあれば tap は fanout (ローカル正典 + remote) になる (W3d5-5)。
   const {
     record: internalSyncRecord,
-    clock: trunkClock,
     causal: trunkCausal,
     settled: trunkSettled,
     syncNow,
@@ -973,11 +972,8 @@ export function useFileSheetOperations({
     handleImportFile,
     handleExportFile,
     syncRecord,
-    // trunk の Lamport 発番器 (p5-4)。merge が branch batches を trunk へ再スタンプ
-    // するときに使う — 発番器を分けると同 (clock, actor) の batch が生まれる。
-    trunkClock,
     /**
-     * trunk の因果の発番器 (step3 Phase 1)。branch の tap と判断ログの書き込みが共有する
+     * trunk の因果の発番器 (step3 Phase 1)。branch の tap・判断ログの書き込み・merge の写しが共有する
      * (File を開いていなければ null)
      */
     trunkCausal,

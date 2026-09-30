@@ -52,17 +52,6 @@ export type TapHandle = {
   pending: () => number;
 };
 
-/**
- * merge の再スタンプ用に公開する clock 操作 (step1 Phase 5 p5-4)。
- * tap が作り直されても同じ参照で最新の tap を見るよう ref 経由で束ねる。
- */
-export type TapClock = {
-  /** 下限を引き上げる (`seed` 意味論: +1 しない) */
-  seed: (floor: Lamport) => void;
-  /** 次の clock を発番する */
-  tick: () => Lamport;
-};
-
 export type UseEventSyncTapOptions = {
   /** remote 送信キュー。null/未指定なら local-only (未ログイン時と同じ挙動) */
   remoteQueue?: RemoteSyncQueue | null;
@@ -210,10 +199,8 @@ export type ReceivedSummary = {
 export type UseEventSyncTapResult = {
   /** dispatch された event を op-log へ流す (content 経路は sheetId 付き) */
   record: (event: GraphEvent, sheetId?: SheetId) => void;
-  /** merge の再スタンプ用 clock (§p5-4)。tap 未生成なら呼び出しは失敗する */
-  clock: TapClock;
   /**
-   * この tap の因果の発番器。branch の tap と判断ログの書き込みへ渡して共有する
+   * この tap の因果の発番器。branch の tap・判断ログの書き込み・merge の写しへ渡して共有する
    * (File を開いていなければ null)
    */
   causal: CausalClock | null;
@@ -306,23 +293,9 @@ export function useEventSyncTap(
     [forkDepsOverride, fetchLocal, tap],
   );
 
-  // clock は tap の作り直しをまたいで同じ参照でいてほしい (merge の deps に渡すため)
+  // settled は tap の作り直しをまたいで同じ参照でいてほしい
   const tapRef = useRef(tap);
   tapRef.current = tap;
-  const clock = useMemo<TapClock>(
-    () => ({
-      seed: (floor) => tapRef.current?.clockControl.seed(floor),
-      // tap が無いときに 0 を返すと **clock 0 の batch が op-log に入る**。
-      // 発番できないことは呼び出し側の配線ミスなので、黙って進めず落とす。
-      tick: () => {
-        const tap = tapRef.current;
-        if (!tap)
-          throw new Error('clock.tick: tap が未生成です (fileId が null)');
-        return tap.clockControl.tick();
-      },
-    }),
-    [],
-  );
 
   // tap が無い (未オープン) ときは待つものが無いので即 resolve
   const settled = useCallback(
@@ -603,5 +576,5 @@ export function useEventSyncTap(
     [tap],
   );
 
-  return { record, clock, causal, settled, syncNow };
+  return { record, causal, settled, syncNow };
 }

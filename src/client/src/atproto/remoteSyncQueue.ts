@@ -93,12 +93,10 @@ export class RemoteSyncQueue {
     this.did = deps.did;
     // 重複排除は (fileId, batch id) の組で行う (step2 Phase 3 T7-2)。
     //
-    // **batch id だけでは足りない。**merge は branch の batch を**同じ id のまま** trunk へ
-    // 再スタンプする (`mergeBranch.ts`)。branch の op-log も remote へ出すようになったので、
-    // 同じ id が 2 つの fileId で同時に保留されうる (merge はローカル正典へ直に書くので、
-    // trunk 分は trunk の tap の catch-up で積まれる)。id だけを鍵にすると、branch 分が
-    // 保留中のとき trunk 分が黙って捨てられ、次の catch-up まで相手に届かない。
-    // remote の rkey も `<fileId>~<actor>~<seq>` で fileId を含むので、鍵を揃える
+    // step2 では merge の写しが branch の batch と**同じ id** を持ったので、id だけを鍵にすると
+    // branch 分の保留が trunk 分を黙って捨てた。step3 Phase 1 D2 で写しは新しい id を持つように
+    // なり、この衝突は起きなくなったが、「ローカル正典はファイル単位、remote の rkey も
+    // `<fileId>~…` で fileId を含む」ので、鍵に fileId を含める形はそのまま揃えておく
     this.outbox = new Outbox<RemoteBatch>(
       (entry) => `${entry.fileId}~${entry.batch.id}`,
       deps.capacity ?? REMOTE_QUEUE_MAX,

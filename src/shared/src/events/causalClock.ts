@@ -81,18 +81,10 @@ export class CausalClock {
 
   /**
    * clock の下限を引き上げる (+1 しない)。branch の op-log が分岐点の続きから発番するため
-   * (`clockFloor`) と、merge の再スタンプの起点のために使う
+   * (`clockFloor`) に使う
    */
   seedClock(floor: Lamport): void {
     this.lamport.seed(floor);
-  }
-
-  /**
-   * clock だけを進める。**merge の再スタンプ専用** (点を振らない)。写しは元の batch と
-   * 同じ点を保つので seq は消費しない (S1-4 で写しを merge した人の点にするまでの形)
-   */
-  tickClock(): Lamport {
-    return this.lamport.tick();
   }
 
   /** いまの因果の知識 (分岐点の vector などに使う) */

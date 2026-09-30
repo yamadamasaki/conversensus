@@ -193,9 +193,7 @@ export default function App() {
     setAlertState,
     setConflictNotice,
     actor,
-    // merge の再スタンプは trunk と同じ発番器で行う (p5-4)
-    trunkClock: fileOps.trunkClock,
-    // branch の tap は trunk の因果の発番器を共有する (step3 Phase 1)
+    // branch の tap と merge の写しは trunk の因果の発番器を共有する (step3 Phase 1)
     trunkCausal: fileOps.trunkCausal,
     // branch / commit のメタは trunk の op-log に記録する (step2 Phase 3 T7-1)
     trunkRecord: fileOps.syncRecord,
@@ -283,7 +281,7 @@ export default function App() {
   /**
    * 名簿の操作 (step2 Phase 1)。
    *
-   * **clock は `fileOps.trunkClock` を渡す。**判断ログとグラフの op-log は同じ clock 空間を
+   * **発番器は `fileOps.trunkCausal` を渡す。**判断ログとグラフの op-log は同じ clock 空間を
    * 共有しなければならない — pre 条件が「この操作より前」を含むので、別空間にすると
    * 承認が済んでいるのに正当な再 merge が落ちる (U6-P2 スパイク)。
    */

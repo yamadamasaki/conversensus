@@ -161,7 +161,7 @@ export type BranchStatus = (typeof BRANCH_STATUS)[keyof typeof BRANCH_STATUS];
 /**
  * コミットの種別 (ANA-122)。**merge も一級の記録**にするための区別。
  *
- * merge は「branch batches を trunk 先端の後へ再スタンプして追記する」操作なので、
+ * merge は「branch の batch の写しを trunk 先端の後へ追記する」操作なので、
  * 追記後の trunk 先端を指すオフセットとして commit と同じ形で表せる。種別を分けるのは
  * 「いつ・誰が・何のために merge したか」を trunk の履歴から commit と一列に引くため。
  */
@@ -644,58 +644,29 @@ export const BatchSchema = z.object({
   sheetId: SheetIdSchema.optional(),
   ops: z.array(OpSchema).min(1),
   /**
-   * merge で trunk へ積み直した人 (step2 Phase 3 T7-4)。書いた人 (`actor`) とは別に持つ。
+   * merge の写しなら、写した元の batch の点 (step3 Phase 1 D2)。
    *
-   * 積み直しは id と `actor` を保つので、これが無いと「誰の repo に置くか」「誰の参加期間で
-   * 判定するか」を書いた人で決めてしまい、**書いた人と違う人の merge が相手に届かない**。
-   * 判定は `stackedBy` を通すこと
+   * 写しは **merge した人自身の batch** である — 新しい id・merge した人の actor と点を持つ。
+   * 以前 (step2 T7-4) は id と書いた人の actor を保って clock だけを振り直していたが、それでは
+   * 書いた人の名前で merge した人が番号を振ることになり、因果の点の前提が崩れる。
+   *
+   * 同じ元を指す写しが複数あれば (2 人が並行に同じ branch を merge した)、畳み込みは全順序で
+   * 最初の 1 つだけを採る (`orderBatches`)。「既に merge 済みか」もこれで判定する
    */
-  restampedBy: z.string().optional(),
+  copyOf: z
+    .object({ actor: z.string(), seq: z.number().int().positive() })
+    .optional(),
   /**
-   * どの merge コミットによる写しか (step2 Phase 3 T7-4)。
-   *
-   * **将来 merge を参照 (写さない形) に移すための印である** (設計 T7 §6a)。op-log は追記のみで
-   * 相手の PDS からも消せないので、移行後の畳み込みは写しを認識して merge コミットの参照と
-   * 重複させない必要があり、そのとき写しを merge コミットに対応づける手がかりがこれになる
+   * どの merge コミットによる写しか (step2 Phase 3 T7-4)。merge の取り消しなど、
+   * 写しを merge コミットに対応づける手がかりになる
    */
   mergedIn: CommitIdSchema.optional(),
 });
 export type Batch = z.infer<typeof BatchSchema>;
 
-/**
- * この batch を op-log に積んだ人 (step2 Phase 3 T7-4)。merge の写しなら積み直した人、
- * そうでなければ書いた人。**送信の著者判定と参加期間の判定はこれで行う。**
- */
-export function stackedBy(batch: Pick<Batch, 'actor' | 'restampedBy'>): string {
-  return batch.restampedBy ?? batch.actor;
-}
-
-/**
- * 同じ id の写しが複数あるとき、どれを正とするか (step2 Phase 3 T7-4)。`a` を正とすべきなら負。
- *
- * 2 人が同じ branch を merge すると、同じ id の batch が別々の clock で trunk に積まれる。
- * 手元が先着を残すと届いた順で位置が変わり収束しないので、**(clock, 積んだ人) が最小の写し**を
- * 正とする。写しの ops は同一なので、変わるのは位置だけである。
- *
- * **全順序でなければならない。**同点を残すと、同点の写しのどちらが残るかが届いた順で決まり、
- * 規則を置いた意味が無くなる。(clock, 積んだ人) が同じでも印の有無や merge コミットが違う
- * 写しはありうる (書いた人自身が同じ clock の印の無い batch と並ぶ等) ので、最後に `mergedIn` で
- * 決める (印の無い写しを先にする)。性質テストが同点の反例を見つけた
- *
- * **暫定の規則である** — merge を参照に移すと写しが生まれなくなり不要になる (設計 T7 §6a)
- */
-export function compareCopies(
-  a: Pick<Batch, 'clock' | 'actor' | 'restampedBy' | 'mergedIn'>,
-  b: Pick<Batch, 'clock' | 'actor' | 'restampedBy' | 'mergedIn'>,
-): number {
-  if (a.clock !== b.clock) return a.clock - b.clock;
-  const byStacker = compareStrings(stackedBy(a), stackedBy(b));
-  if (byStacker !== 0) return byStacker;
-  return compareStrings(a.mergedIn ?? '', b.mergedIn ?? '');
-}
-
-function compareStrings(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0;
+/** 写しが指す元の点の鍵 (`copyOf` の同一性) */
+export function copyKeyOf(copyOf: { actor: Actor; seq: number }): string {
+  return `${copyOf.actor}${ACTOR_SEPARATOR}${copyOf.seq}`;
 }
 
 // --- genesis (snapshot → 初期 batch) の予約値 (§3.4) ---

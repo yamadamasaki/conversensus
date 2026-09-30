@@ -97,13 +97,16 @@ export async function createBranch(user: UserEvent, name: string) {
   await screen.findByText(branchLabel(name), {}, WIRING_TIMEOUT);
 }
 
-/** サイドバーの branch 行の文言 (記号 + 名前) */
+/** サイドバーの branch 行の文言 (記号 + 名前 + 状態)。merge / close 後は `(merged)` 等が付く */
 export function branchLabel(name: string): RegExp {
-  return new RegExp(`${name}$`);
+  return new RegExp(`${name}( \\((merged|closed)\\))?$`);
 }
 
+/** branch を開く。一覧は非同期に読み直されるので、行が出るまで待つ */
 export async function openBranch(user: UserEvent, name: string) {
-  await user.click(screen.getByText(branchLabel(name)));
+  await user.click(
+    await screen.findByText(branchLabel(name), {}, WIRING_TIMEOUT),
+  );
 }
 
 /**
@@ -129,4 +132,38 @@ export function renderedNodeCount(): number {
 export async function syncNow(user: UserEvent) {
   await user.click(screen.getByRole('button', { name: '今すぐ同期' }));
   await screen.findByRole('button', { name: '今すぐ同期' }, WIRING_TIMEOUT);
+}
+
+/** 開いている branch の変更をコミットする (下部バーの「コミット」→ ダイアログ) */
+export async function commitBranch(user: UserEvent, message: string) {
+  await user.click(screen.getByRole('button', { name: 'コミット' }));
+  const dialog = await screen.findByLabelText('コミットを作成');
+  await user.type(within(dialog).getByRole('textbox'), message);
+  await user.click(within(dialog).getByRole('button', { name: 'コミット' }));
+  await waitFor(
+    () => expect(screen.queryByLabelText('コミットを作成')).toBeNull(),
+    WIRING_TIMEOUT,
+  );
+}
+
+/**
+ * 開いている branch を trunk へ merge する (下部バーの「merge ↑」→ 理由の入力)。
+ * 対立があれば確認が挟まるので、出たら進める
+ */
+export async function mergeOpenBranch(user: UserEvent, reason: string) {
+  const mergeButton = screen.getByRole('button', { name: 'merge ↑' });
+  await waitFor(
+    () => expect(mergeButton).toHaveProperty('disabled', false),
+    WIRING_TIMEOUT,
+  );
+  await user.click(mergeButton);
+  const confirm = screen.queryByRole('button', { name: 'merge する' });
+  if (confirm) await user.click(confirm);
+  const dialog = await screen.findByLabelText('入力', {}, WIRING_TIMEOUT);
+  await user.type(within(dialog).getByRole('textbox'), reason);
+  await user.click(within(dialog).getByRole('button', { name: 'OK' }));
+  await waitFor(
+    () => expect(screen.queryByLabelText('入力')).toBeNull(),
+    WIRING_TIMEOUT,
+  );
 }

@@ -68,10 +68,13 @@ remote レコードは fileId を必要とする。そこで `enqueue(batches, f
 以前の鍵は `batch.id` だけだった (fileId は運搬のために添えるだけ)。step1 では branch の
 op-log を remote へ出さなかったので、1 つの id が 2 つの fileId に現れることが無かった。
 
-T7-2 で branch の op-log も remote へ出す。**merge は branch の batch を同じ id のまま
-trunk へ再スタンプする**ので、branch 側の送信が保留中 (オフライン等) に merge すると、
-同じ id が 2 つの fileId で同時にキューに乗る。id だけを鍵にすると trunk への取り込みが
-**黙って捨てられ**、次の catch-up まで相手に届かない (step1 の C1 がキューに残っていた形)。
+T7-2 で branch の op-log も remote へ出す。step2 の merge は branch の batch を**同じ id のまま**
+trunk へ写したので、branch 側の送信が保留中 (オフライン等) に merge すると、同じ id が 2 つの
+fileId で同時にキューに乗った。id だけを鍵にすると trunk への取り込みが**黙って捨てられ**、
+次の catch-up まで相手に届かない (step1 の C1 がキューに残っていた形)。
+
+step3 Phase 1 D2 で写しは新しい id を持つようになり、この衝突は起きなくなった。鍵に fileId を
+含める形は、ローカル正典がファイル単位で remote の rkey も fileId を含むことに揃えて保っている。
 
 - **同じ id・別 fileId は両方積む**: オフラインで branch 分 (clock 3) と trunk 分 (clock 7) を
   積み、両方が保留 (2 件) になり、復帰後にそれぞれの fileId で送られること

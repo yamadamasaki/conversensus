@@ -22,7 +22,6 @@ import {
   type Commit,
   type CommitId,
   type CommitKind,
-  compareCopies,
   type FileId,
   type GraphFileListItem,
   isFileDeleted,
@@ -49,7 +48,7 @@ type BatchRow = {
   // content batch の所属シート。structure (file-level) batch は NULL (W3c2)
   sheet_id: string | null;
   // merge の写しだけが持つ (step2 Phase 3 T7-4)。それ以外は NULL
-  restamped_by: string | null;
+  copy_of_json: string | null;
   merged_in: string | null;
 };
 
@@ -103,7 +102,8 @@ CREATE TABLE IF NOT EXISTS batches (
   timestamp  INTEGER NOT NULL,
   ops_json   TEXT    NOT NULL,
   sheet_id   TEXT,
-  restamped_by TEXT,
+  -- merge の写しなら元の点 ({ actor, seq } の JSON)。写しでなければ NULL (step3 Phase 1 D2)
+  copy_of_json TEXT,
   merged_in  TEXT,
   UNIQUE(file_id, batch_id)
 );
@@ -200,14 +200,13 @@ export class EventStore {
   /**
    * Batch を操作ログへ追記する。
    *
-   * (file_id, batch_id) が既存なら原則何もしない (べき等: 同一 Batch の重複適用を無視)。
-   * **例外は merge の写し** (step2 Phase 3 T7-4): 2 人が同じ branch を merge すると同じ id が
-   * 別の clock で届くので、届いた写しが `compareCopies` で小さければ**位置 (clock と積んだ人) を
-   * 置き換える**。先着を残すと届いた順で位置が変わり、端末ごとに projection がずれる。
-   * ops は写し同士で同一なので書き換えない。これは「追記のみ」の暫定の例外である (設計 T7 §6a)
+   * (file_id, batch_id) が既存なら何もしない (べき等: 同一 Batch の重複適用を無視)。
    *
-   * @returns 行が新規に追記された、または位置が置き換わったら true。何も変わらなければ false。
-   *   置き換えも true にするのは、受信の着地で画面を差し替える契機 (`appended > 0`) に乗せるため
+   * step2 では merge の写しだけがこの例外で、同じ id が別の clock で届くと位置を置き換えていた。
+   * step3 Phase 1 D2 で写しは merge した人自身の batch (新しい id) になったので、**例外は無くなり、
+   * 追記のみに戻った**。同じ元を指す写しの重複は畳み込み (`orderBatches`) が除く。
+   *
+   * @returns 新規に追記されたら true。既存なら false
    */
   appendBatch(fileId: FileId, batch: Batch): boolean {
     // 永続化の最小不変条件: 空 ops の Batch (no-op 行) をログに残さない。
@@ -215,55 +214,13 @@ export class EventStore {
     if (batch.ops.length === 0) {
       throw new Error('Cannot append a batch with empty ops');
     }
-    const existing = this.db
-      .query<
-        {
-          actor: string;
-          clock: number;
-          restamped_by: string | null;
-          merged_in: string | null;
-        },
-        { $file: string; $id: string }
-      >(
-        `SELECT actor, clock, restamped_by, merged_in FROM batches
-          WHERE file_id = $file AND batch_id = $id`,
-      )
-      .get({ $file: fileId, $id: batch.id });
-    if (existing) {
-      // 比較は全順序 (`compareCopies`) なので、印の列もすべて渡す
-      const current = {
-        actor: existing.actor,
-        clock: existing.clock,
-        ...(existing.restamped_by !== null && {
-          restampedBy: existing.restamped_by,
-        }),
-        ...(existing.merged_in !== null && {
-          mergedIn: existing.merged_in as Batch['mergedIn'],
-        }),
-      };
-      if (compareCopies(batch, current) >= 0) return false;
-      this.db
-        .query(
-          `UPDATE batches
-              SET clock = $clock, restamped_by = $restampedBy, merged_in = $mergedIn
-            WHERE file_id = $file AND batch_id = $id`,
-        )
-        .run({
-          $file: fileId,
-          $id: batch.id,
-          $clock: batch.clock,
-          $restampedBy: batch.restampedBy ?? null,
-          $mergedIn: batch.mergedIn ?? null,
-        });
-      return true;
-    }
-    this.db
+    const result = this.db
       .query(
-        `INSERT INTO batches
+        `INSERT OR IGNORE INTO batches
            (file_id, batch_id, actor, clock, dot_seq, deps_json, timestamp,
-            ops_json, sheet_id, restamped_by, merged_in)
+            ops_json, sheet_id, copy_of_json, merged_in)
          VALUES ($file, $id, $actor, $clock, $dotSeq, $deps, $ts, $ops, $sheet,
-                 $restampedBy, $mergedIn)`,
+                 $copyOf, $mergedIn)`,
       )
       .run({
         $file: fileId,
@@ -276,10 +233,10 @@ export class EventStore {
         $ops: JSON.stringify(batch.ops),
         // content batch は sheetId を持つ。structure batch は NULL (W3c2)
         $sheet: batch.sheetId ?? null,
-        $restampedBy: batch.restampedBy ?? null,
+        $copyOf: batch.copyOf ? JSON.stringify(batch.copyOf) : null,
         $mergedIn: batch.mergedIn ?? null,
       });
-    return true;
+    return result.changes > 0;
   }
 
   /** 複数 Batch を 1 トランザクションで追記する。@returns 新規追記された件数 */
@@ -303,7 +260,7 @@ export class EventStore {
     const rows = this.db
       .query<BatchRow, string>(
         `SELECT batch_id, actor, clock, dot_seq, deps_json, timestamp, ops_json,
-                sheet_id, restamped_by, merged_in
+                sheet_id, copy_of_json, merged_in
            FROM batches
           WHERE file_id = ?
           ORDER BY clock, timestamp, batch_id`,
@@ -683,7 +640,9 @@ function rowToBatch(row: BatchRow): Batch {
     // content batch のみ sheet_id を持つ (structure batch は NULL) (W3c2)
     ...(row.sheet_id !== null && { sheetId: row.sheet_id as SheetId }),
     // merge の写しだけが持つ (T7-4)
-    ...(row.restamped_by !== null && { restampedBy: row.restamped_by }),
+    ...(row.copy_of_json !== null && {
+      copyOf: JSON.parse(row.copy_of_json) as NonNullable<Batch['copyOf']>,
+    }),
     ...(row.merged_in !== null && {
       mergedIn: row.merged_in as Batch['mergedIn'],
     }),

@@ -25,6 +25,7 @@ import { applyPropertyChange, canonicalProperties } from './properties';
 import {
   type Batch,
   compareByClockActorId,
+  copyKeyOf,
   type FileOp,
   type GraphOp,
   isFileOp,
@@ -169,8 +170,23 @@ function finalize(s: FoldState): ProjectedGraph {
  * 単一 actor では退行しない: `LamportClock.tick()` は単調増加なので同一 actor 内で
  * clock は必ず一意であり、第 2 キーは発動しない (回帰テストで固定)。
  */
+/**
+ * 畳み込みの順に並べる (clock → actor → id)。
+ *
+ * **同じ元を指す merge の写しは、全順序で最初の 1 つだけを残す** (step3 Phase 1 D2)。
+ * 2 人が並行に同じ branch を merge すると、同じ編集の写しが 2 つ trunk に載る。どちらを
+ * 残すかを全順序で決めるので、届いた順に依らず誰の手元でも同じ写しが残る。
+ */
 export function orderBatches(batches: Batch[]): Batch[] {
-  return [...batches].sort(compareByClockActorId);
+  const sorted = [...batches].sort(compareByClockActorId);
+  const seenCopies = new Set<string>();
+  return sorted.filter((batch) => {
+    if (!batch.copyOf) return true;
+    const key = copyKeyOf(batch.copyOf);
+    if (seenCopies.has(key)) return false;
+    seenCopies.add(key);
+    return true;
+  });
 }
 
 export function projectBatches(batches: Batch[]): ProjectedGraph {

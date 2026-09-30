@@ -31,6 +31,18 @@ export function isVersionVector(
   );
 }
 
+/** 点 (`{ actor, seq }`) の形か */
+function isDot(value: unknown): value is { actor: string; seq: number } {
+  if (typeof value !== 'object' || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.actor === 'string' &&
+    typeof v.seq === 'number' &&
+    Number.isInteger(v.seq) &&
+    v.seq > 0
+  );
+}
+
 /** Batch + fileId → レコードボディ ($type を除く。rkey は `batchRkey` が組む) */
 export function batchToRecord(
   batch: Batch,
@@ -47,8 +59,8 @@ export function batchToRecord(
     ops: batch.ops,
     // content batch のみ sheetId を持つ。undefined なら省略し、往復で無 → 無を保つ。
     ...(batch.sheetId !== undefined && { sheetId: batch.sheetId }),
-    // merge の写しだけが持つ (T7-4)。無ければ省略し、往復で無 → 無を保つ
-    ...(batch.restampedBy !== undefined && { restampedBy: batch.restampedBy }),
+    // merge の写しだけが持つ (step3 Phase 1 D2)。無ければ省略し、往復で無 → 無を保つ
+    ...(batch.copyOf !== undefined && { copyOf: batch.copyOf }),
     ...(batch.mergedIn !== undefined && { mergedIn: batch.mergedIn }),
     createdAt: new Date(batch.timestamp).toISOString() as ISODateString,
   };
@@ -80,8 +92,8 @@ export function isBatchRecordValue(value: unknown): value is BatchRecord {
     // sheetId は optional。無いレコード (file 構造 batch) も通すが、
     // 有るなら string でなければ壊れたレコードとして弾く。
     (v.sheetId === undefined || typeof v.sheetId === 'string') &&
-    // merge の写しの印 (T7-4) も optional。有るなら string でなければ弾く
-    (v.restampedBy === undefined || typeof v.restampedBy === 'string') &&
+    // merge の写しの印も optional。有るなら形 ({ actor, seq }) を満たさなければ弾く
+    (v.copyOf === undefined || isDot(v.copyOf)) &&
     (v.mergedIn === undefined || typeof v.mergedIn === 'string')
   );
 }
@@ -104,7 +116,7 @@ export function recordToBatch(value: BatchRecord): Batch {
     ...(value.sheetId !== undefined && {
       sheetId: value.sheetId as Batch['sheetId'],
     }),
-    ...(value.restampedBy !== undefined && { restampedBy: value.restampedBy }),
+    ...(value.copyOf !== undefined && { copyOf: value.copyOf }),
     ...(value.mergedIn !== undefined && {
       mergedIn: value.mergedIn as Batch['mergedIn'],
     }),
