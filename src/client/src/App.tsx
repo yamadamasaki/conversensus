@@ -297,6 +297,19 @@ export default function App() {
   // は撤去した。リモートのファイル発見は `useFileSheetOperations` 内の
   // `discoverRemoteFiles` (op-log 経路) に一本化されている (設計 §3.8)。
 
+  /**
+   * 「今すぐ同期」。**trunk と、開いている branch の両方を引く** — branch の tap は
+   * trunk とは別なので、trunk だけを引くと branch を開いたまま押しても相手の
+   * branch の編集が来ない。trunk を先にするのは、名簿と branch の一覧が trunk の
+   * 受信で更新されるからである
+   */
+  const { syncNow: syncTrunkNow } = fileOps;
+  const { syncBranchNow } = branchOps;
+  const syncNow = useCallback(async () => {
+    await syncTrunkNow();
+    await syncBranchNow();
+  }, [syncTrunkNow, syncBranchNow]);
+
   const branch = branchOps.activeBranch;
   const canMerge = branchOps.diffState === BRANCH_DIFF_STATE.COMMITTED;
 
@@ -334,7 +347,7 @@ export default function App() {
         onAtprotoLogin={() => setLoginDialogOpen(true)}
         onAtprotoLogout={atprotoLogout}
         remoteQueue={remoteQueue}
-        onSyncNow={fileOps.syncNow}
+        onSyncNow={syncNow}
         // 名簿は DID 単位なので、ログイン中でなければ何も出せない
         onOpenInvitation={
           atprotoSession

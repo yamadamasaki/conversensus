@@ -336,29 +336,30 @@ export function useBranchOperations({
     [],
   );
 
-  const { record: branchSyncRecord, settled: branchSettled } = useEventSyncTap(
-    activeBranch?.branchFileId ?? null,
-    {
-      actor,
-      // 分岐点の後から発番する。空の branch op-log は clock 1 から始まってしまい、
-      // それでは base 時点の trunk batch に LWW で負ける (§p5-4)。
-      ...(activeBranch && { clockFloor: activeBranch.base.at }),
-      // branch の編集も remote へ出す (step2 Phase 3 T7-2)。step1 §9.2 の「branch batch は
-      // local 専用」はここで外れる。別の端末・相手が branch の中身を読むための前提である。
-      // 名簿 (roster) は渡さない — 参加者の branch を引くのは T7-3 で、trunk の名簿を借りる
-      remoteQueue,
-      // 参加者の branch の編集を引く (T7-3)。読む相手と期間は trunk の名簿が決める
-      roster,
-      ...(activeBranch && { trunkFileId: activeBranch.trunkFileId }),
-      onReceived: handleBranchReceived,
-      ...(oplogDeps.appendReceived && {
-        appendReceived: oplogDeps.appendReceived,
-      }),
-      ...(oplogDeps.createBranchProvider && {
-        createLocalProvider: oplogDeps.createBranchProvider,
-      }),
-    },
-  );
+  const {
+    record: branchSyncRecord,
+    settled: branchSettled,
+    syncNow: syncBranchNow,
+  } = useEventSyncTap(activeBranch?.branchFileId ?? null, {
+    actor,
+    // 分岐点の後から発番する。空の branch op-log は clock 1 から始まってしまい、
+    // それでは base 時点の trunk batch に LWW で負ける (§p5-4)。
+    ...(activeBranch && { clockFloor: activeBranch.base.at }),
+    // branch の編集も remote へ出す (step2 Phase 3 T7-2)。step1 §9.2 の「branch batch は
+    // local 専用」はここで外れる。別の端末・相手が branch の中身を読むための前提である。
+    // 名簿 (roster) は渡さない — 参加者の branch を引くのは T7-3 で、trunk の名簿を借りる
+    remoteQueue,
+    // 参加者の branch の編集を引く (T7-3)。読む相手と期間は trunk の名簿が決める
+    roster,
+    ...(activeBranch && { trunkFileId: activeBranch.trunkFileId }),
+    onReceived: handleBranchReceived,
+    ...(oplogDeps.appendReceived && {
+      appendReceived: oplogDeps.appendReceived,
+    }),
+    ...(oplogDeps.createBranchProvider && {
+      createLocalProvider: oplogDeps.createBranchProvider,
+    }),
+  });
 
   // File が切り替わったらブランチ状態をリセット
   // biome-ignore lint/correctness/useExhaustiveDependencies: activeFile?.id の変化をトリガーにする意図的な設計
@@ -1165,6 +1166,14 @@ export function useBranchOperations({
      * 足して GraphEditor に渡す — どちらが進んでも canvas を再 seed する
      */
     branchReceiveEpoch,
+    /**
+     * 開いている branch の受信を今すぐ行う。trunk 表示中は何もしない (tap が無い)。
+     *
+     * **「今すぐ同期」は trunk と branch の両方を引く** (App が束ねる)。以前は trunk の
+     * `syncNow` だけが配線されていて、branch を開いたまま押しても相手の branch の編集は
+     * 来ず、定期同期 (30 秒) を待つしかなかった (step3 Phase 0 の App 結合テストで発覚)
+     */
+    syncBranchNow,
     /**
      * fork から DtR を起こす (step2 Phase 6 D5)。通知 (`ConflictNotice`) の各行に渡す。
      * **未ログインなら渡さない** — 判断ログの書き先が自分の repo なので起動できない
