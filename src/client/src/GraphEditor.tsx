@@ -16,10 +16,7 @@ import {
   Controls,
   type Edge,
   type EdgeChange,
-  getNodesBounds,
-  getViewportForBounds,
   MiniMap,
-  type Node,
   type NodeChange,
   type OnConnect,
   type OnReconnect,
@@ -30,7 +27,6 @@ import {
   useNodesState,
   useReactFlow,
 } from '@xyflow/react';
-import { toPng } from 'html-to-image';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import '@xyflow/react/dist/style.css';
 import type { GraphFile } from '@conversensus/shared';
@@ -43,11 +39,7 @@ import { type GraphEvent, makeEventBase } from './events/GraphEvent';
 import { GroupNode } from './GroupNode';
 import { contentOf, createChangeGate } from './graph/changeGate';
 import { deletionTargets } from './graph/deletion';
-import {
-  buildDragStopEvents,
-  draggedNodesOf,
-  resolveDropTargets,
-} from './graph/dragStop';
+import { exportPng } from './graph/exportPng';
 import {
   canConnectByTemplate,
   canReconnectByTemplate,
@@ -60,11 +52,6 @@ import {
   fromFlowNodes,
   GROUP_NODE_TYPE,
   IMAGE_NODE_TYPE,
-  PNG_EXPORT_HEIGHT,
-  PNG_EXPORT_MAX_ZOOM,
-  PNG_EXPORT_MIN_ZOOM,
-  PNG_EXPORT_PADDING,
-  PNG_EXPORT_WIDTH,
   RF_GROUP_NODE_TYPE,
   RF_IMAGE_NODE_TYPE,
   toFlowAndGhostEdges,
@@ -74,20 +61,11 @@ import { useClipboard } from './hooks/useClipboard';
 import { useEdgeContextMenu } from './hooks/useEdgeContextMenu';
 import { type UndoState, useEventStore } from './hooks/useEventStore';
 import { useGroupNodes } from './hooks/useGroupNodes';
+import { useImageIntake } from './hooks/useImageIntake';
+import { useNodeDragTracking } from './hooks/useNodeDragTracking';
 import { useNodeTypeMenu } from './hooks/useNodeTypeMenu';
 import { ImageNode } from './ImageNode';
-import {
-  IMAGE_MIME_PREFIX,
-  imagePropertiesOf,
-  saveImageBlob,
-} from './images/imageBlob';
-import {
-  ImageErrorProvider,
-  imageErrorMessage,
-} from './images/imageErrorContext';
-import { pasteImage as routeImagePaste } from './images/pasteImage';
-import { pickImagePasteTarget } from './images/pasteTarget';
-import { replaceNodeImage } from './images/replaceNodeImage';
+import { ImageErrorProvider } from './images/imageErrorContext';
 import { NodeCreationContext } from './NodeCreationContext';
 import type { NodeTypeOption } from './NodeTypeMenu';
 import { NodeTypeMenu } from './NodeTypeMenu';
@@ -101,17 +79,6 @@ import { type SearchHit, searchSheet } from './search/searchSheet';
 const REVEAL_ZOOM = 1.2;
 /** 寄せるのにかける時間。一瞬で飛ぶと、どこからどこへ動いたのか分からない */
 const REVEAL_DURATION_MS = 400;
-const DROP_TARGET_ATTR = 'data-drop-target'; // グループへ追加しようとしている
-const LEAVING_GROUP_ATTR = 'data-leaving-group'; // グループを出ようとしている
-
-function clearDragHighlights(): void {
-  for (const attr of [DROP_TARGET_ATTR, LEAVING_GROUP_ATTR]) {
-    for (const el of document.querySelectorAll(`[${attr}="true"]`)) {
-      el.removeAttribute(attr);
-    }
-  }
-}
-
 type Props = {
   file: GraphFile;
   activeSheetId: SheetId;
@@ -509,66 +476,6 @@ function GraphEditorInner({
     };
   }, []);
 
-  // --- Node drag tracking for NODE_MOVED ---
-  const preDragPositionsRef = useRef<Map<string, { x: number; y: number }>>(
-    new Map(),
-  );
-
-  const onNodeDragStart = useCallback(
-    (_: React.MouseEvent, _node: Node) => {
-      const currentNodes = getNodes();
-      preDragPositionsRef.current = new Map(
-        currentNodes.map((n) => [n.id, { x: n.position.x, y: n.position.y }]),
-      );
-    },
-    [getNodes],
-  );
-
-  // ドラッグ中: ビジュアルフィードバック
-  const onNodeDrag = useCallback(
-    (_: React.MouseEvent, node: Node, nodes: Node[]) => {
-      const dragged = draggedNodesOf(node, nodes);
-      clearDragHighlights();
-
-      // 確定時 (onNodeDragStop) と同じ関数で解決し、ハイライトと実際の移動先を揃える
-      const targets = resolveDropTargets(dragged, getNodes());
-
-      for (const draggedNode of dragged) {
-        const target = targets.get(draggedNode.id);
-        const oldParentId = draggedNode.parentId;
-        if (target?.id === oldParentId) continue;
-
-        // 親グループから出ようとしている: 元の親を赤でハイライト
-        if (oldParentId) {
-          document
-            .querySelector(`.react-flow__node[data-id="${oldParentId}"]`)
-            ?.setAttribute(LEAVING_GROUP_ATTR, 'true');
-        }
-        // 入ろうとしているグループをオレンジでハイライト
-        if (target) {
-          document
-            .querySelector(`.react-flow__node[data-id="${target.id}"]`)
-            ?.setAttribute(DROP_TARGET_ATTR, 'true');
-        }
-      }
-    },
-    [getNodes],
-  );
-
-  const onNodeDragStop = useCallback(
-    (_: React.MouseEvent, node: Node, nodes: Node[]) => {
-      clearDragHighlights();
-
-      const events = buildDragStopEvents(
-        draggedNodesOf(node, nodes),
-        getNodes(),
-        preDragPositionsRef.current,
-      );
-      for (const event of events) dispatch(event);
-    },
-    [dispatch, getNodes],
-  );
-
   // reconnectEdge は元の UUID を破棄して xy-edge__... 形式の ID を生成するため,
   // 元の ID を保持したまま接続先のみ更新する独自実装を使用する
   const onReconnect: OnReconnect = useCallback(
@@ -765,164 +672,6 @@ function GraphEditorInner({
     return () => window.removeEventListener('keydown', handleDeleteKey);
   }, [handleDeleteKey]);
 
-  // 画像の受け入れ (ANA-116 S3)。drop / paste / Cmd+V の 3 経路が共有する。
-  //
-  // **判断は `images/imageBlob.ts` にある** — ここが持つのは配線と位置決めだけである。
-  // 保存先はローカル blob ストアで、PDS は触らない (未ログインでも使えるため。設計 D5)。
-  const addImageNode = useCallback(
-    async (source: Blob, position: { x: number; y: number }) => {
-      try {
-        const ref = await saveImageBlob(source);
-        addNode(position, 'image', imagePropertiesOf(ref), undefined);
-      } catch (err) {
-        // 握り潰さない (設計 D7)。旧実装は console.error だけだったので、
-        // 上限超過は「落としたのに何も起きない」ようにしか見えなかった
-        setImageError(imageErrorMessage(err));
-      }
-    },
-    [addNode],
-  );
-
-  // 貼り付け先の画像ノード (ANA-117 S6)。規則は `images/pasteTarget.ts` が持つ
-  const selectedImageNode = useCallback(
-    () => pickImagePasteTarget(getNodes()),
-    [getNodes],
-  );
-
-  // 貼り付けの落とし先。canvas の中央に置く
-  const pasteTargetPosition = useCallback(() => {
-    const containerEl = document.querySelector('.react-flow');
-    if (!containerEl) {
-      return { x: 100 + Math.random() * 200, y: 100 + Math.random() * 200 };
-    }
-    const rect = containerEl.getBoundingClientRect();
-    return screenToFlowPosition({
-      x: rect.left + rect.width / 2,
-      y: rect.top + rect.height / 2,
-    });
-  }, [screenToFlowPosition]);
-
-  /** 貼り付けた画像の振り分け。判断は `images/pasteImage.ts` にある */
-  const pasteImage = useCallback(
-    (source: Blob) =>
-      routeImagePaste(source, {
-        pickTarget: selectedImageNode,
-        addImageNode: (s) => addImageNode(s, pasteTargetPosition()),
-        replaceImage: (nodeId, properties, s) =>
-          replaceNodeImage(nodeId, properties, s, {
-            dispatch,
-            reportError: setImageError,
-          }),
-      }),
-    [selectedImageNode, addImageNode, pasteTargetPosition, dispatch],
-  );
-
-  // paste イベントで画像を受け取った時刻。**keydown の代替パスとの二重処理を防ぐ**
-  // ためだけに使う (下の `handlePasteKeydown` を参照)
-  const pasteHandledAtRef = useRef(0);
-
-  // クリップボードからの画像貼り付け → ImageNode 作成
-  const handlePaste = useCallback(
-    async (e: ClipboardEvent) => {
-      const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
-
-      const items = e.clipboardData?.items;
-      if (!items || items.length === 0) return;
-
-      for (let i = 0; i < items.length; i++) {
-        const item = items[i];
-        if (!item.type.startsWith(IMAGE_MIME_PREFIX)) continue;
-        e.preventDefault();
-        const file = item.getAsFile();
-        if (!file) continue;
-        // **await より先に記録する** — keydown 側は clipboard.read() の解決を待って
-        // からここを見るので、印を付けるのが await の後だと間に合わないことがある
-        pasteHandledAtRef.current = Date.now();
-        await pasteImage(file);
-        break;
-      }
-    },
-    [pasteImage],
-  );
-
-  useEffect(() => {
-    window.addEventListener('paste', handlePaste);
-    return () => window.removeEventListener('paste', handlePaste);
-  }, [handlePaste]);
-
-  // Ctrl/Cmd+V で navigator.clipboard.read() を使う代替パス
-  // (非編集可能要素では paste イベントが発火しないブラウザがあるため)
-  //
-  // **paste イベントが来た場合はこちらは何もしない。** ここは `clipboard.read()` を
-  // await するので、`e.preventDefault()` を呼べる頃にはブラウザは既に paste を
-  // 配送し終えている — 止められないので「後から見て譲る」形にする
-  // (`deepse/reports/review_2026-08-11_ana116-image.md` の未検証項目)。
-  const handlePasteKeydown = useCallback(
-    async (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey) || e.key !== 'v') return;
-      const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
-
-      const startedAt = Date.now();
-      let clipboardItems: ClipboardItems;
-      try {
-        clipboardItems = await navigator.clipboard.read();
-      } catch {
-        // clipboard read 失敗 (許可がない場合など) は paste イベントに任せる。
-        // **保存の失敗をここで一緒に捨ててはならない** — 旧実装はこの catch が
-        // 広すぎて、上限超過も権限エラーも同じく黙って消えていた
-        return;
-      }
-
-      // この Cmd+V で paste イベントが既に画像を受け取っていたら譲る
-      if (pasteHandledAtRef.current >= startedAt) return;
-
-      for (const item of clipboardItems) {
-        for (const type of item.types) {
-          if (!type.startsWith(IMAGE_MIME_PREFIX)) continue;
-          const source = await item.getType(type);
-          await pasteImage(source);
-          // **最初の 1 枚で抜ける** — 1 つの項目が複数の画像表現 (image/png と
-          // image/tiff など) を持つことがあり、回し続けると同じ画像で 2 回作られる
-          return;
-        }
-      }
-    },
-    [pasteImage],
-  );
-
-  useEffect(() => {
-    window.addEventListener('keydown', handlePasteKeydown);
-    return () => window.removeEventListener('keydown', handlePasteKeydown);
-  }, [handlePasteKeydown]);
-
-  // ファイルドロップ → ImageNode 作成
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    if (e.dataTransfer.types.includes('Files')) {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'copy';
-    }
-  }, []);
-
-  const handleDrop = useCallback(
-    async (e: React.DragEvent) => {
-      const files = e.dataTransfer.files;
-      if (files.length === 0) return;
-
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        if (!file.type.startsWith(IMAGE_MIME_PREFIX)) continue;
-        e.preventDefault();
-        // 落とした位置は React の合成イベントが再利用される前に確定させる
-        const position = screenToFlowPosition({ x: e.clientX, y: e.clientY });
-        await addImageNode(file, position);
-        break;
-      }
-    },
-    [screenToFlowPosition, addImageNode],
-  );
-
   // remove タイプの変更は dispatch 経由で処理するためフィルタする
   const handleNodesChange = useCallback(
     (changes: NodeChange[]) => {
@@ -948,47 +697,23 @@ function GraphEditorInner({
     useEdgeContextMenu(getEdges, dispatch);
   const { onPaneClick, openNodeTypeMenu, nodeTypeMenu, clearNodeTypeMenu } =
     useNodeTypeMenu(screenToFlowPosition, getNodes);
+  const { onNodeDragStart, onNodeDrag, onNodeDragStop } = useNodeDragTracking(
+    getNodes,
+    dispatch,
+  );
+  const { handleDragOver, handleDrop } = useImageIntake({
+    addNode,
+    getNodes,
+    screenToFlowPosition,
+    dispatch,
+    reportError: setImageError,
+  });
 
-  // --- PNG export ---
   const handleExportPng = useCallback(() => {
-    const nodes = getNodes();
-    const bounds = getNodesBounds(nodes);
-    const width = PNG_EXPORT_WIDTH;
-    const height = PNG_EXPORT_HEIGHT;
-    const viewport = getViewportForBounds(
-      bounds,
-      width,
-      height,
-      PNG_EXPORT_MIN_ZOOM,
-      PNG_EXPORT_MAX_ZOOM,
-      PNG_EXPORT_PADDING,
-    );
-    const viewportEl = document.querySelector(
-      '.react-flow__viewport',
-    ) as HTMLElement | null;
-    if (!viewportEl) return;
-    toPng(viewportEl, {
-      backgroundColor: '#ffffff',
-      width,
-      height,
-      style: {
-        width: String(width),
-        height: String(height),
-        transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})`,
-      },
-    }).then((dataUrl) => {
-      const a = document.createElement('a');
-      a.href = dataUrl;
-      const sheetName =
-        fileRef.current.sheets.find((s) => s.id === activeSheetIdRef.current)
-          ?.name ?? 'sheet';
-      const safeName = `${fileRef.current.name} - ${sheetName}`.replace(
-        /[/\\:*?"<>|]/g,
-        '_',
-      );
-      a.download = `${safeName}.png`;
-      a.click();
-    });
+    const sheetName =
+      fileRef.current.sheets.find((s) => s.id === activeSheetIdRef.current)
+        ?.name ?? 'sheet';
+    void exportPng(getNodes(), fileRef.current.name, sheetName);
   }, [getNodes]);
 
   return (

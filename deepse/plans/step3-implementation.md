@@ -117,6 +117,9 @@ step2 の振り返りで「欠けている」とされた層を先に作る。�
     (`readyForSave` のタイマーと `conflictUpdatePendingRef`) ので、窓に入った編集が
     親に届かなかった。**中身 (op に落ちる値) で見分ける門** (`graph/changeGate.ts`) に置き換え、
     2 つの仕掛けを撤去した
+  - **✅ 切り出し (2026-09-30)。**ドラッグ追跡 → `hooks/useNodeDragTracking.ts`、画像の受け入れ →
+    `hooks/useImageIntake.ts`、PNG 書き出し → `graph/exportPng.ts`。`GraphEditor` は
+    1268 行 → 975 行。どれも中にあった間はテストが無かったので、切り出して単体テストを付けた
 - **S0-3 n 軸のベンチ** (問 24)。「n 人 × m 件」の取得と畳み込み。vector を入れる前の
   基準値を取る
 - **S0-4 保存先の spike** (U2)。SQLite-WASM + OPFS を Safari / Chrome で動かし、
