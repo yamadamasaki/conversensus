@@ -29,17 +29,19 @@ const addNode = (id: string): Op => ({
   content: 'ノード',
 });
 
+/** `deps` は**書いたときに見ていたもの**。競合か上書きかはこれで決まる (step3 Phase 1 D4) */
 const batch = (
   actor: string,
   clock: number,
   ops: Op[] = [addNode(`n${clock}`)],
   sheetId?: SheetId,
+  deps: Batch['deps'] = {},
 ): Batch => ({
   id: `${actor}-${clock}` as Batch['id'],
   actor,
   clock,
   seq: clock,
-  deps: {},
+  deps,
   timestamp: 1_700_000_000_000 + clock,
   ops,
   ...(sheetId !== undefined && { sheetId }),
@@ -290,22 +292,29 @@ describe('receiveParticipantBatches', () => {
   });
 
   /**
-   * **通知の向きの決着** (Phase 3 T8)。T5 の検出は LWW で勝つ側にしか出ないので、
-   * 負けた側 — 自分の編集が上書きされた側 — に届く系列をもう 1 本持つ。
+   * (Phase 3 T8 / step3 Phase 1 D4)。T5 は並行な組だけを拾うので、相手が**見た上で**
+   * 私の編集を直したとき — 上書きされた側 — に届く系列をもう 1 本持つ。
    */
   describe('上書きの報告 (Phase 3 T8)', () => {
     const sharedWith = (did: Did) =>
       roster({ [ME]: [event('genesis', 1)], [did]: [event('accept', 2)] });
 
     it('🔴 競合が 0 件でも、自分の編集が上書きされていれば報告する', async () => {
-      // 私の編集 (clock 3) < bob の編集 (clock 8) = T5 は何も出さない側である
+      // bob は私の編集を見た上で直した (deps が私の seq 3 を含む) = 並行ではない
       const local = [
         batch(ME, 1, [addNode(NODE)]),
         batch(ME, 3, [setContent('私が書いた')]),
       ];
       const remote = fakeRemote(
         {
-          [BOB]: [envelope(FILE, batch(BOB, 8, [setContent('bob が直した')]))],
+          [BOB]: [
+            envelope(
+              FILE,
+              batch(BOB, 8, [setContent('bob が直した')], undefined, {
+                [ME]: 3,
+              }),
+            ),
+          ],
         },
         local,
       );
@@ -316,7 +325,7 @@ describe('receiveParticipantBatches', () => {
         remote.deps,
       );
 
-      // T5 は沈黙する — **これが実 PDS で見つかった問題そのものである**
+      // T5 は沈黙する — 競合ではないので、ここで拾わないと上書きされた人が気づけない
       expect(result.conflicts.conflicts).toEqual([]);
       // T8 が拾う
       expect(result.overwrites.reports).toHaveLength(1);
@@ -329,7 +338,8 @@ describe('receiveParticipantBatches', () => {
       expect(result.overwrites.labels.get(NODE)).toBe('私が書いた');
     });
 
-    it('🔴 競合として出る側では報告しない (2 つの系列は補集合である)', async () => {
+    it('🔴 競合として出る側では報告しない (2 つの系列は排他である)', async () => {
+      // bob は私の編集を見ていない (deps が空) = 並行。clock の大小は関係しない
       const local = [
         batch(ME, 1, [addNode(NODE)]),
         batch(ME, 9, [setContent('私が書いた')]),
@@ -357,7 +367,11 @@ describe('receiveParticipantBatches', () => {
         batch(ME, 3, [moveNode(1, 1)], SHEET),
       ];
       const remote = fakeRemote(
-        { [BOB]: [envelope(FILE, batch(BOB, 8, [moveNode(9, 9)], SHEET))] },
+        {
+          [BOB]: [
+            envelope(FILE, batch(BOB, 8, [moveNode(9, 9)], SHEET, { [ME]: 3 })),
+          ],
+        },
         local,
       );
       const result = await receiveParticipantBatches(
@@ -401,13 +415,19 @@ describe('receiveParticipantBatches', () => {
     });
     const aliceAdd = withId(ADD, batch(ME, 3, [addNode(NODE)], SHEET_ID));
     const aliceRemove = withId(REMOVE, batch(ME, 8, [removeNode()], SHEET_ID));
+    // bob は alice の追加を見て編集した。削除 (seq 8) は見ていない = 削除と並行
     const bobEdit = withId(
       EDIT,
-      batch(BOB, 9, [setContent('bob の編集')], SHEET_ID),
+      batch(BOB, 9, [setContent('bob の編集')], SHEET_ID, { [ME]: 3 }),
     );
     const both = roster({
       [ME]: [event('genesis', 1)],
       [BOB]: [event('accept', 2)],
+    });
+    const withCarol = roster({
+      [ME]: [event('genesis', 1)],
+      [BOB]: [event('accept', 2)],
+      [CAROL]: [event('accept', 2)],
     });
 
     /** 勝った bob の手元: alice の削除を受け取り、競合を検出して fork を書く */
@@ -433,12 +453,16 @@ describe('receiveParticipantBatches', () => {
       return { fork, forkBatches: batches, bobResult: result };
     };
 
-    it('🔴 勝った側が書いた fork が、負けた側に「届いた」として返る', async () => {
+    /**
+     * step2 では、clock の小さい側 (alice) は競合を検出せず、bob の fork の到着で知った。
+     * 並行は対称に判定するので、**当事者は両方とも自分で検出する** (step3 Phase 1 D4)。
+     * alice は同じ競合 = 同じ `conflictKey` の fork を書くので、bob の fork は到着ではない
+     */
+    it('🔴 当事者は自分でも検出するので、相手の fork を「届いた」とは数えない', async () => {
       const { fork, forkBatches, bobResult } = await bobWritesFork();
-      // 勝った側は自分で書いたので、到着としては数えない
+      // 書いた側は自分で書いたので、到着としては数えない
       expect(bobResult.arrivedForks).toEqual([]);
 
-      // 負けた alice の手元: bob の編集と fork を受け取る。alice は競合を検出しない
       const alice = fakeRemote(
         {
           [BOB]: [
@@ -453,6 +477,35 @@ describe('receiveParticipantBatches', () => {
         both,
         ME,
         alice.deps,
+      );
+
+      expect(result.conflicts.conflicts).toHaveLength(1);
+      expect(result.forks.map((f) => f.conflictKey)).toEqual([
+        fork.conflictKey,
+      ]);
+      expect(result.arrivedForks).toEqual([]);
+    });
+
+    /** 到着が意味を持つのは、自分では検出しなかった第三者である */
+    it('🔴 対立の片側しか持たない第三者には、fork が「届いた」として返る', async () => {
+      const { fork, forkBatches } = await bobWritesFork();
+
+      // carol は alice の追加だけを受け取っていて、削除はまだ届いていない。
+      // 手元に削除が無いので、bob の編集が届いても対立は見えない
+      const carol = fakeRemote(
+        {
+          [BOB]: [
+            envelope(FILE, bobEdit),
+            ...forkBatches.map((b) => envelope(FILE, b)),
+          ],
+        },
+        [aliceAdd],
+      );
+      const result = await receiveParticipantBatches(
+        FILE,
+        withCarol,
+        CAROL,
+        carol.deps,
       );
 
       expect(result.conflicts.conflicts).toEqual([]);

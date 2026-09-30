@@ -1,14 +1,22 @@
 import { describe, expect, test } from 'bun:test';
 import type {
   Batch,
+  Did,
   EdgeId,
   MergeConflict,
   NodeId,
   Op,
   SheetId,
 } from '@conversensus/shared';
-import { projectBatches } from '@conversensus/shared';
+import {
+  CausalClock,
+  concurrent,
+  orderBatches,
+  projectBatches,
+} from '@conversensus/shared';
+import fc from 'fast-check';
 import { detectIncomingConflicts, labelsOfConflicts } from './conflicts';
+import { detectOverwrites } from './overwrites';
 
 const SHEET = 'sheet-1' as SheetId;
 const A = 'aaaaaaaa-0000-4000-8000-000000000000' as NodeId;
@@ -16,20 +24,35 @@ const B = 'bbbbbbbb-0000-4000-8000-000000000000' as NodeId;
 const CHILD = 'cccccccc-0000-4000-8000-000000000000' as NodeId;
 const E = 'eeeeeeee-0000-4000-8000-000000000000' as EdgeId;
 
-const batch = (id: string, actor: string, clock: number, ops: Op[]): Batch => ({
+/**
+ * seq は clock と同じにしておく (actor ごとに増えればよい)。`deps` は**その batch を書いた
+ * ときに見ていたもの**で、競合か否かはこれで決まる (step3 Phase 1 D4)
+ */
+const batch = (
+  id: string,
+  actor: string,
+  clock: number,
+  ops: Op[],
+  deps: Batch['deps'] = {},
+): Batch => ({
   id: id as Batch['id'],
   actor,
   clock,
   seq: clock,
-  deps: {},
+  deps,
   timestamp: clock,
   sheetId: SHEET,
   ops,
 });
 
 /** 「私」の手元にある op-log (自分の編集 + 前のサイクルで受け取った相手の分) */
+const ALICE_DEV = 'did:plc:alice#dev';
+
+/** 相手が l1 (A と B を作ったところ) までを見ていた */
+const SAW_L1 = { [ALICE_DEV]: 1 };
+
 const localLog = (): Batch[] => [
-  batch('l1', 'did:plc:alice#dev', 1, [
+  batch('l1', ALICE_DEV, 1, [
     { kind: 'node.add', target: A, content: 'A' },
     { kind: 'node.add', target: B, content: 'B' },
   ]),
@@ -52,7 +75,7 @@ describe('detectIncomingConflicts', () => {
   });
 
   test('🔴 手元の編集と新着の編集がぶつかれば content の競合になる', () => {
-    // 私の編集の clock (4) が新着 (4) 以上 = **bob は私の編集を見ていない**
+    // bob は l1 までしか見ていない = **私の l2 を見ずに書いた** (並行)
     const local = [
       ...localLog(),
       batch('l2', 'did:plc:alice#dev', 4, [
@@ -60,9 +83,13 @@ describe('detectIncomingConflicts', () => {
       ]),
     ];
     const incoming = [
-      batch('r1', 'did:plc:bob#dev', 4, [
-        { kind: 'node.setContent', target: A, content: 'bob の編集' },
-      ]),
+      batch(
+        'r1',
+        'did:plc:bob#dev',
+        4,
+        [{ kind: 'node.setContent', target: A, content: 'bob の編集' }],
+        SAW_L1,
+      ),
     ];
     const { conflicts } = detectIncomingConflicts(local, incoming);
 
@@ -81,7 +108,13 @@ describe('detectIncomingConflicts', () => {
       ]),
     ];
     const incoming = [
-      batch('r1', 'did:plc:bob#dev', 4, [{ kind: 'node.remove', target: A }]),
+      batch(
+        'r1',
+        'did:plc:bob#dev',
+        4,
+        [{ kind: 'node.remove', target: A }],
+        SAW_L1,
+      ),
     ];
     const { conflicts } = detectIncomingConflicts(local, incoming);
 
@@ -108,7 +141,13 @@ describe('detectIncomingConflicts', () => {
       ]),
     ];
     const incoming = [
-      batch('r1', 'did:plc:bob#dev', 4, [{ kind: 'node.remove', target: A }]),
+      batch(
+        'r1',
+        'did:plc:bob#dev',
+        4,
+        [{ kind: 'node.remove', target: A }],
+        SAW_L1,
+      ),
     ];
     const { conflicts } = detectIncomingConflicts(local, incoming);
 
@@ -125,7 +164,13 @@ describe('detectIncomingConflicts', () => {
       ]),
     ];
     const incoming = [
-      batch('r1', 'did:plc:bob#dev', 4, [{ kind: 'node.remove', target: A }]),
+      batch(
+        'r1',
+        'did:plc:bob#dev',
+        4,
+        [{ kind: 'node.remove', target: A }],
+        SAW_L1,
+      ),
     ];
     const { labels } = detectIncomingConflicts(local, incoming);
     // 分岐点 (= 受信前の手元) では A の content は「私の編集」である
@@ -140,9 +185,13 @@ describe('detectIncomingConflicts', () => {
       ]),
     ];
     const incoming = [
-      batch('r1', 'did:plc:bob#dev', 4, [
-        { kind: 'node.setLayout', target: A, x: 9, y: 9 },
-      ]),
+      batch(
+        'r1',
+        'did:plc:bob#dev',
+        4,
+        [{ kind: 'node.setLayout', target: A, x: 9, y: 9 }],
+        SAW_L1,
+      ),
     ];
     const { conflicts } = detectIncomingConflicts(local, incoming);
     expect(conflicts).toHaveLength(1);
@@ -153,41 +202,226 @@ describe('detectIncomingConflicts', () => {
   });
 
   /**
-   * **ours を絞る理由そのもの。**実装の途中でこれを踏んだ — 手元の op を全部 ours に
-   * すると、順次編集がすべて競合になった。
+   * **組を因果で絞る理由そのもの。**step2 の実装の途中でこれを踏んだ — 手元の op を
+   * 全部 ours にすると、順次編集がすべて競合になった。
    */
   test('🔴 相手が私のを読んで直しただけなら競合にしない (順次編集)', () => {
     const local = [
       ...localLog(),
-      batch('l2', 'did:plc:alice#dev', 2, [
+      batch('l2', ALICE_DEV, 2, [
         { kind: 'node.setContent', target: A, content: '私が先に書いた' },
       ]),
     ];
-    // clock 50 = 私の編集を見た後の編集。Lamport の保証がそれを言っている
+    // bob は l2 を見た上で直した
     const incoming = [
-      batch('r1', 'did:plc:bob#dev', 50, [
-        { kind: 'node.setContent', target: A, content: 'bob が読んで直した' },
-      ]),
+      batch(
+        'r1',
+        'did:plc:bob#dev',
+        50,
+        [{ kind: 'node.setContent', target: A, content: 'bob が読んで直した' }],
+        { [ALICE_DEV]: 2 },
+      ),
     ];
     expect(detectIncomingConflicts(local, incoming).conflicts).toEqual([]);
   });
 
-  test('🔴 clock が小さい側は検出しないが、相手側は検出する (対で完全)', () => {
-    // 私 (clock 3) と bob (clock 7) が並行に編集した。私の手元では出ないが…
-    const mine = batch('l2', 'did:plc:alice#dev', 3, [
+  /**
+   * step2 は境界を clock で引いていたので、**clock が小さい側は並行でも検出できなかった**
+   * (Lamport の対偶は片側でしか言えない)。並行は対称なので、いまは両方で出る
+   */
+  test('🔴 並行なら clock の大小によらず、両方の手元で検出する', () => {
+    const mine = batch('l2', ALICE_DEV, 3, [
       { kind: 'node.setContent', target: A, content: '私' },
     ]);
-    const theirs = batch('r1', 'did:plc:bob#dev', 7, [
-      { kind: 'node.setContent', target: A, content: 'bob' },
-    ]);
+    const theirs = batch(
+      'r1',
+      'did:plc:bob#dev',
+      7,
+      [{ kind: 'node.setContent', target: A, content: 'bob' }],
+      SAW_L1,
+    );
+    // 私の手元 (clock の小さい側)。step2 ではここが空だった
     expect(
       detectIncomingConflicts([...localLog(), mine], [theirs]).conflicts,
-    ).toEqual([]);
-    // …bob の手元 (ours = 自分の clock 7, theirs = 私の clock 3) では出る。
-    // fork は競合そのものから同一性が導かれるので、bob の書いた fork が私にも届く
+    ).toHaveLength(1);
+    // bob の手元
     expect(
       detectIncomingConflicts([...localLog(), theirs], [mine]).conflicts,
     ).toHaveLength(1);
+  });
+
+  test('🔴 clock が大きくても、相手が見ていたなら競合にしない', () => {
+    // step2 の境界 (clock(私) >= clock(新着) なら並行) が誤る向き。私の clock は大きいが、
+    // bob の deps は私の編集を含む — Lamport の clock は因果の必要条件でしかない
+    const local = [
+      ...localLog(),
+      batch('l2', ALICE_DEV, 9, [
+        { kind: 'node.setContent', target: A, content: '私' },
+      ]),
+    ];
+    const incoming = [
+      batch(
+        'r1',
+        'did:plc:bob#dev',
+        9,
+        [{ kind: 'node.setContent', target: A, content: 'bob' }],
+        { [ALICE_DEV]: 9 },
+      ),
+    ];
+    expect(detectIncomingConflicts(local, incoming).conflicts).toEqual([]);
+  });
+
+  test('新着の方が前 (知っていたが遅れて届いた) なら競合にしない', () => {
+    // 私は carol 経由で bob の r1 を知った上で書いた (deps に入っている)。r1 そのものは
+    // 後から届いた。私が r1 を見た上で書いているので、並行ではない
+    const local = [
+      ...localLog(),
+      batch(
+        'l2',
+        ALICE_DEV,
+        8,
+        [{ kind: 'node.setContent', target: A, content: '私' }],
+        { 'did:plc:bob#dev': 5 },
+      ),
+    ];
+    const incoming = [
+      batch('r1', 'did:plc:bob#dev', 5, [
+        { kind: 'node.setContent', target: A, content: 'bob' },
+      ]),
+    ];
+    expect(detectIncomingConflicts(local, incoming).conflicts).toEqual([]);
+  });
+});
+
+/** 2 台の端末の履歴。書く・相手の分を全部受け取る、を任意の順に並べる */
+type Step = 'aliceWrites' | 'bobWrites' | 'aliceReceives' | 'bobReceives';
+
+type Device = { causal: CausalClock; batches: Batch[] };
+
+const genesis = batch('g', 'genesis', 1, [
+  { kind: 'node.add', target: A, content: 'A' },
+]);
+
+function device(actor: string): Device {
+  const causal = new CausalClock(actor);
+  causal.observe(genesis);
+  return { causal, batches: [genesis] };
+}
+
+function write(d: Device): Batch {
+  const stamp = d.causal.issue();
+  const b: Batch = {
+    id: `${d.causal.actor}-${stamp.seq}` as Batch['id'],
+    actor: d.causal.actor,
+    ...stamp,
+    timestamp: stamp.clock,
+    sheetId: SHEET,
+    // 値は毎回違う。同じ値だと「差が無い」として組にならない
+    ops: [
+      {
+        kind: 'node.setContent',
+        target: A,
+        content: `${d.causal.actor} ${stamp.seq}`,
+      },
+    ],
+  };
+  d.batches.push(b);
+  return b;
+}
+
+/** 受け取りのたびに、組がどちらの側に振られたか */
+type Verdicts = Map<string, 'conflict' | 'overwrite'>;
+
+/** 組の同一性。ours / theirs は手元によって入れ替わるので、整列して繋ぐ */
+const pairKey = (x: string, y: string) => [x, y].sort().join('|');
+
+/** 単位 A の、いまの値を書いた batch (全順序で最後のもの) */
+const currentWriterOf = (batches: Batch[]): Batch | undefined =>
+  orderBatches([...batches])
+    .filter((b) => b.ops.some((op) => 'target' in op && op.target === A))
+    .at(-1);
+
+/**
+ * 相手の分を全部受け取る。**追記の前に**競合と上書きを検出し (受信と同じ順序)、
+ * 組の振り分けを `verdicts` に記録する
+ */
+function receive(
+  to: Device,
+  from: Device,
+  viewer: Did,
+  verdicts: Verdicts,
+): void {
+  const known = new Set(to.batches.map((b) => b.id));
+  const incoming = from.batches.filter((b) => !known.has(b.id));
+  if (incoming.length === 0) return;
+
+  const { conflicts } = detectIncomingConflicts(to.batches, incoming);
+  const { reports } = detectOverwrites(to.batches, incoming, viewer);
+  const record = (key: string, verdict: 'conflict' | 'overwrite') => {
+    // **排他**: 同じ組が、別の端末・別の受け取りで反対の側に振られない
+    expect(verdicts.get(key) ?? verdict).toBe(verdict);
+    verdicts.set(key, verdict);
+  };
+  for (const c of conflicts) {
+    record(pairKey(c.ours.batchId, c.theirs.batchId), 'conflict');
+  }
+  for (const r of reports) record(pairKey(r.mine, r.theirs), 'overwrite');
+
+  // **完全**: いまの値と並行な新着は、どれも競合として出る (clock の大小によらない)
+  const current = currentWriterOf(to.batches);
+  if (current !== undefined) {
+    const found = new Set(
+      conflicts.map((c) => pairKey(c.ours.batchId, c.theirs.batchId)),
+    );
+    for (const t of incoming) {
+      if (concurrent(current, t)) {
+        expect(found).toContain(pairKey(current.id, t.id));
+      }
+    }
+  }
+
+  for (const b of incoming) {
+    to.batches.push(b);
+    to.causal.observe(b);
+  }
+}
+
+describe('競合と上書きの境界は因果で引く (step3 Phase 1 D4)', () => {
+  /**
+   * 生成器は 4 つの動作だけを引く。**受け取りは「相手の分を全部」**に限る — 部分的な
+   * 受け取りは参加者間の配送の話で、ここで見たいのは「相手の編集を見たか」だけだから
+   * である。受け取りを混ぜることで、clock が片側に偏る履歴が出る (受け取った側は clock が
+   * 跳ぶ)。step2 の境界 (新着の最小 clock) はそこで、clock の小さい側の並行を取り逃した。
+   *
+   * **値は毎回違う**ものを書く。同じ値だと「差が無い」として組にならず、検出の対象から
+   * 外れてしまう
+   */
+  const arbSteps = fc.array(
+    fc.constantFrom<Step>(
+      'aliceWrites',
+      'bobWrites',
+      'aliceReceives',
+      'bobReceives',
+    ),
+    { maxLength: 16 },
+  );
+
+  test('どの履歴でも、同じ組は常に同じ側に振られ、いまの値と並行な新着は必ず競合になる', () => {
+    fc.assert(
+      fc.property(arbSteps, (steps) => {
+        const alice = device(ALICE_DEV);
+        const bob = device('did:plc:bob#dev');
+        const verdicts: Verdicts = new Map();
+        for (const s of steps) {
+          if (s === 'aliceWrites') write(alice);
+          if (s === 'bobWrites') write(bob);
+          if (s === 'aliceReceives')
+            receive(alice, bob, 'did:plc:alice' as Did, verdicts);
+          if (s === 'bobReceives')
+            receive(bob, alice, 'did:plc:bob' as Did, verdicts);
+        }
+      }),
+    );
   });
 });
 

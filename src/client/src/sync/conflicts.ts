@@ -5,12 +5,18 @@
 
 import type {
   Batch,
+  BatchId,
   EdgeId,
   MergeConflict,
   NodeId,
   ProjectedGraph,
 } from '@conversensus/shared';
-import { mergeBranches, projectBatches } from '@conversensus/shared';
+import {
+  concurrent,
+  happenedBefore,
+  mergeBranches,
+  projectBatches,
+} from '@conversensus/shared';
 
 /** 名前に載せる本文の長さ。通知の 1 行に収まり、かつ区別がつく程度 */
 const CONTENT_HEAD_LENGTH = 20;
@@ -73,60 +79,78 @@ export type DetectedConflicts = {
 };
 
 /**
- * implicit merge の競合検出 (step2 Phase 3 T5)
+ * 対立した組 (ours = 手元の batch, theirs = 新着の batch) の因果の関係 (step3 Phase 1 D4)。
+ *
+ * - `concurrent`: 互いに相手を見ずに書いた — **競合** (T5)
+ * - `seen`: 相手が私の側を見た上で書いた — **上書きの報告** (T8)
+ * - `other`: 新着の方が前 (因果の知識では知っていたが、batch は遅れて届いた)。
+ *   手元が新着を見た上で書いているので、競合でも上書きでもない
+ *
+ * **3 つは排他かつ網羅である。**step2 は境界を「新着の最小 clock」という scalar 1 つで
+ * 引いていたので、純粋な並行が clock の大小で「競合」と「変わりました」に振り分けられ、
+ * 同じ組が端末によって別の側に出た (step3-entry §2.1)。並行は対称なので、
+ * **どちらの手元でも同じ組が同じ側に振られる。**
+ */
+export type PairRelation = 'concurrent' | 'seen' | 'other';
+
+/** batch id から組の関係を引く。組の両側は必ず手元と新着に居る */
+export function relationOfPair(
+  conflict: Pick<MergeConflict, 'ours' | 'theirs'>,
+  batchOf: ReadonlyMap<BatchId, Batch>,
+): PairRelation {
+  const ours = batchOf.get(conflict.ours.batchId);
+  const theirs = batchOf.get(conflict.theirs.batchId);
+  if (ours === undefined || theirs === undefined) return 'other';
+  if (concurrent(ours, theirs)) return 'concurrent';
+  return happenedBefore(ours, theirs) ? 'seen' : 'other';
+}
+
+/** 手元と新着を 1 つの引き表にする */
+export function batchIndex(
+  local: readonly Batch[],
+  incoming: readonly Batch[],
+): Map<BatchId, Batch> {
+  return new Map([...local, ...incoming].map((b) => [b.id, b]));
+}
+
+/**
+ * implicit merge の競合検出 (step2 Phase 3 T5 / step3 Phase 1 D4)
  *
  * ## 分岐点は「受信前の手元の状態」である
  *
- * explicit merge の `meta.base.at` に相当するものが implicit merge には無い。
- * 設計は「受信した batch の最小 clock の直前」を素直な案としていたが、**実装と
- * 噛み合わなかった** — 受信は既読位置を持たず毎回頭から全件読むので、最小 clock は
- * 毎回ログの先頭になる。新規分に限っても、clock は端末をまたぐと単調でないので
- * 「その時点の状態」が曖昧である (既読位置を捨てた理由そのもの)。
- *
- * そこで**分岐点を受信側の状態として定義する**。「私が見ていたグラフ」が基準で、
+ * explicit merge の `meta.base` に相当するものが implicit merge には無い。そこで
+ * **分岐点を受信側の状態として定義する**。「私が見ていたグラフ」が基準で、
  * 知りたいのはまさに「届いた削除が、私のいまのグラフで何を消すか」である。
+ * **相手が何人いても分岐点は 1 つになる。**
  *
- * **相手が何人いても分岐点は 1 つになる。**設計が心配していた「受信は複数の actor から
- * 同時に来るので 1 つの分岐点に畳めるとは限らない」は、この定義では構造的に消える。
+ * ## 競合は「並行な組」だけ
  *
- * ## ⚠️ ours は「手元の全部」ではない — Lamport の対偶で絞る
+ * 手元の op を全部 ours にして `mergeBranches` を当て、出てきた組のうち**並行なもの**だけを
+ * 残す (`relationOfPair`)。手元の op を全部渡すだけだと順次編集 (「私が書いた文章を、相手が
+ * 読んで直した」) がすべて競合になる — `lastByKey` は「私の最後の値」と「相手の新しい値」の
+ * 違いを見つけてしまう。それを落とすのが因果の判定である。
  *
- * 手元の op を全部 ours にすると、**順次編集がすべて競合になる**。「私が書いた文章を、
- * 相手がそれを読んで直した」は競合ではないのに、`lastByKey` は「私の最後の値」と
- * 「相手の新しい値」を比べて違いを見つけてしまう。実測で確かめた。
- *
- * 絞る根拠は Lamport の保証の対偶である。`a → b` (因果) ならば
- * `clock(a) < clock(b)` なので、**`clock(m) >= clock(t)` なら `m → t` ではない** —
- * 相手はその op を見ずに `t` を出した。したがって
- *
- * > **ours = 手元の op のうち、新着の clock 以上のもの**
- *
- * とすれば「相手が既に見ていた私の編集」は落ちる。**偽陽性が構造的に出ない。**
- *
- * ## 片側で取り逃しても、相手側が捕まえる
- *
- * clock が小さい側は自分の op を ours に入れられないので検出しない。**それでよい** —
- * そのとき相手の clock は大きいので、**相手の手元では検出される**。fork は競合そのものから
- * 同一性が導かれるので、相手の書いた fork が同期されて私にも届く。「相手同士の競合は
- * 見ない」と同じ論法である。clock が同値なら両方が検出し、fork は畳まれる。
+ * step2 は vector を持たなかったので、Lamport の対偶 (`clock(m) >= clock(t)` なら
+ * `m → t` ではない) で ours を絞っていた。これは片側でしか言えないので、**clock の小さい側は
+ * 並行でも検出できなかった**。いまは並行が対称に判定できるので、**両方の手元で検出する**。
+ * fork は競合そのものから同一性が導かれるので、両方が書いても畳まれる。
  *
  * ## ours / theirs の意味
  *
  * `MergeConflict` の ours / theirs は explicit merge では trunk / branch だが、
  * ここでは**手元 / 新着**である。
  *
- * ## 相手同士の競合は見ない
+ * ## 第三者の検出は、届き方で決まる
  *
- * Bob と Carol が互いに競合しても、私の手元では両方が新着なので 2 側構造では出ない。
- * **それでよい** — Bob と Carol はそれぞれの手元で互いを受信して検出し、fork は競合
- * そのものから同一性が導かれるので、彼らの書いた fork が同期されて私にも届く。
- * 総当たりにすると検出が参加者数の 2 乗になり、同じ fork を全員が書くことになる。
+ * ours は手元の全部なので、Carol は「前に受け取った Alice の編集」と「いま届いた Bob の編集」の
+ * 対立も検出する。両方が同じ受信で新着になれば 2 側構造では出ない。どちらでもよい —
+ * fork は競合そのものから同一性が導かれるので、誰が書いても畳まれ、検出しなかった人には
+ * fork の到着 (T7-5) が伝える。
  *
  * ## 同じ競合は 1 度しか検出されない
  *
  * 対象は**新しく届いた batch だけ**である。次のサイクルではその batch は手元にあり
- * `incoming` に入らないので、同じ競合が毎サイクル通知されることはない。既読位置を
- * 持たない設計が、ここでは畳み込みとして効いている。
+ * `incoming` に入らないので、同じ競合が毎サイクル通知されることはない。
  *
  * @param local    受信前に手元にあった batch (自分の編集も, 既に受け取った相手の分も)
  * @param incoming **新しく**届いた batch。既知のものを混ぜてはならない —
@@ -142,15 +166,11 @@ export function detectIncomingConflicts(
   // 何を消すか」なので、カスケードを当てる先は現在の状態でなければならない
   const base = projectBatches([...local]);
 
-  // 相手が見ていなかったと**言い切れる**私の op だけを ours にする (上の対偶)。
-  // 境界は新着の最小 clock — 新着が複数あるとき、より新しい相手の op から見れば
-  // 見えていた可能性のある私の op も混じるが、**取り逃すよりは出す**方に倒す
-  const oldestIncoming = incoming.reduce(
-    (m, b) => Math.min(m, b.clock),
-    Number.POSITIVE_INFINITY,
-  );
-  const ours = local.filter((b) => b.clock >= oldestIncoming);
-
-  const { conflicts } = mergeBranches(base, ours, [...incoming]);
+  const batchOf = batchIndex(local, incoming);
+  const conflicts = mergeBranches(
+    base,
+    [...local],
+    [...incoming],
+  ).conflicts.filter((c) => relationOfPair(c, batchOf) === 'concurrent');
   return { conflicts, labels: labelsOfConflicts(base, conflicts) };
 }

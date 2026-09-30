@@ -111,8 +111,8 @@ export type ReceiveParticipantResult = CollectParticipantResult & {
   /**
    * 自分の書いたものが新着に上書きされた件 (step2 Phase 3 T8)。
    *
-   * **競合ではない。**`conflicts` の検出条件の補集合であり、両者が同じ単位について
-   * 同時に出ることはない。通知の向きが LWW の勝者側に寄る問題への補償である。
+   * **競合ではない。**相手が私の書いたものを**見た上で**別の値にした組で、`conflicts`
+   * (互いに見ずに書いた組) とは排他である (step3 Phase 1 D4)。
    */
   overwrites: DetectedOverwrites;
   /**
@@ -125,8 +125,8 @@ export type ReceiveParticipantResult = CollectParticipantResult & {
   /**
    * この受信で届いた、**相手が書いた** fork (step2 Phase 3 T7-5)。
    *
-   * `forks` の裏側である。競合を検出するのは LWW で勝つ側だけなので、負けた側は
-   * 自分では fork を書かず、相手の fork の到着でしか保留があることを知らない
+   * `forks` の裏側である。当事者は両方とも自分で検出して同じ fork を書くので、到着として
+   * 出るのは主に**自分では検出しなかった第三者**の手元である
    */
   arrivedForks: ForkMeta[];
 };

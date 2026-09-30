@@ -446,7 +446,7 @@ export function useEventSyncTap(
         onConflicts?.(fileId, others.conflicts, others.forks.length);
       }
       // 上書きの報告は競合と**別系列**である (Phase 3 T8)。同じ受信で両方 0 件でない
-      // ことはあるが、同じ単位が両方に出ることはない (検出条件が補集合である)
+      // ことはあるが、同じ組が両方に出ることはない (並行か、見た上でかで排他に振り分ける)
       if (others.overwrites.reports.length > 0) {
         onOverwrites?.(fileId, others.overwrites);
       }

@@ -428,7 +428,7 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
 
   describe('相手が保留した競合の到着 (step2 Phase 3 T7-5)', () => {
     it('参加者の repo から届いた fork を onForksArrived で知らせる', async () => {
-      // 競合を検出するのは LWW で勝つ側だけなので、負けた側はこの通知でしか保留を知らない。
+      // 自分では検出しなかった第三者は、この通知でしか保留を知らない。
       // 受信の結果に載っても、ここで呼ばなければ画面に届かない
       const { makeFork } = await import('@conversensus/shared');
       const { graphEventToBatch } = await import('../events/toUnified');
