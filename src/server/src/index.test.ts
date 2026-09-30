@@ -56,6 +56,8 @@ const sampleBatch = (clock: number) => ({
   id: uuid(clock),
   actor: 'local',
   clock,
+  seq: clock,
+  deps: {},
   timestamp: clock,
   ops: [{ kind: 'node.add', target: uuid(1000 + clock), content: `n${clock}` }],
 });
@@ -488,6 +490,8 @@ describe('API routes', () => {
       id: uuid(9000 + clock),
       actor: 'did:plc:alice#dev-a',
       clock,
+      seq: clock,
+      deps: {},
       timestamp: clock,
       ops: [
         { kind: 'file.setName', name },
@@ -717,6 +721,8 @@ describe('API routes', () => {
               id: uuid(9001),
               actor: 'did:plc:alice#dev-a',
               clock: 1,
+              seq: 1,
+              deps: {},
               timestamp: 1,
               ops: [
                 { kind: 'file.setName', name: '受信ファイル' },

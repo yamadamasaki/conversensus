@@ -29,7 +29,7 @@
  *
  * step1 では「branch batch を remote へ出さない」(§9.2) ことで remote の rkey 衝突 (C1) を
  * 避けていた。step2 Phase 3 T7-2 で branch も remote へ出すが、**rkey が
- * `v1~<fileId>~<clock>~<batchId>` なので同じ id でも fileId が違えば別のキー**であり、
+ * `<fileId>~<actor>~<seq>` なので同じ点でも fileId が違えば別のキー**であり、
  * 保持を妨げる理由は今も無い。送信キュー (`RemoteSyncQueue`) の重複排除も同じ理由で
  * (fileId, batch id) の組を鍵にしている。
  *

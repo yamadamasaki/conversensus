@@ -30,6 +30,8 @@ const jb = (did: Did, clock: number, ops: JudgmentOp[]): JudgmentBatch => ({
   id: nextId(),
   actor: `${did}#dev-1`,
   clock,
+  seq: clock,
+  deps: {},
   timestamp: 0,
   ops,
 });
@@ -38,6 +40,8 @@ const gb = (did: Did, clock: number, ops: Op[]): Batch =>
     id: nextId(),
     actor: `${did}#dev-1`,
     clock,
+    seq: clock,
+    deps: {},
     timestamp: 0,
     ops,
   }) as unknown as Batch;

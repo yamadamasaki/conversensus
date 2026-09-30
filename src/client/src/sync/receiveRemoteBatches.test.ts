@@ -30,6 +30,8 @@ const batch = (
   id: id as Batch['id'],
   actor: 'did:plc:alice#dev-a',
   clock,
+  seq: clock,
+  deps: {},
   timestamp: 1_700_000_000_000,
   ops: [{ kind: 'node.add', target: id as NodeId, content: id }],
   ...over,
@@ -64,8 +66,9 @@ function makeDeps(entries: RemoteBatch[]) {
         appendCalls.push({ fileId, batches });
         return batches.length; // 全件新規として扱う
       },
-      observeRemote: (clock: Lamport) => {
-        observed.push(clock);
+      // 観測した batch の clock の最大を記録する (受信規則が効くのはそこなので)
+      observeRemote: (batches: readonly Batch[]) => {
+        observed.push(Math.max(...batches.map((b) => b.clock)));
       },
     },
   };
@@ -227,6 +230,8 @@ describe('bootstrap: genesis を含む受信で未知シートが立ち上がる
       id: 'edit-1' as Batch['id'],
       actor: 'did:plc:alice#dev-a',
       clock: genesis.length + 1,
+      seq: genesis.length + 1,
+      deps: {},
       timestamp: 1_700_000_001_000,
       sheetId: SHEET,
       ops: [{ kind: 'node.add', target: NODE_B, content: 'B' }],

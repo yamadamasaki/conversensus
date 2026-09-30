@@ -11,8 +11,8 @@
  * `ImageBlobRef` が 3 箇所に増えていた原因でもある — **生きているのは
  * `images/imageBlob.ts` のもの**である。
  *
- * **型を消しても PDS 上の既存レコードは消えない。** 対応する lexicon
- * (`lexicons/app/conversensus/graph/*.json`) と NSID 定数は残してある。
+ * **型を消しても PDS 上の既存レコードは消えない。**v1 の collection とその lexicon は
+ * step3 Phase 1 で読むのをやめた (v2 の lexicon は `lexicons/app/conversensus/v2/`)。
  */
 
 import type {
@@ -24,42 +24,35 @@ import type {
 } from '@conversensus/shared';
 
 /**
- * Lexicon NSID 定数
+ * Lexicon NSID 定数 (v2, step3 Phase 1 D9)。
  *
- * **今 PDS へ書くのは `batch` だけである** (`file` は step0 の legacy レコードを
- * 消すためだけに残っている — `collections.ts` の `files.delete`)。
- * 残りの NSID は `lexicons/app/conversensus/graph/*.json` と対になっており,
- * **既存の repo に残っているレコードの名前**なので消していない。
+ * v1 の collection (`app.conversensus.graph.*`) は読みも書きもしない。互換性を持たない
+ * と決めた (設計 §0) ので、古い repo に残るレコードは新しい読み手から最初から見えない。
  */
 export const NSID = {
-  file: 'app.conversensus.graph.file',
-  sheet: 'app.conversensus.graph.sheet',
-  node: 'app.conversensus.graph.node',
-  edge: 'app.conversensus.graph.edge',
-  nodeLayout: 'app.conversensus.graph.nodeLayout',
-  edgeLayout: 'app.conversensus.graph.edgeLayout',
-  branch: 'app.conversensus.graph.branch',
-  commit: 'app.conversensus.graph.commit',
-  merge: 'app.conversensus.graph.merge',
-  /** 操作ログ (統一語彙の Batch) を PDS 上の op-log レコードとして持つ (step1 Phase 4c) */
-  batch: 'app.conversensus.graph.batch',
+  /**
+   * 操作ログ (統一語彙の Batch)。**v2** (step3 Phase 1 D9): 点と依存を持つ形になったので
+   * collection ごと新しくした。v1 (`app.conversensus.graph.batch`) は読まない
+   */
+  batch: 'app.conversensus.v2.batch',
   /**
    * 判断ログ (step2 Phase 1)。**batch と分ける理由は畳み込みの意味論が違うこと**で、
    * ここの op は pre 条件を検証して満たさないものを捨てるが、グラフの op は
    * LWW / add-wins で解決するので「無効な op」という概念がない。
    */
-  judgment: 'app.conversensus.graph.judgment',
+  judgment: 'app.conversensus.v2.judgment',
 } as const;
 
 export type RecordResult = { uri: AtUri; cid: string };
 
 /**
- * 統一語彙 Batch の PDS 表現 (step1 Phase 4c, op-log コレクション)。
- * rkey = batchId。id は rkey として持つのでボディには含めない。
- * clock/timestamp/ops を非可逆なしで保持し、正典モデル (操作ログ) と同形にする。
+ * 統一語彙 Batch の PDS 表現 (v2, step3 Phase 1)。
+ * rkey は `<fileId>~<actor>~<seq>` で、**id は本文に持つ** (rkey に入らなくなったため)。
+ * clock/seq/deps/timestamp/ops を非可逆なしで保持し、正典モデル (操作ログ) と同形にする。
  */
 export type BatchRecord = {
   $type: typeof NSID.batch;
+  id: string;
   /**
    * この batch が属するファイル (Phase 4d-1, 必須)。
    *
@@ -71,6 +64,10 @@ export type BatchRecord = {
   fileId: string;
   actor: string;
   clock: number;
+  /** 因果の点 (Batch.seq と対等) */
+  seq: number;
+  /** 因果の知識 (Batch.deps と対等) */
+  deps: Record<string, number>;
   timestamp: number;
   ops: unknown[]; // Op[] を JSON として格納 (records は任意 JSON を許容)
   /** merge で積み直した人 (統一語彙 Batch.restampedBy と対等, step2 Phase 3 T7-4) */
@@ -80,7 +77,6 @@ export type BatchRecord = {
   /**
    * content batch の発生元シート (統一語彙 Batch.sheetId と対等)。
    * file 構造 batch (sheet./file. 系の op) は sheetId を持たないため optional。
-   * 旧データ (sheetId 無しレコード) との後方互換のためにも optional (W3d5-1)。
    */
   sheetId?: string;
   createdAt: ISODateString;
@@ -89,7 +85,7 @@ export type BatchRecord = {
 /**
  * 判断ログの PDS 表現 (step2 Phase 1)。
  *
- * `BatchRecord` と同じ形にしてある。**rkey も同じスキーム** (`v1~<fileId>~…`) を使うが、
+ * `BatchRecord` と同じ形にしてある。**rkey も同じスキーム** (`<fileId>~<actor>~<seq>`) を使うが、
  * collection が違うので rkey 空間は衝突しない。同じにするのは、他 actor の repo から
  * 1 ファイル分の名簿だけを prefix 範囲取得するためである — 相手の repo は自分のより
  * 大きいのが普通なので、全部読む形にはできない (U6-P1 スパイク)。
@@ -98,11 +94,15 @@ export type BatchRecord = {
  */
 export type JudgmentRecord = {
   $type: typeof NSID.judgment;
+  id: string;
   /** この判断が属するファイル (UUID)。collection は repo 全体で 1 つなので必須 */
   fileId: string;
   actor: string;
   /** **グラフの op-log と同じ clock 空間である。**独立した採番を作ってはならない */
   clock: number;
+  /** 因果の点。**グラフの op-log と同じ連番を共有する** */
+  seq: number;
+  deps: Record<string, number>;
   timestamp: number;
   ops: unknown[];
   createdAt: ISODateString;

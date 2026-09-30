@@ -128,6 +128,8 @@ describe('BatchSchema', () => {
       id: crypto.randomUUID(),
       actor: 'local',
       clock: 1,
+      seq: 1,
+      deps: { 'did:plc:bob#dev': 3 },
       timestamp: Date.now(),
       ops: [{ kind: 'node.add', target: crypto.randomUUID(), content: 'A' }],
     });
@@ -139,11 +141,29 @@ describe('BatchSchema', () => {
       id: crypto.randomUUID(),
       actor: 'local',
       clock: 1,
+      seq: 1,
+      deps: {},
       timestamp: Date.now(),
       sheetId: crypto.randomUUID(),
       ops: [{ kind: 'node.add', target: crypto.randomUUID(), content: 'A' }],
     });
     expect(result.success).toBe(true);
+  });
+
+  test('因果の点 (seq / deps) を欠く batch は拒否する (step3 Phase 1: 互換を持たない)', () => {
+    const base = {
+      id: crypto.randomUUID(),
+      actor: 'local',
+      clock: 1,
+      timestamp: 1,
+      ops: [{ kind: 'node.add', target: crypto.randomUUID(), content: 'A' }],
+    };
+    expect(BatchSchema.safeParse({ ...base, deps: {} }).success).toBe(false);
+    expect(BatchSchema.safeParse({ ...base, seq: 1 }).success).toBe(false);
+    // deps の項目は正の整数 (0 は「知らない」なので載せない)
+    expect(
+      BatchSchema.safeParse({ ...base, seq: 1, deps: { x: 0 } }).success,
+    ).toBe(false);
   });
 });
 

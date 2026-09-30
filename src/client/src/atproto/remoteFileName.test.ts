@@ -10,6 +10,8 @@ const b = (clock: number, ops: Batch['ops'], actor = `${A}#dev-1`): Batch => ({
   id: `00000000-0000-4000-8000-${String(++seq).padStart(12, '0')}` as BatchId,
   actor,
   clock,
+  seq: clock,
+  deps: {},
   timestamp: 0,
   ops,
 });

@@ -69,8 +69,9 @@ fixture の既定 (`gb`) は `sheet.create` を含む。シートの無い op-lo
   読みに行かない」ためのものであって、正しさの前提ではない** — marker の保存に失敗しても
   (localStorage が使えない環境など) 壊れない、という形にしてある
 
-## テストしていないもの
+## marker の読み書き
 
-`hasParticipationBootstrapped` / `markParticipationBootstrapped` の localStorage 読み書きは
-`migrateRemoteRkey` の marker と同じ形なので、そちらのテストが規約を固定している。
-ここでは marker を関数として注入し、**移行の判断だけ**を見る。
+`hasParticipationBootstrapped` / `markParticipationBootstrapped` の localStorage 読み書きは、
+以前は step1 の rkey 移行 marker と同じ形であることを理由にそちらのテストに任せていた。
+**移行を step3 Phase 1 で撤去したので、ここで固定する** (立てる前後・DID ごとの独立・
+保存失敗で例外にしない)。bootstrap 本体のテストは marker を関数として注入し、判断だけを見る。

@@ -115,16 +115,12 @@ export function createInMemoryFileSheetOpsDeps(): FileSheetOpsDeps & {
         id: `tombstone-${fileId}` as Batch['id'],
         actor,
         clock: 1,
+        seq: 1,
+        deps: {},
         timestamp: 0,
         ops: [{ kind: 'file.remove' }],
       };
     },
-
-    // rkey 移行 (Phase 7 p7-4) は既定で「移行済」= 走らせない。移行の副作用が
-    // 発見・受信のテストの観測に混ざらないようにする (移行自体は
-    // `migrateRemoteRkey.test.ts` と、これを false にする専用テストで見る)。
-    hasRkeyMigrated: () => true,
-    markRkeyMigrated: () => {},
   };
 
   return deps;

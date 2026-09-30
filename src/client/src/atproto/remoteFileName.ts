@@ -34,7 +34,6 @@ import type { Batch, Did, FileId } from '@conversensus/shared';
 import { compareByClockActorId } from '@conversensus/shared';
 import { createLabelCache } from '../display/labelCache';
 import { isBatchRecordValue, recordToBatch } from './batchMapper';
-import { batchIdFromRkey } from './batchRkey';
 import { batches } from './collections';
 
 /** どの repo の File か。**同じ File でも repo によって名前が違いうる** */
@@ -64,10 +63,8 @@ export async function readRemoteFileName(
 ): Promise<string | null> {
   const records = await batches.listByFile(fileId, { repo });
   const parsed = records.flatMap((record) => {
-    const rkey = record.uri.split('/').pop() ?? '';
-    const batchId = batchIdFromRkey(rkey);
-    if (!batchId || !isBatchRecordValue(record.value)) return [];
-    return [recordToBatch(batchId, record.value)];
+    if (!isBatchRecordValue(record.value)) return [];
+    return [recordToBatch(record.value)];
   });
 
   return fileNameFromBatches(parsed);

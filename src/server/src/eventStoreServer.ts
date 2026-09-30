@@ -10,7 +10,11 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { EventStore } from './eventStore';
 
-const EVENTS_DB_FILE = 'events.db';
+/**
+ * DB のファイル名。**v2 (step3 Phase 1) で名前を変えた** — batch が点と依存を持つ形になり、
+ * 互換性は持たないと決めたので、古い DB (`events.db`) は開かずに新しく始める
+ */
+const EVENTS_DB_FILE = 'events-v2.db';
 
 function dataDir(): string {
   return process.env.DATA_DIR ?? join(import.meta.dir, '../../../data');

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import type { Batch, NodeId, NodeLayout, SheetId } from '@conversensus/shared';
-import { LamportClock, SheetIdSchema } from '@conversensus/shared';
+import { CausalClock, LamportClock, SheetIdSchema } from '@conversensus/shared';
 import type {
   NodeContentChangedEvent,
   NodeStyleChangedEvent,
@@ -59,9 +59,17 @@ class RecordingProvider implements SyncProvider {
 
 const ACTOR = 'did:plc:alice#device-1';
 
+/** 他端末の batch (観測用)。点と依存は受信規則の検査には関係しない */
+const remoteAt = (clock: number) => ({
+  actor: 'did:plc:bob#dev',
+  seq: 1,
+  deps: {},
+  clock,
+});
+
 /** 指定 clock を持つ有効な既存 batch (restore テストの永続ログ用) */
 const existingBatch = (clock: number): Batch =>
-  graphEventToBatch(relabel(), { clock, actor: ACTOR });
+  graphEventToBatch(relabel(), { clock, seq: clock, deps: {}, actor: ACTOR });
 
 describe('EventSyncTap', () => {
   it('ops を生じる event を Batch 化して provider へ push する', async () => {
@@ -86,7 +94,11 @@ describe('EventSyncTap', () => {
   it('空 ops の event はスキップし clock も消費しない', async () => {
     const provider = new RecordingProvider();
     const clock = new LamportClock();
-    const tap = new EventSyncTap({ provider, clock, actor: ACTOR });
+    const tap = new EventSyncTap({
+      provider,
+      causal: new CausalClock(ACTOR, clock),
+      actor: ACTOR,
+    });
     tap.record(emptyStyle());
     await tap.settled();
     expect(provider.pushed).toHaveLength(0);
@@ -107,7 +119,11 @@ describe('EventSyncTap', () => {
     const provider = new RecordingProvider();
     provider.existing = [existingBatch(5), existingBatch(7), existingBatch(6)];
     const clock = new LamportClock(); // 0 起点 (再起動直後を模す)
-    const tap = new EventSyncTap({ provider, clock, actor: ACTOR });
+    const tap = new EventSyncTap({
+      provider,
+      causal: new CausalClock(ACTOR, clock),
+      actor: ACTOR,
+    });
     tap.record(relabel());
     tap.record(relabel());
     await tap.settled();
@@ -122,7 +138,7 @@ describe('EventSyncTap', () => {
     const clock = new LamportClock();
     const tap = new EventSyncTap({
       provider,
-      clock,
+      causal: new CausalClock(ACTOR, clock),
       actor: ACTOR,
       clockFloor: 7,
     });
@@ -138,7 +154,7 @@ describe('EventSyncTap', () => {
     const clock = new LamportClock();
     const tap = new EventSyncTap({
       provider,
-      clock,
+      causal: new CausalClock(ACTOR, clock),
       actor: ACTOR,
       clockFloor: 7,
     });
@@ -155,7 +171,7 @@ describe('EventSyncTap', () => {
     const tap = new EventSyncTap({
       provider,
       actor: ACTOR,
-      clock,
+      causal: new CausalClock(ACTOR, clock),
       onError: (e) => errors.push(e),
     });
     tap.record(relabel());
@@ -176,14 +192,18 @@ describe('EventSyncTap', () => {
   it('observeRemote で受信 clock を観測し、以降の発番が受信分を必ず追い越す (4d-3)', async () => {
     const provider = new RecordingProvider();
     const clock = new LamportClock();
-    const tap = new EventSyncTap({ provider, clock, actor: ACTOR });
+    const tap = new EventSyncTap({
+      provider,
+      causal: new CausalClock(ACTOR, clock),
+      actor: ACTOR,
+    });
     // まずローカルで 1 発番 (clock = 1)
     tap.record(relabel());
     await tap.settled();
     expect(provider.pushed.map((b) => b.clock)).toEqual([1]);
 
     // 他端末の clock=10 を受信 → observe は max(1,10)+1 = 11
-    tap.observeRemote(10);
+    tap.observeRemote([remoteAt(10)]);
     tap.record(relabel());
     await tap.settled();
     // 受信分 (10) より必ず大きい値から発番される = 因果的に「後」を表現できる
@@ -193,10 +213,14 @@ describe('EventSyncTap', () => {
   it('observeRemote は自身の方が大きくても前進する (seed と違い +1 する)', async () => {
     const provider = new RecordingProvider();
     const clock = new LamportClock(20);
-    const tap = new EventSyncTap({ provider, clock, actor: ACTOR });
+    const tap = new EventSyncTap({
+      provider,
+      causal: new CausalClock(ACTOR, clock),
+      actor: ACTOR,
+    });
     // 遅れて届いた古い受信でも clock は前進する (Lamport 受信規則 max+1)。
     // seed (復元用) は +1 しないので、受信では必ず observe を使う。
-    tap.observeRemote(5);
+    tap.observeRemote([remoteAt(5)]);
     expect(clock.current()).toBe(21);
   });
 
@@ -237,5 +261,70 @@ describe('EventSyncTap', () => {
     await tap.settled();
     expect(provider.pushed).toHaveLength(2); // 保留分 + 新規
     expect(tap.pending).toBe(0);
+  });
+
+  describe('因果の点 (step3 Phase 1)', () => {
+    it('record ごとに seq を 1 から振り、deps には自分の項目を載せない', async () => {
+      const provider = new RecordingProvider();
+      const tap = new EventSyncTap({ provider, actor: ACTOR });
+      tap.record(relabel());
+      tap.record(relabel());
+      await tap.settled();
+      expect(provider.pushed.map((b) => b.seq)).toEqual([1, 2]);
+      expect(provider.pushed.map((b) => b.deps)).toEqual([{}, {}]);
+    });
+
+    it('再起動後は永続ログにある自分の最大 seq の続きから振る', async () => {
+      const provider = new RecordingProvider();
+      provider.existing = [
+        { ...existingBatch(3), seq: 3 },
+        { ...existingBatch(4), actor: 'did:plc:bob#dev', seq: 9 },
+      ];
+      const tap = new EventSyncTap({ provider, actor: ACTOR });
+      tap.record(relabel());
+      await tap.settled();
+      expect(provider.pushed[0]?.seq).toBe(4);
+      // 永続ログにある他人の点は、次の batch の deps に入る
+      expect(provider.pushed[0]?.deps).toEqual({ 'did:plc:bob#dev': 9 });
+    });
+
+    it('観測した他端末の batch とその依存が、次に書く batch の deps に入る', async () => {
+      const provider = new RecordingProvider();
+      const tap = new EventSyncTap({ provider, actor: ACTOR });
+      tap.observeRemote([
+        {
+          actor: 'did:plc:bob#dev',
+          seq: 2,
+          deps: { 'did:plc:carol#dev': 5 },
+          clock: 7,
+        },
+      ]);
+      tap.record(relabel());
+      await tap.settled();
+      expect(provider.pushed[0]?.deps).toEqual({
+        'did:plc:bob#dev': 2,
+        'did:plc:carol#dev': 5,
+      });
+    });
+
+    it('発番器を共有した 2 つの tap (trunk と branch) は同じ連番から振る', async () => {
+      const shared = new CausalClock(ACTOR);
+      const trunk = new EventSyncTap({
+        provider: new RecordingProvider(),
+        actor: ACTOR,
+        causal: shared,
+      });
+      const branchProvider = new RecordingProvider();
+      const branch = new EventSyncTap({
+        provider: branchProvider,
+        actor: ACTOR,
+        causal: shared,
+      });
+      trunk.record(relabel());
+      await trunk.settled();
+      branch.record(relabel());
+      await branch.settled();
+      expect(branchProvider.pushed[0]?.seq).toBe(2);
+    });
   });
 });

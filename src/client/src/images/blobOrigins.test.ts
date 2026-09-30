@@ -45,6 +45,8 @@ const batch = (actor: string, clock: number, ops: Op[]): Batch => ({
   id: `00000000-0000-4000-8000-${String(++seq).padStart(12, '0')}` as BatchId,
   actor: actor as Actor,
   clock,
+  seq: clock,
+  deps: {},
   timestamp: 0,
   ops,
 });

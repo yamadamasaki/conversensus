@@ -118,7 +118,7 @@ async function buildWorld(
       const writes = log.slice(k, k + APPLY_WRITES_MAX).map((b) => ({
         $type: 'com.atproto.repo.applyWrites#create',
         collection: NSID.batch,
-        rkey: batchRkey(file.id, b.clock, b.id),
+        rkey: batchRkey(file.id, b.actor, b.seq),
         value: { $type: NSID.batch, ...batchToRecord(b, file.id) },
       }));
       await pds.fetch(

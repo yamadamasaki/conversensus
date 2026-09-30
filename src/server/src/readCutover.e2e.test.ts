@@ -183,6 +183,8 @@ describe('W3d-4 read cutover e2e (daemon + projectFile)', () => {
       id: u(5000),
       actor: 'local',
       clock: maxClock + 1,
+      seq: 1,
+      deps: {},
       timestamp: Date.now(),
       sheetId: u(101),
       ops: [{ kind: 'node.setContent', target: u(1), content: 'A-edited' }],

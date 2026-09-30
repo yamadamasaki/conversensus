@@ -34,6 +34,8 @@ const jb = (
   id: bid(),
   actor: `${did}#${device}`,
   clock,
+  seq: clock,
+  deps: {},
   timestamp,
   ops,
 });

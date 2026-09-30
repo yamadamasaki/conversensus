@@ -14,18 +14,25 @@
  * remote への送出・再送・presentation 除外はすべて既存の `RemoteSyncQueue` が担う。
  */
 
-import type { Actor, Batch, FileId, Lamport } from '@conversensus/shared';
+import {
+  type Actor,
+  type Batch,
+  CausalClock,
+  type FileId,
+  type Lamport,
+} from '@conversensus/shared';
 import { makeEventBase } from '../events/GraphEvent';
 import { graphEventToBatch } from '../events/toUnified';
 
 /**
  * tombstone の clock を決める。**既存の最大 clock + 1** でなければならない。
  *
- * 単に「一意であればよい」のではない。remote の削除検出は `listBatchFileHeads` が
- * **各ファイルの最大 rkey に着地する**性質に乗っており (Phase 7 p7-3, 設計 §3-1)、
- * rkey は `v1~<fileId>~<clock12>~<batchId>` で clock 順に並ぶ。tombstone が最大 clock を
- * 持たないと着地点が tombstone にならず、他端末は本体を引くまで削除に気づけない。
- * (引いた後の検査で最終的には気づくが、毎回の起動で削除済みファイルを転送してしまう)
+ * 畳み込みの全順序で tombstone が最後に来るようにするためである。
+ *
+ * v1 の rkey は clock 順だったので、tombstone が各ファイルの最大 rkey (発見の着地点) に
+ * 現れ、他端末は本体を引かずに削除に気づけた。v2 の rkey は actor → seq 順なので
+ * そうとは限らず、削除の判定は発見側の「引いた op-log に `file.remove` があるか」が持つ
+ * (`discoverRemoteFiles` の検査 2)。
  */
 export function nextTombstoneClock(batches: readonly Batch[]): Lamport {
   return batches.reduce((max, b) => Math.max(max, b.clock), 0) + 1;
@@ -36,9 +43,13 @@ export function buildTombstoneBatch(
   batches: readonly Batch[],
   actor: Actor,
 ): Batch {
+  // その File の op-log から復元した使い捨ての発番器で振る (開いていない File にも掛かるので
+  // tap の発番器は使えない)。clock は最大の次になり、nextTombstoneClock と一致する
+  const causal = new CausalClock(actor);
+  causal.restore(batches);
   return graphEventToBatch(
     { ...makeEventBase('file'), type: 'FILE_DELETED' },
-    { clock: nextTombstoneClock(batches), actor },
+    { ...causal.issue(), actor },
   );
 }
 

@@ -12,7 +12,9 @@ import {
 import {
   type BootstrapParticipationDeps,
   bootstrapParticipation,
+  hasParticipationBootstrapped,
   isSolelyOwnedBy,
+  markParticipationBootstrapped,
 } from './bootstrapParticipation';
 
 const ALICE = 'did:plc:alice';
@@ -31,6 +33,8 @@ const gb = (actor: string, ops: Batch['ops'] = []): Batch => ({
   id: bid(),
   actor,
   clock: 1,
+  seq: 1,
+  deps: {},
   timestamp: 0,
   ops: ops.length
     ? ops
@@ -215,5 +219,54 @@ describe('bootstrapParticipation', () => {
 
     expect(result).toMatchObject({ wrote: 1, skippedForeign: 1 });
     expect(written.map((w) => w.fileId)).toEqual([F1]);
+  });
+});
+
+/**
+ * bootstrap 済 marker の読み書き。以前は step1 の rkey 移行 marker と同じ形であることを
+ * 理由に、あちらのテストに任せていた。移行を step3 Phase 1 で撤去したので、ここで固定する
+ */
+describe('hasParticipationBootstrapped / markParticipationBootstrapped', () => {
+  const makeStorage = (): Storage => {
+    const map = new Map<string, string>();
+    return {
+      getItem: (k: string) => map.get(k) ?? null,
+      setItem: (k: string, v: string) => {
+        map.set(k, v);
+      },
+      removeItem: (k: string) => {
+        map.delete(k);
+      },
+      clear: () => map.clear(),
+      key: (i: number) => [...map.keys()][i] ?? null,
+      get length() {
+        return map.size;
+      },
+    };
+  };
+
+  test('立てるまでは false、立てたら true', () => {
+    const storage = makeStorage();
+    expect(hasParticipationBootstrapped(ALICE, storage)).toBe(false);
+    markParticipationBootstrapped(ALICE, storage);
+    expect(hasParticipationBootstrapped(ALICE, storage)).toBe(true);
+  });
+
+  test('DID ごとに独立する (別アカウントは別 repo)', () => {
+    const storage = makeStorage();
+    markParticipationBootstrapped(ALICE, storage);
+    expect(hasParticipationBootstrapped(BOB, storage)).toBe(false);
+  });
+
+  test('保存に失敗しても例外にしない (bootstrap そのものは成功している)', () => {
+    const storage = {
+      ...makeStorage(),
+      setItem: () => {
+        throw new Error('QuotaExceededError');
+      },
+    } as Storage;
+    expect(() =>
+      markParticipationBootstrapped('did:plc:carol', storage),
+    ).not.toThrow();
   });
 });

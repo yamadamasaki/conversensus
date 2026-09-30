@@ -42,6 +42,8 @@ type BatchRow = {
   batch_id: string;
   actor: string;
   clock: number;
+  dot_seq: number;
+  deps_json: string;
   timestamp: number;
   ops_json: string;
   // content batch の所属シート。structure (file-level) batch は NULL (W3c2)
@@ -95,6 +97,9 @@ CREATE TABLE IF NOT EXISTS batches (
   batch_id   TEXT    NOT NULL,
   actor      TEXT    NOT NULL,
   clock      INTEGER NOT NULL,
+  -- 因果の点と依存 (step3 Phase 1)。行の採番の seq 列と名前がぶつかるので dot_seq にする
+  dot_seq    INTEGER NOT NULL,
+  deps_json  TEXT    NOT NULL,
   timestamp  INTEGER NOT NULL,
   ops_json   TEXT    NOT NULL,
   sheet_id   TEXT,
@@ -169,29 +174,7 @@ export class EventStore {
     this.db.exec('PRAGMA journal_mode = WAL');
     this.db.exec('PRAGMA foreign_keys = ON');
     this.db.run(SCHEMA);
-    this.migrateSheetIdColumn();
     this.migrateCommitKindColumns();
-  }
-
-  /**
-   * W3c2 マイグレーション: 既存 DB の batches に sheet_id 列を追加する。
-   * `CREATE TABLE IF NOT EXISTS` は既存テーブルへ列を足さないため、
-   * table_info で列の有無を検査し無ければ一度だけ ALTER する (べき等)。
-   */
-  private migrateSheetIdColumn(): void {
-    const cols = this.db
-      .query<{ name: string }, []>('PRAGMA table_info(batches)')
-      .all();
-    if (!cols.some((c) => c.name === 'sheet_id')) {
-      this.db.run('ALTER TABLE batches ADD COLUMN sheet_id TEXT');
-    }
-    // step2 Phase 3 T7-4: merge の写しの印。既存行は NULL = 写しではない (step1 の写しは
-    // 印を持たないが、trunk と branch の op-log に同じ id があることで特定できる)
-    for (const name of ['restamped_by', 'merged_in']) {
-      if (!cols.some((c) => c.name === name)) {
-        this.db.run(`ALTER TABLE batches ADD COLUMN ${name} TEXT`);
-      }
-    }
   }
 
   /**
@@ -277,9 +260,9 @@ export class EventStore {
     this.db
       .query(
         `INSERT INTO batches
-           (file_id, batch_id, actor, clock, timestamp, ops_json, sheet_id,
-            restamped_by, merged_in)
-         VALUES ($file, $id, $actor, $clock, $ts, $ops, $sheet,
+           (file_id, batch_id, actor, clock, dot_seq, deps_json, timestamp,
+            ops_json, sheet_id, restamped_by, merged_in)
+         VALUES ($file, $id, $actor, $clock, $dotSeq, $deps, $ts, $ops, $sheet,
                  $restampedBy, $mergedIn)`,
       )
       .run({
@@ -287,6 +270,8 @@ export class EventStore {
         $id: batch.id,
         $actor: batch.actor,
         $clock: batch.clock,
+        $dotSeq: batch.seq,
+        $deps: JSON.stringify(batch.deps),
         $ts: batch.timestamp,
         $ops: JSON.stringify(batch.ops),
         // content batch は sheetId を持つ。structure batch は NULL (W3c2)
@@ -317,8 +302,8 @@ export class EventStore {
   getBatches(fileId: FileId): Batch[] {
     const rows = this.db
       .query<BatchRow, string>(
-        `SELECT batch_id, actor, clock, timestamp, ops_json, sheet_id,
-                restamped_by, merged_in
+        `SELECT batch_id, actor, clock, dot_seq, deps_json, timestamp, ops_json,
+                sheet_id, restamped_by, merged_in
            FROM batches
           WHERE file_id = ?
           ORDER BY clock, timestamp, batch_id`,
@@ -691,6 +676,8 @@ function rowToBatch(row: BatchRow): Batch {
     id: row.batch_id as Batch['id'],
     actor: row.actor,
     clock: row.clock,
+    seq: row.dot_seq,
+    deps: JSON.parse(row.deps_json) as Batch['deps'],
     timestamp: row.timestamp,
     ops: JSON.parse(row.ops_json) as Batch['ops'],
     // content batch のみ sheet_id を持つ (structure batch は NULL) (W3c2)

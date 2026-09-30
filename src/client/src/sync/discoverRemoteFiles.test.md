@@ -47,7 +47,7 @@ materialize する調整層, step1 Phase 4e-2b) を検証する。
 
 p7-2 までは **repo 全体の batch を落としてから既知ファイルの分を JS で捨てて**いた
 (`skippedKnown` = 捨てた batch 数)。既に持っているファイルの履歴を毎回転送する形だった。
-p7-3 では rkey が `v1~<fileId>~…` であることを使って:
+p7-3 では rkey が `<fileId>~…` で始まる (v1 は `v1~<fileId>~…`) ことを使って:
 
 1. `listRemoteFiles()` で fileId を列挙する (1 ファイル 1 リクエスト・各 1 レコード)。
 2. ローカル既知を除く。

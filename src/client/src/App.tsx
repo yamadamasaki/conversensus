@@ -195,6 +195,8 @@ export default function App() {
     actor,
     // merge の再スタンプは trunk と同じ発番器で行う (p5-4)
     trunkClock: fileOps.trunkClock,
+    // branch の tap は trunk の因果の発番器を共有する (step3 Phase 1)
+    trunkCausal: fileOps.trunkCausal,
     // branch / commit のメタは trunk の op-log に記録する (step2 Phase 3 T7-1)
     trunkRecord: fileOps.syncRecord,
     // branch の編集も remote へ出す (step2 Phase 3 T7-2)
@@ -287,7 +289,7 @@ export default function App() {
    */
   const participation = useParticipation({
     actor,
-    clock: fileOps.trunkClock,
+    clock: fileOps.trunkCausal,
     // clock 空間は File ごと。開いている File のときだけ tap の clock を使う
     activeFileId: fileOps.activeFile?.id ?? null,
     // **同期サイクルと同じ供給元**を渡す (step2 Phase 2 S1)

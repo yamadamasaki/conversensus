@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import type { BatchId, FileId } from '@conversensus/shared';
+import type { FileId } from '@conversensus/shared';
 import { batchRkey } from './batchRkey';
 import {
   type ListRecordsPage,
@@ -9,7 +9,9 @@ import {
   type RecordSummary,
 } from './rangeFetch';
 
-const COLLECTION = 'app.conversensus.graph.batch';
+const COLLECTION = 'app.conversensus.v2.batch';
+const ACTOR = 'did:plc:alice#33333333-3333-4333-8333-333333333333';
+const OTHER_ACTOR = 'did:plc:zed#44444444-4444-4444-8444-444444444444';
 
 /** 実データと同じ形の fileId (UUID 固定長 36。先頭 1 文字で rkey の大小が決まる) */
 const fileId = (head: string) =>
@@ -155,14 +157,12 @@ describe('listBatchFileHeads (Phase 7 p7-3)', () => {
   const FILE_5 = fileId('5');
   const FILE_9 = fileId('9');
 
-  /** 各ファイル 3 batch を新形式 rkey で仕込む */
+  /** 各ファイル 3 batch を v2 の rkey で仕込む (1 人の actor の seq 1〜3) */
   const seedRkeys = (files: FileId[]) =>
-    files.flatMap((f) =>
-      [1, 2, 3].map((clock) => batchRkey(f, clock, `b${clock}` as BatchId)),
-    );
+    files.flatMap((f) => [1, 2, 3].map((seq) => batchRkey(f, ACTOR, seq)));
 
   it('全 fileId をちょうど 1 回ずつ降順で返す (リクエスト数 = N + 1)', async () => {
-    // §3.3 の予測そのもの。合成 cursor `v1~<fileId>` がそのファイルの全レコードを
+    // §3.3 の予測そのもの。合成 cursor `<fileId>` がそのファイルの全レコードを
     // 一気に飛ばすので、1 ファイル 1 リクエストで済む (各 1 レコードしか転送しない)。
     const pager = fakePager(seedRkeys([FILE_1, FILE_5, FILE_9]), 100);
 
@@ -173,17 +173,20 @@ describe('listBatchFileHeads (Phase 7 p7-3)', () => {
     expect(pager.requests).toBe(4);
   });
 
-  it('各ファイルの着地レコードは最大 clock の 1 件である (ANA-127 S3 の土台)', async () => {
-    // 削除の検出は「着地レコード = 最大 clock の batch」に乗っている
-    // (tombstone は最大 clock + 1 で置かれる, `sync/fileDeletion.ts`)。
-    // この性質が崩れると、他端末は本体を引くまで削除に気づけない。
-    const pager = fakePager(seedRkeys([FILE_1, FILE_5]), 100);
+  it('各ファイルの着地レコードは rkey の最大 (辞書順で最後の actor の最大 seq) である', async () => {
+    // v1 では「最大 clock の batch」で、削除の tombstone がそこに現れた (ANA-127 S3)。
+    // v2 では actor → seq の順なので tombstone が現れるとは限らない。削除の判定の
+    // 正しさは発見側の 2 つ目の検査 (`discoverRemoteFiles`) が持つ
+    const pager = fakePager(
+      [...seedRkeys([FILE_1, FILE_5]), batchRkey(FILE_5, OTHER_ACTOR, 1)],
+      100,
+    );
 
     const heads = await listBatchFileHeads(pager.listPage);
 
     expect(heads.map((h) => rkeyOf(h.head))).toEqual([
-      batchRkey(FILE_5, 3, 'b3' as BatchId),
-      batchRkey(FILE_1, 3, 'b3' as BatchId),
+      batchRkey(FILE_5, OTHER_ACTOR, 1),
+      batchRkey(FILE_1, ACTOR, 3),
     ]);
   });
 
@@ -197,20 +200,6 @@ describe('listBatchFileHeads (Phase 7 p7-3)', () => {
 
     await listBatchFileHeads(listPage);
     expect(limits).toEqual([1]);
-  });
-
-  it('旧 rkey 領域に落ちたら 1 件見ただけで終わる (v1~ 分離, §3.1)', async () => {
-    // 旧レコードは `v1~` より小さいので降順走査の最後に来る。1 件で判定して止まる —
-    // ここで止まらないとリクエスト数が旧レコード数に比例する (= 全件 list の再現)。
-    const rkeys = seedRkeys([FILE_5]);
-    for (let i = 0; i < 30; i += 1) rkeys.push(`${i}f2b4dce-old-uuid`);
-    const pager = fakePager(rkeys, 100);
-
-    const ids = (await listBatchFileHeads(pager.listPage)).map((h) => h.fileId);
-
-    expect(ids).toEqual([FILE_5]);
-    // 対象 1 ファイル + 旧 rkey 領域の最大 1 件 = 2 リクエスト。30 件は読まない
-    expect(pager.requests).toBe(2);
   });
 
   it('remote が空なら空で返る', async () => {
@@ -238,7 +227,7 @@ describe('listBatchFileHeads (Phase 7 p7-3)', () => {
     let requests = 0;
     const listPage: ListRecordsPage = async () => {
       requests += 1;
-      const rkey = batchRkey(FILE_5, 1, 'b1' as BatchId);
+      const rkey = batchRkey(FILE_5, ACTOR, 1);
       return { records: [record(rkey)], cursor: rkey };
     };
 

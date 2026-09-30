@@ -64,8 +64,8 @@ describe('graphEventToOps: 複合イベントの分解', () => {
       edgeLayouts: [],
     };
     const g = projectBatches([
-      graphEventToBatch(seed, { clock: 1, actor: ACTOR }),
-      graphEventToBatch(event, { clock: 2, actor: ACTOR }),
+      graphEventToBatch(seed, { clock: 1, seq: 1, deps: {}, actor: ACTOR }),
+      graphEventToBatch(event, { clock: 2, seq: 2, deps: {}, actor: ACTOR }),
     ]);
     expect(g.nodes.get(parentId)?.nodeType).toBe('group');
     expect(g.nodes.get(childA)?.parentId).toBe(parentId);
@@ -99,8 +99,13 @@ describe('graphEventToOps: 複合イベントの分解', () => {
     };
 
     const g = projectBatches([
-      graphEventToBatch(seed, { clock: 1, actor: ACTOR }),
-      graphEventToBatch(deleteGroupOnly, { clock: 2, actor: ACTOR }),
+      graphEventToBatch(seed, { clock: 1, seq: 1, deps: {}, actor: ACTOR }),
+      graphEventToBatch(deleteGroupOnly, {
+        clock: 2,
+        seq: 2,
+        deps: {},
+        actor: ACTOR,
+      }),
     ]);
 
     expect(g.nodes.has(groupId)).toBe(false);
@@ -370,7 +375,12 @@ describe('graphEventToOps: 全 21 イベント型を網羅する', () => {
 
   test('graphEventToBatch は event.id を BatchId に、渡された actor を載せる', () => {
     const event = events[0];
-    const batch = graphEventToBatch(event, { clock: 7, actor: ACTOR });
+    const batch = graphEventToBatch(event, {
+      clock: 7,
+      seq: 7,
+      deps: {},
+      actor: ACTOR,
+    });
     expect(batch.id as string).toBe(event.id);
     expect(batch.actor).toBe(ACTOR);
     expect(batch.clock).toBe(7);
@@ -487,7 +497,7 @@ describe('graphEventToOps: file 構造イベント (W3c1)', () => {
   test('FILE_DELETED も file 構造 batch (sheetId 無し) になる', () => {
     const batch = graphEventToBatch(
       { ...makeEventBase('file'), type: 'FILE_DELETED' },
-      { clock: 7, actor: ACTOR },
+      { clock: 7, seq: 7, deps: {}, actor: ACTOR },
     );
     expect(batch.sheetId).toBeUndefined();
     expect(batch.ops).toEqual([{ kind: 'file.remove' }]);
@@ -496,7 +506,7 @@ describe('graphEventToOps: file 構造イベント (W3c1)', () => {
   test('構造イベントは file 構造 batch (sheetId 無し) になる', () => {
     const batch = graphEventToBatch(
       { ...makeEventBase('file'), type: 'FILE_RENAMED', name: 'F' },
-      { clock: 3, actor: ACTOR },
+      { clock: 3, seq: 3, deps: {}, actor: ACTOR },
     );
     expect(batch.sheetId).toBeUndefined();
     expect(batch.ops).toEqual([{ kind: 'file.setName', name: 'F' }]);
@@ -520,6 +530,8 @@ describe('graphEventToBatch: content の sheet-aware 化 (W3c2)', () => {
     const sheetId = sid();
     const batch = graphEventToBatch(relabel(), {
       clock: 5,
+      seq: 5,
+      deps: {},
       actor: ACTOR,
       sheetId,
     });
@@ -527,7 +539,12 @@ describe('graphEventToBatch: content の sheet-aware 化 (W3c2)', () => {
   });
 
   test('sheetId 引数を省略すると batch は sheetId を持たない', () => {
-    const batch = graphEventToBatch(relabel(), { clock: 5, actor: ACTOR });
+    const batch = graphEventToBatch(relabel(), {
+      clock: 5,
+      seq: 5,
+      deps: {},
+      actor: ACTOR,
+    });
     expect(batch.sheetId).toBeUndefined();
   });
 });

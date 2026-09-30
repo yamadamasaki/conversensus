@@ -20,6 +20,8 @@ const batch = (id: string, actor: string, clock: number, ops: Op[]): Batch => ({
   id: id as Batch['id'],
   actor,
   clock,
+  seq: clock,
+  deps: {},
   timestamp: clock,
   sheetId: SHEET,
   ops,

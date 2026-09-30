@@ -18,15 +18,31 @@ import type {
 } from '@conversensus/shared';
 import type { BatchRecord, RemoteBatch } from './types';
 
-/** Batch + fileId → レコードボディ ($type と rkey=batchId を除く) */
+/**
+ * `deps` が vector の形か (actor → 正の整数)。壊れたレコードで因果の判定を狂わせない
+ */
+export function isVersionVector(
+  value: unknown,
+): value is Record<string, number> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value))
+    return false;
+  return Object.values(value).every(
+    (seq) => typeof seq === 'number' && Number.isInteger(seq) && seq > 0,
+  );
+}
+
+/** Batch + fileId → レコードボディ ($type を除く。rkey は `batchRkey` が組む) */
 export function batchToRecord(
   batch: Batch,
   fileId: FileId,
 ): Omit<BatchRecord, '$type'> {
   return {
+    id: batch.id,
     fileId,
     actor: batch.actor,
     clock: batch.clock,
+    seq: batch.seq,
+    deps: batch.deps,
     timestamp: batch.timestamp,
     ops: batch.ops,
     // content batch のみ sheetId を持つ。undefined なら省略し、往復で無 → 無を保つ。
@@ -51,10 +67,14 @@ export function isBatchRecordValue(value: unknown): value is BatchRecord {
   if (typeof value !== 'object' || value === null) return false;
   const v = value as Record<string, unknown>;
   return (
+    typeof v.id === 'string' &&
     typeof v.fileId === 'string' &&
     typeof v.actor === 'string' &&
     typeof v.clock === 'number' &&
     Number.isFinite(v.clock) &&
+    typeof v.seq === 'number' &&
+    Number.isInteger(v.seq) &&
+    isVersionVector(v.deps) &&
     typeof v.timestamp === 'number' &&
     Array.isArray(v.ops) &&
     // sheetId は optional。無いレコード (file 構造 batch) も通すが、
@@ -71,11 +91,13 @@ export function isBatchRecordValue(value: unknown): value is BatchRecord {
  * value は事前に `isBatchRecordValue` で検証済みであること。
  * `batchId` は rkey から復元した値 (`batchIdFromRkey`) を渡す。
  */
-export function recordToBatch(batchId: BatchId, value: BatchRecord): Batch {
+export function recordToBatch(value: BatchRecord): Batch {
   return {
-    id: batchId,
+    id: value.id as BatchId,
     actor: value.actor,
     clock: value.clock,
+    seq: value.seq,
+    deps: value.deps,
     timestamp: value.timestamp,
     ops: value.ops as Batch['ops'],
     // sheetId 無しレコードは Batch にも sheetId を付けない (undefined を保つ)。
@@ -93,14 +115,11 @@ export function recordToBatch(batchId: BatchId, value: BatchRecord): Batch {
  * レコード → `RemoteBatch` (Batch + 適用先 fileId)。
  * 受信経路 (Phase 4d-5) が適用先を復元するために使う。
  */
-export function recordToRemoteBatch(
-  batchId: BatchId,
-  value: BatchRecord,
-): RemoteBatch {
+export function recordToRemoteBatch(value: BatchRecord): RemoteBatch {
   return {
     // 適用先の権威は**ボディの fileId**。rkey にも fileId が入る (Phase 7) が、
     // そちらは取得経路の索引であって復元元にしない (二重の真実を作らない)。
     fileId: value.fileId as FileId,
-    batch: recordToBatch(batchId, value),
+    batch: recordToBatch(value),
   };
 }

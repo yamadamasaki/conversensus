@@ -8,6 +8,8 @@ const batch = (id: string, clock: number): Batch => ({
   id: id as Batch['id'],
   actor: 'local',
   clock,
+  seq: clock,
+  deps: {},
   timestamp: clock,
   ops: [{ kind: 'node.add', target: `n${id}` as NodeId, content: id }],
 });

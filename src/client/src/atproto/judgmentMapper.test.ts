@@ -15,6 +15,8 @@ const batch: JudgmentBatch = {
   id: BID,
   actor: 'did:plc:alice#dev-1',
   clock: 7,
+  seq: 7,
+  deps: {},
   timestamp: 1_700_000_000_000,
   ops: [
     { kind: 'participation.genesis' },
@@ -24,14 +26,17 @@ const batch: JudgmentBatch = {
 
 const record = (over: Partial<JudgmentRecord> = {}): JudgmentRecord =>
   ({
-    $type: 'app.conversensus.graph.judgment',
+    $type: 'app.conversensus.v2.judgment',
     ...judgmentToRecord(batch, FILE),
     ...over,
   }) as JudgmentRecord;
 
 describe('judgmentToRecord', () => {
-  test('id を載せない — rkey が持つ', () => {
-    expect('id' in judgmentToRecord(batch, FILE)).toBe(false);
+  test('id と点 (seq / deps) を載せる — v2 の rkey は id を持たない', () => {
+    const record = judgmentToRecord(batch, FILE);
+    expect(record.id).toBe(BID);
+    expect(record.seq).toBe(7);
+    expect(record.deps).toEqual({});
   });
 
   test('fileId を載せる — collection は repo 全体で 1 つなので文脈が無い', () => {
@@ -45,13 +50,13 @@ describe('judgmentToRecord', () => {
 
 describe('往復', () => {
   test('レコードへ落として戻すと元の batch になる', () => {
-    expect(recordToJudgmentBatch(BID, record())).toEqual(batch);
+    expect(recordToJudgmentBatch(record())).toEqual(batch);
   });
 
   test('適用先は rkey ではなくボディの fileId から復元する', () => {
     // rkey にも fileId が入るが、そちらは取得経路の索引であって
     // 復元元にしない (二重の真実を作らない)
-    expect(recordToRemoteJudgment(BID, record())?.fileId).toBe(FILE);
+    expect(recordToRemoteJudgment(record())?.fileId).toBe(FILE);
   });
 });
 
@@ -87,7 +92,6 @@ describe('op の検証 — ここが batchMapper と違う点である', () => {
     // 生まれ、`rejected` に載らないので UI にも出ない
     expect(
       recordToJudgmentBatch(
-        BID,
         record({ ops: [{ kind: 'participation.unknown' }] }),
       ),
     ).toBeNull();
@@ -98,7 +102,6 @@ describe('op の検証 — ここが batchMapper と違う点である', () => {
     // 書いた側の意図と違う名簿になる
     expect(
       recordToJudgmentBatch(
-        BID,
         record({
           ops: [
             { kind: 'participation.invite', target: 'did:plc:bob' },
@@ -112,13 +115,12 @@ describe('op の検証 — ここが batchMapper と違う点である', () => {
   test('target を欠く invite は語彙に合わないので落とす', () => {
     expect(
       recordToJudgmentBatch(
-        BID,
         record({ ops: [{ kind: 'participation.invite' }] }),
       ),
     ).toBeNull();
   });
 
   test('op が 0 件の batch は語彙上ありえないので落とす', () => {
-    expect(recordToJudgmentBatch(BID, record({ ops: [] }))).toBeNull();
+    expect(recordToJudgmentBatch(record({ ops: [] }))).toBeNull();
   });
 });

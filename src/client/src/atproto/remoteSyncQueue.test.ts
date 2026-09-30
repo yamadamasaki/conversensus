@@ -34,6 +34,8 @@ const batch = (id: string, over: Partial<Batch> = {}): Batch => ({
   id: id as Batch['id'],
   actor: MY_DID,
   clock: Number(id) || 1,
+  seq: Number(id) || 1,
+  deps: {},
   timestamp: 1_700_000_000_000,
   ops: [addNode(id)],
   ...over,
@@ -42,13 +44,9 @@ const batch = (id: string, over: Partial<Batch> = {}): Batch => ({
 /** pushRemote/pull 系を記録し成否・pull 応答を切り替えられるテスト用 remote */
 class FakeProvider implements RemoteBatchTarget {
   pushed: RemoteBatch[][] = [];
-  /** `createRemote` で作られたエンベロープ (移行専用経路) */
-  created: RemoteBatch[][] = [];
   online = true;
   /** remote に載っているエンベロープ (repo 全体なので他ファイル分も混ざりうる) */
   pullEntries: RemoteBatch[] = [];
-  /** 全件取得が呼ばれた回数。ファイル単位経路 (p7-2) では 0 のはず */
-  fullPulls = 0;
   /** `pullRemoteForFile` が要求された fileId (Phase 7 p7-2) */
   pulledFor: FileId[] = [];
   /** true で「範囲取得が他ファイルを漏らす」状況を模す (JS 側フィルタの防御を試す用) */
@@ -62,14 +60,6 @@ class FakeProvider implements RemoteBatchTarget {
    * 移行専用の新規作成 (p7-4)。**push とは別に記録する** — べき等でない契約なので、
    * 取り違えると「二重に作った」ことがテストから見えなくなる
    */
-  async createRemote(entries: readonly RemoteBatch[]): Promise<void> {
-    if (!this.online) throw new Error('offline');
-    this.created.push([...entries]);
-  }
-  async pullAllRemoteForMigration(): Promise<RemoteBatch[]> {
-    this.fullPulls += 1;
-    return this.pullEntries;
-  }
   /** 実装は rkey prefix でそのファイル分だけを返す (Phase 7 p7-2, 設計 §3.2) */
   async pullRemoteForFile(fileId: FileId): Promise<RemoteBatch[]> {
     this.pulledFor.push(fileId);
@@ -335,7 +325,6 @@ describe('RemoteSyncQueue', () => {
       await q.catchUp([batch('1'), batch('2')], FILE);
 
       expect(provider.pulledFor).toEqual([FILE]);
-      expect(provider.fullPulls).toBe(0);
     });
 
     it('取得が他ファイルを漏らしても突合は fileId で絞る (D-6 の防御)', async () => {

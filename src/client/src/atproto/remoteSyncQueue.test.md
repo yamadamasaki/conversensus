@@ -80,8 +80,8 @@ trunk へ再スタンプする**ので、branch 側の送信が保留中 (オフ
 ## catchUp の fileId フィルタ (Phase 4d-4, 設計 §1.11 D-6)
 
 4d-1 から繰延していた対応。前提条件だった「`pull` が fileId を返せること」が
-`pullAllRemoteForMigration(): Promise<RemoteBatch[]>` で揃ったため実装した
-(p7-5 で改名。全件取得は移行専用に閉じ込めた)。
+全件取得 (`RemoteBatch[]` を返す口) で揃ったため実装した (その口は p7-5 で移行専用に閉じ込め、
+step3 Phase 1 で移行ごと撤去した。今はファイル単位の `pullRemoteForFile` だけ)。
 
 remote の batch コレクションは **repo 全体で 1 つ**なので全件取得は他ファイルの
 batch も返す。`localBatches` は 1 ファイル分なので、他ファイル分と突合しても一致しよう
@@ -107,7 +107,6 @@ catch-up 1 回のコストが**そのファイルの履歴 1 回**になった�
 
 - `pullRemoteForFile` は既定で **fileId 一致分だけを返す** (実装の忠実な模擬)。
   要求された fileId を `pulledFor` に記録する。
-- `fullPulls` は `pullAllRemoteForMigration` (全件) が呼ばれた回数。**ファイル単位経路では 0** であること
   を assert する — ここが 0 でなくなれば全件 list へ戻った回帰である。
 - `leakOtherFiles` で「範囲取得が他ファイルを漏らす」状況を作れる。
 

@@ -12,12 +12,12 @@
  */
 
 import type { CommitOperation, EdgeId, NodeId } from '../schemas';
+import type { CausalStamp } from './causalClock';
 import {
   type Actor,
   type Batch,
   type BatchId,
   BatchIdSchema,
-  type Lamport,
   type Op,
 } from './unified';
 
@@ -95,12 +95,14 @@ export function commitOperationToOps(op: CommitOperation): Op[] {
 /** CommitOperation[] を 1 つの Batch にまとめる (1 コミット = 1 バッチ相当) */
 export function commitOperationsToBatch(
   ops: CommitOperation[],
-  meta: { id?: BatchId; actor: Actor; clock: Lamport; timestamp: number },
+  meta: CausalStamp & { id?: BatchId; actor: Actor; timestamp: number },
 ): Batch {
   return {
     id: meta.id ?? (BatchIdSchema.parse(crypto.randomUUID()) as BatchId),
     actor: meta.actor,
     clock: meta.clock,
+    seq: meta.seq,
+    deps: meta.deps,
     timestamp: meta.timestamp,
     ops: ops.flatMap(commitOperationToOps),
   };

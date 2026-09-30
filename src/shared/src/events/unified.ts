@@ -79,6 +79,12 @@ export function didFromActor(actor: Actor): string {
 /** 論理時刻 (Lamport)。LWW の順序付けに使用 */
 export type Lamport = number;
 
+/** 因果の知識 (`causality.ts` の `VersionVector`) の形。actor → seq */
+export const VersionVectorSchema = z.record(
+  z.string(),
+  z.number().int().positive(),
+);
+
 /**
  * clock → actor → id の全順序 (Phase 4d-3, 設計 §3.2b)
  *
@@ -623,6 +629,15 @@ export const BatchSchema = z.object({
   id: BatchIdSchema,
   actor: z.string(),
   clock: z.number().int().nonnegative(),
+  /**
+   * 因果の点 (step3 Phase 1 D1)。actor ごとの連番で、trunk の File (その branch と判断ログを
+   * 含む) の中で 1 から歯抜けなく振る。**畳み込みの順序には使わない** (順序は clock)
+   */
+  seq: z.number().int().nonnegative(),
+  /**
+   * 書いた時点の因果の知識 (`causality.ts`)。**自分の項目は載せない** (seq - 1 と決まっている)
+   */
+  deps: VersionVectorSchema,
   timestamp: z.number().int().nonnegative(), // wall clock (表示用。順序付けには使わない — 4d-3)
   // content batch のシート scope。1 ユーザー操作は単一シート内で完結する。
   // file 構造 batch (sheet.*/file.* のみ) は sheetId を持たない (§3.1)。

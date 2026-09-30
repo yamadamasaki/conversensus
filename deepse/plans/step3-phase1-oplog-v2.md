@@ -188,7 +188,7 @@ architecture §3.2 D2 のとおり。導出 node の id は SheetId から決定
 | --- | --- | --- |
 | **S1-1** ✅ | DtR の撤去 (D6) | App 結合 / 単体 (撤去後も緑) |
 | **S1-2** ✅ | 点と依存の型、因果の判定、到達点 (D1) — 純粋関数 | **性質**: 因果の判定は半順序、到達点は歯抜けを越えない、全順序と矛盾しない |
-| **S1-3** | 発番と保存 (tap・判断ログ・eventStore・PDS の v2 形式、D1 / D9)。移行コードの撤去 | 単体 / App 結合 (2 端末の往復) |
+| **S1-3** ✅ | 発番と保存 (tap・判断ログ・eventStore・PDS の v2 形式、D1 / D9)。移行コードの撤去 | 単体 / App 結合 (2 端末の往復) |
 | **S1-4** | merge の写しを merge した人の点にする (D2) | 性質: 並行 merge でも畳み込みが一致する |
 | **S1-5** | 分岐点を vector で切る (D3) | 例: 分岐後に届いた古い batch が base に入らない (step3-entry の再現) |
 | **S1-6** | T5 / T8 を並行で判定する (D4) | **性質**: 両端末で同じ組が同じ側に振られる |
@@ -251,3 +251,43 @@ S1-2 から S1-7 は**間違えても静かに違う答えを出す側**なの�
 - **`deps` を因果の知識にした** (D1 に追記)。持っているものの vector にすると推移律が崩れる
 - **最初の生成器は推移律の破れを見逃した。**古い batch を満遍なく拾うと「A → B → C」の連鎖が
   めったに起きない。受け取りを直近の batch に偏らせて捕まえた (`causality.test.md`)
+
+### S1-3 発番と保存 (2026-10-01)
+
+batch と判断 batch に `seq` / `deps` を必須で足し、発番・受信・保存・PDS の形式を v2 にした。
+
+- **発番器** (`shared/src/events/causalClock.ts`): Lamport clock・自分の seq・因果の知識の 3 つを持つ。
+  trunk の tap が File ごとに作り、**branch の tap・判断ログ・merge の再スタンプで共有する**
+  (App が `trunkCausal` を branch へ渡す)。開いていない File への書き込み (承認・削除の tombstone) は、
+  その File のログから復元した使い捨ての発番器で振る
+- **受信**: `observeRemote` は clock の数値ではなく batch 列を受け取り、Lamport の受信規則と
+  因果の知識への取り込みを両方行う。判断ログを読んだ分も同じ口で観測する
+- **genesis**: グラフの genesis は固定の擬似 actor なので seq 1〜n・deps 空で決定的に振る。
+  判断ログの genesis (作成者の実 actor) は **seq 0** にした — `covers` で常に覆われ、
+  「誰にとっても因果の過去にある」ことになる (clock 0 が「あらゆる op より前」であるのと揃う)
+- **PDS**: collection を `app.conversensus.v2.batch` / `.v2.judgment` にし、rkey を
+  `<fileId>~<actor の # を : に>~<seq12>` にした。id は本文に持つ。lexicon は `lexicons/app/conversensus/v2/`。
+  v1 の lexicon・NSID・移行コード (`migrateRemoteRkey` と全件取得・まとめ書きの口) を撤去した
+- **ローカル**: eventStore に `dot_seq` / `deps_json` 列を足し、DB ファイルを `events-v2.db` にした
+  (行の採番の `seq` 列と名前がぶつかるので `dot_seq`)。旧 DB の列を足す移行も撤去した
+- **merge の写し** (S1-4 までの暫定): 写しは元の batch と**同じ点**を保ち、clock だけを振り直す。
+  fileId が違うので rkey は衝突しない
+
+#### 分かったこと
+
+- **v2 の rkey では、ファイル列挙の着地点が削除の tombstone とは限らない。**v1 の rkey は clock 順
+  だったので、各ファイルの最大 rkey が tombstone になり、本体を引かずに削除に気づけた。v2 は
+  actor → seq 順なので、着地点は「辞書順で最後の actor の最大 seq」になる。**削除の判定の正しさは
+  発見側の 2 段目の検査** (引いた op-log に `file.remove` があるか) が既に持っていたので、失うのは
+  削除済みファイルの本体を転送せずに済ませる近道だけである
+- **tap の復元は最初の書き込みで走る。**App 結合テストで「受信した batch が deps に入る」を確かめる
+  筋書きを最初に書いたとき、alice の編集が bob の最初の書き込みより前に届いていたので、復元の経路で
+  知識に入り、受信の経路を外す変異が通った。受信の経路を検証するには、復元を済ませてから届ける
+- **移行の marker のテストに依存していたものがあった。**名簿の起点の marker の読み書きは
+  「移行の marker と同じ形なので、そちらのテストが固定している」とされていた。移行を消すと
+  どこにも固定されなくなるので、`bootstrapParticipation.test.ts` に移した
+
+#### 検証
+
+単体 1880 件・App 結合 6 件・E2E 24 件が緑。App 結合の 2 本 (受信した点が deps に入る /
+trunk と branch が連番を共有する) は、それぞれ対応する配線を外す変異で落ちることを確かめた。

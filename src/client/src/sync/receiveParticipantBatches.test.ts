@@ -38,6 +38,8 @@ const batch = (
   id: `${actor}-${clock}` as Batch['id'],
   actor,
   clock,
+  seq: clock,
+  deps: {},
   timestamp: 1_700_000_000_000 + clock,
   ops,
   ...(sheetId !== undefined && { sheetId }),
@@ -117,8 +119,10 @@ function fakeRemote(
         appended.push({ fileId, batches });
         return batches.length;
       },
-      observeRemote: (clock: number) => {
-        observed.push(clock);
+      // 観測した batch の clock の最大を記録する (受信規則が効くのはそこなので)
+      observeRemote: (batches: readonly Batch[]) => {
+        if (batches.length > 0)
+          observed.push(Math.max(...batches.map((b) => b.clock)));
       },
     },
   };
@@ -418,7 +422,12 @@ describe('receiveParticipantBatches', () => {
       const batches: Batch[] = [];
       branchMetaRecorder((e) =>
         batches.push(
-          graphEventToBatch(e, { clock: 10, actor: `${BOB}#dev-b` as Actor }),
+          graphEventToBatch(e, {
+            clock: 10,
+            seq: 10,
+            deps: {},
+            actor: `${BOB}#dev-b` as Actor,
+          }),
         ),
       ).branchCreated(fork);
       return { fork, forkBatches: batches, bobResult: result };

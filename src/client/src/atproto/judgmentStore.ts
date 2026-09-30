@@ -14,10 +14,10 @@
  * (自分の repo だけでは名簿は作れない — 招待 op は招待者の repo にある)。
  */
 
-import type { BatchId, Did, FileId, JudgmentBatch } from '@conversensus/shared';
+import type { Did, FileId, JudgmentBatch } from '@conversensus/shared';
 import type { ReadRosterOptions, ReadRosterResult } from '../sync/readRoster';
 import { readRoster } from '../sync/readRoster';
-import { batchIdFromRkey, batchRkey } from './batchRkey';
+import { batchRkey } from './batchRkey';
 import { judgments } from './collections';
 import { buildLocalDidPredicate } from './identity';
 import {
@@ -33,7 +33,7 @@ export async function putJudgment(
   batch: JudgmentBatch,
 ): Promise<void> {
   await judgments.put(
-    batchRkey(fileId, batch.clock, batch.id),
+    batchRkey(fileId, batch.actor, batch.seq),
     judgmentToRecord(batch, fileId),
   );
 }
@@ -69,13 +69,11 @@ function toJudgmentBatches(
   let unknownOps = 0;
 
   for (const record of records) {
-    const rkey = record.uri.split('/').pop() ?? '';
-    const batchId = batchIdFromRkey(rkey);
-    if (!batchId || !isJudgmentRecordValue(record.value)) {
+    if (!isJudgmentRecordValue(record.value)) {
       malformedRecord += 1;
       continue;
     }
-    const batch = recordToJudgmentBatch(batchId as BatchId, record.value);
+    const batch = recordToJudgmentBatch(record.value);
     if (!batch) {
       unknownOps += 1;
       continue;

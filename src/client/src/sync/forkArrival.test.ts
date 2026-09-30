@@ -68,7 +68,9 @@ const recorded = (
   const batches: Batch[] = [];
   record(
     branchMetaRecorder((event) =>
-      batches.push(graphEventToBatch(event, { clock, actor })),
+      batches.push(
+        graphEventToBatch(event, { clock, seq: clock, deps: {}, actor }),
+      ),
     ),
   );
   const [batch] = batches;

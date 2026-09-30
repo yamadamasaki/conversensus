@@ -11,6 +11,8 @@ const batch = (id: string, clock: number): Batch => ({
   id: id as Batch['id'],
   actor: 'did:plc:alice#dev-a',
   clock,
+  seq: clock,
+  deps: {},
   timestamp: 1_700_000_000_000,
   ops: [{ kind: 'node.add', target: id as NodeId, content: id }],
 });

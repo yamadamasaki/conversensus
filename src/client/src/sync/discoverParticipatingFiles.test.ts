@@ -27,6 +27,8 @@ const batch = (clock: number, ops: Op[] = [addNode(`n${clock}`)]): Batch => ({
   id: `b${clock}` as Batch['id'],
   actor: BOB,
   clock,
+  seq: clock,
+  deps: {},
   timestamp: 1_700_000_000_000 + clock,
   ops,
 });

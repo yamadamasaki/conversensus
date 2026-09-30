@@ -45,7 +45,6 @@ import type {
   Did,
   FileId,
   ForkMeta,
-  Lamport,
   Participation,
 } from '@conversensus/shared';
 import type { RemoteBatch } from '../atproto/types';
@@ -74,8 +73,8 @@ export type ReceiveParticipantDeps = CollectParticipantDeps & {
   fetchLocal: (fileId: FileId) => Promise<Batch[]>;
   /** ローカル正典へ受信追記する (marker を立てる経路であること) */
   appendReceived: (fileId: FileId, batches: Batch[]) => Promise<number>;
-  /** 自端末 clock を Lamport 受信規則で前進させる */
-  observeRemote: (remoteClock: Lamport) => void;
+  /** 取り込んだ batch を発番器に観測させる (Lamport の受信規則 + 因果の知識) */
+  observeRemote: (batches: readonly Batch[]) => void;
 } & ForkWriterDeps;
 
 export type CollectParticipantResult = {
@@ -270,11 +269,9 @@ export async function receiveParticipantBatches(
 
   const appended = await deps.appendReceived(fileId, collected.batches);
 
-  // 受信規則。**書き込みが成功してから前進させる** — 失敗して取り込めていないのに
-  // clock だけ進むと、次に発番する batch が「取り込めなかった編集より後」を騙る
-  deps.observeRemote(
-    collected.batches.reduce((m, b) => Math.max(m, b.clock), 0),
-  );
+  // 受信規則。**書き込みが成功してから観測する** — 失敗して取り込めていないのに
+  // 観測すると、次に発番する batch が「取り込めなかった編集を知っている」と騙る
+  deps.observeRemote(collected.batches);
 
   return {
     ...collected,

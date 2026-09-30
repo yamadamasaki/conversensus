@@ -39,6 +39,8 @@ const batch = (over: Partial<Batch> & Pick<Batch, 'ops'>): Batch => ({
   id: 'batch-1' as Batch['id'],
   actor: 'did:plc:alice',
   clock: 1,
+  seq: 1,
+  deps: {},
   timestamp: 1_700_000_000_000,
   ...over,
 });
@@ -62,6 +64,8 @@ describe('filterBatchesForRemote', () => {
       // `<did>#<deviceId>` 形式。DID 部分が一致すれば別端末の batch でも自分のもの
       actor: `${MY_DID}#device-2`,
       clock: 7,
+      seq: 7,
+      deps: {},
       timestamp: 1_700_000_009_000,
       sheetId: SHEET,
       ops: [addNode('n1'), setStyle('n1'), addNode('n2')],
@@ -99,6 +103,8 @@ describe('filterBatchesForRemote', () => {
       id: 'b2' as Batch['id'],
       actor: GENESIS_ACTOR,
       clock: 2,
+      seq: 2,
+      deps: {},
       ops: [setStyle('g1')],
     });
     const out = filterBatchesForRemote([mixed, presOnly], MY_DID);
@@ -113,21 +119,29 @@ describe('filterBatchesForRemote', () => {
       id: 'b0' as Batch['id'],
       actor: GENESIS_ACTOR,
       clock: 0,
+      seq: 0,
+      deps: {},
       ops: [addNode('g1')],
     });
     const content = batch({
       id: 'b1' as Batch['id'],
       clock: 1,
+      seq: 1,
+      deps: {},
       ops: [addNode('n1')],
     });
     const presOnly = batch({
       id: 'b2' as Batch['id'],
       clock: 2,
+      seq: 2,
+      deps: {},
       ops: [setStyle('n1')],
     });
     const mixed = batch({
       id: 'b3' as Batch['id'],
       clock: 3,
+      seq: 3,
+      deps: {},
       ops: [setStyle('n1'), addNode('n2')],
     });
     const out = filterBatchesForRemote(
@@ -200,23 +214,31 @@ describe('filterBatchesForRemote', () => {
         id: 'b0' as Batch['id'],
         actor: GENESIS_ACTOR,
         clock: 0,
+        seq: 0,
+        deps: {},
         ops: [addNode('g1')],
       });
       const mine = batch({
         id: 'b1' as Batch['id'],
         clock: 1,
+        seq: 1,
+        deps: {},
         ops: [addNode('n1')],
       });
       const theirs = batch({
         id: 'b2' as Batch['id'],
         actor: OTHER_DID,
         clock: 2,
+        seq: 2,
+        deps: {},
         ops: [addNode('n2')],
       });
       const mineAgain = batch({
         id: 'b3' as Batch['id'],
         actor: `${MY_DID}#device-2`,
         clock: 3,
+        seq: 3,
+        deps: {},
         ops: [addNode('n3')],
       });
       const out = filterBatchesForRemote(

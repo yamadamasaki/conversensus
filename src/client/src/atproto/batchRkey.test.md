@@ -2,47 +2,41 @@
 
 ## 何をテストするか
 
-PDS の batch レコードの **rkey スキーム** (`v1~<fileId>~<clock12>~<batchId>`) を組む・分解する
-純関数群 (step1 Phase 7 p7-1, 設計 [`step1-phase7-range-fetch.md`](../../../../deepse/plans/step1-phase7-range-fetch.md) §3.1)。
+PDS の batch / 判断レコードの **rkey スキーム v2** (`<fileId>~<actor の # を : に>~<seq12>`) を
+組む・分解する純関数群 (step3 Phase 1 S1-3 / [設計](../../../../deepse/plans/step3-phase1-oplog-v2.md) D9。
+v1 は step1 Phase 7 p7-1)。
 
-- `batchRkey(fileId, clock, batchId)` — 組み立て
+- `batchRkey(fileId, actor, seq)` — 組み立て
 - `batchRkeyPrefix(fileId)` — そのファイルの rkey が共有する prefix (走査の**停止条件**)
 - `batchRkeyFileCursor(fileId)` — そのファイルの手前を指す**合成 cursor**
-- `parseBatchRkey(rkey)` — 分解 (新形式でなければ `null`)
-- `batchIdFromRkey(rkey)` — `batch.id` の復元 (旧 rkey を許容)
+- `parseBatchRkey(rkey)` — 分解 (形式を満たさなければ `null`)
+- `rkeyFromUri(uri)` — AT-URI の末尾
 
 ## なぜテストするか
 
-**この文字列の性質がそのまま範囲取得の正しさになる**。ATProto の `listRecords` には
-`rkeyStart`/`rkeyEnd` が無く (現行 lexicon から削除済)、使えるのは `cursor` (= rkey そのもの) と
-`reverse` だけである。したがって「どのレコードが取れるか」は **rkey の辞書順**だけで決まり、
-以下の 4 つはコードで守るしかない不変条件になる:
+**この文字列の性質がそのまま範囲取得の正しさになる**。ATProto の `listRecords` で使えるのは
+`cursor` (= rkey そのもの) と `reverse` だけなので、「どのレコードが取れるか」は rkey の辞書順
+だけで決まる。コードで守るしかない不変条件は次のとおり:
 
-1. **決定論性** — 同じ batch から必ず同じ rkey が出る。`putRecord` が PDS レベルでべき等な
-   前提であり、outbox の再送と移行の再 push (p7-4) がこれに依存する。時刻を混ぜた rkey
-   (TID など) にすると再送ごとに別レコードが増える。
-2. **ファイル内が辞書順 = clock 順** — ゼロ詰めの目的。桁あふれさせると順序が狂うので
-   `clock` が 12 桁に収まらなければ throw する (静かに壊さない)。
-3. **同一ファイルの rkey が連続する** — 他ファイルのレコードが間に挟まらないことが
-   prefix 走査の前提。fileId が UUID 固定長なので prefix 衝突が起きない。
-4. **旧 rkey (小文字 hex UUID) より必ず大きい** — `v1~` 前置の目的。旧レコードは PDS に
-   放置する決定なので、新経路の走査がそれらを 1 件も踏まないよう rkey 空間を分離する。
+1. **ATProto の rkey として正しい** — 許される文字 (`[A-Za-z0-9._:~-]`) と長さ (512)。actor の `#` は
+   使えないので `:` に置き換える
+2. **往復する** — `parseBatchRkey(batchRkey(...))` が元に戻る。DID 自体が `:` を含むので、
+   **最後の** `:` で戻せることを確かめる
+3. **同じ端末の別 actor は別の rkey** — 未ログインの `local#dev` とログイン後の `did#dev` が
+   同じ seq で衝突しない
+4. **同じ actor の seq 順 = 辞書順** — ゼロ詰めの目的。桁あふれは throw する (静かに壊さない)
+5. **prefix と cursor の関係** — prefix はそのファイルの rkey にだけ一致し、cursor はそのファイルの
+   どの rkey よりも小さい (昇順の seek がそのファイルの先頭に着地する)
 
-分解側は **寛容にしすぎない**ことを固定する。桁数の違う clock や符号付きの値を「読めた」
-ことにすると、壊れたレコードが黙って正典へ入る。`v1~` で始まるのに形式を満たさないものだけ
-`null` にし、呼び出し側が**数えて警告する** (設計 §3.6 / W3d5-7 の「無言の 400」の反省)。
+分解側は**寛容にしすぎない**。桁数の違う seq や空のセグメントを「読めた」ことにしない。
+v1 の rkey (4 セグメント) も `null` になる。
 
 ## どのようにテストするか
 
-PDS 非依存の純関数なのでモック不要。固定の UUID (先頭 8 桁だけ変える) を使い、
-**辞書順そのものを assert する** — 実装の内部ではなく「並べたときどうなるか」を固定する。
+PDS 非依存の純関数なのでモック不要。
 
-- 連続性: A と B の rkey を交互に並べた配列を `sort()` し、A の 2 件が先に固まることを見る。
-- `v1~` 分離: 旧 rkey で最大になりうる値 (`ffffffff-…-ffffffffffff`) と比較する。
-- cursor: そのファイルの最小 rkey より小さく、1 つ小さい fileId の最大 rkey より大きいこと
-  (= 昇順 seek がちょうどそのファイルの先頭に着地する条件) を両側から挟んで固定する。
-- `batchIdFromRkey` の旧形式許容は **p7-1 時点の暫定** (読取が repo 全件 list のままなので
-  新旧が混在する)。p7-5 で全件 list を撤去したら外せる — そのときこのテストも落とす。
-
-実 PDS が `~` を含む 89 文字の rkey を受理することと、cursor の意味論 (`reverse: true` で
-`rkey > cursor`) は p7-0 の実機 spike で確認済 (設計 §5.1)。ここでは**文字列の性質**だけを見る。
+- **1・2 と 5 は全称命題なので性質で書く** (`fast-check`)。actor の生成器は実際に現れる形
+  (`genesis`、`did:plc:…#<uuid>`、`did:web:…#<uuid>`、`local#<uuid>`) だけから引く。
+  `did:web:example.com` を混ぜるのは、`.` と `:` を含む DID でも往復することを見るためである
+- seq は 12 桁に収まる範囲全体から引く (境界の 0 と 10^12 - 1 も入りうる)
+- 3・4 と分解の拒否は、具体的な値で固定する方が読みやすいので例で書く

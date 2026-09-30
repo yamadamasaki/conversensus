@@ -8,16 +8,18 @@
  * - 同期対象の op を生じない event (空 ops) はスキップする。
  * - flush はチェーンで直列化し、Outbox の多重起動を避ける。オフライン時は保留を維持し、
  *   次の record で再試行する (Outbox のオフライン分岐)。
- * - clock は Lamport。再起動後は初回 drain で永続ログ (provider.pull) の max clock を
- *   観測して `seed` し、発番を max+1 から再開する (W3)。復元前は event を保留し、
- *   restore 成功後に FIFO 順で tick を割り当てる (再起動をまたいだ単調性の保証)。
+ * - 点 (clock・seq・deps) は `CausalClock` が振る (step3 Phase 1 D1)。再起動後は初回 drain で
+ *   永続ログ (provider.pull) から発番器を復元し、続きから振る (W3)。復元前は event を保留し、
+ *   restore 成功後に FIFO 順で点を割り当てる (再起動をまたいだ単調性の保証)。
+ * - 発番器は trunk・branch・判断ログで**共有する**ので、外から渡せる (`causal`)。
  */
 
 import {
   type Actor,
   type Batch,
+  CausalClock,
   type Lamport,
-  LamportClock,
+  type ObservedPoint,
   type SheetId,
 } from '@conversensus/shared';
 import type { GraphEvent } from '../events/GraphEvent';
@@ -27,7 +29,11 @@ import { INITIAL_CURSOR, type SyncProvider } from './syncProvider';
 
 export type EventSyncTapDeps = {
   provider: SyncProvider;
-  clock?: LamportClock;
+  /**
+   * 因果の発番器。**trunk とその branch・判断ログで同じものを渡す** (`CausalClock` の冒頭)。
+   * 省略すると、この tap だけの発番器を作る (テスト用)
+   */
+  causal?: CausalClock;
   outbox?: Outbox<Batch>;
   /**
    * この端末の操作主体 (Phase 4d-2)。`<did>#<deviceId>` (未ログインは `local#<deviceId>`)。
@@ -51,7 +57,7 @@ export type EventSyncTapDeps = {
 
 export class EventSyncTap {
   private readonly provider: SyncProvider;
-  private readonly clock: LamportClock;
+  private readonly causal: CausalClock;
   private readonly outbox: Outbox<Batch>;
   private readonly actor: Actor;
   private readonly clockFloor: Lamport;
@@ -68,7 +74,7 @@ export class EventSyncTap {
 
   constructor(deps: EventSyncTapDeps) {
     this.provider = deps.provider;
-    this.clock = deps.clock ?? new LamportClock();
+    this.causal = deps.causal ?? new CausalClock(deps.actor);
     this.outbox = deps.outbox ?? new Outbox<Batch>((b) => b.id);
     this.actor = deps.actor;
     this.clockFloor = deps.clockFloor ?? 0;
@@ -108,12 +114,9 @@ export class EventSyncTap {
       this.restored = this.provider
         .pull(INITIAL_CURSOR)
         .then((result) => {
-          const maxClock = result.batches.reduce(
-            (m, b) => Math.max(m, b.clock),
-            0,
-          );
+          this.causal.restore(result.batches);
           // clockFloor は「このログが継ぐ分岐点」(branch のみ)。空ログでも下限を下回らない
-          this.clock.seed(Math.max(maxClock, this.clockFloor));
+          this.causal.seedClock(this.clockFloor);
         })
         .catch((error) => {
           this.restored = undefined;
@@ -125,20 +128,17 @@ export class EventSyncTap {
   }
 
   /**
-   * 受信 batch の論理時刻を観測し、自端末 clock を追随させる
-   * (Lamport 受信規則, Phase 4d-3 / 設計 §3.2a)。
+   * 受信した batch (グラフ・判断ログとも) を観測し、発番器を追随させる。
    *
-   * これ以降に発番する clock が受信分より必ず大きくなるため、
-   * `orderBatches` の `a.clock < b.clock` が端末をまたいで
-   * 「因果的に後」を表現できるようになる。
+   * - **Lamport の受信規則** (Phase 4d-3): 以後に振る clock が受信分より必ず大きくなり、
+   *   全順序が端末をまたいで「因果的に後」を表す
+   * - **因果の知識への取り込み** (step3 Phase 1): 以後に書く batch の `deps` がこれを含む
    *
-   * `seed` (復元用, +1 しない) と違い `observe` は max+1 する。同じ clock を
-   * 別端末と重複して発番しないために受信側では必ずこちらを使う。
-   *
-   * 受信経路からの呼び出しは 4d-5 で配線する。
+   * **書き込みが成功してから呼ぶこと**。取り込めなかった batch を知っていることにすると、
+   * それに依存した batch を書いてしまう。
    */
-  observeRemote(remoteClock: Lamport): void {
-    this.clock.observe(remoteClock);
+  observeRemote(points: Iterable<ObservedPoint>): void {
+    for (const point of points) this.causal.observe(point);
   }
 
   /**
@@ -154,9 +154,9 @@ export class EventSyncTap {
   get clockControl(): { seed: (floor: Lamport) => void; tick: () => Lamport } {
     return {
       seed: (floor) => {
-        this.clock.seed(floor);
+        this.causal.seedClock(floor);
       },
-      tick: () => this.clock.tick(),
+      tick: () => this.causal.tickClock(),
     };
   }
 
@@ -182,7 +182,7 @@ export class EventSyncTap {
         sheetId?: SheetId;
       };
       const batch = graphEventToBatch(event, {
-        clock: this.clock.tick(),
+        ...this.causal.issue(),
         actor: this.actor,
         sheetId,
       });

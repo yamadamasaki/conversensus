@@ -59,7 +59,9 @@ function recordingLog(initial: readonly Batch[] = []) {
   let clock = log.reduce((m, b) => Math.max(m, b.clock), 0);
   const recorder = branchMetaRecorder((event) => {
     clock += 1;
-    log.push(graphEventToBatch(event, { clock, actor: ACTOR }));
+    log.push(
+      graphEventToBatch(event, { clock, seq: clock, deps: {}, actor: ACTOR }),
+    );
   });
   return { log, recorder };
 }

@@ -1,157 +1,103 @@
 /**
- * batch レコードの rkey スキーム (step1 Phase 7 p7-1)
+ * batch レコードの rkey スキーム (step3 Phase 1 S1-3 / 設計 D9。v1 は step1 Phase 7 p7-1)
  *
- * PDS の batch コレクションは **repo 全体で 1 つ**なので、rkey の構造だけが
- * 「ファイル単位に範囲取得する」手掛かりになる。設計 `step1-phase7-range-fetch.md` §3.1。
+ * PDS の collection は **repo 全体で 1 つ**なので、rkey の構造だけが「ファイル単位に
+ * 範囲取得する」手掛かりになる。
  *
- *     v1~<fileId>~<clock を 12 桁ゼロ詰め>~<batchId>
+ *     <fileId>~<actor の # を : にしたもの>~<seq を 12 桁ゼロ詰め>
  *
- * この形にする理由 (どれか 1 つでも崩すと範囲取得が成立しない):
- *
- * - **`v1~` 前置**: 旧 rkey (= batchId 単体の小文字 hex UUID, Phase 4c〜6) は PDS 上に
- *   放置する決定なので、走査がそれらを踏まないよう rkey 空間ごと分離する。`v` (0x76) は
- *   hex の先頭文字 `0-9a-f` より大きいので、**旧レコードはすべて `v1~…` より小さい**。
- *   形式バージョンでもあり、次に rkey を変えるときも `v2~` で同じ論法が使える。
  * - **fileId が先頭**: 同じファイルの rkey が辞書順で連続する = prefix 範囲取得できる。
- *   fileId は UUID 固定長なので、ある fileId が別の fileId の prefix になることはない。
- * - **決定論的** (時刻を混ぜない): 同じ batch は必ず同じ rkey になる。`putRecord` が
- *   PDS レベルでべき等なまま保たれ、outbox の再送と移行の再 push がそれに依存している。
- *   ATProto 標準の TID は生成時刻依存でこれを満たさない (かつ端末間のクロックずれで
- *   順序が壊れ、Phase 4d-4 が捨てた clock cursor と同型のバグになる)。
- * - **clock を挟む**: ファイル内をおおむね書込順に並べる。ただし**順序の正しさは
- *   rkey に依存していない** — 受信側は `(clock, actor, id)` で正規化ソートする
- *   (`atprotoSyncProvider` の取得経路 / 正典の `orderBatches` と同一規則)。
- * - **batchId が末尾**: `batch.id` をここから復元する。レコードボディに `id` を持たないので
- *   lexicon (`batch.json` は `"key": "any"`) の変更が要らない。
+ *   fileId は UUID 固定長なので、ある fileId が別の fileId の prefix になることはない
+ * - **点 `(actor, seq)` で一意**: batch の点は因果の範囲 (trunk の File) の中で一意なので、
+ *   batchId を rkey に入れなくてよい。id はレコードの本文に持つ
+ * - **actor ごとに連続する**: 同じ actor の batch は seq 順に並ぶ。**actor ごとの cursor**
+ *   (設計の非目標、後の Phase) を持つときに、形式を変えずに範囲取得できる
+ * - **決定論的**: 同じ batch は必ず同じ rkey になる。`putRecord` のべき等性 (outbox の再送) が
+ *   これに依存している
+ * - **actor の `#` を `:` にする**: rkey に `#` は使えない。deviceId (UUID) は `:` を含まないので、
+ *   最後の `:` で元に戻せる (単射)。`local#dev` と `did#dev` のように同じ端末の別 actor も
+ *   別の rkey になる
  *
- * rkey の長さは 3+36+1+12+1+36 = 89 文字で、ATProto の上限 512 に収まる。区切りの `~` は
- * rkey の許容文字 (英数と `.-_:~`)。実 PDS で受理されることは p7-0 で実測済 (設計 §5.1)。
+ * **v1 (`v1~<fileId>~<clock>~<batchId>`) との互換は持たない** (設計 §0)。v1 のレコードは
+ * 別の collection (`app.conversensus.graph.batch`) に残り、v2 の読み手からは見えない。
  */
 
-import type { BatchId, FileId, Lamport } from '@conversensus/shared';
+import type { Actor, FileId, Seq } from '@conversensus/shared';
 
-/** rkey 形式のバージョン前置。旧 rkey (hex UUID) と rkey 空間を分ける役目も持つ */
-export const RKEY_VERSION_PREFIX = 'v1~';
-
-/** rkey のセグメント区切り。UUID に現れない文字であること (英数・ハイフン以外) */
+/** rkey のセグメント区切り */
 const SEPARATOR = '~';
 
-/** clock のゼロ詰め桁数。辞書順 = 数値順にするために固定幅にする */
-const CLOCK_DIGITS = 12;
+/** actor の `#` の代わりに置く文字 (rkey に `#` は使えない) */
+const ACTOR_HASH_REPLACEMENT = ':';
+const ACTOR_HASH = '#';
 
-/** `v1~<fileId>~<clock12>~<batchId>` のセグメント数 */
-const SEGMENT_COUNT = 4;
+/** seq のゼロ詰め桁数。辞書順 = 数値順にするために固定幅にする */
+const SEQ_DIGITS = 12;
+const MAX_SEQ = 10 ** SEQ_DIGITS - 1;
 
-/** clock が 12 桁に収まる上限 (超えると辞書順と数値順が食い違う) */
-const MAX_CLOCK = 10 ** CLOCK_DIGITS - 1;
+/** `<fileId>~<actor>~<seq>` のセグメント数 */
+const SEGMENT_COUNT = 3;
 
-export type ParsedBatchRkey = {
-  fileId: FileId;
-  clock: Lamport;
-  batchId: BatchId;
-};
+export type ParsedBatchRkey = { fileId: FileId; actor: Actor; seq: Seq };
+
+function encodeActor(actor: Actor): string {
+  return actor.replace(ACTOR_HASH, ACTOR_HASH_REPLACEMENT);
+}
+
+/** `encodeActor` の逆。**最後の** `:` を `#` に戻す (DID 自体が `:` を含むため) */
+function decodeActor(encoded: string): Actor {
+  const at = encoded.lastIndexOf(ACTOR_HASH_REPLACEMENT);
+  // `genesis` のように区切りを持たない actor はそのまま。actor は常に
+  // `<did>#<deviceId>` か `genesis` なので、`:` を含むなら必ず `#` を持っていた
+  if (at < 0) return encoded;
+  return `${encoded.slice(0, at)}${ACTOR_HASH}${encoded.slice(at + 1)}`;
+}
 
 /**
  * batch レコードの rkey を組み立てる。
  *
- * clock が 12 桁を超える場合は throw する — 静かに桁あふれさせると、その batch だけ
- * ファイル内の順序が狂う (辞書順と数値順が食い違う) 上に、同じ batch を再 push した
- * ときに別の rkey になってべき等性まで壊れる。実際には Lamport clock が 10^12 に
- * 達する前に別の限界が来るので、これは「起きないことの明示」に近い。
+ * seq が 12 桁を超える場合は throw する — 静かに桁あふれさせると、その batch だけ
+ * actor 内の順序が狂う上に、同じ batch を再 push したときに別の rkey になる。
  */
-export function batchRkey(
-  fileId: FileId,
-  clock: Lamport,
-  batchId: BatchId,
-): string {
-  if (!Number.isInteger(clock) || clock < 0 || clock > MAX_CLOCK) {
+export function batchRkey(fileId: FileId, actor: Actor, seq: Seq): string {
+  if (!Number.isInteger(seq) || seq < 0 || seq > MAX_SEQ) {
     throw new Error(
-      `batchRkey: clock が ${CLOCK_DIGITS} 桁の非負整数に収まらない (${clock})`,
+      `batchRkey: seq が ${SEQ_DIGITS} 桁の非負整数に収まらない (${seq})`,
     );
   }
-  const paddedClock = String(clock).padStart(CLOCK_DIGITS, '0');
-  return `${RKEY_VERSION_PREFIX}${fileId}${SEPARATOR}${paddedClock}${SEPARATOR}${batchId}`;
+  const paddedSeq = String(seq).padStart(SEQ_DIGITS, '0');
+  return `${fileId}${SEPARATOR}${encodeActor(actor)}${SEPARATOR}${paddedSeq}`;
 }
 
-/**
- * このファイルの rkey が共有する prefix。範囲取得の**停止条件**に使う。
- * (`listByFile` は「prefix を外れた 1 件」を見た時点で走査を終える)
- */
+/** このファイルの rkey が共有する prefix。範囲取得の**停止条件**に使う */
 export function batchRkeyPrefix(fileId: FileId): string {
-  return RKEY_VERSION_PREFIX + fileId + SEPARATOR;
+  return fileId + SEPARATOR;
 }
 
 /**
- * このファイルの手前を指す合成 cursor。
- *
- * `listRecords` の cursor は rkey そのもので、`reverse: true` では `rkey > cursor` に
- * なる (p7-0 で実測)。`v1~<fileId>` は `v1~<fileId>~…` のどれよりも小さく、かつ
- * 1 つ小さい fileId のどのレコードよりも大きいので、**そのファイルの先頭に着地する**。
- * 降順 (`reverse` 省略) では逆に `rkey < cursor` なので、同じ値が
- * **そのファイルを丸ごと飛ばす** cursor になる (ファイル列挙で使う)。
+ * このファイルの rkey の**すぐ手前**。昇順 (`reverse: true`, `rkey > cursor`) ならそのファイルの
+ * 先頭へ飛び、降順 (`rkey < cursor`) ならそのファイルを丸ごと飛び越す
  */
 export function batchRkeyFileCursor(fileId: FileId): string {
-  return RKEY_VERSION_PREFIX + fileId;
+  return fileId;
 }
 
-/**
- * AT-URI (`at://<did>/<collection>/<rkey>`) の末尾から rkey を取り出す。
- *
- * `listRecords` の応答は rkey を独立したフィールドで返さないので、rkey を見る側は
- * 必ずここを通る (取得の範囲判定 = `collections.listRecordsByRkeyPrefix` と、
- * `batch.id` の復元 = 取得経路の両方)。
- */
+/** AT-URI (`at://<did>/<collection>/<rkey>`) の末尾から rkey を取り出す */
 export function rkeyFromUri(uri: string): string {
   return uri.split('/').at(-1) ?? uri;
 }
 
-/**
- * rkey から `batch.id` を復元する。復元できなければ `null`。
- *
- * **旧 rkey (= batchId 単体) を許容する**のは p7-1 時点の読取が repo 全件 list のままで、
- * 新旧が混在するため。移行 (p7-4) と全件 list の撤去 (p7-5) が済めば新形式しか
- * 走査範囲に入らないので、この寛容さは p7-5 で外せる。
- *
- * `null` を返すのは「`v1~` で始まるのに形式を満たさない」= 壊れた新形式のときだけ。
- * 呼び出し側は**数えて警告する** (silent skip にしない, 設計 §3.6)。
- */
-export function batchIdFromRkey(rkey: string): BatchId | null {
-  if (!rkey.startsWith(RKEY_VERSION_PREFIX)) {
-    // 旧 rkey は batchId そのもの (Phase 4c〜6 の形式)
-    return rkey as BatchId;
-  }
-  return parseBatchRkey(rkey)?.batchId ?? null;
-}
-
-/**
- * rkey を分解する。新形式でなければ `null`。
- *
- * 呼び出し側は「`v1~` で始まるのに `null`」= 壊れた新形式レコードとして**数えて警告**する
- * こと (silent skip にしない, 設計 §3.6)。`v1~` で始まらないものは旧 rkey か他種で、
- * そもそも新経路の走査範囲に入らない。
- */
+/** rkey を割る。形式を満たさなければ null (他種・壊れたレコード) */
 export function parseBatchRkey(rkey: string): ParsedBatchRkey | null {
-  if (!rkey.startsWith(RKEY_VERSION_PREFIX)) return null;
-  // `v1~<fileId>~<clock>~<batchId>` を `~` で割ると 4 要素 (先頭は形式バージョン)
   const segments = rkey.split(SEPARATOR);
   if (segments.length !== SEGMENT_COUNT) return null;
-
-  const [, fileId, clockText, batchId] = segments as [
-    string,
-    string,
-    string,
-    string,
-  ];
-  if (fileId === '' || batchId === '') return null;
-
-  // 固定幅の数字列だけを受ける。`padStart` の出力と厳密に対応させ、
-  // 桁数が違う・符号や空白が混ざった rkey を「読めた」ことにしない。
-  if (clockText.length !== CLOCK_DIGITS || !/^\d+$/.test(clockText))
-    return null;
-
+  const [fileId, encodedActor, seqText] = segments as [string, string, string];
+  if (fileId === '' || encodedActor === '') return null;
+  // 固定幅の数字列だけを受ける。`padStart` の出力と厳密に対応させる
+  if (seqText.length !== SEQ_DIGITS || !/^\d+$/.test(seqText)) return null;
   return {
     fileId: fileId as FileId,
-    clock: Number(clockText),
-    batchId: batchId as BatchId,
+    actor: decodeActor(encodedActor),
+    seq: Number(seqText),
   };
 }

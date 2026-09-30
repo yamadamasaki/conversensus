@@ -44,26 +44,6 @@ export interface RemoteBatchTarget {
    */
   pushRemote(entries: readonly RemoteBatch[]): Promise<void>;
   /**
-   * **remote にまだ無い** batch をまとめて書く (Phase 7 p7-4 の移行専用)。
-   *
-   * `pushRemote` と違い**べき等ではない** — 既存の rkey が混ざるとチャンクごと失敗する。
-   * 渡す前に範囲取得で差分を取る責務は呼び出し側 (`migrateRemoteRkey`) にある。
-   */
-  createRemote(entries: readonly RemoteBatch[]): Promise<void>;
-  /**
-   * remote の batch を**全件**取得する — **移行 (p7-4) 専用** (Phase 4d-4 / p7-5)。
-   *
-   * `since` を取らないのは意図的である。ATProto の `listRecords` は rkey 順で、
-   * 本実装の rkey は batchId (ランダム UUID) なので**レコード順が時系列にならない**。
-   * 既読位置を表せる値が存在しないため、既読位置を持たない契約にした (設計 §1.3 の再検討)。
-   * 取りこぼしゼロを構造的に保証し、二重取り込みは受信側のべき等性が無害化する。
-   *
-   * **p7-5 で通常経路の消費者は 0 になった**。受信・catch-up は `pullRemoteForFile`、
-   * 発見は `listRemoteFiles`。残るのは移行だけで、それは**旧 rkey のレコードを
-   * 新経路では走査できない**ため代替が無い (設計 §3.1)。
-   */
-  pullAllRemoteForMigration(): Promise<RemoteBatch[]>;
-  /**
    * remote の batch のうち **1 ファイル分**を取得する (Phase 7 p7-2)。
    *
    * `since` を取らないのは全件版と同じ理由 — 既読位置を持たない契約は変わらず、
@@ -118,7 +98,7 @@ export class RemoteSyncQueue {
     // 同じ id が 2 つの fileId で同時に保留されうる (merge はローカル正典へ直に書くので、
     // trunk 分は trunk の tap の catch-up で積まれる)。id だけを鍵にすると、branch 分が
     // 保留中のとき trunk 分が黙って捨てられ、次の catch-up まで相手に届かない。
-    // remote の rkey も `v1~<fileId>~<clock>~<batchId>` で fileId を含むので、鍵を揃える
+    // remote の rkey も `<fileId>~<actor>~<seq>` で fileId を含むので、鍵を揃える
     this.outbox = new Outbox<RemoteBatch>(
       (entry) => `${entry.fileId}~${entry.batch.id}`,
       deps.capacity ?? REMOTE_QUEUE_MAX,
@@ -182,39 +162,6 @@ export class RemoteSyncQueue {
     const missing = localBatches.filter((b) => !remoteIds.has(b.id));
     this.enqueue(missing, fileId);
     return this.flush();
-  }
-
-  /**
-   * remote の batch を全件取得する — **移行 (p7-4) 専用** (Phase 4d-5 / p7-5)。
-   *
-   * キューの責務は送信だが、remote provider を保持しているのがここなので取得も委譲する。
-   * **受信の書き込みには使わない** — 受信は `receiveRemoteBatches` がローカル正典へ
-   * 直書きする (fanout / enqueue を通すと echo ループになる, 設計 §3.3a)。
-   *
-   * 消費者は移行 (`migrateRemoteRkey`) だけである (Phase 7 p7-5)。
-   */
-  pullAllRemoteForMigration(): Promise<RemoteBatch[]> {
-    return this.provider.pullAllRemoteForMigration();
-  }
-
-  /**
-   * remote へ **キューを経由せず**まとめて書く (Phase 7 p7-4 の移行専用)。
-   *
-   * 通常の送信は `enqueue` → `flush` で、失敗しても保持され UI に「未同期 N 件」として
-   * 現れる。移行 (`migrateRemoteRkey`) だけがこの口を使う理由は 2 つある:
-   *
-   * - キューには保持上限 (`REMOTE_QUEUE_MAX`) がある。移行は「ローカル正典の全 batch」を
-   *   書くので上限を超えうる。溢れた分は eviction されるが `flush` は残りの成功を返すので、
-   *   **「移行が完了した」という判定が嘘になる** (marker を立ててはいけない状態で立つ)。
-   * - 移行の規模では 1 件 1 commit の `putRecord` が重い。`applyWrites` にまとめると
-   *   実測で約 20 倍速い (設計 §5.4)。
-   *
-   * 直送なら失敗は例外で伝わり、marker が立たないまま次回起動で再試行される (§6.2)。
-   * `filterBatchesForRemote` は `enqueue` の中にあるので、**呼び出し側が自分で通す**
-   * 責務を負う (移行側で明示している)。
-   */
-  createRemote(entries: readonly RemoteBatch[]): Promise<void> {
-    return this.provider.createRemote(entries);
   }
 
   /**

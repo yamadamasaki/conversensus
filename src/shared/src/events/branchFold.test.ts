@@ -35,6 +35,8 @@ const batch = (clock: number, ops: Op[], actor = 'a'): Batch => ({
   id: BatchIdSchema.parse(crypto.randomUUID()),
   actor,
   clock,
+  seq: clock,
+  deps: {},
   timestamp: seq++,
   ops,
 });
@@ -55,6 +57,8 @@ const side = (op: unknown) => ({
   batchId: BatchIdSchema.parse(crypto.randomUUID()),
   actor: 'a',
   clock: 1,
+  seq: 1,
+  deps: {},
   op,
 });
 const origin = (
@@ -380,7 +384,7 @@ const batchArb: fc.Arbitrary<Batch> = fc
     clock: fc.integer({ min: 1, max: 4 }),
     ops: fc.array(opArb, { minLength: 1, maxLength: 2 }),
   })
-  .map((b) => ({ ...b, timestamp: 0 }));
+  .map((b) => ({ ...b, seq: b.clock, deps: {}, timestamp: 0 }));
 /**
  * **log の中で batch の id は一意にする。**同じ id で中身の違う batch は実在しない
  * (保存が `UNIQUE(file_id, batch_id)`)。それを許すと (clock, actor, id) が完全に同点に

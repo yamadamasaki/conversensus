@@ -46,8 +46,9 @@ actor が端末を区別しない限り、受信側は 2 つの batch を因果�
 
 ## didFromActor (Phase 7 p7-4 で追加)
 
-`composeActor` の逆。rkey 移行 marker (`migrateRemoteRkey`) が**アカウント単位**の
-キーを必要とし、hook が持っているのは actor だけなので追加した。
+`composeActor` の逆。step1 の rkey 移行 marker (step3 Phase 1 で撤去) が**アカウント単位**の
+キーを必要とし、hook が持っているのは actor だけなので追加した。今は名簿の起点の marker
+(`bootstrapParticipation`) と参加の判定が使う。
 
 - `composeActor` の逆になること (往復)。
 - **未ログインの actor からは `LOCAL_DID` が返る** — null に潰さない。marker は

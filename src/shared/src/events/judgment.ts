@@ -20,7 +20,12 @@
 
 import { z } from 'zod';
 import { deterministicUuid } from './genesis';
-import { type Actor, BatchIdSchema, type Lamport } from './unified';
+import {
+  type Actor,
+  BatchIdSchema,
+  type Lamport,
+  VersionVectorSchema,
+} from './unified';
 
 /**
  * 判断の主体・対象となる DID。
@@ -124,12 +129,16 @@ export type JudgmentOpKind = JudgmentOp['kind'];
  * 同じ規則 (`compareByClockActorId`) で並べられること、による。
  *
  * `sheetId` を持たない — 判断は File 単位であってシート単位ではない。
- * fileId を持たないのもグラフ側と同じで、**rkey が運ぶ** (`v1~<fileId>~…`)。
+ * fileId を持たないのもグラフ側と同じで、**rkey が運ぶ** (`<fileId>~…`)。
  */
 export const JudgmentBatchSchema = z.object({
   id: BatchIdSchema,
   actor: z.string(),
   clock: z.number().int().nonnegative(),
+  /** 因果の点。グラフの op-log と**同じ連番を共有する** (`Batch.seq`) */
+  seq: z.number().int().nonnegative(),
+  /** 書いた時点の因果の知識 (`Batch.deps`) */
+  deps: VersionVectorSchema,
   /** wall clock (表示用。順序付けには使わない) */
   timestamp: z.number().int().nonnegative(),
   ops: z.array(JudgmentOpSchema).min(1),
@@ -147,6 +156,13 @@ export type JudgmentBatch = z.infer<typeof JudgmentBatchSchema>;
  * `GENESIS_CLOCK_START = 1` だからである。**0 は誰にも割り当てられない。**
  */
 export const JUDGMENT_GENESIS_CLOCK: Lamport = 0;
+
+/**
+ * 判断ログの genesis に与える seq。clock と同じく **0 は誰にも割り当てられない**
+ * (seq は 1 から振る)。seq 0 の点は `covers` で常に覆われる — 「誰にとっても因果の
+ * 過去にある」ことになり、clock 0 が「あらゆる op より前」であるのと揃う
+ */
+export const JUDGMENT_GENESIS_SEQ = 0;
 
 /**
  * 判断ログの genesis batch を組み立てる (step2 Phase 1)。
@@ -168,6 +184,8 @@ export function participationGenesisBatch(
     ),
     actor,
     clock: JUDGMENT_GENESIS_CLOCK,
+    seq: JUDGMENT_GENESIS_SEQ,
+    deps: {},
     timestamp: 0,
     ops: [{ kind: 'participation.genesis' }],
   };

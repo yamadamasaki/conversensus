@@ -1,143 +1,118 @@
 import { describe, expect, it } from 'bun:test';
-import type { BatchId, FileId } from '@conversensus/shared';
+import type { FileId } from '@conversensus/shared';
+import fc from 'fast-check';
 import {
-  batchIdFromRkey,
   batchRkey,
   batchRkeyFileCursor,
   batchRkeyPrefix,
   parseBatchRkey,
-  RKEY_VERSION_PREFIX,
+  rkeyFromUri,
 } from './batchRkey';
 
-const fid = (hex: string) => `${hex}-1111-4111-8111-111111111111` as FileId;
-const bid = (hex: string) => `${hex}-2222-4222-8222-222222222222` as BatchId;
+const FILE = '11111111-1111-4111-8111-111111111111' as FileId;
+const OTHER = '22222222-2222-4222-8222-222222222222' as FileId;
+const DEVICE = '33333333-3333-4333-8333-333333333333';
+const ALICE = `did:plc:alice#${DEVICE}`;
 
-const FILE_A = fid('11111111');
-const FILE_B = fid('55555555');
-const BATCH = bid('9b7e0000');
+/** ATProto の rkey に許される文字 */
+const RKEY_CHARS = /^[A-Za-z0-9._:~-]+$/;
+const RKEY_MAX_LENGTH = 512;
+
+/** 実際に現れる actor の形。DID (`:` を含む) と端末 id、または genesis */
+const arbActor = fc.oneof(
+  fc.constant('genesis'),
+  fc
+    .tuple(
+      fc.constantFrom('did:plc:alice', 'did:web:example.com', 'local'),
+      fc.uuid(),
+    )
+    .map(([did, device]) => `${did}#${device}`),
+);
 
 describe('batchRkey', () => {
-  it('v1~<fileId>~<clock を 12 桁ゼロ詰め>~<batchId> を組む', () => {
-    expect(batchRkey(FILE_A, 42, BATCH)).toBe(
-      `v1~${FILE_A}~000000000042~${BATCH}`,
+  it('<fileId>~<actor の # を : に>~<seq を 12 桁ゼロ詰め> を組む', () => {
+    expect(batchRkey(FILE, ALICE, 7)).toBe(
+      `${FILE}~did:plc:alice:${DEVICE}~000000000007`,
     );
   });
 
-  it('長さが ATProto の rkey 上限 512 に収まる', () => {
-    expect(batchRkey(FILE_A, 999999999999, BATCH).length).toBe(89);
+  it('あらゆる actor と seq で、ATProto の rkey として正しく、parse で往復する', () => {
+    fc.assert(
+      fc.property(arbActor, fc.nat({ max: 10 ** 12 - 1 }), (actor, seq) => {
+        const rkey = batchRkey(FILE, actor, seq);
+        expect(rkey).toMatch(RKEY_CHARS);
+        expect(rkey.length).toBeLessThanOrEqual(RKEY_MAX_LENGTH);
+        expect(parseBatchRkey(rkey)).toEqual({ fileId: FILE, actor, seq });
+      }),
+    );
   });
 
-  it('同じ batch からは常に同じ rkey が出る (putRecord のべき等性の前提)', () => {
-    expect(batchRkey(FILE_A, 7, BATCH)).toBe(batchRkey(FILE_A, 7, BATCH));
+  it('同じ端末の別 actor (未ログインとログイン後) は別の rkey になる', () => {
+    expect(batchRkey(FILE, `local#${DEVICE}`, 1)).not.toBe(
+      batchRkey(FILE, `did:plc:alice#${DEVICE}`, 1),
+    );
   });
 
-  it('clock 順が辞書順と一致する (ゼロ詰めの目的)', () => {
-    const rkeys = [3, 20, 100, 7].map((c) => batchRkey(FILE_A, c, BATCH));
-    expect([...rkeys].sort()).toEqual([
-      batchRkey(FILE_A, 3, BATCH),
-      batchRkey(FILE_A, 7, BATCH),
-      batchRkey(FILE_A, 20, BATCH),
-      batchRkey(FILE_A, 100, BATCH),
-    ]);
+  it('同じ actor の seq 順が辞書順と一致する (ゼロ詰めの目的)', () => {
+    const rkeys = [1, 2, 10, 100, 999].map((s) => batchRkey(FILE, ALICE, s));
+    expect([...rkeys].sort()).toEqual(rkeys);
   });
 
-  it('同じファイルの rkey が辞書順で連続する (prefix 範囲取得の前提)', () => {
-    const mixed = [
-      batchRkey(FILE_B, 1, bid('aaaaaaaa')),
-      batchRkey(FILE_A, 2, bid('bbbbbbbb')),
-      batchRkey(FILE_B, 2, bid('cccccccc')),
-      batchRkey(FILE_A, 1, bid('dddddddd')),
-    ];
-    const sorted = [...mixed].sort();
-    // A の 2 件が先に固まり、その後に B の 2 件が固まる (交互にならない)
-    expect(sorted.map((r) => r.startsWith(batchRkeyPrefix(FILE_A)))).toEqual([
-      true,
-      true,
-      false,
-      false,
-    ]);
-  });
-
-  it('旧 rkey (小文字 hex UUID) より必ず大きい (v1~ 分離)', () => {
-    // 旧 rkey で最大になりうる値 = 全桁 f
-    const maxLegacy = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
-    expect(batchRkey(FILE_A, 0, BATCH) > maxLegacy).toBe(true);
-    expect(RKEY_VERSION_PREFIX > maxLegacy).toBe(true);
-  });
-
-  it('clock が 12 桁に収まらなければ throw する', () => {
-    // 静かに桁あふれさせると順序が狂い、再 push で rkey が変わってべき等性も壊れる
-    expect(() => batchRkey(FILE_A, 10 ** 12, BATCH)).toThrow();
-    expect(() => batchRkey(FILE_A, -1, BATCH)).toThrow();
-    expect(() => batchRkey(FILE_A, 1.5, BATCH)).toThrow();
+  it('seq が 12 桁に収まらなければ throw する', () => {
+    expect(() => batchRkey(FILE, ALICE, 10 ** 12)).toThrow();
+    expect(() => batchRkey(FILE, ALICE, -1)).toThrow();
+    expect(() => batchRkey(FILE, ALICE, 1.5)).toThrow();
   });
 });
 
 describe('batchRkeyPrefix / batchRkeyFileCursor', () => {
-  it('prefix はそのファイルの全 rkey に一致し、他ファイルには一致しない', () => {
-    const prefix = batchRkeyPrefix(FILE_A);
-    expect(batchRkey(FILE_A, 1, BATCH).startsWith(prefix)).toBe(true);
-    expect(batchRkey(FILE_B, 1, BATCH).startsWith(prefix)).toBe(false);
+  it('あらゆる actor と seq で、prefix はそのファイルの rkey に一致し、他ファイルには一致しない', () => {
+    fc.assert(
+      fc.property(arbActor, fc.nat({ max: 1000 }), (actor, seq) => {
+        expect(
+          batchRkey(FILE, actor, seq).startsWith(batchRkeyPrefix(FILE)),
+        ).toBe(true);
+        expect(
+          batchRkey(OTHER, actor, seq).startsWith(batchRkeyPrefix(FILE)),
+        ).toBe(false);
+      }),
+    );
   });
 
-  it('cursor はそのファイルの全 rkey より小さい (昇順 seek の着地点)', () => {
-    const cursor = batchRkeyFileCursor(FILE_A);
-    expect(cursor < batchRkey(FILE_A, 0, bid('00000000'))).toBe(true);
-    // 1 つ小さい fileId のどのレコードよりは大きい = 手前のファイルに戻らない
-    const smaller = fid('00000000');
-    expect(cursor > batchRkey(smaller, 999999999999, bid('ffffffff'))).toBe(
-      true,
+  it('あらゆる actor と seq で、cursor はそのファイルの rkey より小さく、次のファイルの rkey より小さい', () => {
+    fc.assert(
+      fc.property(arbActor, fc.nat({ max: 1000 }), (actor, seq) => {
+        const rkey = batchRkey(FILE, actor, seq);
+        // 昇順の seek は cursor より大きいものから始まるので、ファイルの先頭に着地する
+        expect(batchRkeyFileCursor(FILE) < rkey).toBe(true);
+        // 降順の飛び越しは cursor より小さいものへ進むので、そのファイルを丸ごと跳ぶ
+        expect(batchRkeyFileCursor(OTHER) > rkey).toBe(true);
+      }),
     );
   });
 });
 
 describe('parseBatchRkey', () => {
-  it('batchRkey の出力を往復で復元する', () => {
-    const parsed = parseBatchRkey(batchRkey(FILE_A, 42, BATCH));
-    expect(parsed).toEqual({ fileId: FILE_A, clock: 42, batchId: BATCH });
+  it('セグメント数が違う rkey は null (v1 の rkey・他種)', () => {
+    expect(parseBatchRkey(`v1~${FILE}~000000000001~abc`)).toBeNull();
+    expect(parseBatchRkey(FILE)).toBeNull();
   });
 
-  it('ゼロ詰めを外して clock を数値で返す', () => {
-    expect(parseBatchRkey(batchRkey(FILE_A, 0, BATCH))?.clock).toBe(0);
+  it('seq が固定幅の数字列でなければ null', () => {
+    expect(parseBatchRkey(`${FILE}~genesis~1`)).toBeNull();
+    expect(parseBatchRkey(`${FILE}~genesis~00000000000x`)).toBeNull();
   });
 
-  it('v1~ で始まらない rkey は null (旧 rkey・他種)', () => {
-    expect(parseBatchRkey(BATCH)).toBeNull();
-    expect(parseBatchRkey('v2~a~000000000001~b')).toBeNull();
-  });
-
-  it('セグメント数が違う rkey は null', () => {
-    expect(parseBatchRkey(`v1~${FILE_A}~000000000001`)).toBeNull();
-    expect(
-      parseBatchRkey(`v1~${FILE_A}~000000000001~${BATCH}~extra`),
-    ).toBeNull();
-  });
-
-  it('clock が固定幅の数字列でなければ null', () => {
-    // 桁数違い / 非数字 / 符号付きを「読めた」ことにしない
-    expect(parseBatchRkey(`v1~${FILE_A}~42~${BATCH}`)).toBeNull();
-    expect(parseBatchRkey(`v1~${FILE_A}~00000000004x~${BATCH}`)).toBeNull();
-    expect(parseBatchRkey(`v1~${FILE_A}~-00000000042~${BATCH}`)).toBeNull();
-  });
-
-  it('fileId / batchId が空なら null', () => {
-    expect(parseBatchRkey('v1~~000000000001~x')).toBeNull();
-    expect(parseBatchRkey(`v1~${FILE_A}~000000000001~`)).toBeNull();
+  it('fileId / actor が空なら null', () => {
+    expect(parseBatchRkey('~genesis~000000000001')).toBeNull();
+    expect(parseBatchRkey(`${FILE}~~000000000001`)).toBeNull();
   });
 });
 
-describe('batchIdFromRkey', () => {
-  it('新形式は第 4 セグメントを batch.id として返す', () => {
-    expect(batchIdFromRkey(batchRkey(FILE_A, 3, BATCH))).toBe(BATCH);
-  });
-
-  it('旧形式 (rkey = batchId) はそのまま返す', () => {
-    // p7-1 時点の読取は repo 全件 list のままで新旧が混在するため許容する
-    expect(batchIdFromRkey(BATCH)).toBe(BATCH);
-  });
-
-  it('v1~ で始まるのに形式を満たさない rkey だけ null になる (数えて警告する対象)', () => {
-    expect(batchIdFromRkey(`v1~${FILE_A}~42~${BATCH}`)).toBeNull();
-    expect(batchIdFromRkey('v1~')).toBeNull();
+describe('rkeyFromUri', () => {
+  it('AT-URI の末尾を返す', () => {
+    expect(
+      rkeyFromUri(`at://did:plc:a/app.x/${FILE}~genesis~000000000001`),
+    ).toBe(`${FILE}~genesis~000000000001`);
   });
 });

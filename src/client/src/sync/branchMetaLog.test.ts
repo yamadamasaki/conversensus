@@ -26,7 +26,14 @@ function setup() {
   let clock = 0;
   const record = (event: GraphEvent) => {
     clock += 1;
-    log.push(graphEventToBatch(event, { clock, actor: 'did:plc:alice#dev' }));
+    log.push(
+      graphEventToBatch(event, {
+        clock,
+        seq: clock,
+        deps: {},
+        actor: 'did:plc:alice#dev',
+      }),
+    );
   };
   return {
     log,

@@ -30,6 +30,8 @@ const batch = (id: string, over: Partial<Batch> = {}): Batch => ({
   id: id as Batch['id'],
   actor: MY_DID,
   clock: Number(id) || 1,
+  seq: Number(id) || 1,
+  deps: {},
   timestamp: 1_700_000_000_000,
   ops: [addNode(id)],
   ...over,
@@ -60,18 +62,9 @@ class FakeProvider implements SyncProvider, RemoteBatchTarget {
     this.pushedRemote.push([...entries]);
     this.pushed.push(entries.map((e) => e.batch));
   }
-  /** 移行専用の新規作成 (p7-4)。fanout のテストでは pushRemote と区別しなくてよい */
-  async createRemote(entries: readonly RemoteBatch[]): Promise<void> {
-    return this.pushRemote(entries);
-  }
   async pull(since: Cursor): Promise<PullResult> {
     this.pulledSince.push(since);
     return { batches: this.pullBatches, cursor: this.pullCursor };
-  }
-  /** remote 側の全件取得 (Phase 4d-4)。p7-5 以降は移行だけが使う */
-  async pullAllRemoteForMigration(): Promise<RemoteBatch[]> {
-    this.pulledRemote += 1;
-    return this.pullRemoteEntries;
   }
   /**
    * ファイル単位の取得 (Phase 7 p7-2)。catch-up の経路はこちらを通る。

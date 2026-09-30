@@ -50,6 +50,8 @@ describe('commitOperationsToBatch → projectBatches', () => {
     const batch = commitOperationsToBatch(ops, {
       actor: 'did:example:alice',
       clock: 1,
+      seq: 1,
+      deps: {},
       timestamp: Date.now(),
     });
     const g = projectBatches([batch]);

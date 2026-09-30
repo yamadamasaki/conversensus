@@ -46,6 +46,8 @@ const addNode = (
   id: id as Batch['id'],
   actor: 'local',
   clock,
+  seq: clock,
+  deps: {},
   timestamp,
   ops: [{ kind: 'node.add', target: node as NodeId, content }],
 });
@@ -94,6 +96,8 @@ describe('EventStore', () => {
     const copy = (clock: number, restampedBy?: string): Batch => ({
       ...addNode('b1', 'n1', 'branch の編集', clock, 5),
       actor: 'did:plc:alice#dev-a',
+      // 写しは元の batch と同じ点を保つ (振り直すのは clock だけ)
+      seq: 1,
       ...(restampedBy !== undefined && {
         restampedBy,
         mergedIn: '00000000-0000-4000-8000-00000000c0de' as Batch['mergedIn'],
@@ -213,57 +217,6 @@ describe('EventStore', () => {
       store.appendBatch(FILE, addNode('b1', 'n1', 'A', 1));
       expect(store.getBatches(FILE)[0]?.sheetId).toBeUndefined();
     });
-
-    it('sheet_id 列が無い旧 DB を開くと ALTER で追加され sheetId を扱える (べき等)', () => {
-      const path = join(
-        tmpdir(),
-        `evstore-w3c2-${Date.now()}-${Math.random().toString(16).slice(2)}.db`,
-      );
-      try {
-        // W3c2 以前の旧スキーマ (sheet_id 列なし) を素の bun:sqlite で作る
-        const legacy = new Database(path);
-        legacy.run(
-          `CREATE TABLE batches (
-             seq INTEGER PRIMARY KEY AUTOINCREMENT,
-             file_id TEXT NOT NULL, batch_id TEXT NOT NULL,
-             actor TEXT NOT NULL, clock INTEGER NOT NULL,
-             timestamp INTEGER NOT NULL, ops_json TEXT NOT NULL,
-             UNIQUE(file_id, batch_id))`,
-        );
-        legacy
-          .query(
-            `INSERT INTO batches (file_id, batch_id, actor, clock, timestamp, ops_json)
-             VALUES ($file, 'old', 'local', 1, 1, $ops)`,
-          )
-          .run({
-            $file: FILE,
-            $ops: JSON.stringify([
-              { kind: 'node.add', target: 'n1', content: 'A' },
-            ]),
-          });
-        legacy.close();
-
-        // EventStore がマイグレーションを実行 → sheet_id 列が追加される
-        const migrated = new EventStore(path);
-        // 旧 batch は sheetId 無しで読める
-        expect(migrated.getBatches(FILE)[0]?.sheetId).toBeUndefined();
-        // 新規 content batch の sheetId を保存・読み戻せる
-        migrated.appendBatch(FILE, addNodeInSheet('b2', 'n2', 'B', 2, SHEET));
-        expect(
-          migrated.getBatches(FILE).find((b) => b.id === 'b2')?.sheetId,
-        ).toBe(SHEET);
-        migrated.close();
-
-        // 再オープン: マイグレーションは二度目でもべき等 (列は既存なので ALTER しない)
-        const reopened = new EventStore(path);
-        expect(reopened.getBatches(FILE)).toHaveLength(2);
-        reopened.close();
-      } finally {
-        rmSync(path, { force: true });
-        rmSync(`${path}-wal`, { force: true });
-        rmSync(`${path}-shm`, { force: true });
-      }
-    });
   });
 
   describe('op-log 正典化 marker / migrateToOplog (W3d)', () => {
@@ -364,6 +317,8 @@ describe('EventStore', () => {
         id: 'b2' as Batch['id'],
         actor: 'local',
         clock: 2,
+        seq: 2,
+        deps: {},
         timestamp: 2,
         ops: [
           { kind: 'node.setContent', target: 'n1' as NodeId, content: '改' },
@@ -708,6 +663,8 @@ describe('EventStore', () => {
       id: id as Batch['id'],
       actor: 'genesis',
       clock,
+      seq: clock,
+      deps: {},
       timestamp: clock,
       ops: [
         { kind: 'file.setName', name: 'F' },
@@ -718,6 +675,8 @@ describe('EventStore', () => {
       id: id as Batch['id'],
       actor: 'local',
       clock,
+      seq: clock,
+      deps: {},
       timestamp: clock,
       ops: [{ kind: 'file.remove' }],
     });
@@ -759,6 +718,8 @@ describe('EventStore', () => {
       id: id as Batch['id'],
       actor: 'genesis',
       clock,
+      seq: clock,
+      deps: {},
       timestamp: clock,
       ops: [
         { kind: 'file.setName', name },
@@ -795,6 +756,8 @@ describe('EventStore', () => {
         id: id as Batch['id'],
         actor: 'local',
         clock,
+        seq: clock,
+        deps: {},
         timestamp: clock,
         ops: [{ kind: 'file.remove' }],
       });

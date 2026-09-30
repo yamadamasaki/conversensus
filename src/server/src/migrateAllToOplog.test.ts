@@ -111,6 +111,8 @@ describe('migrateAllFilesToOplog (Phase 6 p6-0)', () => {
           id: '00000001-0000-4000-8000-000000000000' as never,
           actor: 'did:plc:other#device',
           clock: 1,
+          seq: 1,
+          deps: {},
           timestamp: 1,
           ops: [
             {

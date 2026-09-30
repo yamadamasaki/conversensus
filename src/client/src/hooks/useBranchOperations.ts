@@ -2,6 +2,7 @@ import type {
   Actor,
   Batch,
   BranchMeta,
+  CausalClock,
   Commit,
   CommitId,
   EdgeLayout,
@@ -212,6 +213,12 @@ interface UseBranchOperationsParams {
    */
   trunkClock: TapClock;
   /**
+   * trunk の因果の発番器 (step3 Phase 1)。**branch の tap はこれを共有する** — trunk と
+   * その branch は同じ因果の範囲にあり、別々に振ると同じ点を 2 回使ってしまう。
+   * File を開いていなければ null (その間 branch は開けない)
+   */
+  trunkCausal?: CausalClock | null;
+  /**
    * trunk の tap の `record`。branch / commit のメタをここから op-log に記録する
    * (step2 Phase 3 T7-1)。**既定値を持たせない** — no-op に落とすと branch を作っても
    * どこにも残らない。**安定参照であること** (記録口を作り直すと依存する callback が張り直される)
@@ -253,6 +260,7 @@ export function useBranchOperations({
   setConflictNotice,
   actor,
   trunkClock,
+  trunkCausal = null,
   trunkRecord,
   remoteQueue = null,
   roster = null,
@@ -324,6 +332,8 @@ export function useBranchOperations({
     // 分岐点の後から発番する。空の branch op-log は clock 1 から始まってしまい、
     // それでは base 時点の trunk batch に LWW で負ける (§p5-4)。
     ...(activeBranch && { clockFloor: activeBranch.base.at }),
+    // 点は trunk と同じ連番から振る (trunkCausal の注)
+    ...(trunkCausal && { causal: trunkCausal }),
     // branch の編集も remote へ出す (step2 Phase 3 T7-2)。step1 §9.2 の「branch batch は
     // local 専用」はここで外れる。別の端末・相手が branch の中身を読むための前提である。
     // 名簿 (roster) は渡さない — 参加者の branch を引くのは T7-3 で、trunk の名簿を借りる

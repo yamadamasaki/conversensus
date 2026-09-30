@@ -31,6 +31,8 @@ const structure = (id: string, clock: number): Batch => ({
   id: id as Batch['id'],
   actor: 'genesis',
   clock,
+  seq: clock,
+  deps: {},
   timestamp: clock,
   ops: [
     { kind: 'file.setName', name: 'ファイル' },
@@ -42,6 +44,8 @@ const content = (id: string, clock: number, ops: Batch['ops']): Batch => ({
   id: id as Batch['id'],
   actor: ACTOR,
   clock,
+  seq: clock,
+  deps: {},
   timestamp: clock,
   ops,
   sheetId: SHEET,

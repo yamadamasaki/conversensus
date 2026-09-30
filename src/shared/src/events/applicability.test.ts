@@ -25,6 +25,8 @@ function batch(clock: number, ops: Op[], sheetId?: SheetId): Batch {
     id: BatchIdSchema.parse(crypto.randomUUID()),
     actor: 'did:plc:a#dev1',
     clock,
+    seq: clock,
+    deps: {},
     timestamp: clock,
     ops,
     ...(sheetId !== undefined && { sheetId }),

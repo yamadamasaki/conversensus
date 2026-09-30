@@ -33,7 +33,7 @@ const {
   resolveBranchDiffState,
   useBranchOperations,
 } = await import('./useBranchOperations');
-const { LamportClock, tipClock } = await import('@conversensus/shared');
+const { CausalClock, tipClock } = await import('@conversensus/shared');
 const { graphEventToBatch } = await import('../events/toUnified');
 const { readBranchMeta } = await import('../sync/branchMetaLog');
 
@@ -46,14 +46,18 @@ const metaOf = (oplogDeps: {
 const graphBatchesOf = (log: Batch[] | undefined) =>
   (log ?? []).filter((b) => b.sheetId !== undefined);
 
-/** merge の再スタンプ用 clock。本番では trunk の tap のものを渡す */
+/**
+ * merge の再スタンプ用 clock。本番では trunk の tap のものを渡す。
+ * trunk の書き込みの代わり (`trunkRecord`) も同じ発番器で点を振る
+ */
 const makeClock = () => {
-  const clock = new LamportClock();
+  const causal = new CausalClock('did:plc:alice#dev1');
   return {
     seed: (floor: number) => {
-      clock.seed(floor);
+      causal.seedClock(floor);
     },
-    tick: () => clock.tick(),
+    tick: () => causal.tickClock(),
+    causal,
   };
 };
 
@@ -98,6 +102,8 @@ const trunkBatch = (id: string, clock: number, nodeId: string, text: string) =>
     id,
     actor: 'seed#dev',
     clock,
+    seq: clock,
+    deps: {},
     timestamp: clock,
     sheetId: SHEET_ID,
     ops: [{ kind: 'node.add', target: nodeId, content: text }],
@@ -110,6 +116,8 @@ const trunkRemoveBatch = (id: string, clock: number, nodeId: string) =>
     id,
     actor: 'seed#dev',
     clock,
+    seq: clock,
+    deps: {},
     timestamp: clock,
     sheetId: SHEET_ID,
     ops: [{ kind: 'node.remove', target: nodeId }],
@@ -162,6 +170,8 @@ const trunkMoveBatch = (
     id,
     actor: 'seed#dev',
     clock,
+    seq: clock,
+    deps: {},
     timestamp: clock,
     sheetId: SHEET_ID,
     ops: [{ kind: 'node.setLayout', target: nodeId, x, y }],
@@ -225,7 +235,7 @@ async function renderOplog(
     oplogDeps._batches.set(TRUNK_ID, [
       ...log,
       graphEventToBatch(event, {
-        clock: clock.tick(),
+        ...clock.causal.issue(),
         actor: 'did:plc:alice#dev1',
       }),
     ]);
@@ -682,8 +692,6 @@ describe('useBranchOperations — branch 操作 (op-log)', () => {
         pushRemote: async (entries) => {
           pushed.push(...entries);
         },
-        createRemote: async () => {},
-        pullAllRemoteForMigration: async () => [],
         pullRemoteForFile: async () => [],
         listRemoteFiles: async () => [],
       };
@@ -710,8 +718,6 @@ describe('useBranchOperations — branch 操作 (op-log)', () => {
       const OTHER = 'did:plc:bob';
       const provider: RemoteBatchTarget = {
         pushRemote: async () => {},
-        createRemote: async () => {},
-        pullAllRemoteForMigration: async () => [],
         pullRemoteForFile: async (fileId, repo) =>
           repo === OTHER
             ? [
