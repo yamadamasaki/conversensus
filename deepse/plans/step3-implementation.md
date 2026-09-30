@@ -148,6 +148,12 @@ step2 の振り返りで「欠けている」とされた層を先に作る。�
 - **S0-4 保存先の spike** (U2)。SQLite-WASM + OPFS を Safari / Chrome で動かし、
   ITP によるストレージ消去、`navigator.storage.persist()`、複数ブラウザタブからの
   同時書き込みを実機で確かめる。**結果は Phase 2 の形を決める**
+  - **✅ 確かめた (2026-09-30, [報告](../spikes/step3-s0-4-opfs-report.md))。**
+    SQLite-WASM + OPFS は WebKit・Chromium とも動き、再読み込み後も残る。**VFS は `opfs`
+    (COOP/COEP 必須) を選ぶ** — `opfs-sahpool` は同じ origin で 1 接続しか持てず、ブラウザの
+    2 つ目のタブが必ず壊れる。5000 行の挿入 40〜130ms・全件読み出し 15〜75ms で律速にならない。
+    **使い捨ての context (≒ プライベートブラウズ) では WebKit が OPFS を拒む**ので、開けない
+    ときは黙ってメモリに落とさず理由を出す。`persist()` と ITP の消去は自動化では見えず、実機で要確認
 
 ### Phase 1: op-log v2
 
@@ -227,7 +233,7 @@ S0-4 の結果で形が決まる。既定案は次のとおりである。
 ## 5. 未決 (U)
 
 - **U1**: batch の vector の大きさと、同期量への影響 (S0-3 の基準値と比べる)
-- **U2**: SQLite-WASM + OPFS が Safari で十分に動くか (S0-4)
+- **U2**: ~~SQLite-WASM + OPFS が Safari で十分に動くか (S0-4)~~ → **確定: 動く。VFS は `opfs`** (S0-4 の報告)。残るのは実機の Safari での `persist()` と ITP
 - **U3**: Toulmin を作り込みの template graph として残すか、File ごとに複製するか
 - **U4**: 導出 node の id の作り方 (UUIDv5 か、端点に SheetId を直接許すか)
 - **U5**: 判断ログに vector を載せるか (問 14)。DtR 撤去後に残る判断は participation だけになる
