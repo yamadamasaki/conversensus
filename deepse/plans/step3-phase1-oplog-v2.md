@@ -195,7 +195,7 @@ architecture §3.2 D2 のとおり。導出 node の id は SheetId から決定
 | **S1-6** ✅ | T5 / T8 を並行で判定する (D4) | **性質**: 両端末で同じ組が同じ側に振られる |
 | **S1-7** ✅ | 参加期間を vector で判定する (D5) | 例: step3-entry §2.1 の再現 (clock の大小で結果が逆にならない) |
 | **S1-8** ✅ | sheet の種別プロパティ・`TemplateRef` (D7) | 単体 |
-| **S1-9** | 導出 node (D8) | 性質: 導出 node への op は sheet が在る限り受け付け、無ければ捨てる |
+| **S1-9** ✅ | 導出 node (D8) | 性質: 導出 node への op は sheet が在る限り受け付け、無ければ捨てる |
 
 S1-2 から S1-7 は**間違えても静かに違う答えを出す側**なので、性質テストで固める
 (step3-entry §2.1 の「スキーマの変更はうるさく失敗するが、畳み込みの規則の変更は静かに
@@ -220,7 +220,7 @@ S1-2 から S1-7 は**間違えても静かに違う答えを出す側**なの�
   落とせるか。**この Phase では作らない** (N)。U1 の実測で要否を決める
 - **U3**: 歯抜けの先に届いた batch をいつまで「まだ見ていない」扱いにするか。
   全件取得を続ける限り、次のサイクルで埋まる
-- **U4**: 導出 node の id の作り方 (UUIDv5 か、端点に SheetId を直接許すか)
+- **U4** (S1-9 で決着): 導出 node の id は SheetId から決定的に作る (`deterministicUuid`)。NodeId の型と edge のスキーマを変えずに済む
 
 ## 6. この Phase でやらないこと (N)
 
@@ -421,3 +421,26 @@ clock の区間 (`wasParticipatingAt`) は撤去した。期間の `from` / `to`
 #### 検証
 
 単体 1911 件・App 結合 7 件・E2E が緑。
+
+### S1-9 導出 node (2026-10-01)
+
+種別が `app.conversensus.metagraph` の sheet で、File の sheet (metagraph 自身を除く) を
+導出 node として出す。id は `derivedNodeIdOf(sheetId)` (U4: SheetId からの決定的な UUID)、
+content は sheet の名前、`app.conversensus.derivedFromSheet` に元の SheetId を載せる。
+導出 node は畳み込みの**最後に**足す — 途中の状態に入れると `node.setContent` で名前が
+書き換わり、「名前の正は sheet 側」が崩れる。導出 node への `node.remove` / `node.add` も採らない。
+
+#### 分かったこと
+
+- **性質テストが反例を見つけた。**最初は「消えた sheet の導出 node」(一度作られて今は無い) への
+  layout と edge だけを removed に回していた。まだ作られていない sheet の導出 node への edge は、
+  導出 id が一方向なので見分けられず live に残った (受信順が前後すると起きる)。metagraph では
+  **端点が live な node である edge・layout だけを live にする**規則にした。ふつうの sheet の
+  「孤児 layout は live に残す」は変えていない
+- metagraph 自身を導出 node にしない、と決めた。metagraph はグラフの一覧を見せる view であって、
+  一覧の中のグラフではない。変えるなら `derivedNodesOf` の 1 行である
+
+#### 検証
+
+単体 1923 件・App 結合 7 件・E2E が緑。端点を問わない変異で例 2 件と性質が、導出 node への
+`node.remove` を効かせる変異で例 1 件と性質が落ちる。

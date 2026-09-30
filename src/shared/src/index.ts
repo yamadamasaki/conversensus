@@ -8,6 +8,7 @@ export * from './events/branchLog';
 export * from './events/cascade';
 export * from './events/causalClock';
 export * from './events/causality';
+export * from './events/derivedNode';
 export * from './events/fork';
 export * from './events/fromCommitOperation';
 export * from './events/genesis';

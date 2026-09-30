@@ -235,7 +235,7 @@ S0-4 の結果で形が決まる。既定案は次のとおりである。
 - **U1**: batch の vector の大きさと、同期量への影響 (S0-3 の基準値と比べる)
 - **U2**: ~~SQLite-WASM + OPFS が Safari で十分に動くか (S0-4)~~ → **確定: 動く。VFS は `opfs`** (S0-4 の報告)。残るのは実機の Safari での `persist()` と ITP
 - **U3**: Toulmin を作り込みの template graph として残すか、File ごとに複製するか
-- **U4**: 導出 node の id の作り方 (UUIDv5 か、端点に SheetId を直接許すか)
+- **U4** (Phase 1 S1-9 で決着): 導出 node の id は SheetId から決定的に作る (`deterministicUuid`)。NodeId の型と edge のスキーマを変えずに済む
 - **U5**: 判断ログに vector を載せるか (問 14)。DtR 撤去後に残る判断は participation だけになる
 - **U6**: コンポーネントテスト 4 本の `mock.module` の漏れ (S0-1 で発覚)。bun には
   ファイルごとのプロセス分離が無い。モックを本物の再エクスポート + 差分にするか、

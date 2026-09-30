@@ -27,5 +27,6 @@ projection が出る。プロパティなら、持たない相手も保存して
 
 ## テストしていないこと
 
-- **種別の値**: それを使う Phase (metagraph / template graph) が定める
+- **種別の値**: それを使う Phase が定める。metagraph (`app.conversensus.metagraph`) の効き目は
+  `derivedNode.test.ts` が見る
 - **畳み込み**: `sheet.setProperty` の畳み込みは `project.test.ts` の担当
