@@ -21,6 +21,7 @@
  */
 
 import type { Did } from '../schemas';
+import { type CausalPoint, happenedBefore } from './causality';
 import type { JudgmentBatch, JudgmentOp } from './judgment';
 import {
   type Actor,
@@ -31,14 +32,26 @@ import {
 } from './unified';
 
 /**
- * 参加していた期間。`to` が無ければ現在も参加中である。
+ * 参加していた期間。`to` / `closed` が無ければ現在も参加中である。
  *
- * **wall clock ではなく Lamport clock で持つ。**「参加していた期間の op-log だけを
- * 同期する」(Phase 2) の判定に使うので、op-log の位置と同じ物差しでなければならない。
+ * **期間の判定は因果の点で行う** (`opened` / `closed`, step3 Phase 1 D5)。
+ * 「参加していた期間の op-log だけを同期する」(step2 Phase 2) の判定は、step2 では
+ * Lamport clock の区間 (`from <= clock < to`) だった。これは**別の actor の clock どうしを
+ * 比べていた** — 取り消した人の clock と、取り消された人の batch の clock である
+ * (step3-entry §2.1 の 4 つ目の限界)。
+ *
+ * `from` / `to` (clock) は期間の**鍵と表示**に残す (再参加の義務の鍵 `rejoinObligation`)。
  *
  * 期間は `history` の出来事から導く (`periodsOf`)。**書き込み先は出来事だけ**である。
  */
-export type ParticipationPeriod = { from: Lamport; to?: Lamport };
+export type ParticipationPeriod = {
+  from: Lamport;
+  to?: Lamport;
+  /** 期間を開いた判断 (genesis / accept / reopen) の点 */
+  opened: CausalPoint;
+  /** 期間を閉じた判断 (resign / revoke) の点 */
+  closed?: CausalPoint;
+};
 
 /** 名簿に起きた出来事の種類。op の種類とそのまま対応する */
 export type ParticipationEventKind =
@@ -74,6 +87,12 @@ export type ParticipationEvent = {
   timestamp: number;
   /** これを行った人の DID。依頼と取り消しは対象と別人である */
   by: Did;
+  /**
+   * その判断 batch の因果の点。**参加期間の判定はこれで行う** (`wasParticipatingIn`)。
+   * 判断ログはグラフの op-log と連番を共有するので (step3 Phase 1 D1)、グラフの batch と
+   * 直接比べられる
+   */
+  point: CausalPoint;
 };
 
 /** op を捨てた理由。UI の状態表示 (`invalid`) の材料になる */
@@ -182,6 +201,7 @@ export function foldParticipation(
         clock: batch.clock,
         timestamp: batch.timestamp,
         by: issuer,
+        point: { actor: batch.actor, seq: batch.seq, deps: batch.deps },
       });
       history.set(subject, events);
     };
@@ -294,19 +314,32 @@ export function foldParticipation(
 }
 
 /**
- * ある時点で参加していたか。Phase 2 の同期フィルタが使う。
+ * その点 (グラフの batch) が、DID の参加期間の中で書かれたか。同期のフィルタが使う
+ * (step3 Phase 1 D5)。
  *
- * 期間は**閉じた始点・開いた終点** (`from <= clock < to`) とする。取りやめた瞬間の
- * clock を持つ op は、既に参加者でないものとして扱う — `resign` 自身は判断ログの op
- * なので、グラフ側の op がその clock を共有することは無い。
+ * ある期間について、次の 2 つを満たせば中である:
+ *
+ * 1. **期間を開いた判断が、その点の因果の過去にある** — 参加してから書いた。同じ人の別端末で
+ *    承認した場合も、承認を受け取ってから書いたものだけが入る
+ * 2. 期間が閉じているなら、**その点が、閉じた判断の因果の過去にある** — 取り消した人
+ *    (自分で辞めたなら自分) が**見ていた**操作だけが有効である
+ *
+ * 2 が要点である。取り消された人が取り消しを知らずに続けた編集は、clock がいくつであっても
+ * 誰の手元でも落ちる。逆に取り消した人が見ていた編集は、clock が取り消しより大きくても入る。
+ * step2 の clock の区間はこの両方で逆の答えを出しえた。
+ *
+ * genesis の判断は seq 0 なので (`JUDGMENT_GENESIS_SEQ`)、あらゆる点の因果の過去にある —
+ * 作成者の期間は File の始まりから開いている。
  */
-export function wasParticipatingAt(
+export function wasParticipatingIn(
   participation: Participation,
   did: Did,
-  clock: Lamport,
+  point: CausalPoint,
 ): boolean {
   return periodsOf(participation, did).some(
-    (p) => p.from <= clock && (p.to === undefined || clock < p.to),
+    (p) =>
+      happenedBefore(p.opened, point) &&
+      (p.closed === undefined || happenedBefore(point, p.closed)),
   );
 }
 
@@ -329,13 +362,16 @@ export function periodsOf(
         // **引き取りは新しい期間を開くだけ** — 誰もいなかった間の op は届かない
         // (仕様の決定, 2026-09-05)。遡って開くと「取り消した後の操作は反映されない」を
         // 名簿が空になる経路で迂回できてしまう
-        periods.push({ from: event.clock });
+        periods.push({ from: event.clock, opened: event.point });
         break;
       case 'resign':
       case 'revoke': {
         // 開いている期間だけを閉じる。依頼のまま取り消された場合は開いていない
         const last = periods.at(-1);
-        if (last && last.to === undefined) last.to = event.clock;
+        if (last && last.to === undefined) {
+          last.to = event.clock;
+          last.closed = event.point;
+        }
         break;
       }
       case 'invite':

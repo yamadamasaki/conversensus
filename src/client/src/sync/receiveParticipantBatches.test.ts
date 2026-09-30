@@ -62,18 +62,38 @@ const setContent = (content: string): Op => ({
   content,
 });
 
+/** 出来事。因果の点は `roster` が対象者ごとに埋める */
 const event = (
   kind: ParticipationEvent['kind'],
   clock: number,
-): ParticipationEvent => ({ kind, clock, timestamp: clock, by: ME });
+): Omit<ParticipationEvent, 'point'> => ({
+  kind,
+  clock,
+  timestamp: clock,
+  by: ME,
+});
 
+/**
+ * 名簿。**出来事の因果の点を、対象者自身の点 (actor = DID, seq = clock) にする。**
+ * この fixture の batch も actor = DID・seq = clock なので、期間の判定は同じ actor の
+ * seq の比較になり、clock の区間と同じ結果になる。ここで見るのは受信の経路であって、
+ * 期間判定の意味論 (取り消した人が見ていたか) は `participationFilter.test.ts` の担当である
+ */
 const roster = (
-  history: Record<string, ParticipationEvent[]>,
+  history: Record<string, Omit<ParticipationEvent, 'point'>[]>,
 ): Participation => ({
   participating: new Set(Object.keys(history) as Did[]),
   invited: new Map(),
   departed: new Map(),
-  history: new Map(Object.entries(history) as [Did, ParticipationEvent[]][]),
+  history: new Map(
+    Object.entries(history).map(([did, events]) => [
+      did as Did,
+      events.map((e) => ({
+        ...e,
+        point: { actor: did, seq: e.clock, deps: {} },
+      })),
+    ]),
+  ),
   rejected: [],
 });
 
@@ -445,7 +465,9 @@ describe('receiveParticipantBatches', () => {
           graphEventToBatch(e, {
             clock: 10,
             seq: 10,
-            deps: {},
+            // bob は自分の編集 (9) と alice の削除 (8) を受け取った後に fork を書く。
+            // 承認 (2) もその因果の過去にあるので、参加期間の中に入る
+            deps: { [BOB]: 9, [ME]: 8 },
             actor: `${BOB}#dev-b` as Actor,
           }),
         ),

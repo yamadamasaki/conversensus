@@ -6,6 +6,7 @@ import type {
   FileId,
   GraphFile,
   NodeId,
+  ParticipationEvent,
   SheetId,
 } from '@conversensus/shared';
 import {
@@ -731,7 +732,14 @@ describe('useBranchOperations — branch 操作 (op-log)', () => {
             : [],
         listRemoteFiles: async () => [],
       };
-      const accepted = { kind: 'accept', clock: 0, timestamp: 0, by: OTHER };
+      // 最初から参加している。seq 0 の点は誰にとっても因果の過去にある
+      const accepted: ParticipationEvent = {
+        kind: 'accept',
+        clock: 0,
+        timestamp: 0,
+        by: OTHER,
+        point: { actor: OTHER, seq: 0, deps: {} },
+      };
       const rosterResult = {
         participation: {
           participating: new Set(['did:plc:alice', OTHER]),

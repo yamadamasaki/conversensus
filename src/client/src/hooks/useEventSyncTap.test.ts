@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it } from 'bun:test';
-import type { Batch, EdgeId, FileId, NodeId } from '@conversensus/shared';
+import type {
+  Batch,
+  EdgeId,
+  FileId,
+  NodeId,
+  ParticipationEvent,
+} from '@conversensus/shared';
 
 /**
  * 受信の書き込み先を記録する (Phase 4d-5)。フックの `appendReceived` オプションへ
@@ -366,7 +372,14 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
       };
       const readFor: FileId[] = [];
       const base = rosterWith(1, [MY_DID, OTHER]);
-      const accepted = { kind: 'accept', clock: 0, timestamp: 0, by: OTHER };
+      // 最初から参加している。seq 0 の点は誰にとっても因果の過去にある
+      const accepted: ParticipationEvent = {
+        kind: 'accept',
+        clock: 0,
+        timestamp: 0,
+        by: OTHER,
+        point: { actor: OTHER, seq: 0, deps: {} },
+      };
       const roster = {
         read: async (id: FileId) => {
           readFor.push(id);
@@ -483,7 +496,14 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
           ? forkBatches.map((batch) => ({ fileId: id, batch }))
           : [];
       const base = rosterWith(1, [MY_DID, OTHER]);
-      const accepted = { kind: 'accept', clock: 0, timestamp: 0, by: OTHER };
+      // 最初から参加している。seq 0 の点は誰にとっても因果の過去にある
+      const accepted: ParticipationEvent = {
+        kind: 'accept',
+        clock: 0,
+        timestamp: 0,
+        by: OTHER,
+        point: { actor: OTHER, seq: 0, deps: {} },
+      };
       const roster = {
         read: async () => {
           const result = await base.read();

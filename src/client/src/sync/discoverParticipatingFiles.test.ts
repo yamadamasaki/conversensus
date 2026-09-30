@@ -40,7 +40,13 @@ const removeFile = (): Op => ({ kind: 'file.remove' });
 const event = (
   kind: ParticipationEvent['kind'],
   clock: number,
-): ParticipationEvent => ({ kind, clock, timestamp: clock, by: BOB });
+): ParticipationEvent => ({
+  kind,
+  clock,
+  timestamp: clock,
+  by: BOB,
+  point: { actor: BOB, seq: clock, deps: {} },
+});
 
 const rosterOf = (participants: Did[]): ReadRosterResult => ({
   participation: {

@@ -193,7 +193,7 @@ architecture §3.2 D2 のとおり。導出 node の id は SheetId から決定
 | **S1-4** ✅ | merge の写しを merge した人の点にする (D2) | 性質: 並行 merge でも畳み込みが一致する |
 | **S1-5** ✅ | 分岐点を vector で切る (D3) | 例: 分岐後に届いた古い batch が base に入らない (step3-entry の再現) |
 | **S1-6** ✅ | T5 / T8 を並行で判定する (D4) | **性質**: 両端末で同じ組が同じ側に振られる |
-| **S1-7** | 参加期間を vector で判定する (D5) | 例: step3-entry §2.1 の再現 (clock の大小で結果が逆にならない) |
+| **S1-7** ✅ | 参加期間を vector で判定する (D5) | 例: step3-entry §2.1 の再現 (clock の大小で結果が逆にならない) |
 | **S1-8** | sheet の種別プロパティ・`TemplateRef` (D7) | 単体 |
 | **S1-9** | 導出 node (D8) | 性質: 導出 node への op は sheet が在る限り受け付け、無ければ捨てる |
 
@@ -376,3 +376,31 @@ T5 (`detectIncomingConflicts`) は手元の全部を ours にして `mergeBranch
 
 単体 1892 件・App 結合 7 件・E2E が緑。T5 を step2 の境界 (新着の最小 clock) に戻す変異で、
 性質 1 件と例 3 件が落ちる。
+
+### S1-7 参加期間を因果で判定する (2026-10-01)
+
+名簿の出来事 (`ParticipationEvent`) に判断 batch の因果の点 (`point`) を持たせ、期間
+(`ParticipationPeriod`) は開いた判断と閉じた判断の点 (`opened` / `closed`) を持つ。
+同期のフィルタは `wasParticipatingIn(participation, did, batch)` — 開いた判断が batch の
+因果の過去にあり、閉じているなら batch が閉じた判断の因果の過去にある — で判定する。
+clock の区間 (`wasParticipatingAt`) は撤去した。期間の `from` / `to` は再参加の義務の鍵
+(`rejoinObligation`) と表示のために残る。名簿の畳み込み (pre 条件) は全順序のまま変えていない。
+
+#### 分かったこと
+
+- **genesis の判断が seq 0 であることがそのまま効く。**seq 0 の点はどの vector にも覆われる
+  ので、作成者の期間は File の始まりから開く (`JUDGMENT_GENESIS_CLOCK = 0` と同じ意図が、
+  因果の側でも成り立つ)
+- **同じ人の別端末は、承認を受け取ってから書いたものだけが入る。**clock の区間では、承認より
+  clock の大きい別端末の編集はすべて通っていた。因果で見ると「承認を知らずに書いた」は外になる
+- **型を迂回した fixture が 3 箇所あった。**`{ kind: 'accept', clock: 0, ... }` を型注釈なしで
+  名簿に入れていたので、`point` を必須にしても型検査が通り、実行時に `happenedBefore` で落ちた。
+  「最初から参加している」は seq 0 の点で表し、型を付けた
+- 受信の経路のテスト (`receiveParticipantBatches.test.ts`) は、出来事の点を対象者自身の点
+  (actor = DID, seq = clock) にして clock の区間と同じ結果に保った。意味論は
+  `participationFilter.test.ts` に集めた
+
+#### 検証
+
+単体 1897 件・App 結合 7 件・E2E が緑。clock の区間に戻す変異で、フィルタの 🔴 2 件と
+「別端末で承認を受け取る前に書いた」が落ちる。
