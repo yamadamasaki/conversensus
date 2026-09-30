@@ -16,6 +16,7 @@ export * from './events/merge';
 export * from './events/participation';
 export * from './events/project';
 export * from './events/properties';
+export * from './events/sheetKind';
 export * from './events/unified';
 export * from './migrations';
 export * from './schemas';

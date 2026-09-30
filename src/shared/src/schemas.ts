@@ -35,6 +35,40 @@ export const FileIdSchema = z.string().uuid().brand<'FileId'>();
 export const TemplateIdSchema = z.string().min(1).brand<'TemplateId'>();
 export type TemplateId = z.infer<typeof TemplateIdSchema>;
 
+/**
+ * 因果の知識 (`events/causality.ts` の `VersionVector`) の形。actor → seq。
+ * `TemplateRef` の切断面が要るので、`events` ではなくここに置く (上の循環の話と同じ)
+ */
+export const VersionVectorSchema = z.record(
+  z.string(),
+  z.number().int().positive(),
+);
+
+/**
+ * template graph の sheet の**切断面**を指す参照 (step3 Phase 1 D7)。
+ *
+ * 切断面 (`at`) を持つのは、template graph が後から編集されても、当てた時点の定義で
+ * 解釈し続けるためである。**同じログから誰の手元でも同じ定義が引ける。**
+ */
+export const TemplateSheetRefSchema = z.object({
+  sheet: SheetIdSchema,
+  at: VersionVectorSchema,
+});
+export type TemplateSheetRef = z.infer<typeof TemplateSheetRefSchema>;
+
+/**
+ * シートに当てる template の参照 (step3 Phase 1 D7)。**作り込みの id か、template graph の
+ * sheet の切断面**である。
+ *
+ * 既に op-log に載っている `sheet.create.templateIds` (作り込みの id の配列) は、そのまま
+ * この配列として読める — 型を広げただけで、既存の値の意味は変わらない。
+ */
+export const TemplateRefSchema = z.union([
+  TemplateIdSchema,
+  TemplateSheetRefSchema,
+]);
+export type TemplateRef = z.infer<typeof TemplateRefSchema>;
+
 // --- Branded ID types ---
 export type NodeId = z.infer<typeof NodeIdSchema>;
 export type EdgeId = z.infer<typeof EdgeIdSchema>;
@@ -124,8 +158,14 @@ export const SheetSchema = z.object({
   /**
    * このシートに当てられている template (設計 D1)。作成時に決まり、後から変わらない。
    * 省略は「template 無し」— **種別メニューを出さない**根拠になる。
+   * 作り込みの id か template graph の切断面 (`TemplateRef`, step3 Phase 1 D7)
    */
-  templateIds: z.array(TemplateIdSchema).optional(),
+  templateIds: z.array(TemplateRefSchema).optional(),
+  /**
+   * シートのプロパティ (`sheet.setProperty`, step3 Phase 1 D7)。名前は名前空間付き。
+   * 特殊なグラフ (metagraph、template graph) の種別もここに載る (`sheetKindOf`)
+   */
+  properties: z.record(z.string(), z.unknown()).optional(),
   nodes: z.array(GraphNodeSchema),
   edges: z.array(GraphEdgeSchema),
   layouts: z.array(NodeLayoutSchema).optional(),

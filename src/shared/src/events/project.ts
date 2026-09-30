@@ -18,7 +18,7 @@ import type {
   Sheet,
   SheetId,
   Style,
-  TemplateId,
+  TemplateRef,
 } from '../schemas';
 import { cascadeOfNodeRemoval, selfAndAncestors } from './cascade';
 import { applyPropertyChange, canonicalProperties } from './properties';
@@ -29,6 +29,7 @@ import {
   type FileOp,
   type GraphOp,
   isFileOp,
+  type PropertyName,
 } from './unified';
 
 /**
@@ -362,7 +363,8 @@ export function toSheet(
     id: SheetId;
     name: string;
     description?: string;
-    templateIds?: TemplateId[];
+    templateIds?: TemplateRef[];
+    properties?: Record<PropertyName, unknown>;
   },
 ): Sheet {
   return {
@@ -370,6 +372,7 @@ export function toSheet(
     name: meta.name,
     ...(meta.description !== undefined && { description: meta.description }),
     ...(meta.templateIds !== undefined && { templateIds: meta.templateIds }),
+    ...(meta.properties !== undefined && { properties: meta.properties }),
     nodes: [...g.nodes.values()],
     edges: [...g.edges.values()],
     layouts: [...g.nodeLayouts.values()],
@@ -395,7 +398,12 @@ type FileStructure = {
       name: string;
       description?: string;
       /** 作成時に決まる template。`sheet.setName` 等では変わらない (設計 D1) */
-      templateIds?: TemplateId[];
+      templateIds?: TemplateRef[];
+      /**
+       * シートのプロパティ (`sheet.setProperty`)。キーごとに全順序で後勝ち。
+       * **作成し直すと空に戻る** — `sheet.create` はメタを丸ごと置き直す (add-wins)
+       */
+      properties?: Record<PropertyName, unknown>;
       createClock: number;
     }
   >;
@@ -445,6 +453,16 @@ function applyFileOp(s: FileStructure, op: FileOp, clock: number): void {
         if (op.description === undefined) delete meta.description;
         else meta.description = op.description;
       }
+      break;
+    }
+    case 'sheet.setProperty': {
+      const meta = s.sheets.get(op.target);
+      if (!meta) break;
+      const properties = { ...meta.properties };
+      if (op.value === undefined) delete properties[op.name];
+      else properties[op.name] = op.value;
+      if (Object.keys(properties).length === 0) delete meta.properties;
+      else meta.properties = properties;
       break;
     }
     case 'sheet.reorder':
@@ -511,6 +529,7 @@ export function projectFile(batches: Batch[], fileId: FileId): GraphFile {
       name: meta?.name ?? '',
       ...(meta?.description !== undefined && { description: meta.description }),
       ...(meta?.templateIds !== undefined && { templateIds: meta.templateIds }),
+      ...(meta?.properties !== undefined && { properties: meta.properties }),
     });
   });
 

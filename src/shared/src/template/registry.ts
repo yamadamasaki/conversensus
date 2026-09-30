@@ -1,4 +1,4 @@
-import type { TemplateId } from '../schemas';
+import type { TemplateRef } from '../schemas';
 import { TOULMIN_TEMPLATE } from './toulmin';
 import type { Template } from './types';
 
@@ -15,7 +15,7 @@ import type { Template } from './types';
 export const BUILTIN_TEMPLATES: readonly Template[] = [TOULMIN_TEMPLATE];
 
 /**
- * シートの `templateIds` から実体を引く。
+ * シートの `templateIds` (`TemplateRef` の配列) から、作り込みの template の実体を引く。
  *
  * **知らない id は黙って落とす。**共同作業では、相手が持っている template を自分が
  * 持たないことが起こり得る (step3 でユーザ定義になれば普通に起こる)。そこで例外を
@@ -23,9 +23,13 @@ export const BUILTIN_TEMPLATES: readonly Template[] = [TOULMIN_TEMPLATE];
  * 落とした結果は「template を当てていないシート」に連続的に近づく。
  */
 export function templatesOf(
-  templateIds: readonly TemplateId[] | undefined,
+  templateIds: readonly TemplateRef[] | undefined,
   available: readonly Template[] = BUILTIN_TEMPLATES,
 ): Template[] {
   if (!templateIds) return [];
-  return templateIds.flatMap((id) => available.filter((t) => t.id === id));
+  return templateIds.flatMap((ref) =>
+    // template graph の切断面 (step3 Phase 1 D7) はまだ解決しない。知らない id と同じく
+    // 落とすので、「template を当てていないシート」に縮退する
+    typeof ref === 'string' ? available.filter((t) => t.id === ref) : [],
+  );
 }

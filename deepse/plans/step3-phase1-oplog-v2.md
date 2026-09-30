@@ -194,7 +194,7 @@ architecture §3.2 D2 のとおり。導出 node の id は SheetId から決定
 | **S1-5** ✅ | 分岐点を vector で切る (D3) | 例: 分岐後に届いた古い batch が base に入らない (step3-entry の再現) |
 | **S1-6** ✅ | T5 / T8 を並行で判定する (D4) | **性質**: 両端末で同じ組が同じ側に振られる |
 | **S1-7** ✅ | 参加期間を vector で判定する (D5) | 例: step3-entry §2.1 の再現 (clock の大小で結果が逆にならない) |
-| **S1-8** | sheet の種別プロパティ・`TemplateRef` (D7) | 単体 |
+| **S1-8** ✅ | sheet の種別プロパティ・`TemplateRef` (D7) | 単体 |
 | **S1-9** | 導出 node (D8) | 性質: 導出 node への op は sheet が在る限り受け付け、無ければ捨てる |
 
 S1-2 から S1-7 は**間違えても静かに違う答えを出す側**なので、性質テストで固める
@@ -404,3 +404,20 @@ clock の区間 (`wasParticipatingAt`) は撤去した。期間の `from` / `to`
 
 単体 1897 件・App 結合 7 件・E2E が緑。clock の区間に戻す変異で、フィルタの 🔴 2 件と
 「別端末で承認を受け取る前に書いた」が落ちる。
+
+### S1-8 sheet の種別プロパティと TemplateRef (2026-10-01)
+
+- `sheet.setProperty` (`target` / `name` / 省略可の `value`) を器の op として足した。
+  `foldFileStructure` がキーごとに全順序で後勝ちで畳み、`Sheet.properties` まで運ぶ。
+  知らないプロパティも落とさない (D3: 持たない相手も保存して運ぶ)
+- 種別は `app.conversensus.sheetKind` に置き、`sheetKindOf` で読む。文字列でない・空の値は
+  例外にせず「ただの sheet」とする。**種別の値はここでは定めない** — 使う Phase が定める
+- `sheet.create.templateIds` と `Sheet.templateIds` を `TemplateRef[]`
+  (`TemplateId | { sheet: SheetId, at: VersionVector }`) にした。既存の値 (id の文字列) は
+  そのまま読める。`templatesOf` は切断面をまだ解決せず、知らない id と同じく落とす
+- `VersionVectorSchema` を `events/unified.ts` から `schemas.ts` へ移した。`TemplateRef` の
+  切断面が要り、`schemas → events` の一方向を保つため (`TemplateIdSchema` と同じ理由)
+
+#### 検証
+
+単体 1911 件・App 結合 7 件・E2E が緑。

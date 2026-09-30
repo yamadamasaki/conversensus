@@ -170,6 +170,33 @@ node に**種別名** (`label`) を与える op。`edge.setLabel` と同じ概�
   生き残らないことを固定する — 生き残ると「外す道が無い」はずの設計に、消して作り直すという
   抜け道が中途半端な形で開く。
 
+### templateIds は TemplateRef の配列 (step3 Phase 1 D7)
+
+`templateIds` の要素は **作り込みの id か、template graph の sheet の切断面** (`{ sheet, at }`) に
+なった。template graph が後から編集されても、当てた時点の定義で解釈し続けるために切断面を持つ。
+
+- **切断面を指す参照も `Sheet` まで運ぶ**: 解決は後の Phase だが、畳み込みが落とさないこと
+- **スキーマは両方を受け、形の違うものは拒む**: 既に op-log に載っている形 (id の文字列) が
+  そのまま読めること (型を広げただけで移行が要らない)。切断面の無い参照・UUID でない sheet は拒む
+
+### sheet.setProperty (step3 Phase 1 D7)
+
+特殊なグラフ (metagraph、template graph) は **種別プロパティが特別な値を持つ sheet** として表す
+(architecture step3 §3.3 D3: 拡張が足してよいのは名前空間付きのプロパティと導出だけ)。
+そのための汎用の op を 1 つだけ足した。`node.setProperty` と同じ形で、値の省略は削除である。
+
+- **Sheet まで運ぶ**: 種別の読み出し (`sheetKindOf`) はこの値だけを見る
+- **同じプロパティは全順序で後の値が勝ち、別のプロパティは独立**: 配列の並びではなく clock で
+  決まることを見るため、後の値の batch を先に置いてある
+- **値を省けば消し、全部消えれば `properties` 自体を持たない**: 「プロパティが無い」の表し方を
+  1 つにする (空のオブジェクトと undefined の 2 通りにしない)
+- **知らないプロパティも運ぶ**: D3 の要点 — その拡張を持たない手元でも畳み込みは値を落とさない。
+  落とすと、持たない人が触った後のログから持つ人が違う projection を得る
+- **作られていないシートへの setProperty は捨てる**: `sheet.setName` と同じ扱い
+- **消して作り直すと空に戻る**: `sheet.create` はメタを丸ごと置き直す (add-wins)。template の
+  紐づけと同じ帰結である
+- **器の op である**: グラフの畳み込みには入らない (`isFileOp`)
+
 ### node.add の label (Phase 5 P4)
 
 作成時の種別を `node.add` が持つ。**`properties` と同じ立場**である。

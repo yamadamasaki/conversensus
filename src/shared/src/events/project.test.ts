@@ -19,7 +19,13 @@ import {
   toSheet,
 } from './project';
 import { SYSTEM_PROPERTY_PREFIX } from './properties';
-import { type Batch, BatchIdSchema, type Op } from './unified';
+import {
+  type Batch,
+  BatchIdSchema,
+  isFileOp,
+  type Op,
+  OpSchema,
+} from './unified';
 
 const nid = (): NodeId => NodeIdSchema.parse(crypto.randomUUID());
 const eid = (): EdgeId => EdgeIdSchema.parse(crypto.randomUUID());
@@ -926,6 +932,177 @@ describe('sheet.create の templateIds (Phase 5 P3)', () => {
       f,
     );
     expect(file.sheets[0]?.templateIds).toBeUndefined();
+  });
+});
+
+describe('sheet.create の templateIds は TemplateRef の配列 (step3 Phase 1 D7)', () => {
+  test('template graph の切断面を指す参照も運ぶ', () => {
+    const f = fid();
+    const s = sid();
+    const graphRef = { sheet: sid(), at: { 'did:plc:alice#dev': 3 } };
+    const file = projectFile(
+      [
+        batch(1, [
+          {
+            kind: 'sheet.create',
+            target: s,
+            name: 'S',
+            templateIds: [
+              TemplateIdSchema.parse('jp.co.metabolics.toulmin'),
+              graphRef,
+            ],
+          },
+        ]),
+      ],
+      f,
+    );
+    expect(file.sheets[0]?.templateIds).toEqual([
+      TemplateIdSchema.parse('jp.co.metabolics.toulmin'),
+      graphRef,
+    ]);
+  });
+
+  test('スキーマは作り込みの id と切断面の両方を受け、形の違うものは拒む', () => {
+    const create = (templateIds: unknown) =>
+      OpSchema.safeParse({
+        kind: 'sheet.create',
+        target: sid(),
+        name: 'S',
+        templateIds,
+      }).success;
+    // 既に op-log に載っている形 (作り込みの id の配列) はそのまま読める
+    expect(create(['jp.co.metabolics.toulmin'])).toBe(true);
+    expect(create([{ sheet: sid(), at: { 'did:plc:alice#dev': 3 } }])).toBe(
+      true,
+    );
+    expect(create([{ sheet: 'not-a-uuid', at: {} }])).toBe(false);
+    expect(create([{ sheet: sid() }])).toBe(false); // 切断面の無い参照は受けない
+  });
+});
+
+describe('sheet.setProperty (step3 Phase 1 D7)', () => {
+  const KIND = 'app.conversensus.sheetKind';
+
+  test('シートにプロパティを置き、Sheet まで運ぶ', () => {
+    const f = fid();
+    const s = sid();
+    const file = projectFile(
+      [
+        batch(1, [{ kind: 'sheet.create', target: s, name: 'S' }]),
+        batch(2, [
+          { kind: 'sheet.setProperty', target: s, name: KIND, value: 'x' },
+        ]),
+      ],
+      f,
+    );
+    expect(file.sheets[0]?.properties).toEqual({ [KIND]: 'x' });
+  });
+
+  test('同じプロパティは全順序で後の値が勝つ。別のプロパティは独立に残る', () => {
+    const f = fid();
+    const s = sid();
+    const file = projectFile(
+      [
+        batch(1, [{ kind: 'sheet.create', target: s, name: 'S' }]),
+        // 配列の並びではなく clock で決まることを見るため、後の値を先に置く
+        batch(3, [
+          { kind: 'sheet.setProperty', target: s, name: KIND, value: '後' },
+        ]),
+        batch(2, [
+          { kind: 'sheet.setProperty', target: s, name: KIND, value: '先' },
+          {
+            kind: 'sheet.setProperty',
+            target: s,
+            name: 'com.example.other',
+            value: 1,
+          },
+        ]),
+      ],
+      f,
+    );
+    expect(file.sheets[0]?.properties).toEqual({
+      [KIND]: '後',
+      'com.example.other': 1,
+    });
+  });
+
+  test('値を省けばそのプロパティを消す。全部消えれば properties 自体を持たない', () => {
+    const f = fid();
+    const s = sid();
+    const file = projectFile(
+      [
+        batch(1, [{ kind: 'sheet.create', target: s, name: 'S' }]),
+        batch(2, [
+          { kind: 'sheet.setProperty', target: s, name: KIND, value: 'x' },
+        ]),
+        batch(3, [{ kind: 'sheet.setProperty', target: s, name: KIND }]),
+      ],
+      f,
+    );
+    expect(file.sheets[0]?.properties).toBeUndefined();
+  });
+
+  test('知らないプロパティも運ぶ (持たない相手も保存して運び、無視できる)', () => {
+    // architecture step3 §3.3 D3 — 拡張が足すのはプロパティなので、その拡張を持たない
+    // 手元でも畳み込みは値を落とさない。見せるかどうかは導出の側が決める
+    const f = fid();
+    const s = sid();
+    const value = { nested: [1, 2], flag: true };
+    const file = projectFile(
+      [
+        batch(1, [{ kind: 'sheet.create', target: s, name: 'S' }]),
+        batch(2, [
+          {
+            kind: 'sheet.setProperty',
+            target: s,
+            name: 'org.unknown.extension',
+            value,
+          },
+        ]),
+      ],
+      f,
+    );
+    expect(file.sheets[0]?.properties).toEqual({
+      'org.unknown.extension': value,
+    });
+  });
+
+  test('まだ作られていないシートへの setProperty は捨てる (setName と同じ)', () => {
+    const f = fid();
+    const s = sid();
+    const file = projectFile(
+      [
+        batch(1, [
+          { kind: 'sheet.setProperty', target: s, name: KIND, value: 'x' },
+        ]),
+        batch(2, [{ kind: 'sheet.create', target: s, name: 'S' }]),
+      ],
+      f,
+    );
+    expect(file.sheets[0]?.properties).toBeUndefined();
+  });
+
+  test('シートを消して作り直すとプロパティも空に戻る (add-wins の帰結)', () => {
+    const f = fid();
+    const s = sid();
+    const file = projectFile(
+      [
+        batch(1, [{ kind: 'sheet.create', target: s, name: 'S' }]),
+        batch(2, [
+          { kind: 'sheet.setProperty', target: s, name: KIND, value: 'x' },
+        ]),
+        batch(3, [{ kind: 'sheet.remove', target: s }]),
+        batch(4, [{ kind: 'sheet.create', target: s, name: '再作成' }]),
+      ],
+      f,
+    );
+    expect(file.sheets[0]?.properties).toBeUndefined();
+  });
+
+  test('グラフの畳み込みには入らない (器の op)', () => {
+    expect(
+      isFileOp({ kind: 'sheet.setProperty', target: sid(), name: KIND }),
+    ).toBe(true);
   });
 });
 

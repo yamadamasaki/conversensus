@@ -19,13 +19,9 @@
  */
 
 import { z } from 'zod';
+import { VersionVectorSchema } from '../schemas';
 import { deterministicUuid } from './genesis';
-import {
-  type Actor,
-  BatchIdSchema,
-  type Lamport,
-  VersionVectorSchema,
-} from './unified';
+import { type Actor, BatchIdSchema, type Lamport } from './unified';
 
 /**
  * 判断の主体・対象となる DID。

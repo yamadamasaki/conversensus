@@ -32,7 +32,8 @@ import {
   NodeIdSchema,
   SheetIdSchema,
   StyleSchema,
-  TemplateIdSchema,
+  TemplateRefSchema,
+  VersionVectorSchema,
 } from '../schemas';
 
 // --- メタ ---
@@ -78,12 +79,6 @@ export function didFromActor(actor: Actor): string {
 
 /** 論理時刻 (Lamport)。LWW の順序付けに使用 */
 export type Lamport = number;
-
-/** 因果の知識 (`causality.ts` の `VersionVector`) の形。actor → seq */
-export const VersionVectorSchema = z.record(
-  z.string(),
-  z.number().int().positive(),
-);
 
 /**
  * clock → actor → id の全順序 (Phase 4d-3, 設計 §3.2b)
@@ -353,9 +348,20 @@ export const OpSchema = z.discriminatedUnion('kind', [
      * op の形が変わって移行が要る。省略は「template 無し」であり、既存の op-log
      * (このフィールドを持たない `sheet.create`) はそのまま通る。
      */
-    templateIds: z.array(TemplateIdSchema).optional(),
+    templateIds: z.array(TemplateRefSchema).optional(),
   }),
   z.object({ kind: z.literal('sheet.remove'), target: SheetIdSchema }),
+  /**
+   * シートのプロパティを 1 つ置く (step3 Phase 1 D7)。`node.setProperty` と同じ形で、
+   * 省略はそのプロパティの削除。**拡張が足してよいのは名前空間付きのプロパティだけ**
+   * (architecture step3 §3.3 D3) なので、特殊なグラフの種別もこの op で置く
+   */
+  z.object({
+    kind: z.literal('sheet.setProperty'),
+    target: SheetIdSchema,
+    name: PropertyNameSchema,
+    value: z.unknown().optional(),
+  }),
   z.object({
     kind: z.literal('sheet.setName'),
     target: SheetIdSchema,
@@ -482,6 +488,7 @@ export const CONTAINER_OP_KINDS = [
   'sheet.remove',
   'sheet.setName',
   'sheet.setDescription',
+  'sheet.setProperty',
   'sheet.reorder',
   'file.setName',
   'file.setDescription',
@@ -550,6 +557,7 @@ export const OP_CATEGORY: Record<OpKind, Category> = {
   'sheet.remove': 'file',
   'sheet.setName': 'file',
   'sheet.setDescription': 'file',
+  'sheet.setProperty': 'file',
   'sheet.reorder': 'file',
   'file.setName': 'file',
   'file.setDescription': 'file',
