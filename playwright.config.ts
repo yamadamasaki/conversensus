@@ -16,7 +16,7 @@ import { defineConfig, devices } from '@playwright/test';
 // ローカル正典はブラウザ内 (OPFS) にあり、テストごとに新しいプロファイルで開く
 // (`tests/fixtures.ts`) ので、デーモンは要らない (step3 Phase 2 S2-3)。
 const E2E_CLIENT_PORT = 5174;
-const E2E_CLIENT_URL = `http://localhost:${E2E_CLIENT_PORT}`;
+const E2E_CLIENT_URL = `http://127.0.0.1:${E2E_CLIENT_PORT}`;
 /**
  * 本番ビルドの配信 (`vite preview`)。**service worker は本番ビルドでだけ登録する**ので、
  * オフライン起動 (`offline.spec.ts`) はこちらで見る
@@ -44,7 +44,7 @@ export default defineConfig({
   webServer: [
     {
       command: `bun run --cwd src/client build && bun run --cwd src/client preview --port ${E2E_PREVIEW_PORT} --strictPort`,
-      url: `http://localhost:${E2E_PREVIEW_PORT}`,
+      url: `http://127.0.0.1:${E2E_PREVIEW_PORT}`,
       reuseExistingServer: false,
       timeout: 120_000,
     },

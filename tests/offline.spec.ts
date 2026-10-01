@@ -9,7 +9,7 @@ import { collectPageProblems } from './pageProblems';
  * だけ登録する。
  */
 
-const PREVIEW_URL = 'http://localhost:5175/';
+const PREVIEW_URL = 'http://127.0.0.1:5175/';
 const SETTLE_TIMEOUT_MS = 15_000;
 
 /** 開いて、service worker が画面を握った状態で開き直す (資源を覚えさせる) */

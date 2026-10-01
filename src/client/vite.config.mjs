@@ -11,11 +11,19 @@ const CROSS_ORIGIN_ISOLATION_HEADERS = {
   'Cross-Origin-Embedder-Policy': 'require-corp',
 };
 
+/**
+ * **IPv4 の loopback で待ち受ける** (step3 Phase 2 S2-6)。ATProto OAuth の loopback client は
+ * 戻り先が `http://127.0.0.1:<port>/` でなければならない。Vite の既定 (`localhost`) は macOS では
+ * IPv6 の `[::1]` にだけ待ち受けるので、`127.0.0.1` へ戻ると「接続できません」になった。
+ * `localhost` で開いてもブラウザは `127.0.0.1` に落ちて届く
+ */
+const DEV_HOST = '127.0.0.1';
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
-  server: { headers: CROSS_ORIGIN_ISOLATION_HEADERS },
-  preview: { headers: CROSS_ORIGIN_ISOLATION_HEADERS },
+  server: { host: DEV_HOST, headers: CROSS_ORIGIN_ISOLATION_HEADERS },
+  preview: { host: DEV_HOST, headers: CROSS_ORIGIN_ISOLATION_HEADERS },
   // sqlite-wasm は自分の .wasm を相対で引くので、事前バンドルに入れない (公式の注意)
   optimizeDeps: { exclude: ['@sqlite.org/sqlite-wasm'] },
   worker: { format: 'es' },
