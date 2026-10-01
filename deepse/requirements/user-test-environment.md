@@ -17,6 +17,10 @@
 - **開発用 PDS は `:3000`** (以前は `:2583`)。アカウントの DID 文書が `http://localhost:3000` を
   指していて、OAuth はそこへ直接届く必要があるため (`infra/pds/docker-compose.yml`)。
   `cd infra/pds && docker compose up -d pds` で起動し直す
+- **`src/client/.env.local` に `VITE_ATPROTO_PDS_URL=http://localhost:2583` が残っていれば `:3000` に
+  直す** (または行ごと消す。既定が `:3000`)。残っていると handle の解決が古いポートへ行き、
+  ログインが「ログインを始められませんでした」で止まる。同じファイルの `VITE_ATPROTO_HANDLE` /
+  `VITE_ATPROTO_PASSWORD` はもう読まれない
 - **ログインはパスワードを入れない。**handle を入れると PDS のページへ移り、そこでパスワードを
   入れて同意すると戻ってくる
 - **データを消す**: ブラウザのサイトデータ (`127.0.0.1:5173` の保存領域) を消す。`data/` は
