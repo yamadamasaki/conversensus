@@ -444,3 +444,24 @@ content は sheet の名前、`app.conversensus.derivedFromSheet` に元の Shee
 
 単体 1923 件・App 結合 7 件・E2E が緑。端点を問わない変異で例 2 件と性質が、導出 node への
 `node.remove` を効かせる変異で例 1 件と性質が落ちる。
+
+### 掃除: legacy の branch / commit のメタの器を撤去 (2026-10-01)
+
+step2 T7-1 で branch / commit のメタは op-log に移り、SQLite の `branches` / `commits` テーブルと
+その HTTP 経路 (`/files/:id/commits`, `/files/:id/branches`) は T7-6 の載せ直し
+(`migrateBranchMeta`) の読み元としてだけ残っていた。v2 では DB を作り直した (`events-v2.db`) ので
+載せ直すものが無く、まとめて撤去した: テーブル・`EventStore` のメソッド・経路・client の API
+ラッパー・`migrateBranchMeta`・`useBranchOperations` の載せ直しと `trunkSettled` の配線・
+`BranchMetaSchema`。
+
+#### 分かったこと
+
+- **`deleteFile` が branch の op-log を消せていなかった。**trunk にぶら下がる branch を `branches`
+  テーブルから引いていたが、T7-1 以降そこには何も入らない。File を消しても branch の op-log が
+  孤児として残っていた (step2 からの既存の穴)。trunk の op-log の `branch.create` から引くように
+  直した。**消された branch (`branch.remove`) も含める** — 中身の op-log は残っているため
+
+#### 検証
+
+単体 1882 件 (撤去したテストの分だけ減った)・App 結合 7 件・E2E が緑。`deleteFile` で branch を
+引かない変異で、eventStore の 2 件と HTTP の 1 件が落ちる。

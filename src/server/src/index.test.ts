@@ -4,8 +4,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type {
   Batch,
-  BranchMeta,
-  Commit,
   FileId,
   GraphFile,
   GraphFileListItem,
@@ -239,242 +237,6 @@ describe('API routes', () => {
   });
 
   // step1 Phase 5: ブランチ / コミットのメタ情報エンドポイント
-  describe('POST/GET /files/:id/commits', () => {
-    const sampleCommit = (seed: number, at: number) => ({
-      id: uuid(2000 + seed),
-      message: `commit ${seed}`,
-      at,
-      authorActor: 'local',
-    });
-
-    async function postCommit(fileId: string, commit: unknown) {
-      return fetch(
-        new Request(`http://localhost/files/${fileId}/commits`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(commit),
-        }),
-      );
-    }
-
-    it('コミットを保存して 201 と保存内容を返す', async () => {
-      const created = await bodyOf<GraphFile>(await createFile('ログ'));
-      const commit = sampleCommit(1, 3);
-      const res = await postCommit(created.id, commit);
-      expect(res.status).toBe(201);
-      // kind を持たない入力は通常のコミットとして補完される (ANA-122 の互換規定)。
-      // merge を一級の記録にした後も、それ以前に書かれたコミットが通ること。
-      expect(await res.json()).toEqual({ ...commit, kind: 'commit' });
-    });
-
-    it('merge の記録は kind と由来 branch を保って往復する', async () => {
-      const created = await bodyOf<GraphFile>(await createFile('ログ'));
-      const mergeCommit = {
-        ...sampleCommit(3, 7),
-        kind: 'merge',
-        sourceBranchId: uuid(3100),
-        sourceAt: 4,
-      };
-      await postCommit(created.id, mergeCommit);
-      const body = await (
-        await fetch(new Request(`http://localhost/files/${created.id}/commits`))
-      ).json();
-      expect(body).toEqual([mergeCommit]);
-    });
-
-    it('保存したコミットを at 昇順で取得できる', async () => {
-      const created = await bodyOf<GraphFile>(await createFile('ログ'));
-      await postCommit(created.id, sampleCommit(2, 5));
-      await postCommit(created.id, sampleCommit(1, 2));
-      const res = await fetch(
-        new Request(`http://localhost/files/${created.id}/commits`),
-      );
-      expect(res.status).toBe(200);
-      const body = await bodyOf<Commit[]>(res);
-      expect(body.map((cm) => cm.at)).toEqual([2, 5]);
-    });
-
-    it('コミットが無ければ空配列を返す', async () => {
-      const created = await bodyOf<GraphFile>(await createFile('ログ'));
-      const res = await fetch(
-        new Request(`http://localhost/files/${created.id}/commits`),
-      );
-      expect(await res.json()).toEqual([]);
-    });
-
-    it('不正なコミット (id が UUID でない) は 400 を返す', async () => {
-      const created = await bodyOf<GraphFile>(await createFile('ログ'));
-      const res = await postCommit(created.id, {
-        ...sampleCommit(1, 3),
-        id: 'not-a-uuid',
-      });
-      expect(res.status).toBe(400);
-    });
-  });
-
-  describe('POST/GET /files/:id/branches', () => {
-    const sampleBranch = (
-      seed: number,
-      trunkFileId: string,
-      at: number,
-      overrides: Record<string, unknown> = {},
-    ) => ({
-      id: uuid(3000 + seed),
-      name: `branch ${seed}`,
-      base: {
-        id: uuid(4000 + seed),
-        message: `base ${seed}`,
-        at,
-        authorActor: 'local',
-      },
-      status: 'open',
-      sheetId: uuid(5000 + seed),
-      trunkFileId,
-      branchFileId: uuid(6000 + seed),
-      ...overrides,
-    });
-
-    async function postBranch(fileId: string, meta: unknown) {
-      return fetch(
-        new Request(`http://localhost/files/${fileId}/branches`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(meta),
-        }),
-      );
-    }
-
-    it('ブランチのメタを保存して 201 と保存内容を返す', async () => {
-      const created = await bodyOf<GraphFile>(await createFile('trunk'));
-      const meta = sampleBranch(1, created.id, 3);
-      const res = await postBranch(created.id, meta);
-      expect(res.status).toBe(201);
-      // base は分岐点を指すラベルなので kind は常に commit (ANA-122)
-      expect(await res.json()).toEqual({
-        ...meta,
-        base: { ...meta.base, kind: 'commit' },
-      });
-    });
-
-    it('保存したブランチを base オフセット昇順で取得できる', async () => {
-      const created = await bodyOf<GraphFile>(await createFile('trunk'));
-      await postBranch(created.id, sampleBranch(2, created.id, 5));
-      await postBranch(created.id, sampleBranch(1, created.id, 2));
-      const res = await fetch(
-        new Request(`http://localhost/files/${created.id}/branches`),
-      );
-      expect(res.status).toBe(200);
-      const body = await bodyOf<BranchMeta[]>(res);
-      expect(body.map((b) => b.base.at)).toEqual([2, 5]);
-    });
-
-    it('trunk が異なるブランチは一覧に混ざらない', async () => {
-      const trunkA = await bodyOf<GraphFile>(await createFile('trunk A'));
-      const trunkB = await bodyOf<GraphFile>(await createFile('trunk B'));
-      await postBranch(trunkA.id, sampleBranch(1, trunkA.id, 1));
-      await postBranch(trunkB.id, sampleBranch(2, trunkB.id, 1));
-      const res = await fetch(
-        new Request(`http://localhost/files/${trunkA.id}/branches`),
-      );
-      const body = await bodyOf<BranchMeta[]>(res);
-      expect(body.map((b) => b.id as string)).toEqual([uuid(3001)]);
-    });
-
-    // URL と body の trunk が食い違うと、以後 GET で取り出せないブランチが
-    // 静かに生まれる。境界で弾くことを固定する。
-    it('body の trunkFileId が URL と食い違えば 400 を返す', async () => {
-      const trunkA = await bodyOf<GraphFile>(await createFile('trunk A'));
-      const trunkB = await bodyOf<GraphFile>(await createFile('trunk B'));
-      const res = await postBranch(trunkA.id, sampleBranch(1, trunkB.id, 1));
-      expect(res.status).toBe(400);
-      const listed = await (
-        await fetch(new Request(`http://localhost/files/${trunkB.id}/branches`))
-      ).json();
-      expect(listed).toEqual([]);
-    });
-
-    it('不正なブランチ (status が未定義の値) は 400 を返す', async () => {
-      const created = await bodyOf<GraphFile>(await createFile('trunk'));
-      const res = await postBranch(
-        created.id,
-        sampleBranch(1, created.id, 1, { status: 'unknown' }),
-      );
-      expect(res.status).toBe(400);
-    });
-
-    it('ブランチが無ければ空配列を返す', async () => {
-      const created = await bodyOf<GraphFile>(await createFile('trunk'));
-      const res = await fetch(
-        new Request(`http://localhost/files/${created.id}/branches`),
-      );
-      expect(await res.json()).toEqual([]);
-    });
-
-    describe('DELETE /files/:id/branches/:branchId (p5-4)', () => {
-      async function deleteBranch(fileId: string, branchId: string) {
-        return fetch(
-          new Request(`http://localhost/files/${fileId}/branches/${branchId}`, {
-            method: 'DELETE',
-          }),
-        );
-      }
-
-      it('ブランチを消すとメタと branch 専用 op-log が消える', async () => {
-        const created = await bodyOf<GraphFile>(await createFile('trunk'));
-        const meta = sampleBranch(1, created.id, 1);
-        await postBranch(created.id, meta);
-        // branch 専用 file_id へ編集を積む (branch の実体)
-        await fetch(
-          new Request(`http://localhost/files/${meta.branchFileId}/batches`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify([sampleBatch(1)]),
-          }),
-        );
-
-        const res = await deleteBranch(created.id, meta.id);
-        expect(res.status).toBe(204);
-
-        const listed = await (
-          await fetch(
-            new Request(`http://localhost/files/${created.id}/branches`),
-          )
-        ).json();
-        expect(listed).toEqual([]);
-        const batches = await (
-          await fetch(
-            new Request(`http://localhost/files/${meta.branchFileId}/batches`),
-          )
-        ).json();
-        expect(batches).toEqual([]);
-      });
-
-      it('存在しないブランチは 404 を返す', async () => {
-        const created = await bodyOf<GraphFile>(await createFile('trunk'));
-        const res = await deleteBranch(created.id, uuid(3999));
-        expect(res.status).toBe(404);
-      });
-
-      // trunk を URL で受けるのは、id だけを知る呼び出しが別ファイルのブランチを
-      // 消せないようにするため。
-      it('別の trunk を指定したブランチは消えない', async () => {
-        const trunkA = await bodyOf<GraphFile>(await createFile('trunk A'));
-        const trunkB = await bodyOf<GraphFile>(await createFile('trunk B'));
-        const meta = sampleBranch(1, trunkA.id, 1);
-        await postBranch(trunkA.id, meta);
-
-        const res = await deleteBranch(trunkB.id, meta.id);
-        expect(res.status).toBe(404);
-        const listed = await (
-          await fetch(
-            new Request(`http://localhost/files/${trunkA.id}/branches`),
-          )
-        ).json();
-        expect(listed).toHaveLength(1);
-      });
-    });
-  });
-
   describe('GET /files', () => {
     it('初期状態では空配列を返す', async () => {
       const res = await fetch(new Request('http://localhost/files'));
@@ -764,61 +526,42 @@ describe('API routes', () => {
       expect(await listSnapshotIds()).toEqual([]);
     });
 
-    // branch の中身へは branches.branch_file_id からしか辿れない。trunk を消すときに
-    // 一緒に消さないと、参照者のいない batch が永久に残る (deleteBranch と同じ理由)。
-    it('trunk を削除するとブランチのメタと branch 専用 op-log も消える', async () => {
+    // branch の中身へは trunk の op-log の branch.create からしか辿れない。trunk を消すときに
+    // 一緒に消さないと、参照者のいない batch が永久に残る。
+    it('trunk を削除すると、trunk の op-log が作った branch の op-log も消える', async () => {
       const trunk = await bodyOf<GraphFile>(await createFile('trunk'));
       const branchFileId = uuid(6001);
-      const meta = {
-        id: uuid(3001),
-        name: 'branch 1',
-        base: { id: uuid(4001), message: 'base', at: 1, authorActor: 'local' },
-        status: 'open',
-        sheetId: uuid(5001),
-        trunkFileId: trunk.id,
-        branchFileId,
-      };
-      await fetch(
-        new Request(`http://localhost/files/${trunk.id}/branches`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(meta),
-        }),
-      );
+      await postBatches(trunk.id, [
+        {
+          id: uuid(6002),
+          actor: 'local',
+          clock: 90,
+          seq: 90,
+          deps: {},
+          timestamp: 90,
+          ops: [
+            {
+              kind: 'branch.create',
+              target: uuid(3001),
+              name: 'branch 1',
+              sheetId: uuid(5001),
+              branchFileId,
+              base: {
+                id: uuid(4001),
+                kind: 'commit',
+                message: 'base',
+                at: 1,
+                authorActor: 'local',
+              },
+            },
+          ],
+        },
+      ]);
       await postBatches(branchFileId, [sampleBatch(1)]);
 
       await deleteFileReq(trunk.id);
 
-      const branches = await (
-        await fetch(new Request(`http://localhost/files/${trunk.id}/branches`))
-      ).json();
-      expect(branches).toEqual([]);
       expect(await getBatches(branchFileId)).toEqual([]);
-    });
-
-    it('コミットも消える', async () => {
-      const created = await bodyOf<GraphFile>(await createFile('削除対象'));
-      await fetch(
-        new Request(`http://localhost/files/${created.id}/commits`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            id: uuid(7001),
-            message: 'c1',
-            at: 1,
-            authorActor: 'local',
-          }),
-        }),
-      );
-
-      await deleteFileReq(created.id);
-
-      const commits = await bodyOf<Commit[]>(
-        await fetch(
-          new Request(`http://localhost/files/${created.id}/commits`),
-        ),
-      );
-      expect(commits).toEqual([]);
     });
   });
 

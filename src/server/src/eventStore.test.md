@@ -101,43 +101,18 @@ Phase 3 の永続モデルは「append-only な操作ログ + projection」。�
   - marker は下げない (より新しい版で正典化済ならそのまま残す)。
 - **projectSheet**: 操作ログを projection して Sheet を導出する。node.add → node.setContent
   で LWW の後勝ちが反映されること、空ログでは空 Sheet になること。
-- **saveCommit / getCommits**: at 昇順で読み返す、同一 id は上書き、file_id で分離。
-  - **merge の記録 (ANA-122)**: merge も同じテーブルに入るので、`kind` / `sourceBranchId` /
-    `sourceAt` (取り込んだ branch op-log の位置) まで欠落なく往復すること。commit と merge が
-    **同じ履歴から一列に引ける**ことが D3 の狙いそのものなので、種別の並びも固定する。
-  - **旧スキーマとの互換**: `kind` 列が無い時期の DB を開くと ALTER で列が足され、
-    既存行は `commit` として読める (落ちない・種別が欠けない)。列は既存なら足さない (べき等)。
-- **saveBranch / getBranches (step1 Phase 5)**: ブランチのメタ情報 (`BranchMeta`) の永続化。
-  ログ (batches) ではなくメタなので上書き保存であり、観点は `saveCommit/getCommits` と対称に取る:
-  - base オフセット (`base.at`) 昇順で読み返す (分岐点の古い順に並ぶ)。
-  - **メタ全体の round-trip**: base コミットは列へインライン展開して保存するため、
-    `message` / `authorActor` まで欠落なく戻ること。列の追加漏れが静かにメタを削るのを防ぐ。
-  - 同一 id は上書き (名前変更・`status` の open→merged 遷移がそのまま反映される)。
-  - `trunk_file_id` で分離され、別 trunk のブランチは混ざらない。
-  - **メタ (branches) と実体 (batches) の分離**: branch の編集は `branchFileId` 側の
-    op-log に積まれ、trunk の op-log は動かない (設計 §3.1-B の branch 専用 file_id)。
-    p5-2 以降の projection 配線がこの分離を前提にするため、ここで固定する。
-- **deleteBranch (step1 Phase 5 p5-4)**: ブランチの削除。観点は「消し残しと消し過ぎ」の両側:
-  - **メタ・branch 専用 op-log・commit がまとめて消える**: branch の中身へは
-    `branch_file_id` からしか辿れないので、メタだけ消すと参照者のいない batch が
-    永久に残る (孤児)。1 tx で消えることを固定する。
-  - **trunk 側は消えない**: 消し過ぎの検出。branch の削除で trunk の op-log や commit が
-    巻き添えになると編集履歴を失う。
-  - **trunk が一致しないと消せない / 存在しないブランチは false**: `trunkFileId` を
-    受けるのは、id だけを知る呼び出しが別ファイルのブランチを消せないようにするため。
-    存在しない場合の false は HTTP 404 の材料であり、二重削除を安全にする。
-
-- **deleteFile (step1 Phase 6 p6-2)**: ファイルの削除。`deleteBranch` の trunk 版で、
-  観点も対称に「消し残しと消し過ぎ」で取る。ただし**消し残しの範囲が広い**のがこの API の
-  難しさで、設計 §1.3 が挙げた既存の穴 (snapshot しか消していなかった) の裏返しでもある:
-  - **batches / commits / marker がまとめて消える**: marker を残すと、同じ id が受信で
+- **deleteFile (step1 Phase 6 p6-2)**: ファイルの削除。観点は「消し残しと消し過ぎ」の両側で、
+  **消し残しの範囲が広い**のがこの API の難しさである (設計 §1.3 の既存の穴の裏返し):
+  - **batches / marker がまとめて消える**: marker を残すと、同じ id が受信で
     materialize されたときに「移行済」と誤認する。削除は初期状態へ戻すこと。
-  - **trunk のブランチのメタと実体も消える**: branch の中身へは `branch_file_id` からしか
-    辿れないため、trunk だけ消すと孤児 batch が永久に残る (`deleteBranch` と同じ理由)。
+  - **🔴 trunk の op-log が作った branch の op-log も消える**: branch の中身へは trunk の
+    `branch.create` からしか辿れないため、trunk だけ消すと孤児 batch が永久に残る。
+    step2 T7-1 で branch のメタが op-log へ移った後も SQLite の branches テーブルから引いていて、
+    そこには何も入らなくなっていた (step3 Phase 1 でテーブルごと撤去し、op-log から引く)。
+  - **消された branch の op-log も消える**: `branch.remove` はメタを畳み込みから隠すだけで、
+    中身の op-log は残っている。
   - **他ファイルは巻き添えにしない**: 消し過ぎの検出。
   - **対象が無ければ false**: HTTP 404 の材料であり、二重削除を安全にする。
-  - **op-log を持たずメタだけのファイルも対象**: 判定を batches の有無に絞ると、
-    commit や branch だけが残った孤児メタを掃除できなくなる。
 
 テストは `beforeEach` で毎回新しいインメモリ DB を生成し、テスト間の状態を分離する。
 

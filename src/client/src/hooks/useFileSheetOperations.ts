@@ -430,7 +430,6 @@ export function useFileSheetOperations({
   const {
     record: internalSyncRecord,
     causal: trunkCausal,
-    settled: trunkSettled,
     syncNow,
   } = useEventSyncTap(activeFile?.id ?? null, {
     remoteQueue,
@@ -977,9 +976,6 @@ export function useFileSheetOperations({
      * (File を開いていなければ null)
      */
     trunkCausal,
-    // trunk の tap の drain 完了を待つ (step2 Phase 3 T7-6)。記録した branch のメタを
-    // 読み直す前に待たないと、畳み込みに載っていない
-    trunkSettled,
     receiveEpoch,
     // 「今すぐ同期」(SyncStatusIndicator) の口。開いている間に他所で起きた変更を
     // 取りに行く手段がこれしかない (GitHub #202)

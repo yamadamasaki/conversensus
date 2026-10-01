@@ -11,26 +11,14 @@
  * **置換は完了し、旧方式は Phase 6 p6-5b で退役した** (client 側の配線は Phase 5)。
  */
 
-import { z } from 'zod';
-import {
-  type BranchId,
-  BranchIdSchema,
-  type CommitId,
-  type FileId,
-  FileIdSchema,
-  type Sheet,
-  type SheetId,
-  SheetIdSchema,
-} from '../schemas';
+import type { BranchId, CommitId, FileId, Sheet, SheetId } from '../schemas';
 import { covers, heldMaxima, type VersionVector } from './causality';
 import { projectBatches, toSheet } from './project';
 import {
   type Batch,
-  BRANCH_STATUS,
   type BranchStatus,
   COMMIT_KIND,
   type CommitKind,
-  CommitSchema,
   type Lamport,
 } from './unified';
 
@@ -66,13 +54,6 @@ export type Branch = {
   status: BranchStatus;
 };
 
-// --- API 境界のバリデーション用スキーマ (step1 Phase 5) ---
-//
-// ドメイン型 (`Commit` / `BranchMeta`) は上の手書き定義を正とし、スキーマは
-// HTTP 境界で外来 JSON を検証するための対 (CLAUDE.md 規約 2)。両者の乖離は
-// `parse` の結果をドメイン型の引数へ渡す呼び出し側 (server の saveCommit /
-// saveBranch) でコンパイル時に検出される。
-
 /**
  * ブランチのメタ情報 = ドメインの `Branch` + 永続化・配線に要る補足。
  *
@@ -89,17 +70,6 @@ export type BranchMeta = Branch & {
   trunkFileId: FileId;
   branchFileId: FileId;
 };
-
-export const BranchMetaSchema = z.object({
-  id: BranchIdSchema,
-  name: z.string(),
-  base: CommitSchema,
-  // BRANCH_STATUS の定数と機械的に同期させる (値の二重定義を作らない)
-  status: z.nativeEnum(BRANCH_STATUS),
-  sheetId: SheetIdSchema,
-  trunkFileId: FileIdSchema,
-  branchFileId: FileIdSchema,
-});
 
 /** batches 中の最大 clock (= 現在のログ先端)。空なら 0 */
 export function tipClock(batches: Batch[]): Lamport {

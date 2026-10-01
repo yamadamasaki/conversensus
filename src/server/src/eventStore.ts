@@ -5,7 +5,7 @@
  * 保存モデルは「append-only な操作ログ + projection」:
  *   - batches テーブルへ Batch を追記するのみ (更新・削除しない)。
  *   - グラフ状態 (Sheet) は保存せず、batches の projection で導出する。
- *   - commits はログ上の**ラベル付きオフセット** (branchLog の `Commit`) を保持する。
+ *   - branch / commit のメタも op-log に載る (step2 Phase 3 T7-1)。専用のテーブルは持たない。
  *
  * 現行 `storage.ts` (GraphFile を JSON スナップショットで丸ごと保存) の置換候補。
  * 非破壊: 本 Phase では EventStore を追加するのみで、HTTP API の載せ替えは Phase 4 以降。
@@ -15,13 +15,6 @@ import { Database } from 'bun:sqlite';
 import {
   type Batch,
   type BlobCid,
-  type BranchId,
-  type BranchMeta,
-  type BranchStatus,
-  COMMIT_KIND,
-  type Commit,
-  type CommitId,
-  type CommitKind,
   type FileId,
   type GraphFileListItem,
   isFileDeleted,
@@ -59,31 +52,6 @@ type BlobRow = {
   bytes: Uint8Array;
 };
 
-/** commits の 1 行 */
-type CommitRow = {
-  id: string;
-  message: string;
-  at: number;
-  author_actor: string;
-  // ANA-122 で追加。既存 DB の行は NULL なので読み出し側で既定値へ落とす
-  kind: string | null;
-  source_branch_id: string | null;
-  source_at: number | null;
-};
-
-/** branches の 1 行 (base コミットは列へインライン展開する, step1 Phase 5) */
-type BranchRow = {
-  id: string;
-  branch_file_id: string;
-  name: string;
-  sheet_id: string;
-  status: string;
-  base_commit_id: string;
-  base_message: string;
-  base_at: number;
-  base_author_actor: string;
-};
-
 /** file_migrations の 1 行 (op-log 読み取り正典化のスキーマ marker, W3d) */
 type MigrationRow = {
   schema_version: number;
@@ -110,38 +78,6 @@ CREATE TABLE IF NOT EXISTS batches (
 CREATE INDEX IF NOT EXISTS idx_batches_file_order
   ON batches (file_id, clock, timestamp, batch_id);
 
--- kind / source_* は merge を一級の記録にするための列 (ANA-122)。merge コミットは
--- trunk 側に入り、source_at で「branch op-log のどこまでを取り込んだか」を指す。
-CREATE TABLE IF NOT EXISTS commits (
-  id               TEXT    PRIMARY KEY,
-  file_id          TEXT    NOT NULL,
-  message          TEXT    NOT NULL,
-  at               INTEGER NOT NULL,
-  author_actor     TEXT    NOT NULL,
-  kind             TEXT,
-  source_branch_id TEXT,
-  source_at        INTEGER
-);
-CREATE INDEX IF NOT EXISTS idx_commits_file ON commits (file_id);
-
--- ブランチのメタ情報 (step1 Phase 5)。branch batches 自体は batches テーブルへ
--- branch_file_id で分けて貯め、ここは「どの trunk のどのシートから、どの base で
--- 分岐したか」だけを持つ。base コミットは低頻度メタなので commits への FK を張らず
--- 列へインライン展開する (読取が 1 クエリで閉じ、branch と commit の生存期間が絡まない)。
-CREATE TABLE IF NOT EXISTS branches (
-  id                TEXT    PRIMARY KEY,
-  trunk_file_id     TEXT    NOT NULL,
-  branch_file_id    TEXT    NOT NULL,
-  name              TEXT    NOT NULL,
-  sheet_id          TEXT    NOT NULL,
-  status            TEXT    NOT NULL,
-  base_commit_id    TEXT    NOT NULL,
-  base_message      TEXT    NOT NULL,
-  base_at           INTEGER NOT NULL,
-  base_author_actor TEXT    NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_branches_trunk ON branches (trunk_file_id);
-
 -- op-log 読み取り正典化 (W3d) の per-file スキーマ marker。
 -- 「破棄→genesis→marker 更新」を一度だけ実行するためのゲート。
 CREATE TABLE IF NOT EXISTS file_migrations (
@@ -162,7 +98,7 @@ CREATE TABLE IF NOT EXISTS blobs (
 
 /**
  * 操作ログの永続ストア。1 インスタンス = 1 データベース。
- * ファイル (グラフ) ごとに file_id で batches / commits を仕切る。
+ * ファイル (グラフ) ごとに file_id で batches を仕切る。
  */
 export class EventStore {
   private readonly db: Database;
@@ -174,27 +110,6 @@ export class EventStore {
     this.db.exec('PRAGMA journal_mode = WAL');
     this.db.exec('PRAGMA foreign_keys = ON');
     this.db.run(SCHEMA);
-    this.migrateCommitKindColumns();
-  }
-
-  /**
-   * ANA-122 マイグレーション: 既存 DB の commits に kind / source_* 列を追加する。
-   * 既存行は NULL のままで、読み出し時に `commit` として扱う (`rowToCommit`)。
-   */
-  private migrateCommitKindColumns(): void {
-    const cols = this.db
-      .query<{ name: string }, []>('PRAGMA table_info(commits)')
-      .all();
-    const existing = new Set(cols.map((c) => c.name));
-    for (const [name, type] of [
-      ['kind', 'TEXT'],
-      ['source_branch_id', 'TEXT'],
-      ['source_at', 'INTEGER'],
-    ] as const) {
-      if (!existing.has(name)) {
-        this.db.run(`ALTER TABLE commits ADD COLUMN ${name} ${type}`);
-      }
-    }
   }
 
   /**
@@ -337,114 +252,19 @@ export class EventStore {
     return items;
   }
 
-  /** コミット (ラベル付きオフセット) を保存する。同一 id は上書きする */
-  saveCommit(fileId: FileId, commit: Commit): void {
-    this.db
-      .query(
-        `INSERT OR REPLACE INTO commits
-           (id, file_id, message, at, author_actor, kind, source_branch_id, source_at)
-         VALUES ($id, $file, $msg, $at, $author, $kind, $sourceBranch, $sourceAt)`,
-      )
-      .run({
-        $id: commit.id,
-        $file: fileId,
-        $msg: commit.message,
-        $at: commit.at,
-        $author: commit.authorActor,
-        $kind: commit.kind,
-        $sourceBranch: commit.sourceBranchId ?? null,
-        $sourceAt: commit.sourceAt ?? null,
-      });
-  }
-
-  /**
-   * ブランチのメタ情報を保存する。同一 id は上書きする (step1 Phase 5)。
-   *
-   * `saveCommit` と違い trunk file_id を別引数で取らない — `BranchMeta` 自身が
-   * `trunkFileId` を持つため、引数で二重に受けると食い違いを作れてしまう。
-   */
-  saveBranch(meta: BranchMeta): void {
-    this.db
-      .query(
-        `INSERT OR REPLACE INTO branches
-           (id, trunk_file_id, branch_file_id, name, sheet_id, status,
-            base_commit_id, base_message, base_at, base_author_actor)
-         VALUES ($id, $trunk, $branch, $name, $sheet, $status,
-                 $baseId, $baseMsg, $baseAt, $baseAuthor)`,
-      )
-      .run({
-        $id: meta.id,
-        $trunk: meta.trunkFileId,
-        $branch: meta.branchFileId,
-        $name: meta.name,
-        $sheet: meta.sheetId,
-        $status: meta.status,
-        $baseId: meta.base.id,
-        $baseMsg: meta.base.message,
-        $baseAt: meta.base.at,
-        $baseAuthor: meta.base.authorActor,
-      });
-  }
-
-  /** trunk のブランチ一覧を base オフセット (at) 昇順で取得する */
-  getBranches(trunkFileId: FileId): BranchMeta[] {
-    const rows = this.db
-      .query<BranchRow, string>(
-        `SELECT id, branch_file_id, name, sheet_id, status,
-                base_commit_id, base_message, base_at, base_author_actor
-           FROM branches
-          WHERE trunk_file_id = ?
-          ORDER BY base_at, id`,
-      )
-      .all(trunkFileId);
-    return rows.map((row) => rowToBranch(row, trunkFileId));
-  }
-
-  /**
-   * ブランチを削除する (step1 Phase 5 p5-4)。
-   *
-   * メタ行だけでなく **branch 専用 file_id に貯めた op-log と commit も同じ tx で消す**。
-   * branch の中身へは `branch_file_id` からしか辿れないので、メタだけ消すと参照者の
-   * いない batch が永久に残る (孤児)。`DELETE /files/:id` (ファイル削除) と違い
-   * snapshot は存在しない — branch は op-log 専業のため (設計 §3.1-B)。
-   *
-   * @param trunkFileId 分岐元 trunk。他ファイルのブランチを id 指定で消せないようにする
-   * @returns 削除したら true、該当ブランチが無ければ false
-   */
-  deleteBranch(trunkFileId: FileId, branchId: BranchId): boolean {
-    const tx = this.db.transaction(() => {
-      const row = this.db
-        .query<{ branch_file_id: string }, [string, string]>(
-          'SELECT branch_file_id FROM branches WHERE id = ? AND trunk_file_id = ?',
-        )
-        .get(branchId, trunkFileId);
-      if (!row) return false;
-      const branchFileId = row.branch_file_id;
-      this.db
-        .query('DELETE FROM branches WHERE id = $id')
-        .run({ $id: branchId });
-      this.db
-        .query('DELETE FROM batches WHERE file_id = $file')
-        .run({ $file: branchFileId });
-      this.db
-        .query('DELETE FROM commits WHERE file_id = $file')
-        .run({ $file: branchFileId });
-      return true;
-    });
-    return tx();
-  }
-
   /**
    * ファイルを op-log ごと削除する (step1 Phase 6 p6-2, 設計 §3.5)。
    *
-   * `deleteBranch` の trunk 版。**1 tx** で以下をまとめて消す:
+   * **1 tx** で、当該 file_id と、その trunk から作られた branch の file_id の
+   * batches / file_migrations をまとめて消す。
    *
-   * - 当該 file_id の batches / commits / file_migrations
-   * - trunk にぶら下がる branches のメタ行と、その branch 専用 file_id の batches / commits
+   * branch を巻き込むのは、branch の中身へは trunk の op-log の `branch.create` からしか
+   * 辿れないためである — trunk だけ消すと参照者のいない batch が永久に残る。
+   * **消された branch (`branch.remove`) も含める** — 中身の op-log は残っているので。
    *
-   * branch を巻き込むのは、branch の中身へは `branches.branch_file_id` からしか
-   * 辿れないため — trunk のメタ行だけ消すと参照者のいない batch が永久に残る
-   * (`deleteBranch` と同じ理由)。
+   * step2 T7-1 で branch のメタが op-log へ移って以降、ここは SQLite の branches テーブルから
+   * branch を引いていて、**そのテーブルには何も入らなくなっていた** (branch の op-log が孤児として
+   * 残っていた)。step3 Phase 1 でテーブルごと撤去し、op-log から引くようにした。
    *
    * 【§1.3 の穴】これ以前の `DELETE /files/:id` は snapshot しか消していなかった。
    * Phase 4e で snapshot を持たない op-log-only ファイル (受信 materialize) が
@@ -454,23 +274,15 @@ export class EventStore {
    */
   deleteFile(fileId: FileId): boolean {
     const tx = this.db.transaction(() => {
-      const branchFileIds = this.db
-        .query<{ branch_file_id: string }, string>(
-          'SELECT branch_file_id FROM branches WHERE trunk_file_id = ?',
-        )
-        .all(fileId)
-        .map((row) => row.branch_file_id);
+      const branchFileIds = branchFileIdsOf(this.getBatches(fileId));
       let removed = 0;
       for (const id of [fileId, ...branchFileIds]) {
-        for (const table of ['batches', 'commits', 'file_migrations']) {
+        for (const table of ['batches', 'file_migrations']) {
           removed += this.db
             .query(`DELETE FROM ${table} WHERE file_id = $file`)
             .run({ $file: id }).changes;
         }
       }
-      removed += this.db
-        .query('DELETE FROM branches WHERE trunk_file_id = $file')
-        .run({ $file: fileId }).changes;
       return removed > 0;
     });
     return tx();
@@ -568,19 +380,6 @@ export class EventStore {
     return tx(batches);
   }
 
-  /** ファイルのコミット一覧を、指すオフセット (at) 昇順で取得する */
-  getCommits(fileId: FileId): Commit[] {
-    const rows = this.db
-      .query<CommitRow, string>(
-        `SELECT id, message, at, author_actor, kind, source_branch_id, source_at
-           FROM commits
-          WHERE file_id = ?
-          ORDER BY at, id`,
-      )
-      .all(fileId);
-    return rows.map((row) => rowToCommit(row));
-  }
-
   /**
    * blob を格納する (ANA-116)。
    *
@@ -649,39 +448,13 @@ function rowToBatch(row: BatchRow): Batch {
   };
 }
 
-function rowToCommit(row: CommitRow): Commit {
-  return {
-    id: row.id as Commit['id'],
-    message: row.message,
-    at: row.at,
-    authorActor: row.author_actor,
-    // kind 列を持たない時期に書かれた行は通常のコミットとして読む (ANA-122)
-    kind: (row.kind ?? COMMIT_KIND.COMMIT) as CommitKind,
-    ...(row.source_branch_id !== null && {
-      sourceBranchId: row.source_branch_id as BranchId,
-    }),
-    ...(row.source_at !== null && { sourceAt: row.source_at }),
-  };
-}
-
-/** trunk_file_id は絞り込みキーなので行に含めず、呼び出し側から復元する */
-function rowToBranch(row: BranchRow, trunkFileId: FileId): BranchMeta {
-  return {
-    id: row.id as BranchId,
-    name: row.name,
-    base: {
-      id: row.base_commit_id as CommitId,
-      message: row.base_message,
-      at: row.base_at,
-      authorActor: row.base_author_actor,
-      // base は「どこで分岐したか」を指すラベルで merge ではない。branches テーブルは
-      // 種別を持たない (持たせても常に commit にしかならない) ので、ここで補う。
-      kind: COMMIT_KIND.COMMIT,
-    },
-    // status は保存時に BranchMetaSchema で検証済 (API 境界の責務)
-    status: row.status as BranchStatus,
-    sheetId: row.sheet_id as SheetId,
-    trunkFileId,
-    branchFileId: row.branch_file_id as FileId,
-  };
+/** trunk の op-log の `branch.create` が指す branch の file_id (消された branch も含む) */
+function branchFileIdsOf(batches: Batch[]): FileId[] {
+  const ids = new Set<FileId>();
+  for (const batch of batches) {
+    for (const op of batch.ops) {
+      if (op.kind === 'branch.create') ids.add(op.branchFileId);
+    }
+  }
+  return [...ids];
 }

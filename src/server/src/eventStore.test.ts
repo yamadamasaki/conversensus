@@ -1,15 +1,8 @@
-import { Database } from 'bun:sqlite';
 import { beforeEach, describe, expect, it } from 'bun:test';
-import { rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import {
   type Batch,
-  BRANCH_STATUS,
   type BranchId,
-  type BranchMeta,
   COMMIT_KIND,
-  type Commit,
   type CommitId,
   type FileId,
   type NodeId,
@@ -286,306 +279,94 @@ describe('EventStore', () => {
     });
   });
 
-  describe('saveCommit / getCommits', () => {
-    const commit = (id: string, at: number): Commit => ({
-      id: id as CommitId,
-      message: `commit ${id}`,
-      at,
-      authorActor: 'local',
-      kind: COMMIT_KIND.COMMIT,
-    });
-
-    it('保存したコミットを at 昇順で読み返せる', () => {
-      store.saveCommit(FILE, commit('c2', 5));
-      store.saveCommit(FILE, commit('c1', 2));
-      expect(idsOf(store.getCommits(FILE))).toEqual(['c1', 'c2']);
-    });
-
-    it('同一 id は上書きする', () => {
-      store.saveCommit(FILE, commit('c1', 2));
-      store.saveCommit(FILE, { ...commit('c1', 9), message: '更新' });
-      const commits = store.getCommits(FILE);
-      expect(commits).toHaveLength(1);
-      expect(commits[0]?.at).toBe(9);
-      expect(commits[0]?.message).toBe('更新');
-    });
-
-    it('ファイルが異なるコミットは混ざらない', () => {
-      const other = 'file-2' as FileId;
-      store.saveCommit(FILE, commit('c1', 2));
-      store.saveCommit(other, commit('c2', 2));
-      expect(idsOf(store.getCommits(FILE))).toEqual(['c1']);
-      expect(idsOf(store.getCommits(other))).toEqual(['c2']);
-    });
-
-    /**
-     * merge を一級の記録にする (ANA-122)。commit と同じテーブルに並べるので、
-     * **種別と由来 (どの branch のどこまでを取り込んだか) が欠けずに往復する**ことが要。
-     */
-    it('merge の記録は kind / sourceBranchId / sourceAt まで往復する', () => {
-      const mergeCommit: Commit = {
-        ...commit('m1', 9),
-        kind: COMMIT_KIND.MERGE,
-        sourceBranchId: 'b1' as BranchId,
-        sourceAt: 4,
-      };
-      store.saveCommit(FILE, mergeCommit);
-      expect(store.getCommits(FILE)).toEqual([mergeCommit]);
-    });
-
-    it('commit と merge を同じ履歴から一列に引ける', () => {
-      store.saveCommit(FILE, commit('c1', 2));
-      store.saveCommit(FILE, {
-        ...commit('m1', 5),
-        kind: COMMIT_KIND.MERGE,
-        sourceBranchId: 'b1' as BranchId,
-        sourceAt: 3,
-      });
-      expect(store.getCommits(FILE).map((c) => c.kind)).toEqual([
-        'commit',
-        'merge',
-      ]);
-    });
-
-    it('kind 列が無い旧 DB を開くと ALTER で追加され、既存行は commit として読める', () => {
-      const path = join(
-        tmpdir(),
-        `evstore-ana122-${Date.now()}-${Math.random().toString(16).slice(2)}.db`,
-      );
-      try {
-        // ANA-122 以前の旧スキーマ (kind / source_* 列なし)
-        const legacy = new Database(path);
-        legacy.run(
-          `CREATE TABLE commits (
-             id TEXT PRIMARY KEY, file_id TEXT NOT NULL, message TEXT NOT NULL,
-             at INTEGER NOT NULL, author_actor TEXT NOT NULL)`,
-        );
-        legacy
-          .query(
-            `INSERT INTO commits (id, file_id, message, at, author_actor)
-             VALUES ('old', $file, '旧スキーマのコミット', 1, 'local')`,
-          )
-          .run({ $file: FILE });
-        legacy.close();
-
-        const migrated = new EventStore(path);
-        // 既存行は種別を持たないので通常のコミットとして読む (落ちない・欠けない)
-        const old = migrated.getCommits(FILE)[0];
-        expect(old?.kind).toBe(COMMIT_KIND.COMMIT);
-        expect(old?.sourceBranchId).toBeUndefined();
-        // 追加された列に merge の記録を書けるようになっている
-        migrated.saveCommit(FILE, {
-          ...commit('m1', 5),
-          kind: COMMIT_KIND.MERGE,
-          sourceBranchId: 'b1' as BranchId,
-          sourceAt: 3,
-        });
-        expect(migrated.getCommits(FILE).map((c) => c.kind)).toEqual([
-          'commit',
-          'merge',
-        ]);
-        migrated.close();
-
-        // 二度目の起動でも ALTER は走らない (べき等)
-        const reopened = new EventStore(path);
-        expect(reopened.getCommits(FILE)).toHaveLength(2);
-        reopened.close();
-      } finally {
-        rmSync(path, { force: true });
-        rmSync(`${path}-wal`, { force: true });
-        rmSync(`${path}-shm`, { force: true });
-      }
-    });
-  });
-
-  describe('saveBranch / getBranches (Phase 5)', () => {
-    const branch = (
-      id: string,
-      baseAt: number,
-      overrides: Partial<BranchMeta> = {},
-    ): BranchMeta => ({
-      id: id as BranchId,
-      name: `branch ${id}`,
-      base: {
-        id: `${id}-base` as CommitId,
-        message: `base of ${id}`,
-        at: baseAt,
-        authorActor: 'local',
-        // base は分岐点を指すラベルで merge ではない (ANA-122)
-        kind: COMMIT_KIND.COMMIT,
-      },
-      status: BRANCH_STATUS.OPEN,
-      sheetId: SHEET_META.id,
-      trunkFileId: FILE,
-      branchFileId: `${id}-log` as FileId,
-      ...overrides,
-    });
-
-    it('保存したブランチを base オフセット (at) 昇順で読み返せる', () => {
-      store.saveBranch(branch('b2', 5));
-      store.saveBranch(branch('b1', 2));
-      expect(idsOf(store.getBranches(FILE))).toEqual(['b1', 'b2']);
-    });
-
-    it('メタ全体を round-trip できる (base コミットと補足フィールド)', () => {
-      // base はインライン列へ展開して保存するため、message/authorActor まで
-      // 欠落なく戻ることを固定する (列の追加漏れが静かにメタを削るのを防ぐ)。
-      const meta = branch('b1', 7);
-      store.saveBranch(meta);
-      expect(store.getBranches(FILE)).toEqual([meta]);
-    });
-
-    it('同一 id は上書きする', () => {
-      store.saveBranch(branch('b1', 2));
-      store.saveBranch(
-        branch('b1', 9, { name: '改名', status: BRANCH_STATUS.MERGED }),
-      );
-      const branches = store.getBranches(FILE);
-      expect(branches).toHaveLength(1);
-      expect(branches[0]?.base.at).toBe(9);
-      expect(branches[0]?.name).toBe('改名');
-      expect(branches[0]?.status).toBe(BRANCH_STATUS.MERGED);
-    });
-
-    it('trunk が異なるブランチは混ざらない', () => {
-      const other = 'file-2' as FileId;
-      store.saveBranch(branch('b1', 2));
-      store.saveBranch(branch('b2', 2, { trunkFileId: other }));
-      expect(idsOf(store.getBranches(FILE))).toEqual(['b1']);
-      expect(idsOf(store.getBranches(other))).toEqual(['b2']);
-    });
-
-    it('branch batches は branch_file_id 側の op-log に置かれ trunk と混ざらない', () => {
-      // メタ (branches) と実体 (batches) の分離。branch の編集を追記しても
-      // trunk の projection は動かない (p5-2 以降が前提にする分離)。
-      const meta = branch('b1', 1);
-      store.saveBranch(meta);
-      store.appendBatch(FILE, addNode('t1', 'n1', 'trunk のノード', 1));
-      store.appendBatch(
-        meta.branchFileId,
-        addNode('br1', 'n2', 'branch のノード', 2),
-      );
-      expect(idsOf(store.getBatches(FILE))).toEqual(['t1']);
-      expect(idsOf(store.getBatches(meta.branchFileId))).toEqual(['br1']);
-    });
-
-    describe('deleteBranch (p5-4)', () => {
-      const commit = (id: string, at: number): Commit => ({
-        id: id as CommitId,
-        kind: COMMIT_KIND.COMMIT,
-        message: `commit ${id}`,
-        at,
-        authorActor: 'local',
-      });
-
-      it('メタと branch 専用 op-log / commit をまとめて消す', () => {
-        // branch の中身へは branch_file_id からしか辿れないので、メタだけ消すと
-        // 参照者のいない batch が永久に残る (孤児)。同じ tx で消すことを固定する。
-        const meta = branch('b1', 1);
-        store.saveBranch(meta);
-        store.appendBatch(
-          meta.branchFileId,
-          addNode('br1', 'n2', 'branch のノード', 2),
-        );
-        store.saveCommit(meta.branchFileId, commit('c1', 2));
-
-        expect(store.deleteBranch(FILE, meta.id)).toBe(true);
-
-        expect(store.getBranches(FILE)).toEqual([]);
-        expect(store.getBatches(meta.branchFileId)).toEqual([]);
-        expect(store.getCommits(meta.branchFileId)).toEqual([]);
-      });
-
-      it('trunk 側の op-log は消さない', () => {
-        const meta = branch('b1', 1);
-        store.saveBranch(meta);
-        store.appendBatch(FILE, addNode('t1', 'n1', 'trunk のノード', 1));
-        store.saveCommit(FILE, commit('ct', 1));
-
-        store.deleteBranch(FILE, meta.id);
-
-        expect(idsOf(store.getBatches(FILE))).toEqual(['t1']);
-        expect(idsOf(store.getCommits(FILE))).toEqual(['ct']);
-      });
-
-      it('trunk が一致しないブランチは消せない', () => {
-        // URL の trunk を経由しないと消せないことで、id だけを知っている呼び出しが
-        // 別ファイルのブランチを消すのを防ぐ。
-        const meta = branch('b1', 1);
-        store.saveBranch(meta);
-        expect(store.deleteBranch('file-2' as FileId, meta.id)).toBe(false);
-        expect(idsOf(store.getBranches(FILE))).toEqual(['b1']);
-      });
-
-      it('存在しないブランチは false を返す (べき等な二重削除)', () => {
-        expect(store.deleteBranch(FILE, 'missing' as BranchId)).toBe(false);
-      });
-    });
-  });
-
-  // Phase 6 p6-2 (設計 §3.5, §1.3): ファイル削除の正典。deleteBranch の trunk 版で、
-  // trunk にぶら下がるブランチの実体まで巻き込んで消すのがこの API の存在理由。
+  // Phase 6 p6-2 (設計 §3.5, §1.3): ファイル削除の正典。trunk から作られた branch の
+  // 実体まで巻き込んで消すのがこの API の存在理由。
   describe('deleteFile (Phase 6 p6-2)', () => {
     const W3 = 1;
-    const branchOf = (id: string, branchFileId: string): BranchMeta => ({
-      id: id as BranchId,
-      name: `branch ${id}`,
-      base: {
-        id: `${id}-base` as CommitId,
-        kind: COMMIT_KIND.COMMIT,
-        message: 'base',
-        at: 1,
-        authorActor: 'local',
-      },
-      status: BRANCH_STATUS.OPEN,
-      sheetId: SHEET_META.id,
-      trunkFileId: FILE,
-      branchFileId: branchFileId as FileId,
+    /** trunk の op-log に載る branch の作成 (step2 Phase 3 T7-1 以降、メタは op-log にある) */
+    const branchCreated = (
+      batchId: string,
+      branchId: string,
+      branchFileId: string,
+      clock: number,
+    ): Batch => ({
+      id: batchId as Batch['id'],
+      actor: 'local',
+      clock,
+      seq: clock,
+      deps: {},
+      timestamp: clock,
+      ops: [
+        {
+          kind: 'branch.create',
+          target: branchId as BranchId,
+          name: `branch ${branchId}`,
+          sheetId: SHEET_META.id,
+          branchFileId: branchFileId as FileId,
+          base: {
+            id: `${branchId}-base` as CommitId,
+            kind: COMMIT_KIND.COMMIT,
+            message: 'base',
+            at: 1,
+            authorActor: 'local',
+          },
+        },
+      ],
     });
-    const commit = (id: string, at: number): Commit => ({
-      id: id as CommitId,
-      kind: COMMIT_KIND.COMMIT,
-      message: `commit ${id}`,
-      at,
-      authorActor: 'local',
+    const branchRemoved = (
+      batchId: string,
+      branchId: string,
+      clock: number,
+    ): Batch => ({
+      id: batchId as Batch['id'],
+      actor: 'local',
+      clock,
+      seq: clock,
+      deps: {},
+      timestamp: clock,
+      ops: [{ kind: 'branch.remove', target: branchId as BranchId }],
     });
 
-    it('batches / commits / marker をまとめて消して true を返す', () => {
+    it('batches / marker をまとめて消して true を返す', () => {
       store.appendReceivedBatches(FILE, [addNode('b1', 'n1', 'A', 1)], W3);
-      store.saveCommit(FILE, commit('c1', 1));
 
       expect(store.deleteFile(FILE)).toBe(true);
 
       expect(store.getBatches(FILE)).toEqual([]);
-      expect(store.getCommits(FILE)).toEqual([]);
       // marker が残ると、同じ id が受信で materialize されたとき「移行済」と
       // 誤認する。削除は marker まで含めて初期状態へ戻す。
       expect(store.getSchemaVersion(FILE)).toBeNull();
     });
 
-    it('trunk のブランチのメタと branch 専用 op-log / commit も消す', () => {
-      const meta = branchOf('b1', 'b1-log');
-      store.saveBranch(meta);
-      store.appendBatch(meta.branchFileId, addNode('br1', 'n2', 'branch', 2));
-      store.saveCommit(meta.branchFileId, commit('bc1', 2));
+    it('🔴 trunk の op-log が作った branch の op-log も消す', () => {
+      // step2 T7-1 以降 branch のメタは op-log にあり、SQLite の branches テーブルには
+      // 何も入らなくなっていた。テーブルから引いていた頃は、ここが孤児として残った
+      store.appendBatch(FILE, branchCreated('t1', 'b1', 'b1-log', 1));
+      store.appendBatch('b1-log' as FileId, addNode('br1', 'n2', 'branch', 2));
 
       expect(store.deleteFile(FILE)).toBe(true);
 
-      expect(store.getBranches(FILE)).toEqual([]);
-      expect(store.getBatches(meta.branchFileId)).toEqual([]);
-      expect(store.getCommits(meta.branchFileId)).toEqual([]);
+      expect(store.getBatches('b1-log' as FileId)).toEqual([]);
+    });
+
+    it('消された branch の op-log も消す (中身は残っているので)', () => {
+      store.appendBatch(FILE, branchCreated('t1', 'b1', 'b1-log', 1));
+      store.appendBatch(FILE, branchRemoved('t2', 'b1', 2));
+      store.appendBatch('b1-log' as FileId, addNode('br1', 'n2', 'branch', 2));
+
+      store.deleteFile(FILE);
+
+      expect(store.getBatches('b1-log' as FileId)).toEqual([]);
     });
 
     it('他ファイルの op-log は消さない', () => {
       const other = 'file-2' as FileId;
       store.appendBatch(FILE, addNode('t1', 'n1', 'A', 1));
       store.appendBatch(other, addNode('o1', 'n2', 'B', 1));
-      store.saveCommit(other, commit('oc', 1));
 
       store.deleteFile(FILE);
 
       expect(idsOf(store.getBatches(other))).toEqual(['o1']);
-      expect(idsOf(store.getCommits(other))).toEqual(['oc']);
     });
 
     it('対象が何も無ければ false を返す (べき等な二重削除)', () => {
@@ -593,13 +374,6 @@ describe('EventStore', () => {
       store.appendBatch(FILE, addNode('t1', 'n1', 'A', 1));
       expect(store.deleteFile(FILE)).toBe(true);
       expect(store.deleteFile(FILE)).toBe(false);
-    });
-
-    it('op-log を持たずメタだけのファイルも削除対象になる', () => {
-      // snapshot 由来の孤児メタ (commit / branch だけが残った状態) を掃除できること
-      store.saveCommit(FILE, commit('c1', 1));
-      expect(store.deleteFile(FILE)).toBe(true);
-      expect(store.getCommits(FILE)).toEqual([]);
     });
   });
 
