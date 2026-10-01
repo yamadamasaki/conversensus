@@ -172,11 +172,6 @@ export class LocalStore {
       : batches.filter((b) => b.clock > since);
   }
 
-  /** op-log ごと File を消す (保守用。client は tombstone を書くので呼ばない, ANA-127) */
-  deleteFile(fileId: FileId): boolean {
-    return this.events.deleteFile(fileId);
-  }
-
   /**
    * 画像を格納する (ANA-116)。**cid はここで内容から計算する** — 呼び出し側の申告を鍵に
    * 使うと、内容と一致しない cid でストアを汚せる。同じ内容は 1 行で、返る cid も同じ

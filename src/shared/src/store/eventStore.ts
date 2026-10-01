@@ -226,39 +226,6 @@ export class EventStore {
   }
 
   /**
-   * ファイルを op-log ごと削除する (step1 Phase 6 p6-2, 設計 §3.5)。
-   *
-   * **1 tx** で、当該 file_id と、その trunk から作られた branch の file_id の
-   * batches をまとめて消す。
-   *
-   * branch を巻き込むのは、branch の中身へは trunk の op-log の `branch.create` からしか
-   * 辿れないためである — trunk だけ消すと参照者のいない batch が永久に残る。
-   * **消された branch (`branch.remove`) も含める** — 中身の op-log は残っているので。
-   *
-   * step2 T7-1 で branch のメタが op-log へ移って以降、ここは SQLite の branches テーブルから
-   * branch を引いていて、**そのテーブルには何も入らなくなっていた** (branch の op-log が孤児として
-   * 残っていた)。step3 Phase 1 でテーブルごと撤去し、op-log から引くようにした。
-   *
-   * 【§1.3 の穴】これ以前の `DELETE /files/:id` は snapshot しか消していなかった。
-   * Phase 4e で snapshot を持たない op-log-only ファイル (受信 materialize) が
-   * 生まれて以降、それらは削除不能で、削除できたファイルも op-log が残っていた。
-   *
-   * @returns 1 行でも消したら true、対象が何も無ければ false (= 404 の根拠)
-   */
-  deleteFile(fileId: FileId): boolean {
-    return this.db.transaction(() => {
-      const branchFileIds = branchFileIdsOf(this.getBatches(fileId));
-      let removed = 0;
-      for (const id of [fileId, ...branchFileIds]) {
-        removed += this.db.run('DELETE FROM batches WHERE file_id = $file', {
-          $file: id,
-        }).changes;
-      }
-      return removed > 0;
-    });
-  }
-
-  /**
    * blob を格納する (ANA-116)。
    *
    * **cid は呼び出し側が `computeBlobCid` で計算したものを渡す** — 検証を含めた
@@ -322,15 +289,4 @@ function rowToBatch(row: BatchRow): Batch {
       mergedIn: row.merged_in as Batch['mergedIn'],
     }),
   };
-}
-
-/** trunk の op-log の `branch.create` が指す branch の file_id (消された branch も含む) */
-function branchFileIdsOf(batches: Batch[]): FileId[] {
-  const ids = new Set<FileId>();
-  for (const batch of batches) {
-    for (const op of batch.ops) {
-      if (op.kind === 'branch.create') ids.add(op.branchFileId);
-    }
-  }
-  return [...ids];
 }

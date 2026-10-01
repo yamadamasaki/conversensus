@@ -17,7 +17,7 @@
 - `INSERT OR IGNORE` で無視した行の `changes` が 0 (`appendBatch` のべき等の判定)
 - 無い行の `get` が `undefined` (`getSchemaVersion` / `getBlob`)
 - BLOB の往復 (`putBlob` / `getBlob`)
-- トランザクションが値を返し、例外で巻き戻す (`deleteFile` などの 1 tx)
+- トランザクションが値を返し、例外で巻き戻す (`appendBatches` の 1 tx)
 
 ## どのように
 

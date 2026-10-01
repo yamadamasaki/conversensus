@@ -461,6 +461,11 @@ step2 T7-1 で branch / commit のメタは op-log に移り、SQLite の `branc
   孤児として残っていた (step2 からの既存の穴)。trunk の op-log の `branch.create` から引くように
   直した。**消された branch (`branch.remove`) も含める** — 中身の op-log は残っているため
 
+> **訂正 (2026-10-02)**: これは**ローカルサーバの `DELETE /files/:id` (物理削除) の経路**の話で、
+> UI の削除は ANA-127 以降 tombstone の追記である。この経路はサーバごと Phase 2 S2-7 で撤去され、
+> 呼び出し元を失った `EventStore.deleteFile` も削除した。op-log は追記のみとする
+> (`step3.md` §3.4a D4)。「File を消すと branch の op-log も消える」という仕様は無い
+
 #### 検証
 
 単体 1882 件 (撤去したテストの分だけ減った)・App 結合 7 件・E2E が緑。`deleteFile` で branch を

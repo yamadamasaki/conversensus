@@ -1,13 +1,5 @@
 import { beforeEach, describe, expect, it } from 'bun:test';
-import {
-  type Batch,
-  type BranchId,
-  COMMIT_KIND,
-  type CommitId,
-  type FileId,
-  type NodeId,
-  type SheetId,
-} from '../index';
+import type { Batch, FileId, NodeId, SheetId } from '../index';
 import { BunSqliteDriver, IN_MEMORY } from './bunSqliteDriver';
 import { EventStore } from './eventStore';
 
@@ -186,100 +178,6 @@ describe('EventStore', () => {
       const sheet = store.projectSheet(FILE, SHEET_META);
       expect(sheet.nodes).toEqual([]);
       expect(sheet.edges).toEqual([]);
-    });
-  });
-
-  // Phase 6 p6-2 (設計 §3.5, §1.3): ファイル削除の正典。trunk から作られた branch の
-  // 実体まで巻き込んで消すのがこの API の存在理由。
-  describe('deleteFile (Phase 6 p6-2)', () => {
-    /** trunk の op-log に載る branch の作成 (step2 Phase 3 T7-1 以降、メタは op-log にある) */
-    const branchCreated = (
-      batchId: string,
-      branchId: string,
-      branchFileId: string,
-      clock: number,
-    ): Batch => ({
-      id: batchId as Batch['id'],
-      actor: 'local',
-      clock,
-      seq: clock,
-      deps: {},
-      timestamp: clock,
-      ops: [
-        {
-          kind: 'branch.create',
-          target: branchId as BranchId,
-          name: `branch ${branchId}`,
-          sheetId: SHEET_META.id,
-          branchFileId: branchFileId as FileId,
-          base: {
-            id: `${branchId}-base` as CommitId,
-            kind: COMMIT_KIND.COMMIT,
-            message: 'base',
-            at: 1,
-            authorActor: 'local',
-          },
-        },
-      ],
-    });
-    const branchRemoved = (
-      batchId: string,
-      branchId: string,
-      clock: number,
-    ): Batch => ({
-      id: batchId as Batch['id'],
-      actor: 'local',
-      clock,
-      seq: clock,
-      deps: {},
-      timestamp: clock,
-      ops: [{ kind: 'branch.remove', target: branchId as BranchId }],
-    });
-
-    it('batches を消して true を返す', () => {
-      store.appendBatch(FILE, addNode('b1', 'n1', 'A', 1));
-
-      expect(store.deleteFile(FILE)).toBe(true);
-
-      expect(store.getBatches(FILE)).toEqual([]);
-    });
-
-    it('🔴 trunk の op-log が作った branch の op-log も消す', () => {
-      // step2 T7-1 以降 branch のメタは op-log にあり、SQLite の branches テーブルには
-      // 何も入らなくなっていた。テーブルから引いていた頃は、ここが孤児として残った
-      store.appendBatch(FILE, branchCreated('t1', 'b1', 'b1-log', 1));
-      store.appendBatch('b1-log' as FileId, addNode('br1', 'n2', 'branch', 2));
-
-      expect(store.deleteFile(FILE)).toBe(true);
-
-      expect(store.getBatches('b1-log' as FileId)).toEqual([]);
-    });
-
-    it('消された branch の op-log も消す (中身は残っているので)', () => {
-      store.appendBatch(FILE, branchCreated('t1', 'b1', 'b1-log', 1));
-      store.appendBatch(FILE, branchRemoved('t2', 'b1', 2));
-      store.appendBatch('b1-log' as FileId, addNode('br1', 'n2', 'branch', 2));
-
-      store.deleteFile(FILE);
-
-      expect(store.getBatches('b1-log' as FileId)).toEqual([]);
-    });
-
-    it('他ファイルの op-log は消さない', () => {
-      const other = 'file-2' as FileId;
-      store.appendBatch(FILE, addNode('t1', 'n1', 'A', 1));
-      store.appendBatch(other, addNode('o1', 'n2', 'B', 1));
-
-      store.deleteFile(FILE);
-
-      expect(idsOf(store.getBatches(other))).toEqual(['o1']);
-    });
-
-    it('対象が何も無ければ false を返す (べき等な二重削除)', () => {
-      expect(store.deleteFile(FILE)).toBe(false);
-      store.appendBatch(FILE, addNode('t1', 'n1', 'A', 1));
-      expect(store.deleteFile(FILE)).toBe(true);
-      expect(store.deleteFile(FILE)).toBe(false);
     });
   });
 
@@ -512,13 +410,5 @@ describe('EventStore の blob ストア (ANA-116)', () => {
     expect(Array.from(store.getBlob(CID_A)?.bytes ?? [])).toEqual([
       0, 1, 0, 255, 0,
     ]);
-  });
-
-  it('ファイルを削除しても blob は残る (blob はファイルに紐づかない)', () => {
-    store.appendBatch(FILE, addNode('b1', 'n1', 'a', 1));
-    store.putBlob(CID_A, HELLO, 'image/png');
-    store.deleteFile(FILE);
-    // 別のファイルや過去のバージョンから参照されうるので、道連れにしてはならない
-    expect(store.getBlob(CID_A)).not.toBeNull();
   });
 });
