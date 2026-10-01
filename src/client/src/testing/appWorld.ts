@@ -41,7 +41,6 @@ import { setLocalBackend } from '../api';
 import { logout, setAuthBackend } from '../atproto/client';
 import { passwordAuth } from '../atproto/passwordAuth';
 import type { LocalBackend } from '../local/backend';
-import { httpBackend } from '../local/httpBackend';
 import { storeBackend } from '../local/storeBackend';
 import { createFakePds, type FakePds } from './fakePds';
 
@@ -136,7 +135,7 @@ export async function createAppWorld(): Promise<AppWorld> {
       await logout();
       localStorage.clear();
       globalThis.fetch = realFetch;
-      setLocalBackend(httpBackend);
+      setLocalBackend(null);
       setAuthBackend(null);
       for (const device of devices.values()) device.store.events.close();
     },

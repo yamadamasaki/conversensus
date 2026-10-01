@@ -1,12 +1,28 @@
+# 本番の配信 (Hetzner VPS)。/etc/caddy/Caddyfile に置く。
+# 手順は deepse/plans/step3-phase2-pwa.md の「S2-7 配信の手順」。
+
 app.conversensus.site {
     root * /var/www/conversensus
+
+    # **cross-origin isolation** (step3 Phase 2 D8)。ローカル正典の SQLite-WASM は opfs VFS で
+    # 開き、これは SharedArrayBuffer を要る。付け忘れると全員「この窓では保存できません」になる
+    header {
+        Cross-Origin-Opener-Policy same-origin
+        Cross-Origin-Embedder-Policy require-corp
+    }
+
+    # service worker と画面は毎回取りに来させる (新しい版が届くように)。
+    # ビルドの成果物 (/assets/) は名前に hash が入るので、長く持たせてよい
+    @fresh path /sw.js /index.html /
+    header @fresh Cache-Control "no-cache"
+    @assets path /assets/*
+    header @assets Cache-Control "public, max-age=31536000, immutable"
+
     file_server
     try_files {path} /index.html
 }
 
-api.conversensus.site {
-    reverse_proxy 127.0.0.1:3000
-}
+# api.conversensus.site (bun のローカルサーバ) は step3 Phase 2 S2-7 で撤去した。
 
 pds.conversensus.site {
     reverse_proxy 127.0.0.1:2583

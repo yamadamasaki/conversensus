@@ -9,8 +9,8 @@
 
 ## なぜテストするか
 
-配布形態の到達点である **Tauri v2 は macOS で WKWebView = Safari と同じ WebKit** の上で動く。
-**Chrome での「動いた」は Tauri の証拠にならない**。使い込みで積み上げる機能が増えるほど
+配布形態は step3 Phase 2 で **PWA** になった (Tauri は撤去)。利用者の大きな部分は **Safari
+(WebKit)** で開く。**Chrome での「動いた」は Safari の証拠にならない**。使い込みで積み上げる機能が増えるほど
 後から検証し直す対象が増えるので, **WebKit を常時回せる形**にしておく。
 
 **本命は webkit, chromium は対照である。** #51 のように「WebKit だけ壊れる」ものは,

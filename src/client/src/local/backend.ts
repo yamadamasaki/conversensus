@@ -4,9 +4,10 @@
  * client がローカル正典 (op-log と blob の保存先) に頼むことの全部。step1 以来の `api.ts` の
  * 9 関数をそのまま形にしたもので、実装を差し替えられるようにする:
  *
- * - `httpBackend`: ローカルサーバ (bun) を HTTP で叩く (S2-3 まで既定、S2-7 で撤去)
- * - `storeBackend`: `LocalStore` を同じプロセスで直接呼ぶ (App 結合テスト。S2-3 ではこれが
- *   Worker の中で動く)
+ * - `workerBackend`: ブラウザ。Worker の中の `storeBackend` を RPC で呼ぶ
+ * - `storeBackend`: `LocalStore` を同じスレッドで直接呼ぶ (Worker の中と、App 結合テスト)
+ *
+ * step3 Phase 2 S2-7 まではローカルサーバ (bun) を HTTP で叩く実装もあった。
  *
  * **関数の形は変えない。**hooks から上はこの口だけを見ているので、向こう側が HTTP でも
  * Worker でも動く (step3 実装計画の事実 1)。

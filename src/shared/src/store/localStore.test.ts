@@ -5,7 +5,7 @@ import type { Batch } from '../events/unified';
 import type { FileId } from '../schemas';
 import { BunSqliteDriver, IN_MEMORY } from './bunSqliteDriver';
 import { EventStore } from './eventStore';
-import { LocalStore, OPLOG_SCHEMA_VERSION } from './localStore';
+import { LocalStore } from './localStore';
 
 let store: LocalStore;
 
@@ -61,11 +61,6 @@ describe('createFile', () => {
     expect(projected.sheets.map((s) => s.id)).toEqual(
       file.sheets.map((s) => s.id),
     );
-  });
-
-  test('作った File に正典の marker が立つ (旧 snapshot の移行に拾わせない)', () => {
-    const file = store.createFile({ name: 'x' });
-    expect(store.events.getSchemaVersion(file.id)).toBe(OPLOG_SCHEMA_VERSION);
   });
 
   test('一覧に現れる', () => {
@@ -137,11 +132,13 @@ describe('importFile', () => {
 describe('追記と読み出し', () => {
   const FILE = '33333333-3333-4333-8333-333333333333' as FileId;
 
-  test('自分の編集の追記は marker を立てず、受信の追記は立てる', () => {
+  test('受信の追記も、自分の編集の追記と同じく op-log に載る', () => {
     store.appendBatches(FILE, [batch('b1', 1)]);
-    expect(store.events.getSchemaVersion(FILE)).toBeNull();
     store.appendReceived(FILE, [batch('b2', 2)]);
-    expect(store.events.getSchemaVersion(FILE)).toBe(OPLOG_SCHEMA_VERSION);
+    expect(store.getBatches(FILE).map((b) => String(b.id))).toEqual([
+      'b1',
+      'b2',
+    ]);
   });
 
   test('追記はべき等で、件数は新規分だけ', () => {

@@ -6,8 +6,10 @@
  *
  * 使い手は 2 つある (どちらもこれを薄く包むだけで、ロジックを持たない):
  *
- * - ローカルサーバの経路 (`src/server`, 撤去まで): 要求の形の検証と HTTP の状態コード
- * - ブラウザ内のバックエンド (client の `api.ts`): 同じ関数を直接 (Worker 越しに) 呼ぶ
+ * - ブラウザ: Worker の中で client の `storeBackend` が包む
+ * - App 結合テスト: 同じ `storeBackend` を同じプロセスで呼ぶ
+ *
+ * (step3 Phase 2 S2-7 まではローカルサーバの HTTP 経路も使い手だった)
  *
  * **ロジックが 1 つであることが要点である。**テストがプロセス内で通したものと、ブラウザで
  * 動くものが同じになる。
@@ -26,12 +28,6 @@ import type {
   SheetId,
 } from '../schemas';
 import type { EventStore } from './eventStore';
-
-/**
- * op-log 正典の marker の版 (step1 W3d)。受信と作成で「この op-log は正典である」と宣言する。
- * 旧 snapshot の移行 (ローカルサーバだけが持つ) が、これの立った File を作り直さない
- */
-export const OPLOG_SCHEMA_VERSION = 1;
 
 const DEFAULT_FILE_NAME = '無題';
 const DEFAULT_SHEET_NAME = 'Sheet 1';
@@ -157,15 +153,15 @@ export class LocalStore {
   }
 
   /**
-   * remote から受信した batch を追記する。**同じ tx で正典の marker を立てる** (step1 Phase 4d-5)
-   * — 自分の編集の追記とは経路ごと分けてある
+   * remote から受信した batch を追記する (べき等)。
+   *
+   * 中身は自分の編集の追記と同じである。step1 Phase 4d-5 以来、受信は「正典の marker」を同じ tx で
+   * 立てていたが、それは旧 snapshot の移行 (ローカルサーバ) から受信内容を守るためで、
+   * サーバを撤去した step3 Phase 2 S2-7 で役目を終えた。**口は分けたまま残す** — 受信と
+   * 自分の編集は、知らせ (`broadcastingBackend`) などで扱いを変えうる
    */
   appendReceived(fileId: FileId, batches: Batch[]): number {
-    return this.events.appendReceivedBatches(
-      fileId,
-      batches,
-      OPLOG_SCHEMA_VERSION,
-    );
+    return this.events.appendBatches(fileId, batches);
   }
 
   /** op-log を読む。`since` を渡すと clock がそれより後のものだけ */
@@ -219,15 +215,8 @@ export class LocalStore {
     return this.events.getBlob(cid);
   }
 
-  /**
-   * genesis を書き、**同じ tx で正典の marker を立てる**。作った時点で op-log が正典なので、
-   * 旧 snapshot の移行に拾わせない
-   */
+  /** genesis の op-log を書く (作った時点で op-log が正典, step1 Phase 6 p6-1) */
   private initializeOplog(file: GraphFile): void {
-    this.events.appendReceivedBatches(
-      file.id,
-      graphFileToBatches(file),
-      OPLOG_SCHEMA_VERSION,
-    );
+    this.events.appendBatches(file.id, graphFileToBatches(file));
   }
 }

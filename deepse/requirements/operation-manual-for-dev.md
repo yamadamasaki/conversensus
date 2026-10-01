@@ -51,46 +51,33 @@ curl -X POST http://localhost:3000/xrpc/com.atproto.server.createAccount \
     }'
 ```
 
-アカウントを作成したら, サイドバー下部の「ATProto ログイン」からハンドルとパスワードを入力してログインする. セッションは `localStorage` の `atproto_session` に保存されるので, 次回以降は自動的に復元される. ログアウトはサイドバー下部の「ログアウト」から行う.
+アカウントを作成したら, サイドバー下部の「ATProto ログイン」からハンドルを入力してログインする. ログアウトはサイドバー下部の「ログアウト」から行う.
+
+> **step3 Phase 2 (2026-10-01) からログインは ATProto OAuth になった。**ハンドルを入れると PDS の
+> ページへ移り、そこでパスワードを入れて同意すると戻ってくる (アプリはパスワードを受け取らない)。
+> セッションはブラウザの保存領域に置かれ、次回以降は自動的に復元される。開発環境では
+> `http://127.0.0.1:5173/` で開き、**ログインは Chrome で行う** (開発用 PDS が http のため Safari では
+> 止まる。[user-test-environment.md](./user-test-environment.md) §1)。
 
 > **注意**: `src/client/.env.local` に `VITE_ATPROTO_{HANDLE,PASSWORD}` を置いても**自動ログインはしない** — これらの env はコード中のどこからも参照されていない (2026-07-20 時点). 参照されるのは `VITE_ATPROTO_PDS_URL` のみ.
+>
+> (step3 Phase 2) 開発用 PDS は `:3000` で公開するようにした。`VITE_ATPROTO_PDS_URL` が
+> `http://localhost:2583` のままならば `:3000` に直すか、行ごと消す (既定が `:3000`)。
 
-#### server/client の起動
+#### client の起動
 
-- `bun run dev:server`
 - `bun run dev:client`
+
+> step3 Phase 2 でローカルサーバ (`dev:server`) を撤去した。ローカル正典はブラウザの中にある。
 
 vite (7) は node 20.19+ or 22.12+ を要求する. v24 を入れた.
 
-http://localhost:5173/ で client が走っているはず.
+http://127.0.0.1:5173/ で client が走っているはず.
 
-### macOS アプリ (Tauri) として動かす
+### macOS アプリ (Tauri) として動かす — 撤去済み
 
-step1 Phase 8 (2026-08-14) から, **単体で動く macOS アプリ**として起動できる.
-
-- `bun run app:dev` # 開発中に動かす
-- `bun run app:build` # `.app` と `.dmg` を作る (`src-tauri/target/release/bundle/` の下)
-
-**このアプリはサーバを同梱している**ので, `bun run dev:server` を別に立てる必要は無い.
-bun もリポジトリも持っていない人に `.dmg` を渡せる.
-
-上の dev 環境とは以下が違う. **同じマシンで両方を同時に動かしてよい.**
-
-| | dev (ブラウザ) | アプリ |
-|---|---|---|
-| サーバ | `bun run dev:server` を手で起動 | 同梱 (アプリの起動・終了と一緒) |
-| ポート | 3000 | 39847 |
-| データ | リポジトリ内の `data/` | `~/Library/Application Support/site.conversensus.app/` |
-| ログ | 端末 | `~/Library/Logs/site.conversensus.app/` |
-
-**アプリのデータは dev 環境とは別物である.** アプリは空の状態から始まるので, dev 環境で
-作ったファイルを持ち込みたければ export / import で運ぶ.
-
-以下のくだりは, 今は多分必要ない.
-
-> 配布した `.dmg` から入れた場合, **署名していないので初回は Gatekeeper に止められる**.
-> 右クリック → 開く で一度許可すれば, 以後は普通に起動できる (詳細は
-> [user-test-environment.md](./user-test-environment.md) §8).
+step3 Phase 2 S2-7 (2026-10-01) で Tauri の配布をやめた。インストールは PWA で行う
+(ブラウザの「アプリとしてインストール」/「ホーム画面に追加」)。以前の手順は git の履歴にある。
 
 ## グラフ管理
 

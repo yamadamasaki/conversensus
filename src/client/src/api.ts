@@ -2,21 +2,34 @@
  * ローカル正典への入口 (step1 以来の `api.ts`)
  *
  * hooks から上はこの 9 関数だけを見る。中身は差し替えられるバックエンド (`local/backend.ts`)
- * に委ねる (step3 Phase 2 D2) — 既定はローカルサーバの HTTP、App 結合テストは同じプロセスの
- * `LocalStore`、S2-3 からはブラウザ内の Worker である。
+ * に委ねる (step3 Phase 2 D2) — ブラウザでは Worker の中の `LocalStore`、App 結合テストは同じ
+ * プロセスの `LocalStore` である。
  */
 
 import type { BlobCid, MimeType } from '@conversensus/shared';
 import type { LocalBackend } from './local/backend';
-import { httpBackend } from './local/httpBackend';
 
 export type { StoredBlob } from '@conversensus/shared';
 
-let backend: LocalBackend = httpBackend;
+/**
+ * まだ選ばれていないときのバックエンド。**呼ばれたら落とす** — 黙って何も保存しないと、
+ * 編集が消えたことに気づけない。起動 (`main.tsx`) が Worker のバックエンドを選ぶ
+ */
+const UNCONFIGURED: LocalBackend = new Proxy({} as LocalBackend, {
+  get: (_target, method) => () =>
+    Promise.reject(
+      new Error(`ローカル正典が開かれていない (${String(method)})`),
+    ),
+});
 
-/** バックエンドを差し替える。App 結合テスト (端末ごとの DB) と、起動時の選択が呼ぶ */
-export function setLocalBackend(next: LocalBackend): void {
-  backend = next;
+let backend: LocalBackend = UNCONFIGURED;
+
+/**
+ * バックエンドを選ぶ。起動 (`main.tsx`, Worker) と App 結合テスト (端末ごとの DB) が呼ぶ。
+ * null で選んでいない状態に戻す
+ */
+export function setLocalBackend(next: LocalBackend | null): void {
+  backend = next ?? UNCONFIGURED;
 }
 
 export const fetchFiles: LocalBackend['fetchFiles'] = () =>

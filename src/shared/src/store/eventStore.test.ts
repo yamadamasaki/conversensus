@@ -161,97 +161,6 @@ describe('EventStore', () => {
     });
   });
 
-  describe('op-log 正典化 marker / migrateToOplog (W3d)', () => {
-    const W3 = 1;
-
-    it('marker 不在のファイルは getSchemaVersion が null', () => {
-      expect(store.getSchemaVersion(FILE)).toBeNull();
-    });
-
-    it('migrateToOplog が genesis を append し marker を立てて true を返す', () => {
-      const genesis = [
-        addNode('g1', 'n1', 'A', 1),
-        addNode('g2', 'n2', 'B', 2),
-      ];
-      expect(store.migrateToOplog(FILE, genesis, W3)).toBe(true);
-      expect(store.getSchemaVersion(FILE)).toBe(W3);
-      expect(idsOf(store.getBatches(FILE))).toEqual(['g1', 'g2']);
-    });
-
-    it('既存 (pre-W3) ログを破棄してから genesis で作り直す', () => {
-      // migration 前に増分ログが存在する状態を作る
-      store.appendBatch(FILE, addNode('old', 'n9', '旧', 5));
-      const genesis = [addNode('g1', 'n1', 'A', 1)];
-      store.migrateToOplog(FILE, genesis, W3);
-      // 旧 batch は消え、genesis のみが残る (破棄→genesis)
-      expect(idsOf(store.getBatches(FILE))).toEqual(['g1']);
-    });
-
-    it('marker 済のファイルへの再 migration は no-op で false を返す', () => {
-      store.migrateToOplog(FILE, [addNode('g1', 'n1', 'A', 1)], W3);
-      // 二度目は別の genesis を渡しても実行されない (marker ゲート)
-      expect(
-        store.migrateToOplog(FILE, [addNode('g2', 'n2', 'B', 2)], W3),
-      ).toBe(false);
-      // ログは初回 genesis のまま (再破棄・再 append されない)
-      expect(idsOf(store.getBatches(FILE))).toEqual(['g1']);
-    });
-
-    it('marker はファイル境界で分離する', () => {
-      const other = 'file-2' as FileId;
-      store.migrateToOplog(FILE, [addNode('g1', 'n1', 'A', 1)], W3);
-      expect(store.getSchemaVersion(FILE)).toBe(W3);
-      expect(store.getSchemaVersion(other)).toBeNull();
-    });
-  });
-
-  describe('appendReceivedBatches (Phase 4d-0)', () => {
-    const W3 = 1;
-
-    it('受信 batch を追記し、同時に正典 marker を立てる', () => {
-      const received = [addNode('r1', 'n1', '受信', 7)];
-      expect(store.appendReceivedBatches(FILE, received, W3)).toBe(1);
-      expect(idsOf(store.getBatches(FILE))).toEqual(['r1']);
-      expect(store.getSchemaVersion(FILE)).toBe(W3);
-    });
-
-    it('受信後の lazy migration は no-op になり、受信 batch が破棄されない', () => {
-      // これが 4d-0 の本体: marker が無いと migrateToOplog が DELETE で受信内容を消す
-      store.appendReceivedBatches(FILE, [addNode('r1', 'n1', '受信', 7)], W3);
-      expect(
-        store.migrateToOplog(FILE, [addNode('g1', 'n1', 'A', 1)], W3),
-      ).toBe(false);
-      expect(idsOf(store.getBatches(FILE))).toEqual(['r1']);
-    });
-
-    it('受信していないファイルの lazy migration は従来どおり破棄→genesis する', () => {
-      // W3d-1 の仕様 (pre-W3 増分ログの破棄) を壊していないことの回帰
-      store.appendBatch(FILE, addNode('old', 'n9', '旧', 5));
-      expect(
-        store.migrateToOplog(FILE, [addNode('g1', 'n1', 'A', 1)], W3),
-      ).toBe(true);
-      expect(idsOf(store.getBatches(FILE))).toEqual(['g1']);
-    });
-
-    it('受信 0 件では marker を立てない (migration の機会を奪わない)', () => {
-      expect(store.appendReceivedBatches(FILE, [], W3)).toBe(0);
-      expect(store.getSchemaVersion(FILE)).toBeNull();
-    });
-
-    it('同一 batch_id の再受信はべき等 (件数 0・ログ不変)', () => {
-      const received = [addNode('r1', 'n1', '受信', 7)];
-      store.appendReceivedBatches(FILE, received, W3);
-      expect(store.appendReceivedBatches(FILE, received, W3)).toBe(0);
-      expect(idsOf(store.getBatches(FILE))).toEqual(['r1']);
-    });
-
-    it('marker は下げない (より新しい版で正典化済ならそのまま)', () => {
-      store.appendReceivedBatches(FILE, [addNode('r1', 'n1', '受信', 7)], 2);
-      store.appendReceivedBatches(FILE, [addNode('r2', 'n2', '受信2', 8)], W3);
-      expect(store.getSchemaVersion(FILE)).toBe(2);
-    });
-  });
-
   describe('projectSheet', () => {
     it('操作ログを projection して Sheet を導出する', () => {
       store.appendBatch(FILE, addNode('b1', 'n1', 'ノード1', 1));
@@ -283,7 +192,6 @@ describe('EventStore', () => {
   // Phase 6 p6-2 (設計 §3.5, §1.3): ファイル削除の正典。trunk から作られた branch の
   // 実体まで巻き込んで消すのがこの API の存在理由。
   describe('deleteFile (Phase 6 p6-2)', () => {
-    const W3 = 1;
     /** trunk の op-log に載る branch の作成 (step2 Phase 3 T7-1 以降、メタは op-log にある) */
     const branchCreated = (
       batchId: string,
@@ -328,15 +236,12 @@ describe('EventStore', () => {
       ops: [{ kind: 'branch.remove', target: branchId as BranchId }],
     });
 
-    it('batches / marker をまとめて消して true を返す', () => {
-      store.appendReceivedBatches(FILE, [addNode('b1', 'n1', 'A', 1)], W3);
+    it('batches を消して true を返す', () => {
+      store.appendBatch(FILE, addNode('b1', 'n1', 'A', 1));
 
       expect(store.deleteFile(FILE)).toBe(true);
 
       expect(store.getBatches(FILE)).toEqual([]);
-      // marker が残ると、同じ id が受信で materialize されたとき「移行済」と
-      // 誤認する。削除は marker まで含めて初期状態へ戻す。
-      expect(store.getSchemaVersion(FILE)).toBeNull();
     });
 
     it('🔴 trunk の op-log が作った branch の op-log も消す', () => {

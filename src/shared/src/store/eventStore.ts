@@ -46,11 +46,6 @@ type BlobRow = {
   bytes: Uint8Array;
 };
 
-/** file_migrations の 1 行 (op-log 読み取り正典化のスキーマ marker, W3d) */
-type MigrationRow = {
-  schema_version: number;
-};
-
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS batches (
   seq        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -71,13 +66,6 @@ CREATE TABLE IF NOT EXISTS batches (
 );
 CREATE INDEX IF NOT EXISTS idx_batches_file_order
   ON batches (file_id, clock, timestamp, batch_id);
-
--- op-log 読み取り正典化 (W3d) の per-file スキーマ marker。
--- 「破棄→genesis→marker 更新」を一度だけ実行するためのゲート。
-CREATE TABLE IF NOT EXISTS file_migrations (
-  file_id        TEXT    PRIMARY KEY,
-  schema_version INTEGER NOT NULL
-);
 
 -- 画像などのバイナリ (ANA-116)。content-addressed なので cid が主キーで、
 -- 同じ内容は 1 行しか持たない。**ファイルには紐づけない** — blob は
@@ -241,7 +229,7 @@ export class EventStore {
    * ファイルを op-log ごと削除する (step1 Phase 6 p6-2, 設計 §3.5)。
    *
    * **1 tx** で、当該 file_id と、その trunk から作られた branch の file_id の
-   * batches / file_migrations をまとめて消す。
+   * batches をまとめて消す。
    *
    * branch を巻き込むのは、branch の中身へは trunk の op-log の `branch.create` からしか
    * 辿れないためである — trunk だけ消すと参照者のいない batch が永久に残る。
@@ -262,101 +250,12 @@ export class EventStore {
       const branchFileIds = branchFileIdsOf(this.getBatches(fileId));
       let removed = 0;
       for (const id of [fileId, ...branchFileIds]) {
-        for (const table of ['batches', 'file_migrations']) {
-          removed += this.db.run(`DELETE FROM ${table} WHERE file_id = $file`, {
-            $file: id,
-          }).changes;
-        }
+        removed += this.db.run('DELETE FROM batches WHERE file_id = $file', {
+          $file: id,
+        }).changes;
       }
       return removed > 0;
     });
-  }
-
-  /**
-   * ファイルの op-log スキーマ marker を返す (W3d)。未 migration なら null。
-   * marker >= W3_SCHEMA_VERSION なら op-log は既に正典 (genesis 済)。
-   */
-  getSchemaVersion(fileId: FileId): number | null {
-    const row = this.db.get<MigrationRow>(
-      'SELECT schema_version FROM file_migrations WHERE file_id = ?',
-      [fileId],
-    );
-    return row ? row.schema_version : null;
-  }
-
-  /**
-   * op-log 読み取り正典化 (W3d): pre-W3 ログを破棄し、snapshot 由来の genesis batch で
-   * 作り直して marker を立てる。**「破棄→genesis→marker 更新」を 1 トランザクションで**
-   * 原子的に実行する (途中失敗はロールバックし marker 未更新 = 次回再試行)。
-   *
-   * 再入べき等: tx 内で marker を再検査し、既に `>= schemaVersion` なら何もしない。
-   * genesis batch は呼び出し側が snapshot から生成して渡す (本層は DB 操作に徹する)。
-   *
-   * @returns migration を実行したら true、既に済で no-op なら false
-   */
-  migrateToOplog(
-    fileId: FileId,
-    genesisBatches: Batch[],
-    schemaVersion: number,
-  ): boolean {
-    return this.db.transaction(() => {
-      // tx 内 re-check: 並行要求や再試行での二重 migration を防ぐ (再入べき等)
-      const current = this.getSchemaVersion(fileId);
-      if (current !== null && current >= schemaVersion) return false;
-      // 破棄 → genesis → marker の順序を tx で構造的に保証する
-      this.db.run('DELETE FROM batches WHERE file_id = $file', {
-        $file: fileId,
-      });
-      for (const batch of genesisBatches) this.appendBatch(fileId, batch);
-      this.setSchemaVersion(fileId, schemaVersion);
-      return true;
-    });
-  }
-
-  /**
-   * remote から受信した Batch を追記し、**同じ tx で op-log 正典 marker を立てる** (Phase 4d-0)。
-   *
-   * marker は W3d-1 では「snapshot からの lazy migration 済」を表したが、ここでは
-   * **「この op-log は正典であり snapshot から作り直してはならない」宣言**として使う。
-   * marker を立てずに受信 batch を書くと、次の `GET /files/:id/batches` が
-   * `migrateToOplog` を起動し `DELETE FROM batches` で**受信内容を丸ごと破棄する**
-   * (設計 `step1-phase4d-receive.md` §1.8)。受信 batch は remote にしか無いので、
-   * 受信側 cursor が前進していれば二度と取り直せない。
-   *
-   * `migrateToOplog` 側に「op-log が空でなければ migration しない」ガードを置く案は採らない。
-   * W3d-1 が仕様化した「pre-W3 の増分ログを破棄して genesis で作り直す」挙動
-   * (`migrateFileToOplog.test.md`) を壊すため。**受信していないファイルの lazy migration は
-   * 従来どおり動く** — 両者を分けるのが marker の役割になる。
-   *
-   * @returns 新規に追記された件数 (既存 batch_id は appendBatch のべき等性で無視される)
-   */
-  appendReceivedBatches(
-    fileId: FileId,
-    batches: Batch[],
-    schemaVersion: number,
-  ): number {
-    // 受信 0 件で正典宣言だけ立てない (lazy migration の機会を無意味に奪わない)
-    if (batches.length === 0) return 0;
-    return this.db.transaction(() => {
-      let inserted = 0;
-      for (const batch of batches) {
-        if (this.appendBatch(fileId, batch)) inserted += 1;
-      }
-      // marker は下げない: 既により新しい版で正典化済ならそのまま残す
-      const current = this.getSchemaVersion(fileId);
-      if (current === null || current < schemaVersion) {
-        this.setSchemaVersion(fileId, schemaVersion);
-      }
-      return inserted;
-    });
-  }
-
-  private setSchemaVersion(fileId: FileId, schemaVersion: number): void {
-    this.db.run(
-      `INSERT OR REPLACE INTO file_migrations (file_id, schema_version)
-       VALUES ($file, $ver)`,
-      { $file: fileId, $ver: schemaVersion },
-    );
   }
 
   /**

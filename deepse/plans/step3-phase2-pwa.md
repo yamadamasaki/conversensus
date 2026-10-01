@@ -176,7 +176,7 @@ ITP は操作の無い Web アプリの保存領域を消すことがある (S0-
 | **S2-4** ✅ | タブの actor (D4) と、タブ間の知らせ (D3 の BroadcastChannel) | 単体 (溜まりの借り方) + E2E (2 タブで同じ File を編む: 点が重ならない、相手のタブに出る) |
 | **S2-5** ✅ | PWA 化: manifest・service worker (オフラインで起動)・`persist()`・未同期の表示 (D6)。COEP の下の画像 (Q4) | E2E (オフライン起動) |
 | **S2-6** ✅ | ATProto OAuth (D7)。**最初に spike**: 開発用の PDS で loopback client が通るか | 単体 + 実機 |
-| **S2-7** | 撤去: `src/server/`・`src-tauri/`・Tauri 関係の E2E と設定・`api.conversensus.site` の手順。本番の Caddy に COOP/COEP (D8) | lint / typecheck / test / E2E |
+| **S2-7** ✅ | 撤去: `src/server/`・`src-tauri/`・Tauri 関係の E2E と設定・`api.conversensus.site` の手順。本番の Caddy に COOP/COEP (D8) | lint / typecheck / test / E2E |
 
 S2-1 と S2-2 は**今の形のまま動く**ことを保つ (サーバがまだ居る)。S2-3 で既定を切り替え、
 S2-7 でサーバを消す。途中のどこで止めても main が動く順にしてある。
@@ -401,3 +401,48 @@ service worker を `fetch(request)` に戻すと WebKit の「握られた画面
 #### 検証
 
 単体 1918 件・App 結合 8 件・E2E 36 件 (2 件 skip) が緑 (App 結合はパスワードの認証で、偽の PDS に対して)。
+
+### S2-7 撤去と配信 (2026-10-01)
+
+#### 撤去したもの
+
+- `src/server/` (bun + Hono のローカルサーバ) と、その workspace・`dev:server`・typecheck の対象
+- `src-tauri/`・`scripts/build-daemon.ts`・`src/client/.env.tauri`・Tauri の依存と scripts
+- client の `httpBackend` と `VITE_API_BASE`。`api.ts` は、バックエンドが選ばれる前に呼ばれたら
+  **落とす** (黙って何も保存しないと、編集が消えたことに気づけない)
+- **旧 snapshot の移行のための正典の marker** (`file_migrations`・`migrateToOplog`・
+  `appendReceivedBatches`)。受信を marker で守っていたのはローカルサーバの一括移行からで、
+  サーバとともに役目を終えた。`LocalStore.appendReceived` は口として残し、中身は追記と同じ
+- `scripts/inspect-local-oplog.ts` (デーモンの HTTP API を叩いていた)
+
+テストの道具も直した: ImageNode のテストは画像の保存先を `fetch` の差し替え (旧 HTTP の
+バックエンド向け) で偽装していたので、`setLocalBackend` で差し替える形にした。
+
+#### 配信の手順 (VPS、利用者が実行する)
+
+本番の構成は `app.conversensus.site` (静的配信) と `pds.conversensus.site` (PDS) だけになる。
+
+1. **Caddy の設定を替える**: `infra/caddy/Caddyfile` を `/etc/caddy/Caddyfile` に置き、
+   `caddy validate --config /etc/caddy/Caddyfile` の後 `systemctl reload caddy`。
+   **COOP/COEP が付く** (付け忘れると全員「この窓では保存できません」)。`api.conversensus.site` の
+   ブロックは消えている
+2. **クライアントを配る**:
+   ```shell
+   cd /opt/conversensus && git pull && bun install
+   bun run --cwd src/client build
+   rm -rf /var/www/conversensus/* && cp -r src/client/dist/* /var/www/conversensus/
+   ```
+   `client-metadata.json` (OAuth の `client_id`) と `sw.js` も `dist/` に入っている
+3. **ローカルサーバを止める**: `systemctl disable --now conversensus` (`api.conversensus.site`)。
+   DNS のレコードは残しても害は無い (Caddy が受けない)
+4. **確かめる** (Chrome と Safari):
+   - `https://app.conversensus.site/` を開き、コンソールで `crossOriginIsolated` が `true`
+   - 本番のアカウントで OAuth でログインでき (Safari を含む)、File を作るとサイドバーが
+     「クラウド同期済み」になる
+   - `https://app.conversensus.site/client-metadata.json` が JSON で返る
+
+既存のデータ (旧 API サーバの DB、Tauri のアプリのデータ) は移さない (v2 で読めない, Q2)。
+
+#### 検証
+
+単体 1808 件 (サーバと marker のテストを撤去した分だけ減った)・App 結合 8 件・E2E が緑。

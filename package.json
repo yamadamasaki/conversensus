@@ -3,17 +3,11 @@
   "private": true,
   "workspaces": [
     "src/shared",
-    "src/server",
     "src/client"
   ],
   "scripts": {
-    "dev:server": "bun run --watch src/server/src/index.ts",
     "dev:client": "bun run --cwd src/client dev",
-    "build:daemon": "bun run scripts/build-daemon.ts",
-    "build:client:tauri": "bun run --cwd src/client build:tauri",
-    "app:dev": "tauri dev",
-    "app:build": "tauri build",
-    "typecheck": "bun run --cwd src/client tsc --noEmit -p tsconfig.app.json && bun run --cwd src/client tsc --noEmit -p tsconfig.test.json && bun run --cwd src/server tsc --noEmit -p tsconfig.json && bun run --cwd src/shared tsc --noEmit -p tsconfig.json && bun run --cwd src/client tsc --noEmit -p ../../tsconfig.e2e.json",
+    "typecheck": "bun run --cwd src/client tsc --noEmit -p tsconfig.app.json && bun run --cwd src/client tsc --noEmit -p tsconfig.test.json && bun run --cwd src/shared tsc --noEmit -p tsconfig.json && bun run --cwd src/client tsc --noEmit -p ../../tsconfig.e2e.json",
     "lint": "bun --bun biome check src/ tests/ playwright.config.ts",
     "lint:fix": "bun --bun biome check --write src/ tests/ playwright.config.ts",
     "setup": "cp scripts/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit && echo 'pre-commit hook installed'",
@@ -27,10 +21,6 @@
     "@biomejs/biome": "^2.4.7",
     "@happy-dom/global-registrator": "^20.8.4",
     "@playwright/test": "^1.62.1",
-    "@tauri-apps/cli": "^2.11.4",
     "fast-check": "^4.9.0"
-  },
-  "dependencies": {
-    "@tauri-apps/plugin-shell": "~2"
   }
 }
