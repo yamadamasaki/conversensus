@@ -145,6 +145,31 @@ graph node 以外の node/edge だけである。
 
 1 と 5 は**間違えても静かに違う答えを出す側**なので、性質テストで固める。
 
+### 3.4a D4: op-log は追記のみ。削除も op である (2026-10-02)
+
+> **op-log の batch は一度書いたら書き換えも削除もしない。File・branch・node などの削除は
+> tombstone の op (`file.remove` / `branch.remove` / `node.remove` …) として追記し、
+> 畳み込みで見えなくする。**
+
+**理由**:
+
+- **物理的に消すと復活する。**行ごと消すと tombstone まで消え、次の discovery が
+  「ローカルに無い = 未知」と判定して PDS から作り直す (ANA-127 がこれだった)
+- **相手の repo にある記録は消せない。**分散した op-log で「消す」が意味を持つのは、
+  全員の手元で畳み込みから見えなくすることだけである
+- **経緯は残すこと自体に価値がある。**merge や判断の跡を後から辿れる
+
+**肥大化は「保持」の問題として別に扱う (GC, 将来)**:
+
+- GC は仕様の外にある**ローカル正典の最適化**であり、畳み込みの結果を変えてはならない
+- 安全に捨てられるのは **remove-wins で消えたものの中身**である。二度と復活しないので、
+  **tombstone を残せば**本体の batch を捨てても projection は変わらない
+- branch の本体は `branch.remove` の時点で捨てられる (merge した batch は trunk に写されて
+  着地しており、commit のメタも trunk の op-log にある)。File の削除はその File の branch
+  すべてにこれを当てる特別な場合である
+- PDS 側は自分の record しか消せないので、GC はローカルに閉じる
+- 実施は肥大化を測ってから。名前は `purge` 系とし、「tombstone を残す」を契約に書く
+
 ### 3.5 未決 (O)
 
 - **O1**: 「グラフ view のアドレス」`(file, sheet, branch, 切断面, mode, highlight)` を 1 つ定義し、

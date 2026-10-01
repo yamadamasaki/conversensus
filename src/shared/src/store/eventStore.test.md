@@ -94,7 +94,7 @@ Phase 3 の永続モデルは「append-only な操作ログ + projection」。�
       (破れた場合は明示除外の実装が要る)。
   - **削除済みファイルの除外 (ANA-127)**: `file.remove` を持つ file_id を一覧から落とす。
     ここで固定したいのは除外そのものより **`batches` の行が残ること**である。削除を
-    `deleteFile` (物理削除) で実装していたのが ANA-127 の原因で、行ごと消えると tombstone
+    物理削除で実装していたのが ANA-127 の原因で、行ごと消えると tombstone
     まで消え、次の discovery が「ローカルに無い = 未知ファイル」と判定して PDS から
     materialize し直してしまう (設計 D1 の層 1)。したがって次の 4 点を固定する:
     - `file.remove` を持つ file_id は一覧に出ない。
@@ -106,19 +106,6 @@ Phase 3 の永続モデルは「append-only な操作ログ + projection」。�
   - marker は下げない (より新しい版で正典化済ならそのまま残す)。
 - **projectSheet**: 操作ログを projection して Sheet を導出する。node.add → node.setContent
   で LWW の後勝ちが反映されること、空ログでは空 Sheet になること。
-- **deleteFile (step1 Phase 6 p6-2)**: ファイルの削除。観点は「消し残しと消し過ぎ」の両側で、
-  **消し残しの範囲が広い**のがこの API の難しさである (設計 §1.3 の既存の穴の裏返し):
-  - **batches / marker がまとめて消える**: marker を残すと、同じ id が受信で
-    materialize されたときに「移行済」と誤認する。削除は初期状態へ戻すこと。
-  - **🔴 trunk の op-log が作った branch の op-log も消える**: branch の中身へは trunk の
-    `branch.create` からしか辿れないため、trunk だけ消すと孤児 batch が永久に残る。
-    step2 T7-1 で branch のメタが op-log へ移った後も SQLite の branches テーブルから引いていて、
-    そこには何も入らなくなっていた (step3 Phase 1 でテーブルごと撤去し、op-log から引く)。
-  - **消された branch の op-log も消える**: `branch.remove` はメタを畳み込みから隠すだけで、
-    中身の op-log は残っている。
-  - **他ファイルは巻き添えにしない**: 消し過ぎの検出。
-  - **対象が無ければ false**: HTTP 404 の材料であり、二重削除を安全にする。
-
 テストは `beforeEach` で毎回新しいインメモリ DB を生成し、テスト間の状態を分離する。
 
 ## blob ストア (ANA-116 S2)
@@ -149,7 +136,6 @@ cid の計算そのものは API 境界 (HTTP) の責務で、ここでは検証
 - cid が違えば別の行として共存する
 - 無い cid は `null`
 - **0x00 を含むバイト列が欠けずに往復する** (BLOB 列であることの確認)
-- **`deleteFile` の後も blob は残る** (ファイルに紐づかないことの確認)
 
 ## merge の写し (step3 Phase 1 D2)
 
