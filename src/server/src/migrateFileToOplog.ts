@@ -12,9 +12,8 @@
  *   - **再入べき等**: 事前 marker 検査 (snapshot 読み込みを省く最適化) + tx 内 re-check の二段。
  */
 
-import type { FileId } from '@conversensus/shared';
+import type { EventStore, FileId } from '@conversensus/shared';
 import { graphFileToBatches } from '@conversensus/shared';
-import type { EventStore } from './eventStore';
 import { readFile } from './storage';
 
 /** op-log 正典スキーマの初版。marker 不在 or `< W3_SCHEMA_VERSION` を「未 migration」と判定する */

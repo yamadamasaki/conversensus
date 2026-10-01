@@ -2,9 +2,14 @@
 
 ## 何を
 
-`EventStore` (step1 Phase 3 のローカル永続層) をテストする。SQLite (`bun:sqlite`) を
-インメモリ (`:memory:`) で起動し、操作ログ (batches) の追記・取得・projection と、
-コミット (ラベル付きオフセット) の保存・取得を検証する。
+`EventStore` (step1 Phase 3 のローカル永続層) をテストする。`bun:sqlite` のドライバ
+(`BunSqliteDriver`) をインメモリ (`:memory:`) で起動し、操作ログ (batches) の追記・取得・
+projection・削除と blob を検証する。
+
+step3 Phase 2 S2-1 で `src/server` から `src/shared/src/store` へ移した。`EventStore` は SQL の
+エンジンに依らない (`SqlDriver`) ので、ここで `bun:sqlite` を通して固定したものが、ブラウザでは
+SQLite-WASM の上で動く。ドライバどうしが同じに振る舞うことは `bunSqliteDriver.test.ts` の
+契約が見る。
 
 ## なぜ
 

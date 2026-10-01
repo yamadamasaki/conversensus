@@ -7,8 +7,9 @@ import {
   type FileId,
   type NodeId,
   type SheetId,
-} from '@conversensus/shared';
-import { EventStore, IN_MEMORY } from './eventStore';
+} from '../index';
+import { BunSqliteDriver, IN_MEMORY } from './bunSqliteDriver';
+import { EventStore } from './eventStore';
 
 const FILE = 'file-1' as FileId;
 const SHEET_META = { id: 'sheet-1' as SheetId, name: 'Sheet 1' };
@@ -23,7 +24,7 @@ const idsOf = (records: readonly { id: string }[]): string[] =>
 let store: EventStore;
 
 beforeEach(() => {
-  store = new EventStore(IN_MEMORY);
+  store = new EventStore(new BunSqliteDriver(IN_MEMORY));
 });
 
 /** node.add 1 件だけの Batch を作るヘルパ */

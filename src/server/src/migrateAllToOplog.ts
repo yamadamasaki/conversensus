@@ -17,8 +17,7 @@
  * **Phase 6 限りの寿命**: 移行済み環境では no-op になるため、次リリースで削除できる。
  */
 
-import type { FileId } from '@conversensus/shared';
-import type { EventStore } from './eventStore';
+import type { EventStore, FileId } from '@conversensus/shared';
 import { migrateFileToOplog } from './migrateFileToOplog';
 import { listSnapshotIds } from './storage';
 

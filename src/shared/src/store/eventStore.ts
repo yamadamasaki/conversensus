@@ -1,7 +1,8 @@
 /**
  * ローカル永続層: 操作ログ (batches) + projection (step1 Phase 3)
  *
- * O1 の確定 (SQLite / `bun:sqlite`) に基づく永続層。
+ * O1 の確定 (SQLite) に基づく永続層。**SQL のエンジンには依らない** (`SqlDriver`, step3 Phase 2 D1) —
+ * テストとローカルサーバは `bun:sqlite`、ブラウザは SQLite-WASM の `opfs` VFS で同じものが動く。
  * 保存モデルは「append-only な操作ログ + projection」:
  *   - batches テーブルへ Batch を追記するのみ (更新・削除しない)。
  *   - グラフ状態 (Sheet) は保存せず、batches の projection で導出する。
@@ -11,23 +12,16 @@
  * 非破壊: 本 Phase では EventStore を追加するのみで、HTTP API の載せ替えは Phase 4 以降。
  */
 
-import { Database } from 'bun:sqlite';
+import type { BlobCid, MimeType } from '../blob';
 import {
-  type Batch,
-  type BlobCid,
-  type FileId,
-  type GraphFileListItem,
   isFileDeleted,
-  type MimeType,
   projectBatches,
   projectFile,
-  type Sheet,
-  type SheetId,
   toSheet,
-} from '@conversensus/shared';
-
-/** インメモリ DB のパス指定 (テスト用) */
-export const IN_MEMORY = ':memory:';
+} from '../events/project';
+import type { Batch } from '../events/unified';
+import type { FileId, GraphFileListItem, Sheet, SheetId } from '../schemas';
+import type { SqlDriver } from './sqlDriver';
 
 /** batches の 1 行 (ops は JSON 文字列で保持する) */
 type BatchRow = {
@@ -101,15 +95,12 @@ CREATE TABLE IF NOT EXISTS blobs (
  * ファイル (グラフ) ごとに file_id で batches を仕切る。
  */
 export class EventStore {
-  private readonly db: Database;
+  private readonly db: SqlDriver;
 
-  /** @param path DB ファイルパス。テストでは `IN_MEMORY` を渡す */
-  constructor(path: string) {
-    this.db = new Database(path);
-    // WAL: デーモン常駐からの並行アクセスで読み書きの競合を緩和する
-    this.db.exec('PRAGMA journal_mode = WAL');
-    this.db.exec('PRAGMA foreign_keys = ON');
-    this.db.run(SCHEMA);
+  /** @param db SQL ドライバ。テストでは `new BunSqliteDriver(IN_MEMORY)` を渡す */
+  constructor(db: SqlDriver) {
+    this.db = db;
+    this.db.exec(SCHEMA);
   }
 
   /**
@@ -129,15 +120,13 @@ export class EventStore {
     if (batch.ops.length === 0) {
       throw new Error('Cannot append a batch with empty ops');
     }
-    const result = this.db
-      .query(
-        `INSERT OR IGNORE INTO batches
-           (file_id, batch_id, actor, clock, dot_seq, deps_json, timestamp,
-            ops_json, sheet_id, copy_of_json, merged_in)
-         VALUES ($file, $id, $actor, $clock, $dotSeq, $deps, $ts, $ops, $sheet,
-                 $copyOf, $mergedIn)`,
-      )
-      .run({
+    const result = this.db.run(
+      `INSERT OR IGNORE INTO batches
+         (file_id, batch_id, actor, clock, dot_seq, deps_json, timestamp,
+          ops_json, sheet_id, copy_of_json, merged_in)
+       VALUES ($file, $id, $actor, $clock, $dotSeq, $deps, $ts, $ops, $sheet,
+               $copyOf, $mergedIn)`,
+      {
         $file: fileId,
         $id: batch.id,
         $actor: batch.actor,
@@ -150,20 +139,20 @@ export class EventStore {
         $sheet: batch.sheetId ?? null,
         $copyOf: batch.copyOf ? JSON.stringify(batch.copyOf) : null,
         $mergedIn: batch.mergedIn ?? null,
-      });
+      },
+    );
     return result.changes > 0;
   }
 
   /** 複数 Batch を 1 トランザクションで追記する。@returns 新規追記された件数 */
   appendBatches(fileId: FileId, batches: Batch[]): number {
-    const tx = this.db.transaction((items: Batch[]) => {
+    return this.db.transaction(() => {
       let inserted = 0;
-      for (const batch of items) {
+      for (const batch of batches) {
         if (this.appendBatch(fileId, batch)) inserted += 1;
       }
       return inserted;
     });
-    return tx(batches);
   }
 
   /**
@@ -172,15 +161,14 @@ export class EventStore {
    * projection は決定論のため内部で再整列する (projectBatches)。
    */
   getBatches(fileId: FileId): Batch[] {
-    const rows = this.db
-      .query<BatchRow, string>(
-        `SELECT batch_id, actor, clock, dot_seq, deps_json, timestamp, ops_json,
-                sheet_id, copy_of_json, merged_in
-           FROM batches
-          WHERE file_id = ?
-          ORDER BY clock, timestamp, batch_id`,
-      )
-      .all(fileId);
+    const rows = this.db.all<BatchRow>(
+      `SELECT batch_id, actor, clock, dot_seq, deps_json, timestamp, ops_json,
+              sheet_id, copy_of_json, merged_in
+         FROM batches
+        WHERE file_id = ?
+        ORDER BY clock, timestamp, batch_id`,
+      [fileId],
+    );
     return rows.map((row) => rowToBatch(row));
   }
 
@@ -205,10 +193,9 @@ export class EventStore {
    */
   listAllFileIds(): FileId[] {
     return this.db
-      .query<{ file_id: string }, []>(
+      .all<{ file_id: string }>(
         'SELECT file_id FROM batches GROUP BY file_id ORDER BY MIN(seq)',
       )
-      .all()
       .map((row) => row.file_id as FileId);
   }
 
@@ -229,11 +216,9 @@ export class EventStore {
    *   「未知ファイル」と誤判定して PDS から materialize し直してしまう (設計 D1 の層 1)。
    */
   listOplogFiles(): GraphFileListItem[] {
-    const rows = this.db
-      .query<{ file_id: string }, []>(
-        'SELECT file_id FROM batches GROUP BY file_id ORDER BY MIN(seq)',
-      )
-      .all();
+    const rows = this.db.all<{ file_id: string }>(
+      'SELECT file_id FROM batches GROUP BY file_id ORDER BY MIN(seq)',
+    );
     const items: GraphFileListItem[] = [];
     for (const row of rows) {
       const fileId = row.file_id as FileId;
@@ -273,19 +258,18 @@ export class EventStore {
    * @returns 1 行でも消したら true、対象が何も無ければ false (= 404 の根拠)
    */
   deleteFile(fileId: FileId): boolean {
-    const tx = this.db.transaction(() => {
+    return this.db.transaction(() => {
       const branchFileIds = branchFileIdsOf(this.getBatches(fileId));
       let removed = 0;
       for (const id of [fileId, ...branchFileIds]) {
         for (const table of ['batches', 'file_migrations']) {
-          removed += this.db
-            .query(`DELETE FROM ${table} WHERE file_id = $file`)
-            .run({ $file: id }).changes;
+          removed += this.db.run(`DELETE FROM ${table} WHERE file_id = $file`, {
+            $file: id,
+          }).changes;
         }
       }
       return removed > 0;
     });
-    return tx();
   }
 
   /**
@@ -293,11 +277,10 @@ export class EventStore {
    * marker >= W3_SCHEMA_VERSION なら op-log は既に正典 (genesis 済)。
    */
   getSchemaVersion(fileId: FileId): number | null {
-    const row = this.db
-      .query<MigrationRow, string>(
-        'SELECT schema_version FROM file_migrations WHERE file_id = ?',
-      )
-      .get(fileId);
+    const row = this.db.get<MigrationRow>(
+      'SELECT schema_version FROM file_migrations WHERE file_id = ?',
+      [fileId],
+    );
     return row ? row.schema_version : null;
   }
 
@@ -316,24 +299,18 @@ export class EventStore {
     genesisBatches: Batch[],
     schemaVersion: number,
   ): boolean {
-    const tx = this.db.transaction(() => {
+    return this.db.transaction(() => {
       // tx 内 re-check: 並行要求や再試行での二重 migration を防ぐ (再入べき等)
       const current = this.getSchemaVersion(fileId);
       if (current !== null && current >= schemaVersion) return false;
       // 破棄 → genesis → marker の順序を tx で構造的に保証する
-      this.db
-        .query('DELETE FROM batches WHERE file_id = $file')
-        .run({ $file: fileId });
+      this.db.run('DELETE FROM batches WHERE file_id = $file', {
+        $file: fileId,
+      });
       for (const batch of genesisBatches) this.appendBatch(fileId, batch);
-      this.db
-        .query(
-          `INSERT OR REPLACE INTO file_migrations (file_id, schema_version)
-           VALUES ($file, $ver)`,
-        )
-        .run({ $file: fileId, $ver: schemaVersion });
+      this.setSchemaVersion(fileId, schemaVersion);
       return true;
     });
-    return tx();
   }
 
   /**
@@ -360,24 +337,26 @@ export class EventStore {
   ): number {
     // 受信 0 件で正典宣言だけ立てない (lazy migration の機会を無意味に奪わない)
     if (batches.length === 0) return 0;
-    const tx = this.db.transaction((items: Batch[]) => {
+    return this.db.transaction(() => {
       let inserted = 0;
-      for (const batch of items) {
+      for (const batch of batches) {
         if (this.appendBatch(fileId, batch)) inserted += 1;
       }
       // marker は下げない: 既により新しい版で正典化済ならそのまま残す
       const current = this.getSchemaVersion(fileId);
       if (current === null || current < schemaVersion) {
-        this.db
-          .query(
-            `INSERT OR REPLACE INTO file_migrations (file_id, schema_version)
-             VALUES ($file, $ver)`,
-          )
-          .run({ $file: fileId, $ver: schemaVersion });
+        this.setSchemaVersion(fileId, schemaVersion);
       }
       return inserted;
     });
-    return tx(batches);
+  }
+
+  private setSchemaVersion(fileId: FileId, schemaVersion: number): void {
+    this.db.run(
+      `INSERT OR REPLACE INTO file_migrations (file_id, schema_version)
+       VALUES ($file, $ver)`,
+      { $file: fileId, $ver: schemaVersion },
+    );
   }
 
   /**
@@ -391,17 +370,16 @@ export class EventStore {
    * @returns 新規に格納したら true、既存で無視したら false
    */
   putBlob(cid: BlobCid, bytes: Uint8Array, mimeType: MimeType): boolean {
-    const result = this.db
-      .query(
-        `INSERT OR IGNORE INTO blobs (cid, mime_type, size, bytes)
-         VALUES ($cid, $mime, $size, $bytes)`,
-      )
-      .run({
+    const result = this.db.run(
+      `INSERT OR IGNORE INTO blobs (cid, mime_type, size, bytes)
+       VALUES ($cid, $mime, $size, $bytes)`,
+      {
         $cid: cid,
         $mime: mimeType,
         $size: bytes.byteLength,
         $bytes: bytes,
-      });
+      },
+    );
     return result.changes > 0;
   }
 
@@ -409,11 +387,10 @@ export class EventStore {
   getBlob(
     cid: BlobCid,
   ): { bytes: Uint8Array; mimeType: MimeType; size: number } | null {
-    const row = this.db
-      .query<BlobRow, string>(
-        'SELECT mime_type, size, bytes FROM blobs WHERE cid = ?',
-      )
-      .get(cid);
+    const row = this.db.get<BlobRow>(
+      'SELECT mime_type, size, bytes FROM blobs WHERE cid = ?',
+      [cid],
+    );
     if (!row) return null;
     return {
       bytes: new Uint8Array(row.bytes),

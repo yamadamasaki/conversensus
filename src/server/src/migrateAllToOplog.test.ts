@@ -3,7 +3,11 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { FileId, GraphFile, SheetId } from '@conversensus/shared';
-import { EventStore, IN_MEMORY } from './eventStore';
+import { EventStore } from '@conversensus/shared';
+import {
+  BunSqliteDriver,
+  IN_MEMORY,
+} from '@conversensus/shared/src/store/bunSqliteDriver';
 import { migrateAllFilesToOplog } from './migrateAllToOplog';
 import { W3_SCHEMA_VERSION } from './migrateFileToOplog';
 import { writeLegacySnapshot } from './testing/legacySnapshot';
@@ -26,7 +30,7 @@ let store: EventStore;
 beforeEach(async () => {
   tmpDir = await mkdtemp(join(tmpdir(), 'conversensus-migrate-all-test-'));
   process.env.DATA_DIR = tmpDir;
-  store = new EventStore(IN_MEMORY);
+  store = new EventStore(new BunSqliteDriver(IN_MEMORY));
 });
 
 afterEach(async () => {

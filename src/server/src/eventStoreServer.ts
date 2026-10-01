@@ -8,7 +8,8 @@
 
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { EventStore } from './eventStore';
+import { EventStore } from '@conversensus/shared';
+import { BunSqliteDriver } from '@conversensus/shared/src/store/bunSqliteDriver';
 
 /**
  * DB のファイル名。**v2 (step3 Phase 1) で名前を変えた** — batch が点と依存を持つ形になり、
@@ -32,7 +33,7 @@ export function getEventStore(): EventStore {
   let store = stores.get(path);
   if (!store) {
     mkdirSync(dataDir(), { recursive: true }); // DB を開く前にディレクトリを保証する
-    store = new EventStore(path);
+    store = new EventStore(new BunSqliteDriver(path));
     stores.set(path, store);
   }
   return store;

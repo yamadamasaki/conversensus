@@ -170,7 +170,7 @@ ITP は操作の無い Web アプリの保存領域を消すことがある (S0-
 
 | | 内容 | テスト |
 | --- | --- | --- |
-| **S2-1** | eventStore をドライバ非依存にして `shared` へ (D1)。サーバは `bun:sqlite` ドライバで同じものを使う — **振る舞いは変えない** | 既存の eventStore テストがそのまま通る |
+| **S2-1** ✅ | eventStore をドライバ非依存にして `shared` へ (D1)。サーバは `bun:sqlite` ドライバで同じものを使う — **振る舞いは変えない** | 既存の eventStore テストがそのまま通る |
 | **S2-2** | 経路のロジックを `localStore` へ (D2)。`api.ts` を「バックエンド」の口の上に載せ、実装を HTTP とプロセス内 (`bun:sqlite`) の 2 つにする。**App 結合をプロセス内に切り替え、Hono を外す** | 単体 + App 結合 |
 | **S2-3** | ブラウザのバックエンド (D3): Worker + SQLite-WASM (`opfs`) + RPC。Vite に COOP/COEP。開けないときの画面 (D5)。既定をこちらに切り替える。E2E を persistent context に | E2E (WebKit / Chromium) |
 | **S2-4** | タブの actor (D4) と、タブ間の知らせ (D3 の BroadcastChannel) | 単体 (溜まりの借り方) + E2E (2 タブで同じ File を編む: 点が重ならない、相手のタブに出る) |
@@ -212,4 +212,21 @@ S2-7 でサーバを消す。途中のどこで止めても main が動く順に
 
 ## 7. 実装の記録
 
-(スライスごとに追記する)
+### S2-1 eventStore を SQL ドライバ非依存にして shared へ (2026-10-01)
+
+`EventStore` を `src/server` から `src/shared/src/store/` へ移し、DB の呼び方を `SqlDriver`
+(`exec` / `run` / `all` / `get` / `transaction` / `close`、同期) の口に寄せた。`bun:sqlite` の
+実装 (`BunSqliteDriver`) はブラウザの bundle に入れないよう `index.ts` から出さず、使う側が
+パスで import する。サーバは同じ `EventStore` を `BunSqliteDriver` で使う — **振る舞いは変えていない**
+(SQL も pragma もそのまま)。
+
+ドライバの契約は `sqlDriverContract.ts` に、テストの道具に依らない関数の列として書いた。
+S2-3 で SQLite-WASM のドライバにブラウザの中で同じ契約を当てる。
+
+旧 snapshot の移行 (`migrateToOplog`) も一緒に移した (S2-1 は振る舞いを変えないため)。
+v2 では読むものが無いので、S2-7 でサーバと一緒に消す。
+
+#### 検証
+
+単体 1887 件・App 結合 7 件・E2E が緑。client のビルドに `bun:sqlite` が混ざらない。
+トランザクションを巻き戻さない変異で契約の 1 件が落ちる。
