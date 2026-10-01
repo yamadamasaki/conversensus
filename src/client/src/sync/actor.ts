@@ -39,6 +39,17 @@ export const DEVICE_ID_STORAGE_KEY = 'conversensus_device_id';
 let fallbackDeviceId: string | undefined;
 
 /**
+ * このタブが借りた deviceId (step3 Phase 2 D4, `local/deviceClaim.ts`)。起動時に
+ * `main.tsx` が決める。決まっていれば `getDeviceId` はこれを返す
+ */
+let claimedDeviceId: string | undefined;
+
+/** このタブの deviceId を決める (起動時に 1 回、描画の前に呼ぶ)。undefined で戻す (テスト用) */
+export function setClaimedDeviceId(deviceId: string | undefined): void {
+  claimedDeviceId = deviceId;
+}
+
+/**
  * この端末の一意 id を返す。無ければ生成して保存する。
  *
  * **人間可読な値 (端末名など) は混ぜない** — actor は PDS 上のレコードに載って公開される。
@@ -48,6 +59,10 @@ let fallbackDeviceId: string | undefined;
  * 再生成を防ぐ仕組みは持たない。
  */
 export function getDeviceId(storage?: Storage): string {
+  // タブごとの id が決まっていればそれ (同じ端末のタブが同じ点を発番しないため, D4)
+  if (storage === undefined && claimedDeviceId !== undefined) {
+    return claimedDeviceId;
+  }
   const store = storage ?? safeLocalStorage();
   if (!store) {
     // localStorage が無い環境ではセッション内だけ一貫した id を使う

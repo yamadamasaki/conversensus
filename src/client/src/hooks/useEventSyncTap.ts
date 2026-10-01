@@ -27,6 +27,7 @@ import { FanoutSyncProvider } from '../atproto/fanoutSyncProvider';
 import type { RemoteSyncQueue } from '../atproto/remoteSyncQueue';
 import { SYNC_POLL_INTERVAL_MS } from '../config';
 import type { GraphEvent } from '../events/GraphEvent';
+import { subscribeLocalChanges } from '../local/localChanges';
 import { branchMetaRecorder, readBranchMeta } from '../sync/branchMetaLog';
 import type { DetectedConflicts } from '../sync/conflicts';
 import { EventSyncTap } from '../sync/eventSyncTap';
@@ -180,6 +181,16 @@ export type UseEventSyncTapOptions = {
     fileId: FileId,
     tap: { settled: () => Promise<void>; pending: () => number },
   ) => void;
+  /**
+   * **同じブラウザの別のタブ**がこの File のローカル正典に書いた (step3 Phase 2 D3)。
+   *
+   * タブはそれぞれ Worker を持ち同じ DB に書くので、別のタブの書き込みは DB に入っても
+   * この画面は知らない。知らせ (`local/localChanges.ts`) を受けたら、因果の知識に取り込んで
+   * から (下の effect) これを呼ぶ。画面の差し替えは呼ぶ側が決める。
+   *
+   * **安定参照であること** (`onReceived` と同じ理由)。
+   */
+  onLocalChanged?: (fileId: FileId, tap: TapHandle) => void;
 };
 
 /**
@@ -241,6 +252,7 @@ export function useEventSyncTap(
     onOverwrites,
     onForksArrived,
     onSynced,
+    onLocalChanged,
   }: UseEventSyncTapOptions,
 ): UseEventSyncTapResult {
   // remote キューがあるときだけ fanout で包む。ローカル正典への経路は両者で同一。
@@ -569,6 +581,27 @@ export function useEventSyncTap(
       document.removeEventListener('visibilitychange', onVisible);
     };
   }, [syncNow, pollIntervalMs]);
+
+  // **別のタブの書き込みを受ける** (step3 Phase 2 D3)。画面より先に**因果の知識**に入れる —
+  // 入れないと、別のタブの編集を見た上で書いた batch の deps にそれが載らず、並行と判定されて
+  // 偽の競合になる (step3 Phase 1 D4)。`restore` は何度呼んでもよい (各値の最大を取るだけ)
+  useEffect(() => {
+    if (!fileId) return;
+    return subscribeLocalChanges((change) => {
+      if (change.fileId !== fileId) return;
+      fetchLocal(fileId)
+        .then((batches) => {
+          causal?.restore(batches);
+          onLocalChanged?.(fileId, {
+            settled: () => tapRef.current?.settled() ?? Promise.resolve(),
+            pending: () => tapRef.current?.pending ?? 0,
+          });
+        })
+        .catch((error) =>
+          console.warn('[sync] 別のタブの書き込みを読めなかった:', error),
+        );
+    });
+  }, [fileId, fetchLocal, causal, onLocalChanged]);
 
   // content 経路は sheetId を渡す (W3c2)。structure 経路は省略 → file-level batch。
   const record = useCallback(

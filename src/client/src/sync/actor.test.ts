@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it } from 'bun:test';
 import {
   ACTOR_SEPARATOR,
   composeActor,
@@ -6,6 +6,7 @@ import {
   didFromActor,
   getDeviceId,
   LOCAL_DID,
+  setClaimedDeviceId,
 } from './actor';
 
 /** localStorage 相当の最小実装 (テスト間で状態を分離するため毎回新規に作る) */
@@ -103,5 +104,22 @@ describe('didFromActor (Phase 7 p7-4)', () => {
     expect(
       didFromActor(`did:plc:alice${ACTOR_SEPARATOR}dev${ACTOR_SEPARATOR}1`),
     ).toBe('did:plc:alice');
+  });
+});
+
+describe('setClaimedDeviceId (step3 Phase 2 D4)', () => {
+  // モジュールの状態なので、他のテスト (useActor を通るもの) へ漏らさない
+  afterEach(() => setClaimedDeviceId(undefined));
+
+  it('タブが借りた deviceId を決めたら、getDeviceId はそれを返す', () => {
+    // 同じ端末のタブが同じ点を発番しないため、actor の後半はタブごとの id になる
+    setClaimedDeviceId('tab-2');
+    expect(getDeviceId()).toBe('tab-2');
+  });
+
+  it('保存先を明示したときは、借りた id ではなく保存先の id を返す', () => {
+    setClaimedDeviceId('tab-2');
+    const store = fakeStorage({ [DEVICE_ID_STORAGE_KEY]: 'stored' });
+    expect(getDeviceId(store)).toBe('stored');
   });
 });

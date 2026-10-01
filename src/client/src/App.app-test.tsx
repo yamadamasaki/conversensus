@@ -1,9 +1,15 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import type { Did } from '@conversensus/shared';
+import {
+  type Batch,
+  type Did,
+  type FileId,
+  projectFile,
+} from '@conversensus/shared';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import App from './App';
 import { NSID } from './atproto/types';
+import { LOCAL_CHANGES_CHANNEL } from './local/localChanges';
 import {
   addNode,
   branchLabel,
@@ -313,5 +319,61 @@ describe('App 結合: 同じ branch を 2 人が並行に merge しても収束�
       copies.map((v) => `${v.copyOf?.actor}#${v.copyOf?.seq}`),
     );
     expect(copies.length).toBe(origins.size * 2);
+  });
+});
+
+describe('App 結合: 同じブラウザの別のタブの書き込み (step3 Phase 2 S2-4)', () => {
+  /**
+   * 別のタブは、同じ DB に別の actor (= 別の deviceId, D4) で書き、BroadcastChannel で知らせる。
+   * ここでは**別のタブの書き込みを直接 DB に入れ、知らせを送る**ことで再現する — 同じ
+   * プロセスに App を 2 つは立てられないので (`appWorld` の注)
+   */
+  test('🔴 別のタブの編集は画面に出て、次に書く batch の deps に入る', async () => {
+    const user = await startOn('alice', ALICE);
+    await createFile(user, FILE_NAME);
+    // tap の因果の復元は最初の書き込みで走る。先に済ませ、別のタブの点が復元ではなく
+    // **知らせの経路**で知識に入ることを見る
+    await addNode(user);
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+
+    const store = world.localStore();
+    const fileId = store.listFiles()[0]?.id as FileId;
+    const sheetId = projectFile(store.getBatches(fileId), fileId).sheets[0]?.id;
+    const otherTab = `${ALICE.did}#other-tab`;
+    const fromOtherTab: Batch = {
+      id: crypto.randomUUID() as Batch['id'],
+      actor: otherTab,
+      clock: 1000,
+      seq: 7,
+      deps: {},
+      timestamp: Date.now(),
+      sheetId,
+      ops: [
+        {
+          kind: 'node.add',
+          target: crypto.randomUUID() as never,
+          content: '別のタブ',
+        },
+      ],
+    };
+    store.appendBatches(fileId, [fromOtherTab]);
+    const channel = new BroadcastChannel(LOCAL_CHANGES_CHANNEL);
+    channel.postMessage({ fileId });
+    channel.close();
+
+    await waitFor(() => expect(renderedNodeCount()).toBe(2), WIRING_TIMEOUT);
+
+    await addNode(user);
+    await waitFor(() => expect(renderedNodeCount()).toBe(3), WIRING_TIMEOUT);
+    // **見た上で書いた**ので、deps に別のタブの点が入る。入らないと並行と判定され、
+    // 同じものを触れば偽の競合になる (step3 Phase 1 D4)
+    await waitFor(() => {
+      const mine = store
+        .getBatches(fileId)
+        .filter((b) => b.actor.startsWith(ALICE.did) && b.actor !== otherTab)
+        .sort((a, b) => a.seq - b.seq)
+        .at(-1);
+      expect(mine?.deps[otherTab]).toBe(7);
+    }, WIRING_TIMEOUT);
   });
 });

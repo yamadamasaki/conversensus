@@ -173,7 +173,7 @@ ITP は操作の無い Web アプリの保存領域を消すことがある (S0-
 | **S2-1** ✅ | eventStore をドライバ非依存にして `shared` へ (D1)。サーバは `bun:sqlite` ドライバで同じものを使う — **振る舞いは変えない** | 既存の eventStore テストがそのまま通る |
 | **S2-2** ✅ | 経路のロジックを `localStore` へ (D2)。`api.ts` を「バックエンド」の口の上に載せ、実装を HTTP とプロセス内 (`bun:sqlite`) の 2 つにする。**App 結合をプロセス内に切り替え、Hono を外す** | 単体 + App 結合 |
 | **S2-3** ✅ | ブラウザのバックエンド (D3): Worker + SQLite-WASM (`opfs`) + RPC。Vite に COOP/COEP。開けないときの画面 (D5)。既定をこちらに切り替える。E2E を persistent context に | E2E (WebKit / Chromium) |
-| **S2-4** | タブの actor (D4) と、タブ間の知らせ (D3 の BroadcastChannel) | 単体 (溜まりの借り方) + E2E (2 タブで同じ File を編む: 点が重ならない、相手のタブに出る) |
+| **S2-4** ✅ | タブの actor (D4) と、タブ間の知らせ (D3 の BroadcastChannel) | 単体 (溜まりの借り方) + E2E (2 タブで同じ File を編む: 点が重ならない、相手のタブに出る) |
 | **S2-5** | PWA 化: manifest・service worker (オフラインで起動)・`persist()`・未同期の表示 (D6)。COEP の下の画像 (Q4) | E2E (オフライン起動) |
 | **S2-6** | ATProto OAuth (D7)。**最初に spike**: 開発用の PDS で loopback client が通るか | 単体 + 実機 |
 | **S2-7** | 撤去: `src/server/`・`src-tauri/`・Tauri 関係の E2E と設定・`api.conversensus.site` の手順。本番の Caddy に COOP/COEP (D8) | lint / typecheck / test / E2E |
@@ -286,3 +286,30 @@ E2E は `tests/fixtures.ts` で、テストごとに新しいプロファイル�
 単体 1902 件・App 結合 7 件・E2E 29 件 (1 件は Chromium で skip) が緑。Worker の DB をメモリに
 する変異で「再読み込みの後も残る」が、ドライバのトランザクションを外す変異で「ドライバの契約」が
 落ちる。
+
+### S2-4 タブごとの actor と、タブ間の知らせ (2026-10-01)
+
+起動時 (`main.tsx`) に `claimDeviceId` (`local/deviceClaim.ts`) で deviceId の溜まりから 1 つを
+Web Locks で借り、描画の前に `setClaimedDeviceId` で決める。溜まりの先頭は従来の deviceId なので、
+1 つ目のタブはこれまでと同じ actor になる。Web Locks が無い環境 (bun のテスト・古いブラウザ) は
+従来どおり端末に 1 つである。
+
+書いたら `broadcastingBackend` (`local/localChanges.ts`) が BroadcastChannel で知らせる。受けたタブは
+tap (`useEventSyncTap`) が**因果の知識に取り込んでから** `onLocalChanged` を呼び、
+`useFileSheetOperations` は #202 の経路 (`refreshIfStale` — `handleSynced` から切り出した) で画面を
+差し替え、一覧も読み直す。
+
+#### 分かったこと
+
+- **画面に出すだけでは足りない。**別のタブの書き込みを因果の知識に入れないと、それを見た上で
+  書いた batch の deps に載らず、Phase 1 の並行の判定で偽の競合になる。画面からは見えないので
+  App 結合で固定した (`causal.restore` を外す変異で落ちる)
+- 既存の #202 の経路 (「手元の正典に、画面に出ていない他の actor の batch がある」) がそのまま
+  使えた。タブごとに actor を分けたことで、別のタブの書き込みが「他の actor の batch」として
+  数えられるからである。足りなかったのは契機だけだった
+
+#### 検証
+
+単体 1911 件・App 結合 8 件・E2E 33 件 (1 件は Chromium で skip) が緑。E2E は 2 つの page で、別の
+deviceId になることと、閉じた id の再利用と、作った File と置いたノードが再読み込みなしに出ることを
+見る (両エンジン)。
