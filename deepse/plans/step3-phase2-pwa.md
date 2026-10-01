@@ -171,7 +171,7 @@ ITP は操作の無い Web アプリの保存領域を消すことがある (S0-
 | | 内容 | テスト |
 | --- | --- | --- |
 | **S2-1** ✅ | eventStore をドライバ非依存にして `shared` へ (D1)。サーバは `bun:sqlite` ドライバで同じものを使う — **振る舞いは変えない** | 既存の eventStore テストがそのまま通る |
-| **S2-2** | 経路のロジックを `localStore` へ (D2)。`api.ts` を「バックエンド」の口の上に載せ、実装を HTTP とプロセス内 (`bun:sqlite`) の 2 つにする。**App 結合をプロセス内に切り替え、Hono を外す** | 単体 + App 結合 |
+| **S2-2** ✅ | 経路のロジックを `localStore` へ (D2)。`api.ts` を「バックエンド」の口の上に載せ、実装を HTTP とプロセス内 (`bun:sqlite`) の 2 つにする。**App 結合をプロセス内に切り替え、Hono を外す** | 単体 + App 結合 |
 | **S2-3** | ブラウザのバックエンド (D3): Worker + SQLite-WASM (`opfs`) + RPC。Vite に COOP/COEP。開けないときの画面 (D5)。既定をこちらに切り替える。E2E を persistent context に | E2E (WebKit / Chromium) |
 | **S2-4** | タブの actor (D4) と、タブ間の知らせ (D3 の BroadcastChannel) | 単体 (溜まりの借り方) + E2E (2 タブで同じ File を編む: 点が重ならない、相手のタブに出る) |
 | **S2-5** | PWA 化: manifest・service worker (オフラインで起動)・`persist()`・未同期の表示 (D6)。COEP の下の画像 (Q4) | E2E (オフライン起動) |
@@ -230,3 +230,24 @@ v2 では読むものが無いので、S2-7 でサーバと一緒に消す。
 
 単体 1887 件・App 結合 7 件・E2E が緑。client のビルドに `bun:sqlite` が混ざらない。
 トランザクションを巻き戻さない変異で契約の 1 件が落ちる。
+
+### S2-2 経路のロジックを LocalStore へ、App 結合をプロセス内に (2026-10-01)
+
+サーバの経路が持っていたロジック (作成・取り込み・一覧・受信の追記・blob の検査) を
+`shared/src/store/localStore.ts` の `LocalStore` に集めた。サーバの経路は要求の形の検証と
+状態コードだけを持つ薄い包みになった。正典の marker の版も `LocalStore` が持つ
+(`OPLOG_SCHEMA_VERSION`。サーバの `W3_SCHEMA_VERSION` はこれを指す)。
+
+client の `api.ts` は 9 関数の形を保ったまま、差し替えられるバックエンド (`local/backend.ts` の
+`LocalBackend`) に委ねるようにした。実装は `httpBackend` (今の既定) と `storeBackend`
+(`LocalStore` を同じスレッドで呼ぶ)。`storeBackend` は HTTP と同じく、書く batch と読んだ batch を
+`BatchSchema` で読み直す — 既定値の補完まで揃えないと、経路によって畳み込みの入力が変わる。
+
+App 結合 (`appWorld.ts`) は Hono を経由せず、端末ごとにインメモリの `LocalStore` を持って
+`setLocalBackend` で切り替えるようにした (`DATA_DIR` と一時ディレクトリが要らなくなった)。
+誰も使っていなかった観測口 `localServer` は、端末の `LocalStore` を返す `localStore` に替えた。
+
+#### 検証
+
+単体 1902 件・App 結合 7 件・E2E が緑。`storeBackend` の受信の追記を捨てる変異で App 結合の
+6 件が落ちる (App 結合がこの経路を確かに通っている)。

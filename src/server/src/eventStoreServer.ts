@@ -8,7 +8,7 @@
 
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { EventStore } from '@conversensus/shared';
+import { EventStore, LocalStore } from '@conversensus/shared';
 import { BunSqliteDriver } from '@conversensus/shared/src/store/bunSqliteDriver';
 
 /**
@@ -37,4 +37,9 @@ export function getEventStore(): EventStore {
     stores.set(path, store);
   }
   return store;
+}
+
+/** 現在の DATA_DIR に対応する `LocalStore` を返す (経路のロジックはすべてこちら, step3 Phase 2 D2) */
+export function getLocalStore(): LocalStore {
+  return new LocalStore(getEventStore());
 }

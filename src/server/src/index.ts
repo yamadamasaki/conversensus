@@ -1,45 +1,19 @@
-import { randomUUID } from 'node:crypto';
 import {
   type Batch,
   BatchSchema,
   CreateFileRequestSchema,
-  computeBlobCid,
-  type EdgeId,
   type FileId,
-  type GraphFile,
-  graphFileToBatches,
   isBlobCid,
   MAX_BLOB_SIZE,
-  type NodeId,
-  parseConversensusFile,
-  type SheetId,
 } from '@conversensus/shared';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { allowedOrigin } from './corsOrigin';
-import { getEventStore } from './eventStoreServer';
+import { getEventStore, getLocalStore } from './eventStoreServer';
 import { migrateAllFilesToOplog } from './migrateAllToOplog';
-import { W3_SCHEMA_VERSION } from './migrateFileToOplog';
 import { watchParent } from './parentWatch';
 import { startServer } from './startServer';
 import { deleteFile } from './storage';
-
-/**
- * 新規ファイルの op-log を genesis で初期化する (Phase 6 p6-1, 設計 §3.2)。
- *
- * `appendReceivedBatches` を使うのは **marker を同じ tx で立てる**ため。marker は
- * 4d-0 以来「この op-log は正典であり snapshot から作り直してはならない」宣言であり、
- * genesis 直書きしたファイルにこそ当てはまる (起動時の一括移行 §3.1 に拾わせない)。
- * メソッド名が「received」なのは受信経路が最初の利用者だった名残で、意味は
- * 「追記 + 正典宣言」。
- */
-function initializeOplog(fileId: FileId, file: GraphFile): void {
-  getEventStore().appendReceivedBatches(
-    fileId,
-    graphFileToBatches(file),
-    W3_SCHEMA_VERSION,
-  );
-}
 
 const DEFAULT_SERVER_PORT = 3000;
 /**
@@ -57,8 +31,6 @@ const PARENT_PID = process.env.PARENT_PID
   ? Number(process.env.PARENT_PID)
   : null;
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN ?? null;
-const DEFAULT_FILE_NAME = '無題';
-const DEFAULT_SHEET_NAME = 'Sheet 1';
 
 const HTTP_CREATED = 201;
 const HTTP_NO_CONTENT = 204;
@@ -66,9 +38,13 @@ const HTTP_BAD_REQUEST = 400;
 const HTTP_NOT_FOUND = 404;
 const HTTP_PAYLOAD_TOO_LARGE = 413;
 const HTTP_UNSUPPORTED_MEDIA_TYPE = 415;
-/** blob ストアが受け付ける MIME の接頭辞。今のところ画像だけ (ANA-116) */
-const IMAGE_MIME_PREFIX = 'image/';
 const HTTP_INTERNAL_SERVER_ERROR = 500;
+/** `LocalStore.putBlob` が断った理由 → 状態コード */
+const BLOB_REJECTION_STATUS = {
+  unsupportedType: HTTP_UNSUPPORTED_MEDIA_TYPE,
+  empty: HTTP_BAD_REQUEST,
+  tooLarge: HTTP_PAYLOAD_TOO_LARGE,
+} as const;
 
 const app = new Hono();
 
@@ -95,7 +71,7 @@ app.onError((err, c) => {
 // 一括移行に失敗した snapshot はここに現れない。無言の消失にしないため、失敗は起動時に
 // warn 出力される (migrateAllFilesToOplog)。
 app.get('/files', (c) => {
-  return c.json(getEventStore().listOplogFiles());
+  return c.json(getLocalStore().listFiles());
 });
 
 // GET /files/ids - この端末が op-log を持つ file_id の全集合 (ANA-127)
@@ -105,7 +81,7 @@ app.get('/files', (c) => {
 // 抜けると「未知ファイル」と判定されて PDS から materialize され、削除が取り消される。
 // **`/files/:id` より先に定義する** — 静的セグメントが param に食われないようにする。
 app.get('/files/ids', (c) => {
-  return c.json(getEventStore().listAllFileIds());
+  return c.json(getLocalStore().listAllFileIds());
 });
 
 // POST /files - 新規ファイル作成
@@ -115,28 +91,8 @@ app.post('/files', async (c) => {
   if (!parsed.success) {
     return c.json({ error: parsed.error.flatten() }, HTTP_BAD_REQUEST);
   }
-  const body = parsed.data;
-  const id = randomUUID() as FileId;
-  const data: GraphFile = {
-    id,
-    name: body.name ?? DEFAULT_FILE_NAME,
-    description: body.description,
-    sheets: [
-      {
-        id: randomUUID() as SheetId,
-        name: body.sheet?.name ?? DEFAULT_SHEET_NAME,
-        nodes: [],
-        edges: [],
-      },
-    ],
-  };
-  // Phase 6 p6-1: op-log を作る。作られた時点で op-log 正典なので読取時の
-  // lazy migration は不要になった (§3.2)。
-  initializeOplog(id, data);
-  // Phase 6 p6-5a: snapshot 書込はここから消えた。p6-3 で読取経路が全て消えて
-  // write-only になっていたもので、これで **新しい snapshot は二度と作られない**
-  // (設計 §5-2)。既存 snapshot の移行と後始末だけが `storage.ts` に残る。
-  return c.json(data, HTTP_CREATED);
+  // genesis の op-log まで書く (Phase 6 p6-1)。snapshot は書かない (p6-5a)
+  return c.json(getLocalStore().createFile(parsed.data), HTTP_CREATED);
 });
 
 // GET /files/:id (snapshot 読取) と PUT /files/:id (全体保存) は Phase 6 p6-3 で
@@ -152,61 +108,12 @@ app.post('/files', async (c) => {
 app.post('/files/import', async (c) => {
   const raw = await c.req.json().catch(() => null);
 
-  // 旧版の解釈は shared に 1 本化した (client の Sidebar も同じ階段を使う, ANA-116 D1)
-  const parsedFile = parseConversensusFile(raw);
-  if (!parsedFile.success) {
-    return c.json({ error: parsedFile.error.flatten() }, HTTP_BAD_REQUEST);
+  // 解釈・id の振り直し・genesis は `LocalStore.importFile` にある (step3 Phase 2 D2)
+  const result = getLocalStore().importFile(raw);
+  if (!result.ok) {
+    return c.json({ error: result.error }, HTTP_BAD_REQUEST);
   }
-
-  // `blobs` (同梱した画像の実体) はここで落とす。**op-log へ base64 を持ち込まない** —
-  // それが ANA-116 でレコード上限に当たった原因そのものである。実体はクライアントが
-  // 送信前にローカル blob ストアへ戻している (`files/fileTransfer.ts`)
-  const { version: _, blobs: _blobs, ...fileData } = parsedFile.data;
-  // sheet/node/edge/layout の ID も再生成し, 参照 (source/target/parentId/nodeId) を付け替える
-  const data: GraphFile = {
-    ...fileData,
-    id: randomUUID() as FileId,
-    sheets: fileData.sheets.map((sheet) => {
-      const nodeIdMap = new Map<string, NodeId>(
-        sheet.nodes.map((n) => [n.id, randomUUID() as NodeId]),
-      );
-      const edgeIdMap = new Map<string, EdgeId>(
-        sheet.edges.map((e) => [e.id, randomUUID() as EdgeId]),
-      );
-      return {
-        ...sheet,
-        id: randomUUID() as SheetId,
-        nodes: sheet.nodes.map((n) => ({
-          ...n,
-          // biome-ignore lint/style/noNonNullAssertion: nodeIdMap は同じ nodes 配列から構築されるため必ず存在する
-          id: nodeIdMap.get(n.id)!,
-          ...(n.parentId
-            ? { parentId: (nodeIdMap.get(n.parentId) ?? n.parentId) as NodeId }
-            : {}),
-        })),
-        edges: sheet.edges.map((e) => ({
-          ...e,
-          // biome-ignore lint/style/noNonNullAssertion: edgeIdMap は同じ edges 配列から構築されるため必ず存在する
-          id: edgeIdMap.get(e.id)!,
-          source: (nodeIdMap.get(e.source) ?? e.source) as NodeId,
-          target: (nodeIdMap.get(e.target) ?? e.target) as NodeId,
-        })),
-        layouts: sheet.layouts?.map((l) => ({
-          ...l,
-          nodeId: (nodeIdMap.get(l.nodeId) ?? l.nodeId) as NodeId,
-        })),
-        edgeLayouts: sheet.edgeLayouts?.map((l) => ({
-          ...l,
-          edgeId: (edgeIdMap.get(l.edgeId) ?? l.edgeId) as EdgeId,
-        })),
-      };
-    }),
-  };
-  // Phase 6 p6-1: import も op-log を作る (§3.2)。ID 再生成後の `data` をそのまま
-  // genesis 入力にするので、応答の GraphFile と op-log の projection は同じ内容になる。
-  initializeOplog(data.id, data);
-  // POST /files と同じく snapshot は書かない (p6-5a)
-  return c.json(data, HTTP_CREATED);
+  return c.json(result.file, HTTP_CREATED);
 });
 
 // --- 操作ログ (batches) エンドポイント (step1 Phase 4 実配線) ---
@@ -229,7 +136,7 @@ app.post('/files/:id/batches', async (c) => {
     batches.push(parsed.data);
   }
   const fileId = c.req.param('id') as FileId;
-  const appended = getEventStore().appendBatches(fileId, batches);
+  const appended = getLocalStore().appendBatches(fileId, batches);
   return c.json({ appended }, HTTP_CREATED);
 });
 
@@ -257,11 +164,7 @@ app.post('/files/:id/batches/received', async (c) => {
     batches.push(parsed.data);
   }
   const fileId = c.req.param('id') as FileId;
-  const appended = getEventStore().appendReceivedBatches(
-    fileId,
-    batches,
-    W3_SCHEMA_VERSION,
-  );
+  const appended = getLocalStore().appendReceived(fileId, batches);
   return c.json({ appended }, HTTP_CREATED);
 });
 
@@ -272,13 +175,13 @@ app.post('/files/:id/batches/received', async (c) => {
 // これにより「読んだだけで op-log が DELETE される」経路 (4d-0 §1.8 の事故) が消滅する。
 app.get('/files/:id/batches', (c) => {
   const fileId = c.req.param('id') as FileId;
-  const batches = getEventStore().getBatches(fileId);
   const since = c.req.query('since');
-  const result: Batch[] =
-    since === undefined
-      ? batches
-      : batches.filter((b) => b.clock > Number(since));
-  return c.json(result);
+  return c.json(
+    getLocalStore().getBatches(
+      fileId,
+      since === undefined ? undefined : Number(since),
+    ),
+  );
 });
 
 // DELETE /files/:id - ファイル削除 (op-log 正典, Phase 6 p6-2 / 設計 §3.5)
@@ -289,7 +192,7 @@ app.get('/files/:id/batches', (c) => {
 // どちらも「対象なし」なら 404 とする。
 app.delete('/files/:id', async (c) => {
   const id = c.req.param('id');
-  const oplogDeleted = getEventStore().deleteFile(id as FileId);
+  const oplogDeleted = getLocalStore().deleteFile(id as FileId);
   // 不正な id 形式では storage が throw する (パストラバーサル対策)。op-log 側の結果で
   // 応答したいので握り潰す — 不正 id は op-log にも在り得ないので結果は 404 になる。
   const snapshotDeleted = await deleteFile(id).catch(() => false);
@@ -312,19 +215,9 @@ app.post('/blobs', async (c) => {
   if (!mimeType) {
     return c.json({ error: 'Content-Type required' }, HTTP_BAD_REQUEST);
   }
-  // **画像だけを受ける。** 保存した Content-Type は GET でそのまま返るので、
-  // 任意の型を通すと daemon の origin で HTML を配れてしまう (daemon は
-  // `/files/*` と同じ origin で、リリース構成では VPS 上にも居る)。
-  // クライアント側の検査 (`saveImageBlob`) だけに頼らない。
-  if (!mimeType.startsWith(IMAGE_MIME_PREFIX)) {
-    return c.json(
-      { error: `Unsupported Content-Type: ${mimeType}` },
-      HTTP_UNSUPPORTED_MEDIA_TYPE,
-    );
-  }
   // 本文を読む前に申告された大きさで弾く。読み切ってから 413 を返すと、
   // 巨大な body をいったん全部メモリに載せることになる (申告は嘘をつけるので、
-  // 読み終わった後の検査も残す)。
+  // 読み終わった後の検査は `LocalStore.putBlob` が持つ)。
   const declaredLength = Number(c.req.header('content-length') ?? 0);
   if (declaredLength > MAX_BLOB_SIZE) {
     return c.json(
@@ -333,20 +226,17 @@ app.post('/blobs', async (c) => {
     );
   }
   const bytes = new Uint8Array(await c.req.arrayBuffer());
-  if (bytes.byteLength === 0) {
-    return c.json({ error: 'Empty body' }, HTTP_BAD_REQUEST);
-  }
-  // PDS の blob 上限。ここで弾いておかないと、送信時 (S5) に初めて失敗して
-  // batch が outbox に詰まる — 作成時点で断るのが利用者にとって分かりやすい。
-  if (bytes.byteLength > MAX_BLOB_SIZE) {
+  // **画像だけを受ける**・空と上限超過を断る判断は `LocalStore.putBlob` にある。
+  // 保存した Content-Type は GET でそのまま返るので、任意の型を通すと daemon の origin で
+  // HTML を配れてしまう
+  const result = await getLocalStore().putBlob(bytes, mimeType);
+  if (!result.ok) {
     return c.json(
-      { error: `Blob too large (max ${MAX_BLOB_SIZE} bytes)` },
-      HTTP_PAYLOAD_TOO_LARGE,
+      { error: result.message },
+      BLOB_REJECTION_STATUS[result.reason],
     );
   }
-  const cid = await computeBlobCid(bytes);
-  getEventStore().putBlob(cid, bytes, mimeType);
-  return c.json({ cid, mimeType, size: bytes.byteLength }, HTTP_CREATED);
+  return c.json(result.blob, HTTP_CREATED);
 });
 
 // GET /blobs/:cid - blob の実体を返す
@@ -355,7 +245,7 @@ app.get('/blobs/:cid', (c) => {
   if (!isBlobCid(cid)) {
     return c.json({ error: 'Invalid blob cid' }, HTTP_BAD_REQUEST);
   }
-  const blob = getEventStore().getBlob(cid);
+  const blob = getLocalStore().getBlob(cid);
   if (!blob) return c.json({ error: 'Not found' }, HTTP_NOT_FOUND);
   return c.body(blob.bytes as unknown as ArrayBuffer, {
     headers: {

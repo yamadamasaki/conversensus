@@ -13,11 +13,14 @@
  */
 
 import type { EventStore, FileId } from '@conversensus/shared';
-import { graphFileToBatches } from '@conversensus/shared';
+import { graphFileToBatches, OPLOG_SCHEMA_VERSION } from '@conversensus/shared';
 import { readFile } from './storage';
 
-/** op-log 正典スキーマの初版。marker 不在 or `< W3_SCHEMA_VERSION` を「未 migration」と判定する */
-export const W3_SCHEMA_VERSION = 1;
+/**
+ * op-log 正典スキーマの初版。marker 不在 or `< W3_SCHEMA_VERSION` を「未 migration」と判定する。
+ * 値の正は `LocalStore` (作成・受信で marker を立てる側) にある
+ */
+export const W3_SCHEMA_VERSION = OPLOG_SCHEMA_VERSION;
 
 /**
  * ファイルを op-log 正典へ lazy migration する。既に済なら何もしない。
