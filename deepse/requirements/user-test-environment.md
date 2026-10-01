@@ -4,23 +4,34 @@
 
 アプリの GUI 操作そのもの (ファイル・シート・ノード・エッジ・ブランチの使い方) は [`operation-manual-for-dev.md`](./operation-manual-for-dev.md) を参照すること. 本書はその手前, 「テスターに渡す環境をどう用意し, どう初期状態へ戻すか」を扱う.
 
-## 1. サーバの起動
+## 1. 起動 (step3 Phase 2 以降)
 
-ローカル単体 (ATProto/PDS なし) でよければ, デーモンとクライアントの 2 つを起動すれば足りる.
+step3 Phase 2 (2026-10-01) で PWA になり、**ローカルサーバ (デーモン) と Tauri を撤去した**。
+ローカル正典 (op-log と画像) はブラウザの中 (OPFS の SQLite) にある。
 
 ```shell
-bun run dev:server   # デーモン (HTTP API) を :3000 で起動
-bun run dev:client   # web クライアント (vite) を :5173 で起動
+bun run dev:client   # web クライアント (vite) を 127.0.0.1:5173 で起動
 ```
 
-`http://localhost:5173/` を開けばクライアントが動いている. ATProto ログインやブランチの remote 機能まで試す場合は, [`operation-manual-for-dev.md`](./operation-manual-for-dev.md) の「ATProto 向け開発時環境」に従って PDS を先に起動しておく.
-
-デーモンのデータはすべて `DATA_DIR` (既定 `data/`) 配下に置かれる. `data/` は `.gitignore` 済みで, ここに何を投入・削除してもリポジトリには影響しない.
-
-- `data/events.db*` — 操作ログ (op-log) の SQLite (`eventStore`). **これが唯一の正典**
-- `data/<fileId>.json` — legacy snapshot。**step1 Phase 6 以降は新しく作られない**
-  (p6-5a で書込を撤去)。Phase 6 より前に作られたファイルだけが残っており、
-  デーモン起動時の一括移行で op-log 化される (移行後もファイル自体は残る)
+- **`http://127.0.0.1:5173/` で開く** (`localhost` ではなく)。ATProto のログインは OAuth で、
+  開発時は loopback client として `127.0.0.1` に戻ってくる。`localhost` で開くと、戻ってきた先が
+  別の origin になり、保存領域も別になる
+- **ATProto のログインや同期まで試すなら、開発用 PDS を先に起動する** (`:3000`)。手順は
+  [`operation-manual-for-dev.md`](./operation-manual-for-dev.md) の「ATProto 向け開発時環境」。
+  アカウントの DID 文書が `http://localhost:3000` を指していて、OAuth はそこへ直接届く必要がある
+  (`infra/pds/docker-compose.yml`)
+- **`src/client/.env.local` に `VITE_ATPROTO_PDS_URL=http://localhost:2583` が残っていれば `:3000` に
+  直す** (または行ごと消す。既定が `:3000`)。残っていると handle の解決が古いポートへ行き、
+  ログインが「ログインを始められませんでした」で止まる。同じファイルの `VITE_ATPROTO_HANDLE` /
+  `VITE_ATPROTO_PASSWORD` はもう読まれない
+- **ログインはパスワードを入れない。**handle を入れると PDS のページへ移り、そこでパスワードを
+  入れて同意すると戻ってくる
+- **開発環境でログインするのは Chrome。**開発用 PDS は http で動いていて、PDS のサインイン画面が
+  使う CSRF の cookie に `Secure` が付いている。Chrome は http の `localhost` でもそれを受け取るが、
+  **Safari は捨てる**ので「Missing CSRF header」(画面には「送信されたデータが無効です」) で止まる。
+  Safari のログインは本番の PDS (https) で確かめる。ログインの要らない確認は Safari でもできる
+- **同じブラウザのタブは同じ保存領域を共有する** (タブごとに別の actor になる)。別の人として
+  動かすには、別の origin (別のポート) か、別のブラウザ・プロファイルで開く (§5.1)
 
 ## 2. テストデータの投入
 
@@ -28,138 +39,37 @@ bun run dev:client   # web クライアント (vite) を :5173 で起動
 
 最も簡単なのは, クライアント画面でファイルを新規作成し, ノード・エッジを手で置く方法である (操作は operation-manual を参照). 少数の題材を用意するだけならこれで足りる.
 
-### 2.2 HTTP API で投入する (再現可能)
+### 2.2 `.conversensus` を取り込む (再現可能)
 
-同じ題材を毎回同じ形で用意したい場合は, デーモンの HTTP API を直接叩く. エンドポイントは以下.
+同じ題材を毎回同じ形で用意したい場合は, 題材を `.conversensus` ファイルとして持っておき,
+サイドバーのインポートで取り込む. 取り込むと file / sheet / node / edge の ID はすべて
+振り直される. 題材は, 一度 GUI で作ってエクスポートしたものを使うのが確実である.
 
-| メソッド | パス | 用途 |
-|----------|------|------|
-| `POST` | `/files` | 新規ファイル作成 (空シート 1 枚を持つ). body: `{name?, description?, sheet?:{name?}}`. **genesis batch を直接書く** (snapshot は作らない) |
-| `POST` | `/files/import` | ファイルのインポート (ID は再生成される) |
-| `GET` | `/files` | ファイル一覧 (**op-log 単独**) |
-| `DELETE` | `/files/:id` | ファイル削除 (**op-log 正典**: batches / branches / commits / marker を 1 tx で消す) |
-| `GET` | `/files/:id/batches` | op-log (batch 列) 取得 |
-| `POST` | `/files/:id/batches` | op-log への追記 (クライアントの編集経路) |
-| `POST` | `/files/:id/batches/received` | 受信 batch の書き込み口 (marker も立てる) |
-
-> **step1 Phase 6 で撤去された口**: `GET /files/:id` (snapshot 取得) と
-> `PUT /files/:id` (全体保存) は **p6-3 で削除**した (404 になる)。読取は
-> `GET /files/:id/batches` → クライアントの `projectFile`、書込は
-> `POST /files/:id/batches` が唯一の口である。
-
-**ID はすべて UUID でなければならない** (`fileId` / `sheetId` / `nodeId` / `edgeId` は Zod の branded UUID 型で検証される). ノードの座標・大きさは `sheets[].layouts[]` に `{nodeId, x, y, width?, height?}` として持たせる.
-
-**題材の投入は GUI か import で行う**。`PUT /files/:id` が撤去された (Phase 6 p6-3) ため、
-HTTP から中身を流し込む口は `POST /files/import` だけになった。以下は「2 ノード +
-ラベル付きエッジ」を 1 枚のシートに持つファイルをインポートする例である.
-
-```shell
-uuid() { uuidgen | tr 'A-F' 'a-f'; }
-FID=$(uuid); S1=$(uuid); N1=$(uuid); N2=$(uuid); E1=$(uuid)
-
-curl -s -X POST http://localhost:3000/files/import \
-  -H 'content-type: application/json' \
-  -d "{
-    \"version\":\"4\", \"id\":\"$FID\", \"name\":\"テスト題材\",
-    \"sheets\":[{
-      \"id\":\"$S1\", \"name\":\"Sheet 1\",
-      \"nodes\":[
-        {\"id\":\"$N1\",\"content\":\"前提\"},
-        {\"id\":\"$N2\",\"content\":\"結論\"}],
-      \"edges\":[{\"id\":\"$E1\",\"source\":\"$N1\",\"target\":\"$N2\",\"label\":\"ゆえに\"}],
-      \"layouts\":[
-        {\"nodeId\":\"$N1\",\"x\":100,\"y\":100},
-        {\"nodeId\":\"$N2\",\"x\":420,\"y\":220}]
-    }]
-  }" -o /dev/null -w 'IMPORT %{http_code}\n'
-```
-
-> **ID は再生成される**: import は file / sheet / node / edge の ID をすべて振り直すので、
-> 投入後の実 ID は `GET /files` と `GET /files/:id/batches` で確認する.
-
-
-クライアントを再読み込みすれば, 投入したファイルが一覧に現れる. 複数シートにしたい場合は `sheets` 配列に要素を足す.
-
-> **補足 (操作ログ正典化との関係)**: step1 Phase 6 以降、**作成・インポートの時点で
-> op-log (genesis batch) が書かれる**. かつて存在した lazy migration (最初に開いた
-> ときに snapshot から op-log を生成する仕組み) は p6-1 で撤去された — 作られた時点で
-> op-log 正典なので不要になったためである.
->
-> **「snapshot だけを持つ pre-Phase-6 のファイル」を再現したい**場合は、
-> `data/<uuid>.json` に `GraphFile` の JSON を直接置いてデーモンを起動する.
-> 起動時の一括移行がそれを op-log 化する (ログに `[migration] snapshot N 件を走査...`).
-> HTTP からはこの状態を作れない.
-
-## 3. 読取ソースの切替 (dual-read 安全弁) — **撤去済み**
-
-かつてクライアントの読取ソースは `VITE_READ_FROM_OPLOG` で snapshot 直読へ戻せた.
-**step1 Phase 6 p6-3 でこのフラグは撤去された**. 退避先の snapshot を維持していたのが
-クライアントの書込 (`persistFile`) であり、それを消した時点で snapshot は古くなるため —
-「op-log が読めない」より「1 世代前の内容が正常に見える」方が悪い、という判断である
-(設計 `step1-phase6-w3e-snapshot-retire.md` §4.3).
-
-読取経路は `GET /files/:id/batches` → `projectFile` の 1 本だけである.
-
-> branch 側の安全弁 `VITE_BRANCH_FROM_OPLOG=false` (旧 PDS レコード複製方式へ戻す)
-> も **p6-5b で撤去された**. p6-6 の実機 e2e で op-log 経路に退行が無いことを
-> 確認してから、退行先だった `branchState.ts` ごと退役させている (§3.7 / §6.1).
-> branch の作成・編集・commit・merge・close・delete は op-log の 1 本だけである.
+> step3 Phase 2 S2-7 までは, デーモンの HTTP API (`POST /files/import` など) を `curl` で
+> 叩いて投入できた. デーモンを撤去したので, この口は無くなった.
 
 ## 4. クリーンな状態へのリセット
 
-テストセッションの合間に初期状態へ戻すには, op-log (`events.db`) を消す.
-
 ### 4.1 個別ファイルを消す
 
-**画面からの削除と `DELETE /files/:id` は別のものである** (ANA-127 以降).
-
-| | 何が起きるか | いつ使うか |
-|---|---|---|
-| 画面の「ファイルを削除」 | op-log に `file.remove` (tombstone) を 1 件**追記**する. 行は消えない | 通常の削除. **PDS 経由で他端末にも伝わる** |
-| `DELETE /files/:id` | batches / branches / commits / migration marker と legacy snapshot を 1 tx で**物理削除**する | 「この端末の op-log ごと無かったことにする」保守用 |
-
-```shell
-FID=<消したい file_id>
-curl -s -X DELETE http://localhost:3000/files/$FID -o /dev/null -w 'DELETE %{http_code}\n'
-curl -s http://localhost:3000/files       # 一覧から消えている
-curl -s http://localhost:3000/files/ids   # 既知集合からも消えている (物理削除なので)
-```
-
-`GET /files` は tombstone を持つファイルを隠すが, `GET /files/ids` (この端末が op-log を
-持つ file_id の全集合) には**削除済みも現れる**. 画面の削除の後にこの 2 つを見比べると,
-tombstone が残っていること = 「消えたが忘れてはいない」状態を確認できる.
-
-> **どちらの経路でも PDS 上の batch は消えない** (GC は非目標). ただし**復活するかどうかは
-> 経路によって変わる**:
->
-> - 画面から削除した → PDS の**最大 clock に tombstone が載る** → 他端末の発見
->   (`discoverRemoteFiles`) は着地レコードを見て materialize しない. 復活しない.
-> - `DELETE /files/:id` だけした (tombstone を作らずに消した) → PDS には元の batch しか
->   無いので, **次の発見で materialize され直す**. ローカルだけを空にしたいならログアウトするか,
->   PDS 側のレコードも別途消すこと.
->
-> つまり「テストデータを綺麗に消したい」なら**画面から削除してから** `DELETE /files/:id` する
-> のが確実である (tombstone が PDS に残り, 物理削除した後も戻ってこない).
+画面の「ファイルを削除」は, op-log に `file.remove` (tombstone) を 1 件**追記**する. 行は消えず,
+PDS 経由で他端末にも伝わり, 他端末の発見 (`discoverRemoteFiles`) で復活しない.
+(step3 Phase 2 S2-7 までは, デーモンの `DELETE /files/:id` で物理削除もできた.)
 
 ### 4.2 全部まっさらにする
 
-すべてのテストデータを捨てて空から始めたいなら, デーモンを止めて `data/` の中身を消すのが最も確実である.
+ブラウザのサイトデータを消す. ローカル正典は origin ごとの保存領域 (OPFS) にあるので,
+**`127.0.0.1:5173` のサイトデータ**を消せば空から始まる.
 
-```shell
-# dev:server を止めてから
-rm -f data/*.json data/events.db*
-```
+- Chrome: アドレスバーの左のアイコン → 「サイトの設定」→「データを削除」. または
+  DevTools の Application → Storage → 「Clear site data」
+- Safari: 設定 → プライバシー → 「Web サイトデータを管理」で `127.0.0.1` を削除
 
-> **⚠️ `*.json` も必ず消すこと.** Phase 6 以降 snapshot は作られないが, **それより前に
-> 作られた `*.json` は残っている**. `events.db*` だけを消すと, 次回起動の一括移行が
-> その json を拾って **File を復活させる**. 「消したのに 1 つだけ残る」はこれである
-> (2026-09-05 に実際に起きた — `data/aaaa1111-….json` が 2026-07-29 のまま残っていた).
-
-`data/` は gitignore 済みなので, 消してもリポジトリには影響しない. 次回 `dev:server` 起動時に `events.db` は自動的に再作成される.
+サイトデータには OAuth のセッションも入っているので, 消すとログアウトした状態になる.
 
 ### 4.3 PDS 側も消す
 
-`data/` を消すのは**この端末のローカル正典だけ**である. PDS 上のレコードは残るので,
+ブラウザのサイトデータを消すのは**この端末のローカル正典だけ**である. PDS 上のレコードは残るので,
 次に同期すると戻ってくる. remote まで空にしたいなら:
 
 ```shell
@@ -187,7 +97,7 @@ ATPROTO_IDENTIFIER=alice.test ATPROTO_PASSWORD=devpassword123 \
 | `alice.test` | `did:plc:jiceejfkqacmynibpou3kkxk` | `devpassword123` |
 | `bob.test` | `did:plc:ag2ritx6qpujmphxjj2upd53` | 同上 |
 
-DID は `curl -s "http://localhost:2583/xrpc/com.atproto.identity.resolveHandle?handle=bob.test"`
+DID は `curl -s "http://localhost:3000/xrpc/com.atproto.identity.resolveHandle?handle=bob.test"`
 で確かめられる (PDS を作り直すと変わる).
 
 3 人目以降を足す場合は [`operation-manual-for-dev.md`](./operation-manual-for-dev.md) の
@@ -218,24 +128,20 @@ bun run src/client/src/spikes/u6/p1.spike.ts
 ### 5.1 2 アカウントで共同編集する (step2 Phase 2)
 
 Phase 2 で「書くのは自分の repo だけ, 読むのは N 人の repo」が動くようになった.
-検証には **alice と bob がそれぞれ自分のデーモンを持つ**構成が要る — ローカル正典は
-端末 (デーモン) ごとなので, 1 つのデーモンを 2 アカウントで共有してはならない.
-
-構成は §6 (device B) と同じで, **ログインするアカウントだけが違う**.
+検証には **alice と bob がそれぞれ自分のローカル正典を持つ**構成が要る — ローカル正典は
+origin (の保存領域) ごとなので, **別の origin で開く** (step3 Phase 2 以降).
 
 ```shell
 # alice 側 (既定)
-bun run dev:server            # :3000, data/
-bun run dev:client            # :5173
+bun run dev:client                                   # 127.0.0.1:5173
 
-# bob 側
-PORT=3001 DATA_DIR=data-b bun run dev:server
-cd src/client && VITE_API_BASE=http://localhost:3001 bunx vite --port 5175 --strictPort
+# bob 側 (別のポート = 別の origin = 別の保存領域)
+cd src/client && bunx vite --port 5174 --strictPort  # 127.0.0.1:5174
 ```
 
-`:5173` で `alice.test`, `:5175` で `bob.test` にログインする (パスワードは両方
-`devpassword123`). セッションは `localStorage` に載るので, **オリジンが違えば同じ
-ブラウザで並べてよい** (`:5173` と `:5175` は別オリジンである).
+`127.0.0.1:5173` で `alice.test`, `127.0.0.1:5174` で `bob.test` に OAuth でログインする
+(PDS のページでパスワードを入れる. パスワードは両方 `devpassword123`). ログインは Chrome で
+行う (§1). 同じタブに 2 人を入れてはならない — 同じ origin のタブは同じ保存領域を共有する.
 
 #### ⚠️ ウィンドウを並べる. タブで重ねない
 
@@ -343,82 +249,17 @@ SEED=bob.test PASSES=1 FILE_ID=<uuid> bun run scripts/inspect-judgments.ts  # �
 alice が bob を取り消した後も, bob の repo のレコードは減らない (相手は消さない).
 alice 側のローカル正典に **取り消し後の bob の batch が入っていない**ことを見る.
 
-```shell
-FILE_ID=<uuid> bun run scripts/inspect-local-oplog.ts --dump
-```
+ローカル正典 (ブラウザの OPFS) を外から覗くスクリプトは step3 Phase 2 S2-7 で撤去した
+(§6.2). PDS 上の batch は `scripts/inspect-remote-batches.ts --dump` で見られる.
 
-### 5.2 DtR graph を触る (step2 Phase 6)
+### 5.2 DtR graph を触る — **撤去済み**
 
-競合を対話で解決する DtR graph を動かす手順. **構成は §5.1 のまま** (alice :3000/:5173,
-bob :3001/:5175) でよい. 2 アカウントが要るのは, DtR が「相手を呼んで承認を集める」
-仕組みだからである.
-
-> **⚠️ 承認の UI はまだ無い.** 起動・表示・再 merge の機構は入っているが, **画面から
-> 承認する口は作っていない** (Phase 6 の D5 は「見せ方の骨」までで, UX は見直す前提).
-> 承認まで進めたい場合は下の「承認を進める」を使う.
-
-#### 競合を作って DtR を起動する
-
-1. alice で File を作り, ノードを 1 つ置く (例: 本文「争点」)
-2. §5.1 の手順で bob を参加させる
-3. alice で **branch を切る** (`+ branch` → 名前を入れる)
-4. branch を開き, **そのノードの本文を書き換えて commit する** (例: 「branch の主張」)
-5. **trunk に戻り** (同じ branch のボタンをもう一度押す), **同じノードを別の値に変える**
-   (例: 「trunk の主張」) — これで content が並行に変更された状態になる
-6. branch を開いて **merge ↑** を押す → 対立の確認が出るので **OK** → 理由を入力
-
-これで **DtR が強制起動する**. 仕様上 content の競合は自動で起動する (structure は
-通知から手動で起動する段なので, ここでは起きない).
-
-#### 見えるもの
-
-| | 見えるはずのもの | どこに |
-| --- | --- | --- |
-| 1 | `⇄ DtR 解決: <branch 名>` が branch と同じ列に並ぶ | 両者のサイドバー |
-| 2 | 対話用のシートは**タブに出ない** | サイドバーのシート一覧 |
-| 3 | 相手が保留した競合に「対話を始める」 | 画面右下の競合の通知 (ログイン中のみ) |
-
-**印が `⎇` ではなく `⇄` になっているのが DtR の解決グラフ**である. 通常の branch と
-同じ列に出しつつ, 別物だと分かるようにしてある (仕様「通常の branch とは異なることを
-ユーザが認知できるべき」).
-
-> **⚠️ 判別は名前の接頭辞で行っている仮の実装である.** `DtR 解決: ` / `DtR: ` で始まるかを
-> 見ているだけなので, **名前を変えると画面から DtR が消える**. UX を作り直すときに
-> 記録 (`dtr.open`) から引く形へ直す. 判別は `src/client/src/sync/startDtr.ts` に
-> 閉じ込めてある.
-
-#### 承認を進める (画面の口が無いので判断ログへ直に書く)
-
-`dtr.approve` を両者の repo へ書く. **clock は判断ログとグラフの op-log の最大値 + 1**に
-すること — 小さい値だと「起動より前の承認」になって畳み込みに捨てられる.
-
-自動化した例が `src/client/data-d6/d6.ts` にある (D6 の検証台本, 投棄前提). そこの
-`writeJudgment` が clock の採り方を含めて実装してある.
-
-#### 判定は画面ではなく op-log と判断ログで行う
-
-**画面が正しく見えることを合格条件にしてはならない** (§8.1 と同じ理由). DtR の状態は
-判断ログの畳み込みにしか無いので, 次で見る.
-
-```shell
-REPOS=alice.test,bob.test FILE_ID=<uuid> bun run scripts/inspect-judgments.ts --dump
-FILE_ID=<uuid> bun run scripts/inspect-local-oplog.ts --dump
-```
-
-見るもの:
-
-- `dtr.open` に **呼び出し対象 (`callees`) が記録されている**か — 名簿への生きた問い合わせ
-  ではなく, 起動時に確定した集合であること
-- 承認が揃うと **決着の位置 (`satisfiedAt`)** が決まる. 再 merge が許されるのは
-  **その位置より後**だけである (同着は許さない)
-- **承認しないまま離脱した人は呼び出し対象から自動的に外れる** — 去った人の承認を待って
-  永久に決着しなくなるのを防ぐため
+DtR は step3 Phase 1 S1-1 で撤去した (競合の解消は merger に替わる, step3 Phase 5).
 
 ### 5.3 シート内を検索する (step2 Phase 7)
 
 **2 アカウントも PDS も要らない.** 検索が見るのは自分の projection だけで, しかも
-「いま表示しているシート」に閉じているので, §1 のローカル単体構成 (`dev:server` +
-`dev:client`) で足りる.
+「いま表示しているシート」に閉じているので, §1 の構成 (`dev:client` だけ) で足りる.
 
 #### 手順
 
@@ -463,7 +304,7 @@ FILE_ID=<uuid> bun run scripts/inspect-local-oplog.ts --dump
 ### 5.4 プロパティを編集する (step2 Phase 4)
 
 **2 アカウントも PDS も要らない.** 自分の projection のプロパティを直すだけなので,
-§1 のローカル単体構成 (`dev:server` + `dev:client`) で足りる.
+§1 の構成 (`dev:client` だけ) で足りる.
 
 #### 手順
 
@@ -507,9 +348,8 @@ FILE_ID=<uuid> bun run scripts/inspect-local-oplog.ts --dump
 
 **画面が正しく見えることを合格条件にしてはならない** (§8.1 と同じ理由).
 
-```shell
-FILE_ID=<uuid> bun run scripts/inspect-local-oplog.ts --dump
-```
+ローカル正典 (ブラウザの OPFS) を外から覗くスクリプトは step3 Phase 2 S2-7 で撤去した
+(§6.2). PDS 上の batch は `scripts/inspect-remote-batches.ts --dump` で見られる.
 
 見るもの:
 
@@ -522,36 +362,19 @@ FILE_ID=<uuid> bun run scripts/inspect-local-oplog.ts --dump
 
 ## 6. 2 台目 (device B) を同じマシンで動かす
 
-remote 同期 (step1 W3d5) の検証では, 「別端末が PDS 経由で受け取れるか」を見たいことがある.
-`PORT` と `DATA_DIR` を分ければ, 同じマシン上に **完全に独立した 2 組目のデーモン + クライアント**
-を立てられる. PDS は 1 つを共有する (それが検証したい経路である).
+remote 同期の検証では, 「別端末が PDS 経由で受け取れるか」を見たいことがある. step3 Phase 2
+以降は, **別の origin (別のポート) で開いたクライアント**が別の端末に当たる (保存領域が別).
+PDS は 1 つを共有する (それが検証したい経路である).
 
 ```shell
-# device B のデーモン (:3001, データは data-b/)
-PORT=3001 DATA_DIR=data-b bun run dev:server
-
-# device B のクライアント (:5175). 宛先デーモンを :3001 に向ける
-cd src/client && VITE_API_BASE=http://localhost:3001 bunx vite --port 5175 --strictPort
+# device B のクライアント (127.0.0.1:5174)。同じアカウントでログインする
+cd src/client && bunx vite --port 5174 --strictPort
 ```
 
-`data-b/` は `.gitignore` の `data-*/` パターンに含まれるので, 消してもリポジトリに影響しない.
-事前の `mkdir` は要らない — ディレクトリが無ければ `GET /files` は空一覧を返し, 最初の書込で
-`Bun.write` が親ごと作る (`storage.ts`).
+同じ origin で開いたタブは別の端末にはならない — 同じ保存領域を共有し, タブごとに別の actor に
+なるだけである (step3 Phase 2 D4).
 
-> **⚠️ 「同じファイルへ両方から書き込む」構成は step1 Phase 4d 以降で解禁**
-> (`deepse/plans/step1-phase4d-receive.md`). W3d5 時点では remote 経路が **送信 (push) のみ**で
-> 受信 (import) が無く, device B のデーモンが自前の genesis batch を独立生成して
-> **clock が衝突する 2 系統の genesis** が remote に載る恐れがあったため, 検証を
-> 「A が送ったものを B が取得できるか」に限定していた. Phase 4d で受信経路が入り,
-> 端末一意の actor (`did#deviceId`) と `clock → actor → id` の全順序が入ったので,
-> **双方向の編集を前提に検証してよい** (それが 4d-6 の検証内容である).
-> **genesis actor の batch も Phase 4e-0 以降は remote へ push される**
-> (`deepse/plans/step1-phase4e-bootstrap.md` §3.1 — genesis は content-addressed で
-> 端末間べき等なので, 同一 snapshot 由来なら id が一致し PDS 上で dedup される).
->
-> 画面反映は Phase 4e-3 で入った — 受信着地後に再 projection が走り, 開いている
-> ファイルへ反映される. ただし**画面は依然として証拠にしない** (§6.1 冒頭の理由).
-> 検証は下の §6.1 / §6.2 のスクリプトで行うこと.
+画面は依然として証拠にしない. 検証は下の §6.1 で PDS のレコードを見て行う.
 
 ### 6.1 PDS 上のレコードを直接検査する
 
@@ -562,7 +385,7 @@ cd src/client && VITE_API_BASE=http://localhost:3001 bunx vite --port 5175 --str
 ```shell
 bun run scripts/inspect-remote-batches.ts                      # 受入基準を機械判定
 bun run scripts/inspect-remote-batches.ts --dump               # 全 batch を clock 順に一覧
-PDS_URL=http://localhost:2583 REPO=alice.test \
+PDS_URL=http://localhost:3000 REPO=alice.test \
   bun run scripts/inspect-remote-batches.ts                    # 宛先を明示する場合
 ```
 
@@ -575,41 +398,19 @@ genesis の検査は Phase 4e-0 で反転した — 旧 C1 (genesis 非 push) �
 
 ### 6.2 ローカル正典 (受信結果) を検査する
 
-§6.1 が PDS 側 = **送信**結果を見るのに対し, こちらは端末のローカル op-log = **受信**結果を見る.
-受信の検証はこちらが主役になる (step1 Phase 4d).
-
-**「op-log に行が増えた」も証拠にならない**ことに注意する. シート作成 batch を受け取っていない
-状態で content batch だけ届くと, 着地はするが projection から無言で落ちる (設計 §1.10).
-基準 6 がこの穴を塞ぐ.
-
-```shell
-# device B を検査 (自端末のみの検査)
-DAEMON_URL=http://localhost:3001 FILE_ID=<uuid> bun run scripts/inspect-local-oplog.ts
-
-# 全基準を検査する (収束・marker・取りこぼしを含む)
-DAEMON_URL=http://localhost:3001 PEER_URL=http://localhost:3000 DATA_DIR=data-b \
-  PDS_URL=http://localhost:2583 REPO=alice.test \
-  bun run scripts/inspect-local-oplog.ts --snapshot /tmp/deviceB.json
-
-bun run scripts/inspect-local-oplog.ts --dump    # 全 batch を clock 順に一覧
-```
-
-- `FILE_ID` はファイルが 1 つだけなら省略できる. 複数あると候補を出して止まる.
-- 環境変数を渡さなかった検査は **未実施として一覧に出る** (黙って PASS にはしない).
-- **基準 2 (べき等) は 2 回実行して比較する**: 1 回目で `--snapshot` に記録 → 再受信させる →
-  同じコマンドを再実行. 1 回目は必ず PASS (記録するだけ) なので, 2 回目まで回して初めて判定になる.
-- `DATA_DIR` を渡すと `events.db` の migration marker を直接読む. これは元々「marker が無いまま
-  受信 batch があると, 次の読み取りで lazy migration が受信内容を破棄する」(設計 §1.8) 事故を
-  検出するための検査だった. **lazy migration は Phase 6 p6-1 で撤去された**ので破棄の危険自体は
-  無くなったが, marker は「op-log がこのファイルの正典である」という宣言として残っており,
-  受信経路が marker を立てていることの確認として引き続き有効である.
+step3 Phase 2 S2-7 まではデーモンの HTTP API を叩く `scripts/inspect-local-oplog.ts` があったが,
+ローカル正典がブラウザの中 (OPFS) に移ったので撤去した. 受信の正しさは App 結合テスト
+(`*.app-test.tsx`) が見ている. 実機でローカル正典を覗く口が要るようになったら, 開発ビルドの
+`window.__conversensus` に足す.
 
 ## 7. 注意点 (ハマりどころ)
 
-- **`GET /files/:id/batches` の副作用は無くなった** (step1 Phase 6 p6-1). かつては読取前に lazy migration を発火させたため「素の pre-W3 状態を保ちたいファイルには触れない」注意が要ったが, 移行は**デーモン起動時に一括で**行われるようになったので, curl で観察しても状態は動かない.
-- **snapshot を書く口はもう無い** (Phase 6 p6-5a). `PUT /files/:id` は撤去済みで, `POST /files` / `POST /files/import` も snapshot を作らない. op-log と snapshot に意図的な差を作る検証 (旧 §3) は成立しない.
-- **`data/` はリポジトリ管理外**. テストデータの投入・削除は自由に行ってよい.
-- **`GET /files` は op-log 単独** (Phase 6 p6-2). ファイルが一覧に出ないときは snapshot ではなく op-log を見ること — 構造 op (`sheet.create`) を持たない孤児 batch だけの file_id は一覧に出ない仕様である.
+- **ローカル正典は origin ごと**. `localhost:5173` と `127.0.0.1:5173` は別の保存領域である.
+  いつも `127.0.0.1` で開くこと (§1)
+- **プライベートブラウズの窓では使えない** (Safari). 保存領域が開けないので「この窓では保存
+  できません」と出て編集できない (step3 Phase 2 D5)
+- **service worker は本番ビルドでだけ動く**. 開発サーバでは登録されないので, オフライン起動は
+  `bun run --cwd src/client build && bun run --cwd src/client preview` で確かめる
 
 ## 8. Safari で使い込む (WebKit 適合の常時検証)
 
@@ -640,15 +441,9 @@ Safari と同じ **WebKit** であり, Chrome (Blink) とは描画も JavaScript
 
 ### 8.2 手順
 
-§1 のとおりサーバを起動し, **Safari で** `http://localhost:5173/` を開くだけである.
-
-```shell
-bun run dev:server   # :3000
-bun run dev:client   # :5173
-```
-
-デーモンの CORS は origin が `localhost` で始まれば通す設定なので (`src/server/src/index.ts` の
-`cors()`), ブラウザを変えても追加設定は要らない.
+§1 のとおりクライアントを起動し, **Safari で** `http://127.0.0.1:5173/` を開くだけである.
+**ログインは開発環境の Safari ではできない** (開発用 PDS が http のため, §1). ログインの要らない
+操作 (編集・画像・検索・プロパティ) は Safari で確かめられる.
 
 **Web インスペクタを必ず開いておくこと**. Safari は開発者向け機能が既定で無効なので,
 設定 → 詳細 から Web 開発者用の機能を表示する (文言は Safari のバージョンによって違う) と
@@ -723,104 +518,20 @@ bun run test:e2e          # webkit (本命) + chromium (対照)
 bun run test:e2e:webkit   # webkit だけ
 ```
 
-- **サーバの起動は要らない**. Playwright が**専用ポートで自前のデーモンとクライアントを
-  起動する** (daemon `:3100` / client `:5174`). §1 で立てた `:3000` / `:5173` は触らない
-- **利用者の `data/` は汚れない**. E2E のデーモンは `DATA_DIR=data-e2e` を使い,
-  **起動のたびに消す**. `data-e2e/` は gitignore 済 (`data-*` のパターン)
-- **ポートを分けているのは意図的である**. 同じオリジンだと `/blobs/:cid` が
-  `immutable` で返るためブラウザの HTTP キャッシュが混ざる (§6 のハマりどころと同じ罠)
+- **サーバの起動は要らない**. Playwright が**専用ポートで自前のクライアントを起動する**
+  (開発サーバ `:5174`, 本番ビルドの配信 `:5175`). §1 で立てた `:5173` は触らない
+- **利用者のデータは汚れない**. E2E はテストごとに新しいブラウザのプロファイルで開く
+  (`tests/fixtures.ts`). 保存領域もそのプロファイルの中にある
 - テストは `tests/*.spec.ts`, 仕様書は同じ場所に `tests/*.spec.md` を置く.
   `bunfig.toml` が `tests/` を bun のランナーから外しているので `bun test` とは衝突しない
 - **合成イベントで再現しないものは書かない** — トラックパッド由来の挙動・クリップボード・
   ファイル選択ダイアログ・描画品質は §8.3 のチェックリスト (人間) の領分である
 
-## 9. Tauri (デスクトップアプリ) で動かす
+## 9. Tauri (デスクトップアプリ) — **撤去済み**
 
-**Phase 8 (2026-08-14) で, アプリとして単体で動く形になった.** 下の §9.0 が現在の手順で,
-§9.1 以降は spike 当時の記録である.
-
-### 9.0 いまの手順 (Phase 8 S0〜S5)
-
-```shell
-bun run app:dev      # 開発中に動かす (デーモンも自動で立つ)
-bun run app:build    # .app と .dmg を作る
-```
-
-`app:build` は **デーモンのコンパイルと Tauri 用クライアントビルドを自分で走らせる**ので,
-事前の準備は要らない. 出力は `src-tauri/target/release/bundle/` の下.
-
-**知っておくべきこと:**
-
-- **アプリは独立している.** デーモン (57MB のバイナリ) を同梱しており, bun も
-  リポジトリも要らない. `bun run dev:server` を立てておく必要は無い
-- **データは別の場所にある** — `~/Library/Application Support/site.conversensus.app/`.
-  開発中の `data/` とは混ざらない. **アプリは空の状態から始まる**ので,
-  既存のファイルを持ち込みたければ export / import で運ぶ
-- **ポートは 39847** (開発用の 3000 とは分けてある). 開発サーバと同時に動かしてよい
-- **終了するとデーモンも終わる.** 強制終了された場合も, デーモンが親の消失を検知して
-  自分で終わる (残ると次回起動が `EADDRINUSE` で壊れるため)
-- **ログは `~/Library/Logs/site.conversensus.app/`** にある.
-  デーモンの出力もここへ流れるので, 起動しないときはまずこれを見る
-
-**初回起動 (配布物を受け取った場合)**: **署名していない**ので, ダウンロードした
-`.dmg` から入れたアプリは Gatekeeper に止められる. **右クリック → 開く** で一度許可すれば,
-以後は普通に起動できる. 「壊れているので開けません」とは出ない (バンドルを ad-hoc 署名して
-あるため) が, **「開発元を検証できません」は出る** — これは正常である.
-
-> 自分でビルドした `.app` には quarantine 属性が付かないので, 手元では警告自体が出ない.
-> 配った場合の挙動を確かめたいときは `spctl -a -vv -t exec <app>` で判定だけ見られる.
-
-### 9.1 spike 当時の記録 (2026-08-02)
-
-Phase 8a の spike で **Tauri v2 のシェルに conversensus クライアントを載せて
-動かすところまで実測済み**である. そのとき **§1 の手順のままでは動かず, 2 点の追加が要る**
-ことが分かったので, 先に記録しておく. 詳細と根拠は
-[`../plans/step1-phase8a-r1-spike.md`](../plans/step1-phase8a-r1-spike.md) §7.2.
-
-#### §1 に足りない 2 点 (当時)
-
-| 事項 | 必要な対応 |
-|---|---|
-| **デーモンの CORS** | `ALLOWED_ORIGIN='tauri://localhost'` を渡す |
-| **クライアントのビルド** | `VITE_API_BASE=http://localhost:3000` を明示する |
-
-```shell
-# デーモン: Tauri の origin を許可する
-ALLOWED_ORIGIN='tauri://localhost' bun run dev:server
-
-# クライアント: ローカルデーモンを向いた dist を焼く
-VITE_API_BASE=http://localhost:3000 bun run --cwd src/client build
-```
-
-**なぜ要るか**:
-
-- **CORS**: デーモンの `cors()` は origin が `http://localhost:` で始まるものだけ通す
-  (`src/server/src/index.ts`). macOS の Tauri v2 は custom scheme を使うので origin は
-  **`tauri://localhost`** であり, この前綴りに該当しない. 既存の `ALLOWED_ORIGIN` env が
-  ちょうど逃げ道になる (コード変更は要らない).
-- **`VITE_API_BASE`**: `bun run --cwd src/client build` は vite の production モードなので
-  `src/client/.env.production` を読み, **dist に VPS の URL (`https://api.conversensus.site`)
-  が焼き込まれる**. 明示しないと Tauri アプリはローカルデーモンではなく本番 VPS と話す.
-  **ATProto ログインは本物の PDS で成立してしまうため画面は一見正常に見え, 気づきにくい**
-  (spike ではこの切り分けに 40 分を要した).
-
-#### 要らないもの
-
-- **Info.plist の ATS (App Transport Security) 例外は不要**. `tauri://localhost` (secure context)
-  から `http://localhost:3000` への fetch は素で通る. A/B で確認済み
-- **CSP の緩和は不要**. `bun create tauri-app` が生成する `tauri.conf.json` は `"csp": null`
-
-#### この環境で Tauri の中身を観測する方法
-
-macOS の権限設定により, **`screencapture` (画面収録) も `osascript` (アクセシビリティ) も
-devtools も使えない**ことがある. そのとき使える代替手段:
-
-- **webview が起動したかの判定** — アプリを起動すると WKWebView のヘルパープロセス
-  (`com.apple.WebKit.GPU` / `.Networking` / `.WebContent`) が直後の PID で生える.
-  アプリを kill すると道連れに落ちるので, 因果まで確認できる
-- **webview 内部の値を機械的に採る** — `frontendDist` を差し替えて診断ページを読ませ,
-  `devicePixelRatio` や機能検出の結果を **localhost のプローブサーバへ fetch で送り返す**.
-  spike ではこれで `origin` / `devicePixelRatio` / `navigator.clipboard.read` の有無などを取った
+step3 Phase 2 S2-7 (2026-10-01) で Tauri の配布をやめた. インストールは PWA で行う
+(ブラウザの「ホーム画面に追加」/「アプリとしてインストール」). 以前の手順と spike の記録は
+git の履歴にある (`src-tauri/` と本書の旧 §9).
 
 ## 関連
 

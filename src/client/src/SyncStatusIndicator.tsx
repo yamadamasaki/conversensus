@@ -16,7 +16,9 @@
  * という組み合わせで、「反映されないので同期したい」ときに押す口が存在しなかった。
  * 自動反映が入るまでの間、**人が要求したときに取りに行ける**ようにしておく。
  *
- * - **未ログイン (remoteQueue=null) では何も描画しない**。remote 経路が無いので同期概念が無い。
+ * - **未ログイン (remoteQueue=null) では「この端末にだけ保存」と出す** (step3 Phase 2 D6)。
+ *   PWA の保存領域はブラウザが消すことがある (Safari の ITP)。どこにも送られていない編集が
+ *   あることを、ログインしていなくても見えるようにしておく。
  * - ロジックはキュー側 (`RemoteSyncQueue`) と tap 側 (`useEventSyncTap` の `syncNow`) に置き、
  *   ここは pending の購読・表示・トリガのみ。
  * - 上限超過 (overflowed, D1) 時は「N 件以上」と頭打ちで見せる。溢れた分はローカル正典に
@@ -37,6 +39,10 @@ type Props = {
    */
   onSyncNow: () => Promise<void>;
 };
+
+/** 未ログインのときの表示。ログインすれば PDS へ同期される */
+const LOCAL_ONLY_STATUS =
+  'この端末にだけ保存されています (ログインすると同期されます)';
 
 const containerStyle: React.CSSProperties = {
   display: 'flex',
@@ -85,7 +91,13 @@ export function SyncStatusIndicator({ remoteQueue, onSyncNow }: Props) {
     }
   }, [remoteQueue, syncing, onSyncNow]);
 
-  if (!remoteQueue) return null;
+  if (!remoteQueue) {
+    return (
+      <div style={{ ...containerStyle, color: '#999' }} role="status">
+        <span>{LOCAL_ONLY_STATUS}</span>
+      </div>
+    );
+  }
 
   // 上限に達していると実際の未送信はこれ以上ある (溢れた分は catch-up で回収, D1)
   const status =

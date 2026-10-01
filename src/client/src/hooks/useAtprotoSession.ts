@@ -14,7 +14,7 @@ export function useAtprotoSession() {
   }, []);
 
   const handleLogin = useCallback(
-    async (identifier: string, password: string) => {
+    async (identifier: string, password?: string) => {
       const s = await login(identifier, password);
       setSession(s);
     },

@@ -1,175 +1,53 @@
-import {
-  type Batch,
-  BatchSchema,
-  type BlobCid,
-  type ConversensusFile,
-  type FileId,
-  FileIdSchema,
-  type GraphFile,
-  type GraphFileListItem,
-  GraphFileListItemSchema,
-  GraphFileSchema,
-  type Lamport,
-  type MimeType,
-} from '@conversensus/shared';
-import { z } from 'zod';
+/**
+ * ローカル正典への入口 (step1 以来の `api.ts`)
+ *
+ * hooks から上はこの 9 関数だけを見る。中身は差し替えられるバックエンド (`local/backend.ts`)
+ * に委ねる (step3 Phase 2 D2) — ブラウザでは Worker の中の `LocalStore`、App 結合テストは同じ
+ * プロセスの `LocalStore` である。
+ */
 
-const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:3000';
-const HTTP_NOT_FOUND = 404;
+import type { BlobCid, MimeType } from '@conversensus/shared';
+import type { LocalBackend } from './local/backend';
 
-export async function fetchFiles(): Promise<GraphFileListItem[]> {
-  const res = await fetch(`${BASE}/files`);
-  if (!res.ok) throw new Error('Failed to fetch files');
-  return z.array(GraphFileListItemSchema).parse(await res.json());
-}
+export type { StoredBlob } from '@conversensus/shared';
 
 /**
- * この端末が op-log を持つ file_id の全集合 (ANA-127)。
- *
- * `fetchFiles` と違い**削除済みも含む**。remote からの発見 (`discoverRemoteFiles`) の
- * 既知集合はこちらでなければならない — 一覧を使うと削除済みが「未知」に化けて
- * PDS から materialize され、削除が取り消される。
+ * まだ選ばれていないときのバックエンド。**呼ばれたら落とす** — 黙って何も保存しないと、
+ * 編集が消えたことに気づけない。起動 (`main.tsx`) が Worker のバックエンドを選ぶ
  */
-export async function fetchLocalFileIds(): Promise<FileId[]> {
-  const res = await fetch(`${BASE}/files/ids`);
-  if (!res.ok) throw new Error('Failed to fetch local file ids');
-  return z.array(FileIdSchema).parse(await res.json());
-}
-
-// `fetchFile` (GET /files/:id) と `saveFile` (PUT /files/:id) は Phase 6 p6-3 で
-// 撤去した。ファイルの読取は op-log の projection (`fetchBatches` → `projectFile`)、
-// 書込は batch の追記が唯一の口になった (設計 §3.4 / §3.6)。
-
-export async function createFile(name: string): Promise<GraphFile> {
-  const res = await fetch(`${BASE}/files`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name }),
-  });
-  if (!res.ok) throw new Error('Failed to create file');
-  return GraphFileSchema.parse(await res.json());
-}
-
-// `removeFile` (DELETE /files/:id) は ANA-127 で撤去した。通常のファイル削除は
-// op-log の tombstone (`sync/fileDeletion.ts`) になり、物理削除を呼ぶ経路が無くなった。
-// サーバの endpoint 自体は「op-log ごと本当に消す」保守用として残してある (設計 D2) が、
-// **クライアントからは呼ばない** — 呼ぶと tombstone まで消えて ANA-127 が再発する。
-// 消費者のいないラッパーを残すと「書くが読まない二重モデル」になる (Phase 6 の教訓)。
-
-/**
- * インポートの HTTP 境界。**呼ぶのは `files/fileTransfer.ts` だけ**である —
- * 同梱 blob をローカルストアへ戻す手順とセットでなければ画像が失われる (D1)。
- */
-export async function postImportFile(
-  data: Omit<ConversensusFile, 'blobs'>,
-): Promise<GraphFile> {
-  const res = await fetch(`${BASE}/files/import`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  });
-  if (!res.ok) throw new Error('Failed to import file');
-  return GraphFileSchema.parse(await res.json());
-}
-
-// --- 操作ログ (batches) --- (step1 Phase 4 実配線)
-
-/** 操作ログへ batches を追記する。@returns 新規に追記された件数 */
-export async function pushBatches(
-  fileId: FileId,
-  batches: Batch[],
-): Promise<number> {
-  const res = await fetch(`${BASE}/files/${fileId}/batches`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(batches),
-  });
-  if (!res.ok) throw new Error('Failed to push batches');
-  return z.object({ appended: z.number() }).parse(await res.json()).appended;
-}
-
-/**
- * **remote から受信した** batches を操作ログへ追記する (Phase 4d-5)。
- *
- * `pushBatches` とは別のエンドポイントを叩く。受信の書き込みは追記に加えて
- * op-log 正典 marker を立てる必要があり (設計 §3.3b)、marker が無いと次の読取で
- * lazy migration が受信内容を破棄する (§1.8)。取り違えないよう経路ごと分けている。
- *
- * @returns 新規に追記された件数 (既知の batch は server 側のべき等性で 0 件扱い)
- */
-export async function pushReceivedBatches(
-  fileId: FileId,
-  batches: Batch[],
-): Promise<number> {
-  const res = await fetch(`${BASE}/files/${fileId}/batches/received`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(batches),
-  });
-  if (!res.ok) throw new Error('Failed to push received batches');
-  return z.object({ appended: z.number() }).parse(await res.json()).appended;
-}
-
-/** 操作ログを取得する。since を渡すと clock > since のみ返す */
-export async function fetchBatches(
-  fileId: FileId,
-  since?: Lamport,
-): Promise<Batch[]> {
-  const url =
-    since === undefined
-      ? `${BASE}/files/${fileId}/batches`
-      : `${BASE}/files/${fileId}/batches?since=${since}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error('Failed to fetch batches');
-  return z.array(BatchSchema).parse(await res.json());
-}
-
-const StoredBlobSchema = z.object({
-  cid: z.string(),
-  mimeType: z.string(),
-  size: z.number(),
+const UNCONFIGURED: LocalBackend = new Proxy({} as LocalBackend, {
+  get: (_target, method) => () =>
+    Promise.reject(
+      new Error(`ローカル正典が開かれていない (${String(method)})`),
+    ),
 });
-export type StoredBlob = z.infer<typeof StoredBlobSchema>;
+
+let backend: LocalBackend = UNCONFIGURED;
 
 /**
- * ローカル blob ストア (daemon) へバイナリを保存する (ANA-116 S3)。
- *
- * content-addressed なので**冪等**である — 同じ内容を 2 回送っても実体は 1 つで、
- * 返る cid も同じになる。cid はサーバが内容から計算した値であり、クライアントの
- * 申告ではない。
+ * バックエンドを選ぶ。起動 (`main.tsx`, Worker) と App 結合テスト (端末ごとの DB) が呼ぶ。
+ * null で選んでいない状態に戻す
  */
-export async function putBlob(
-  bytes: Uint8Array,
-  mimeType: MimeType,
-): Promise<StoredBlob> {
-  const res = await fetch(`${BASE}/blobs`, {
-    method: 'POST',
-    headers: { 'Content-Type': mimeType },
-    body: bytes as unknown as BodyInit,
-  });
-  if (!res.ok) {
-    // サーバの理由 (上限超過など) をそのまま呼び出し元へ渡す。ここで潰すと
-    // ユーザーに「なぜ保存できなかったか」が伝わらなくなる
-    const body = await res.text().catch(() => '');
-    throw new Error(`Failed to store blob (HTTP ${res.status}): ${body}`);
-  }
-  return StoredBlobSchema.parse(await res.json());
+export function setLocalBackend(next: LocalBackend | null): void {
+  backend = next ?? UNCONFIGURED;
 }
 
-/**
- * ローカル blob ストアから実体を取る。**まだこの端末に無い場合は `undefined`** —
- * 他端末が作った画像では普通に起こることなので、例外にはしない (呼び出し元は
- * PDS へ進む)。
- */
-export async function fetchBlob(cid: BlobCid): Promise<Blob | undefined> {
-  const res = await fetch(`${BASE}/blobs/${cid}`);
-  if (res.status === HTTP_NOT_FOUND) return undefined;
-  if (!res.ok) {
-    throw new Error(`Failed to fetch blob ${cid} (HTTP ${res.status})`);
-  }
-  return await res.blob();
-}
-
-// `exportFile` は `files/fileTransfer.ts` へ移した (ANA-116 D1)。書き出しは
-// 「参照されている画像の実体を集めて同梱する」手順を含むようになり、HTTP の薄い
-// ラッパを集めるこのファイルの役ではなくなった。
+export const fetchFiles: LocalBackend['fetchFiles'] = () =>
+  backend.fetchFiles();
+export const fetchLocalFileIds: LocalBackend['fetchLocalFileIds'] = () =>
+  backend.fetchLocalFileIds();
+export const createFile: LocalBackend['createFile'] = (name) =>
+  backend.createFile(name);
+export const postImportFile: LocalBackend['postImportFile'] = (data) =>
+  backend.postImportFile(data);
+export const pushBatches: LocalBackend['pushBatches'] = (fileId, batches) =>
+  backend.pushBatches(fileId, batches);
+export const pushReceivedBatches: LocalBackend['pushReceivedBatches'] = (
+  fileId,
+  batches,
+) => backend.pushReceivedBatches(fileId, batches);
+export const fetchBatches: LocalBackend['fetchBatches'] = (fileId, since) =>
+  backend.fetchBatches(fileId, since);
+export const putBlob = (bytes: Uint8Array, mimeType: MimeType) =>
+  backend.putBlob(bytes, mimeType);
+export const fetchBlob = (cid: BlobCid) => backend.fetchBlob(cid);

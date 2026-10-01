@@ -17,7 +17,10 @@ services:
     image: ghcr.io/bluesky-social/pds:latest
     restart: unless-stopped
     ports:
-      - "2583:3000"
+      # **ホストの :3000 で公開する** (step3 Phase 2 S2-6)。dev mode の PDS は自分の公開 URL を
+      # `http://localhost:<PDS_PORT>` と名乗り、アカウントの DID 文書もそこを指す。OAuth はこの URL に
+      # 直接届く必要があるので、ホスト側のポートを揃える (以前の 2583 では OAuth が通らない)
+      - "3000:3000"
     volumes:
       - pds-data:/pds
     env_file:

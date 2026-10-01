@@ -66,11 +66,14 @@ function fakeSyncNow() {
 afterEach(cleanup);
 
 describe('SyncStatusIndicator', () => {
-  it('未ログイン (remoteQueue=null) では何も描画しない', () => {
+  it('未ログイン (remoteQueue=null) では「この端末にだけ保存」と出し、同期ボタンは出さない', () => {
+    // PWA の保存領域はブラウザが消すことがある。どこにも送られていないことを見えるようにする
+    // (step3 Phase 2 D6)。remote 経路が無いので「今すぐ同期」は意味を持たない
     const { container } = render(
       <SyncStatusIndicator remoteQueue={null} onSyncNow={fakeSyncNow().fn} />,
     );
-    expect(container.textContent).toBe('');
+    expect(container.textContent).toContain('この端末にだけ保存されています');
+    expect(screen.queryByRole('button')).toBeNull();
   });
 
   it('未送信 0 件でも「今すぐ同期」を出す (#202)', () => {

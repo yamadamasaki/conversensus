@@ -1,5 +1,5 @@
 import type { Did } from '@conversensus/shared';
-import { currentDid, getAgent } from './client';
+import { currentDid, getAgent, pdsUrl } from './client';
 
 /**
  * `uploadBlob` の戻り値を畳んだ形。**op に載せる blob ref とは別物である** —
@@ -85,8 +85,7 @@ export async function fetchRemoteBlob(
   }
 
   // フォールバック: PDS の raw blob URL
-  const pdsUrl = getAgent().service.toString();
-  const rawUrl = `${pdsUrl}/blob/${did}/${cid}`;
+  const rawUrl = `${pdsUrl()}/blob/${did}/${cid}`;
   const res = await fetch(rawUrl);
   if (!res.ok) {
     const body = await res.text().catch(() => '');

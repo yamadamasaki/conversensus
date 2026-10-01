@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { IMAGE_PROPERTY_KEY, IMAGE_URL_PROPERTY_KEY } from './images/imageBlob';
+import type { LocalBackend } from './local/backend';
 
 // bun では mock.module() はホイストされないため, await import() の前に呼ぶことで
 // ImageNode が依存モジュールを読み込む前にモックを登録できる
@@ -37,28 +38,27 @@ mock.module('./EventDispatchContext', () => ({
 const { render, screen, fireEvent, cleanup, waitFor } = await import(
   '@testing-library/react'
 );
-const { ImageNode } = await import('./ImageNode');
+const { EXTERNAL_IMAGE_BLOCKED, ImageNode } = await import('./ImageNode');
 const { ImageErrorProvider } = await import('./images/imageErrorContext');
+const { setLocalBackend } = await import('./api');
 
 // 実在の CID ベクタ ( `[1,2,3]` の CID)。daemon の応答として返す
 const STORED_CID =
   'bafkreiadsbmmn4waznesyuz3bjgrj33xzqhxrk6mz3ksq7meugrachh3qe';
 
 /**
- * `POST /blobs` の応答だけを差し替える。**モジュールモックは使わない** —
- * bun の `mock.module` はテストファイルをまたいで効くため、`images/imageBlob` を
- * 差し替えると他のテストが巻き添えになる。fetch はこのファイル内で戻せる。
+ * ローカル正典の blob の格納だけを差し替える (`setLocalBackend`)。**モジュールモックは使わない** —
+ * bun の `mock.module` はテストファイルをまたいで効くため、`images/imageBlob` を差し替えると
+ * 他のテストが巻き添えになる。バックエンドは各 describe の後で戻す。
  */
 function stubBlobStore(): { calls: number } {
   const state = { calls: 0 };
-  globalThis.fetch = (async () => {
-    state.calls += 1;
-    return {
-      ok: true,
-      status: 200,
-      json: async () => ({ cid: STORED_CID, mimeType: 'image/png', size: 3 }),
-    };
-  }) as unknown as typeof fetch;
+  setLocalBackend({
+    putBlob: async () => {
+      state.calls += 1;
+      return { cid: STORED_CID, mimeType: 'image/png', size: 3 };
+    },
+  } as unknown as LocalBackend);
   URL.createObjectURL = () => 'blob:stub/1';
   return state;
 }
@@ -100,6 +100,26 @@ const makeGhostProps = (content = '削除予定の画像'): TestNodeProps => ({
 });
 
 describe('ImageNode', () => {
+  describe('利用者が URL で指した画像 (step3 Phase 2 Q4)', () => {
+    it('CORS で読む (crossorigin="anonymous")', () => {
+      // COEP (require-corp) の下でも、CORS を返す外部の画像は読める
+      render(<ImageNode {...makeProps()} />);
+      expect(screen.getByRole('img').getAttribute('crossorigin')).toBe(
+        'anonymous',
+      );
+    });
+
+    it('🔴 読めなかったら、ドロップすれば保存されると案内する', async () => {
+      // CORS / CORP を返さない画像は COEP の下で読めない (受け入れた)。「読み込めません」だけでは
+      // 利用者が取れる手が分からない
+      render(<ImageNode {...makeProps()} />);
+      fireEvent.error(screen.getByRole('img'));
+      await waitFor(() =>
+        expect(screen.getByText(EXTERNAL_IMAGE_BLOCKED)).toBeDefined(),
+      );
+    });
+  });
+
   beforeEach(() => {
     cleanup();
     mockGetNode.mockClear();
@@ -158,6 +178,7 @@ describe('ImageNode', () => {
 
     afterEach(() => {
       globalThis.fetch = originalFetch;
+      setLocalBackend(null);
     });
 
     /** ノードの本体 (drop を受ける要素) */
@@ -218,11 +239,13 @@ describe('ImageNode', () => {
     it('保存に失敗したら op を出さずに理由を伝える', async () => {
       // 設計 D7「握り潰さない」。旧実装は console.error だけで、上限超過は
       // 「落としたのに何も起きない」ようにしか見えなかった
-      globalThis.fetch = (async () => ({
-        ok: false,
-        status: 413,
-        text: async () => 'Blob too large (max 5242880 bytes)',
-      })) as unknown as typeof fetch;
+      setLocalBackend({
+        putBlob: async () => {
+          throw new Error(
+            'Failed to store blob: Blob too large (max 5242880 bytes)',
+          );
+        },
+      } as unknown as LocalBackend);
       const reportError = mock((_message: string) => {});
       const { container } = render(
         <ImageErrorProvider value={reportError}>
@@ -237,7 +260,8 @@ describe('ImageNode', () => {
 
       await waitFor(() => expect(reportError).toHaveBeenCalled());
       expect(mockDispatch).not.toHaveBeenCalled();
-      expect(reportError.mock.calls[0][0]).toContain('413');
+      // 断った理由 (上限超過) がそのまま伝わる
+      expect(reportError.mock.calls[0][0]).toContain('Blob too large');
     });
 
     it('画像でないファイルは受け取らず canvas へ通す', async () => {
@@ -266,6 +290,7 @@ describe('ImageNode', () => {
 
     afterEach(() => {
       globalThis.fetch = originalFetch;
+      setLocalBackend(null);
     });
 
     /** `imageDataUrl` だけを持つ step0 期のノード */
@@ -318,6 +343,7 @@ describe('ImageNode', () => {
 
     afterEach(() => {
       globalThis.fetch = originalFetch;
+      setLocalBackend(null);
     });
 
     /** `properties.image` だけを持つノード (旧データの imageUrl は持たせない) */
@@ -338,16 +364,19 @@ describe('ImageNode', () => {
 
     /** 指定した cid だけ実体を返し、他は 404 にする `GET /blobs/:cid` */
     function stubBlobFetch(availableCid: string) {
-      globalThis.fetch = (async (url: string) => {
-        if (String(url).endsWith(availableCid)) {
-          return {
-            ok: true,
-            status: 200,
-            blob: async () => new Blob([new Uint8Array([1, 2, 3])]),
-          };
-        }
-        return { ok: false, status: 404 };
-      }) as unknown as typeof fetch;
+      // ローカル正典には `availableCid` だけがある
+      setLocalBackend({
+        fetchBlob: async (cid: string) =>
+          cid === availableCid
+            ? new Blob([new Uint8Array([1, 2, 3])])
+            : undefined,
+      } as unknown as LocalBackend);
+      // ローカルに無ければ PDS へ取りに行く。PDS にも無い (404) ことにする
+      globalThis.fetch = (async () => ({
+        ok: false,
+        status: 404,
+        text: async () => '',
+      })) as unknown as typeof fetch;
       URL.createObjectURL = () => 'blob:stub/resolved';
       URL.revokeObjectURL = () => undefined;
     }

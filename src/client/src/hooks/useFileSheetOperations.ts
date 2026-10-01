@@ -30,6 +30,7 @@ import type { GraphEvent } from '../events/GraphEvent';
 import { makeEventBase } from '../events/GraphEvent';
 import { exportFile, importFile } from '../files/fileTransfer';
 import { collectBlobOrigins } from '../images/blobOrigins';
+import { subscribeLocalChanges } from '../local/localChanges';
 import type { PopupTarget } from '../SettingsPopup';
 import { didFromActor } from '../sync/actor';
 import {
@@ -382,26 +383,14 @@ export function useFileSheetOperations({
   );
 
   /**
-   * 受信のサイクルが最後まで走った。
+   * 手元の正典に、画面へ出ていない他の actor の batch があれば差し替える (#202)。
    *
-   * 1. **同期義務を解く** (S6)。果たしたことを覚えてから外す
-   * 2. **画面が古くないか見る** (#202)
-   *
-   * 2 が要るのは、`onReceived` が「**このブラウザがローカル正典に追記したとき**」しか
-   * 鳴らないからである。同じデーモンを共有する別の窓が書いた分は**もう正典に入って
-   * いる**ので追記が 0 になり、画面だけが古いまま残る (2 つのブラウザで同じ
-   * `localhost:5173` を開いた構成。2026-09-06 実機で発覚)。
-   *
-   * **古いのはローカル正典ではなく画面である。**だから remote ではなく手元を見る。
+   * 契機は 2 つ: 同期のサイクルが最後まで走ったとき (`handleSynced`) と、**同じブラウザの
+   * 別のタブ**が書いたとき (step3 Phase 2 D3)。タブごとに actor が別なので (D4)、
+   * 別のタブの書き込みは「他の actor の batch」として数えられる
    */
-  const handleSynced = useCallback(
+  const refreshIfStale = useCallback(
     (fileId: FileId, tap: TapHandle) => {
-      setObligation((prev) => {
-        if (!prev || prev.fileId !== fileId) return prev;
-        dischargedRef.current.set(fileId, prev.since);
-        return null;
-      });
-
       if (activeFileRef.current?.id !== fileId) return;
       // 受信の着地が既に差し替えを始めていれば、ここで測る意味は無い
       if (swappingRef.current.has(fileId)) return;
@@ -424,6 +413,32 @@ export function useFileSheetOperations({
     [deps, foreignCount, swapProjection],
   );
 
+  /**
+   * 受信のサイクルが最後まで走った。
+   *
+   * 1. **同期義務を解く** (S6)。果たしたことを覚えてから外す
+   * 2. **画面が古くないか見る** (#202)
+   *
+   * 2 が要るのは、`onReceived` が「**このブラウザがローカル正典に追記したとき**」しか
+   * 鳴らないからである。同じデーモンを共有する別の窓が書いた分は**もう正典に入って
+   * いる**ので追記が 0 になり、画面だけが古いまま残る (2 つのブラウザで同じ
+   * `localhost:5173` を開いた構成。2026-09-06 実機で発覚)。
+   *
+   * **古いのはローカル正典ではなく画面である。**だから remote ではなく手元を見る。
+   */
+  const handleSynced = useCallback(
+    (fileId: FileId, tap: TapHandle) => {
+      setObligation((prev) => {
+        if (!prev || prev.fileId !== fileId) return prev;
+        dischargedRef.current.set(fileId, prev.since);
+        return null;
+      });
+
+      refreshIfStale(fileId, tap);
+    },
+    [refreshIfStale],
+  );
+
   // 操作ログ tap をファイル単位で保持する (W3c1)。content (GraphEditor) と
   // structure (以下の構造ハンドラ) の両方が単一の tap = 単一 Lamport 発番源を共有する。
   // remote キューがあれば tap は fanout (ローカル正典 + remote) になる (W3d5-5)。
@@ -441,6 +456,7 @@ export function useFileSheetOperations({
     appendReceived: deps.pushReceivedBatches,
     fetchLocal: deps.fetchBatches,
     onReceived: handleReceived,
+    onLocalChanged: refreshIfStale,
     onRoster: handleRoster,
     onConflicts: handleConflicts,
     onOverwrites: handleOverwrites,
@@ -783,6 +799,16 @@ export function useFileSheetOperations({
   useEffect(() => {
     deps.fetchFiles().then(setFiles).catch(console.error);
   }, [deps]);
+
+  // 別のタブが File を作った・書いたら一覧を読み直す (step3 Phase 2 D3)。開いている File の
+  // 中身は tap の `onLocalChanged` が差し替える
+  useEffect(
+    () =>
+      subscribeLocalChanges(() => {
+        deps.fetchFiles().then(setFiles).catch(console.error);
+      }),
+    [deps],
+  );
 
   // 参加を承認した File を手元に立ち上げる (step2 Phase 2 S3)。
   //

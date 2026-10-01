@@ -13,6 +13,7 @@ import { AcceptInvitationDialog } from './AcceptInvitationDialog';
 import { AlertDialog } from './AlertDialog';
 import { AtprotoLoginDialog } from './AtprotoLoginDialog';
 import { TRUNK_PREFIX } from './atproto';
+import { authNeedsPassword } from './atproto/client';
 import { CommitDialog } from './CommitDialog';
 import { ConfirmDialog } from './ConfirmDialog';
 import { ConflictNotice, NOTICE_Z_INDEX } from './ConflictNotice';
@@ -630,6 +631,7 @@ export default function App() {
       </div>
       {loginDialogOpen && (
         <AtprotoLoginDialog
+          needsPassword={authNeedsPassword()}
           onLogin={async (handle, password) => {
             await atprotoLogin(handle, password);
             setLoginDialogOpen(false);

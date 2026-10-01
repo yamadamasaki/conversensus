@@ -13,3 +13,6 @@ infra/pds/pds-data
 .gitnexus
 /playwright-report/
 /test-results/
+
+# step3 Phase 2 S2-7 で撤去した Tauri。手元に残ったビルド成果物 (target/ など) を拾わない
+/src-tauri/

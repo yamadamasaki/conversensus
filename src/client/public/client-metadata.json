@@ -1,0 +1,13 @@
+{
+  "client_id": "https://app.conversensus.site/client-metadata.json",
+  "client_name": "conversensus",
+  "client_uri": "https://app.conversensus.site",
+  "logo_uri": "https://app.conversensus.site/icon-192.png",
+  "redirect_uris": ["https://app.conversensus.site/"],
+  "scope": "atproto transition:generic",
+  "grant_types": ["authorization_code", "refresh_token"],
+  "response_types": ["code"],
+  "token_endpoint_auth_method": "none",
+  "application_type": "web",
+  "dpop_bound_access_tokens": true
+}

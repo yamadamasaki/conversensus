@@ -176,6 +176,8 @@ S1-2・S1-3・S1-4・S1-7 は**間違えても静かに違う答えを出す側*
 
 ### Phase 2: 保存先 (PWA)
 
+> **設計: [step3-phase2-pwa.md](./step3-phase2-pwa.md)** (2026-10-01)。Phase 1 は PR #236 で merge 済。
+
 S0-4 の結果で形が決まる。既定案は次のとおりである。
 
 - **S2-1 ブラウザ内 eventStore** (SQLite-WASM + OPFS)。`eventStore.ts` のスキーマを持ち込む

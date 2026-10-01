@@ -5,8 +5,8 @@
  *
  * | 境界 | 差し替え先 |
  * | --- | --- |
- * | ローカルサーバ (`api.ts` → `http://localhost:3000`) | **本物の Hono アプリ** (`src/server`) をプロセス内で呼ぶ。DB は端末ごとの一時ディレクトリ |
- * | PDS (`AtpAgent` → `VITE_ATPROTO_PDS_URL`) | `fakePds.ts` (XRPC を HTTP の形のまま受ける) |
+ * | ローカル正典 (`api.ts` のバックエンド) | **本物の `LocalStore`** を同じプロセスで呼ぶ (`storeBackend`)。DB は端末ごとのインメモリ SQLite |
+ * | PDS (`AtpAgent` → `PDS_ORIGIN`) | `fakePds.ts` (XRPC を HTTP の形のまま受ける)。認証は OAuth ではなくパスワード (`passwordAuth`) |
  *
  * **`mock.module` は使わない。**bun のモジュールモックはプロセス全体に効いて無関係な
  * テストを壊した経緯がある (`useEventSyncTap.test.ts` の冒頭)。`fetch` の差し替えは
@@ -19,30 +19,39 @@
  * ## 端末
  *
  * 複数の参加者は**端末を順番に切り替えて**表す。同時に 2 つの App は立てられない —
- * `atproto/client.ts` の agent がプロセスに 1 つだからである。端末は「ローカルサーバの DB」と
- * 「localStorage (セッション・deviceId など)」の組で、`activate` がそれを差し替える。
- * サーバの `getEventStore` は `DATA_DIR` を**要求のたびに**引くので、環境変数を差すだけで
- * 別の DB に向く。
+ * `atproto/client.ts` の agent がプロセスに 1 つだからである。端末は「ローカル正典の DB」と
+ * 「localStorage (セッション・deviceId など)」の組で、`activate` がバックエンドと
+ * localStorage を差し替える。
  *
  * 相手の記録を手で組み立てずに本物の App に書かせるのは、**記録の形が変わっても
  * テストが追随する**ためである (step3 Phase 1 で op-log の形を作り直す)。
  *
- * step3 Phase 2 (PWA 化) でローカルサーバはブラウザ内の eventStore に置き換わる。
- * そのときはこのファイルの「ローカルサーバ」の部分だけを差し替える。
+ * step3 Phase 2 S2-2 で、ローカルサーバ (Hono) を経由するのをやめて `LocalStore` を直接呼ぶ形に
+ * した。ブラウザでは同じ `LocalStore` が Worker の中で動く (S2-3)。**HTTP の層を外しても検証は
+ * 落ちない** — 経路のロジックは `LocalStore` に移してあり、HTTP に残ったのは要求の形の検証だけで
+ * ある (それは `storeBackend` が `BatchSchema` で同じだけ通す)。
  */
 
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { logout } from '../atproto/client';
+import { EventStore, LocalStore } from '@conversensus/shared';
+import {
+  BunSqliteDriver,
+  IN_MEMORY,
+} from '@conversensus/shared/src/store/bunSqliteDriver';
+import { setLocalBackend } from '../api';
+import { logout, setAuthBackend } from '../atproto/client';
+import { passwordAuth } from '../atproto/passwordAuth';
+import type { LocalBackend } from '../local/backend';
+import { storeBackend } from '../local/storeBackend';
 import { createFakePds, type FakePds } from './fakePds';
 
-/** `api.ts` の既定 (`VITE_API_BASE` 未設定時) と揃える */
-const LOCAL_SERVER_ORIGIN = 'http://localhost:3000';
-/** `atproto/client.ts` の既定 (`VITE_ATPROTO_PDS_URL` 未設定時) と揃える */
+/** 偽の PDS の origin。パスワードの認証 (`passwordAuth`) をここへ向ける */
 const PDS_ORIGIN = 'http://localhost:2583';
 
-type Device = { dataDir: string; storage: Record<string, string> };
+type Device = {
+  store: LocalStore;
+  backend: LocalBackend;
+  storage: Record<string, string>;
+};
 
 export type AppWorld = {
   pds: FakePds;
@@ -51,8 +60,8 @@ export type AppWorld = {
    * 描いたままだと、前の端末の App が新しい端末の DB と PDS セッションで動き出す
    */
   activate: (deviceName: string) => Promise<void>;
-  /** いま有効な端末のローカルサーバを直接叩く (op-log の観測用) */
-  localServer: (path: string, init?: RequestInit) => Promise<Response>;
+  /** いま有効な端末のローカル正典 (op-log の観測用) */
+  localStore: () => LocalStore;
   /** 境界の偽物に届かなかった URL (想定外の通信の検出用) */
   unhandled: string[];
   dispose: () => Promise<void>;
@@ -76,28 +85,20 @@ function restoreStorage(storage: Record<string, string>): void {
 
 /** 世界を作る。**テストごとに作り直す** — 端末の DB も PDS も新しくなる */
 export async function createAppWorld(): Promise<AppWorld> {
-  const previousDataDir = process.env.DATA_DIR;
-  const { app } = await import('../../../server/src/index');
-
   const pds = createFakePds(PDS_ORIGIN);
+  // OAuth は PDS の同意画面を人が通るので、プロセスの中では偽の PDS にパスワードでログインする
+  // (step3 Phase 2 D7)。本番と開発の既定は OAuth
+  setAuthBackend(passwordAuth(PDS_ORIGIN));
   const unhandled: string[] = [];
   const devices = new Map<string, Device>();
   let current: Device | null = null;
   const realFetch = globalThis.fetch;
 
-  const localServer = (path: string, init?: RequestInit) =>
-    Promise.resolve(
-      app.fetch(new Request(`${LOCAL_SERVER_ORIGIN}${path}`, init)),
-    );
-
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     // Request が渡されたら本体ごと引き継ぐ (`@atproto/xrpc` は Request を組んで渡す)
     const request = new Request(input, init);
     const url = new URL(request.url);
-    if (url.origin === LOCAL_SERVER_ORIGIN) {
-      if (!current) throw new Error('appWorld: 端末が activate されていない');
-      return app.fetch(request);
-    }
+    // ローカル正典は fetch を通らない (`storeBackend`)。ここに来たら HTTP の既定が漏れている
     if (pds.handles(url)) return pds.fetch(request);
     unhandled.push(request.url);
     return new Response('appWorld: unhandled', { status: 599 });
@@ -111,34 +112,32 @@ export async function createAppWorld(): Promise<AppWorld> {
 
     let device = devices.get(deviceName);
     if (!device) {
-      device = {
-        dataDir: mkdtempSync(join(tmpdir(), `conversensus-${deviceName}-`)),
-        storage: {},
-      };
+      const store = new LocalStore(
+        new EventStore(new BunSqliteDriver(IN_MEMORY)),
+      );
+      device = { store, backend: storeBackend(store), storage: {} };
       devices.set(deviceName, device);
     }
     current = device;
-    process.env.DATA_DIR = device.dataDir;
+    setLocalBackend(device.backend);
     restoreStorage(device.storage);
   };
 
   return {
     pds,
     activate,
-    localServer: (path, init) => {
+    localStore: () => {
       if (!current) throw new Error('appWorld: 端末が activate されていない');
-      return localServer(path, init);
+      return current.store;
     },
     unhandled,
     dispose: async () => {
       await logout();
       localStorage.clear();
       globalThis.fetch = realFetch;
-      if (previousDataDir === undefined) delete process.env.DATA_DIR;
-      else process.env.DATA_DIR = previousDataDir;
-      for (const device of devices.values()) {
-        rmSync(device.dataDir, { recursive: true, force: true });
-      }
+      setLocalBackend(null);
+      setAuthBackend(null);
+      for (const device of devices.values()) device.store.events.close();
     },
   };
 }

@@ -1,4 +1,5 @@
-import { expect, type Page, test } from '@playwright/test';
+import type { Page } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 /**
  * ボタンを押していないのに始まったドラッグが終わらない (ANA-125 S4 / ANA-115 再診断)

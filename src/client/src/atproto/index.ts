@@ -16,7 +16,14 @@ export {
   uploadImageBlob,
 } from './blob';
 export type { AtprotoSession } from './client';
-export { currentDid, getAgent, login, logout, resumeSession } from './client';
+export {
+  authNeedsPassword,
+  currentDid,
+  getAgent,
+  login,
+  logout,
+  resumeSession,
+} from './client';
 // step1 Phase 6 p6-5b: PDS legacy レコード (file/sheet/node/edge/layout/branch/
 // commit/merge) を読み書きする経路は退役した。ここに残るのは op-log の batch
 // コレクションと、legacy file レコードの後始末に使う `files` だけ (設計 §3.8)。

@@ -60,3 +60,15 @@ actor が端末を区別しない限り、受信側は 2 つの batch を因果�
 `globalThis.localStorage` を返すか null を返すかだけの自明なコードで、テストが
 実装をそのまま写す以上の意味を持たないため。使う側 (`getDeviceId` / marker) は
 ストレージを引数で受け取れるので、そちらで固定できている。
+
+## setClaimedDeviceId (step3 Phase 2 D4)
+
+PWA ではタブごとに deviceId を Web Locks で借りる (`local/deviceClaim.ts`)。起動時に借りた id を
+`setClaimedDeviceId` で決めると、`getDeviceId()` はそれを返し、actor の後半がタブごとになる。
+
+- **借りた id を決めたら、それを返す** — E2E (`multiTab.spec.ts`) が見ているのは借りた値そのもので、
+  それが actor に使われることはここで見る
+- **保存先を明示したときは保存先の id** — 既存の振る舞い (テストが保存先を渡す) を変えない
+
+モジュールの状態なので、各テストの後に `setClaimedDeviceId(undefined)` で戻す (同じプロセスの
+他のテストへ漏らさない)。
