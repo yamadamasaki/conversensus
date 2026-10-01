@@ -172,7 +172,7 @@ ITP は操作の無い Web アプリの保存領域を消すことがある (S0-
 | --- | --- | --- |
 | **S2-1** ✅ | eventStore をドライバ非依存にして `shared` へ (D1)。サーバは `bun:sqlite` ドライバで同じものを使う — **振る舞いは変えない** | 既存の eventStore テストがそのまま通る |
 | **S2-2** ✅ | 経路のロジックを `localStore` へ (D2)。`api.ts` を「バックエンド」の口の上に載せ、実装を HTTP とプロセス内 (`bun:sqlite`) の 2 つにする。**App 結合をプロセス内に切り替え、Hono を外す** | 単体 + App 結合 |
-| **S2-3** | ブラウザのバックエンド (D3): Worker + SQLite-WASM (`opfs`) + RPC。Vite に COOP/COEP。開けないときの画面 (D5)。既定をこちらに切り替える。E2E を persistent context に | E2E (WebKit / Chromium) |
+| **S2-3** ✅ | ブラウザのバックエンド (D3): Worker + SQLite-WASM (`opfs`) + RPC。Vite に COOP/COEP。開けないときの画面 (D5)。既定をこちらに切り替える。E2E を persistent context に | E2E (WebKit / Chromium) |
 | **S2-4** | タブの actor (D4) と、タブ間の知らせ (D3 の BroadcastChannel) | 単体 (溜まりの借り方) + E2E (2 タブで同じ File を編む: 点が重ならない、相手のタブに出る) |
 | **S2-5** | PWA 化: manifest・service worker (オフラインで起動)・`persist()`・未同期の表示 (D6)。COEP の下の画像 (Q4) | E2E (オフライン起動) |
 | **S2-6** | ATProto OAuth (D7)。**最初に spike**: 開発用の PDS で loopback client が通るか | 単体 + 実機 |
@@ -208,7 +208,7 @@ S2-7 でサーバを消す。途中のどこで止めても main が動く順に
 
 - **U1**: Safari 実機での `persist()` と ITP の消去 (S0-4 の注意 3)。S2-5 の後に実機で見る
 - **U2**: service worker の更新の出し方 (新しい版が来たとき、開いているタブをどうするか)
-- **U3**: Worker の RPC を自前で書くか、小さなライブラリ (Comlink など) を使うか。S2-3 で決める
+- **U3** (S2-3 で決着): Worker の RPC は自前で書いた (`local/worker/protocol.ts`)。運ぶのは 9 関数の呼び出しと起動の結果と開発時の契約の検査だけで、ライブラリを足すほどの量ではない
 
 ## 7. 実装の記録
 
@@ -251,3 +251,38 @@ App 結合 (`appWorld.ts`) は Hono を経由せず、端末ごとにインメ�
 
 単体 1902 件・App 結合 7 件・E2E が緑。`storeBackend` の受信の追記を捨てる変異で App 結合の
 6 件が落ちる (App 結合がこの経路を確かに通っている)。
+
+### S2-3 ブラウザのバックエンド (2026-10-01)
+
+SQLite-WASM を `opfs` VFS で開く dedicated Worker (`local/worker/localStore.worker.ts`) を置き、
+その中で **App 結合と同じ `storeBackend(LocalStore)`** を動かす。main 側の `workerBackend` は
+`LocalBackend` の 9 関数をそのまま RPC にする。SQL ドライバ `WasmSqliteDriver` は oo1 API の上に
+`SqlDriver` を載せたもの。
+
+起動 (`main.tsx`) は**保存領域が開けたかを確かめてから**描く。開けなければ
+`StorageUnavailable` (「この窓では保存できません」) を出し、編集させない (D5)。Vite の dev / preview に
+COOP/COEP を付けた (D8)。
+
+E2E は `tests/fixtures.ts` で、テストごとに新しいプロファイルの persistent context で走らせる。
+デーモンの起動は E2E から外した (デーモンそのものは S2-7 で撤去)。
+
+`api.ts` の既定は `httpBackend` のままで、`main.tsx` が起動時に Worker のバックエンドへ
+差し替える。単体テストの既定を変えないためで、`httpBackend` は S2-7 で消す。
+
+#### 分かったこと
+
+- **既存の E2E 24 件が、そのまま OPFS の上で両エンジンとも通った** (画像の drop も Worker 経由)。
+  hooks から上が `api.ts` の 9 関数しか見ていない (事実 1) ことの裏付けになった
+- 保存領域の無い窓 (WebKit の使い捨て context) では、`OpfsDb` の判定に 9 秒ほどかかる
+  (sqlite-wasm が OPFS の導入を待つ)。その間は白い画面になる。起動中の表示は S2-5 で足す
+
+#### ⚠️ 本番への影響
+
+**この版を `app.conversensus.site` に出すには、Caddy に COOP/COEP を足す必要がある。**
+足さずに出すと、全員が「この窓では保存できません」になる。配信の手順は S2-7 でまとめて書く。
+
+#### 検証
+
+単体 1902 件・App 結合 7 件・E2E 29 件 (1 件は Chromium で skip) が緑。Worker の DB をメモリに
+する変異で「再読み込みの後も残る」が、ドライバのトランザクションを外す変異で「ドライバの契約」が
+落ちる。

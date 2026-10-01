@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 /**
  * サイドバーのレイアウト (ANA-125 S1 / GitHub #51)

@@ -40,3 +40,4 @@ export type UpdateFileRequest = z.infer<typeof UpdateFileRequestSchema>;
 export * from './store/eventStore';
 export * from './store/localStore';
 export * from './store/sqlDriver';
+export * from './store/sqlDriverContract';

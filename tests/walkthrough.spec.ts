@@ -1,4 +1,5 @@
-import { expect, type Locator, type Page, test } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { collectPageProblems } from './pageProblems';
 
 /**
@@ -30,9 +31,9 @@ const PANE = '.react-flow__pane';
 /**
  * このテスト用のファイル名。
  *
- * **プロジェクト (webkit / chromium) をまたいで一意にする。** `webServer` はテスト全体で
- * 1 つなので, 2 つ目のエンジンは 1 つ目が作ったファイルが残っているデーモンを見る。
- * 名前で引く検査が隣のエンジンの残骸に当たらないようにする。
+ * **プロジェクト (webkit / chromium) をまたいで一意にする。** step3 Phase 2 S2-3 から
+ * テストごとに新しいプロファイルで開くので隣の残骸に当たることは無いが, 名前で引く検査を
+ * 残骸に頼らない形にしておく。
  */
 function uniqueFileName(projectName: string): string {
   return `通し-${projectName}-${Date.now()}`;
