@@ -11,10 +11,6 @@
 | `DELETE /files/:id` | 指定 ID のファイルを削除する (**op-log 正典**, Phase 6 p6-2) |
 | `POST /files/:id/batches` | 操作ログへ batches を追記する (step1 Phase 4 実配線) |
 | `GET /files/:id/batches` | 操作ログを取得する (`?since=<clock>` で範囲)。**副作用は無い** — 読取時の lazy migration は Phase 6 p6-1 で撤去した |
-| `POST /files/:id/commits` | コミット (ログ上のラベル付きオフセット) を保存する (step1 Phase 5) |
-| `GET /files/:id/commits` | ファイルのコミット一覧を at 昇順で返す (step1 Phase 5) |
-| `POST /files/:id/branches` | ブランチのメタ情報を保存する (`:id` = 分岐元 trunk, step1 Phase 5) |
-| `GET /files/:id/branches` | trunk のブランチ一覧を base オフセット昇順で返す (step1 Phase 5) |
 
 ## なぜテストするか
 
@@ -175,9 +171,10 @@ projection が返る。和集合へ戻ると即座に赤くなる。
   同じ id が受信で materialize されると、消したはずの内容が復活しうる。
 - **op-log-only ファイルも消せる**: 受信 materialize されたファイルは snapshot を持たず、
   従来は 404 で**ユーザーが消せないファイル**になっていた。
-- **trunk 削除でブランチのメタと実体も消える**: branch の中身へは `branch_file_id` から
-  しか辿れない (`deleteBranch` と同じ理由)。trunk だけ消すと孤児 batch が永久に残る。
-- **コミットも消える**: メタの消し残しの検出。
+- **trunk 削除で、trunk の op-log が作った branch の op-log も消える**: branch の中身へは
+  trunk の `branch.create` からしか辿れない。trunk だけ消すと孤児 batch が永久に残る。
+  (branch / commit のメタ専用の経路 `/commits` `/branches` は step3 Phase 1 で撤去した。
+  メタは step2 T7-1 から op-log に載っていて、経路は使われていなかった)
 
 snapshot 削除も併せて呼び続けているのは、まだ書かれているため (p6-5 で落とす) と、
 一括移行に失敗して op-log を持たないファイルにも削除手段を残すため。応答は
@@ -222,55 +219,6 @@ branch batches は trunk と同じ `batches` テーブルに **branch 専用 fil
 一覧が `listOplogFiles` 単独になった今 (p6-2)、branch を隠しているのはこの除外だけになる。
 **明示的な除外コードは書いていない** — 既存の 0 シート除外がそのまま効くため
 (設計 §9.2 / M2)。HTTP の口でもそれを固定する。
-
-## ブランチ / コミットのメタ情報 (step1 Phase 5)
-
-branch/commit を op-log 上で成立させるための**メタの器**。batches と違い append-only の
-ログではなく上書き保存 (`INSERT OR REPLACE`) であり、**local daemon 専用で remote へは
-同期しない** (設計 `step1-phase5-branch-oplog.md` §9.2 の不変条件)。
-
-### コミット (`/commits`)
-
-コミット = 操作ログ上のラベル付きオフセット
-(`{id, message, at, authorActor, kind, sourceBranchId?, sourceAt?}`)。
-
-- **保存と応答**: 201 と保存内容を返す。UI が採番結果をそのまま扱えること。
-  **`kind` を持たない入力は `commit` として補完される** — merge を一級の記録にする
-  (ANA-122) 前に書かれたコミットが、そのまま通り続けるための互換規定。
-- **merge の記録 (ANA-122)**: `kind=merge` と由来 (`sourceBranchId` / `sourceAt`) を
-  保ったまま往復する。「いつ・誰が・何のために merge したか」を trunk の履歴から引ける。
-- **at 昇順で取得**: `Commit.at` は `batchesUpTo` の切り出し位置なので、履歴は
-  分岐点の古い順に並ぶ必要がある。
-- **空なら空配列**: コミットの無いファイルでも 200 + `[]` (404 にしない)。
-- **境界バリデーション**: `id` が UUID でない等の不正な body は 400。branded UUID を
-  API 境界で強制する規約 (CLAUDE.md #2) の実施点。
-
-### ブランチ (`/branches`)
-
-`BranchMeta` = ログドメインの `Branch` + `{sheetId, trunkFileId, branchFileId}`。
-`:id` は**分岐元 trunk の file_id** であり、branch 自身の op-log (`branchFileId`) とは別物。
-
-- **保存と応答 / base オフセット昇順の取得 / 空なら空配列**: コミットと同じ観点。
-- **trunk での分離**: 別 trunk のブランチが一覧に混ざらないこと。branch は per-sheet で
-  数が増えるため、分離が崩れると他ファイルのブランチが UI に現れる。
-- **🔴 URL と body の trunk 不一致は 400**: `trunkFileId` は保存先の絞り込みキーでもある
-  ため、URL と食い違ったまま受け付けると **`GET /files/:id/branches` のどの :id でも
-  取り出せないブランチ**が静かに生まれる (作成は成功したように見える)。400 で弾き、
-  かつ body 側の trunk にも保存されていないことを確認する。
-- **未定義の `status` は 400**: `status` は `BRANCH_STATUS` の 4 値のみ。open/merged の
-  遷移で分岐の生死を判定するため、未知の値が入ると判定不能になる。
-
-#### `DELETE /files/:id/branches/:branchId` (p5-4)
-
-旧 `deleteBranchWithRecords` (PDS レコード一括削除) の置換。branch はメタと
-**branch 専用 file_id の op-log** の 2 箇所に散っているため、片方だけ消す API を
-作らない (メタだけ消すと辿れない batch が残り、op-log だけ消すと空のブランチが並ぶ)。
-
-- **削除後はメタも branch op-log も空**: 「消えていること」を両側から確認する。
-- **存在しないブランチは 404**: client 側ラッパーはこれを成功として扱う (二重削除を
-  失敗にしない) が、その判断を client に閉じ込めるため server は区別して返す。
-- **別 trunk 指定では消えない**: `:id` (trunk) を経路に含める理由そのもの。id だけを
-  知る呼び出しが他ファイルのブランチを消せないことを固定する。
 
 ## blob API (ANA-116 S2)
 

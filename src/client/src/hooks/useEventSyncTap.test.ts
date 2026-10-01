@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it } from 'bun:test';
-import type { Batch, EdgeId, FileId, NodeId } from '@conversensus/shared';
+import type {
+  Batch,
+  EdgeId,
+  FileId,
+  NodeId,
+  ParticipationEvent,
+} from '@conversensus/shared';
 
 /**
  * 受信の書き込み先を記録する (Phase 4d-5)。フックの `appendReceived` オプションへ
@@ -38,6 +44,8 @@ const rosterWith = (judgmentClock: number, participants = [MY_DID]) => {
         id: 'j1',
         actor: MY_ACTOR,
         clock: judgmentClock,
+        seq: judgmentClock,
+        deps: {},
         timestamp: 0,
         ops: [],
       },
@@ -110,27 +118,19 @@ class RecordingProvider implements SyncProvider, RemoteBatchTarget {
   async pushRemote(entries: readonly RemoteBatch[]): Promise<void> {
     return this.push(entries.map((e) => e.batch));
   }
-  /** 移行専用の新規作成 (p7-4)。この hook のテストでは push と区別しなくてよい */
-  async createRemote(entries: readonly RemoteBatch[]): Promise<void> {
-    return this.push(entries.map((e) => e.batch));
-  }
   async push(batches: Batch[]): Promise<void> {
     this.pushed.push(...batches);
   }
   async pull(_since: Cursor): Promise<PullResult> {
     return { batches: this.existing, cursor: '' };
   }
-  /** remote 側の全件取得 (Phase 4d-4)。p7-5 以降は移行だけが使う */
-  async pullAllRemoteForMigration(): Promise<RemoteBatch[]> {
-    return this.existing.map((batch) => ({ fileId: FID, batch }));
-  }
   /** ファイル単位の取得 (Phase 7 p7-2)。要求された fileId を記録する */
   pulledFor: FileId[] = [];
   async pullRemoteForFile(fileId: FileId): Promise<RemoteBatch[]> {
     this.pulledFor.push(fileId);
-    return (await this.pullAllRemoteForMigration()).filter(
-      (e) => e.fileId === fileId,
-    );
+    return this.existing
+      .map((batch) => ({ fileId: FID, batch }))
+      .filter((e) => e.fileId === fileId);
   }
   /** ファイル列挙 (Phase 7 p7-3)。この hook のテストでは 1 ファイルしか扱わない */
   async listRemoteFiles(): Promise<RemoteFileEntry[]> {
@@ -142,6 +142,8 @@ const batch = (id: string, over: Partial<Batch> = {}): Batch => ({
   id: id as Batch['id'],
   actor: MY_DID,
   clock: 1,
+  seq: 1,
+  deps: {},
   timestamp: 1_700_000_000_000,
   ops: [{ kind: 'node.add', target: id as NodeId, content: id }],
   ...over,
@@ -370,7 +372,14 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
       };
       const readFor: FileId[] = [];
       const base = rosterWith(1, [MY_DID, OTHER]);
-      const accepted = { kind: 'accept', clock: 0, timestamp: 0, by: OTHER };
+      // 最初から参加している。seq 0 の点は誰にとっても因果の過去にある
+      const accepted: ParticipationEvent = {
+        kind: 'accept',
+        clock: 0,
+        timestamp: 0,
+        by: OTHER,
+        point: { actor: OTHER, seq: 0, deps: {} },
+      };
       const roster = {
         read: async (id: FileId) => {
           readFor.push(id);
@@ -432,7 +441,7 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
 
   describe('相手が保留した競合の到着 (step2 Phase 3 T7-5)', () => {
     it('参加者の repo から届いた fork を onForksArrived で知らせる', async () => {
-      // 競合を検出するのは LWW で勝つ側だけなので、負けた側はこの通知でしか保留を知らない。
+      // 自分では検出しなかった第三者は、この通知でしか保留を知らない。
       // 受信の結果に載っても、ここで呼ばなければ画面に届かない
       const { makeFork } = await import('@conversensus/shared');
       const { graphEventToBatch } = await import('../events/toUnified');
@@ -466,6 +475,8 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
         forkBatches.push(
           graphEventToBatch(event, {
             clock: 10,
+            seq: 10,
+            deps: {},
             actor: `${OTHER}#dev-9` as import('@conversensus/shared').Actor,
           }),
         ),
@@ -485,7 +496,14 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
           ? forkBatches.map((batch) => ({ fileId: id, batch }))
           : [];
       const base = rosterWith(1, [MY_DID, OTHER]);
-      const accepted = { kind: 'accept', clock: 0, timestamp: 0, by: OTHER };
+      // 最初から参加している。seq 0 の点は誰にとっても因果の過去にある
+      const accepted: ParticipationEvent = {
+        kind: 'accept',
+        clock: 0,
+        timestamp: 0,
+        by: OTHER,
+        point: { actor: OTHER, seq: 0, deps: {} },
+      };
       const roster = {
         read: async () => {
           const result = await base.read();

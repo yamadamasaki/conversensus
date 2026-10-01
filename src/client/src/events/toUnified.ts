@@ -21,9 +21,9 @@
 
 import type {
   Actor,
+  CausalStamp,
   EdgeId,
   EdgeLayout,
-  Lamport,
   NodeId,
   NodeLayout,
   SheetId,
@@ -373,14 +373,18 @@ export function graphEventToBatch(
   event: GraphEvent,
   {
     clock,
+    seq,
+    deps,
     actor,
     sheetId,
-  }: { clock: Lamport; actor: Actor; sheetId?: SheetId },
+  }: CausalStamp & { actor: Actor; sheetId?: SheetId },
 ): Batch {
   return {
     id: BatchIdSchema.parse(event.id),
     actor,
     clock,
+    seq,
+    deps,
     timestamp: event.timestamp,
     ops: graphEventToOps(event),
     ...(sheetId !== undefined && { sheetId }),

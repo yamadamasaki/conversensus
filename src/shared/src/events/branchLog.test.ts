@@ -13,6 +13,8 @@ import {
   type Branch,
   batchesUpTo,
   branchSheet,
+  isUpTo,
+  makeBaseCommit,
   makeCommit,
   makeMergeCommit,
   tipClock,
@@ -34,6 +36,8 @@ function batch(clock: number, ops: Op[]): Batch {
     id: BatchIdSchema.parse(crypto.randomUUID()),
     actor: 'local',
     clock,
+    seq: clock,
+    deps: {},
     timestamp: clock,
     ops,
   };
@@ -115,5 +119,60 @@ describe('branchSheet', () => {
     const nodeA = sheet.nodes.find((n) => n.id === a);
     expect(nodeA?.content).toBe('A-branch');
     expect(sheet.nodes.some((n) => n.id === b)).toBe(true);
+  });
+});
+
+/**
+ * 分岐点を vector で切る (step3 Phase 1 D3)。scalar の `at` で切ると、分岐時には持っていなかった
+ * batch が clock の小ささだけで後から base に入る (step3-entry §2.1)
+ */
+describe('makeBaseCommit / isUpTo: 分岐点は vector で切る', () => {
+  const pointOf = (actor: string, seq: number, clock: number): Batch => ({
+    ...batch(clock, []),
+    actor,
+    seq,
+  });
+
+  test('🔴 分岐後に届いた、clock の小さい別の actor の batch は base に入らない', () => {
+    const held = [pointOf('alice', 1, 1), pointOf('bob', 1, 5)];
+    const base = makeBaseCommit(cid(), 'base', 'alice', held);
+    // carol の batch は分岐時には手元に無かった。clock 2 は base.at (5) より小さい
+    const late = pointOf('carol', 1, 2);
+    expect(late.clock).toBeLessThan(base.at);
+    expect(isUpTo(base, late)).toBe(false);
+    // scalar で切っていた頃の答え (比較のため): これが穴だった
+    expect(late.clock <= base.at).toBe(true);
+  });
+
+  test('分岐時に持っていた batch は base に入る', () => {
+    const held = [pointOf('alice', 1, 1), pointOf('bob', 1, 5)];
+    const base = makeBaseCommit(cid(), 'base', 'alice', held);
+    expect(batchesUpTo(held, base)).toHaveLength(2);
+  });
+
+  test('同じ actor の、分岐時より後の seq は base に入らない', () => {
+    const base = makeBaseCommit(cid(), 'base', 'alice', [
+      pointOf('bob', 1, 1),
+      pointOf('bob', 2, 2),
+    ]);
+    expect(isUpTo(base, pointOf('bob', 3, 1))).toBe(false);
+  });
+
+  /**
+   * 歯抜けは恒久的に生じうる — 参加期間のフィルタは離脱中の batch を取り込まない。
+   * 歯抜けで止まると (`contiguousFrontier`)、戻ってきた人のその後の編集が base に入らなくなる
+   */
+  test('歯抜けがあっても、持っていた最大の seq まで base に入る', () => {
+    const held = [pointOf('bob', 1, 1), pointOf('bob', 3, 7)];
+    const base = makeBaseCommit(cid(), 'base', 'alice', held);
+    expect(base.baseVector).toEqual({ bob: 3 });
+    expect(batchesUpTo(held, base)).toHaveLength(2);
+  });
+
+  test('vector を持たないコミット (branch の途中のコミット) は clock で切る', () => {
+    const commit = makeCommit(cid(), 'c', 'alice', [pointOf('alice', 1, 3)]);
+    expect(commit.baseVector).toBeUndefined();
+    expect(isUpTo(commit, pointOf('bob', 9, 3))).toBe(true);
+    expect(isUpTo(commit, pointOf('bob', 1, 4))).toBe(false);
   });
 });

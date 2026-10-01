@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { type TemplateId, TemplateIdSchema } from '../schemas';
+import { SheetIdSchema, type TemplateId, TemplateIdSchema } from '../schemas';
 import { BUILTIN_TEMPLATES, templatesOf } from './registry';
 import { TOULMIN_TEMPLATE } from './toulmin';
 
@@ -33,6 +33,17 @@ describe('templatesOf', () => {
         tid('jp.co.metabolics.toulmin'),
       ]),
     ).toEqual([TOULMIN_TEMPLATE]);
+  });
+
+  test('template graph の切断面はまだ解決せず、落とす (step3 Phase 1 D7)', () => {
+    // 知らない id と同じ扱い — 「template を当てていないシート」に縮退する
+    const graphRef = {
+      sheet: SheetIdSchema.parse('11111111-1111-4111-8111-111111111111'),
+      at: { 'did:plc:alice#dev': 3 },
+    };
+    expect(templatesOf([graphRef, tid('jp.co.metabolics.toulmin')])).toEqual([
+      TOULMIN_TEMPLATE,
+    ]);
   });
 
   test('指定した順に返す (種別メニューの並びが決まる)', () => {

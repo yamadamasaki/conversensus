@@ -1,0 +1,35 @@
+{
+  "lexicon": 1,
+  "id": "app.conversensus.v2.judgment",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "A judgment-log batch, v2 (step3 Phase 1): operations whose fold VALIDATES A PRECONDITION and DISCARDS anything that fails it (the participation roster). Kept apart from app.conversensus.v2.batch because graph ops resolve by LWW / add-wins and have no notion of an invalid op. The rkey scheme and the causal point (seq, deps) are SHARED with the graph batches of the same file: preconditions say 'recorded before this operation', so the two logs must be orderable against one another.",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": ["id", "fileId", "actor", "clock", "seq", "deps", "timestamp", "ops", "createdAt"],
+        "properties": {
+          "id": { "type": "string", "description": "The batch id (UUID)." },
+          "fileId": { "type": "string", "description": "The file this judgment belongs to (UUID)." },
+          "actor": {
+            "type": "string",
+            "description": "did#deviceId. The roster is keyed by DID, not by actor, so a second device of the same person is not a second participant."
+          },
+          "clock": { "type": "integer", "description": "Lamport clock, in the same space as the graph batches." },
+          "seq": {
+            "type": "integer",
+            "description": "The actor's sequence number, shared with the graph batches of the same file. The participation genesis uses 0."
+          },
+          "deps": { "type": "unknown", "description": "Causal context (actor -> seq), as on graph batches." },
+          "timestamp": { "type": "integer", "description": "Wall-clock milliseconds since epoch (display only)." },
+          "ops": {
+            "type": "unknown",
+            "description": "Serialized JudgmentOp[]: participation.genesis / .invite / .accept / .resign / .revoke / .reopen."
+          },
+          "createdAt": { "type": "string", "format": "datetime", "description": "Timestamp of record creation (ISO 8601)." }
+        }
+      }
+    }
+  }
+}

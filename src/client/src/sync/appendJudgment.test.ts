@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 import {
   type BatchId,
+  CausalClock,
   type FileId,
   type JudgmentBatch,
-  LamportClock,
 } from '@conversensus/shared';
 import {
   type AppendJudgmentDeps,
@@ -22,19 +22,17 @@ const jb = (clock: number): JudgmentBatch => ({
   id: bid(),
   actor: ACTOR,
   clock,
+  seq: clock,
+  deps: {},
   timestamp: 0,
   ops: [{ kind: 'participation.genesis' }],
 });
 
-function makeDeps(graphClock = new LamportClock()) {
+function makeDeps(graphClock = new CausalClock(ACTOR)) {
   const written: JudgmentBatch[] = [];
   const deps: AppendJudgmentDeps = {
-    clock: {
-      seed: (floor) => {
-        graphClock.seed(floor);
-      },
-      tick: () => graphClock.tick(),
-    },
+    // tap の発番器 (グラフと共有)。本番では trunk の tap のものを渡す
+    clock: graphClock,
     actor: ACTOR,
     putJudgment: async (_fileId, batch) => {
       written.push(batch);
@@ -79,8 +77,8 @@ describe('appendJudgment', () => {
 
   test('グラフと同じ clock から発番する', async () => {
     // 独立した採番器を作ると、pre 条件の「より前」が壊れる
-    const graphClock = new LamportClock();
-    graphClock.seed(5); // グラフ側が clock 5 まで進んでいる
+    const graphClock = new CausalClock(ACTOR);
+    graphClock.seedClock(5); // グラフ側が clock 5 まで進んでいる
     const { deps, written } = makeDeps(graphClock);
 
     await appendJudgment(
@@ -95,8 +93,8 @@ describe('appendJudgment', () => {
   test('判断ログの方が進んでいれば、そこまで引き上げてから発番する', async () => {
     // tap の clock はグラフの op-log の最大値から seed される。判断ログが先に
     // 進んでいると、引き上げないと同じ clock の batch が 2 つできる
-    const graphClock = new LamportClock();
-    graphClock.seed(3);
+    const graphClock = new CausalClock(ACTOR);
+    graphClock.seedClock(3);
     const { deps, written } = makeDeps(graphClock);
 
     await appendJudgment(
@@ -110,8 +108,8 @@ describe('appendJudgment', () => {
 
   test('グラフの方が進んでいれば引き下げない', async () => {
     // seed は下限の引き上げなので、既に大きい値には影響しない
-    const graphClock = new LamportClock();
-    graphClock.seed(20);
+    const graphClock = new CausalClock(ACTOR);
+    graphClock.seedClock(20);
     const { deps, written } = makeDeps(graphClock);
 
     await appendJudgment(
@@ -183,5 +181,36 @@ describe('appendJudgment', () => {
       written,
     );
     expect(written.map((b) => b.clock)).toEqual([1, 2]);
+  });
+});
+
+describe('appendJudgment: 因果の点 (step3 Phase 1)', () => {
+  test('グラフと同じ発番器で振るので、判断とグラフの seq は 1 本の連番になる', async () => {
+    const graphClock = new CausalClock(ACTOR);
+    // グラフ側で 2 つ書いた後
+    graphClock.issue();
+    graphClock.issue();
+    const { deps, written } = makeDeps(graphClock);
+
+    await appendJudgment(deps, FILE, [{ kind: 'participation.resign' }], []);
+
+    expect(written[0]?.seq).toBe(3);
+    // 次のグラフの点は判断の後になる
+    expect(graphClock.issue().seq).toBe(4);
+  });
+
+  test('判断の deps は、書いた時点でグラフ側が知っていたものを含む', async () => {
+    const graphClock = new CausalClock(ACTOR);
+    graphClock.observe({
+      actor: 'did:plc:bob#dev',
+      seq: 5,
+      deps: {},
+      clock: 9,
+    });
+    const { deps, written } = makeDeps(graphClock);
+
+    await appendJudgment(deps, FILE, [{ kind: 'participation.resign' }], []);
+
+    expect(written[0]?.deps).toEqual({ 'did:plc:bob#dev': 5 });
   });
 });

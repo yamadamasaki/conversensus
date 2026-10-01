@@ -35,7 +35,7 @@ import {
   type CommitId,
   type FileId,
   type Lamport,
-  makeCommit,
+  makeBaseCommit,
   type Sheet,
   type SheetId,
 } from '@conversensus/shared';
@@ -82,8 +82,9 @@ export async function createBranchOnOplog(
   deps: BranchProjectionDeps,
 ): Promise<BranchMeta> {
   const trunkBatches = await deps.fetchBatches(params.trunkFileId);
-  // 分岐点 = 現在のログ先端 (tipClock)。以後 trunk が伸びても base は動かない
-  const base = makeCommit(
+  // 分岐点 = いま持っている trunk の batch (vector)。以後 trunk が伸びても、
+  // 分岐時に持っていなかった batch が遅れて届いても base は動かない (step3 Phase 1 D3)
+  const base = makeBaseCommit(
     deps.newId() as CommitId,
     baseCommitMessage(params.name),
     params.authorActor,

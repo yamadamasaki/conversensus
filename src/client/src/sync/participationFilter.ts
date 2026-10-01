@@ -40,14 +40,14 @@ import type { Batch, Participation } from '@conversensus/shared';
 import {
   didFromActor,
   GENESIS_ACTOR,
-  stackedBy,
-  wasParticipatingAt,
+  wasParticipatingIn,
 } from '@conversensus/shared';
 
 /**
  * その batch を畳み込みに入れてよいか。
  *
- * 期間は閉じた始点・開いた終点 (`from <= clock < to`, `wasParticipatingAt`)。
+ * 期間は因果で判定する (`wasParticipatingIn`, step3 Phase 1 D5): 期間を開いた判断の後に
+ * 書かれ、閉じた判断 (取り消し・辞退) が**見ていた** batch だけが入る。
  * 名簿にいない DID は「参加していない」に落ちるので、`didFromActor` が
  * `'local'` を返す (未ログインで書かれた) batch も自然に除かれる。
  */
@@ -56,14 +56,9 @@ export function isWithinParticipation(
   batch: Batch,
 ): boolean {
   if (batch.actor === GENESIS_ACTOR) return true;
-  // **積んだ人の期間で判定する** (T7-4)。merge の写しは書いた人の actor を保つが、
-  // その clock で op-log に積んだのは merge した人である。書いた人で見ると、離脱した人の
-  // branch を残った人が merge したときに取り込みが落ちる
-  return wasParticipatingAt(
-    participation,
-    didFromActor(stackedBy(batch)),
-    batch.clock,
-  );
+  // merge の写しは merge した人自身の batch なので (step3 Phase 1 D2)、actor で判定すれば
+  // 「積んだ人の期間」になる。離脱した人の branch を残った人が merge しても取り込みは落ちない
+  return wasParticipatingIn(participation, didFromActor(batch.actor), batch);
 }
 
 /** `isWithinParticipation` を満たす batch だけを、入力順序を保って返す */

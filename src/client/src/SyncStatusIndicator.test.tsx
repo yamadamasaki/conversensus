@@ -25,20 +25,12 @@ class FakeProvider implements SyncProvider, RemoteBatchTarget {
   async pushRemote(entries: readonly RemoteBatch[]): Promise<void> {
     return this.push(entries.map((e) => e.batch));
   }
-  /** 移行専用の新規作成 (p7-4)。この画面のテストでは push と区別しなくてよい */
-  async createRemote(entries: readonly RemoteBatch[]): Promise<void> {
-    return this.push(entries.map((e) => e.batch));
-  }
   async push(batches: Batch[]): Promise<void> {
     if (!this.online) throw new Error('offline');
     this.pushed.push(...batches);
   }
   async pull(_since: Cursor): Promise<PullResult> {
     return { batches: [], cursor: '' };
-  }
-  /** remote 側の全件取得 (Phase 4d-4)。p7-5 以降は移行だけが使う */
-  async pullAllRemoteForMigration(): Promise<RemoteBatch[]> {
-    return [];
   }
   /** ファイル単位の取得 (Phase 7 p7-2)。この画面のテストでは remote は空でよい */
   async pullRemoteForFile(): Promise<RemoteBatch[]> {
@@ -54,6 +46,8 @@ const batch = (id: string): Batch => ({
   id: id as Batch['id'],
   actor: MY_DID,
   clock: Number(id),
+  seq: Number(id),
+  deps: {},
   timestamp: 1_700_000_000_000,
   ops: [{ kind: 'node.add', target: id as NodeId, content: id }],
 });

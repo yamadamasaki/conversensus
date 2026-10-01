@@ -2,8 +2,8 @@
  * safeStorage: localStorage を「無い/触ると例外」環境でも安全に扱う (step1 Phase 7 p7-4)
  *
  * プライベートモードや iframe の制約下では `globalThis.localStorage` の**参照自体が
- * 例外になる**ことがある。端末 id (`actor.ts`) と rkey 移行 marker
- * (`migrateRemoteRkey.ts`) が同じ守りを必要としたので 1 箇所に括り出した。
+ * 例外になる**ことがある。端末 id (`actor.ts`) と step1 の rkey 移行 marker
+ * (step3 Phase 1 で撤去) が同じ守りを必要としたので 1 箇所に括り出した。
  *
  * 「使えないなら null」を返すだけで、退避先 (セッション内メモリ等) の方針は
  * 呼び出し側が決める — 何を失って良いかは用途ごとに違うため。

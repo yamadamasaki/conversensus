@@ -1,54 +1,52 @@
 /**
- * mergeBranch: branch を trunk へ merge する調整層 (step1 Phase 5 p5-3)
+ * mergeBranch: branch を trunk へ merge する調整層 (step1 Phase 5 p5-3 / step3 Phase 1 S1-4)
  *
- * 旧 `mergeBranchToTrunk` の**レコード書替**を置換する。op-log では merge を
- * 「branch batches を trunk 先端の後へ再スタンプして trunk op-log へ追記する」
- * 操作として表現する (設計 §3.3-(i))。branch が trunk の**上に乗る** — git の rebase に
- * 近い意味論で、**merge した branch の編集は trunk の後発編集に勝つ**。
+ * op-log では merge を「branch の batch を**写して** trunk 先端の後へ追記する」操作として
+ * 表現する (設計 §3.3-(i))。branch が trunk の**上に乗る** — git の rebase に近い意味論で、
+ * **merge した branch の編集は trunk の後発編集に勝つ**。
  *
- * 設計 M3 の中間層として次の 3 つを引き受ける:
+ * 次の 3 つを引き受ける:
  *
- * - **採番規約**: clock は再スタンプするが **batch の id は保持する** (下記)。
- * - **べき等**: 同じ branch を 2 回 merge しても二重適用しない。
- * - **再 projection**: 追記後の trunk を projection し直して返す。
+ * - **写し方**: 写しは **merge した人自身の batch** である (step3 Phase 1 D2)。新しい id、
+ *   merge した人の actor と点 (clock・seq・deps) を持ち、`copyOf` で元の batch の点を指す
+ * - **べき等**: 同じ branch を 2 回 merge しても二重適用しない。trunk に既にある写しの
+ *   `copyOf` の集合を見て、写し済みの元を落とす
+ * - **再 projection**: 追記後の trunk を projection し直して返す
+ *
+ * ## なぜ写しを merge した人の batch にするか (step3 Phase 1 D2)
+ *
+ * step2 (T7-4) までは、写しが**書いた人の id と actor を保ち、clock だけを merge した人の
+ * 発番器で振り直して**いた。因果の点 `(actor, seq)` を載せると、これは「書いた人の名前で
+ * merge した人が番号を振る」ことになり、「actor の番号を振るのはその actor だけ」という
+ * 前提が崩れる。写しを merge した人自身の batch にすると前提が守られ、参加期間の判定や
+ * 送信の著者判定も actor を見るだけで済む (`copiesBy` / `stackedBy` が要らなくなった)。
+ *
+ * 2 人が並行に同じ branch を merge すると、同じ元を指す写しが 2 組できる。畳み込みは
+ * 全順序で最初の写しだけを採る (`orderBatches`) ので、届いた順に依らず収束する。
  *
  * ## なぜ `mergeBranches` の `merged` をそのまま追記しないか
  *
  * `mergeBranches` が返す `merged` は `[...trunkAfterBase, ...branchBatches]` だが、
- * **`trunkAfterBase` は既に trunk op-log にある**。これを含めて追記すると、id を保てば
- * `UNIQUE(file_id, batch_id)` で無視されて再スタンプが効かず、id を振り直せば
- * 二重適用になる。→ **追記するのは branch batches だけ**。`mergeBranches` は
- * content 対立の検出のために呼ぶ。
- *
- * ## なぜ id を保持するか (採番規約の確定, 設計 §3.3 / §9.2)
- *
- * 保持すると**再 merge のべき等性が構造的に得られる** — 既に merge 済みの batch は
- * 同じ id で trunk に居るので、2 回目は `appendBatch` のべき等性で無視される。
- * 新規採番すると branch の status フラグに頼ることになり、フラグ更新に失敗した瞬間に
- * 二重適用する。
- *
- * step1 では「branch batch を remote へ出さない」(§9.2) ことで remote の rkey 衝突 (C1) を
- * 避けていた。step2 Phase 3 T7-2 で branch も remote へ出すが、**rkey が
- * `v1~<fileId>~<clock>~<batchId>` なので同じ id でも fileId が違えば別のキー**であり、
- * 保持を妨げる理由は今も無い。送信キュー (`RemoteSyncQueue`) の重複排除も同じ理由で
- * (fileId, batch id) の組を鍵にしている。
- *
- * branch op-log 側には元の clock のまま残り、trunk 側には再スタンプ後の clock で入る。
- * file_id が違うので `UNIQUE(file_id, batch_id)` とも両立する。
+ * **`trunkAfterBase` は既に trunk op-log にある**。追記するのは branch の batch の写しだけで、
+ * `mergeBranches` は対立の検出のために呼ぶ。
  */
 
 import {
   type Batch,
+  type BatchId,
   BRANCH_STATUS,
   type BranchId,
   type BranchMeta,
   type BranchStatus,
+  batchesUpTo,
+  type CausalClock,
   COMMIT_KIND,
   type Commit,
   type CommitId,
-  type DtrId,
+  copyKeyOf,
   type FileId,
   type GraphFile,
+  isUpTo,
   type Lamport,
   type MergeConflict,
   makeMergeCommit,
@@ -59,6 +57,14 @@ import {
   tipClock,
 } from '@conversensus/shared';
 import { labelsOfConflicts } from './conflicts';
+
+/**
+ * batch の「元」の点。写しの写し (branch に写しが載っていた) なら、その写しが指す元を返す —
+ * 同じ編集の写しは何段写しても同じ元を指し、重複の判定がずれない
+ */
+function originOf(batch: Batch): { actor: string; seq: number } {
+  return batch.copyOf ?? { actor: batch.actor, seq: batch.seq };
+}
 
 /** 先読み (`previewMerge`) に要るもの。**読むだけで何も書かない**ことを型で示す */
 export type MergePreviewDeps = {
@@ -79,16 +85,14 @@ export type MergeBranchDeps = MergePreviewDeps & {
    * 宛先の file_id を取らない — merge は trunk の履歴に属するので、branch 側に書く経路を作らない
    */
   recordCommit: (commit: Commit) => void;
-  /** merge コミットの id を採番する */
+  /** merge コミットと写しの id を採番する */
   newId: () => string;
   /**
-   * 自端末 clock の下限を引き上げる (`LamportClock.seed` 相当)。再スタンプの起点を
-   * trunk 先端に合わせるため、**`observe` ではなく `seed` の意味論** — `+1` しないので
-   * 直後の `tick()` がちょうど「trunk 先端の次」になる。
+   * trunk の因果の発番器 (step3 Phase 1)。**trunk の tap と同じものを渡す** — 写しは
+   * merge した人自身の batch なので、その人の点を振る。別の発番器で振ると、tap が次に振る
+   * 点と重なる
    */
-  seedClock: (floor: Lamport) => void;
-  /** 次の clock を発番する */
-  tick: () => Lamport;
+  causal: CausalClock;
 };
 
 export type MergeBranchResult = {
@@ -119,14 +123,6 @@ export type MergeBranchParams = {
   message: string;
   /** merge を実行した操作主体 `<did>#<deviceId>` */
   actor: string;
-  /**
-   * **再 merge のとき、決着させる DtR** (step2 Phase 6 D3)。通常の merge は持たない。
-   *
-   * これが merge コミットに刻まれ、写しは `mergedIn` でそのコミットを指すので、
-   * **承認を経ていない再 merge の写しを projection の手前で落とせる**
-   * (`admissibleBatches`)。印を写しごとに複製しないための経路である。
-   */
-  dtrId?: DtrId;
 };
 
 /** 先読みの結果。**op-log は一切変えていない** */
@@ -141,7 +137,7 @@ export type MergePreview = {
 type MergePlan = {
   trunkBatches: Batch[];
   branchBatches: Batch[];
-  /** trunk にまだ無い branch batches (再スタンプ前, clock 昇順) */
+  /** まだ写していない branch の batch (写す前, clock 昇順) */
   toAppend: Batch[];
   conflicts: MergeConflict[];
   /** 分岐点のグラフ。競合の対象を名前で呼ぶのに要る */
@@ -157,21 +153,23 @@ async function buildMergePlan(
     deps.fetchBatches(meta.branchFileId),
   ]);
 
-  // 既に trunk に居る batch は落とす (id 保持がここでべき等性になる)。
-  const trunkIds = new Set(trunkBatches.map((b) => b.id));
-  // 元の clock 順を保って再スタンプする — branch 内部の相対順序は意味を持つ
+  // 既に写してある元は落とす (べき等)。trunk の写しの `copyOf` が「写し済みの元」の集合である
+  const copied = new Set(
+    trunkBatches.flatMap((b) => (b.copyOf ? [copyKeyOf(b.copyOf)] : [])),
+  );
+  // 元の clock 順を保って写す — branch 内部の相対順序は意味を持つ
   const toAppend = [...branchBatches]
-    .filter((b) => !trunkIds.has(b.id))
+    .filter((b) => !copied.has(copyKeyOf(originOf(b))))
     .sort((a, b) => a.clock - b.clock);
 
   // 対立検出は「分岐後に trunk 側で起きた変更」と「これから載せる branch の変更」の間で行う。
   // 既に merge 済みの batch を含めても自分自身と突き合わせるだけなので除いてある。
-  const trunkAfterBase = trunkBatches.filter((b) => b.clock > meta.base.at);
+  // 分岐点で切る (step3 Phase 1 D3)。base に入るかは分岐点の vector で決める — clock で切ると、
+  // 分岐時に持っていなかった batch が clock の小ささだけで base 側に入り、対立を取り逃す
+  const trunkAfterBase = trunkBatches.filter((b) => !isUpTo(meta.base, b));
   // **分岐点のグラフ**を渡す (Phase 3 T1)。削除のカスケードをこれに当てて「実際に
   // 消える要素」を求めないと、グループ削除で子への依存を取り逃す
-  const base = projectBatches(
-    trunkBatches.filter((b) => b.clock <= meta.base.at),
-  );
+  const base = projectBatches(batchesUpTo(trunkBatches, meta.base));
   const { conflicts } = mergeBranches(base, trunkAfterBase, toAppend);
   return { trunkBatches, branchBatches, toAppend, conflicts, base };
 }
@@ -212,25 +210,29 @@ export async function mergeBranchOnOplog(
   const { trunkBatches, branchBatches, toAppend, conflicts, base } =
     await buildMergePlan(meta, deps);
 
-  // 再スタンプの起点を trunk 先端まで進める。自端末 clock が trunk より遅れていると
-  // (別経路の受信などで) branch が trunk の下に潜り込み「上に乗る」不変条件が壊れる。
-  deps.seedClock(tipClock(trunkBatches));
+  // 発番器を trunk と branch の両方のログに追随させる。trunk 先端まで clock を進めないと
+  // 写しが trunk の下に潜り込み「上に乗る」不変条件が壊れる。branch を知識に入れるのは、
+  // 写しの deps が元の batch (とその依存) を含むようにするため — 写しは元を見てから書かれた
+  deps.causal.restore(trunkBatches);
+  deps.causal.restore(branchBatches);
   // merge コミットの id を先に採る。写しに「どの merge の写しか」を持たせるため (T7-4)
   const mergeCommitId = deps.newId() as CommitId;
-  const restamped: Batch[] = toAppend.map((batch) => ({
-    ...batch,
-    // timestamp は表示用なので編集が起きた時刻のまま残す (順序付けは clock→actor→id, 4d-3)
-    clock: deps.tick(),
-    // 書いた人 (`actor`) は保ち、積み直した人と merge を別に持つ (step2 Phase 3 T7-4)。
-    // 送信と参加期間は積み直した人で判定し、`mergedIn` は merge を参照に移すときの印になる
-    restampedBy: params.actor,
-    mergedIn: mergeCommitId,
-  }));
+  const copies: Batch[] = toAppend.map((batch) => {
+    const { copyOf: _nested, mergedIn: _previous, ...content } = batch;
+    return {
+      ...content,
+      // 写しは merge した人自身の batch (step3 Phase 1 D2)。id も点も新しく振る
+      id: deps.newId() as BatchId,
+      actor: params.actor,
+      ...deps.causal.issue(),
+      // timestamp は表示用なので編集が起きた時刻のまま残す (順序付けは clock→actor→id, 4d-3)
+      copyOf: originOf(batch),
+      mergedIn: mergeCommitId,
+    };
+  });
 
   const appended =
-    restamped.length > 0
-      ? await deps.appendBatches(meta.trunkFileId, restamped)
-      : 0;
+    copies.length > 0 ? await deps.appendBatches(meta.trunkFileId, copies) : 0;
 
   deps.recordStatus(meta.id, BRANCH_STATUS.MERGED);
   const branch: BranchMeta = { ...meta, status: BRANCH_STATUS.MERGED };
@@ -245,12 +247,10 @@ export async function mergeBranchOnOplog(
     mergeCommitId,
     params.message,
     params.actor,
-    [...trunkBatches, ...restamped],
+    [...trunkBatches, ...copies],
     {
       branchId: meta.id,
       at: tipClock(branchBatches),
-      // 再 merge だけが持つ。通常の merge では undefined なので刻まれない
-      ...(params.dtrId !== undefined && { dtrId: params.dtrId }),
     },
   );
   deps.recordCommit(mergeCommit);

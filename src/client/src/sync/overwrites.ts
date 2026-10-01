@@ -5,33 +5,24 @@
  *
  * ## 何のためにあるか — 通知の向きの決着
  *
- * T5 の検出は `clock(自分) >= clock(新着)` のときだけ発火し、LWW も clock 順なので、
- * **検出する側 = LWW で勝つ側**になる (実 PDS で確認, 設計 §「通知は勝った方に出る」)。
- * つまり**自分の編集が残った人にだけ通知が出て、上書きされた人には何も出ない**。
- * 知らせるべき相手が逆である。
- *
- * ここはその**補集合**を拾う。同じ機構 (`mergeBranches`) に逆向きの clock フィルタを
- * かけるだけで、「相手が私の書いたものを別の値にした」が出る。
+ * 競合 (T5) は「互いに相手を見ずに書いた組」だけを拾う。**相手が私の書いたものを見た上で
+ * 別の値にした**ときは競合ではないので何も出ず、上書きされた人は気づけない。
+ * ここはその組を拾う。同じ機構 (`mergeBranches`) の結果を、組の因果の関係で振り分ける。
  *
  * ## これは「競合」ではない
  *
- * `clock(自分) < clock(新着)` は、相手が私の op を**見た上で**直した可能性を排除
- * できない (Lamport が言えるのは対偶の側だけである)。したがって「競合しました」とは
- * 言わない。**「あなたが書いた内容が、相手の編集で変わりました」という事実の報告**に
- * する。並行だったと主張しないので、偽陽性という概念がそもそも無い。
+ * 相手は私の値を見た上で直している。したがって「競合しました」とは言わない。
+ * **「あなたが書いた内容が、相手の編集で変わりました」という事実の報告**にする。
  *
  * ## T7 (fork の同期) を待たずに効く
  *
- * 設計上の補償は fork の同期だが、穴が 2 つある — fork の到着が通知の契機になって
- * いないことと、**layout は fork にならない**ことである。ここは受信の中で完結し、
- * **layout も含められる**。
+ * **layout は fork にならない**ので、ここが他に伝える道になる。受信の中で完結する。
  *
- * ## 境界は T5 と同じ `oldestIncoming` である
+ * ## 境界は T5 と同じ判定で引く (step3 Phase 1 D4)
  *
- * 単位ごとに `clock(自分) < clock(相手の op)` で判定すると T5 と重なる区間ができ、
- * 同じ単位が「競合しました」と「上書きされました」の両方で出る。**T5 の
- * `ours = clock >= oldestIncoming` の正確な補集合**にすれば、差のある組は必ず
- * どちらか一方にだけ分類される。
+ * 組の関係 (`relationOfPair`) が `seen` のものだけを報告にする。T5 は `concurrent` だけを
+ * 取るので、**差のある組は必ずどちらか一方にだけ分類される**。step2 は境界を
+ * 「新着の最小 clock」で引いていたので、純粋な並行が clock の大小でこちらに振られていた。
  */
 
 import {
@@ -45,7 +36,7 @@ import {
   type PropertyName,
   projectBatches,
 } from '@conversensus/shared';
-import { labelsOfConflicts } from './conflicts';
+import { batchIndex, labelsOfConflicts, relationOfPair } from './conflicts';
 
 /**
  * 「あなたが書いたものが、相手の編集で別の値になった」1 件。
@@ -137,18 +128,13 @@ export function detectOverwrites(
   // 分岐点は T5 と同じ「受信前の手元の状態」である
   const base = projectBatches([...local]);
 
-  // **clock で絞らずに自分の op を全部渡す。**`mergeBranches` は単位ごとに
-  // 「自分の最後の値」を引くので、ここで古い分だけを渡すと、既に T5 が競合として
-  // 出した単位について**もっと古い私の値**が拾われ、同じ単位が二重に出る。
-  // 絞るのは結果の側 (下の clock フィルタ) である
+  // **自分の op を全部渡す。**`mergeBranches` は単位ごとに「自分の最後の値」を引くので、
+  // ここで古い分だけを渡すと、既に T5 が競合として出した単位について**もっと古い私の値**が
+  // 拾われ、同じ単位が二重に出る。絞るのは結果の側 (下の関係の判定) である
   const mine = local.filter((b) => didFromActor(b.actor) === viewer);
   const { conflicts } = mergeBranches(base, mine, [...incoming]);
 
-  const oldestIncoming = incoming.reduce(
-    (m, b) => Math.min(m, b.clock),
-    Number.POSITIVE_INFINITY,
-  );
-  const clockOf = new Map(local.map((b) => [b.id, b.clock]));
+  const batchOf = batchIndex(local, incoming);
   const incomingById = new Map(incoming.map((b) => [b.id, b]));
 
   // **単位ごとに 1 件に畳む。**`mergeBranches` は相手の op を 1 つずつ返すので、
@@ -158,9 +144,8 @@ export function detectOverwrites(
   const clockOfTheirs = new Map<string, number>();
   for (const conflict of conflicts) {
     if (!isParallelChange(conflict)) continue;
-    // T5 の補集合。**自分の最後の値が相手に見えていた側**だけを報告に回す
-    const mineClock = clockOf.get(conflict.ours.batchId) ?? 0;
-    if (mineClock >= oldestIncoming) continue;
+    // **自分の最後の値が相手に見えていた組**だけを報告に回す (並行な組は T5 の担当)
+    if (relationOfPair(conflict, batchOf) !== 'seen') continue;
 
     const theirs = incomingById.get(conflict.theirs.batchId);
     if (theirs === undefined) continue; // 相手側は必ず incoming 由来である

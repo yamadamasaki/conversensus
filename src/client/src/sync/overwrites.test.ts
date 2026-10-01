@@ -23,14 +23,26 @@ const ALICE = 'did:plc:alice' as Did;
 const BOB = 'did:plc:bob' as Did;
 const CAROL = 'did:plc:carol' as Did;
 
-const batch = (id: string, actor: string, clock: number, ops: Op[]): Batch => ({
+/** `deps` は**その batch を書いたときに見ていたもの** (報告か否かはこれで決まる) */
+const batch = (
+  id: string,
+  actor: string,
+  clock: number,
+  ops: Op[],
+  deps: Batch['deps'] = {},
+): Batch => ({
   id: id as Batch['id'],
   actor,
   clock,
+  seq: clock,
+  deps,
   timestamp: clock,
   sheetId: SHEET,
   ops,
 });
+
+/** 相手が alice の端末の seq 2 (= 各テストの l2) までを見ていた */
+const SAW_L2 = { [`${ALICE}#dev`]: 2 };
 
 /** alice (= 私) が A と B を作ったところまで */
 const localLog = (): Batch[] => [
@@ -46,8 +58,7 @@ describe('detectOverwrites', () => {
   });
 
   test('🔴 相手が見ていた私の編集を書き換えたら報告になる', () => {
-    // 私の編集 (clock 2) < 新着 (clock 5) = bob は私の編集を見ていたかもしれない。
-    // T5 は検出しない側であり、ここが**その補集合**である
+    // bob は私の l2 を見た上で直した。T5 (並行) ではなく、ここの担当である
     const local = [
       ...localLog(),
       batch('l2', `${ALICE}#dev`, 2, [
@@ -55,9 +66,13 @@ describe('detectOverwrites', () => {
       ]),
     ];
     const incoming = [
-      batch('r1', `${BOB}#dev`, 5, [
-        { kind: 'node.setContent', target: A, content: 'bob が直した' },
-      ]),
+      batch(
+        'r1',
+        `${BOB}#dev`,
+        5,
+        [{ kind: 'node.setContent', target: A, content: 'bob が直した' }],
+        SAW_L2,
+      ),
     ];
     const { reports, labels } = detectOverwrites(local, incoming, ALICE);
 
@@ -74,7 +89,7 @@ describe('detectOverwrites', () => {
   });
 
   test('🔴 相手に見えていなかったなら報告しない (そちらは競合として出る)', () => {
-    // 私の編集 (clock 5) >= 新着 (clock 5) = 並行と言い切れる。T5 の担当区間である
+    // bob は私の編集を見ていない (deps が空) = 並行。T5 の担当区間である
     const local = [
       ...localLog(),
       batch('l2', `${ALICE}#dev`, 5, [
@@ -90,8 +105,8 @@ describe('detectOverwrites', () => {
   });
 
   test('🔴 同じ単位に古い編集と新しい編集があるとき, 競合と二重に出さない', () => {
-    // 私は A を 2 回書いた。2 度目 (clock 5) は新着以上なので T5 が競合として出す。
-    // 1 度目 (clock 2) を拾ってしまうと、同じ単位が両方の系列に出る
+    // 私は A を 2 回書いた。bob は 1 度目 (l2) だけを見ていて、2 度目 (l3) とは並行なので
+    // T5 が競合として出す。1 度目を拾ってしまうと、同じ単位が両方の系列に出る
     const local = [
       ...localLog(),
       batch('l2', `${ALICE}#dev`, 2, [
@@ -102,9 +117,13 @@ describe('detectOverwrites', () => {
       ]),
     ];
     const incoming = [
-      batch('r1', `${BOB}#dev`, 5, [
-        { kind: 'node.setContent', target: A, content: 'bob が書いた' },
-      ]),
+      batch(
+        'r1',
+        `${BOB}#dev`,
+        5,
+        [{ kind: 'node.setContent', target: A, content: 'bob が書いた' }],
+        SAW_L2,
+      ),
     ];
     expect(detectOverwrites(local, incoming, ALICE).reports).toEqual([]);
   });
@@ -120,9 +139,13 @@ describe('detectOverwrites', () => {
       ]),
     ];
     const incoming = [
-      batch('r1', `${BOB}#dev`, 5, [
-        { kind: 'node.setContent', target: A, content: '同じ値' },
-      ]),
+      batch(
+        'r1',
+        `${BOB}#dev`,
+        5,
+        [{ kind: 'node.setContent', target: A, content: '同じ値' }],
+        SAW_L2,
+      ),
     ];
     expect(detectOverwrites(local, incoming, ALICE).reports).toEqual([]);
   });
@@ -135,9 +158,13 @@ describe('detectOverwrites', () => {
       ]),
     ];
     const incoming = [
-      batch('r1', `${BOB}#dev`, 5, [
-        { kind: 'node.setContent', target: A, content: 'bob が直した' },
-      ]),
+      batch(
+        'r1',
+        `${BOB}#dev`,
+        5,
+        [{ kind: 'node.setContent', target: A, content: 'bob が直した' }],
+        { [`${CAROL}#dev`]: 2 },
+      ),
     ];
     expect(detectOverwrites(local, incoming, ALICE).reports).toEqual([]);
   });
@@ -150,9 +177,13 @@ describe('detectOverwrites', () => {
       ]),
     ];
     const incoming = [
-      batch('r1', `${BOB}#dev`, 5, [
-        { kind: 'node.setContent', target: A, content: 'bob が直した' },
-      ]),
+      batch(
+        'r1',
+        `${BOB}#dev`,
+        5,
+        [{ kind: 'node.setContent', target: A, content: 'bob が直した' }],
+        { [`${ALICE}#phone`]: 2 },
+      ),
     ];
     expect(detectOverwrites(local, incoming, ALICE).reports).toHaveLength(1);
   });
@@ -165,9 +196,13 @@ describe('detectOverwrites', () => {
       ]),
     ];
     const incoming = [
-      batch('r1', `${BOB}#dev`, 5, [
-        { kind: 'node.setLayout', target: A, x: 90, y: 90 },
-      ]),
+      batch(
+        'r1',
+        `${BOB}#dev`,
+        5,
+        [{ kind: 'node.setLayout', target: A, x: 90, y: 90 }],
+        SAW_L2,
+      ),
     ];
     const { reports } = detectOverwrites(local, incoming, ALICE);
     expect(reports).toHaveLength(1);
@@ -185,9 +220,13 @@ describe('detectOverwrites', () => {
       ]),
     ];
     const incoming = [
-      batch('r1', `${BOB}#dev`, 5, [
-        { kind: 'node.setLayout', target: A, width: 200, height: 100 },
-      ]),
+      batch(
+        'r1',
+        `${BOB}#dev`,
+        5,
+        [{ kind: 'node.setLayout', target: A, width: 200, height: 100 }],
+        SAW_L2,
+      ),
     ];
     expect(detectOverwrites(local, incoming, ALICE).reports).toEqual([]);
   });
@@ -200,7 +239,13 @@ describe('detectOverwrites', () => {
       ]),
     ];
     const incoming = [
-      batch('r1', `${BOB}#dev`, 5, [{ kind: 'node.remove', target: A }]),
+      batch(
+        'r1',
+        `${BOB}#dev`,
+        5,
+        [{ kind: 'node.remove', target: A }],
+        SAW_L2,
+      ),
     ];
     expect(detectOverwrites(local, incoming, ALICE).reports).toEqual([]);
   });
@@ -216,12 +261,20 @@ describe('detectOverwrites', () => {
     // 並びは clock 順とは限らない。並び順に依存する畳み方 (「最後に見たものを採る」) は
     // ここで落ちる
     const incoming = [
-      batch('r2', `${BOB}#dev`, 7, [
-        { kind: 'node.setContent', target: A, content: '最後' },
-      ]),
-      batch('r1', `${BOB}#dev`, 5, [
-        { kind: 'node.setContent', target: A, content: '途中' },
-      ]),
+      batch(
+        'r2',
+        `${BOB}#dev`,
+        7,
+        [{ kind: 'node.setContent', target: A, content: '最後' }],
+        SAW_L2,
+      ),
+      batch(
+        'r1',
+        `${BOB}#dev`,
+        5,
+        [{ kind: 'node.setContent', target: A, content: '途中' }],
+        SAW_L2,
+      ),
     ];
     const { reports } = detectOverwrites(local, incoming, ALICE);
     expect(reports).toHaveLength(1);
@@ -237,9 +290,13 @@ describe('detectOverwrites', () => {
       ]),
     ];
     const incoming = [
-      batch('r1', `${BOB}#dev`, 5, [
-        { kind: 'node.setProperty', target: A, name: 'bar', value: 2 },
-      ]),
+      batch(
+        'r1',
+        `${BOB}#dev`,
+        5,
+        [{ kind: 'node.setProperty', target: A, name: 'bar', value: 2 }],
+        SAW_L2,
+      ),
     ];
     expect(detectOverwrites(local, incoming, ALICE).reports).toEqual([]);
   });
@@ -255,9 +312,13 @@ describe('detectOverwrites', () => {
       ]),
     ];
     const incoming = [
-      batch('r1', `${BOB}#dev`, 5, [
-        { kind: 'edge.reconnect', target: E, source: A, dest: B },
-      ]),
+      batch(
+        'r1',
+        `${BOB}#dev`,
+        5,
+        [{ kind: 'edge.reconnect', target: E, source: A, dest: B }],
+        SAW_L2,
+      ),
     ];
     const { reports } = detectOverwrites(local, incoming, ALICE);
     expect(reports).toHaveLength(1);

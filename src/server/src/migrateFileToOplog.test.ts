@@ -68,6 +68,8 @@ describe('migrateFileToOplog (W3d-1)', () => {
       id: 'increment' as never,
       actor: 'local',
       clock: 99,
+      seq: 99,
+      deps: {},
       timestamp: 99,
       ops: [{ kind: 'node.add', target: 'stale' as never, content: '旧増分' }],
     });

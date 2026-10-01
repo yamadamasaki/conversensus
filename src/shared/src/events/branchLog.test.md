@@ -18,3 +18,19 @@ O3 spike で確定した再定義 —「コミット = ログ上のラベル付�
   - base より後の trunk 変更は含まれず (分岐後の trunk は見えない)、
   - ブランチ側の変更・追加が反映される
   ことを確認する。ブランチの状態がログの projection として導出できる証拠。
+
+## 分岐点は vector で切る (step3 Phase 1 D3)
+
+`makeBaseCommit` は `at` に加えて、分岐した時点で actor ごとに**持っていた最大の seq** (`baseVector`) を
+記録する。`isUpTo` / `batchesUpTo` は vector があればそれで切り、無ければ (branch の途中のコミット) clock で切る。
+
+| テスト | 固定すること |
+| --- | --- |
+| 🔴 分岐後に届いた、clock の小さい別の actor の batch は base に入らない | step3-entry §2.1 の穴。scalar で切っていた頃の答えも並べて、何が変わったかを見せる |
+| 分岐時に持っていた batch は base に入る | |
+| 同じ actor の、分岐時より後の seq は base に入らない | |
+| 歯抜けがあっても、持っていた最大の seq まで base に入る | **歯抜けで止めない**。参加期間のフィルタが離脱中の batch を取り込まないので、歯抜けは恒久的に生じうる。止めると、戻ってきた人のその後の編集が base に入らなくなる |
+| vector を持たないコミットは clock で切る | branch の途中のコミットの位置 (`atLastCommit` など) は branch の op-log の clock で表す |
+
+最初は「歯抜けなく持っていた範囲」(`contiguousFrontier`) で切っていたが、既存のテストの fixture
+(seq が飛んでいる) で 15 件落ち、原因を追うと上の恒久的な歯抜けに行き当たった。

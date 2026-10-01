@@ -17,6 +17,7 @@
 import type {
   Actor,
   BatchId,
+  CausalClock,
   Did,
   FileId,
   JudgmentBatch,
@@ -48,7 +49,6 @@ import {
   rosterRows,
   sortRowsByLabel,
 } from '../sync/rosterView';
-import type { TapClock } from './useEventSyncTap';
 
 export type ParticipationState = {
   rows: RosterRow[];
@@ -128,7 +128,7 @@ export type UseParticipationDeps = {
    * ここを無条件に使うと**別の clock 空間の採番器で発番**することになり、しかも
    * 開いていなければ `tick()` が落ちる (2026-09-05 実機で発覚)。
    */
-  clock: TapClock;
+  clock: CausalClock | null;
   /** いま開いている File。`clock` を使ってよいかの判定に使う */
   activeFileId: FileId | null;
   /**

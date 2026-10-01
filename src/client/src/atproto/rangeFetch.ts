@@ -16,11 +16,7 @@
  */
 
 import type { FileId } from '@conversensus/shared';
-import {
-  batchRkeyFileCursor,
-  parseBatchRkey,
-  RKEY_VERSION_PREFIX,
-} from './batchRkey';
+import { batchRkeyFileCursor, parseBatchRkey } from './batchRkey';
 
 /** `listRecords` が返すレコード 1 件分 (repo の list には値と CID しか無い) */
 export type RecordSummary = { uri: string; cid: string; value: unknown };
@@ -66,7 +62,6 @@ export const MAX_FILE_ENUMERATION_REQUESTS = 200;
  *   よって同一 prefix のレコード群は rkey 空間で**連続**する。
  * - したがって **prefix を外れた 1 件を見た時点で走査を終えられる**。この 1 件の読み過ぎは
  *   正常動作なので異常として数えない (§3.6)。
- * - 旧 rkey (hex UUID) はすべて `v1~…` より小さいので、この昇順走査には現れない (§3.1)。
  */
 export async function listByRkeyPrefix(
   listPage: ListRecordsPage,
@@ -110,12 +105,10 @@ export type BatchFileHead = { fileId: FileId; head: RecordSummary };
  *
  * 1. rkey **降順** (`reverse` 省略) で 1 件だけ取る。着地するのは最大の rkey。
  * 2. その rkey から fileId を取り出す。
- * 3. cursor を `v1~<fileId>` にする → 降順は `rkey < cursor` なので、**そのファイルの
+ * 3. cursor を `<fileId>` にする → 降順は `rkey < cursor` なので、**そのファイルの
  *    全レコードを一気に飛ばし**、1 つ小さい fileId の最終レコードに着地する。
- * 4. `v1~` で始まらない rkey に落ちたら旧 rkey 領域なので終わり (新形式は尽きた)。
  *
- * **リクエスト数 = ファイル数 + 1** で、各 1 レコードしか転送しない。旧レコードは
- * `v1~` より小さいので **1 件見るだけで走査が終わる** (§3.1 の分離が効くのはここ)。
+ * **リクエスト数 = ファイル数 + 1** で、各 1 レコードしか転送しない。
  *
  * 代替案 (不採用) だったファイル索引コレクションは、書込経路が増えて batch op-log との
  * 整合を取る責務が生まれるため採らなかった (§3.3)。p7-0 で cursor seek が実機で
@@ -136,11 +129,9 @@ export async function listBatchFileHeads(
     if (!record) break; // レコードが尽きた
 
     const rkey = rkeyOf(record.uri);
-    if (!rkey.startsWith(RKEY_VERSION_PREFIX)) break; // 旧 rkey 領域 = 新形式は尽きた
-
     const parsed = parseBatchRkey(rkey);
     if (!parsed) {
-      // `v1~` で始まるのに割れない = 壊れたレコード。飛ばす cursor が作れないので
+      // 割れない = 壊れたレコード。飛ばす cursor が作れないので
       // その 1 件だけを跨いで進む (数えて後で警告する, §3.6)。
       malformed += 1;
       cursor = rkey;
@@ -163,8 +154,8 @@ export async function listBatchFileHeads(
 
   if (malformed > 0) {
     console.warn(
-      `[atproto] file enumeration skipped ${malformed} record(s): rkey starts ` +
-        "with 'v1~' but does not parse as v1~<fileId>~<clock>~<batchId>",
+      `[atproto] file enumeration skipped ${malformed} record(s): rkey does ` +
+        'not parse as <fileId>~<actor>~<seq>',
     );
   }
   if (heads.length >= maxRequests) {

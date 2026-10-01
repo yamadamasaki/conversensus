@@ -86,8 +86,24 @@ tap のロジックを framework 非依存に固定する。
 **呼び出し元は 4d-5 で配線する** — 4d-3 時点では受信経路そのものが存在しないため、
 入口とその挙動だけを固定する。
 
-- **受信後の発番が受信分を追い越す**: ローカルで clock 1 を発番 → `observeRemote(10)`
+- **受信後の発番が受信分を追い越す**: ローカルで clock 1 を発番 → clock 10 の batch を `observeRemote`
   → 次の record が clock 12 で push されること (observe が 11 にし、tick が 12)。
   受信分 (10) より必ず大きい値から発番されることを固定する。
-- **自身の方が大きくても前進する**: clock 20 の状態で `observeRemote(5)` → 21 になること。
+- **自身の方が大きくても前進する**: clock 20 の状態で clock 5 の batch を観測 → 21 になること。
   遅れて届いた古い受信でも `+1` する (`seed` との差を固定する)。
+
+## 因果の点 (step3 Phase 1 S1-3)
+
+tap は点 (clock・seq・deps) を `CausalClock` で振る。発番器は外から渡せて (`causal`)、trunk と
+その branch の tap が同じものを共有する。`observeRemote` は clock の数値ではなく **batch そのもの**を
+受け取り、Lamport の受信規則と因果の知識への取り込みを両方行う。
+
+| テスト | 固定すること |
+| --- | --- |
+| record ごとに seq を 1 から振り、deps に自分を載せない | 点の振り方 |
+| 再起動後は永続ログにある自分の最大 seq の続きから振る。ログの他人の点は deps に入る | 復元 |
+| 観測した他端末の batch とその依存が、次の deps に入る | 受信の取り込み (推移的な依存も) |
+| 発番器を共有した 2 つの tap は同じ連番から振る | trunk と branch の共有 |
+
+clock の既存テストは、テストが観測する `LamportClock` を `CausalClock` に渡して包む形にした
+(`new CausalClock(ACTOR, clock)`)。clock の振る舞いは変えていないので、既存の期待値はそのまま通る。

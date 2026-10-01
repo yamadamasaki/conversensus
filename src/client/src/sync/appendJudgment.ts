@@ -29,24 +29,25 @@
  * その + 1 は「依頼より後」を正しく表す。
  */
 
-import type {
-  Actor,
-  BatchId,
-  FileId,
-  JudgmentBatch,
-  JudgmentOp,
-  Lamport,
+import {
+  type Actor,
+  type BatchId,
+  CausalClock,
+  type FileId,
+  type JudgmentBatch,
+  type JudgmentOp,
+  type Lamport,
 } from '@conversensus/shared';
-import type { TapClock } from '../hooks/useEventSyncTap';
 
 export type AppendJudgmentDeps = {
   /**
-   * **その File のグラフと同じ clock。**ここに独立した採番器を渡してはならない。
+   * **その File のグラフと同じ発番器** (clock・seq・因果の知識)。ここに独立した発番器を
+   * 渡してはならない。
    *
-   * **その File を開いていなければ `null`** — tap は File ごとなので、別の File の
-   * tap を渡すと別の clock 空間の採番器を使うことになる。承認はこの場合にあたる。
+   * **その File を開いていなければ `null`** — 発番器は File ごとなので、別の File の
+   * ものを渡すと別の因果の範囲で振ることになる。承認はこの場合にあたる。
    */
-  clock: TapClock | null;
+  clock: CausalClock | null;
   /** この端末の actor (`<did>#<deviceId>`) */
   actor: Actor;
   putJudgment: (fileId: FileId, batch: JudgmentBatch) => Promise<void>;
@@ -75,17 +76,17 @@ export async function appendJudgment(
   if (ops.length === 0)
     throw new Error('appendJudgment: op が空の batch は書けない');
 
-  const floor = maxJudgmentClock(known);
-  // tap があれば: グラフ側の seed は tap が済ませているので、判断ログの分だけ引き上げる。
-  // tap が無ければ (その File を開いていない): 判断ログの最大値 + 1。その File の
-  // グラフ op-log は手元に 1 件も無いので、衝突する相手がいない
-  deps.clock?.seed(floor);
-  const clock = deps.clock ? deps.clock.tick() : floor + 1;
+  // 発番器があれば: グラフ側の復元は tap が済ませているので、判断ログの分を足す。
+  // 無ければ (その File を開いていない): 判断ログだけから復元した使い捨ての発番器で振る。
+  // その File のグラフ op-log は手元に 1 件も無いので、衝突する相手がいない
+  const clock = deps.clock ?? new CausalClock(deps.actor);
+  clock.restore(known);
+  const stamp = clock.issue();
 
   const batch: JudgmentBatch = {
     id: deps.newBatchId(),
     actor: deps.actor,
-    clock,
+    ...stamp,
     timestamp: (deps.now ?? Date.now)(),
     ops: [...ops],
   };

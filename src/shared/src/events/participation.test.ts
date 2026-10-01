@@ -5,7 +5,7 @@ import {
   foldParticipation,
   hasEverParticipated,
   periodsOf,
-  wasParticipatingAt,
+  wasParticipatingIn,
 } from './participation';
 import type { BatchId } from './unified';
 
@@ -34,6 +34,8 @@ const jb = (
   id: bid(),
   actor: `${did}#${device}`,
   clock,
+  seq: clock,
+  deps: {},
   timestamp,
   ops,
 });
@@ -249,7 +251,10 @@ describe('取り消しと参加取りやめ', () => {
     expect(r.departed.has(B)).toBe(false);
     expect([...r.participating].sort()).toEqual([A, B]);
     // 履歴の方には残る (期間は出来事から導く)
-    expect(periodsOf(r, B)).toEqual([{ from: 3, to: 4 }, { from: 6 }]);
+    expect(periodsOf(r, B).map(({ from, to }) => ({ from, to }))).toEqual([
+      { from: 3, to: 4 },
+      { from: 6, to: undefined },
+    ]);
   });
 
   test('再招待された時点で「外れている」ではなくなる', () => {
@@ -310,7 +315,10 @@ describe('参加期間', () => {
       ],
       deps,
     );
-    expect(periodsOf(r, B)).toEqual([{ from: 3, to: 4 }, { from: 6 }]);
+    expect(periodsOf(r, B).map(({ from, to }) => ({ from, to }))).toEqual([
+      { from: 3, to: 4 },
+      { from: 6, to: undefined },
+    ]);
   });
 
   test('依頼のまま取り消された期間は開かない', () => {
@@ -346,7 +354,15 @@ describe('参加期間', () => {
       ],
       deps,
     );
-    expect(r.history.get(B)).toEqual([
+    // 因果の点は「出来事は判断 batch の因果の点を持つ」で見る
+    expect(
+      r.history.get(B)?.map(({ kind, clock, timestamp, by }) => ({
+        kind,
+        clock,
+        timestamp,
+        by,
+      })),
+    ).toEqual([
       { kind: 'invite', clock: 2, timestamp: 2000, by: A },
       { kind: 'accept', clock: 3, timestamp: 3000, by: B },
       { kind: 'revoke', clock: 4, timestamp: 4000, by: A },
@@ -364,20 +380,34 @@ describe('参加期間', () => {
     expect(r.history.get(B)?.map((e) => e.kind)).toEqual(['invite']);
   });
 
-  test('非参加期間の判定 — Phase 2 の同期フィルタが使う', () => {
+  test('非参加期間の判定 — Phase 2 の同期フィルタが使う (因果の点で判定する)', () => {
     const r = foldParticipation(
       [
         jb(A, 1, [genesis()]),
         jb(A, 2, [invite(B)]),
         jb(B, 3, [accept()]),
-        jb(B, 4, [resign()]),
+        jb(B, 6, [resign()]),
       ],
       deps,
     );
-    expect(wasParticipatingAt(r, B, 2)).toBe(false); // 参加前
-    expect(wasParticipatingAt(r, B, 3)).toBe(true); // 始点は含む
-    expect(wasParticipatingAt(r, B, 4)).toBe(false); // 終点は含まない
-    expect(wasParticipatingAt(r, C, 3)).toBe(false); // 一度も参加していない
+    // B の端末 (dev-1) のグラフの点。判断ログと連番を共有するので 3 と 6 は使われている
+    const at = (seq: number) => ({ actor: `${B}#dev-1`, seq, deps: {} });
+    expect(wasParticipatingIn(r, B, at(2))).toBe(false); // 承認より前
+    expect(wasParticipatingIn(r, B, at(4))).toBe(true); // 承認の後、辞める前
+    expect(wasParticipatingIn(r, B, at(7))).toBe(false); // 辞めた後
+    expect(wasParticipatingIn(r, C, at(4))).toBe(false); // 一度も参加していない
+  });
+
+  test('出来事は判断 batch の因果の点を持つ', () => {
+    const r = foldParticipation(
+      [jb(A, 1, [genesis()]), jb(A, 2, [invite(B)])],
+      deps,
+    );
+    expect(r.history.get(B)?.[0]?.point).toEqual({
+      actor: `${A}#dev-1`,
+      seq: 2,
+      deps: {},
+    });
   });
 });
 
@@ -459,9 +489,13 @@ describe('引き取り — 誰も参加していない File を開き直す', ()
     // 仕様の決定 (2026-09-05)。遡って開くと「取り消した後の操作は反映されない」を
     // 名簿を空にする経路で迂回できてしまう
     const p = foldParticipation([...abandoned(), jb(A, 9, [reopen()])], deps);
-    expect(periodsOf(p, A)).toEqual([{ from: 1, to: 4 }, { from: 9 }]);
-    expect(wasParticipatingAt(p, A, 6)).toBe(false); // 空だった間
-    expect(wasParticipatingAt(p, A, 9)).toBe(true);
+    expect(periodsOf(p, A).map(({ from, to }) => ({ from, to }))).toEqual([
+      { from: 1, to: 4 },
+      { from: 9, to: undefined },
+    ]);
+    const at = (seq: number) => ({ actor: `${A}#dev-1`, seq, deps: {} });
+    expect(wasParticipatingIn(p, A, at(6))).toBe(false); // 空だった間
+    expect(wasParticipatingIn(p, A, at(10))).toBe(true); // 引き取った後
   });
 
   test('引き取りは参加歴になる', () => {

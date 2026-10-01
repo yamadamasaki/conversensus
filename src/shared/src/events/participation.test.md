@@ -2,8 +2,8 @@
 
 ## 何を
 
-`participation.ts` の `foldParticipation` (判断 batch 列 → 名簿) と `wasParticipatingAt`
-(ある clock で参加していたか) を検証する。
+`participation.ts` の `foldParticipation` (判断 batch 列 → 名簿) と `wasParticipatingIn`
+(ある因果の点が参加期間の中で書かれたか) を検証する。
 
 ## なぜ
 
@@ -63,8 +63,11 @@ op-log のどこにも載っていない** (事実 7)。名簿の起点は名簿
 
 - **参加・取りやめ・再参加が期間として残る。**再参加は新しい期間になるので、非参加期間が
   履歴に穴として残る
-- **期間は閉じた始点・開いた終点** (`from <= clock < to`)。取りやめた瞬間の clock を持つ op は
-  既に参加者でないものとして扱う
+- **期間は因果の点で判定する** (step3 Phase 1 D5)。出来事は判断 batch の因果の点 (`point`) を
+  持ち、期間は開いた判断と閉じた判断の点を持つ。ここでは点が載ること、承認の前・辞退の後が
+  外になることだけを見る。**取り消した人が見ていたか**という判定の要点は
+  `participationFilter.test.ts` が clock と逆の答えになる例で押さえる
+- 期間の `from` / `to` (clock) は鍵と表示のために残る。`periodsOf` の比較は clock だけを取り出して行う
 
 ## 引き取り (`participation.reopen`)
 

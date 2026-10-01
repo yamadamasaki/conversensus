@@ -31,6 +31,8 @@ function batch(clock: number, ops: Op[], actor = 'local'): Batch {
     id: BatchIdSchema.parse(crypto.randomUUID()),
     actor,
     clock,
+    seq: clock,
+    deps: {},
     timestamp: clock,
     ops,
   };

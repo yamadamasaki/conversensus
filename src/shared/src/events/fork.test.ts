@@ -28,7 +28,7 @@ const batch = (
   actor: string,
   clock: number,
   ops: Op[],
-): Batch => ({ id, actor, clock, timestamp: clock, ops });
+): Batch => ({ id, actor, clock, seq: clock, deps: {}, timestamp: clock, ops });
 
 const NODE = nid();
 const OURS = bid(1);

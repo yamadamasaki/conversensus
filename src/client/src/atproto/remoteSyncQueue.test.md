@@ -68,10 +68,13 @@ remote レコードは fileId を必要とする。そこで `enqueue(batches, f
 以前の鍵は `batch.id` だけだった (fileId は運搬のために添えるだけ)。step1 では branch の
 op-log を remote へ出さなかったので、1 つの id が 2 つの fileId に現れることが無かった。
 
-T7-2 で branch の op-log も remote へ出す。**merge は branch の batch を同じ id のまま
-trunk へ再スタンプする**ので、branch 側の送信が保留中 (オフライン等) に merge すると、
-同じ id が 2 つの fileId で同時にキューに乗る。id だけを鍵にすると trunk への取り込みが
-**黙って捨てられ**、次の catch-up まで相手に届かない (step1 の C1 がキューに残っていた形)。
+T7-2 で branch の op-log も remote へ出す。step2 の merge は branch の batch を**同じ id のまま**
+trunk へ写したので、branch 側の送信が保留中 (オフライン等) に merge すると、同じ id が 2 つの
+fileId で同時にキューに乗った。id だけを鍵にすると trunk への取り込みが**黙って捨てられ**、
+次の catch-up まで相手に届かない (step1 の C1 がキューに残っていた形)。
+
+step3 Phase 1 D2 で写しは新しい id を持つようになり、この衝突は起きなくなった。鍵に fileId を
+含める形は、ローカル正典がファイル単位で remote の rkey も fileId を含むことに揃えて保っている。
 
 - **同じ id・別 fileId は両方積む**: オフラインで branch 分 (clock 3) と trunk 分 (clock 7) を
   積み、両方が保留 (2 件) になり、復帰後にそれぞれの fileId で送られること
@@ -80,8 +83,8 @@ trunk へ再スタンプする**ので、branch 側の送信が保留中 (オフ
 ## catchUp の fileId フィルタ (Phase 4d-4, 設計 §1.11 D-6)
 
 4d-1 から繰延していた対応。前提条件だった「`pull` が fileId を返せること」が
-`pullAllRemoteForMigration(): Promise<RemoteBatch[]>` で揃ったため実装した
-(p7-5 で改名。全件取得は移行専用に閉じ込めた)。
+全件取得 (`RemoteBatch[]` を返す口) で揃ったため実装した (その口は p7-5 で移行専用に閉じ込め、
+step3 Phase 1 で移行ごと撤去した。今はファイル単位の `pullRemoteForFile` だけ)。
 
 remote の batch コレクションは **repo 全体で 1 つ**なので全件取得は他ファイルの
 batch も返す。`localBatches` は 1 ファイル分なので、他ファイル分と突合しても一致しよう
@@ -107,7 +110,6 @@ catch-up 1 回のコストが**そのファイルの履歴 1 回**になった�
 
 - `pullRemoteForFile` は既定で **fileId 一致分だけを返す** (実装の忠実な模擬)。
   要求された fileId を `pulledFor` に記録する。
-- `fullPulls` は `pullAllRemoteForMigration` (全件) が呼ばれた回数。**ファイル単位経路では 0** であること
   を assert する — ここが 0 でなくなれば全件 list へ戻った回帰である。
 - `leakOtherFiles` で「範囲取得が他ファイルを漏らす」状況を作れる。
 

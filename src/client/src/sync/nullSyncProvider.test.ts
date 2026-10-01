@@ -7,6 +7,8 @@ const sampleBatch = (): Batch => ({
   id: 'b1' as Batch['id'],
   actor: 'local',
   clock: 1,
+  seq: 1,
+  deps: {},
   timestamp: 1,
   ops: [{ kind: 'node.add', target: 'n1' as NodeId, content: 'ノード1' }],
 });

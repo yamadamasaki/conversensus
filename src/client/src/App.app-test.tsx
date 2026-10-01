@@ -3,13 +3,16 @@ import type { Did } from '@conversensus/shared';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import App from './App';
+import { NSID } from './atproto/types';
 import {
   addNode,
   branchLabel,
+  commitBranch,
   createBranch,
   createFile,
   invite,
   login,
+  mergeOpenBranch,
   openBranch,
   participate,
   renderedNodeCount,
@@ -179,5 +182,136 @@ describe('App 結合: canvas の編集が「(N 変更)」に数えられる (ste
       'disabled',
       true,
     );
+  });
+});
+
+describe('App 結合: 因果の点が端末をまたいで載る (step3 Phase 1)', () => {
+  /** PDS に届いた batch レコード (v2) の本文 */
+  type StoredBatch = {
+    actor: string;
+    seq: number;
+    deps: Record<string, number>;
+  };
+  const storedBatches = (did: Did) =>
+    world.pds.records(did, NSID.batch).map((r) => r.value as StoredBatch);
+
+  test('bob が開いている間に届いた alice の編集は、bob が次に書く batch の deps に入る', async () => {
+    const { code } = await aliceSharesFileWithBob();
+    // alice の編集は、bob の tap が復元を済ませた**後**に届くよう保留する。復元より前に
+    // 届くと、手元のログからの復元で知識に入ってしまい、受信の経路を検証できない
+    let user = await startOn('alice', ALICE);
+    await user.click(screen.getByText(FILE_NAME));
+    world.pds.withhold(ALICE.did);
+    await addNode(user);
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+    await syncNow(user);
+
+    user = await startOn('bob', BOB);
+    await participate(user, code, FILE_NAME);
+    await syncNow(user);
+    // tap の復元は最初に書いたときに走る。ここで 1 つ書いて済ませておく
+    await addNode(user);
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+    await syncNow(user);
+
+    world.pds.release(ALICE.did);
+    const aliceActor = storedBatches(ALICE.did).find(
+      (b) => b.actor !== 'genesis',
+    )?.actor;
+    const aliceMaxSeq = Math.max(
+      ...storedBatches(ALICE.did)
+        .filter((b) => b.actor === aliceActor)
+        .map((b) => b.seq),
+    );
+    await syncNow(user);
+    await waitFor(() => expect(renderedNodeCount()).toBe(2), WIRING_TIMEOUT);
+    await addNode(user);
+    await waitFor(() => expect(renderedNodeCount()).toBe(3), WIRING_TIMEOUT);
+    await syncNow(user);
+
+    const bobLatest = storedBatches(BOB.did)
+      .filter((b) => b.actor.startsWith(BOB.did))
+      .sort((a, b) => a.seq - b.seq)
+      .at(-1);
+    if (!aliceActor || !bobLatest) throw new Error('batch が PDS に無い');
+    expect(bobLatest.deps[aliceActor]).toBeGreaterThanOrEqual(aliceMaxSeq);
+  });
+
+  test('trunk と branch で書いた点は、同じ連番から重複なく振られる', async () => {
+    const user = await startOn('alice', ALICE);
+    await createFile(user, FILE_NAME);
+    await addNode(user);
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+    await createBranch(user, BRANCH_NAME);
+    await openBranch(user, BRANCH_NAME);
+    await addNode(user);
+    await waitFor(() => expect(renderedNodeCount()).toBe(2), WIRING_TIMEOUT);
+    await syncNow(user);
+
+    // trunk の batch も branch の batch も同じ collection に載る (fileId が違うだけ)
+    const seqs = storedBatches(ALICE.did)
+      .filter((b) => b.actor.startsWith(ALICE.did))
+      .map((b) => b.seq)
+      .sort((a, b) => a - b);
+    expect(seqs.length).toBeGreaterThan(2);
+    // **同じ点を 2 回使っていない。**別々の発番器だと trunk と branch がそれぞれ 1 から振る
+    expect(new Set(seqs).size).toBe(seqs.length);
+  });
+});
+
+describe('App 結合: 同じ branch を 2 人が並行に merge しても収束する (step3 Phase 1 S1-4)', () => {
+  test('写しが 2 組できても、両者の画面は同じグラフになる', async () => {
+    const { code } = await aliceSharesFileWithBob();
+
+    // alice: branch を切ってノードを置き、コミットして送る
+    let user = await startOn('alice', ALICE);
+    await user.click(screen.getByText(FILE_NAME));
+    await createBranch(user, BRANCH_NAME);
+    await openBranch(user, BRANCH_NAME);
+    await addNode(user);
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+    await commitBranch(user, '案');
+    await syncNow(user);
+
+    // bob: 参加して同じ branch を開き、merge する。まだ届かないよう保留する
+    user = await startOn('bob', BOB);
+    await participate(user, code, FILE_NAME);
+    await syncNow(user);
+    await openBranch(user, BRANCH_NAME);
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+    world.pds.withhold(BOB.did);
+    await mergeOpenBranch(user, 'bob が取り込む');
+    await syncNow(user);
+
+    // alice: bob の merge を知らずに、同じ branch を merge する
+    user = await startOn('alice', ALICE);
+    await user.click(screen.getByText(FILE_NAME));
+    await openBranch(user, BRANCH_NAME);
+    await mergeOpenBranch(user, 'alice が取り込む');
+    await syncNow(user);
+
+    // 互いの merge が届く。写しは 2 組あるが、畳み込みは同じ元の写しを 1 つだけ採る
+    world.pds.release(BOB.did);
+    await syncNow(user);
+    await user.click(screen.getByText(FILE_NAME));
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+
+    user = await startOn('bob', BOB);
+    await syncNow(user);
+    await user.click(screen.getByText(FILE_NAME));
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+
+    // PDS には写しが 2 組ある (両方とも書かれている) ことを確かめておく — 重複除去が
+    // 無ければ、ここで同じ編集が二重に畳まれる
+    const copies = [ALICE.did, BOB.did].flatMap((did) =>
+      world.pds
+        .records(did, NSID.batch)
+        .map((r) => r.value as { copyOf?: { actor: string; seq: number } })
+        .filter((v) => v.copyOf),
+    );
+    const origins = new Set(
+      copies.map((v) => `${v.copyOf?.actor}#${v.copyOf?.seq}`),
+    );
+    expect(copies.length).toBe(origins.size * 2);
   });
 });

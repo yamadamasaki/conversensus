@@ -56,11 +56,13 @@ remote leg のフィルタは設計 §3.2 の不変条件を担う要のコー�
   通る」を固定する。
 - **混在した列**: 自分の分と genesis だけが入力順序を保存して残る。
 
-### 判定は「書いた人」ではなく「積んだ人」 (step2 Phase 3 T7-4)
+### merge の写しは merge した人の batch (step3 Phase 1 D2)
 
-merge の写しは書いた人の `actor` を保ち、積み直した人を `restampedBy` に持つ。S0 を書いた人で
-判定すると、**他人の branch を merge した分が自分の repo に 1 件も出ない**。status と merge コミットは
+step2 では写しが書いた人の `actor` を保ったので、「積んだ人」(`restampedBy`) で判定する必要があった。
+step3 では**写しは merge した人自身の batch** なので、`actor` で判定すればそのまま「積んだ人」になる。
+判定を誤ると、**他人の branch を merge した分が自分の repo に 1 件も出ない** — status と merge コミットは
 merge した人の batch として届くので、相手には「merged なのに trunk に中身が無い」と見える。
 
-- **他人が書いた batch でも、自分が積み直した写しは送る**
-- **自分が書いた batch でも、他人が積み直した写しは送らない** (相手の repo にある)
+- **他人が書いた編集でも、自分が merge した写しは送る** (写しの actor は自分)
+- **自分が書いた編集でも、他人が merge した写しは送らない** (それは相手の batch で、相手の repo にある)
+

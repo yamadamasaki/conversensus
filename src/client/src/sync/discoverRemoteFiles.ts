@@ -107,7 +107,9 @@ export async function discoverRemoteFiles(
   let skippedDeletedFiles = 0;
   for (const { fileId, deleted } of unknown) {
     // 検査 1: 着地レコードが tombstone なら本体を引かない (ANA-127 S3)。
-    // 削除済みファイルの履歴を起動のたびに転送しないための枝である。
+    // 削除済みファイルの履歴を起動のたびに転送しないための**近道**である。v2 の rkey では
+    // 着地レコードが tombstone とは限らない (`collections.ts` の `listFileHeads`) ので
+    // 効く場面は減った。正しさは下の検査 2 が持つ
     if (deleted) {
       skippedDeletedFiles += 1;
       continue;

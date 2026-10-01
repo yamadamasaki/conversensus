@@ -9,9 +9,9 @@
  * LWW / add-wins で解決するので「無効な op」という概念がない
  * (`deepse/architecture/step2.md` §3)。
  *
- * **「名簿」ではなく「判断ログ」として広く切ってある。** DtR の承認 (Phase 6) も同じ
- * 「検証して捨てる」畳み込みなので、名簿専用に切ると 3 つ目の collection が要る。
- * `dtr.*` の op はこの union に後から加わる。
+ * **「名簿」ではなく「判断ログ」として広く切ってある。**「検証して捨てる」畳み込みを
+ * 要する判断が今後増えても、3 つ目の collection を切らずに済む (step2 Phase 6 の DtR の
+ * 承認がそうだった。DtR は step3 Phase 1 で撤去した)。
  *
  * **clock 空間はグラフの op-log と共有する。** pre 条件が「この操作より前」を含む以上、
  * 2 つのログを同じ物差しで並べられなければならない (`deepse/spikes/u6-p2-report.md` の
@@ -19,7 +19,7 @@
  */
 
 import { z } from 'zod';
-import { BranchIdSchema, DtrIdSchema, SheetIdSchema } from '../schemas';
+import { VersionVectorSchema } from '../schemas';
 import { deterministicUuid } from './genesis';
 import { type Actor, BatchIdSchema, type Lamport } from './unified';
 
@@ -44,10 +44,6 @@ export const JudgmentDidSchema = z.string().min(1);
  *
  * 名簿の op で `target` を持つのは他者に働きかける 2 つだけで、残りは**発行者自身**が対象で
  * ある (発行者は batch の `actor` から DID を取り出して決まる)。
- *
- * **DtR の op の `target` は DID ではなく DtR の id である** (step2 Phase 6)。同じ名前で
- * 別のものを指すのは、グラフ側の op が `target` を「その op が働きかける対象の id」として
- * 使っているのと揃えたためである。
  */
 export const JudgmentOpSchema = z.discriminatedUnion('kind', [
   /**
@@ -117,83 +113,6 @@ export const JudgmentOpSchema = z.discriminatedUnion('kind', [
    * のと同じ理屈である)。したがって pre 条件に所属の条件は要らない。
    */
   z.object({ kind: z.literal('participation.reopen') }),
-
-  // --- DtR (step2 Phase 6) ---
-  //
-  // **名簿の op と同じ batch に書いてはならない** (設計 Phase 6 の事実 B)。
-  // `recordToJudgmentBatch` は op が 1 つでも語彙に合わなければ batch ごと捨てるので、
-  // 混ぜると DtR を知らない版の手元で**名簿の更新ごと失われる**。
-  // 逆向きは安全である — `foldParticipation` の `switch` に `default` が無いので、
-  // 知らない `kind` は黙って素通りし、「捨てた op」には入らない。
-
-  /**
-   * DtR を起動し、**呼び出し対象を確定して記録する**。
-   *
-   * 記録するのが要点である (仕様「承認の判定」)。「全員が承認したか」を名簿への
-   * **生きた問い合わせ**として書くと、名簿は共同作業者の間で食い違ってよいと決めた以上、
-   * a の手元では「全員承認済 → 再 merge 可能」、b の手元では「1 人足りない → 保留」が
-   * **同時に、どちらも正常な状態として成立してしまう**。再 merge は trunk を書き換えるので、
-   * これは表示の食い違いでは済まない。名簿は**既定値を供給するだけ**である。
-   */
-  z.object({
-    kind: z.literal('dtr.open'),
-    target: DtrIdSchema,
-    /**
-     * **何がこの DtR を必要にしたか。**
-     *
-     * 仕様は DtR を「この競合を引き起こした merge 操作 (op-log) に」または
-     * 「この競合によって作られた fork に」紐づけると定める。どちらも branch として
-     * 指せる (fork は `conflictKey` と凍結記述を持つ branch である) ので、
-     * **1 つのフィールドで両方の起動を表す**。
-     *
-     * **必須にしてある。**追記のみのログでは、後から必須フィールドを足すのは
-     * 破壊的変更になる — レコードが 1 件も書かれていないうちに形を決める。
-     */
-    branchId: BranchIdSchema,
-    /**
-     * **解決グラフ (resolve graph) の器** (step2 Phase 6 D3, 利用者決定 2026-09-19)。
-     *
-     * trunk から切った branch を指す。resolve graph は「実際に競合しているグラフを
-     * 可視化し、**競合を解消するために編集できる**」もの = trunk の編集可能な作業複製
-     * そのものなので、branch がその器である。おかげで**再 merge は既存の merge を
-     * そのまま使える** (新しい merge 機構を作らずに済む)。
-     *
-     * **`branchId` とは別物である。**あちらは「この DtR を必要にした原因」(merge した
-     * branch / 競合が作った fork)、こちらは「解決のために切った作業用 branch」。
-     */
-    resolveBranchId: BranchIdSchema,
-    /**
-     * dialogue graph の器。trunk の fileId の**中に**切った sheet を指す。
-     * fileId を新たに切らないのは、`discoverRemoteFiles` がそれを File として
-     * materialize してしまうためである (U6 で確定)。
-     */
-    sheetId: SheetIdSchema,
-    /** 起動時に確定した呼び出し対象 */
-    callees: z.array(JudgmentDidSchema).min(1),
-  }),
-
-  /**
-   * 呼び出し対象を置き換える (仕様「起動された resolve graph を見て, 対象を追加/削除できる」)。
-   *
-   * **保留の出口である。**承認しない actor がいるとき既定は保留だが、仕様は
-   * 「呼び出し対象から外して先に進むこともできる」と定める。これが無いと、全員が承認する
-   * まで DtR に出口が無い。
-   *
-   * **単調性は保たれる。**判定は相変わらず「記録された集合」に対して行われ、集合の変更も
-   * 記録された op として全員の手元で同じ順に畳まれるためである。名簿への問い合わせに
-   * 戻すわけではない。
-   */
-  z.object({
-    kind: z.literal('dtr.setCallees'),
-    target: DtrIdSchema,
-    callees: z.array(JudgmentDidSchema).min(1),
-  }),
-
-  /** 呼び出された actor が、この解決を承認する。対象は**発行者自身**である */
-  z.object({
-    kind: z.literal('dtr.approve'),
-    target: DtrIdSchema,
-  }),
 ]);
 export type JudgmentOp = z.infer<typeof JudgmentOpSchema>;
 export type JudgmentOpKind = JudgmentOp['kind'];
@@ -206,12 +125,16 @@ export type JudgmentOpKind = JudgmentOp['kind'];
  * 同じ規則 (`compareByClockActorId`) で並べられること、による。
  *
  * `sheetId` を持たない — 判断は File 単位であってシート単位ではない。
- * fileId を持たないのもグラフ側と同じで、**rkey が運ぶ** (`v1~<fileId>~…`)。
+ * fileId を持たないのもグラフ側と同じで、**rkey が運ぶ** (`<fileId>~…`)。
  */
 export const JudgmentBatchSchema = z.object({
   id: BatchIdSchema,
   actor: z.string(),
   clock: z.number().int().nonnegative(),
+  /** 因果の点。グラフの op-log と**同じ連番を共有する** (`Batch.seq`) */
+  seq: z.number().int().nonnegative(),
+  /** 書いた時点の因果の知識 (`Batch.deps`) */
+  deps: VersionVectorSchema,
   /** wall clock (表示用。順序付けには使わない) */
   timestamp: z.number().int().nonnegative(),
   ops: z.array(JudgmentOpSchema).min(1),
@@ -229,6 +152,13 @@ export type JudgmentBatch = z.infer<typeof JudgmentBatchSchema>;
  * `GENESIS_CLOCK_START = 1` だからである。**0 は誰にも割り当てられない。**
  */
 export const JUDGMENT_GENESIS_CLOCK: Lamport = 0;
+
+/**
+ * 判断ログの genesis に与える seq。clock と同じく **0 は誰にも割り当てられない**
+ * (seq は 1 から振る)。seq 0 の点は `covers` で常に覆われる — 「誰にとっても因果の
+ * 過去にある」ことになり、clock 0 が「あらゆる op より前」であるのと揃う
+ */
+export const JUDGMENT_GENESIS_SEQ = 0;
 
 /**
  * 判断ログの genesis batch を組み立てる (step2 Phase 1)。
@@ -250,6 +180,8 @@ export function participationGenesisBatch(
     ),
     actor,
     clock: JUDGMENT_GENESIS_CLOCK,
+    seq: JUDGMENT_GENESIS_SEQ,
+    deps: {},
     timestamp: 0,
     ops: [{ kind: 'participation.genesis' }],
   };

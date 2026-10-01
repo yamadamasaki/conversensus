@@ -1,14 +1,11 @@
 import {
   type Actor,
-  admissibleBatches,
   type Batch,
   type BlobCid,
   type ConversensusFile,
   type Did,
-  type DtrJudgments,
   type FileId,
   type ForkMeta,
-  foldBranches,
   type GraphFile,
   type GraphFileListItem,
   type Lamport,
@@ -45,11 +42,6 @@ import { discoverParticipatingFiles } from '../sync/discoverParticipatingFiles';
 import { discoverRemoteFiles } from '../sync/discoverRemoteFiles';
 import { deleteFileByTombstone } from '../sync/fileDeletion';
 import { LocalServerSyncProvider } from '../sync/localServerSyncProvider';
-import {
-  hasRkeyMigrated,
-  markRkeyMigrated,
-  migrateRemoteRkey,
-} from '../sync/migrateRemoteRkey';
 import type { DetectedOverwrites } from '../sync/overwrites';
 import { collectParticipantBatches } from '../sync/receiveParticipantBatches';
 import { reprojectAfterReceive } from '../sync/reprojectAfterReceive';
@@ -91,15 +83,6 @@ export interface FileSheetOpsDeps {
    * 宛先 provider (local / ログイン中は fanout) はフック側が組み立てて渡す。
    */
   deleteFile: typeof deleteFileByTombstone;
-  /**
-   * rkey 移行の marker (Phase 7 p7-4)。既定は localStorage (DID 単位)。
-   *
-   * **deps にしてあるのはテストのため** — 移行は「起動時に 1 回」なので、差し替えられないと
-   * 他のテスト (発見・受信) の観測に移行の副作用が混ざり、何を検証しているのか分からなくなる。
-   * in-memory deps は「移行済」を既定にして移行経路を止める。
-   */
-  hasRkeyMigrated: (did: string) => boolean;
-  markRkeyMigrated: (did: string) => void;
 }
 
 export const defaultFileSheetOpsDeps: FileSheetOpsDeps = {
@@ -111,8 +94,6 @@ export const defaultFileSheetOpsDeps: FileSheetOpsDeps = {
   pushReceivedBatches,
   fetchLocalFileIds,
   deleteFile: deleteFileByTombstone,
-  hasRkeyMigrated,
-  markRkeyMigrated,
 };
 
 interface UseFileSheetOperationsParams {
@@ -297,35 +278,9 @@ export function useFileSheetOperations({
     [onForksArrived],
   );
 
-  /**
-   * File ごとの DtR の畳み込み結果 (step2 Phase 6 D3)。
-   *
-   * **state ではなく ref で持つ。**読むのは表示の projection で、そこは安定参照を要求する
-   * `useCallback` の中にある — state にすると依存配列に入れることになり、名簿を読むたびに
-   * callback が張り直される。同じ理由で `projectedForeignRef` らも ref である。
-   *
-   * **空のときは絞らない** (fail-open)。同期サイクルが一度も走っていない段階や未ログインで
-   * 落とすと、merge 済みの内容が画面から消える方の失敗になる。
-   */
-  const dtrJudgmentsRef = useRef(new Map<FileId, DtrJudgments>());
-
-  /** 承認を経ていない再 merge の写しを落とす (D3)。畳み込みに**入れる前に**落とす */
-  const admissible = useCallback(
-    (fileId: FileId, batches: Batch[]): Batch[] => {
-      const judgments = dtrJudgmentsRef.current.get(fileId);
-      if (!judgments) return batches;
-      return admissibleBatches(batches, {
-        commits: foldBranches(batches, fileId).trunkCommits,
-        dtrs: judgments.dtrs,
-      });
-    },
-    [],
-  );
-
   const handleRoster = useCallback(
-    (fileId: FileId, participation: Participation, dtrs: DtrJudgments) => {
+    (fileId: FileId, participation: Participation) => {
       const viewer = didFromActor(actor);
-      dtrJudgmentsRef.current.set(fileId, dtrs);
       setSharing({ fileId, state: fileSharing(participation, viewer) });
 
       const since = rejoinObligation(participation, viewer);
@@ -379,7 +334,7 @@ export function useFileSheetOperations({
           projectedForeignRef.current.set(fileId, foreignCount(batches));
           // 承認を経ていない再 merge の写しは画面に出さない (D3)。**落とすのは読みで
           // あって書きではない** — 写しは trunk に載ったままで、承認が揃えば出てくる
-          return projectFile(admissible(fileId, batches), fileId);
+          return projectFile(batches, fileId);
         },
         ...(isEditingActive && { isEditing: isEditingActive }),
       })
@@ -417,14 +372,7 @@ export function useFileSheetOperations({
         )
         .finally(() => swappingRef.current.delete(fileId));
     },
-    [
-      deps,
-      isEditingActive,
-      isBranchOpen,
-      keepTrunkForReturn,
-      foreignCount,
-      admissible,
-    ],
+    [deps, isEditingActive, isBranchOpen, keepTrunkForReturn, foreignCount],
   );
 
   const handleReceived = useCallback(
@@ -481,8 +429,7 @@ export function useFileSheetOperations({
   // remote キューがあれば tap は fanout (ローカル正典 + remote) になる (W3d5-5)。
   const {
     record: internalSyncRecord,
-    clock: trunkClock,
-    settled: trunkSettled,
+    causal: trunkCausal,
     syncNow,
   } = useEventSyncTap(activeFile?.id ?? null, {
     remoteQueue,
@@ -511,7 +458,7 @@ export function useFileSheetOperations({
     async (id: string): Promise<GraphFile> => {
       const batches = await deps.fetchBatches(id as FileId);
       // 承認を経ていない再 merge の写しは画面に出さない (D3)
-      const file = projectFile(admissible(id as FileId, batches), id as FileId);
+      const file = projectFile(batches, id as FileId);
       // 画像 blob の由来は **op-log にしか無い** (step2 Phase 2 S5)。projection の
       // 出力 (`GraphFile`) には載せないので、batch を読んだこの場で導いて持つ
       setBlobOrigins(collectBlobOrigins(batches));
@@ -524,7 +471,7 @@ export function useFileSheetOperations({
       }
       return file;
     },
-    [deps, foreignCount, admissible],
+    [deps, foreignCount],
   );
 
   const openFile = useCallback(
@@ -896,51 +843,10 @@ export function useFileSheetOperations({
   // (セッション確立時) もこの effect の再実行が引き取っている。
   // 発見したら一覧を読み直す — GET /files が op-log との和集合 (4e-2a) なので、
   // materialize されたファイルはこれだけで Sidebar に現れる。
-  //
-  // **発見の前に rkey 移行 (Phase 7 p7-4) を 1 回だけ通す**。p7-1 より前に書かれた
-  // 旧 rkey のレコードは新経路 (列挙・prefix 取得) の走査に現れないので、移行を経ずに
-  // 発見だけを回すと「PDS にしか無い古い batch」を持つファイルが見えないままになる。
-  // 移行は marker (端末ローカル) で 1 回に限られ、失敗しても marker が立たないので
-  // 次の契機で再試行される (設計 §3.4 / §6.2)。
-  // **移行が失敗しても発見は走らせる** — 発見は非破壊で、移行と独立に価値があるため。
+
   useEffect(() => {
     if (!remoteQueue) return;
     const did = didFromActor(actor);
-    const migrate = () =>
-      migrateRemoteRkey({
-        // repo 全件。**移行だけが使う口** — 旧 rkey は新経路の走査に現れない (p7-5)
-        pullAllRemoteForMigration: () =>
-          remoteQueue.pullAllRemoteForMigration(),
-        appendReceived: deps.pushReceivedBatches,
-        fetchBatches: deps.fetchBatches,
-        // 新形式で既に載っている分を除くための範囲取得 (まとめ書きは既存 rkey で落ちる)
-        pullRemoteForFile: (fileId) => remoteQueue.pullRemoteForFile(fileId),
-        // キューを経由しない直送 (上限で溢れると完了判定が嘘になる, remoteSyncQueue 参照)
-        createRemote: (entries) => remoteQueue.createRemote(entries),
-        // 再 push は自分が書いた batch だけ (S0)。移行を抜け道にしない
-        did,
-        hasMigrated: () => deps.hasRkeyMigrated(did),
-        markMigrated: () => deps.markRkeyMigrated(did),
-      })
-        .then((result) => {
-          if (result.status === 'already-migrated') return;
-          // 無言で済ませない (§3.6) — 移行は 1 回きりなので記録が残る形で出す
-          console.info(
-            `[sync] rkey migration done: ${result.remoteFiles} remote file(s), ` +
-              `received ${result.receivedBatches} batch(es), ` +
-              `re-pushed ${result.pushedBatches} batch(es) across ` +
-              `${result.pushedFiles} file(s) in ${result.elapsedMs}ms`,
-          );
-          // 移行の全件受信で未知ファイルが materialize されている可能性がある
-          deps.fetchFiles().then(setFiles).catch(console.error);
-        })
-        .catch((error) =>
-          console.warn(
-            '[sync] rkey migration failed (will retry on the next start):',
-            error,
-          ),
-        );
-
     // **Promise を返す。**`finally` のコールバックが thenable を返したときだけ
     // 後段がそれを待つ。返さないと名簿の bootstrap が発見の完了前に走る
     const discover = () => {
@@ -1011,13 +917,10 @@ export function useFileSheetOperations({
           ),
         );
 
-    // 移行 → 発見 → 名簿の起点 → 参加 File の発見 の順に走らせる。
+    // 発見 → 名簿の起点 → 参加 File の発見 の順に走らせる。
     // 前段の成否によらず後段は必ず実行する
     const sync = () => {
-      migrate()
-        .finally(discover)
-        .finally(bootstrap)
-        .finally(discoverParticipating);
+      discover().finally(bootstrap).finally(discoverParticipating);
     };
     sync();
     window.addEventListener('online', sync);
@@ -1068,12 +971,11 @@ export function useFileSheetOperations({
     handleImportFile,
     handleExportFile,
     syncRecord,
-    // trunk の Lamport 発番器 (p5-4)。merge が branch batches を trunk へ再スタンプ
-    // するときに使う — 発番器を分けると同 (clock, actor) の batch が生まれる。
-    trunkClock,
-    // trunk の tap の drain 完了を待つ (step2 Phase 3 T7-6)。記録した branch のメタを
-    // 読み直す前に待たないと、畳み込みに載っていない
-    trunkSettled,
+    /**
+     * trunk の因果の発番器 (step3 Phase 1)。branch の tap・判断ログの書き込み・merge の写しが共有する
+     * (File を開いていなければ null)
+     */
+    trunkCausal,
     receiveEpoch,
     // 「今すぐ同期」(SyncStatusIndicator) の口。開いている間に他所で起きた変更を
     // 取りに行く手段がこれしかない (GitHub #202)

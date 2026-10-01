@@ -13,7 +13,7 @@ import {
   didFromActor,
   foldParticipation,
   projectBatches,
-  wasParticipatingAt,
+  wasParticipatingIn,
 } from '@conversensus/shared';
 import fc from 'fast-check';
 import { filterByParticipation } from './participationFilter';
@@ -30,6 +30,8 @@ const jb = (did: Did, clock: number, ops: JudgmentOp[]): JudgmentBatch => ({
   id: nextId(),
   actor: `${did}#dev-1`,
   clock,
+  seq: clock,
+  deps: {},
   timestamp: 0,
   ops,
 });
@@ -38,6 +40,8 @@ const gb = (did: Did, clock: number, ops: Op[]): Batch =>
     id: nextId(),
     actor: `${did}#dev-1`,
     clock,
+    seq: clock,
+    deps: {},
     timestamp: 0,
     ops,
   }) as unknown as Batch;
@@ -326,9 +330,9 @@ describe('多アクタの収束 (step2 Phase 2 S7)', () => {
 
           // 前提: その actor はその時点で参加していない。**自分自身は除く** —
           // ローカル正典にフィルタはかからないので、命題の対象外である
-          fc.pre(author !== A && !wasParticipatingAt(p, author, at));
-
           const extra = gb(author, at, [op]);
+          fc.pre(author !== A && !wasParticipatingIn(p, author, extra));
+
           expect(
             shape(projectionAt(judgments, [...batches, extra], A)),
           ).toEqual(shape(projectionAt(judgments, batches, A)));

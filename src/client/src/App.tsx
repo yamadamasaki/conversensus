@@ -193,8 +193,8 @@ export default function App() {
     setAlertState,
     setConflictNotice,
     actor,
-    // merge の再スタンプは trunk と同じ発番器で行う (p5-4)
-    trunkClock: fileOps.trunkClock,
+    // branch の tap と merge の写しは trunk の因果の発番器を共有する (step3 Phase 1)
+    trunkCausal: fileOps.trunkCausal,
     // branch / commit のメタは trunk の op-log に記録する (step2 Phase 3 T7-1)
     trunkRecord: fileOps.syncRecord,
     // branch の編集も remote へ出す (step2 Phase 3 T7-2)
@@ -202,8 +202,6 @@ export default function App() {
     // 参加者の branch を引き、trunk の受信で branch 一覧を読み直す (T7-3)
     roster,
     receiveEpoch: fileOps.receiveEpoch,
-    // SQLite から載せ直したメタを読む前に trunk の記録を待つ (T7-6)
-    trunkSettled: fileOps.trunkSettled,
   });
 
   // `fileOps` へ渡した口の中身をここで差す (上の branchViewRef の注を参照)。
@@ -281,13 +279,13 @@ export default function App() {
   /**
    * 名簿の操作 (step2 Phase 1)。
    *
-   * **clock は `fileOps.trunkClock` を渡す。**判断ログとグラフの op-log は同じ clock 空間を
+   * **発番器は `fileOps.trunkCausal` を渡す。**判断ログとグラフの op-log は同じ clock 空間を
    * 共有しなければならない — pre 条件が「この操作より前」を含むので、別空間にすると
    * 承認が済んでいるのに正当な再 merge が落ちる (U6-P2 スパイク)。
    */
   const participation = useParticipation({
     actor,
-    clock: fileOps.trunkClock,
+    clock: fileOps.trunkCausal,
     // clock 空間は File ごと。開いている File のときだけ tap の clock を使う
     activeFileId: fileOps.activeFile?.id ?? null,
     // **同期サイクルと同じ供給元**を渡す (step2 Phase 2 S1)
@@ -618,11 +616,6 @@ export default function App() {
           labelOf={conflictLabelOf}
           forkCount={conflictNotice.forkCount ?? 0}
           arrivedForks={arrivedForks}
-          // fork から対話を始める口 (step2 Phase 6 D5)。**ログイン中だけ渡す** —
-          // 判断ログの書き先は自分の repo なので、未ログインでは起動できない
-          {...(atprotoSession && {
-            onStartDtr: branchOps.handleStartDtrFromFork,
-          })}
           onClose={() => {
             setConflictNotice({ conflicts: [], labels: new Map() });
             setArrivedForks(NO_ARRIVED_FORKS);

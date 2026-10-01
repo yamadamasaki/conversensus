@@ -145,21 +145,6 @@ T7-1 で branch のメタが trunk の op-log に、T7-2 で branch の編集が
   差し替えただけでは canvas に出ない。**T7-7 の実機 (2 アカウント) で、op-log には相手の編集が
   届いているのに画面に出ないことで発覚した** (当初のテストは state しか見ておらず通っていた)
 
-### SQLite に残る古いメタの載せ直し (step2 Phase 3 T7-6)
-
-T7-1 で branch 一覧の読み口を trunk の op-log の畳み込みにしたので、**T7-1 より前に SQLite へ
-保存された branch は、載せ直さないと一覧から消える**。載せ直しの判断そのものは
-`migrateBranchMeta.test.ts` が固定し、ここでは「画面を開いたときに走り、一覧に届く」ことを見る。
-
-in-memory の deps に SQLite の行 (`_legacyBranches` / `_legacyCommits`) を入れ、op-log は空のまま
-`reuse` で hook を作る。
-
-- **🔴 SQLite にだけある branch が、開いたときに op-log へ載って一覧に出る**: 名前と status (merged) が
-  一覧に出て、trunk の畳み込みに branch のコミットも載っている
-- **開き直しても載せ直しは重複しない**: 1 回目の後の trunk の batch 数を覚え、hook を作り直しても
-  増えない。hook の中の「セッションで 1 回」の柵は作り直しで消えるので、ここで効いているのは
-  **載せ直しのべき等性** (生の op で判定する) の方である
-
 ### branch を開いている間の受信 (2026-09-17)
 
 受信の差し替えが渡してくるのは **trunk の projection** なので、branch を開いている間に画面へ
@@ -183,7 +168,7 @@ op-log を見るテストでは捕まらない。
   `_setComputeOps` で変更ありの状態を作る (`pendingChanges` は useMemo なので選択後に
   差し込んでも再計算されない)。
 
-### merge — trunk 先端の後へ再スタンプ + 一級の記録 (ANA-122)
+### merge — trunk 先端の後へ写す + 一級の記録 (ANA-122)
 
 - **merge 理由は必須**。理由の入力に答えない (空白だけ) と merge は起きず、trunk も
   branch の status も動かない。テストは `answerMergeReason` で入力に答える —
@@ -191,7 +176,7 @@ op-log を見るテストでは捕まらない。
 
 #### 取り込む前の確認 (Phase 3 T1)
 
-**merge は不可逆である** — 再スタンプした branch batches は trunk op-log へ追記され、
+**merge は不可逆である** — branch の batch の写しは trunk op-log へ追記され、
 revert の経路が無い。人が押す操作なので、人の判断が要る対立 (content / structure) は
 取り込む前に問う。**layout は「通知のみで DtR を起動しない」種別なので止めない**
 (共同編集で二人が同じノードを動かすのは日常的で、毎回止めると確認がノイズになる)。
@@ -222,44 +207,11 @@ revert の経路が無い。人が押す操作なので、人の判断が要る�
 - **merge の記録が trunk 側の commits に `kind=merge` で残る** (理由・実行者・由来 branch)。
   branch の status が MERGED になるだけでは「いつ・誰が・何のために」が残らなかった。
 
-- branch batch が **id を保持したまま** trunk op-log に現れ、clock は merge 時点の
-  trunk 先端より後になる。id 保持が再 merge のべき等性そのもの (p5-3)。
-- 再スタンプの発番は **trunk の tap と同じ clock** で行う (`trunkClock`)。発番器を
-  分けると、次のローカル編集が merge 済み batch と同じ `(clock, actor)` を持ちうる。
+- branch の batch の**写し**が trunk op-log に現れ (`copyOf` が元の点を指す)、clock は merge 時点の
+  trunk 先端より後になる。`copyOf` の集合が再 merge のべき等性そのもの (step3 Phase 1 D2)。
+- 写しの点は **trunk の tap と同じ発番器** で振る (`trunkCausal`)。発番器を分けると、
+  次のローカル編集が写しと同じ点 `(actor, seq)` を持ちうる。
 - 理由の入力をキャンセルしたときも trunk も branch の status も動かない。
-
-### content 競合からの DtR の強制起動 (step2 Phase 6 D1)
-
-**ここで見るのは配線だけである。**起動するかどうかの線引き (`needsForcedStart`) と呼び出し
-対象の既定値 (`defaultCallees`) は `sync/startDtr.test.ts` が持っている。偽物
-(`createInMemoryBranchOpsDeps`) は本物の線引きを**再実装せず**、渡された入力を記録して
-`null` を返すだけにしてある — 両方に規則を置くと、偽物の側が正しいことを確かめているだけに
-なり、しかも**放っておくとずれる** (T0 で `applicability` の写しが `applyOp` とずれていたのと
-同じ形である)。
-
-固定するのは 4 つ。
-
-- **適用した競合ごと渡す**: 材料は先読み (`previewMerge`) ではなく `mergeBranchOnOplog` の
-  結果である。先読みと適用の間に trunk が動けば件数は食い違う — 競合の通知が既に同じ
-  判断をしているので、それと揃える
-- **名簿の参加者と自分の DID を渡す**: 名簿は**既定値を供給するだけ**である (仕様
-  「承認の判定」)。`viewer` は `actor` (`did#deviceId`) ではなく **DID** で渡す —
-  承認は端末単位ではなく人単位だからで、ここを取り違えると 2 台持ちの人が別人になる
-- **未ログインでは、理由を示して依頼しない**: 判断ログの書き先は自分の repo なので、
-  PDS が無ければ書きようがない。**merge そのものは成立する**ことも併せて見る。
-  **理由まで見るのは変異試験が教えた** — 「依頼しない」だけを固定すると、番人
-  (`if (!roster)`) を外す変異が**生き残った**。外しても `roster.read` が null で例外を
-  投げ、それを merge 側の `try`/`catch` が拾うので、依頼が 0 件で merge が成功する点は
-  変わらないからである。変わるのは**出る理由**で、番人が無いと TypeError が
-  「DtR の起動に失敗した」として報告される — **ログインしていないだけなのに PDS の
-  障害を疑わせる**。そこで `console.warn` を捕まえて「未ログイン」が出ることを固定した
-  (捕まえた後は `finally` で必ず戻す。戻さないと以降のテストの警告まで拾い続ける)
-- **🔴 起動に失敗しても merge を失敗として報告しない**: merge は既に trunk に載っている。
-  同じ `try` に入れると「merge に失敗しました」と嘘を報告し、**載った変更を人が探しに行く**
-
-content の競合は `trunkBatch` (node.add) → branch で `relabel` → trunk で `trunkContentBatch`
-の三手で作る。**三手とも同じノードを指すこと**が要で、`relabel` が `nodeId` を受け取れるように
-してあるのはそのためである。
 
 ### close / delete
 - close は status を closed にし、branch op-log は残す (再開の余地を残す)。

@@ -47,6 +47,8 @@ const sheetBatch = (clock: number): Batch => ({
   id: bid(),
   actor: A,
   clock,
+  seq: clock,
+  deps: {},
   timestamp: 0,
   ops: [{ kind: 'sheet.create', target: SHEET, name: 'S' }],
 });
@@ -55,6 +57,8 @@ const nodeBatch = (actor: string, clock: number, content: string): Batch => ({
   id: bid(),
   actor,
   clock,
+  seq: clock,
+  deps: {},
   timestamp: 0,
   sheetId: SHEET,
   ops: [

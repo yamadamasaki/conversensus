@@ -24,7 +24,7 @@
  * | 参加を承認した | `participation.accept` |
  * | 誰かを依頼した (= 自分は参加者) | `participation.invite` |
  *
- * 判断ログの rkey は `batches` と同じスキーム (`v1~<fileId>~…`) なので、
+ * 判断ログの rkey は `batches` と同じスキーム (`<fileId>~…`) なので、
  * `listJudgmentFileIds()` が自分の repo だけを読んで fileId の集合を返す。
  * **他人の repo は 1 件も列挙しない。**
  *

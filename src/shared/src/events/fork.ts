@@ -31,7 +31,7 @@
  */
 
 import type { BranchId, CommitId, FileId, SheetId } from '../schemas';
-import { type BranchMeta, makeCommit } from './branchLog';
+import { type BranchMeta, makeBaseCommit } from './branchLog';
 import type { LayoutAspect, MergeConflict } from './merge';
 import {
   type Batch,
@@ -180,7 +180,7 @@ function forkNameOf(conflict: MergeConflict, targetLabel: string): string {
  */
 export function makeFork(params: MakeForkParams): ForkMeta {
   const { conflict, targetLabel, batchOf, localBatches, newId } = params;
-  const base = makeCommit(
+  const base = makeBaseCommit(
     newId() as CommitId,
     forkNameOf(conflict, targetLabel),
     params.authorActor,

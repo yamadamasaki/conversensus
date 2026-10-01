@@ -29,6 +29,8 @@ const gb = (actor: string): Batch => ({
   id: bid(),
   actor,
   clock: 1,
+  seq: 1,
+  deps: {},
   timestamp: 0,
   ops: [{ kind: 'node.add', target: 'n1' as NodeId, content: 'x' }],
 });
@@ -37,6 +39,8 @@ const invite = (actor: Actor, clock: number, target: Did): JudgmentBatch => ({
   id: bid(),
   actor,
   clock,
+  seq: clock,
+  deps: {},
   timestamp: 0,
   ops: [{ kind: 'participation.invite', target }],
 });
@@ -60,6 +64,8 @@ describe('hasGenesis', () => {
       id: bid(),
       actor: ACTOR,
       clock: 0,
+      seq: 0,
+      deps: {},
       timestamp: 0,
       ops: [{ kind: 'participation.genesis' }],
     };
@@ -82,6 +88,8 @@ describe('ensureOwnGenesis', () => {
       id: bid(),
       actor: ACTOR,
       clock: 0,
+      seq: 0,
+      deps: {},
       timestamp: 0,
       ops: [{ kind: 'participation.genesis' }],
     };

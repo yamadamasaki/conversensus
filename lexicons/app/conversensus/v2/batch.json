@@ -1,0 +1,76 @@
+{
+  "lexicon": 1,
+  "id": "app.conversensus.v2.batch",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "An operation-log batch, v2 (step3 Phase 1). One user operation = the undo/redo unit; its ops are the sync/merge resolution units. Each batch is a causal point (actor, seq) with the causal context it was written in (deps). rkey = <fileId>~<actor with '#' replaced by ':'>~<seq, 12-digit zero-padded>, so one file's records are contiguous (prefix range fetch) and each actor's records are contiguous in seq order. v1 (app.conversensus.graph.batch) is not read; there is no compatibility between the two.",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": [
+          "id",
+          "fileId",
+          "actor",
+          "clock",
+          "seq",
+          "deps",
+          "timestamp",
+          "ops",
+          "createdAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The batch id (UUID). Stored in the body because the v2 rkey identifies the batch by its causal point, not by id."
+          },
+          "fileId": {
+            "type": "string",
+            "description": "The file this batch belongs to (UUID). Required: the collection is repo-wide, so a receiving device cannot otherwise recover which file to apply the batch to."
+          },
+          "actor": {
+            "type": "string",
+            "description": "did#deviceId, or the reserved 'genesis' actor for batches derived deterministically from a file snapshot."
+          },
+          "clock": {
+            "type": "integer",
+            "description": "Lamport clock. Folding order is (clock, actor, id); this is what makes every replica converge. The causal context below is used only to ask whether two operations are concurrent."
+          },
+          "seq": {
+            "type": "integer",
+            "description": "This actor's sequence number within the trunk file (shared with its branches and the judgment log). Starts at 1 and has no gaps; 0 is reserved for the participation genesis."
+          },
+          "deps": {
+            "type": "unknown",
+            "description": "Causal context as a version vector: actor -> the highest seq of that actor the author knew of (directly or transitively). The author's own entry is omitted (it is seq - 1). Values are positive integers."
+          },
+          "timestamp": {
+            "type": "integer",
+            "description": "Wall-clock milliseconds since epoch (display only; never used for ordering)."
+          },
+          "ops": {
+            "type": "unknown",
+            "description": "Serialized Op[]."
+          },
+          "sheetId": {
+            "type": "string",
+            "description": "Optional. The originating sheet of a content batch. Absent for file-structure batches."
+          },
+          "copyOf": {
+            "type": "unknown",
+            "description": "Optional. When this batch is a merge copy, the causal point { actor, seq } of the batch it copies (step3 Phase 1 D2). A merge copy is the merger's own batch — new id, the merger's actor and causal point — so the actor field always names who put the batch into this log. When several copies point at the same origin (concurrent merges of one branch), the fold keeps only the first in (clock, actor, id) order."
+          },
+          "mergedIn": {
+            "type": "string",
+            "description": "Optional. The merge commit id (UUID) this copy belongs to."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime",
+            "description": "Timestamp of record creation (ISO 8601)."
+          }
+        }
+      }
+    }
+  }
+}

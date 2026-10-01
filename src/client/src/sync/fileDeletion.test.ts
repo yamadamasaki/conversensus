@@ -15,6 +15,8 @@ function batch(clock: number, ops: Batch['ops'] = []): Batch {
     id: BatchIdSchema.parse(crypto.randomUUID()),
     actor: ACTOR,
     clock,
+    seq: clock,
+    deps: {},
     timestamp: clock,
     ops: ops.length > 0 ? ops : [{ kind: 'file.setName', name: 'F' }],
   };

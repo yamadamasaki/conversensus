@@ -135,20 +135,14 @@ type Props = {
   /**
    * 相手が書いた fork (保留した競合) の到着 (step2 Phase 3 T7-5)。
    *
-   * 競合を検出するのは LWW で勝つ側だけなので、**負けた側はこれでしか保留を知らない**。
+   * 当事者は両方とも自分で競合を検出する (step3 Phase 1 D4) ので、ここに出るのは主に
+   * **自分では検出しなかった第三者**である (対立の片側がまだ届いていない、または両側が
+   * 同じ受信で新着になった)。その人はこれでしか保留を知らない。
    * 仕様は fork の通知を対話グラフ (DtR) への入口とするので、控えめな印ではなくここに出す。
    * 名前と何が起きたかは fork に凍結された記述 (`origin`) から出す — 相手の手元で検出された
    * 競合なので、こちらの projection からは引けないことがある
    */
   arrivedForks?: readonly ForkMeta[];
-  /**
-   * その fork から DtR を起動する (step2 Phase 6 D4/D5)。
-   *
-   * 仕様は implicit merge の競合を「とりあえず fork されるが, 競合が通知されるので,
-   * **そこから手動で選択的に起動**」と定める。通知がその入口なので、口はここに置く。
-   * **未ログインなら渡さない** — 判断ログの書き先が自分の repo なので起動できない。
-   */
-  onStartDtr?: (fork: ForkMeta) => void;
   onClose: () => void;
 };
 
@@ -157,7 +151,6 @@ export function ConflictNotice({
   labelOf,
   forkCount = 0,
   arrivedForks = [],
-  onStartDtr,
   onClose,
 }: Props) {
   if (conflicts.length === 0 && arrivedForks.length === 0) return null;
@@ -258,21 +251,6 @@ export function ConflictNotice({
                     : fork.origin.targetLabel}
                 </span>
                 : {describe(fork.origin)}
-                {/* 起動の口 (D5)。押せるのはログイン中だけ */}
-                {onStartDtr && (
-                  <button
-                    type="button"
-                    onClick={() => onStartDtr(fork)}
-                    style={{
-                      marginLeft: 6,
-                      fontSize: 11,
-                      padding: '1px 6px',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    対話を始める
-                  </button>
-                )}
               </li>
             ))}
           </ul>

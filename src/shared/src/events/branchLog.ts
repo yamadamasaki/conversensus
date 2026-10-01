@@ -11,26 +11,14 @@
  * **置換は完了し、旧方式は Phase 6 p6-5b で退役した** (client 側の配線は Phase 5)。
  */
 
-import { z } from 'zod';
-import {
-  type BranchId,
-  BranchIdSchema,
-  type CommitId,
-  type DtrId,
-  type FileId,
-  FileIdSchema,
-  type Sheet,
-  type SheetId,
-  SheetIdSchema,
-} from '../schemas';
+import type { BranchId, CommitId, FileId, Sheet, SheetId } from '../schemas';
+import { covers, heldMaxima, type VersionVector } from './causality';
 import { projectBatches, toSheet } from './project';
 import {
   type Batch,
-  BRANCH_STATUS,
   type BranchStatus,
   COMMIT_KIND,
   type CommitKind,
-  CommitSchema,
   type Lamport,
 } from './unified';
 
@@ -38,10 +26,15 @@ import {
 export type Commit = {
   id: CommitId;
   message: string;
-  /** このコミットが指すログ位置。clock <= at の batch を含む */
+  /**
+   * このコミットが指すログ位置。clock <= at の batch を含む。
+   * base コミットでは、切り出しの権威は `baseVector` の方にある (`at` は branch の発番の下限と表示に使う)
+   */
   at: Lamport;
   authorActor: string;
   kind: CommitKind;
+  /** 分岐点の vector (step3 Phase 1 D3)。base コミットだけが持つ (`makeBaseCommit`) */
+  baseVector?: VersionVector;
   /** merge のとき、取り込んだ branch。commit では持たない */
   sourceBranchId?: BranchId;
   /**
@@ -51,19 +44,6 @@ export type Commit = {
    * これで判定できる。
    */
   sourceAt?: Lamport;
-  /**
-   * **この merge がどの DtR の決着なのか** (step2 Phase 6 D3)。再 merge だけが持つ。
-   *
-   * 再 merge の pre 条件 (「記録された呼び出し対象の全員の承認が、この操作より前に
-   * 記録されていること」) は**畳み込みの手前で**判定する必要がある。判定する側は
-   * 写し (`Batch`) から辿れなければならないが、写しは既に `mergedIn: CommitId` で
-   * 自分の merge コミットを指しているので、**印はコミット側に 1 つ置けば足りる** —
-   * 写しごとに DtR を複製しない。
-   *
-   * `mergedIn` は T7-4 が「merge を参照に移す (案 B)」ための橋として置いたものだが、
-   * A を維持したまま**先にその橋を渡る**形になる (Phase 6 の決めたこと 9)。
-   */
-  dtrId?: DtrId;
 };
 
 /** ブランチ = base コミットからの分岐 */
@@ -73,13 +53,6 @@ export type Branch = {
   base: Commit;
   status: BranchStatus;
 };
-
-// --- API 境界のバリデーション用スキーマ (step1 Phase 5) ---
-//
-// ドメイン型 (`Commit` / `BranchMeta`) は上の手書き定義を正とし、スキーマは
-// HTTP 境界で外来 JSON を検証するための対 (CLAUDE.md 規約 2)。両者の乖離は
-// `parse` の結果をドメイン型の引数へ渡す呼び出し側 (server の saveCommit /
-// saveBranch) でコンパイル時に検出される。
 
 /**
  * ブランチのメタ情報 = ドメインの `Branch` + 永続化・配線に要る補足。
@@ -98,20 +71,35 @@ export type BranchMeta = Branch & {
   branchFileId: FileId;
 };
 
-export const BranchMetaSchema = z.object({
-  id: BranchIdSchema,
-  name: z.string(),
-  base: CommitSchema,
-  // BRANCH_STATUS の定数と機械的に同期させる (値の二重定義を作らない)
-  status: z.nativeEnum(BRANCH_STATUS),
-  sheetId: SheetIdSchema,
-  trunkFileId: FileIdSchema,
-  branchFileId: FileIdSchema,
-});
-
 /** batches 中の最大 clock (= 現在のログ先端)。空なら 0 */
 export function tipClock(batches: Batch[]): Lamport {
   return batches.reduce((max, b) => Math.max(max, b.clock), 0);
+}
+
+/**
+ * 分岐点のコミットを作る (step3 Phase 1 D3)。`at` に加えて、**分岐した時点で actor ごとに
+ * 持っていた最大の seq** (`baseVector`) を記録する。
+ *
+ * scalar の `at` で切ると、分岐時には持っていなかった batch が、clock が小さいというだけで
+ * 後から base に入る (step3-entry §2.1)。vector で切れば、別の actor の batch が遅れて届いても
+ * base は変わらない。
+ *
+ * - 「知っている範囲」(因果の知識) ではなく「持っていた範囲」を使うのは、base が分岐した人に
+ *   **見えていたもの**でなければならないからである
+ * - 「歯抜けなく持っていた範囲」(`contiguousFrontier`) にしないのは、歯抜けが恒久的に生じうる
+ *   ため (`heldMaxima` の注)。残る穴は「同じ actor の歯抜けが分岐後に埋まる」場合だけで、
+ *   同じ actor の batch は順に送られ順に読まれるので起きにくい
+ */
+export function makeBaseCommit(
+  id: CommitId,
+  message: string,
+  authorActor: string,
+  batches: Batch[],
+): Commit {
+  return {
+    ...makeCommit(id, message, authorActor, batches),
+    baseVector: heldMaxima(batches),
+  };
 }
 
 /** 現在のログ先端にラベル付きコミット (オフセット) を作る */
@@ -144,11 +132,6 @@ export function makeMergeCommit(
   source: {
     branchId: BranchId;
     at: Lamport;
-    /**
-     * 再 merge のとき、決着させる DtR (step2 Phase 6 D3)。
-     * **通常の merge は持たない** — 持つのは「承認を経た取り込み」だけである
-     */
-    dtrId?: DtrId;
   },
 ): Commit {
   return {
@@ -159,13 +142,22 @@ export function makeMergeCommit(
     kind: COMMIT_KIND.MERGE,
     sourceBranchId: source.branchId,
     sourceAt: source.at,
-    ...(source.dtrId !== undefined && { dtrId: source.dtrId }),
   };
 }
 
-/** base コミット時点までの batches (clock <= base.at) を切り出す */
+/**
+ * batch がそのコミット時点に含まれるか。`baseVector` があればそれに覆われるか
+ * (step3 Phase 1 D3)、無ければ (branch の途中のコミットなど) clock <= at
+ */
+export function isUpTo(commit: Commit, batch: Batch): boolean {
+  return commit.baseVector
+    ? covers(commit.baseVector, batch.actor, batch.seq)
+    : batch.clock <= commit.at;
+}
+
+/** コミット時点までの batches を切り出す (`isUpTo`) */
 export function batchesUpTo(batches: Batch[], commit: Commit): Batch[] {
-  return batches.filter((b) => b.clock <= commit.at);
+  return batches.filter((b) => isUpTo(commit, b));
 }
 
 /**

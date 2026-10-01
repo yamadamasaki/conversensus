@@ -24,7 +24,7 @@
  * 画面を証拠にしていないので、画面反映が無くても 4d は検証できる。
  */
 
-import type { Batch, FileId, Lamport } from '@conversensus/shared';
+import type { Batch, FileId } from '@conversensus/shared';
 import type { RemoteBatch } from '../atproto/types';
 
 export type ReceiveRemoteDeps = {
@@ -36,8 +36,11 @@ export type ReceiveRemoteDeps = {
   pullRemoteForFile: (fileId: FileId) => Promise<RemoteBatch[]>;
   /** ローカル正典へ受信追記する (marker を立てる経路であること, 不変条件 b) */
   appendReceived: (fileId: FileId, batches: Batch[]) => Promise<number>;
-  /** 自端末 clock を Lamport 受信規則で前進させる (不変条件 c) */
-  observeRemote: (remoteClock: Lamport) => void;
+  /**
+   * 取り込んだ batch を発番器に観測させる (不変条件 c)。Lamport の受信規則と、
+   * 因果の知識への取り込み (step3 Phase 1) の両方
+   */
+  observeRemote: (batches: readonly Batch[]) => void;
 };
 
 export type ReceiveRemoteResult = {
@@ -88,9 +91,8 @@ export async function receiveRemoteBatches(
   const appended = await deps.appendReceived(fileId, mine);
 
   // (c) 受信規則。書き込みが成功してから前進させる — 失敗して取り込めていないのに
-  // clock だけ進むと、次に発番する batch が「取り込めなかった編集より後」を騙る。
-  const maxClock = mine.reduce((m, b) => Math.max(m, b.clock), 0);
-  deps.observeRemote(maxClock);
+  // 観測すると、次に発番する batch が「取り込めなかった編集を知っている」と騙る。
+  deps.observeRemote(mine);
 
   return { received: mine.length, appended, skippedOtherFile };
 }

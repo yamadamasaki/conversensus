@@ -80,11 +80,19 @@ export function deterministicUuid(input: string): string {
 }
 
 /** ops から決定論 id を導いて genesis batch を組み立てる */
-function makeGenesisBatch(ops: Op[], clock: number, sheetId?: SheetId): Batch {
+function makeGenesisBatch(
+  ops: Op[],
+  clock: number,
+  seq: number,
+  sheetId?: SheetId,
+): Batch {
   return {
     id: BatchIdSchema.parse(deterministicUuid(stableStringify(ops))),
     actor: GENESIS_ACTOR,
     clock,
+    // genesis の擬似 actor の点。誰の手元でも同じ値になる (決定論)。何にも依存しない
+    seq,
+    deps: {},
     timestamp: GENESIS_TIMESTAMP,
     ...(sheetId !== undefined && { sheetId }),
     ops,
@@ -203,7 +211,7 @@ export function graphFileToBatches(file: GraphFile): Batch[] {
 
   const push = (ops: Op[], sheetId?: SheetId): void => {
     if (ops.length === 0) return; // 空 ops batch は作らない
-    batches.push(makeGenesisBatch(ops, clock, sheetId));
+    batches.push(makeGenesisBatch(ops, clock, batches.length + 1, sheetId));
     clock += 1;
   };
 

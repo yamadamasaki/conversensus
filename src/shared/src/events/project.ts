@@ -18,16 +18,24 @@ import type {
   Sheet,
   SheetId,
   Style,
-  TemplateId,
+  TemplateRef,
 } from '../schemas';
 import { cascadeOfNodeRemoval, selfAndAncestors } from './cascade';
+import {
+  type DerivedNodes,
+  derivedNodesFor,
+  isDerivedNodeId,
+} from './derivedNode';
 import { applyPropertyChange, canonicalProperties } from './properties';
+import { METAGRAPH_SHEET_KIND, sheetKindOf } from './sheetKind';
 import {
   type Batch,
   compareByClockActorId,
+  copyKeyOf,
   type FileOp,
   type GraphOp,
   isFileOp,
+  type PropertyName,
 } from './unified';
 
 /**
@@ -114,10 +122,20 @@ function reviveEdge(s: FoldState, id: EdgeId): void {
  *
  * ここで初めてカスケードを当てるので、**親の tombstone が解ければ子孫もまとめて戻る**。
  */
-function finalize(s: FoldState): ProjectedGraph {
+/**
+ * @param derived metagraph の導出 node (D8)。**ふつうの sheet では undefined**
+ */
+function finalize(
+  s: FoldState,
+  derived: DerivedNodes | undefined,
+): ProjectedGraph {
+  const isDerived = (id: NodeId) =>
+    derived !== undefined && isDerivedNodeId(derived, id);
   const removedNodes = new Set<NodeId>();
   const removedEdges = new Set<EdgeId>(s.tombstonedEdges);
   for (const id of s.tombstonedNodes) {
+    // 導出 node は node.remove では消えない — 消すのは sheet.remove である (D8)
+    if (isDerived(id)) continue;
     const cascade = cascadeOfNodeRemoval(s, id);
     for (const n of cascade.nodes) removedNodes.add(n);
     for (const e of cascade.edges) removedEdges.add(e);
@@ -137,24 +155,35 @@ function finalize(s: FoldState): ProjectedGraph {
     },
   };
   for (const [id, node] of s.nodes) {
+    // 導出 node の id に node.add が来ても採らない。名前の正は sheet 側である (D8)
+    if (isDerived(id)) continue;
     (removedNodes.has(id) ? g.removed.nodes : g.nodes).set(id, node);
   }
+  for (const [id, node] of derived?.live ?? []) g.nodes.set(id, node);
+  // **metagraph では、端点が live な node である edge だけを live にする。**導出 node の id は
+  // SheetId から一方向に作るので、まだ届いていない sheet の導出 node は見分けられない —
+  // 「sheet が在る限り受け付け、無ければ捨てる」を、在る側 (live な node) で判定する。
+  // 消えた sheet の導出 node を端点にする edge も removed に回り、sheet が作り直されれば
+  // 畳み直しで戻る。ふつうの sheet は今までどおり端点を問わない
+  const hasEndpoint = (id: NodeId) => derived === undefined || g.nodes.has(id);
   for (const [id, edge] of s.edges) {
-    (removedEdges.has(id) ? g.removed.edges : g.edges).set(id, edge);
+    const lostEndpoint = !hasEndpoint(edge.source) || !hasEndpoint(edge.target);
+    (removedEdges.has(id) || lostEndpoint ? g.removed.edges : g.edges).set(
+      id,
+      edge,
+    );
   }
   // layout は要素に従う。孤児 layout (対象が一度も add されていない) は live 側に残す —
   // 削除されたわけではないので tombstone ではない
   for (const [id, layout] of s.nodeLayouts) {
-    (removedNodes.has(id) ? g.removed.nodeLayouts : g.nodeLayouts).set(
-      id,
-      layout,
-    );
+    // metagraph では layout も live な node に従う (上の edge と同じ理由)
+    const gone = removedNodes.has(id) || !hasEndpoint(id);
+    (gone ? g.removed.nodeLayouts : g.nodeLayouts).set(id, layout);
   }
   for (const [id, layout] of s.edgeLayouts) {
-    (removedEdges.has(id) ? g.removed.edgeLayouts : g.edgeLayouts).set(
-      id,
-      layout,
-    );
+    // 端点の導出 node が消えて removed に回った edge の layout も従う
+    const gone = removedEdges.has(id) || g.removed.edges.has(id);
+    (gone ? g.removed.edgeLayouts : g.edgeLayouts).set(id, layout);
   }
   return g;
 }
@@ -169,11 +198,32 @@ function finalize(s: FoldState): ProjectedGraph {
  * 単一 actor では退行しない: `LamportClock.tick()` は単調増加なので同一 actor 内で
  * clock は必ず一意であり、第 2 キーは発動しない (回帰テストで固定)。
  */
+/**
+ * 畳み込みの順に並べる (clock → actor → id)。
+ *
+ * **同じ元を指す merge の写しは、全順序で最初の 1 つだけを残す** (step3 Phase 1 D2)。
+ * 2 人が並行に同じ branch を merge すると、同じ編集の写しが 2 つ trunk に載る。どちらを
+ * 残すかを全順序で決めるので、届いた順に依らず誰の手元でも同じ写しが残る。
+ */
 export function orderBatches(batches: Batch[]): Batch[] {
-  return [...batches].sort(compareByClockActorId);
+  const sorted = [...batches].sort(compareByClockActorId);
+  const seenCopies = new Set<string>();
+  return sorted.filter((batch) => {
+    if (!batch.copyOf) return true;
+    const key = copyKeyOf(batch.copyOf);
+    if (seenCopies.has(key)) return false;
+    seenCopies.add(key);
+    return true;
+  });
 }
 
-export function projectBatches(batches: Batch[]): ProjectedGraph {
+/**
+ * @param derived metagraph の導出 node (D8)。**ふつうの sheet では渡さない**
+ */
+export function projectBatches(
+  batches: Batch[],
+  derived?: DerivedNodes,
+): ProjectedGraph {
   const s = emptyState();
   for (const batch of orderBatches(batches)) {
     for (const op of batch.ops) {
@@ -182,7 +232,7 @@ export function projectBatches(batches: Batch[]): ProjectedGraph {
       applyOp(s, op);
     }
   }
-  return finalize(s);
+  return finalize(s, derived);
 }
 
 function applyOp(g: FoldState, op: GraphOp): void {
@@ -346,7 +396,8 @@ export function toSheet(
     id: SheetId;
     name: string;
     description?: string;
-    templateIds?: TemplateId[];
+    templateIds?: TemplateRef[];
+    properties?: Record<PropertyName, unknown>;
   },
 ): Sheet {
   return {
@@ -354,6 +405,7 @@ export function toSheet(
     name: meta.name,
     ...(meta.description !== undefined && { description: meta.description }),
     ...(meta.templateIds !== undefined && { templateIds: meta.templateIds }),
+    ...(meta.properties !== undefined && { properties: meta.properties }),
     nodes: [...g.nodes.values()],
     edges: [...g.edges.values()],
     layouts: [...g.nodeLayouts.values()],
@@ -379,10 +431,20 @@ type FileStructure = {
       name: string;
       description?: string;
       /** 作成時に決まる template。`sheet.setName` 等では変わらない (設計 D1) */
-      templateIds?: TemplateId[];
+      templateIds?: TemplateRef[];
+      /**
+       * シートのプロパティ (`sheet.setProperty`)。キーごとに全順序で後勝ち。
+       * **作成し直すと空に戻る** — `sheet.create` はメタを丸ごと置き直す (add-wins)
+       */
+      properties?: Record<PropertyName, unknown>;
       createClock: number;
     }
   >;
+  /**
+   * 一度でも作られた sheet。metagraph で、消えた sheet の導出 node を見分けるのに使う
+   * (その導出 node への layout と edge を removed に回す, D8)
+   */
+  created: Set<SheetId>;
   /** 最新の sheet.reorder の順序 (未指定なら null) */
   order: SheetId[] | null;
 };
@@ -394,6 +456,7 @@ function foldFileStructure(orderedBatches: Batch[]): FileStructure {
     deleted: false,
     sheets: new Map(),
     order: null,
+    created: new Set(),
   };
   for (const batch of orderedBatches) {
     for (const op of batch.ops) {
@@ -413,6 +476,7 @@ function applyFileOp(s: FileStructure, op: FileOp, clock: number): void {
         ...(op.templateIds !== undefined && { templateIds: op.templateIds }),
         createClock: clock,
       });
+      s.created.add(op.target);
       break;
     case 'sheet.remove':
       // remove-wins: live 集合から外す。content は projection 時に無視される
@@ -429,6 +493,16 @@ function applyFileOp(s: FileStructure, op: FileOp, clock: number): void {
         if (op.description === undefined) delete meta.description;
         else meta.description = op.description;
       }
+      break;
+    }
+    case 'sheet.setProperty': {
+      const meta = s.sheets.get(op.target);
+      if (!meta) break;
+      const properties = { ...meta.properties };
+      if (op.value === undefined) delete properties[op.name];
+      else properties[op.name] = op.value;
+      if (Object.keys(properties).length === 0) delete meta.properties;
+      else meta.properties = properties;
       break;
     }
     case 'sheet.reorder':
@@ -468,6 +542,24 @@ function reconcileOrder(s: FileStructure): SheetId[] {
 }
 
 /**
+ * その sheet が metagraph なら、File の sheet の一覧から導出 node を求める (D8)。
+ * **metagraph 自身は導出 node にしない** — metagraph はグラフの一覧を見せる view であって、
+ * 一覧の中のグラフではない
+ */
+function derivedNodesOf(
+  structure: FileStructure,
+  meta: { properties?: Record<PropertyName, unknown> } | undefined,
+): DerivedNodes | undefined {
+  if (meta === undefined || sheetKindOf(meta) !== METAGRAPH_SHEET_KIND) {
+    return undefined;
+  }
+  const shown = [...structure.sheets]
+    .filter(([, m]) => sheetKindOf(m) !== METAGRAPH_SHEET_KIND)
+    .map(([id, m]) => ({ id, name: m.name }));
+  return derivedNodesFor(shown, structure.created);
+}
+
+/**
  * 操作ログ (Batch[]) を `GraphFile` へ射影する (D4 の読み取り経路)。
  * file 構造 op でファイルメタ・シート集合・順序を畳み込み、
  * content batch を sheetId でグルーピングして各シートを `projectBatches` で fold する。
@@ -489,12 +581,16 @@ export function projectFile(batches: Batch[], fileId: FileId): GraphFile {
 
   const sheets: Sheet[] = reconcileOrder(structure).map((sheetId) => {
     const meta = structure.sheets.get(sheetId);
-    const g = projectBatches(bySheet.get(sheetId) ?? []);
+    const g = projectBatches(
+      bySheet.get(sheetId) ?? [],
+      derivedNodesOf(structure, meta),
+    );
     return toSheet(g, {
       id: sheetId,
       name: meta?.name ?? '',
       ...(meta?.description !== undefined && { description: meta.description }),
       ...(meta?.templateIds !== undefined && { templateIds: meta.templateIds }),
+      ...(meta?.properties !== undefined && { properties: meta.properties }),
     });
   });
 

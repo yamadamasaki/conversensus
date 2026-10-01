@@ -14,21 +14,19 @@
 import type {
   Actor,
   Batch,
-  DtrJudgments,
   FileId,
   ForkMeta,
   Lamport,
   Participation,
   SheetId,
 } from '@conversensus/shared';
-import { didFromActor, foldDtr } from '@conversensus/shared';
+import { CausalClock, didFromActor } from '@conversensus/shared';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { fetchBatches, pushReceivedBatches } from '../api';
 import { FanoutSyncProvider } from '../atproto/fanoutSyncProvider';
 import type { RemoteSyncQueue } from '../atproto/remoteSyncQueue';
 import { SYNC_POLL_INTERVAL_MS } from '../config';
 import type { GraphEvent } from '../events/GraphEvent';
-import { maxJudgmentClock } from '../sync/appendJudgment';
 import { branchMetaRecorder, readBranchMeta } from '../sync/branchMetaLog';
 import type { DetectedConflicts } from '../sync/conflicts';
 import { EventSyncTap } from '../sync/eventSyncTap';
@@ -54,17 +52,6 @@ export type TapHandle = {
   pending: () => number;
 };
 
-/**
- * merge の再スタンプ用に公開する clock 操作 (step1 Phase 5 p5-4)。
- * tap が作り直されても同じ参照で最新の tap を見るよう ref 経由で束ねる。
- */
-export type TapClock = {
-  /** 下限を引き上げる (`seed` 意味論: +1 しない) */
-  seed: (floor: Lamport) => void;
-  /** 次の clock を発番する */
-  tick: () => Lamport;
-};
-
 export type UseEventSyncTapOptions = {
   /** remote 送信キュー。null/未指定なら local-only (未ログイン時と同じ挙動) */
   remoteQueue?: RemoteSyncQueue | null;
@@ -73,6 +60,12 @@ export type UseEventSyncTapOptions = {
    * 空の branch op-log でも base より後から発番させる (`EventSyncTap.clockFloor`)。
    */
   clockFloor?: Lamport;
+  /**
+   * 因果の発番器 (step3 Phase 1)。**branch の tap には trunk の tap のものを渡す** —
+   * trunk とその branch・判断ログは同じ因果の範囲にあり、別々に振ると同じ点を 2 回使う
+   * (`CausalClock` の冒頭)。省略すると (trunk の tap) File ごとに作る
+   */
+  causal?: CausalClock;
   /** この端末の操作主体 `<did>#<deviceId>` (Phase 4d-2)。batch の actor になる */
   actor: Actor;
   /**
@@ -142,18 +135,7 @@ export type UseEventSyncTapOptions = {
    * 「自分はまだ参加者か」が追加のリクエスト無しで分かる。
    * **安定参照であること** (`onReceived` と同じ理由)。
    */
-  onRoster?: (
-    fileId: FileId,
-    participation: Participation,
-    /**
-     * 同じ判断ログから畳んだ DtR (step2 Phase 6 D3)。
-     *
-     * **畳んだ結果を渡す。**生の判断 batch を上へ出さないのは `participation` と同じ扱いで、
-     * 判断ログの語彙をフック側に漏らさないためである。表示はこれを使って、承認を経ていない
-     * 再 merge の写しを projection の手前で落とす (`admissibleBatches`)。
-     */
-    dtrs: DtrJudgments,
-  ) => void;
+  onRoster?: (fileId: FileId, participation: Participation) => void;
   /**
    * implicit merge で競合を検出したときの通知 (step2 Phase 3 T5)。
    *
@@ -217,8 +199,11 @@ export type ReceivedSummary = {
 export type UseEventSyncTapResult = {
   /** dispatch された event を op-log へ流す (content 経路は sheetId 付き) */
   record: (event: GraphEvent, sheetId?: SheetId) => void;
-  /** merge の再スタンプ用 clock (§p5-4)。tap 未生成なら呼び出しは失敗する */
-  clock: TapClock;
+  /**
+   * この tap の因果の発番器。branch の tap・判断ログの書き込み・merge の写しへ渡して共有する
+   * (File を開いていなければ null)
+   */
+  causal: CausalClock | null;
   /**
    * これまでに record した event の drain 完了を待つ (§p5-4)。
    * **op-log を読み直す操作 (commit / merge) の前に必ず待つ** — record は非同期に
@@ -245,6 +230,7 @@ export function useEventSyncTap(
     trunkFileId,
     pollIntervalMs = SYNC_POLL_INTERVAL_MS,
     clockFloor,
+    causal: causalOverride,
     createLocalProvider,
     appendReceived = pushReceivedBatches,
     fetchLocal = fetchBatches,
@@ -269,19 +255,27 @@ export function useEventSyncTap(
       : local;
   }, [fileId, remoteQueue, createLocalProvider]);
 
-  // fileId / provider が変われば新しい tap (clock/outbox を分離)。未オープン時は no-op。
+  // 因果の発番器は File と actor ごと。渡されたら (branch の tap) それを使う
+  const ownCausal = useMemo(
+    () => (fileId ? new CausalClock(actor) : null),
+    [fileId, actor],
+  );
+  const causal = causalOverride ?? ownCausal;
+
+  // fileId / provider が変われば新しい tap (outbox を分離)。未オープン時は no-op。
   const tap = useMemo(
     () =>
-      provider
+      provider && causal
         ? new EventSyncTap({
             provider,
             actor,
             clockFloor,
+            causal,
             onError: (error) =>
               console.warn('[sync] batch flush failed:', error),
           })
         : null,
-    [provider, actor, clockFloor],
+    [provider, actor, clockFloor, causal],
   );
 
   // fork の器 (T7-1)。既定は tap の `record` から組み立てる — tap が作り直されたら
@@ -299,23 +293,9 @@ export function useEventSyncTap(
     [forkDepsOverride, fetchLocal, tap],
   );
 
-  // clock は tap の作り直しをまたいで同じ参照でいてほしい (merge の deps に渡すため)
+  // settled は tap の作り直しをまたいで同じ参照でいてほしい
   const tapRef = useRef(tap);
   tapRef.current = tap;
-  const clock = useMemo<TapClock>(
-    () => ({
-      seed: (floor) => tapRef.current?.clockControl.seed(floor),
-      // tap が無いときに 0 を返すと **clock 0 の batch が op-log に入る**。
-      // 発番できないことは呼び出し側の配線ミスなので、黙って進めず落とす。
-      tick: () => {
-        const tap = tapRef.current;
-        if (!tap)
-          throw new Error('clock.tick: tap が未生成です (fileId が null)');
-        return tap.clockControl.tick();
-      },
-    }),
-    [],
-  );
 
   // tap が無い (未オープン) ときは待つものが無いので即 resolve
   const settled = useCallback(
@@ -375,7 +355,7 @@ export function useEventSyncTap(
         // 取得はファイル単位 (Phase 7 p7-2)。repo 全体を落として捨てる形を止めた
         pullRemoteForFile: (id) => remoteQueue.pullRemoteForFile(id),
         appendReceived,
-        observeRemote: (clock) => tap.observeRemote(clock),
+        observeRemote: (batches) => tap.observeRemote(batches),
       });
       if (!roster) return own;
 
@@ -396,22 +376,13 @@ export function useEventSyncTap(
       // 低い clock が振られる。判断ログはローカルに無く PDS を読まないと分からない
       // ので、tap の復元 (ローカル正典の max) だけでは埋められない。契機 1 (開いた
       // とき) がすぐ走るので実際には狭いが、構造として残っていることは記しておく。
-      tap.observeRemote(maxJudgmentClock(seen.batches));
+      tap.observeRemote(seen.batches);
 
       const participation = seen.participation;
       // 共有状態の表示元 (2026-09-05)。読んだ名簿をそのまま渡す —
       // 表示のために名簿をもう一度読むと、参加者分のリクエストが倍になる。
       // branch の tap は通知しない (T7-3) — 共有状態は trunk の File のものである。
-      //
-      // **DtR もここで畳む** (step2 Phase 6 D3)。同じ判断ログを読んだこの場に
-      // 生の batch と名簿の両方があるので、もう一度読まずに済む。名簿と同じく
-      // **畳んだ結果だけ**を上へ渡す
-      if (!trunkFileId)
-        onRoster?.(
-          fileId,
-          participation,
-          foldDtr(seen.batches, { participation }),
-        );
+      if (!trunkFileId) onRoster?.(fileId, participation);
 
       // **自分が参加者でなければ他 actor の repo を読まない** (2026-09-05 実機で発覚)。
       //
@@ -449,9 +420,7 @@ export function useEventSyncTap(
             ? await appendReceived(fileId, collected.batches)
             : 0;
         // 受信規則。書き込みが成功してから前進させる (`receiveParticipantBatches` と同じ)
-        tap.observeRemote(
-          collected.batches.reduce((m, b) => Math.max(m, b.clock), 0),
-        );
+        tap.observeRemote(collected.batches);
         return {
           received: own.received + collected.batches.length,
           appended: own.appended + appended,
@@ -468,7 +437,7 @@ export function useEventSyncTap(
           fetchLocal,
           ...forkDeps,
           appendReceived,
-          observeRemote: (clock) => tap.observeRemote(clock),
+          observeRemote: (batches) => tap.observeRemote(batches),
         },
       );
       // **0 件では呼ばない。**サイクルは定期的に走るので、空で上書きすると
@@ -477,7 +446,7 @@ export function useEventSyncTap(
         onConflicts?.(fileId, others.conflicts, others.forks.length);
       }
       // 上書きの報告は競合と**別系列**である (Phase 3 T8)。同じ受信で両方 0 件でない
-      // ことはあるが、同じ単位が両方に出ることはない (検出条件が補集合である)
+      // ことはあるが、同じ組が両方に出ることはない (並行か、見た上でかで排他に振り分ける)
       if (others.overwrites.reports.length > 0) {
         onOverwrites?.(fileId, others.overwrites);
       }
@@ -607,5 +576,5 @@ export function useEventSyncTap(
     [tap],
   );
 
-  return { record, clock, settled, syncNow };
+  return { record, causal, settled, syncNow };
 }

@@ -56,12 +56,13 @@ optional なので、無いレコードは通し (後方互換)、有るなら s
   静かに捨てる経路を新たに作らない。
 - `recordToRemoteBatch` が適用先 fileId と Batch の対を復元すること (受信経路 4d-5 で使う)。
 
-## merge の写しの印 (step2 Phase 3 T7-4)
+## merge の写しの印 (step3 Phase 1 D2)
 
-`Batch.restampedBy` (積み直した人) と `mergedIn` (どの merge コミットの写しか) が PDS を往復して
-**欠けない**ことを固定する。欠けると、受信した写しが「書いた人の batch」に戻り、送信先と参加期間の
-判定が崩れる。`mergedIn` は将来 merge を参照に移すときに写しを見分ける唯一の手がかりでもある。
+`Batch.copyOf` (写した元の点) と `mergedIn` (どの merge コミットの写しか) が PDS を往復して
+**欠けない**ことを固定する。`copyOf` が欠けると、受信した写しが「普通の batch」になり、並行 merge の
+重複を畳み込みが除けなくなる (同じ編集が二重に当たり、間の編集を巻き戻しうる)。
 
 - **印を往復させる**: record に載り、`recordToBatch` で元の Batch に一致する
 - **写しでない batch には印を付けない**: `sheetId` と同じく、無 → 無を保つ
-- **印が string 以外のレコードは弾く**: 壊れたレコードを取り込まない
+- **印の形が違うレコードは弾く**: `copyOf` は `{ actor, seq }` (seq は正の整数)
+

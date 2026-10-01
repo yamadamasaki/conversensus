@@ -27,6 +27,8 @@ const batch = (clock: number, ops: Op[] = [addNode(`n${clock}`)]): Batch => ({
   id: `b${clock}` as Batch['id'],
   actor: BOB,
   clock,
+  seq: clock,
+  deps: {},
   timestamp: 1_700_000_000_000 + clock,
   ops,
 });
@@ -38,7 +40,13 @@ const removeFile = (): Op => ({ kind: 'file.remove' });
 const event = (
   kind: ParticipationEvent['kind'],
   clock: number,
-): ParticipationEvent => ({ kind, clock, timestamp: clock, by: BOB });
+): ParticipationEvent => ({
+  kind,
+  clock,
+  timestamp: clock,
+  by: BOB,
+  point: { actor: BOB, seq: clock, deps: {} },
+});
 
 const rosterOf = (participants: Did[]): ReadRosterResult => ({
   participation: {

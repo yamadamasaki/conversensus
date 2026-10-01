@@ -19,17 +19,21 @@ import {
   type JudgmentBatch,
   JudgmentOpSchema,
 } from '@conversensus/shared';
+import { isVersionVector } from './batchMapper';
 import type { JudgmentRecord, RemoteJudgment } from './types';
 
-/** JudgmentBatch + fileId → レコードボディ ($type と rkey=batchId を除く) */
+/** JudgmentBatch + fileId → レコードボディ ($type を除く。rkey は `batchRkey` が組む) */
 export function judgmentToRecord(
   batch: JudgmentBatch,
   fileId: FileId,
 ): Omit<JudgmentRecord, '$type'> {
   return {
+    id: batch.id,
     fileId,
     actor: batch.actor,
     clock: batch.clock,
+    seq: batch.seq,
+    deps: batch.deps,
     timestamp: batch.timestamp,
     ops: batch.ops,
     createdAt: new Date(batch.timestamp).toISOString() as ISODateString,
@@ -44,10 +48,14 @@ export function isJudgmentRecordValue(value: unknown): value is JudgmentRecord {
   if (typeof value !== 'object' || value === null) return false;
   const v = value as Record<string, unknown>;
   return (
+    typeof v.id === 'string' &&
     typeof v.fileId === 'string' &&
     typeof v.actor === 'string' &&
     typeof v.clock === 'number' &&
     Number.isFinite(v.clock) &&
+    typeof v.seq === 'number' &&
+    Number.isInteger(v.seq) &&
+    isVersionVector(v.deps) &&
     typeof v.timestamp === 'number' &&
     Array.isArray(v.ops)
   );
@@ -63,7 +71,6 @@ export function isJudgmentRecordValue(value: unknown): value is JudgmentRecord {
  * `null` を**数えて警告するのは呼び出し側の責務**である (silent skip にしない)。
  */
 export function recordToJudgmentBatch(
-  batchId: BatchId,
   value: JudgmentRecord,
 ): JudgmentBatch | null {
   const ops: JudgmentBatch['ops'] = [];
@@ -74,9 +81,11 @@ export function recordToJudgmentBatch(
   }
   if (ops.length === 0) return null; // op の無い batch は語彙上ありえない
   return {
-    id: batchId,
+    id: value.id as BatchId,
     actor: value.actor,
     clock: value.clock,
+    seq: value.seq,
+    deps: value.deps,
     timestamp: value.timestamp,
     ops,
   };
@@ -84,10 +93,9 @@ export function recordToJudgmentBatch(
 
 /** レコード → `RemoteJudgment` (JudgmentBatch + 適用先 fileId) */
 export function recordToRemoteJudgment(
-  batchId: BatchId,
   value: JudgmentRecord,
 ): RemoteJudgment | null {
-  const batch = recordToJudgmentBatch(batchId, value);
+  const batch = recordToJudgmentBatch(value);
   if (!batch) return null;
   // 適用先の権威は**ボディの fileId**。rkey にも入るが索引であって復元元にしない
   return { fileId: value.fileId as FileId, batch };

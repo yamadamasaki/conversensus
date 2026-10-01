@@ -21,11 +21,14 @@ PDS から materialize し直し、削除が取り消されていた (設計 §2
 
 ### clock の決め方が本質 (`nextTombstoneClock`)
 
-tombstone の clock は **既存の最大 clock + 1** でなければならない。「一意ならよい」
-のではない。他端末の削除検出は `listBatchFileHeads` が各ファイルの**最大 rkey に着地する**
-性質に乗っており (Phase 7 p7-3)、rkey は `v1~<fileId>~<clock12>~<batchId>` で clock 順に
-並ぶ。tombstone が最大 clock を持たないと着地点が tombstone にならず、他端末は本体を
-引くまで削除に気づけない — 毎回の起動で削除済みファイルを転送することになる。
+tombstone の clock は **既存の最大 clock + 1** でなければならない (畳み込みの全順序で
+最後に来るため)。step3 Phase 1 から、tombstone も因果の発番器 (`CausalClock`) で振る —
+その File の op-log から復元した使い捨ての発番器なので、clock は `nextTombstoneClock` と一致し、
+seq は自分の最大の次になる。
+
+v1 の rkey は clock 順だったので、tombstone が各ファイルの最大 rkey (発見の着地点) に現れ、
+他端末は本体を引かずに削除に気づけた。v2 の rkey は actor → seq 順なので、そうとは限らない
+(正しさは発見側の 2 段目の検査が持つ)。
 
 - **空 op-log で 1**: 発番の下限。
 - **最大 clock + 1**: 複数 batch の最大値を取る。
