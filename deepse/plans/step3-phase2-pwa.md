@@ -383,11 +383,20 @@ service worker を `fetch(request)` に戻すと WebKit の「握られた画面
   `http://127.0.0.1:<port>/` が「接続できません」になった。dev / preview を `127.0.0.1` で
   待ち受けるようにし、E2E も `127.0.0.1` で開くようにした (起動時の `init()` を E2E が通るようになった)
 
+#### 実機で確かめたこと (利用者, 2026-10-01)
+
+- **Chrome**: 開発用 PDS に OAuth でログインし、File の作成・ノード・画像まで通った
+  (`transition:generic` で書き込みも足りる)
+- **Safari**: PDS のサインイン画面で「Missing CSRF header」になる。開発用 PDS が http で動いていて、
+  CSRF の cookie に `Secure` が付いているため (Chrome は http の `localhost` でも `Secure` の cookie を
+  受け取るが、Safari は捨てる)。**アプリの問題ではなく開発環境の問題**で、本番の PDS は https。
+  開発環境のログインは Chrome で行うと決めた (利用者, 2026-10-01)
+- 途中で、利用者の手元の `.env.local` が PDS の URL を古い `:2583` にしていて、handle の解決が
+  失敗した。ダイアログが理由をコンソールに残すようにして突き止めた
+
 #### 確かめていないこと
 
-- **OAuth のセッションでレコードを書くこと** (op-log の送信・判断ログ・blob の upload)。spike は
-  読むだけだった。scope (`transition:generic`) で足りるはずだが、実機で確かめる
-- **本番の PDS** (`pds.conversensus.site`) での OAuth。配信 (S2-7) の後に確かめる
+- **本番の PDS** (`pds.conversensus.site`) での OAuth と、Safari のログイン。配信 (S2-7) の後に確かめる
 
 #### 検証
 
