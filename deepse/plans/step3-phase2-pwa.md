@@ -175,7 +175,7 @@ ITP は操作の無い Web アプリの保存領域を消すことがある (S0-
 | **S2-3** ✅ | ブラウザのバックエンド (D3): Worker + SQLite-WASM (`opfs`) + RPC。Vite に COOP/COEP。開けないときの画面 (D5)。既定をこちらに切り替える。E2E を persistent context に | E2E (WebKit / Chromium) |
 | **S2-4** ✅ | タブの actor (D4) と、タブ間の知らせ (D3 の BroadcastChannel) | 単体 (溜まりの借り方) + E2E (2 タブで同じ File を編む: 点が重ならない、相手のタブに出る) |
 | **S2-5** ✅ | PWA 化: manifest・service worker (オフラインで起動)・`persist()`・未同期の表示 (D6)。COEP の下の画像 (Q4) | E2E (オフライン起動) |
-| **S2-6** | ATProto OAuth (D7)。**最初に spike**: 開発用の PDS で loopback client が通るか | 単体 + 実機 |
+| **S2-6** ✅ | ATProto OAuth (D7)。**最初に spike**: 開発用の PDS で loopback client が通るか | 単体 + 実機 |
 | **S2-7** | 撤去: `src/server/`・`src-tauri/`・Tauri 関係の E2E と設定・`api.conversensus.site` の手順。本番の Caddy に COOP/COEP (D8) | lint / typecheck / test / E2E |
 
 S2-1 と S2-2 は**今の形のまま動く**ことを保つ (サーバがまだ居る)。S2-3 で既定を切り替え、
@@ -338,3 +338,52 @@ deviceId になることと、閉じた id の再利用と、作った File と�
 
 単体 1915 件・App 結合 8 件・E2E 36 件 (Chromium で 1 件、WebKit で 1 件 skip) が緑。
 service worker を `fetch(request)` に戻すと WebKit の「握られた画面」が落ちる。
+
+### S2-6 ATProto OAuth (2026-10-01)
+
+#### spike: 開発用 PDS で OAuth が通るか
+
+**通った** (利用者が実機で確認)。`@atproto/oauth-client-browser` の loopback client
+(`http://127.0.0.1:<port>`) と `allowHttp` で、開発用 PDS に OAuth でログインし、そのセッションで
+`describeRepo` を読めた (台本 `src/client/spikes/oauth/`, 投棄可)。
+
+途中で分かったこと:
+
+- **開発用 PDS の公開 URL がずれていた。**dev mode の PDS は自分を `http://localhost:3000`
+  (コンテナの中のポート) と名乗り、**アカウントの DID 文書もそこを指していた** (plc.directory に
+  登録済み)。ホストには `:2583` で出していたので、OAuth (issuer へ直接届く必要がある) が通らない。
+  いまのアプリが動いていたのは、PDS の URL を `:2583` に固定して DID 文書を引いていなかったから
+  である。**ホストの `:3000` で公開し直した** (`infra/pds/docker-compose.yml`)。`:3000` はローカル
+  サーバが使っていたが、S2-3 からアプリは使っていないので止めてもらった
+- Q3 の退避策 (開発ビルドだけ app password) は**要らなくなった**
+
+#### 実装
+
+- **認証の口** (`atproto/auth.ts` の `AuthBackend`): 既定は `oauthAuth.ts` (本番と開発)。App 結合
+  テストは偽の PDS に `passwordAuth.ts` でログインする (OAuth の同意画面は自動化できない)。
+  パスワードの実装はテストの道具だけが import するので、本番の bundle に入らない
+- `atproto/client.ts` の窓口 (`getAgent` / `currentDid` / `login` / `resumeSession` / `logout`) は形を
+  保ち、口に委ねる。PDS の URL は `VITE_ATPROTO_PDS_URL` (既定 `http://localhost:3000`)。blob の
+  生の URL は、OAuth のセッションの `getTokenInfo().aud` (自分の PDS) から組む
+- **本番**: client metadata を配信元の `/client-metadata.json` から読む (`BrowserOAuthClient.load`)。
+  `client_id` はその URL そのもの (`https://app.conversensus.site/client-metadata.json`)。
+  **開発**: loopback client。scope は `atproto transition:generic` (レコードを書くため。loopback の
+  既定は `atproto` だけ)。戻り先は `http://127.0.0.1:<port>/`
+- handle の解決は自分たちの PDS に頼む (Bluesky の公開サービスに handle と IP を渡さない)
+- ログインのダイアログは、OAuth ではパスワード欄を出さない
+
+- **`localhost` では起動時に OAuth を触らない。**ライブラリの `init()` は `localhost` を見ると
+  その場で `127.0.0.1` へ移動する (戻り先と IndexedDB の origin を揃えるため)。起動時に復元を
+  呼ぶと、`localhost` で開いた画面が勝手に移動し、**Chromium の E2E が全滅した**。`localhost` では
+  復元せず、ログインを押したときだけ `127.0.0.1` へ移す。パスワードの実装が本番の bundle に
+  入っていないことも確かめた (その実装だけが持つ文字列が bundle に無い)
+
+#### 確かめていないこと
+
+- **OAuth のセッションでレコードを書くこと** (op-log の送信・判断ログ・blob の upload)。spike は
+  読むだけだった。scope (`transition:generic`) で足りるはずだが、実機で確かめる
+- **本番の PDS** (`pds.conversensus.site`) での OAuth。配信 (S2-7) の後に確かめる
+
+#### 検証
+
+単体 1918 件・App 結合 8 件・E2E 36 件 (2 件 skip) が緑 (App 結合はパスワードの認証で、偽の PDS に対して)。

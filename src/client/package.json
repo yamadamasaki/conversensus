@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@atproto/api": "^0.19.6",
+    "@atproto/oauth-client-browser": "^0.5.8",
     "@conversensus/shared": "workspace:*",
     "@sqlite.org/sqlite-wasm": "^3.53.4-build1",
     "@xyflow/react": "^12.6.4",

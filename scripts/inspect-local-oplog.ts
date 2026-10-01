@@ -30,7 +30,7 @@
  *   bun run scripts/inspect-local-oplog.ts --snapshot /tmp/b.json
  *
  *   # 取りこぼし検査 + marker 検査
- *   PDS_URL=http://localhost:2583 REPO=alice.test DATA_DIR=./data \
+ *   PDS_URL=http://localhost:3000 REPO=alice.test DATA_DIR=./data \
  *     bun run scripts/inspect-local-oplog.ts
  *
  * 注意: `GET /files/:id/batches` は lazy migration を起動しうる。marker が立っていない

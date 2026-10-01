@@ -17,7 +17,7 @@
 - `bash infra/pds/setup.sh` # 環境変数を `infra/pds/.env` に設定する. 既に設定済みならば不要
 - Docker Desktop などで docker daemon を起動しておく
 - `cd infra/pds && docker compose up -d` # container で PDS を起動する
-- `curl http://localhost:2583/xrpc/com.atproto.server.describeServer` # 起動を確認する
+- `curl http://localhost:3000/xrpc/com.atproto.server.describeServer` # 起動を確認する
 
 #### アカウントの作成
 
@@ -26,7 +26,7 @@
 まずは招待コードを作成する.
 
 ```shell
-curl -X POST http://localhost:2583/xrpc/com.atproto.server.createInviteCode \
+curl -X POST http://localhost:3000/xrpc/com.atproto.server.createInviteCode \
     -H "Content-Type: application/json" \
     -H "Authorization: Basic $(echo -n 'admin:7147f1f843bbf2a2f97b69a30d797543' | base64)" \
     -d '{"useCount": 1}'
@@ -41,7 +41,7 @@ curl -X POST http://localhost:2583/xrpc/com.atproto.server.createInviteCode \
 それを使って, アカウントを作成する.
 
 ```shell
-curl -X POST http://localhost:2583/xrpc/com.atproto.server.createAccount \
+curl -X POST http://localhost:3000/xrpc/com.atproto.server.createAccount \
     -H "Content-Type: application/json" \
     -d '{
       "email": "masaki@metabolics.co.jp",

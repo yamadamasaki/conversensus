@@ -5,7 +5,7 @@
  *   bun run clear-pds-data
  *
  * 環境変数:
- *   ATPROTO_PDS_URL       PDS の URL (デフォルト: http://localhost:2583)
+ *   ATPROTO_PDS_URL       PDS の URL (デフォルト: http://localhost:3000)
  *   ATPROTO_IDENTIFIER    ハンドルまたは DID
  *   ATPROTO_PASSWORD      パスワード
  *   DRY_RUN=1             削除せずに対象レコード数だけ表示する
@@ -37,7 +37,7 @@ const COLLECTIONS = [
   'app.conversensus.graph.merge',
 ] as const;
 
-const PDS_URL = process.env.ATPROTO_PDS_URL ?? 'http://localhost:2583';
+const PDS_URL = process.env.ATPROTO_PDS_URL ?? 'http://localhost:3000';
 const DRY_RUN = process.env.DRY_RUN === '1';
 
 async function listAll(

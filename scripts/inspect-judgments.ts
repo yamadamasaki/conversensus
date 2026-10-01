@@ -35,7 +35,7 @@
  * 使い方:
  *   REPOS=alice.test,bob.test bun run scripts/inspect-judgments.ts
  *   REPOS=alice.test,bob.test FILE_ID=<uuid> bun run scripts/inspect-judgments.ts
- *   PDS_URL=http://localhost:2583 REPOS=... bun run scripts/inspect-judgments.ts --dump
+ *   PDS_URL=http://localhost:3000 REPOS=... bun run scripts/inspect-judgments.ts --dump
  *
  *   # 起点読み: bob を起点に、広がりが止まるまで (参加コードを検めるときと同じ)
  *   SEED=bob.test FILE_ID=<uuid> bun run scripts/inspect-judgments.ts
@@ -63,7 +63,7 @@ import {
   type JudgmentBatch,
 } from '../src/shared/src/index';
 
-const DEFAULT_PDS_URL = 'http://localhost:2583';
+const DEFAULT_PDS_URL = 'http://localhost:3000';
 const PAGE_LIMIT = 100;
 
 const PDS_URL = process.env.PDS_URL ?? DEFAULT_PDS_URL;

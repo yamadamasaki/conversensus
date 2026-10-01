@@ -26,7 +26,7 @@
  *
  * 使い方:
  *   bun run scripts/inspect-remote-batches.ts
- *   PDS_URL=http://localhost:2583 REPO=alice.test bun run scripts/inspect-remote-batches.ts
+ *   PDS_URL=http://localhost:3000 REPO=alice.test bun run scripts/inspect-remote-batches.ts
  *   bun run scripts/inspect-remote-batches.ts --dump   # 全 batch を一覧表示
  *
  * listRecords は認証不要 (public) なのでログインは要らない。
@@ -52,7 +52,7 @@ import {
 } from '../src/client/src/atproto/batchRkey';
 import { NSID, type RemoteBatch } from '../src/client/src/atproto/types';
 
-const DEFAULT_PDS_URL = 'http://localhost:2583';
+const DEFAULT_PDS_URL = 'http://localhost:3000';
 const DEFAULT_REPO = 'alice.test';
 /** listRecords の 1 ページあたり取得件数 (PDS 上限は 100) */
 const PAGE_LIMIT = 100;

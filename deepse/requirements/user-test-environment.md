@@ -4,7 +4,26 @@
 
 アプリの GUI 操作そのもの (ファイル・シート・ノード・エッジ・ブランチの使い方) は [`operation-manual-for-dev.md`](./operation-manual-for-dev.md) を参照すること. 本書はその手前, 「テスターに渡す環境をどう用意し, どう初期状態へ戻すか」を扱う.
 
-## 1. サーバの起動
+## 0. step3 Phase 2 以降の構成 (2026-10-01)
+
+> step3 Phase 2 (PWA 化) で構成が変わった。**この節が以下の各節より優先する。**デーモン
+> (`dev:server`) を前提にした §1 以降の手順は、サーバの撤去 (Phase 2 S2-7) と一緒に書き直す。
+
+- **デーモンは要らない。**ローカル正典 (op-log と画像) はブラウザの中 (OPFS の SQLite) にある。
+  `bun run dev:client` だけを起動する
+- **`http://127.0.0.1:5173/` で開く** (`localhost` ではなく)。ATProto のログインは OAuth になり、
+  開発時は loopback client として `127.0.0.1` に戻ってくる。`localhost` で開くと、戻ってきた先が
+  別の origin になり、保存領域も別になる
+- **開発用 PDS は `:3000`** (以前は `:2583`)。アカウントの DID 文書が `http://localhost:3000` を
+  指していて、OAuth はそこへ直接届く必要があるため (`infra/pds/docker-compose.yml`)。
+  `cd infra/pds && docker compose up -d pds` で起動し直す
+- **ログインはパスワードを入れない。**handle を入れると PDS のページへ移り、そこでパスワードを
+  入れて同意すると戻ってくる
+- **データを消す**: ブラウザのサイトデータ (`127.0.0.1:5173` の保存領域) を消す。`data/` は
+  もう使わない
+- **2 人目のアカウント**: 同じブラウザのタブは同じ保存領域を共有するので、**別のブラウザか、
+  別のプロファイル**で開く (タブを 2 つ開くのは「同じ人の 2 つのタブ」になる)
+
 
 ローカル単体 (ATProto/PDS なし) でよければ, デーモンとクライアントの 2 つを起動すれば足りる.
 
@@ -187,7 +206,7 @@ ATPROTO_IDENTIFIER=alice.test ATPROTO_PASSWORD=devpassword123 \
 | `alice.test` | `did:plc:jiceejfkqacmynibpou3kkxk` | `devpassword123` |
 | `bob.test` | `did:plc:ag2ritx6qpujmphxjj2upd53` | 同上 |
 
-DID は `curl -s "http://localhost:2583/xrpc/com.atproto.identity.resolveHandle?handle=bob.test"`
+DID は `curl -s "http://localhost:3000/xrpc/com.atproto.identity.resolveHandle?handle=bob.test"`
 で確かめられる (PDS を作り直すと変わる).
 
 3 人目以降を足す場合は [`operation-manual-for-dev.md`](./operation-manual-for-dev.md) の
@@ -562,7 +581,7 @@ cd src/client && VITE_API_BASE=http://localhost:3001 bunx vite --port 5175 --str
 ```shell
 bun run scripts/inspect-remote-batches.ts                      # 受入基準を機械判定
 bun run scripts/inspect-remote-batches.ts --dump               # 全 batch を clock 順に一覧
-PDS_URL=http://localhost:2583 REPO=alice.test \
+PDS_URL=http://localhost:3000 REPO=alice.test \
   bun run scripts/inspect-remote-batches.ts                    # 宛先を明示する場合
 ```
 
@@ -588,7 +607,7 @@ DAEMON_URL=http://localhost:3001 FILE_ID=<uuid> bun run scripts/inspect-local-op
 
 # 全基準を検査する (収束・marker・取りこぼしを含む)
 DAEMON_URL=http://localhost:3001 PEER_URL=http://localhost:3000 DATA_DIR=data-b \
-  PDS_URL=http://localhost:2583 REPO=alice.test \
+  PDS_URL=http://localhost:3000 REPO=alice.test \
   bun run scripts/inspect-local-oplog.ts --snapshot /tmp/deviceB.json
 
 bun run scripts/inspect-local-oplog.ts --dump    # 全 batch を clock 順に一覧

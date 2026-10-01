@@ -6,7 +6,7 @@
  * | 境界 | 差し替え先 |
  * | --- | --- |
  * | ローカル正典 (`api.ts` のバックエンド) | **本物の `LocalStore`** を同じプロセスで呼ぶ (`storeBackend`)。DB は端末ごとのインメモリ SQLite |
- * | PDS (`AtpAgent` → `VITE_ATPROTO_PDS_URL`) | `fakePds.ts` (XRPC を HTTP の形のまま受ける) |
+ * | PDS (`AtpAgent` → `PDS_ORIGIN`) | `fakePds.ts` (XRPC を HTTP の形のまま受ける)。認証は OAuth ではなくパスワード (`passwordAuth`) |
  *
  * **`mock.module` は使わない。**bun のモジュールモックはプロセス全体に効いて無関係な
  * テストを壊した経緯がある (`useEventSyncTap.test.ts` の冒頭)。`fetch` の差し替えは
@@ -38,13 +38,14 @@ import {
   IN_MEMORY,
 } from '@conversensus/shared/src/store/bunSqliteDriver';
 import { setLocalBackend } from '../api';
-import { logout } from '../atproto/client';
+import { logout, setAuthBackend } from '../atproto/client';
+import { passwordAuth } from '../atproto/passwordAuth';
 import type { LocalBackend } from '../local/backend';
 import { httpBackend } from '../local/httpBackend';
 import { storeBackend } from '../local/storeBackend';
 import { createFakePds, type FakePds } from './fakePds';
 
-/** `atproto/client.ts` の既定 (`VITE_ATPROTO_PDS_URL` 未設定時) と揃える */
+/** 偽の PDS の origin。パスワードの認証 (`passwordAuth`) をここへ向ける */
 const PDS_ORIGIN = 'http://localhost:2583';
 
 type Device = {
@@ -86,6 +87,9 @@ function restoreStorage(storage: Record<string, string>): void {
 /** 世界を作る。**テストごとに作り直す** — 端末の DB も PDS も新しくなる */
 export async function createAppWorld(): Promise<AppWorld> {
   const pds = createFakePds(PDS_ORIGIN);
+  // OAuth は PDS の同意画面を人が通るので、プロセスの中では偽の PDS にパスワードでログインする
+  // (step3 Phase 2 D7)。本番と開発の既定は OAuth
+  setAuthBackend(passwordAuth(PDS_ORIGIN));
   const unhandled: string[] = [];
   const devices = new Map<string, Device>();
   let current: Device | null = null;
@@ -133,6 +137,7 @@ export async function createAppWorld(): Promise<AppWorld> {
       localStorage.clear();
       globalThis.fetch = realFetch;
       setLocalBackend(httpBackend);
+      setAuthBackend(null);
       for (const device of devices.values()) device.store.events.close();
     },
   };

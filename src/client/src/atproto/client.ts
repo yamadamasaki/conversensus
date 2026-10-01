@@ -1,93 +1,99 @@
-import type { AtpSessionData, AtpSessionEvent } from '@atproto/api';
-import { AtpAgent } from '@atproto/api';
+/**
+ * ATProto の窓口 (step1 以来の形を保つ)
+ *
+ * `getAgent` / `currentDid` / `login` / `resumeSession` / `logout` の形は変えず、中身を認証の口
+ * (`auth.ts`) に委ねる (step3 Phase 2 D7)。既定は ATProto OAuth (`oauthAuth.ts`)、App 結合テストは
+ * `setAuthBackend` でパスワードの実装に差し替える。
+ */
+
+import { type Agent, AtpAgent } from '@atproto/api';
 import type { Did } from '@conversensus/shared';
+import type { AtprotoSession, AuthBackend, SignedIn } from './auth';
+import { oauthAuth } from './oauthAuth';
 
-export type AtprotoSession = {
-  did: Did;
-  handle: string;
-};
+export type { AtprotoSession } from './auth';
 
-// ローカル開発用デフォルト値 (VITE_ATPROTO_* 環境変数で上書き可能)
-const PDS_URL = import.meta.env.VITE_ATPROTO_PDS_URL ?? 'http://localhost:2583';
-const SESSION_STORAGE_KEY = 'atproto_session';
+/**
+ * 自分たちの PDS。handle の解決もここに頼む (`oauthAuth.ts`)。開発用 PDS は :3000 で公開する
+ * (アカウントの DID 文書がそこを指している, infra/pds/docker-compose.yml)
+ */
+const PDS_URL = import.meta.env.VITE_ATPROTO_PDS_URL ?? 'http://localhost:3000';
 
-let _agent: AtpAgent | null = null;
-// React StrictMode による二重呼び出しを防ぐ
-let _loginPromise: Promise<AtprotoSession> | null = null;
+let backend: AuthBackend | null = null;
+let current: SignedIn | null = null;
+/** React StrictMode の二重呼び出しで 2 回ログインしない */
+let loginPromise: Promise<AtprotoSession> | null = null;
 
-function onPersistSession(
-  _evt: AtpSessionEvent,
-  session: AtpSessionData | undefined,
-): void {
-  if (session) {
-    localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
-  } else {
-    localStorage.removeItem(SESSION_STORAGE_KEY);
-  }
+function auth(): AuthBackend {
+  backend ??= oauthAuth(PDS_URL);
+  return backend;
 }
 
-export function getAgent(): AtpAgent {
-  if (!_agent) {
-    _agent = new AtpAgent({
-      service: PDS_URL,
-      persistSession: onPersistSession,
-    });
-  }
-  return _agent;
+/** 認証の口を差し替える (App 結合テスト)。null で既定 (OAuth) に戻す */
+export function setAuthBackend(next: AuthBackend | null): void {
+  backend = next;
+  current = null;
+  loginPromise = null;
+}
+
+/** ログインにパスワードを要るか (ログインのダイアログがパスワード欄を出すかを決める) */
+export function authNeedsPassword(): boolean {
+  return auth().needsPassword;
+}
+
+/** ログインしていれば、そのセッションの Agent。していなければ認証の無い Agent */
+export function getAgent(): Agent {
+  return current?.agent ?? new AtpAgent({ service: pdsUrl() });
+}
+
+/** 自分の PDS の URL */
+export function pdsUrl(): string {
+  return current?.pdsUrl ?? auth().pdsUrl;
 }
 
 export async function login(
   identifier: string,
-  password: string,
+  password?: string,
 ): Promise<AtprotoSession> {
-  if (_loginPromise) return _loginPromise;
-  _loginPromise = (async () => {
-    const agent = getAgent();
-    const res = await agent.login({ identifier, password });
-    return { did: res.data.did, handle: res.data.handle };
-  })();
+  if (loginPromise) return loginPromise;
+  loginPromise = auth()
+    .signIn(identifier, password)
+    .then((signed) => {
+      current = signed;
+      return signed.session;
+    });
   try {
-    return await _loginPromise;
-    // 成功時は _loginPromise を保持 → 以降の呼び出しはキャッシュされたセッションを返す
+    return await loginPromise;
+    // 成功したら保持する → 以降の呼び出しは同じセッションを返す
   } catch (err) {
-    _loginPromise = null; // 失敗時のみリセットして再試行を許可
+    loginPromise = null; // 失敗したときだけ戻して、やり直せるようにする
     throw err;
   }
 }
 
 export async function resumeSession(): Promise<AtprotoSession | null> {
-  const raw = localStorage.getItem(SESSION_STORAGE_KEY);
-  if (!raw) return null;
   try {
-    const stored = JSON.parse(raw) as AtpSessionData;
-    const agent = getAgent();
-    // refresh 失敗はエラーにならない場合がある (d.ts 参照) → 戻り値よりも session を確認
-    await agent.resumeSession(stored).catch(() => {});
-    const s = agent.session;
-    if (!s) {
-      localStorage.removeItem(SESSION_STORAGE_KEY);
-      return null;
-    }
-    return { did: s.did, handle: s.handle };
-  } catch {
-    localStorage.removeItem(SESSION_STORAGE_KEY);
+    current = await auth().resume();
+    return current?.session ?? null;
+  } catch (error) {
+    console.warn('[atproto] セッションを戻せなかった:', error);
+    current = null;
     return null;
   }
 }
 
 export async function logout(): Promise<void> {
   try {
-    await getAgent().logout();
+    await auth().signOut();
   } catch {
-    // ネットワークエラーでもローカルセッションはクリアする
+    // ネットワークエラーでもローカルのセッションは捨てる
   }
-  localStorage.removeItem(SESSION_STORAGE_KEY);
-  _agent = null;
-  _loginPromise = null;
+  current = null;
+  loginPromise = null;
 }
 
 export function currentDid(): Did {
-  const did = getAgent().session?.did;
+  const did = current?.session.did;
   if (!did)
     throw new Error('ATProto session not initialized. Call login() first.');
   return did;
