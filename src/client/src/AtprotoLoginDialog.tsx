@@ -41,7 +41,9 @@ export function AtprotoLoginDialog({
     setSubmitting(true);
     try {
       await onLogin(handle, needsPassword ? password : undefined);
-    } catch {
+    } catch (error) {
+      // 文言は利用者向けに丸めるので、理由はコンソールに残す (原因を追えるように)
+      console.warn('[atproto] ログインを始められなかった:', error);
       setError(
         needsPassword
           ? 'ログインに失敗しました。ハンドルまたはパスワードを確認してください。'
