@@ -37,7 +37,7 @@ mock.module('./EventDispatchContext', () => ({
 const { render, screen, fireEvent, cleanup, waitFor } = await import(
   '@testing-library/react'
 );
-const { ImageNode } = await import('./ImageNode');
+const { EXTERNAL_IMAGE_BLOCKED, ImageNode } = await import('./ImageNode');
 const { ImageErrorProvider } = await import('./images/imageErrorContext');
 
 // 実在の CID ベクタ ( `[1,2,3]` の CID)。daemon の応答として返す
@@ -100,6 +100,26 @@ const makeGhostProps = (content = '削除予定の画像'): TestNodeProps => ({
 });
 
 describe('ImageNode', () => {
+  describe('利用者が URL で指した画像 (step3 Phase 2 Q4)', () => {
+    it('CORS で読む (crossorigin="anonymous")', () => {
+      // COEP (require-corp) の下でも、CORS を返す外部の画像は読める
+      render(<ImageNode {...makeProps()} />);
+      expect(screen.getByRole('img').getAttribute('crossorigin')).toBe(
+        'anonymous',
+      );
+    });
+
+    it('🔴 読めなかったら、ドロップすれば保存されると案内する', async () => {
+      // CORS / CORP を返さない画像は COEP の下で読めない (受け入れた)。「読み込めません」だけでは
+      // 利用者が取れる手が分からない
+      render(<ImageNode {...makeProps()} />);
+      fireEvent.error(screen.getByRole('img'));
+      await waitFor(() =>
+        expect(screen.getByText(EXTERNAL_IMAGE_BLOCKED)).toBeDefined(),
+      );
+    });
+  });
+
   beforeEach(() => {
     cleanup();
     mockGetNode.mockClear();

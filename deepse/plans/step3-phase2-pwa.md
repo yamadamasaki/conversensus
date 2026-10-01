@@ -174,7 +174,7 @@ ITP は操作の無い Web アプリの保存領域を消すことがある (S0-
 | **S2-2** ✅ | 経路のロジックを `localStore` へ (D2)。`api.ts` を「バックエンド」の口の上に載せ、実装を HTTP とプロセス内 (`bun:sqlite`) の 2 つにする。**App 結合をプロセス内に切り替え、Hono を外す** | 単体 + App 結合 |
 | **S2-3** ✅ | ブラウザのバックエンド (D3): Worker + SQLite-WASM (`opfs`) + RPC。Vite に COOP/COEP。開けないときの画面 (D5)。既定をこちらに切り替える。E2E を persistent context に | E2E (WebKit / Chromium) |
 | **S2-4** ✅ | タブの actor (D4) と、タブ間の知らせ (D3 の BroadcastChannel) | 単体 (溜まりの借り方) + E2E (2 タブで同じ File を編む: 点が重ならない、相手のタブに出る) |
-| **S2-5** | PWA 化: manifest・service worker (オフラインで起動)・`persist()`・未同期の表示 (D6)。COEP の下の画像 (Q4) | E2E (オフライン起動) |
+| **S2-5** ✅ | PWA 化: manifest・service worker (オフラインで起動)・`persist()`・未同期の表示 (D6)。COEP の下の画像 (Q4) | E2E (オフライン起動) |
 | **S2-6** | ATProto OAuth (D7)。**最初に spike**: 開発用の PDS で loopback client が通るか | 単体 + 実機 |
 | **S2-7** | 撤去: `src/server/`・`src-tauri/`・Tauri 関係の E2E と設定・`api.conversensus.site` の手順。本番の Caddy に COOP/COEP (D8) | lint / typecheck / test / E2E |
 
@@ -313,3 +313,28 @@ tap (`useEventSyncTap`) が**因果の知識に取り込んでから** `onLocalC
 単体 1911 件・App 結合 8 件・E2E 33 件 (1 件は Chromium で skip) が緑。E2E は 2 つの page で、別の
 deviceId になることと、閉じた id の再利用と、作った File と置いたノードが再読み込みなしに出ることを
 見る (両エンジン)。
+
+### S2-5 PWA 化 (2026-10-01)
+
+- **manifest とアイコン** (`public/manifest.webmanifest`、`icon-192.png` / `icon-512.png`)。アイコンは
+  `scripts/generateIcons.ts` が描く**仮のもの**で、正式なものができたら差し替える
+- **service worker** (`public/sw.js`, 本番ビルドだけ登録)。画面はネットワークを先に、同じ origin の
+  他の GET はキャッシュを先に。別の origin (PDS) には触らない
+- **起動中の表示** (`Starting`)。保存領域の無い窓で数秒白いままだった (S2-3 の記録)
+- **`persist()`** を起動時に求める。断られても動く (頼れるのは PDS と未同期の表示)
+- **未ログインのときに「この端末にだけ保存されています」** (D6)。ログイン中の未同期件数は既に出ていた
+- **URL で指した画像** (Q4): `crossorigin="anonymous"` で読み、読めなければドロップを案内する
+
+#### 分かったこと
+
+- **WebKit では service worker の中の `fetch(request)` が Worker のスクリプトで落ちる。**元の Request を
+  渡し直すと "Load failed" になり、Worker が起動できず「この窓では保存できません」になった。
+  URL から取り直す形にして直した。本番ビルドでしか service worker を登録しないので、開発サーバで
+  走る E2E では見えない — 本番ビルドを配る E2E を足して初めて見つかった
+- Playwright の WebKit では、オフラインのエミュレーションと service worker の組み合わせを確かめられない
+  (再読み込みが内部エラー)。オフライン起動は Chromium で見て、WebKit は実機で見る (U1)
+
+#### 検証
+
+単体 1915 件・App 結合 8 件・E2E 36 件 (Chromium で 1 件、WebKit で 1 件 skip) が緑。
+service worker を `fetch(request)` に戻すと WebKit の「握られた画面」が落ちる。

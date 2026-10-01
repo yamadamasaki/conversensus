@@ -27,3 +27,15 @@ export function StorageUnavailable({ reason }: { reason: string }) {
     </main>
   );
 }
+
+/** 保存領域を開いている間の表示。白い画面のまま待たせない */
+export function Starting() {
+  return (
+    <main
+      role="status"
+      style={{ maxWidth: 560, margin: '80px auto', padding: 16, color: '#999' }}
+    >
+      起動中…
+    </main>
+  );
+}

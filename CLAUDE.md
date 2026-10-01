@@ -59,6 +59,8 @@ bun run setup   # pre-commit hook をインストール (lint + typecheck が co
 - `tests/*.spec.ts` に置き, 同じ場所に `tests/*.spec.md` を添える (単体と同じ規約)
 - 実行: `bun run test:e2e` (webkit = 本命 / chromium = 対照)。dev サーバは Playwright が
   専用ポートで自前に起動するので, 事前の起動は要らない
+- service worker は本番ビルドでだけ登録するので, それを通す検査 (`offline.spec.ts`) は
+  Playwright が別に立てる本番ビルドの配信 (`vite preview`, :5175) で開く
 - `test` は `tests/fixtures.ts` から import する。**テストごとに新しいプロファイルの
   persistent context** で開く (ローカル正典は OPFS にあり, WebKit は使い捨ての context で
   OPFS を拒む)

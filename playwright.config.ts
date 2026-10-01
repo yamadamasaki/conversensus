@@ -17,6 +17,11 @@ import { defineConfig, devices } from '@playwright/test';
 // (`tests/fixtures.ts`) ので、デーモンは要らない (step3 Phase 2 S2-3)。
 const E2E_CLIENT_PORT = 5174;
 const E2E_CLIENT_URL = `http://localhost:${E2E_CLIENT_PORT}`;
+/**
+ * 本番ビルドの配信 (`vite preview`)。**service worker は本番ビルドでだけ登録する**ので、
+ * オフライン起動 (`offline.spec.ts`) はこちらで見る
+ */
+const E2E_PREVIEW_PORT = 5175;
 
 export default defineConfig({
   testDir: './tests',
@@ -37,6 +42,12 @@ export default defineConfig({
   ],
 
   webServer: [
+    {
+      command: `bun run --cwd src/client build && bun run --cwd src/client preview --port ${E2E_PREVIEW_PORT} --strictPort`,
+      url: `http://localhost:${E2E_PREVIEW_PORT}`,
+      reuseExistingServer: false,
+      timeout: 120_000,
+    },
     {
       command: `bun run --cwd src/client dev --port ${E2E_CLIENT_PORT} --strictPort`,
       url: E2E_CLIENT_URL,

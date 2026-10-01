@@ -25,6 +25,13 @@ import {
 } from './images/imageErrorContext';
 import { replaceNodeImage } from './images/replaceNodeImage';
 
+/**
+ * 利用者が URL で指した画像が読めなかったときの案内 (step3 Phase 2 Q4)。PWA は cross-origin
+ * isolation (COEP) の下で動くので、CORS / CORP を返さない画像は読めない
+ */
+export const EXTERNAL_IMAGE_BLOCKED =
+  'この URL の画像は表示できません。画像をドロップすると保存されます';
+
 type ImageNodeData = {
   content: string;
   diffType?: 'add' | 'update';
@@ -458,7 +465,13 @@ export function ImageNode({ id, data, selected }: NodeProps) {
             </div>
           ) : /* 解決が空で終わった参照もここに来る (N4)。`<img>` が生まれないので
                 `onError` は来ず, 分けておかないと「読み込み中」で止まる */
-          imgError || (!displayUrl && resolveFailed) ? (
+          imgError && displayUrl === imageUrl && imageUrl ? (
+            /* 利用者が URL で指した画像。cross-origin isolation (COEP, step3 Phase 2 D8) の下では、
+               相手が CORS / CORP を返さないと読めない (Q4 で受け入れた)。取れる手を案内する */
+            <span style={{ fontSize: 11, color: '#999' }}>
+              {EXTERNAL_IMAGE_BLOCKED}
+            </span>
+          ) : imgError || (!displayUrl && resolveFailed) ? (
             <span style={{ fontSize: 11, color: '#999' }}>
               画像を読み込めません
             </span>
@@ -469,6 +482,8 @@ export function ImageNode({ id, data, selected }: NodeProps) {
           ) : displayUrl ? (
             <img
               src={displayUrl}
+              // CORS を返す外部の画像は COEP の下でも読める (blob の object URL には影響しない)
+              crossOrigin="anonymous"
               alt={content}
               onError={() => setImgError(true)}
               style={{
