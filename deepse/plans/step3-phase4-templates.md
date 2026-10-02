@@ -1,6 +1,6 @@
 # step3 Phase 4: template graph と metagraph — 設計
 
-> ステータス: **ドラフト (Q1〜Q8 未確定)** / 作成日: 2026-10-03
+> ステータス: **Q1〜Q8 確定 (2026-10-03、すべて既定案)、実装中** / 作成日: 2026-10-03
 > 親: [step3 実装計画](./step3-implementation.md) の Phase 4 (S4-1 / S4-2)。仕様は
 > [template graph](../architecture/step3/template-graph.md) / [metagraph](../architecture/step3/metagraph.md)、
 > 基盤の決定は [step3 §3.2 D2・§3.3 D3・§3.4](../architecture/step3.md)。
@@ -176,16 +176,16 @@ resolveTemplates(refs: TemplateRef[] | undefined, trunk: Batch[], fileId: FileId
 
 ## 4. 着手前に訊くこと (Q)
 
-| | 問い | 既定案 |
+| | 問い | 既定案 → 確定 |
 | --- | --- | --- |
-| **Q1** | Toulmin (U3): 作り込みの template graph として残すか、File に複製するか | **File に複製する** (§2.4)。道が 1 本になり、利用者が定義を見て直せる。既に Toulmin を当てた開発用の sheet は種別が引けなくなる (互換は取らない) |
-| **Q2** | template graph の種別プロパティの名前空間 (F4)。利用者の template graph には提供者のドメインが無い | **`template.<template graph の SheetId>`** (`.kind` を付けて `template.<id>.kind`)。`.` を含むので拡張のプロパティとして扱われ、template graph ごとに分かれる。表示は template graph の名前で出す |
-| **Q3** | 種類の同一性: template graph の node の **NodeId** か **label** か | **NodeId**。label は表示名 (`NodeKind.label`)。いまの `Template` と同じく「op の値は label、内部の参照は id」。適用の内容は作成時の切断面で固定されるので、後で label を直しても既存の適用先は変わらない |
-| **Q4** | metagraph 自身を metagraph の graph node に出すか (F6: 仕様は出す、Phase 1 の実装は出さない) | **仕様どおり出す**。複数の metagraph が互いを指せる (視点の関係を書ける)。自分自身も node になるが、それを消すと metagraph ごと消えることは確認を挟む |
-| **Q5** | 既にある File に "index" が無い | **作らない** (互換は取らない)。代わりに「シートを追加 ▾」の「metagraph」で誰でも足せる |
-| **Q6** | graph node のダブルクリックで、その sheet を開くか | **開く (新しいタブ)**。content (= sheet の中身) を見る口になる。文字の編集はダブルクリックではなく選択して名前を変える操作に寄せる |
-| **Q7** | 「シートを追加」で template graph を選ぶ UI | **チェックボックスのダイアログ** (仕様。複数を当てられる)。template graph が 1 つも無い File では今の 1 クリックのまま |
-| **Q8** | edge の種類の候補が複数のとき (F8) | **繋いだ直後に選ばせるメニュー** (種類ごとに template の名前で区分)。選ばずに閉じたら種類無しの edge のまま |
+| **Q1** | Toulmin (U3): 作り込みの template graph として残すか、File に複製するか | **File に複製する** (§2.4)。道が 1 本になり、利用者が定義を見て直せる。既に Toulmin を当てた開発用の sheet は種別が引けなくなる (互換は取らない) → **確定: 既定案のとおり (2026-10-03)** |
+| **Q2** | template graph の種別プロパティの名前空間 (F4)。利用者の template graph には提供者のドメインが無い | **`template.<template graph の SheetId>`** (`.kind` を付けて `template.<id>.kind`)。`.` を含むので拡張のプロパティとして扱われ、template graph ごとに分かれる。表示は template graph の名前で出す → **確定: 既定案のとおり (2026-10-03)** |
+| **Q3** | 種類の同一性: template graph の node の **NodeId** か **label** か | **NodeId**。label は表示名 (`NodeKind.label`)。いまの `Template` と同じく「op の値は label、内部の参照は id」。適用の内容は作成時の切断面で固定されるので、後で label を直しても既存の適用先は変わらない → **確定: 既定案のとおり (2026-10-03)** |
+| **Q4** | metagraph 自身を metagraph の graph node に出すか (F6: 仕様は出す、Phase 1 の実装は出さない) | **仕様どおり出す**。複数の metagraph が互いを指せる (視点の関係を書ける)。自分自身も node になるが、それを消すと metagraph ごと消えることは確認を挟む → **確定: 既定案のとおり (2026-10-03)** |
+| **Q5** | 既にある File に "index" が無い | **作らない** (互換は取らない)。代わりに「シートを追加 ▾」の「metagraph」で誰でも足せる → **確定: 既定案のとおり (2026-10-03)** |
+| **Q6** | graph node のダブルクリックで、その sheet を開くか | **開く (新しいタブ)**。content (= sheet の中身) を見る口になる。文字の編集はダブルクリックではなく選択して名前を変える操作に寄せる → **確定: 既定案のとおり (2026-10-03)** |
+| **Q7** | 「シートを追加」で template graph を選ぶ UI | **チェックボックスのダイアログ** (仕様。複数を当てられる)。template graph が 1 つも無い File では今の 1 クリックのまま → **確定: 既定案のとおり (2026-10-03)** |
+| **Q8** | edge の種類の候補が複数のとき (F8) | **繋いだ直後に選ばせるメニュー** (種類ごとに template の名前で区分)。選ばずに閉じたら種類無しの edge のまま → **確定: 既定案のとおり (2026-10-03)** |
 
 ## 5. 未決 (U)
 
