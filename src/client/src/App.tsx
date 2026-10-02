@@ -290,7 +290,10 @@ export default function App() {
       if (!branchOps.isTrunk) branchOps.resetBranchState();
       const newSheet: Sheet = {
         id: generateId() as SheetId,
-        name: name ?? `Sheet ${trunkFile.sheets.length + 1}`,
+        // 既定の名前は「ふつうのシートの何枚目か」で付ける。index などの特殊なグラフは数えない
+        name:
+          name ??
+          `Sheet ${trunkFile.sheets.filter((s) => sheetKindOf(s) === undefined).length + 1}`,
         nodes: content?.nodes ?? [],
         edges: content?.edges ?? [],
         ...(content && {

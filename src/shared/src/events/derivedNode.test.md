@@ -25,7 +25,7 @@ op を積む」並行性の問題が構造上起きない。代わりに畳み�
 | --- | --- |
 | id は決定的で、NodeId として有効 | 誰の手元でも同じ id。edge の端点の型を変えずに済む (U4 の決定) |
 | 在る sheet は node、消えた sheet は vanished | `derivedNodesFor` の出力の形 |
-| File の sheet が node として出る。metagraph 自身は出ない | metagraph はグラフの一覧を見せる view であって、一覧の中のグラフではない |
+| File の sheet が node として出る。**metagraph 自身も出る** | 仕様: metagraph 自身も特殊な sheet として metagraph に登場する (step3 Phase 4 Q4)。複数の metagraph が互いを指せる。Phase 1 では「一覧を見せる view であって一覧の中のグラフではない」として除いていた |
 | ふつうの sheet には出ない | 種別が metagraph の sheet だけ |
 | sheet.setName が content になる | 名前の正は sheet 側 |
 | 🔴 導出 node への setContent / remove は効かない | edge を張っておく — remove が効くとカスケードで edge が消える。導出 node 自体は畳み込みの最後に足すので、node だけを見ても変化が見えない |
@@ -69,3 +69,22 @@ actor で並べたもの。畳んだ後に次の 3 つを確かめる:
   後の Phase
 - **配送順に依らないこと** — 畳み込みは全順序で並べ直すので、`project.test.ts` の既存の性質が
   担保する
+
+## 画面の側の導き直し (step3 Phase 4 S4-2)
+
+`refreshDerivedNodes` — 手元の metagraph の姿を**いまの sheet の一覧**で導き直す。画面が自分でシートを
+足す・消す・名前を変えても、自分の書き込みでは projection し直さないので、手元の姿は古いままになる。
+
+| 性質 | 固定すること |
+| --- | --- |
+| projection と同じ一覧で導き直すと、projection の姿そのものに戻る | 画面の側の導き直しが畳み込みと食い違わない (冪等) |
+| 一覧から sheet を外して導き直した姿 = `sheet.remove` を積んで projection した姿 | **消えた端点の edge・layout を外す規則が、畳み込みの規則と同じ** |
+
+**2 つ目の性質には前置きを足した** (3 つの sheet を先に作り、すべての組に edge を張る)。既存の歴史の生成器
+だけでは、消す sheet の導出 node に繋がった**生きている** edge を 100 回に 1 回しか引かず (2026-10-03 に
+数えた)、「消えた端点の edge を外さない」変異が通ってしまった。前置きを足すと落ちる。
+
+`placeDerivedNodes` — 置き場所の無い導出 node を格子に並べる (仕様: 配置はシステムに任せる。op は積まない)。
+
+- 置き場所の無い導出 node にだけ与え、互いに重ならない。既にある置き場所は変えない
+- 置き場所が全部あれば何もしない (同じ object を返す)

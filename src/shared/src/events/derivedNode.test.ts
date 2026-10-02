@@ -15,10 +15,12 @@ import {
   DERIVED_FROM_SHEET_PROPERTY,
   derivedNodeIdOf,
   derivedNodesFor,
+  placeDerivedNodes,
+  refreshDerivedNodes,
 } from './derivedNode';
 import { projectFile } from './project';
 import { METAGRAPH_SHEET_KIND, SHEET_KIND_PROPERTY } from './sheetKind';
-import { type Batch, BatchIdSchema, type Op } from './unified';
+import { type Batch, BatchIdSchema, nodeSetLayoutOp, type Op } from './unified';
 
 const FILE = FileIdSchema.parse(
   '00000000-0000-4000-8000-00000000f11e',
@@ -67,10 +69,21 @@ const metagraph = (): Batch[] => [
   ]),
 ];
 
-const metaSheetOf = (batches: Batch[]): Sheet => {
+/**
+ * metagraph の姿。**metagraph 自身の導出 node は外して返す** — 自身が出ること (Q4) は専用の件が見る。
+ * ほかの件は、ほかの sheet の導出 node と、ふつうの node・edge の扱いを見るので、自身の node が
+ * 混ざると比べる相手が全部ずれる
+ */
+const metaSheetOf = (batches: Batch[], keepSelf = false): Sheet => {
   const sheet = projectFile(batches, FILE).sheets.find((s) => s.id === META);
   if (!sheet) throw new Error('metagraph が無い');
-  return sheet;
+  if (keepSelf) return sheet;
+  const self = derivedNodeIdOf(META);
+  return {
+    ...sheet,
+    nodes: sheet.nodes.filter((n) => n.id !== self),
+    layouts: (sheet.layouts ?? []).filter((l) => l.nodeId !== self),
+  };
 };
 
 const [S1, S2] = SHEETS;
@@ -103,14 +116,20 @@ describe('derivedNodesFor', () => {
 });
 
 describe('metagraph の導出 node (projectFile)', () => {
-  test('File の sheet が node として出る。metagraph 自身は出ない', () => {
-    const sheet = metaSheetOf([
-      ...metagraph(),
-      fileBatch(3, [{ kind: 'sheet.create', target: S1, name: '一' }]),
-    ]);
-    expect(sheet.nodes.map((node) => [node.id, node.content])).toEqual([
-      [D1, '一'],
-    ]);
+  test('File の sheet が node として出る。metagraph 自身も出る (step3 Phase 4 Q4)', () => {
+    const sheet = metaSheetOf(
+      [
+        ...metagraph(),
+        fileBatch(3, [{ kind: 'sheet.create', target: S1, name: '一' }]),
+      ],
+      true,
+    );
+    expect(sheet.nodes.map((node) => [node.id, node.content]).sort()).toEqual(
+      [
+        [derivedNodeIdOf(META), 'メタ'],
+        [D1, '一'],
+      ].sort(),
+    );
   });
 
   test('ふつうの sheet には導出 node が出ない (種別が metagraph の sheet だけ)', () => {
@@ -363,10 +382,10 @@ describe('性質: 導出 node への op は sheet が在る限り受け付け、
       fc.property(fc.array(arbTimed, { maxLength: 20 }), (timed) => {
         const { batches, edges, laidOut } = build(timed);
         const file = projectFile(batches, FILE);
-        const meta = file.sheets.find((s) => s.id === META);
-        if (!meta) throw new Error('metagraph が無い');
+        const meta = metaSheetOf(batches);
 
-        // いま在る sheet (metagraph 以外) は、projection の sheet の一覧が正である
+        // いま在る sheet (metagraph 以外) は、projection の sheet の一覧が正である。
+        // metagraph 自身の導出 node は `metaSheetOf` が外している (自身が出ることは別の件が見る)
         const live = new Map(
           file.sheets.filter((s) => s.id !== META).map((s) => [s.id, s.name]),
         );
@@ -402,5 +421,98 @@ describe('性質: 導出 node への op は sheet が在る限り受け付け、
         });
       }),
     );
+  });
+});
+
+/** 比べるために並びを揃える (導き直しと projection で node・edge・layout の並びは違いうる) */
+const normalize = (sheet: Sheet) => ({
+  nodes: [...sheet.nodes].sort((a, b) => a.id.localeCompare(b.id)),
+  edges: [...sheet.edges].sort((a, b) => a.id.localeCompare(b.id)),
+  layouts: [...(sheet.layouts ?? [])].sort((a, b) =>
+    a.nodeId.localeCompare(b.nodeId),
+  ),
+});
+
+describe('性質: 画面の側の導き直し (step3 Phase 4 S4-2)', () => {
+  test('∀ 履歴. projection と同じ sheet の一覧で導き直すと、projection の姿そのものに戻る', () => {
+    fc.assert(
+      fc.property(fc.array(arbTimed, { maxLength: 20 }), (timed) => {
+        const { batches } = build(timed);
+        const file = projectFile(batches, FILE);
+        const meta = metaSheetOf(batches, true);
+        expect(normalize(refreshDerivedNodes(meta, file.sheets))).toEqual(
+          normalize(meta),
+        );
+      }),
+    );
+  });
+
+  /**
+   * 3 つの sheet を先に作り、すべての組に edge を張る前置き。ランダムな歴史だけだと、消す sheet の
+   * 導出 node に繋がった**生きている** edge を 100 回に 1 回しか引かない (2026-10-03 に数えた)。
+   * それでは「消えた端点の edge を外す」を試さない
+   */
+  const prelude: [Step, number, string][] = [
+    ...SHEETS.map((_, i): [Step, number, string] => [
+      { t: 'create', i, name: 'あ' },
+      3,
+      'a#dev',
+    ]),
+    ...SHEETS.flatMap((_, i) =>
+      SHEETS.map((_, j): [Step, number, string] => [
+        { t: 'edge', i, j },
+        4,
+        'a#dev',
+      ]),
+    ),
+  ];
+
+  test('∀ 履歴・消す sheet. 一覧から外して導き直した姿 = sheet.remove を積んで projection した姿', () => {
+    fc.assert(
+      fc.property(fc.array(arbTimed, { maxLength: 20 }), idx, (timed, i) => {
+        const { batches } = build([...prelude, ...timed]);
+        const target = SHEETS[i] as SheetId;
+        const file = projectFile(batches, FILE);
+        const refreshed = refreshDerivedNodes(
+          metaSheetOf(batches, true),
+          file.sheets.filter((s) => s.id !== target),
+        );
+        const removed = metaSheetOf(
+          [...batches, fileBatch(10_000, [{ kind: 'sheet.remove', target }])],
+          true,
+        );
+        expect(normalize(refreshed)).toEqual(normalize(removed));
+      }),
+    );
+  });
+});
+
+describe('placeDerivedNodes', () => {
+  test('置き場所の無い導出 node にだけ置き場所を与え、互いに重ならない。既にある置き場所は変えない', () => {
+    const sheet = metaSheetOf(
+      [
+        ...metagraph(),
+        fileBatch(3, [{ kind: 'sheet.create', target: S1, name: '一' }]),
+        fileBatch(4, [{ kind: 'sheet.create', target: S2, name: '二' }]),
+        inMeta(5, [nodeSetLayoutOp(D1, { x: 10, y: 20 })]),
+      ],
+      true,
+    );
+    const placed = placeDerivedNodes(sheet);
+    expect(placed.layouts?.find((l) => l.nodeId === D1)).toEqual({
+      nodeId: D1,
+      x: 10,
+      y: 20,
+    });
+    const ids = sheet.nodes.map((n) => n.id);
+    expect(new Set(placed.layouts?.map((l) => l.nodeId))).toEqual(new Set(ids));
+    const spots = (placed.layouts ?? []).map((l) => `${l.x},${l.y}`);
+    expect(new Set(spots).size).toBe(spots.length);
+  });
+
+  test('置き場所が全部あれば何もしない', () => {
+    const sheet = metaSheetOf([...metagraph()], true);
+    const once = placeDerivedNodes(sheet);
+    expect(placeDerivedNodes(once)).toBe(once);
   });
 });

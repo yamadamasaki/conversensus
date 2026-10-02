@@ -261,3 +261,19 @@ happy-dom では扱えないので、メニューの約束を部品のテスト�
 #### 検証
 
 単体 1880 件 (往復の性質を含む)・App 結合 29 件 (Toulmin の複製 1 件を追加)・E2E 44 件が緑。種の中身を積まない変異で落ちる。
+
+### S4-2a: metagraph の土台 (2026-10-03)
+
+- **起点の op-log がシートのプロパティと `templateIds` を落としていた** (`graphFileToBatches`)。File 作成時の
+  index の種別が載らないうえ、取り込み (import) で template と種別が失われていた。作成の batch に載せるよう直した
+- File 作成時に "Sheet 1" の後ろへ "index" (種別 metagraph) を作る (`LocalStore.createFile`)
+- **metagraph 自身も graph node に出す** (Q4)。Phase 1 の除外をやめた
+- 画面の側の純関数: `refreshDerivedNodes` (いまの sheet の一覧で graph node を導き直す。畳み込みと一致することを
+  性質で固めた)・`placeDerivedNodes` (置き場所の無い graph node を格子に)・`splitMetagraphEvent` (graph node への
+  削除・本文の変更をシートの削除・名前の変更に分ける。undo の積み上げに入れない)
+- 新しいシートの既定の名前は「ふつうのシートの何枚目か」で付ける (index を数えない)
+
+#### 分かったこと
+
+- 既存の歴史の生成器では、「一覧から外した sheet の導出 node に繋がった生きている edge」を 100 回に 1 回しか
+  引かず、edge を外さない変異が通った。前置き (全部の sheet を作り全部の組に edge を張る) を足した

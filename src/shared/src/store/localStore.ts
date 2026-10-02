@@ -17,6 +17,7 @@
 
 import { computeBlobCid, MAX_BLOB_SIZE } from '../blob';
 import { graphFileToBatches } from '../events/genesis';
+import { METAGRAPH_SHEET_KIND, SHEET_KIND_PROPERTY } from '../events/sheetKind';
 import type { Batch } from '../events/unified';
 import { parseConversensusFile } from '../migrations';
 import type {
@@ -31,6 +32,8 @@ import type { EventStore } from './eventStore';
 
 const DEFAULT_FILE_NAME = '無題';
 const DEFAULT_SHEET_NAME = 'Sheet 1';
+/** File 作成時に作る metagraph の名前 (仕様: デフォルトで "index"。変更可能) */
+const DEFAULT_METAGRAPH_NAME = 'index';
 /** blob ストアが受け付ける MIME の接頭辞。今のところ画像だけ (ANA-116) */
 const IMAGE_MIME_PREFIX = 'image/';
 
@@ -85,6 +88,15 @@ export class LocalStore {
           name: request.sheet?.name ?? DEFAULT_SHEET_NAME,
           nodes: [],
           edges: [],
+        },
+        // 目次の metagraph (step3 Phase 4, 仕様: File を作るとその中の sheet の一つとして metagraph が
+        // 作られる)。graph node は op として積まず、sheet の一覧から導出する (D2)
+        {
+          id: newId() as SheetId,
+          name: DEFAULT_METAGRAPH_NAME,
+          nodes: [],
+          edges: [],
+          properties: { [SHEET_KIND_PROPERTY]: METAGRAPH_SHEET_KIND },
         },
       ],
     };

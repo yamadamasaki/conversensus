@@ -436,7 +436,12 @@ describe('App 結合: branch の出入りで trunk と branch が混ざらない
     await waitFor(() => expect(renderedNodeCount()).toBe(0), WIRING_TIMEOUT);
     const fileId = world.localStore().listFiles()[0]?.id as FileId;
     const trunk = projectFile(world.localStore().getBatches(fileId), fileId);
-    expect(trunk.sheets.map((s) => s.nodes.length)).toEqual([0, 0]);
+    // ふつうのシートだけを見る (index は sheet の一覧を graph node として持つ, step3 Phase 4)
+    expect(
+      trunk.sheets
+        .filter((s) => sheetKindOf(s) === undefined)
+        .map((s) => s.nodes.length),
+    ).toEqual([0, 0]);
   });
 
   test('branch を開いている間に届いた trunk の編集は、trunk に戻ると見える', async () => {
