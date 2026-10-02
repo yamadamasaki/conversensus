@@ -108,7 +108,7 @@ export function PropertyEditor({
       aria-label="プロパティ"
       style={{
         position: 'absolute',
-        top: 52,
+        top: 12,
         right: 12,
         width: PANEL_WIDTH,
         maxWidth: 'calc(100vw - 24px)',

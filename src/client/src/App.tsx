@@ -22,6 +22,7 @@ import { ConfirmDialog } from './ConfirmDialog';
 import { ConflictNotice, NOTICE_Z_INDEX } from './ConflictNotice';
 import { makeEventBase } from './events/GraphEvent';
 import { GraphEditor } from './GraphEditor';
+import { GraphHeader, type HeaderBranch } from './GraphHeader';
 import { useActor } from './hooks/useActor';
 import { useAtprotoSession } from './hooks/useAtprotoSession';
 import type { ConflictNoticeState } from './hooks/useBranchOperations';
@@ -31,6 +32,7 @@ import {
 } from './hooks/useBranchOperations';
 import type { UndoState } from './hooks/useEventStore';
 import { useFileSheetOperations } from './hooks/useFileSheetOperations';
+import { useGraphPanels } from './hooks/useGraphPanels';
 import { useParticipation } from './hooks/useParticipation';
 import { useRemoteSyncQueue } from './hooks/useRemoteSyncQueue';
 import { useRosterSource } from './hooks/useRosterSource';
@@ -42,8 +44,10 @@ import { BlobOriginProvider } from './images/blobOriginContext';
 import { OverwriteNotice } from './OverwriteNotice';
 import { ParticipateDialog } from './ParticipateDialog';
 import { ParticipationHistoryDialog } from './ParticipationHistoryDialog';
+import { PropertyEditor } from './PropertyEditor';
+import { propertyRows } from './property/propertyRows';
 import { ReadOnlyProvider } from './readOnlyContext';
-import { FLOATING_UI_Z_INDEX } from './SettingsPopup';
+import { SearchPanel } from './SearchPanel';
 import { Sidebar } from './Sidebar';
 import { accumulateArrivedForks, NO_ARRIVED_FORKS } from './sync/forkArrival';
 import {
@@ -347,6 +351,29 @@ export default function App() {
         }
       : null;
 
+  const viewKey = viewAddress ? addressKey(viewAddress) : null;
+  // ヘッダが開閉する窓と、canvas の口・選択の写し (step3 Phase 3 S3-4a)
+  const panels = useGraphPanels(viewKey);
+  const readOnly = fileOps.obligation?.fileId === fileOps.activeFile?.id;
+  /**
+   * 開いている branch の状態と操作 (ヘッダに出す)。merge 済みでも出す — 続けて編集・コミット
+   * できる (merge 後の差分の起点は ANA-119 S6)
+   */
+  const headerBranch: HeaderBranch | null =
+    !branchOps.isTrunk &&
+    branch &&
+    (branch.status === BRANCH_STATUS.OPEN ||
+      branch.status === BRANCH_STATUS.MERGED)
+      ? {
+          name: branch.name,
+          merged: branch.status === BRANCH_STATUS.MERGED,
+          pendingCount: branchOps.pendingChanges.length,
+          canMerge,
+          onCommit: () => branchOps.setCommitDialogOpen(true),
+          onMerge: () => branchOps.handleMergeBranch(branch),
+        }
+      : null;
+
   const { close: closeTab, closeWhere, retarget } = tabs;
   const tabControls = useMemo(
     () => ({ open: openTab, close: closeTab, closeWhere, retarget }),
@@ -549,16 +576,24 @@ export default function App() {
           onActivate={tabs.activate}
           onClose={tabs.close}
         />
-        <div style={{ flex: 1, minHeight: 0 }}>
+        {viewAddress && (
+          <GraphHeader
+            controls={panels.controls}
+            searchOpen={panels.searchOpen}
+            onToggleSearch={panels.toggleSearch}
+            propertyOpen={panels.propertyOpen}
+            onToggleProperty={panels.toggleProperty}
+            branch={headerBranch}
+          />
+        )}
+        <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
           {fileOps.activeFile && viewSheet && viewAddress ? (
             // 画像 blob の由来を降ろす (step2 Phase 2 S5)。**`GraphEditor` の props には
             // 足さない** — `ImageNode` は React Flow が描くので props が届かず、
             // 途中の層はこの値に用が無い (`blobOriginContext`)
             // 再参加した後は, 同期が済むまで読み取り専用にする (step2 Phase 2 S6)。
             // 頼んで守られなかった場合に壊れるのは相手なので, 頼まずに止める
-            <ReadOnlyProvider
-              value={fileOps.obligation?.fileId === fileOps.activeFile.id}
-            >
+            <ReadOnlyProvider value={readOnly}>
               <BlobOriginProvider value={fileOps.originOf}>
                 <GraphEditor
                   key={addressKey(viewAddress)}
@@ -590,6 +625,8 @@ export default function App() {
                       ? branchOps.branchReceiveEpoch
                       : fileOps.receiveEpoch
                   }
+                  onControls={panels.setControls}
+                  onSelectionChange={panels.setSelection}
                 />
               </BlobOriginProvider>
             </ReadOnlyProvider>
@@ -606,79 +643,32 @@ export default function App() {
               ファイルを選択するか, 新規作成してください
             </div>
           )}
+          {/* ボディ内の property editor (仕様: ヘッダで on にしていれば、選択している要素に
+              対して出す)。右サイドバーのものと併用する */}
+          {viewAddress && panels.propertyOpen && panels.selection && (
+            <PropertyEditor
+              title={panels.selection.title}
+              rows={propertyRows(panels.selection.properties)}
+              addable={panels.selection.addable}
+              onSet={(name, value) => panels.controls?.setProperty(name, value)}
+              onRemove={(name) => panels.controls?.setProperty(name, undefined)}
+              readOnly={readOnly}
+              onClose={panels.closeProperty}
+            />
+          )}
+          {viewSheet && panels.searchOpen && (
+            <SearchPanel
+              onSearch={(query, caseSensitive) =>
+                panels.search(viewSheet, query, caseSensitive)
+              }
+              hits={panels.searchHits}
+              searched={panels.searched}
+              onReveal={(hit) => panels.controls?.reveal(hit)}
+              onClose={panels.closeSearch}
+            />
+          )}
         </div>
       </main>
-      {!branchOps.isTrunk &&
-        branch &&
-        (branch.status === BRANCH_STATUS.OPEN ||
-          branch.status === BRANCH_STATUS.MERGED) && (
-          <div
-            style={{
-              position: 'fixed',
-              bottom: 24,
-              right: 24,
-              zIndex: FLOATING_UI_Z_INDEX,
-              display: 'flex',
-              gap: 8,
-              alignItems: 'center',
-            }}
-          >
-            <span
-              style={{
-                fontSize: 12,
-                color: '#555',
-                background: '#fff',
-                padding: '4px 8px',
-                borderRadius: 4,
-                border: '1px solid #ddd',
-              }}
-            >
-              ⎇ {branch.name}
-              {branch.status === BRANCH_STATUS.MERGED && ' (merged)'}
-              {branchOps.pendingChanges.length > 0
-                ? ` (${branchOps.pendingChanges.length} 変更)`
-                : ''}
-            </span>
-            <button
-              type="button"
-              onClick={() => branchOps.setCommitDialogOpen(true)}
-              disabled={branchOps.pendingChanges.length === 0}
-              style={{
-                padding: '6px 16px',
-                fontSize: 13,
-                background:
-                  branchOps.pendingChanges.length > 0 ? '#4f6ef7' : '#ccc',
-                color: '#fff',
-                border: 'none',
-                borderRadius: 4,
-                cursor:
-                  branchOps.pendingChanges.length > 0
-                    ? 'pointer'
-                    : 'not-allowed',
-              }}
-            >
-              コミット
-            </button>
-            <button
-              type="button"
-              onClick={() => branchOps.handleMergeBranch(branch)}
-              // merge できるのは「commit 済み」= 未コミットの編集が無く commit が
-              // 1 件以上ある状態だけ。画面に出ている差分がそのまま merge の対象になる。
-              disabled={!canMerge}
-              style={{
-                padding: '6px 16px',
-                fontSize: 13,
-                background: canMerge ? '#f97316' : '#ccc',
-                color: '#fff',
-                border: 'none',
-                borderRadius: 4,
-                cursor: canMerge ? 'pointer' : 'not-allowed',
-              }}
-            >
-              merge ↑
-            </button>
-          </div>
-        )}
       {branchOps.commitDialogOpen && (
         <CommitDialog
           changes={branchOps.pendingChanges}

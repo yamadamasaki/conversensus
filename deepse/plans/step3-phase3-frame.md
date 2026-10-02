@@ -419,3 +419,47 @@ File 作成 (タブ 1 枚) → trunk にノード → branch b1 を作ってサ�
 `Cannot read properties of undefined (reading 'global')` が出た (出どころの位置なし)。
 読み込み直して押す操作だけで同じ手順を回すと出ないので、注入の側のものと見ている。
 背後のタブの同期 (Q4) は PDS とログインが要るので App 結合に任せた
+
+### S3-4: ヘッダ・右サイドバー・幅変更と折り畳み (2026-10-02, 進行中)
+
+3 段に割る。
+
+- **S3-4a** ヘッダを `GraphEditor` の外へ出す。`GraphEditor` は**外から呼べる口** (undo / redo /
+  グループ化 / 解除 / PNG / 検索結果を示す / プロパティを設定する) と**選択の知らせ**を出し、
+  ヘッダ (`GraphHeader`) と検索・ボディ内の property editor は App が描く。branch のコミット・merge も
+  浮き要素をやめてヘッダへ移す (§2.4)
+- **S3-4b** 右サイドバー (property editor の pane。ボディ内のものと併用) と、左右の幅変更・折り畳み。
+  幅と開閉は端末ごとの好みなので `localStorage` (§2.4)
+- **S3-4c** Q2 の修飾キー (S3-3b の積み残し): サイドバーで ⌘ / Ctrl を押しながら選ぶと別のタブで開く
+
+#### U1 の判断: 選択の正は React Flow に置いたまま、外へは写しを知らせる
+
+選択を view の state に持ち上げると、React Flow の内部の選択と二重になり、どちらかを controlled に
+しなければならない。controlled にすると、ドラッグ・範囲選択・検索結果の選択 (`setNodes` で
+`selected` を立てる) のすべてを外の state 経由にすることになる。**右サイドバーとボディ内の editor が
+要るのは「いま何が選ばれているか」の読みだけ**なので、正は React Flow に残し、`GraphEditor` が選択の
+写し (property editor の対象) を外へ知らせる。知らせるのは**中身が変わったときだけ** — nodes は
+ドラッグの間じゅう変わるので、毎回知らせると App がドラッグの各フレームで描き直す。
+merger (Phase 5) で pane 間の選択を連動させるときに、外から選ばせる口を足す
+
+#### S3-4a: ヘッダを `GraphEditor` の外へ
+
+- `GraphEditor` は浮きパネル (🏷 / 🔍 / Undo / Redo / グループ化 / 解除 / PNG)・検索の窓・property editor を
+  描かなくなった。代わりに `onControls` (口: `graph/editorControls.ts`) と `onSelectionChange`
+  (選択の写し) を出す
+- App はタブ帯の下に `GraphHeader` を置く。branch の状態・コミット・merge は浮き要素をやめてヘッダの右端へ
+- 検索・ボディ内の property editor の状態は `useGraphPanels`。検索は view が変わると閉じる (以前は再マウントで
+  閉じていた)。property editor の on/off はヘッダのオプションなので view をまたいで保つ
+
+##### 分かったこと
+
+- **口は描かれている間ずっと同じものにする。**口の中身 (undo など) は描画ごとに変わりうるが、口を作り直して
+  知らせると App が描き直し、また口が変わる。口は mount で 1 度だけ渡し、中身は ref から最新を呼ぶ
+- **選択の写しは中身が変わったときだけ知らせる** (U1 の判断のとおり)。比べるのは対象の種類・id・名前・
+  プロパティ・追加の候補を並べた文字列
+
+##### 検証
+
+単体 1849 件・App 結合 20 件 (ヘッダ 3 件を追加)・E2E 36 件が緑。選択を知らせない変異と、view が変わっても
+検索を閉じない変異で、それぞれ 1 件ずつ落ちる。変異の途中で、落ちたアサーションに要素を渡していたために
+bun が DOM 全体を展開して止まらなくなった (`toBeNull()` に要素を渡さない。App.app-test.md に注記)

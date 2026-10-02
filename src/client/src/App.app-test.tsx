@@ -5,7 +5,13 @@ import {
   type FileId,
   projectFile,
 } from '@conversensus/shared';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import App from './App';
 import { NSID } from './atproto/types';
@@ -592,5 +598,69 @@ describe('App 結合: タブ (step3 Phase 3 S3-3)', () => {
       screen.getByRole('tab', { name: new RegExp(`^${FILE_NAME}`) }),
     );
     await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+  });
+});
+
+describe('App 結合: ヘッダ (step3 Phase 3 S3-4a)', () => {
+  async function soloFileWithOneNode() {
+    await world.activate('solo');
+    render(<App />);
+    const user = userEvent.setup();
+    await createFile(user, FILE_NAME);
+    await addNode(user);
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+    return user;
+  }
+  const header = () => screen.getByRole('toolbar', { name: 'グラフの操作' });
+
+  test('ヘッダの Undo で置いたノードが消え、Redo で戻る', async () => {
+    const user = await soloFileWithOneNode();
+    await user.click(within(header()).getByRole('button', { name: 'Undo' }));
+    await waitFor(() => expect(renderedNodeCount()).toBe(0), WIRING_TIMEOUT);
+    await user.click(within(header()).getByRole('button', { name: 'Redo' }));
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+  });
+
+  test('🏷 を on にしてノードを選ぶと property editor が出て、足したプロパティが op-log に載る', async () => {
+    const user = await soloFileWithOneNode();
+    await user.click(within(header()).getByTitle('プロパティ'));
+    const node = document.querySelector('.react-flow__node');
+    if (!node) throw new Error('ノードが描かれていない');
+    await user.click(node);
+    const editor = await screen.findByRole(
+      'region',
+      { name: 'プロパティ' },
+      WIRING_TIMEOUT,
+    );
+    await user.type(
+      within(editor).getByLabelText('追加するプロパティの名前'),
+      'owner',
+    );
+    await user.type(
+      within(editor).getByLabelText('追加するプロパティの値'),
+      'alice',
+    );
+    await user.click(within(editor).getByRole('button', { name: '追加' }));
+
+    const fileId = world.localStore().listFiles()[0]?.id as FileId;
+    await waitFor(() => {
+      const file = projectFile(world.localStore().getBatches(fileId), fileId);
+      expect(file.sheets[0]?.nodes[0]?.properties).toEqual({ owner: 'alice' });
+    }, WIRING_TIMEOUT);
+  });
+
+  test('検索の窓は、別の view (タブ) へ移ると閉じる', async () => {
+    const user = await soloFileWithOneNode();
+    await user.click(screen.getByText('+ シートを追加'));
+    await screen.findByRole('button', { name: 'Sheet 2' }, WIRING_TIMEOUT);
+    await user.click(within(header()).getByTitle('このシートを検索'));
+    await screen.findByRole('region', { name: '検索' });
+
+    await user.click(
+      screen.getByRole('tab', { name: `${FILE_NAME} / Sheet 1` }),
+    );
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+    // 要素そのものを toBeNull に渡さない — 落ちたとき bun が DOM 全体を差分に出そうとして膨れる
+    expect(screen.queryByRole('region', { name: '検索' }) === null).toBe(true);
   });
 });

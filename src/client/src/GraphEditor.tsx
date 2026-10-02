@@ -39,6 +39,11 @@ import { type GraphEvent, makeEventBase } from './events/GraphEvent';
 import { GroupNode } from './GroupNode';
 import { contentOf, createChangeGate } from './graph/changeGate';
 import { deletionTargets } from './graph/deletion';
+import {
+  type GraphEditorControls,
+  type PropertyTarget,
+  propertyTargetKey,
+} from './graph/editorControls';
 import { exportPng } from './graph/exportPng';
 import {
   canConnectByTemplate,
@@ -69,11 +74,9 @@ import { ImageErrorProvider } from './images/imageErrorContext';
 import { NodeCreationContext } from './NodeCreationContext';
 import type { NodeTypeOption } from './NodeTypeMenu';
 import { NodeTypeMenu } from './NodeTypeMenu';
-import { PropertyEditor } from './PropertyEditor';
-import { addablePropertyNames, propertyRows } from './property/propertyRows';
+import { addablePropertyNames } from './property/propertyRows';
 import { useReadOnly } from './readOnlyContext';
-import { SearchPanel } from './SearchPanel';
-import { type SearchHit, searchSheet } from './search/searchSheet';
+import type { SearchHit } from './search/searchSheet';
 
 /** 検索結果から要素へ寄せるときの拡大率 (step2 Phase 7) */
 const REVEAL_ZOOM = 1.2;
@@ -107,6 +110,16 @@ type Props = {
   // 受信 swap の世代番号 (Phase 4e-3/4e-4)。同一 file.id のまま activeFile が受信で
   // 差し替わったとき、この値の増加を契機に React Flow の state を再 seed する。
   receiveEpoch?: number;
+  /**
+   * 外から呼べる口 (step3 Phase 3 S3-4a)。描かれている間は口を、外されるときは null を渡す。
+   * ヘッダ (undo・グループ化・PNG) と検索・property editor はこの口を通して canvas に触れる
+   */
+  onControls?: (controls: GraphEditorControls | null) => void;
+  /**
+   * 選ばれている要素 (property editor の対象) が変わった (S3-4a)。**中身が変わったときだけ**
+   * 呼ぶ。選択の正は React Flow にあり、これは写しである (設計 S3-4 の U1)
+   */
+  onSelectionChange?: (target: PropertyTarget | undefined) => void;
 };
 
 function GraphEditorInner({
@@ -126,6 +139,8 @@ function GraphEditorInner({
   graphKey,
   undoStateMap,
   receiveEpoch,
+  onControls,
+  onSelectionChange,
 }: Props) {
   const { screenToFlowPosition, getNodes, getEdges, setCenter } =
     useReactFlow();
@@ -172,26 +187,6 @@ function GraphEditorInner({
   // 出す — 既に 14 個ある GraphEditorProps をこのために増やす理由が無い
   const [imageError, setImageError] = useState<string | null>(null);
 
-  // 検索 (step2 Phase 7)。**状態をここに置く**のは、結果からグラフの要素を示すのに
-  // setNodes / setEdges / setCenter が要るからである。App へ持ち上げても、これらを
-  // 渡し直すことになるだけで得が無い。
-  //
-  // **シートや trunk/branch を切り替えると、この state は初期値に戻る** — App が
-  // `key={`${activeSheetId}/${branchId}`}` を渡しており、切り替えると此処ごと
-  // 再マウントされるからである。**窓も閉じる。**別のグラフへ移った時点で結果は
-  // 無効なので、それでよいと決めた (利用者判断 2026-09-20 → 見直しは step 3)。
-  // 捨てる effect を別に置く必要は無い (置いても再マウントが先で一度も発火しない)
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [searchHits, setSearchHits] = useState<SearchHit[]>([]);
-  // 「まだ引いていない」と「引いて 0 件」を分ける。同じ見た目にすると、開いた
-  // 瞬間に「見つかりません」と出る
-  const [searched, setSearched] = useState(false);
-
-  // property editor (step2 Phase 4 Q2)。**選択の観測経路がこれまで無かった** —
-  // `onSelectionChange` も `onNodeClick` も配線されておらず、選択は React Flow の
-  // nodes/edges にしか無い。そこから読む
-  const [propertyOpen, setPropertyOpen] = useState(false);
-
   // 常に最新の sheet / onSheetChange / deleted items を参照するための ref
   const sheetRef = useRef(activeSheet);
   sheetRef.current = activeSheet;
@@ -217,39 +212,47 @@ function GraphEditorInner({
    *
    * **node を優先する。**両方選ばれていることがあり得るが、editor は 1 つの要素の
    * 表である。ゴーストは対象外 — 消された要素のプロパティを編集させても行き先が無い。
+   * 選択の観測経路は React Flow の nodes/edges にしか無いので、そこから読む
    */
-  const propertyTarget = useMemo(() => {
+  const propertyTarget = useMemo((): PropertyTarget | undefined => {
     const node = nodes.find((n) => n.selected && !n.data?.ghost);
     if (node)
       return {
-        kind: 'node' as const,
+        kind: 'node',
         id: node.id,
         // **id をそのまま出さない** — UUID は人に読めない。本文か種別で呼ぶ
         title: String(node.data?.content || node.data?.label || 'ノード'),
         properties: node.data?.properties as
           | Record<string, unknown>
           | undefined,
+        addable: [],
       };
     const edge = edges.find((e) => e.selected && !e.data?.ghost);
-    if (edge)
+    if (edge) {
+      const properties = edge.data?.properties as
+        | Record<string, unknown>
+        | undefined;
       return {
-        kind: 'edge' as const,
+        kind: 'edge',
         id: edge.id,
         title: String(edge.label || '辺'),
-        properties: edge.data?.properties as
-          | Record<string, unknown>
-          | undefined,
+        properties,
+        // **候補は edge にしか無い** — 宣言を持つのは `EdgeKind` だけである
+        addable: addablePropertyNames(templates, properties),
       };
+    }
     return undefined;
-  }, [nodes, edges]);
+  }, [nodes, edges, templates]);
 
-  // **いま表示しているシートだけを引く** (仕様 searching.md「グラフ: 現在表示して
-  // いる sheet, あるいは branch」)。親が branch の projection を渡すので、ここを読むだけで
-  // 両方に効く
-  const handleSearch = useCallback((query: string, caseSensitive: boolean) => {
-    setSearchHits(searchSheet(sheetRef.current, query, { caseSensitive }));
-    setSearched(query !== '');
-  }, []);
+  // 選択の写しを外へ知らせる (S3-4a)。**中身が変わったときだけ** — nodes はドラッグの
+  // 間じゅう変わるので、毎回知らせると App がドラッグの各フレームで描き直す
+  const selectionKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    const key = propertyTargetKey(propertyTarget);
+    if (selectionKeyRef.current === key) return;
+    selectionKeyRef.current = key;
+    onSelectionChange?.(propertyTarget);
+  }, [propertyTarget, onSelectionChange]);
 
   // 結果の 1 件をグラフで示す (仕様「ダブル・クリックにより, グラフ内で対象を
   // ハイライト表示」)。**React Flow の選択に寄せる** — 差分の色 (diffType の緑/橙) と
@@ -714,6 +717,35 @@ function GraphEditorInner({
     void exportPng(getNodes(), fileNameRef.current, sheetRef.current.name);
   }, [getNodes]);
 
+  // 外から呼べる口 (S3-4a)。**口は描かれている間ずっと同じもの**にし、中身は最新を呼ぶ —
+  // 口が変わるたびに外へ知らせると、外 (App) が描き直すたびにまた口が変わる
+  const latest = {
+    undo,
+    redo,
+    groupSelectedNodes,
+    ungroupSelectedNodes,
+    handleExportPng,
+    handleReveal,
+    applyPropertyChange,
+  };
+  const latestRef = useRef(latest);
+  latestRef.current = latest;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 口は mount/unmount でだけ渡し直す (中身は latestRef)
+  useEffect(() => {
+    if (!onControls) return;
+    onControls({
+      undo: () => latestRef.current.undo(),
+      redo: () => latestRef.current.redo(),
+      groupSelected: () => latestRef.current.groupSelectedNodes(),
+      ungroupSelected: () => latestRef.current.ungroupSelectedNodes(),
+      exportPng: () => latestRef.current.handleExportPng(),
+      reveal: (hit) => latestRef.current.handleReveal(hit),
+      setProperty: (name, value) =>
+        latestRef.current.applyPropertyChange(name, value),
+    });
+    return () => onControls(null);
+  }, []);
+
   return (
     <EventDispatchContext.Provider value={{ dispatch, setDragging }}>
       {/* 画像の失敗はここ 1 つのダイアログに集める。ImageNode は React Flow が
@@ -774,159 +806,7 @@ function GraphEditorInner({
               <Background />
               <Controls />
               <MiniMap />
-              <Panel position="top-right">
-                {/* 検索の口 (step2 Phase 7)。仕様「画面右上に検索窓, あるいは
-                    検索ボタンで検索窓がポップアップ」の後者を採る — 常時出して
-                    いると、この狭い帯が更に狭くなる */}
-                {/* プロパティの口 (step2 Phase 4 Q2)。**選んだ要素に対して出す** —
-                    node と edge の両方で同じ操作になる形を採った (右クリックに足すと
-                    「ノードには右クリックが無い」非対称が残る) */}
-                <button
-                  type="button"
-                  onClick={() => setPropertyOpen((open) => !open)}
-                  title="プロパティ"
-                  style={{
-                    padding: '6px 12px',
-                    fontSize: 13,
-                    cursor: 'pointer',
-                    background: propertyOpen ? '#7c9ef8' : '#e0e0e0',
-                    color: propertyOpen ? '#fff' : '#333',
-                    border: 'none',
-                    borderRadius: 6,
-                    marginRight: 4,
-                  }}
-                >
-                  🏷
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSearchOpen((open) => !open)}
-                  title="このシートを検索"
-                  style={{
-                    padding: '6px 12px',
-                    fontSize: 13,
-                    cursor: 'pointer',
-                    background: searchOpen ? '#7c9ef8' : '#e0e0e0',
-                    color: searchOpen ? '#fff' : '#333',
-                    border: 'none',
-                    borderRadius: 6,
-                    marginRight: 8,
-                  }}
-                >
-                  🔍
-                </button>
-                <button
-                  type="button"
-                  onClick={undo}
-                  style={{
-                    padding: '6px 12px',
-                    fontSize: 13,
-                    cursor: 'pointer',
-                    background: '#e0e0e0',
-                    color: '#333',
-                    border: 'none',
-                    borderRadius: 6,
-                    marginRight: 4,
-                  }}
-                >
-                  Undo
-                </button>
-                <button
-                  type="button"
-                  onClick={redo}
-                  style={{
-                    padding: '6px 12px',
-                    fontSize: 13,
-                    cursor: 'pointer',
-                    background: '#e0e0e0',
-                    color: '#333',
-                    border: 'none',
-                    borderRadius: 6,
-                    marginRight: 8,
-                  }}
-                >
-                  Redo
-                </button>
-                <button
-                  type="button"
-                  onClick={groupSelectedNodes}
-                  style={{
-                    padding: '6px 12px',
-                    fontSize: 13,
-                    cursor: 'pointer',
-                    background: '#7c9ef8',
-                    color: '#fff',
-                    border: 'none',
-                    borderRadius: 6,
-                  }}
-                >
-                  グループ化
-                </button>
-                <button
-                  type="button"
-                  onClick={ungroupSelectedNodes}
-                  style={{
-                    padding: '6px 12px',
-                    fontSize: 13,
-                    cursor: 'pointer',
-                    background: '#7c9ef8',
-                    color: '#fff',
-                    border: 'none',
-                    borderRadius: 6,
-                    marginLeft: 4,
-                  }}
-                >
-                  グループ解除
-                </button>
-                <button
-                  type="button"
-                  onClick={handleExportPng}
-                  style={{
-                    padding: '6px 12px',
-                    fontSize: 13,
-                    cursor: 'pointer',
-                    background: '#e0e0e0',
-                    color: '#333',
-                    border: 'none',
-                    borderRadius: 6,
-                    marginLeft: 8,
-                  }}
-                >
-                  PNG
-                </button>
-              </Panel>
             </ReactFlow>
-            {propertyOpen && propertyTarget && (
-              <PropertyEditor
-                title={propertyTarget.title}
-                rows={propertyRows(propertyTarget.properties)}
-                // **候補は edge にしか無い** — 宣言を持つのは `EdgeKind` だけである
-                addable={
-                  propertyTarget.kind === 'edge'
-                    ? addablePropertyNames(templates, propertyTarget.properties)
-                    : []
-                }
-                onSet={applyPropertyChange}
-                onRemove={(name: string) =>
-                  applyPropertyChange(name, undefined)
-                }
-                readOnly={readOnly}
-                onClose={() => setPropertyOpen(false)}
-              />
-            )}
-            {searchOpen && (
-              <SearchPanel
-                onSearch={handleSearch}
-                hits={searchHits}
-                searched={searched}
-                onReveal={handleReveal}
-                onClose={() => {
-                  setSearchOpen(false);
-                  setSearchHits([]);
-                  setSearched(false);
-                }}
-              />
-            )}
             {nodeTypeMenu && (
               <NodeTypeMenu
                 position={nodeTypeMenu.screenPos}
