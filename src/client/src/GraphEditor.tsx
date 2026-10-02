@@ -32,11 +32,8 @@ import '@xyflow/react/dist/style.css';
 import type { FileId, Sheet } from '@conversensus/shared';
 import { AlertDialog } from './AlertDialog';
 import { EdgeContextMenu } from './EdgeContextMenu';
-import { EditableLabelEdge } from './EditableLabelEdge';
-import { EditableNode } from './EditableNode';
 import { EventDispatchContext } from './EventDispatchContext';
 import { type GraphEvent, makeEventBase } from './events/GraphEvent';
-import { GroupNode } from './GroupNode';
 import { contentOf, createChangeGate } from './graph/changeGate';
 import { deletionTargets } from './graph/deletion';
 import {
@@ -45,6 +42,7 @@ import {
   propertyTargetKey,
 } from './graph/editorControls';
 import { exportPng } from './graph/exportPng';
+import { FLOW_EDGE_TYPES, FLOW_NODE_TYPES } from './graph/flowTypes';
 import {
   canConnectByTemplate,
   canReconnectByTemplate,
@@ -57,8 +55,6 @@ import {
   fromFlowNodes,
   GROUP_NODE_TYPE,
   IMAGE_NODE_TYPE,
-  RF_GROUP_NODE_TYPE,
-  RF_IMAGE_NODE_TYPE,
   toFlowAndGhostEdges,
   toFlowAndGhostNodes,
 } from './graphTransform';
@@ -69,7 +65,6 @@ import { useGroupNodes } from './hooks/useGroupNodes';
 import { useImageIntake } from './hooks/useImageIntake';
 import { useNodeDragTracking } from './hooks/useNodeDragTracking';
 import { useNodeTypeMenu } from './hooks/useNodeTypeMenu';
-import { ImageNode } from './ImageNode';
 import { ImageErrorProvider } from './images/imageErrorContext';
 import { NodeCreationContext } from './NodeCreationContext';
 import type { NodeTypeOption } from './NodeTypeMenu';
@@ -404,16 +399,6 @@ function GraphEditorInner({
       edgeLayouts,
     });
   }, [nodes, edges, changeGate]);
-
-  const nodeTypes = useMemo(
-    () => ({
-      editableNode: EditableNode,
-      [RF_GROUP_NODE_TYPE]: GroupNode,
-      [RF_IMAGE_NODE_TYPE]: ImageNode,
-    }),
-    [],
-  );
-  const edgeTypes = useMemo(() => ({ editableLabel: EditableLabelEdge }), []);
 
   // --- Event store ---
   // dispatch された event を操作ログへ流す tap (W2)。tap はファイル単位で App が保持し
@@ -761,8 +746,8 @@ function GraphEditorInner({
             <ReactFlow
               nodes={nodes}
               edges={edges}
-              nodeTypes={nodeTypes}
-              edgeTypes={edgeTypes}
+              nodeTypes={FLOW_NODE_TYPES}
+              edgeTypes={FLOW_EDGE_TYPES}
               onNodesChange={handleNodesChange}
               onEdgesChange={handleEdgesChange}
               connectionMode={ConnectionMode.Loose}

@@ -41,6 +41,7 @@ import { setLocalBackend } from '../api';
 import { logout, setAuthBackend } from '../atproto/client';
 import { passwordAuth } from '../atproto/passwordAuth';
 import type { LocalBackend } from '../local/backend';
+import { broadcastingBackend } from '../local/localChanges';
 import { storeBackend } from '../local/storeBackend';
 import { createFakePds, type FakePds } from './fakePds';
 
@@ -115,7 +116,14 @@ export async function createAppWorld(): Promise<AppWorld> {
       const store = new LocalStore(
         new EventStore(new BunSqliteDriver(IN_MEMORY)),
       );
-      device = { store, backend: storeBackend(store), storage: {} };
+      // 本番 (`main.tsx`) と同じく書き込みを知らせる層で包む。別のタブへは送らない (端末を
+      // 切り替えて描くので、同じプロセスの BroadcastChannel が端末をまたいで届いてしまう)。
+      // このタブの中の知らせ (見るだけの pane の読み直し, S3-5) だけが出る
+      device = {
+        store,
+        backend: broadcastingBackend(storeBackend(store), null),
+        storage: {},
+      };
       devices.set(deviceName, device);
     }
     current = device;
