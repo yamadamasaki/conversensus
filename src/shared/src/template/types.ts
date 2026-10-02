@@ -9,6 +9,19 @@ export const EdgeKindIdSchema = z.string().min(1).brand<'EdgeKindId'>();
 export type EdgeKindId = z.infer<typeof EdgeKindIdSchema>;
 
 /**
+ * edge の端の「任意の node」(step3 Phase 4, 仕様 template graph)。template graph で label の無い node を
+ * 端に持つ edge は、適用先で**この template の種別を持たない任意の node** と繋がる種類になる。
+ * node の種別 id としては使えない (`TemplateSchema` が弾く)
+ */
+export const ANY_NODE_KIND = '*' as NodeKindId;
+
+/**
+ * 適用先で要素を作るときに置くプロパティの既定値 (step3 Phase 4, 仕様: template 側の property の値は
+ * 適用先のデフォルト値になる)。名前は名前空間の規約に従う (`PropertyName`)
+ */
+const DefaultsSchema = z.record(PropertyNameSchema, z.unknown()).default({});
+
+/**
  * node の種別。**同一性は `id` であって `label` ではない。**
  *
  * op に載るのは `label` (人が読む文字列) だが、接続規則を label で書くと
@@ -19,14 +32,18 @@ export const NodeKindSchema = z.object({
   /** ノードに書かれる種別名。`node.setLabel` の値になる */
   label: z.string().min(1),
   description: z.string().optional(),
+  defaults: DefaultsSchema,
 });
 export type NodeKind = z.infer<typeof NodeKindSchema>;
 
 /** edge の種別。接続可能な端点の種別を `from` / `to` に id で持つ */
 export const EdgeKindSchema = z.object({
   id: EdgeKindIdSchema,
-  /** エッジに書かれる種別名。`edge.setLabel` の値になる */
-  label: z.string().min(1),
+  /**
+   * エッジに書かれる種別名。`edge.setLabel` の値になる。**空を許す** — template graph で label の無い
+   * edge を種別の node の間に引いたものは「この組は繋いでよい」だけを表す (step3 Phase 4)
+   */
+  label: z.string(),
   from: z.array(NodeKindIdSchema).min(1),
   to: z.array(NodeKindIdSchema).min(1),
   /**
@@ -34,6 +51,7 @@ export const EdgeKindSchema = z.object({
    * これを食う property editor は Phase 4 が作る (設計 事実 D)。
    */
   properties: z.array(PropertyNameSchema).default([]),
+  defaults: DefaultsSchema,
 });
 export type EdgeKind = z.infer<typeof EdgeKindSchema>;
 
@@ -87,7 +105,20 @@ export const TemplateSchema = z
       }
     }
 
-    const known = new Set<string>(t.nodeKinds.map((k) => k.id));
+    for (const [i, nk] of t.nodeKinds.entries()) {
+      if (nk.id === ANY_NODE_KIND) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['nodeKinds', i, 'id'],
+          message: `「任意」の印 (${ANY_NODE_KIND}) は node の種別 id にできない`,
+        });
+      }
+    }
+    // edge の端は、定義した種別か「任意」
+    const known = new Set<string>([
+      ...t.nodeKinds.map((k) => k.id),
+      ANY_NODE_KIND,
+    ]);
     for (const [i, ek] of t.edgeKinds.entries()) {
       for (const side of ['from', 'to'] as const) {
         for (const [j, ref] of ek[side].entries()) {

@@ -207,3 +207,16 @@ resolveTemplates(refs: TemplateRef[] | undefined, trunk: Batch[], fileId: FileId
 - App のシート追加は `addSheet({ name, templateIds, properties })` に広げた (画面の口は S4-1b / S4-2b)
 
 単体 1865 件・App 結合 27 件が緑。
+
+### S4-1a: template の型を広げる・template graph の読み替え・`TemplateRef` の解決 (2026-10-03)
+
+- `Template` を広げた: edge の端の「任意」(`ANY_NODE_KIND`)、node / edge の種類の既定値 (`defaults`)、
+  edge の種類の label の空 (label の無い edge は「この組は繋いでよい」だけを表す)
+- `edgeKindCandidates`: 種別を持たない端は「任意」に当たる。両端とも持たなければ候補は無い。
+  **`isTemplateEdge` (繋げない組の判定) は変えていない** — 任意の端の edge は種類を自動で決めるだけで、
+  普通の接続を塞がない
+- `TEMPLATE_SHEET_KIND` (`app.conversensus.template`)、`templateIdOf` (`template.<SheetId>`, Q2)、
+  `templateFromSheet`、`resolveTemplates` (切断面で読む。作り込みの id は S4-1c まで作り込みから引く)
+
+単体 1875 件 (読み替えの性質 4・例 3、解決 3) が緑。任意の端を無視する・説明書きの edge も種類にする・
+切断面を無視する、の各変異で落ちる。

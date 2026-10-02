@@ -25,6 +25,12 @@ export type SheetKind = string;
 export const METAGRAPH_SHEET_KIND: SheetKind = 'app.conversensus.metagraph';
 
 /**
+ * template graph の種別 (step3 Phase 4, 仕様 template graph)。この sheet の node / edge の label が、
+ * それを当てたシートで使える node / edge の種類になる (`templateFromSheet`)
+ */
+export const TEMPLATE_SHEET_KIND: SheetKind = 'app.conversensus.template';
+
+/**
  * シートの種別を読む。**置かれていない・文字列でないものは `undefined`** (= ただの sheet)。
  *
  * 値を検証して例外にしないのは、相手が新しい種別の書き方をしていても、こちらでは

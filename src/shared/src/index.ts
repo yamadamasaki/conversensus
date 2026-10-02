@@ -23,6 +23,7 @@ export * from './events/unified';
 export * from './migrations';
 export * from './schemas';
 export * from './template/fold';
+export * from './template/fromSheet';
 export * from './template/kind';
 export * from './template/registry';
 export * from './template/toulmin';
