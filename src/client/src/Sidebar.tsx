@@ -177,8 +177,11 @@ export function Sidebar({
   return (
     <aside
       style={{
-        width: 240,
-        borderRight: '1px solid #ddd',
+        // 幅と境の線は外枠 (`SidePanel`) が持つ (step3 Phase 3 S3-4b)
+        flex: 1,
+        minHeight: 0,
+        minWidth: 0,
+        boxSizing: 'border-box',
         display: 'flex',
         flexDirection: 'column',
         padding: 12,

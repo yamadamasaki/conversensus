@@ -84,7 +84,15 @@ type Props = {
    * **見るのは止めない** — 読むための操作は残す、という S6 の判断に揃える
    */
   readOnly?: boolean;
-  onClose: () => void;
+  /** 閉じるボタンの働き。省くとボタンを出さない (右サイドバーの pane は畳むのはサイドバー側) */
+  onClose?: () => void;
+  /**
+   * 置き方 (step3 Phase 3 S3-4b)。`floating` はボディの上に浮かべる、`docked` は右サイドバーの
+   * pane に収める。仕様は両方を併用する (property editor: merger では右サイドバーに 3 つ載らない)
+   */
+  placement?: 'floating' | 'docked';
+  /** 領域の名前。同じ画面に 2 つ出るので、呼び分けられるようにする */
+  label?: string;
 };
 
 export function PropertyEditor({
@@ -95,6 +103,8 @@ export function PropertyEditor({
   onRemove,
   readOnly = false,
   onClose,
+  placement = 'floating',
+  label = 'プロパティ',
 }: Props) {
   const [newName, setNewName] = useState('');
   const [newValue, setNewValue] = useState('');
@@ -105,22 +115,26 @@ export function PropertyEditor({
 
   return (
     <section
-      aria-label="プロパティ"
-      style={{
-        position: 'absolute',
-        top: 12,
-        right: 12,
-        width: PANEL_WIDTH,
-        maxWidth: 'calc(100vw - 24px)',
-        maxHeight: PANEL_MAX_HEIGHT,
-        overflowY: 'auto',
-        background: '#fff',
-        border: '1px solid #ccc',
-        borderRadius: 8,
-        boxShadow: '0 4px 24px rgba(0,0,0,0.2)',
-        zIndex: PROPERTY_EDITOR_Z_INDEX,
-        fontSize: 13,
-      }}
+      aria-label={label}
+      style={
+        placement === 'docked'
+          ? { fontSize: 13, overflowY: 'auto', minHeight: 0 }
+          : {
+              position: 'absolute',
+              top: 12,
+              right: 12,
+              width: PANEL_WIDTH,
+              maxWidth: 'calc(100vw - 24px)',
+              maxHeight: PANEL_MAX_HEIGHT,
+              overflowY: 'auto',
+              background: '#fff',
+              border: '1px solid #ccc',
+              borderRadius: 8,
+              boxShadow: '0 4px 24px rgba(0,0,0,0.2)',
+              zIndex: PROPERTY_EDITOR_Z_INDEX,
+              fontSize: 13,
+            }
+      }
     >
       <div
         style={{
@@ -141,21 +155,23 @@ export function PropertyEditor({
         >
           {title}
         </strong>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="プロパティを閉じる"
-          style={{
-            padding: '2px 8px',
-            cursor: 'pointer',
-            background: 'none',
-            border: '1px solid #ccc',
-            borderRadius: 4,
-            flexShrink: 0,
-          }}
-        >
-          ✕
-        </button>
+        {onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="プロパティを閉じる"
+            style={{
+              padding: '2px 8px',
+              cursor: 'pointer',
+              background: 'none',
+              border: '1px solid #ccc',
+              borderRadius: 4,
+              flexShrink: 0,
+            }}
+          >
+            ✕
+          </button>
+        )}
       </div>
 
       {rows.length === 0 ? (

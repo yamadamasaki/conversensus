@@ -29,6 +29,7 @@ import {
   openFileNamed,
   participate,
   renderedNodeCount,
+  selectFirstNode,
   syncNow,
   WIRING_TIMEOUT,
   waitForResumedSession,
@@ -624,9 +625,7 @@ describe('App 結合: ヘッダ (step3 Phase 3 S3-4a)', () => {
   test('🏷 を on にしてノードを選ぶと property editor が出て、足したプロパティが op-log に載る', async () => {
     const user = await soloFileWithOneNode();
     await user.click(within(header()).getByTitle('プロパティ'));
-    const node = document.querySelector('.react-flow__node');
-    if (!node) throw new Error('ノードが描かれていない');
-    await user.click(node);
+    selectFirstNode();
     const editor = await screen.findByRole(
       'region',
       { name: 'プロパティ' },
@@ -662,5 +661,57 @@ describe('App 結合: ヘッダ (step3 Phase 3 S3-4a)', () => {
     await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
     // 要素そのものを toBeNull に渡さない — 落ちたとき bun が DOM 全体を差分に出そうとして膨れる
     expect(screen.queryByRole('region', { name: '検索' }) === null).toBe(true);
+  });
+});
+
+describe('App 結合: 右サイドバー (step3 Phase 3 S3-4b)', () => {
+  test('右サイドバーの property editor で足したプロパティが op-log に載り、ボディ内のものにも出る', async () => {
+    await world.activate('solo');
+    render(<App />);
+    const user = userEvent.setup();
+    await createFile(user, FILE_NAME);
+    await addNode(user);
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+
+    await user.click(
+      screen.getByRole('button', { name: '右サイドバーを広げる' }),
+    );
+    selectFirstNode();
+    const docked = await screen.findByRole(
+      'region',
+      { name: '詳細のプロパティ' },
+      WIRING_TIMEOUT,
+    );
+    await user.type(
+      within(docked).getByLabelText('追加するプロパティの名前'),
+      'owner',
+    );
+    await user.type(
+      within(docked).getByLabelText('追加するプロパティの値'),
+      'alice',
+    );
+    await user.click(within(docked).getByRole('button', { name: '追加' }));
+
+    const fileId = world.localStore().listFiles()[0]?.id as FileId;
+    await waitFor(() => {
+      const file = projectFile(world.localStore().getBatches(fileId), fileId);
+      expect(file.sheets[0]?.nodes[0]?.properties).toEqual({ owner: 'alice' });
+    }, WIRING_TIMEOUT);
+
+    // 併用: ボディ内の property editor も同じ選択の同じ値を出す
+    await user.click(
+      within(screen.getByRole('toolbar', { name: 'グラフの操作' })).getByTitle(
+        'プロパティ',
+      ),
+    );
+    const floating = await screen.findByRole('region', { name: 'プロパティ' });
+    await waitFor(
+      () =>
+        expect(within(floating).getByLabelText('owner の値')).toHaveProperty(
+          'value',
+          'alice',
+        ),
+      WIRING_TIMEOUT,
+    );
   });
 });

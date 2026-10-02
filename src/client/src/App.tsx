@@ -36,6 +36,7 @@ import { useGraphPanels } from './hooks/useGraphPanels';
 import { useParticipation } from './hooks/useParticipation';
 import { useRemoteSyncQueue } from './hooks/useRemoteSyncQueue';
 import { useRosterSource } from './hooks/useRosterSource';
+import { useSidePanels } from './hooks/useSidePanels';
 import { useTabNavigation } from './hooks/useTabNavigation';
 import { useTabs } from './hooks/useTabs';
 import { InputDialog } from './InputDialog';
@@ -46,9 +47,11 @@ import { ParticipateDialog } from './ParticipateDialog';
 import { ParticipationHistoryDialog } from './ParticipationHistoryDialog';
 import { PropertyEditor } from './PropertyEditor';
 import { propertyRows } from './property/propertyRows';
+import { RightSidebar } from './RightSidebar';
 import { ReadOnlyProvider } from './readOnlyContext';
 import { SearchPanel } from './SearchPanel';
 import { Sidebar } from './Sidebar';
+import { SidePanel } from './SidePanel';
 import { accumulateArrivedForks, NO_ARRIVED_FORKS } from './sync/forkArrival';
 import {
   accumulateOverwrites,
@@ -352,6 +355,8 @@ export default function App() {
       : null;
 
   const viewKey = viewAddress ? addressKey(viewAddress) : null;
+  // 左右のサイドバーの幅と開閉 (S3-4b)。端末ごとの好みなので localStorage に置く
+  const sidePanels = useSidePanels();
   // ヘッダが開閉する窓と、canvas の口・選択の写し (step3 Phase 3 S3-4a)
   const panels = useGraphPanels(viewKey);
   const readOnly = fileOps.obligation?.fileId === fileOps.activeFile?.id;
@@ -442,54 +447,62 @@ export default function App() {
 
   return (
     <div style={{ display: 'flex', height: '100vh', fontFamily: 'sans-serif' }}>
-      <Sidebar
-        files={fileOps.files}
-        activeFile={fileOps.activeFile}
-        activeSheetId={fileOps.activeSheetId}
-        expandedFileIds={fileOps.expandedFileIds}
-        newFileName={fileOps.newFileName}
-        popupTarget={fileOps.popupTarget}
-        sharing={fileOps.sharing}
-        onNewFileNameChange={fileOps.setNewFileName}
-        onCreateFile={fileOps.handleCreate}
-        onImportFile={fileOps.handleImportFile}
-        onToggleExpand={fileOps.toggleExpand}
-        onOpenFile={fileOps.openFile}
-        onSelectSheet={(sheetId) => openSheetTab(sheetId, null)}
-        onAddSheet={handleAddSheet}
-        onSetPopupTarget={fileOps.setPopupTarget}
-        onSaveFileSettings={fileOps.handleSaveFileSettings}
-        onDeleteFile={fileOps.handleDeleteFile}
-        onExportFile={fileOps.handleExportFile}
-        onSaveSheetSettings={fileOps.handleSaveSheetSettings}
-        onDeleteSheet={fileOps.handleDeleteSheet}
-        sheetBranches={branchOps.sheetBranches}
-        activeBranchId={branchOps.activeBranch?.id ?? null}
-        onSelectBranch={(sheetId, selected) =>
-          openSheetTab(sheetId, selected?.id ?? null)
-        }
-        onCreateBranch={branchOps.handleCreateBranch}
-        onMergeBranch={branchOps.handleMergeBranch}
-        onCloseBranch={branchOps.handleCloseBranch}
-        onDeleteBranch={branchOps.handleDeleteBranch}
-        atprotoSession={atprotoSession}
-        onAtprotoLogin={() => setLoginDialogOpen(true)}
-        onAtprotoLogout={atprotoLogout}
-        remoteQueue={remoteQueue}
-        onSyncNow={syncNow}
-        // 名簿は DID 単位なので、ログイン中でなければ何も出せない
-        onOpenInvitation={
-          atprotoSession
-            ? (fileId) => {
-                setInvitationFileId(fileId as FileId);
-                participation.refresh(fileId as FileId);
-              }
-            : undefined
-        }
-        onOpenParticipate={
-          atprotoSession ? () => setParticipateOpen(true) : undefined
-        }
-      />
+      <SidePanel
+        side="left"
+        label="左サイドバー"
+        state={sidePanels.state.left}
+        onResize={(width) => sidePanels.setWidth('left', width)}
+        onToggle={() => sidePanels.toggle('left')}
+      >
+        <Sidebar
+          files={fileOps.files}
+          activeFile={fileOps.activeFile}
+          activeSheetId={fileOps.activeSheetId}
+          expandedFileIds={fileOps.expandedFileIds}
+          newFileName={fileOps.newFileName}
+          popupTarget={fileOps.popupTarget}
+          sharing={fileOps.sharing}
+          onNewFileNameChange={fileOps.setNewFileName}
+          onCreateFile={fileOps.handleCreate}
+          onImportFile={fileOps.handleImportFile}
+          onToggleExpand={fileOps.toggleExpand}
+          onOpenFile={fileOps.openFile}
+          onSelectSheet={(sheetId) => openSheetTab(sheetId, null)}
+          onAddSheet={handleAddSheet}
+          onSetPopupTarget={fileOps.setPopupTarget}
+          onSaveFileSettings={fileOps.handleSaveFileSettings}
+          onDeleteFile={fileOps.handleDeleteFile}
+          onExportFile={fileOps.handleExportFile}
+          onSaveSheetSettings={fileOps.handleSaveSheetSettings}
+          onDeleteSheet={fileOps.handleDeleteSheet}
+          sheetBranches={branchOps.sheetBranches}
+          activeBranchId={branchOps.activeBranch?.id ?? null}
+          onSelectBranch={(sheetId, selected) =>
+            openSheetTab(sheetId, selected?.id ?? null)
+          }
+          onCreateBranch={branchOps.handleCreateBranch}
+          onMergeBranch={branchOps.handleMergeBranch}
+          onCloseBranch={branchOps.handleCloseBranch}
+          onDeleteBranch={branchOps.handleDeleteBranch}
+          atprotoSession={atprotoSession}
+          onAtprotoLogin={() => setLoginDialogOpen(true)}
+          onAtprotoLogout={atprotoLogout}
+          remoteQueue={remoteQueue}
+          onSyncNow={syncNow}
+          // 名簿は DID 単位なので、ログイン中でなければ何も出せない
+          onOpenInvitation={
+            atprotoSession
+              ? (fileId) => {
+                  setInvitationFileId(fileId as FileId);
+                  participation.refresh(fileId as FileId);
+                }
+              : undefined
+          }
+          onOpenParticipate={
+            atprotoSession ? () => setParticipateOpen(true) : undefined
+          }
+        />
+      </SidePanel>
       {invitationFileId && (
         <InvitationDialog
           fileName={
@@ -669,6 +682,21 @@ export default function App() {
           )}
         </div>
       </main>
+      <SidePanel
+        side="right"
+        label="右サイドバー"
+        state={sidePanels.state.right}
+        onResize={(width) => sidePanels.setWidth('right', width)}
+        onToggle={() => sidePanels.toggle('right')}
+      >
+        <RightSidebar
+          selection={viewAddress ? panels.selection : undefined}
+          onSetProperty={(name, value) =>
+            panels.controls?.setProperty(name, value)
+          }
+          readOnly={readOnly}
+        />
+      </SidePanel>
       {branchOps.commitDialogOpen && (
         <CommitDialog
           changes={branchOps.pendingChanges}

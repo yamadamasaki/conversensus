@@ -165,6 +165,19 @@ export async function addNode(user: UserEvent, appearance = 'Markdown') {
   await user.click(await screen.findByRole('button', { name: appearance }));
 }
 
+/**
+ * 描かれている最初のノードを選ぶ。
+ *
+ * **`user.click` を使わない。**pointer の押下から React Flow のドラッグ (d3-drag) が始まり、
+ * happy-dom の mousedown は `view` を持たないので d3-drag が例外を出す (テストは通るが雑音になる)。
+ * 選択は click だけで起きるので、click だけを送る
+ */
+export function selectFirstNode() {
+  const node = document.querySelector('.react-flow__node');
+  if (!node) throw new Error('appDriver: ノードが描かれていない');
+  fireEvent.click(node);
+}
+
 /** **画面に描かれている**ノードの数。op-log や state ではなく DOM を数える */
 export function renderedNodeCount(): number {
   return document.querySelectorAll('.react-flow__node').length;

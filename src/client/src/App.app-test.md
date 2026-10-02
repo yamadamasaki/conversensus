@@ -227,3 +227,21 @@ editor を `GraphEditor` の外へ出した。canvas に触れる操作は `Grap
 **要素を `toBeNull()` に渡さない。**落ちたときに bun が要素を差分に出そうとし、React の fiber を
 辿って DOM 全体を展開するので、CPU を使い切ったまま終わらない (S3-4a の変異で実際に起きた)。
 `queryBy… === null` を `toBe(true)` で見る
+
+## 右サイドバー (step3 Phase 3 S3-4b)
+
+### なぜ
+
+右サイドバーの property editor は、ボディ内のものと**同じ選択の写しを読み、同じ口で書く**
+(仕様: 両方を併用する)。どちらか片方だけが配線されていても見た目は出るので、書いた結果が op-log に
+載ることと、もう一方にも同じ値が出ることを見る
+
+### テストケース
+
+- **右サイドバーの property editor で足したプロパティが op-log に載り、ボディ内のものにも出る**
+
+変異で確かめたこと: 右サイドバーの書き込みを口に繋がないと落ちる。
+
+**ノードは `selectFirstNode` (click だけ) で選ぶ。**`user.click` は pointer の押下から React Flow の
+ドラッグ (d3-drag) を始め、happy-dom の mousedown が `view` を持たないので d3-drag が例外を出す。
+テストは通るが、出力に例外が並ぶ
