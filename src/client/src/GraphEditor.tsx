@@ -29,7 +29,7 @@ import {
 } from '@xyflow/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import '@xyflow/react/dist/style.css';
-import type { GraphFile } from '@conversensus/shared';
+import type { FileId, Sheet } from '@conversensus/shared';
 import { AlertDialog } from './AlertDialog';
 import { EdgeContextMenu } from './EdgeContextMenu';
 import { EditableLabelEdge } from './EditableLabelEdge';
@@ -80,9 +80,17 @@ const REVEAL_ZOOM = 1.2;
 /** 寄せるのにかける時間。一瞬で飛ぶと、どこからどこへ動いたのか分からない */
 const REVEAL_DURATION_MS = 400;
 type Props = {
-  file: GraphFile;
-  activeSheetId: SheetId;
-  onChange: (file: GraphFile) => void;
+  /**
+   * 表示するシート (step3 Phase 3 S3-2)。**File 全体は受け取らない** — 以前は File を受け取り
+   * File を返していたので、親は「開いている File の state」を 1 つ持つしかなく、branch を
+   * 見るにもその state のシートを差し替えるしかなかった (設計 F1)
+   */
+  sheet: Sheet;
+  /** 再 seed の契機と PNG のファイル名にだけ使う */
+  fileId: FileId;
+  fileName: string;
+  /** canvas の中身が変わったときに、そのシートを返す */
+  onSheetChange: (sheet: Sheet) => void;
   // ファイル単位の操作ログ tap (W3c1)。App から渡され content 編集を op-log へ流す。
   // sheetId は content batch へ付与される (W3c2)。
   syncRecord: (event: GraphEvent, sheetId?: SheetId) => void;
@@ -102,9 +110,10 @@ type Props = {
 };
 
 function GraphEditorInner({
-  file,
-  activeSheetId,
-  onChange,
+  sheet: activeSheet,
+  fileId,
+  fileName,
+  onSheetChange,
   syncRecord,
   addedNodeIds,
   updatedNodeIds,
@@ -123,13 +132,12 @@ function GraphEditorInner({
   // 再参加した後、同期が済むまでは編集させない (step2 Phase 2 S6)。
   // **props ではなく context で受ける** — 途中の層はこの値に用が無い
   const readOnly = useReadOnly();
-  const activeSheet = file.sheets.find((s) => s.id === activeSheetId);
 
   // このシートに当たっている template。**当たっていなければ空**で、空であることが
   // 「種別の段を出さない」「接続に制約をかけない」の両方の根拠になる (設計 D1/D3/D5)
   const templates = useMemo(
-    () => templatesOf(activeSheet?.templateIds),
-    [activeSheet?.templateIds],
+    () => templatesOf(activeSheet.templateIds),
+    [activeSheet.templateIds],
   );
   const nodeKinds = useMemo(() => nodeKindsOf(templates), [templates]);
 
@@ -184,13 +192,13 @@ function GraphEditorInner({
   // nodes/edges にしか無い。そこから読む
   const [propertyOpen, setPropertyOpen] = useState(false);
 
-  // 常に最新の file / activeSheetId / onChange / deleted items を参照するための ref
-  const fileRef = useRef(file);
-  fileRef.current = file;
-  const activeSheetIdRef = useRef(activeSheetId);
-  activeSheetIdRef.current = activeSheetId;
-  const onChangeRef = useRef(onChange);
-  onChangeRef.current = onChange;
+  // 常に最新の sheet / onSheetChange / deleted items を参照するための ref
+  const sheetRef = useRef(activeSheet);
+  sheetRef.current = activeSheet;
+  const fileNameRef = useRef(fileName);
+  fileNameRef.current = fileName;
+  const onSheetChangeRef = useRef(onSheetChange);
+  onSheetChangeRef.current = onSheetChange;
   const deletedNodesRef = useRef(deletedNodes);
   deletedNodesRef.current = deletedNodes;
   const deletedEdgesRef = useRef(deletedEdges);
@@ -236,13 +244,10 @@ function GraphEditorInner({
   }, [nodes, edges]);
 
   // **いま表示しているシートだけを引く** (仕様 searching.md「グラフ: 現在表示して
-  // いる sheet, あるいは branch」)。branch を開くと activeFile.sheets の当該シートが
-  // branch の projection に差し替わるので、ここを読むだけで両方に効く
+  // いる sheet, あるいは branch」)。親が branch の projection を渡すので、ここを読むだけで
+  // 両方に効く
   const handleSearch = useCallback((query: string, caseSensitive: boolean) => {
-    const sheet = fileRef.current.sheets.find(
-      (s) => s.id === activeSheetIdRef.current,
-    );
-    setSearchHits(sheet ? searchSheet(sheet, query, { caseSensitive }) : []);
+    setSearchHits(searchSheet(sheetRef.current, query, { caseSensitive }));
     setSearched(query !== '');
   }, []);
 
@@ -275,27 +280,25 @@ function GraphEditorInner({
     [getNodes, getEdges, setCenter, setNodes, setEdges],
   );
 
-  // file.id / activeSheetId が変わったとき、および受信 swap (receiveEpoch の増加,
+  // fileId / シートが変わったとき、および受信 swap (receiveEpoch の増加,
   // Phase 4e-3) のとき React Flow の state をリセットする。受信 swap は file.id が
   // 同一のままファイル内容が差し替わるため、epoch を依存に入れないと画面に出ない
   // (4e-4 実機で発見)。swap は reprojectAfterReceive が「編集中でない・pending 0」を
   // 保証した後にしか起きないので、ここで無条件に再 seed してよい。
-  // biome-ignore lint/correctness/useExhaustiveDependencies: file.id / activeSheetId / receiveEpoch の変化のみをトリガーにする意図的な設計
+  // biome-ignore lint/correctness/useExhaustiveDependencies: fileId / シート / receiveEpoch の変化のみをトリガーにする意図的な設計
   useEffect(() => {
-    const sheet = fileRef.current.sheets.find(
-      (s) => s.id === activeSheetIdRef.current,
-    );
+    const sheet = sheetRef.current;
     const seededNodes = toFlowAndGhostNodes(
-      sheet?.nodes ?? [],
-      sheet?.layouts ?? [],
+      sheet.nodes,
+      sheet.layouts ?? [],
       deletedNodesRef.current ?? [],
       deletedNodeLayoutsRef.current ?? [],
       addedNodeIds,
       updatedNodeIds,
     );
     const seededEdges = toFlowAndGhostEdges(
-      sheet?.edges ?? [],
-      sheet?.edgeLayouts ?? [],
+      sheet.edges,
+      sheet.edgeLayouts ?? [],
       deletedEdgesRef.current ?? [],
       deletedEdgeLayoutsRef.current ?? [],
       new Set((deletedNodesRef.current ?? []).map((n) => n.id)),
@@ -306,7 +309,7 @@ function GraphEditorInner({
     changeGate.seed(contentOf(seededNodes, seededEdges));
     setNodes(seededNodes);
     setEdges(seededEdges);
-  }, [file.id, activeSheetId, receiveEpoch, setNodes, setEdges]);
+  }, [fileId, activeSheet.id, receiveEpoch, setNodes, setEdges]);
 
   // コンフリクト状態が変わったらノード/エッジのスタイルだけ更新。
   // nodes/edges が変わるので onChange の effect は走るが、中身は変わらないので
@@ -384,20 +387,18 @@ function GraphEditorInner({
   useEffect(() => {
     const content = contentOf(nodes, edges);
     if (!changeGate.admit(content)) return;
-    const currentSheetId = activeSheetIdRef.current;
     const {
       nodes: graphNodes,
       layouts,
       edges: graphEdges,
       edgeLayouts,
     } = content;
-    onChangeRef.current({
-      ...fileRef.current,
-      sheets: fileRef.current.sheets.map((s) =>
-        s.id === currentSheetId
-          ? { ...s, nodes: graphNodes, layouts, edges: graphEdges, edgeLayouts }
-          : s,
-      ),
+    onSheetChangeRef.current({
+      ...sheetRef.current,
+      nodes: graphNodes,
+      layouts,
+      edges: graphEdges,
+      edgeLayouts,
     });
   }, [nodes, edges, changeGate]);
 
@@ -416,8 +417,8 @@ function GraphEditorInner({
   // syncRecord として渡される (W3c1: content と structure が単一 tap を共有)。
   // content 編集はこの GraphEditor が表示する単一シートに属すため activeSheetId を付与する (W3c2)。
   const recordContent = useCallback(
-    (event: GraphEvent) => syncRecord(event, activeSheetId),
-    [syncRecord, activeSheetId],
+    (event: GraphEvent) => syncRecord(event, activeSheet.id),
+    [syncRecord, activeSheet.id],
   );
   const { dispatch, undo, redo, setDragging, exportState, importState } =
     useEventStore(nodes, edges, setNodes, setEdges, recordContent);
@@ -710,10 +711,7 @@ function GraphEditorInner({
   });
 
   const handleExportPng = useCallback(() => {
-    const sheetName =
-      fileRef.current.sheets.find((s) => s.id === activeSheetIdRef.current)
-        ?.name ?? 'sheet';
-    void exportPng(getNodes(), fileRef.current.name, sheetName);
+    void exportPng(getNodes(), fileNameRef.current, sheetRef.current.name);
   }, [getNodes]);
 
   return (

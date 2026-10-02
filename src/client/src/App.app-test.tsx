@@ -377,3 +377,81 @@ describe('App 結合: 同じブラウザの別のタブの書き込み (step3 Ph
     }, WIRING_TIMEOUT);
   });
 });
+
+/**
+ * step3 Phase 3 S3-2 の網。branch を開くと、以前は `activeFile` のシートを branch の中身で
+ * 差し替え、trunk を退避して戻るときに復元していた (設計 F1)。S3-2 でこの「化け」を撤去する
+ * ので、**撤去の前に**、それが守っていた振る舞いを画面の側から固定しておく
+ */
+describe('App 結合: branch の出入りで trunk と branch が混ざらない (step3 Phase 3 S3-2)', () => {
+  const TRUNK_SHEET = 'Sheet 1';
+
+  /** 1 端末・未ログインで File と branch を作り、branch を開いてノードを 1 つ置く */
+  async function branchWithOneNode() {
+    await world.activate('solo');
+    render(<App />);
+    const user = userEvent.setup();
+    await createFile(user, FILE_NAME);
+    await createBranch(user, BRANCH_NAME);
+    await openBranch(user, BRANCH_NAME);
+    await addNode(user);
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+    return user;
+  }
+
+  test('trunk に戻ると branch のノードは出ず、branch を開き直すと出る', async () => {
+    const user = await branchWithOneNode();
+
+    await user.click(screen.getByRole('button', { name: TRUNK_SHEET }));
+    await waitFor(() => expect(renderedNodeCount()).toBe(0), WIRING_TIMEOUT);
+
+    await openBranch(user, BRANCH_NAME);
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+  });
+
+  test('branch を開いたままシートを足しても、branch の中身は trunk に移らない', async () => {
+    const user = await branchWithOneNode();
+
+    await user.click(screen.getByText('+ シートを追加'));
+    await screen.findByRole('button', { name: 'Sheet 2' }, WIRING_TIMEOUT);
+    await waitFor(() => expect(renderedNodeCount()).toBe(0), WIRING_TIMEOUT);
+
+    // 元のシートの trunk にも出ない (画面と op-log の両方)
+    await user.click(screen.getByRole('button', { name: TRUNK_SHEET }));
+    await waitFor(() => expect(renderedNodeCount()).toBe(0), WIRING_TIMEOUT);
+    const fileId = world.localStore().listFiles()[0]?.id as FileId;
+    const trunk = projectFile(world.localStore().getBatches(fileId), fileId);
+    expect(trunk.sheets.map((s) => s.nodes.length)).toEqual([0, 0]);
+  });
+
+  test('branch を開いている間に届いた trunk の編集は、trunk に戻ると見える', async () => {
+    const { code } = await aliceSharesFileWithBob();
+
+    // bob: 参加して branch を切り、開いておく
+    let user = await startOn('bob', BOB);
+    await participate(user, code, FILE_NAME);
+    await syncNow(user);
+    await createBranch(user, BRANCH_NAME);
+    await openBranch(user, BRANCH_NAME);
+    await syncNow(user);
+
+    // alice: trunk にノードを置いて送る
+    user = await startOn('alice', ALICE);
+    await user.click(screen.getByText(FILE_NAME));
+    await addNode(user);
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+    await syncNow(user);
+
+    // bob: branch を開いたまま受信し、branch には出ない
+    user = await startOn('bob', BOB);
+    await user.click(screen.getByText(FILE_NAME));
+    await openBranch(user, BRANCH_NAME);
+    await syncNow(user);
+    await new Promise((resolve) => setTimeout(resolve, SETTLE_MS));
+    expect(renderedNodeCount()).toBe(0);
+
+    // trunk に戻ると見える (以前は戻り先の控えを受信で入れ直す必要があった)
+    await user.click(screen.getByRole('button', { name: TRUNK_SHEET }));
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+  });
+});

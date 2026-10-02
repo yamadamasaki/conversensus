@@ -218,11 +218,22 @@ export default function App() {
   // op-log tap (GraphEditor → syncRecord、branch 表示中は branch 専用 tap) が編集ごとに
   // 書いており、debounce して別の永続先へ書き戻す経路がもう無い (設計 §3.6 / §3.7)。
   // ここに残るのは画面 state の更新だけである。
-  const handleChange = useCallback(
-    (updated: GraphFile) => {
-      fileOps.setActiveFile(updated);
+  //
+  // `GraphEditor` はシートを返す (step3 Phase 3 S3-2)。開いている File の state の
+  // 該当シートを置き換える
+  const { setActiveFile } = fileOps;
+  const handleSheetChange = useCallback(
+    (sheet: Sheet) => {
+      setActiveFile((file) =>
+        file
+          ? {
+              ...file,
+              sheets: file.sheets.map((s) => (s.id === sheet.id ? sheet : s)),
+            }
+          : file,
+      );
     },
-    [fileOps.setActiveFile],
+    [setActiveFile],
   );
 
   const handleSelectSheet = useCallback(
@@ -432,7 +443,7 @@ export default function App() {
         />
       )}
       <main style={{ flex: 1 }}>
-        {fileOps.activeFile && fileOps.activeSheetId ? (
+        {fileOps.activeFile && fileOps.activeSheet ? (
           // 画像 blob の由来を降ろす (step2 Phase 2 S5)。**`GraphEditor` の props には
           // 足さない** — `ImageNode` は React Flow が描くので props が届かず、
           // 途中の層はこの値に用が無い (`blobOriginContext`)
@@ -446,9 +457,10 @@ export default function App() {
                 key={`${fileOps.activeSheetId}/${branchOps.activeBranch?.id ?? TRUNK_PREFIX}`}
                 graphKey={`${fileOps.activeSheetId}/${branchOps.activeBranch?.id ?? TRUNK_PREFIX}`}
                 undoStateMap={undoStateMapRef}
-                file={fileOps.activeFile}
-                activeSheetId={fileOps.activeSheetId}
-                onChange={handleChange}
+                sheet={fileOps.activeSheet}
+                fileId={fileOps.activeFile.id}
+                fileName={fileOps.activeFile.name}
+                onSheetChange={handleSheetChange}
                 // branch 表示中の編集は branch 専用 op-log へ (p5-4)。trunk 用の tap に
                 // 流すと branch の編集が trunk のログに混ざる。
                 syncRecord={branchOps.branchSyncRecord ?? fileOps.syncRecord}
