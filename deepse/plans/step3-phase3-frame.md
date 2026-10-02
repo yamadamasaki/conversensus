@@ -1,18 +1,19 @@
 # step3 Phase 3: 画面の枠 — 設計
 
-> ステータス: **ドラフト (Q 未確定)** / 作成日: 2026-10-02
+> ステータス: **Q1〜Q6 確定、実装中** / 作成日: 2026-10-02
 > 親: [step3 実装計画](./step3-implementation.md) の Phase 3。入力は計画の Q2 (アドレスを 1 つ定義して
 > タブ・Deep Link・inspector・検索結果・merger を載せる) と、仕様
 > [design language](../architecture/step3/design-language.md) /
 > [property editor](../architecture/step3/property-editor.md) / [merger](../architecture/step3/merger.md)。
 >
-> **データは変わらない** (計画 §2)。op の語彙にも保存形式にも触れない。
+> **データはほぼ変わらない** (計画 §2)。op の語彙には触れない。例外は 1 つ: commit と merge の commit に
+> vector を任意の項目として足す (§2.1、F4)。
 
 ## 0. この Phase で入れるもの
 
 | | 変更 | 計画の番号 |
 | --- | --- | --- |
-| 1 | **グラフ view のアドレス** `(file, sheet, branch, 切断面, mode, highlight)` | S3-1 |
+| 1 | **グラフ view のアドレス** `(file, sheet, branch, 切断面, highlight)` | S3-1 |
 | 2 | **アプリ内タブ**。タブ = アドレスの並び。閉じても再現できる | S3-2 |
 | 3 | **ヘッダ・右サイドバー**。property editor の置き場。左右サイドバーの幅変更と折り畳み | S3-3 |
 | 4 | **ボディの multiple モード** (merger の前提) | S3-4 |
@@ -77,6 +78,15 @@ view の内容は**共有の `activeFile` ではなく、view ごとにアドレ
 projection は、分岐点での切り出しの一般化である。**過去の切断面は読み取り専用**になる
 (そこへ書くと、その後の op と並ばない)。
 
+🔵 **ただし vector を持つのは分岐点の commit (`baseVector`) だけである。**通常の commit と merge の
+commit は scalar の `at` しか持たず、`isUpTo` は `clock <= at` で切る。これは Phase 1 で分岐点について
+直したずれ (別の actor の batch が遅れて届くと、clock が小さいというだけで「その時点」に入る) を残している。
+
+⚪ 帰結: merge は切断面の一つである (2026-10-02 利用者との確認)。「merge の直前/直後」「ある commit の時点」を
+正確な切断面にするには、**commit と merge の commit にも vector を記録する** (`baseVector` と同じ
+`heldMaxima`)。merger の pane との対応は、merge 元 = branch の最後の commit (切断面)、merge 先 = trunk の
+`'head'` (動く。O3)、merge 後 = 解決用 branch の `'head'` (切断面ではない)。
+
 ### F5: ヘッダに当たるものは `GraphEditor` の中の浮きパネルである
 
 🔵 🏷 (property) / 🔍 (検索) / Undo / Redo / グループ化 / 解除 / PNG は React Flow の
@@ -109,7 +119,6 @@ type GraphViewAddress = {
   sheetId: SheetId;
   branchId: BranchId | null;      // null = trunk
   cut: 'head' | VersionVector;    // 'head' は最新 (追随する)、vector は固定
-  mode: ViewMode;                 // Q1
   highlight?: { nodeIds: NodeId[]; edgeIds: EdgeId[] };
 };
 ```
@@ -119,6 +128,10 @@ type GraphViewAddress = {
   - `cut = 'head'` の projection は、いまの projection と一致する
   - branch のアドレスで `cut = baseVector` を取ると、分岐点の姿と一致する
   - 切断面について単調 (vector を大きくして消える要素は、その間に消されたものに限る)
+- **commit に vector を足す** (F4)。`Commit.vector?: VersionVector` を任意の項目とし、`makeCommit` /
+  merge の commit で `heldMaxima` を記録する。`isUpTo` は vector があればそれで切る。古い commit
+  (vector 無し) は従来どおり `at` で切る
+- **mode は持たない** (Q1)。view の種類が増えたら、そのとき項目を足す
 - **編集できるか** はアドレスから導く: `cut` が vector なら読み取り専用。merger の元/先も読み取り専用
   (これは Phase 5 が pane に付ける)
 
@@ -161,7 +174,7 @@ type GraphViewAddress = {
 | | 内容 | 画面の変化 | 検証 |
 | --- | --- | --- | --- |
 | **S3-0** | `FileSession` を切り出す (tap・発番器・同期を `activeFile` から外す)。**見た目は変えない** | 無し | 既存の単体・App 結合・E2E がそのまま緑 |
-| **S3-1** | アドレスと `projectAddress` | 無し | 単体 + 性質 |
+| **S3-1** | アドレスと `projectAddress`。commit に vector を足す (F4) | 無し | 単体 + 性質 |
 | **S3-2** | view をアドレスで持つ。`activeFile` の化け (F1) と退避・復元を撤去 | 無し | App 結合 (branch の出入り・受信・シート追加) |
 | **S3-3** | タブ | タブ帯 | App 結合 (2 つの File を開いて両方に受信が届く、同じ File の 2 view で発番が重ならない) |
 | **S3-4** | ヘッダ・右サイドバー・左右の幅変更と折り畳み。検索とプロパティを `GraphEditor` から割る | 枠 | 単体 + E2E (WebKit) |
@@ -175,14 +188,14 @@ type GraphViewAddress = {
 
 ## 4. 着手前に訊くこと (Q)
 
-| | 問い | 既定案 |
+| | 問い | 既定案 → 確定 |
 | --- | --- | --- |
-| **Q1** | アドレスの `mode` は何を指すか | **graphical / textual の view の種類**。textual は FPR 後なので、いまは graphical だけの列挙として置く。編集可否はアドレスから導くので mode には入れない |
-| **Q2** | 既に同じアドレスを開いているタブがあるとき、左サイドバーから開いたら | **そのタブへ移る。**同じ branch の head を 2 つのタブで編集できても得が無く、undo の履歴が 2 つに割れて紛らわしい。別のタブで開きたいときの明示の操作 (例: 修飾キー) は残す |
-| **Q3** | タブの並びを再読み込みの後に復元するか | **復元する** (`localStorage`)。ブラウザのタブごとに別にしたいなら `sessionStorage` |
-| **Q4** | 背後のタブの File も同期を続けるか | **続ける。**止めると切り替えた瞬間に古い姿が見え、受信の競合通知も遅れる。費用は S0-3 のとおり取得に比例するので、開いている File の数で増える (Jetstream (O6) までの割り切り) |
-| **Q5** | multiple モードのヘッダは 1 本か pane ごとか | **1 本 (アクティブな pane が対象)。**pane ごとに置くと merger の 3 pane で縦が足りない |
-| **Q6** | Phase 3 で利用者が multiple を自分で作れるようにするか | **作らない。**Phase 3 では開発用の入口 (テストと実機確認用) だけにし、利用者の入口は Phase 5 の merger の起動にする。仕様の multiple は「特別な場合に用いる」ものなので |
+| **Q1** | アドレスの `mode` は何を指すか | **→ 確定: mode は持たない (2026-10-02)。**当初は graphical / textual の view の種類を想定したが、textual view は一度作って外したもので、仕様に残っていたのは消し忘れ (利用者)。編集可否は切断面と pane の役割から導く |
+| **Q2** | 既に同じアドレスを開いているタブがあるとき、左サイドバーから開いたら | **そのタブへ移る。**同じ branch の head を 2 つのタブで編集できても得が無く、undo の履歴が 2 つに割れて紛らわしい。別のタブで開きたいときの明示の操作 (例: 修飾キー) は残す → **確定: 既定案のとおり (2026-10-02)** |
+| **Q3** | タブの並びを再読み込みの後に復元するか | **復元する** (`localStorage`)。ブラウザのタブごとに別にしたいなら `sessionStorage` → **確定: 既定案のとおり (`localStorage`、端末で共通) (2026-10-02)** |
+| **Q4** | 背後のタブの File も同期を続けるか | **続ける。**止めると切り替えた瞬間に古い姿が見え、受信の競合通知も遅れる。費用は S0-3 のとおり取得に比例するので、開いている File の数で増える (Jetstream (O6) までの割り切り) → **確定: 既定案のとおり (2026-10-02)** |
+| **Q5** | multiple モードのヘッダは 1 本か pane ごとか | **1 本 (アクティブな pane が対象)。**pane ごとに置くと merger の 3 pane で縦が足りない → **確定: 既定案のとおり (2026-10-02)** |
+| **Q6** | Phase 3 で利用者が multiple を自分で作れるようにするか | **作らない。**Phase 3 では開発用の入口 (テストと実機確認用) だけにし、利用者の入口は Phase 5 の merger の起動にする。仕様の multiple は「特別な場合に用いる」ものなので → **確定: 既定案のとおり (2026-10-02)** |
 
 ## 5. 未決 (U)
 
