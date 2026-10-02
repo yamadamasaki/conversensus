@@ -36,3 +36,17 @@ export const SYNC_TO_REMOTE =
  * 間隔ではなく**前回の完了から**数える (`useEventSyncTap`)。遅い PDS で要求が積み上がらない。
  */
 export const SYNC_POLL_INTERVAL_MS = 30_000;
+
+/**
+ * multiple モードを開発用の入口から作れるか (step3 Phase 3 Q6)。**利用者の入口は作らない** —
+ * multiple は「特別な場合に用いる」もので、利用者の入口は Phase 5 の merger の起動になる。
+ * ここで開くのはテストと実機確認のための口である。
+ *
+ * 開発ビルド (`vite` の dev サーバ) か、`VITE_DEV_PANES=true` のとき。**描画のたびに読む** —
+ * App 結合は import の後に環境を変えて口を開ける
+ */
+export function devPanesEnabled(): boolean {
+  return (
+    import.meta.env.DEV === true || import.meta.env.VITE_DEV_PANES === 'true'
+  );
+}

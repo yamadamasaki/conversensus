@@ -31,3 +31,14 @@ BroadcastChannel は偽物で与える (`bus()`)。本物と同じく、**送っ
 
 - **本物の BroadcastChannel と画面の差し替え** — E2E (`tests/multiTab.spec.ts`) と App 結合
   (`App.app-test.tsx` の「同じブラウザの別のタブの書き込み」)
+
+## このタブの中の知らせ (step3 Phase 3 S3-5)
+
+BroadcastChannel は送った channel 自身に届かないので、**同じタブの中の書き込み**は知らせが無かった。
+見るだけの pane (multiple モード) は、アクティブな pane の編集・merge・受信で動いた正典を読み直す
+必要があるので、このタブの中の受け手 (`subscribeOwnChanges`) を足し、両方を合わせた口
+(`subscribeCanonChanges`) を作った。
+
+- **このタブの追記は、このタブの受け手に届く**。購読をやめたら届かない
+- **何も追記されなければ、このタブの中にも知らせない** (他のタブへの知らせと同じ規則)
+- **正典の知らせは、このタブの書き込みと別のタブの書き込みの両方を受ける**

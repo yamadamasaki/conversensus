@@ -2,6 +2,7 @@ import {
   type Actor,
   type Batch,
   type BlobCid,
+  CausalClock,
   type ConversensusFile,
   type Did,
   type FileId,
@@ -23,9 +24,9 @@ import {
   fetchLocalFileIds,
   pushReceivedBatches,
 } from '../api';
-import { FanoutSyncProvider } from '../atproto/fanoutSyncProvider';
 import { listJudgmentFileIds, putJudgment } from '../atproto/judgmentStore';
 import type { RemoteSyncQueue } from '../atproto/remoteSyncQueue';
+import { SYNC_POLL_INTERVAL_MS } from '../config';
 import type { GraphEvent } from '../events/GraphEvent';
 import { makeEventBase } from '../events/GraphEvent';
 import { exportFile, importFile } from '../files/fileTransfer';
@@ -42,7 +43,8 @@ import type { DetectedConflicts } from '../sync/conflicts';
 import { discoverParticipatingFiles } from '../sync/discoverParticipatingFiles';
 import { discoverRemoteFiles } from '../sync/discoverRemoteFiles';
 import { deleteFileByTombstone } from '../sync/fileDeletion';
-import { LocalServerSyncProvider } from '../sync/localServerSyncProvider';
+import { FileSession, providerFor } from '../sync/fileSession';
+import { FileSessionPool, type SessionFactory } from '../sync/fileSessionPool';
 import type { DetectedOverwrites } from '../sync/overwrites';
 import { collectParticipantBatches } from '../sync/receiveParticipantBatches';
 import { reprojectAfterReceive } from '../sync/reprojectAfterReceive';
@@ -85,6 +87,10 @@ export interface FileSheetOpsDeps {
    */
   deleteFile: typeof deleteFileByTombstone;
 }
+
+/** セッションの置き場の持ち手 (`FileSessionPool.hold`)。前に出ている File と背後のタブ */
+const FRONT_HOLDER = 'front';
+const BACKGROUND_HOLDER = 'background';
 
 export const defaultFileSheetOpsDeps: FileSheetOpsDeps = {
   createFile,
@@ -142,24 +148,6 @@ interface UseFileSheetOperationsParams {
    * **安定参照であること** (ref 経由を推奨)。未指定 = 常に編集中でない扱い。
    */
   isEditingActive?: () => boolean;
-  /**
-   * branch を開いているなら true を返す (T7-7 の実機で発覚した欠陥, 2026-09-17)。
-   *
-   * **受信の差し替えは trunk の projection である。**branch を開いている間にそれを
-   * `activeFile` へ入れると、画面のシートが trunk の姿に化ける — 消したノードが戻り、
-   * branch の編集が消え、差分が空になってコミットできなくなる。branch の表示は
-   * branch 側 (`useBranchOperations`) が組み直すので、ここでは画面に触らない。
-   * **安定参照であること** (`isEditingActive` と同じ理由)。未指定 = 常に trunk 扱い。
-   */
-  isBranchOpen?: () => boolean;
-  /**
-   * branch を開いている間に受信した trunk を控える (同上)。
-   *
-   * 差し替えを見送るだけだと、**branch を閉じたときに branch へ入る前の trunk が出る**
-   * (`useBranchOperations` は入る前の写しを復元するため)。受信した分をここで渡して
-   * 控えを更新する。**安定参照であること**。
-   */
-  keepTrunkForReturn?: (file: GraphFile) => void;
 }
 
 export function useFileSheetOperations({
@@ -174,8 +162,6 @@ export function useFileSheetOperations({
   actor,
   roster = null,
   isEditingActive,
-  isBranchOpen,
-  keepTrunkForReturn,
 }: UseFileSheetOperationsParams) {
   const [files, setFiles] = useState<GraphFileListItem[]>([]);
   const [activeFile, setActiveFile] = useState<GraphFile | null>(null);
@@ -193,10 +179,12 @@ export function useFileSheetOperations({
 
   // handleReceived (安定参照) から最新の activeFile を読むための ref。
   // state を直接 dep に取ると受信 effect が activeFile 変化のたびに張り直される。
+  //
+  // **描画の中で写す** (step3 Phase 3 S3-3c)。effect で写すと、File を開いた直後の受信が
+  // 写す前に着いて「開いていない File」として捨てられる。セッションを置き場から借りるように
+  // なって、同期が描画のうちに始まるので実際に起きた
   const activeFileRef = useRef<GraphFile | null>(null);
-  useEffect(() => {
-    activeFileRef.current = activeFile;
-  }, [activeFile]);
+  activeFileRef.current = activeFile;
 
   // 受信 swap の世代番号 (Phase 4e-4 実機で発見)。GraphEditor は React Flow の内部
   // state を file.id / activeSheetId の変化でしかリセットしないため、同一ファイルの
@@ -324,18 +312,16 @@ export function useFileSheetOperations({
     (fileId: FileId, tap: TapHandle) => {
       if (swappingRef.current.has(fileId)) return;
       swappingRef.current.add(fileId);
+      /** 読んだ batch。**画面に入れたときだけ**由来と物差しを更新する (下の then) */
+      let loaded: Batch[] = [];
       reprojectAfterReceive({
         settled: tap.settled,
         pendingCount: tap.pending,
         loadProjection: async () => {
-          // **受信後もここを通す。**他 actor が貼った画像は受信で初めて手元に来る
-          // ので、由来を更新しないと「読み込んだときには無かった画像」が出ない
-          const batches = await deps.fetchBatches(fileId);
-          setBlobOrigins(collectBlobOrigins(batches));
-          projectedForeignRef.current.set(fileId, foreignCount(batches));
+          loaded = await deps.fetchBatches(fileId);
           // 承認を経ていない再 merge の写しは画面に出さない (D3)。**落とすのは読みで
           // あって書きではない** — 写しは trunk に載ったままで、承認が揃えば出てくる
-          return projectFile(batches, fileId);
+          return projectFile(loaded, fileId);
         },
         ...(isEditingActive && { isEditing: isEditingActive }),
       })
@@ -347,16 +333,15 @@ export function useFileSheetOperations({
           // 受信対象のファイルを開いたままのときだけ差し替える (再 projection 中に
           // ファイルを切り替えていたら何もしない)
           if (activeFileRef.current?.id !== fileId) return;
-          // **branch を開いている間は画面に触らない** (2026-09-17)。ここで入れるのは
-          // trunk の projection なので、入れると branch のシートが trunk の姿に化ける。
-          // 受信そのものは既にローカル正典へ着地しており、失われるものは無い
-          if (isBranchOpen?.()) {
-            keepTrunkForReturn?.(result.file);
-            // **epoch は進める。**branch の一覧はこれを契機に読み直す (T7-3) ので、
-            // 止めると相手の branch や merge が branch を閉じるまで出ない
-            setReceiveEpoch((epoch) => epoch + 1);
-            return;
-          }
+          // **受信後もここを通す。**他 actor が貼った画像は受信で初めて手元に来る
+          // ので、由来を更新しないと「読み込んだときには無かった画像」が出ない。
+          // 「画面が古い」の物差し (#202) も、**画面に入れたときにだけ**進める — 差し替えを
+          // 見送ったのに進めると、次の確認 (`refreshIfStale`) が古い画面を新しいと見なす
+          setBlobOrigins(collectBlobOrigins(loaded));
+          projectedForeignRef.current.set(fileId, foreignCount(loaded));
+          // branch を開いていても差し替えてよい (step3 Phase 3 S3-2)。`activeFile` は
+          // trunk の姿だけを持ち、branch の中身は `useBranchOperations` が別に持つ。
+          // 以前はここで branch 表示中を見送り、戻り先の控えを入れ直していた (2026-09-17)
           setActiveFile(result.file);
           // GraphEditor に React Flow の再 seed を伝える (同一 file.id の差し替えは
           // これが無いと画面に出ない — 4e-4 実機で発見)
@@ -373,7 +358,7 @@ export function useFileSheetOperations({
         )
         .finally(() => swappingRef.current.delete(fileId));
     },
-    [deps, isEditingActive, isBranchOpen, keepTrunkForReturn, foreignCount],
+    [deps, isEditingActive, foreignCount],
   );
 
   const handleReceived = useCallback(
@@ -439,31 +424,84 @@ export function useFileSheetOperations({
     [refreshIfStale],
   );
 
+  /**
+   * 開いている File (タブ) のセッションの置き場 (step3 Phase 3 S3-3c)。前に出ている File も
+   * 背後のタブの File も、ここから同じセッションと発番器を借りる。actor が変われば発番器も
+   * 変わるので置き場ごと作り直す
+   */
+  const sessionPool = useMemo(
+    () => new FileSessionPool<FileSession>(() => new CausalClock(actor)),
+    [actor],
+  );
+  useEffect(() => () => sessionPool.dispose(), [sessionPool]);
+  const sessionFactory = useMemo<SessionFactory<FileSession>>(
+    () => (fileId, causal) =>
+      new FileSession({
+        fileId,
+        // remote キューがあれば fanout (ローカル正典 + remote) になる (W3d5-5)
+        provider: providerFor(fileId, remoteQueue),
+        causal,
+        actor,
+        // 「読む順序は名簿 → グラフ」の前半 (step2 Phase 2 S2)
+        remoteQueue,
+        roster,
+        // 受信 (a) の書き込み口も discovery (4e-2b) と同じ deps 抽象を通す
+        appendReceived: deps.pushReceivedBatches,
+        fetchLocal: deps.fetchBatches,
+        pollIntervalMs: SYNC_POLL_INTERVAL_MS,
+      }),
+    [remoteQueue, roster, actor, deps],
+  );
+  // 描画の中で渡す — 下の tap がこの描画で借りるので、作り方が先に要る。同じ作り方なら何もしない
+  sessionPool.setFactory(sessionFactory);
+  const poolHold = useMemo(
+    () => ({ pool: sessionPool, holder: FRONT_HOLDER }),
+    [sessionPool],
+  );
+
   // 操作ログ tap をファイル単位で保持する (W3c1)。content (GraphEditor) と
   // structure (以下の構造ハンドラ) の両方が単一の tap = 単一 Lamport 発番源を共有する。
-  // remote キューがあれば tap は fanout (ローカル正典 + remote) になる (W3d5-5)。
-  const {
-    record: internalSyncRecord,
-    causal: trunkCausal,
-    syncNow,
-  } = useEventSyncTap(activeFile?.id ?? null, {
-    remoteQueue,
-    actor,
-    // 「読む順序は名簿 → グラフ」の前半 (step2 Phase 2 S2)
-    roster,
-    // 受信 (a) の書き込み口も discovery (4e-2b) と同じ deps 抽象を通す。
-    // 既定は api の pushReceivedBatches なので挙動は変わらない (deps は安定参照)。
-    appendReceived: deps.pushReceivedBatches,
-    fetchLocal: deps.fetchBatches,
-    onReceived: handleReceived,
-    onLocalChanged: refreshIfStale,
-    onRoster: handleRoster,
-    onConflicts: handleConflicts,
-    onOverwrites: handleOverwrites,
-    onForksArrived: handleForksArrived,
-    onSynced: handleSynced,
-  });
+  const { record: internalSyncRecord, causal: trunkCausal } = useEventSyncTap(
+    activeFile?.id ?? null,
+    {
+      pool: poolHold,
+      remoteQueue,
+      actor,
+      // 「読む順序は名簿 → グラフ」の前半 (step2 Phase 2 S2)
+      roster,
+      // 受信 (a) の書き込み口も discovery (4e-2b) と同じ deps 抽象を通す。
+      // 既定は api の pushReceivedBatches なので挙動は変わらない (deps は安定参照)。
+      appendReceived: deps.pushReceivedBatches,
+      fetchLocal: deps.fetchBatches,
+      onReceived: handleReceived,
+      onLocalChanged: refreshIfStale,
+      onRoster: handleRoster,
+      onConflicts: handleConflicts,
+      onOverwrites: handleOverwrites,
+      onForksArrived: handleForksArrived,
+      onSynced: handleSynced,
+    },
+  );
   const syncRecord = syncRecordOverride ?? internalSyncRecord;
+
+  /**
+   * 「今すぐ同期」。**開いている File すべて** (背後のタブも) を引く — 背後のタブも同期を
+   * 続けるので (Q4)、押したときだけ前の File に限る理由が無い
+   */
+  const syncNow = useCallback(
+    () =>
+      Promise.all(sessionPool.sessions().map((s) => s.syncNow())).then(
+        () => undefined,
+      ),
+    [sessionPool],
+  );
+
+  /** 背後のタブが参照する File を宣言する。そのセッションは同期を続ける (Q4) */
+  const holdBackground = useCallback(
+    (fileIds: readonly FileId[]) =>
+      sessionPool.hold(BACKGROUND_HOLDER, fileIds),
+    [sessionPool],
+  );
 
   // trunk 読取 (Phase 6 p6-3 で op-log 単独へ, 設計 §3.6)。
   //
@@ -490,45 +528,55 @@ export function useFileSheetOperations({
     [deps, foreignCount],
   );
 
+  /**
+   * File を開く。開けたら File を、開けなければ null を返す。
+   *
+   * `sheetId` を渡すとそのシートに着く (タブのアドレスから開くとき, step3 Phase 3 S3-3)。
+   * 無ければ (消されていれば) 先頭のシート。`quiet` は失敗を alert に出さない — 復元した
+   * タブが消えた File を指していた、は利用者の操作の失敗ではないので、タブを閉じるだけにする
+   */
   const openFile = useCallback(
-    async (id: string) => {
+    async (
+      id: string,
+      { sheetId, quiet = false }: { sheetId?: SheetId; quiet?: boolean } = {},
+    ): Promise<GraphFile | null> => {
       try {
         const file = await loadFile(id);
         setActiveFile(file);
-        setActiveSheetId((file.sheets[0]?.id ?? null) as SheetId | null);
+        const landing =
+          file.sheets.find((s) => s.id === sheetId) ?? file.sheets[0];
+        setActiveSheetId((landing?.id ?? null) as SheetId | null);
         setExpandedFileIds((prev) => new Set([...prev, id]));
+        return file;
       } catch (err) {
         console.error('Failed to open file:', err);
-        await new Promise<void>((resolve) => {
-          setAlertState({
-            message: 'ファイルを開けませんでした。',
-            resolve,
+        if (!quiet) {
+          await new Promise<void>((resolve) => {
+            setAlertState({
+              message: 'ファイルを開けませんでした。',
+              resolve,
+            });
           });
-        });
+        }
+        return null;
       }
     },
     [loadFile, setAlertState],
   );
 
-  const toggleExpand = useCallback(
-    (id: string) => {
-      let isExpanding = false;
-      setExpandedFileIds((prev) => {
-        const next = new Set(prev);
-        if (next.has(id)) {
-          next.delete(id);
-        } else {
-          next.add(id);
-          isExpanding = true;
-        }
-        return next;
-      });
-      if (isExpanding && (!activeFile || activeFile.id !== id)) {
-        openFile(id);
-      }
-    },
-    [activeFile, openFile],
-  );
+  /**
+   * サイドバーの File の展開を切り替える。**開きはしない** — 開くのはサイドバーが先に呼ぶ
+   * `onOpenFile` で、タブを作るのは App である (step3 Phase 3 S3-3)。以前はここでも開いて
+   * いたので、閉じた File の行を押すと同じ File を 2 回読み込んでいた
+   */
+  const toggleExpand = useCallback((id: string) => {
+    setExpandedFileIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
 
   const handleCreate = useCallback(async () => {
     try {
@@ -632,11 +680,7 @@ export function useFileSheetOperations({
    */
   const pushToFile = useCallback(
     async (fileId: FileId, batches: Batch[]): Promise<void> => {
-      const local = new LocalServerSyncProvider(fileId);
-      const provider = remoteQueue
-        ? new FanoutSyncProvider({ local, remoteQueue, fileId })
-        : local;
-      await provider.push(batches);
+      await providerFor(fileId, remoteQueue).push(batches);
     },
     [remoteQueue],
   );
@@ -1006,5 +1050,6 @@ export function useFileSheetOperations({
     // 「今すぐ同期」(SyncStatusIndicator) の口。開いている間に他所で起きた変更を
     // 取りに行く手段がこれしかない (GitHub #202)
     syncNow,
+    holdBackground,
   };
 }

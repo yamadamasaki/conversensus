@@ -976,3 +976,99 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
     });
   });
 });
+
+const { FileSession } = await import('../sync/fileSession');
+const { FileSessionPool } = await import('../sync/fileSessionPool');
+const { CausalClock } = await import('@conversensus/shared');
+const { LOCAL_CHANGES_CHANNEL } = await import('../local/localChanges');
+type Pool = InstanceType<
+  typeof FileSessionPool<InstanceType<typeof FileSession>>
+>;
+
+describe('useEventSyncTap: セッションを置き場から借りる (step3 Phase 3 S3-3c)', () => {
+  /** 置き場と、作ったセッションの数。ローカル正典は 1 つの記録係を共有する */
+  function poolWith(local: RecordingProvider) {
+    const pool: Pool = new FileSessionPool(() => new CausalClock(MY_ACTOR));
+    let made = 0;
+    pool.setFactory((fileId, causal) => {
+      made += 1;
+      return new FileSession({
+        fileId,
+        provider: local,
+        causal,
+        actor: MY_ACTOR,
+        remoteQueue: null,
+        roster: null,
+        appendReceived,
+        fetchLocal: async () => [],
+        pollIntervalMs: 60_000,
+      });
+    });
+    return { pool, made: () => made };
+  }
+
+  const borrow = (
+    pool: Pool,
+    holder: string,
+    onLocalChanged?: Parameters<typeof useEventSyncTap>[1]['onLocalChanged'],
+  ) =>
+    renderHook(() =>
+      useEventSyncTap(FID, {
+        pool: { pool, holder },
+        actor: MY_ACTOR,
+        ...(onLocalChanged && { onLocalChanged }),
+      }),
+    );
+
+  it('借りた tap の書き込みは置き場のセッションへ流れ、発番器は置き場のもの', async () => {
+    const local = new RecordingProvider();
+    const { pool } = poolWith(local);
+    const view = borrow(pool, 'front');
+    act(() => view.result.current.record(relabel(), uuid() as never));
+    await settle();
+    expect(local.pushed).toHaveLength(1);
+    expect(view.result.current.causal).toBe(pool.causalOf(FID));
+    pool.dispose();
+  });
+
+  it('2 つの持ち手が同じ File を借りると、セッションは 1 つで点は重ならない', async () => {
+    const local = new RecordingProvider();
+    const { pool, made } = poolWith(local);
+    const front = borrow(pool, 'front');
+    const back = borrow(pool, 'background');
+    act(() => front.result.current.record(relabel(), uuid() as never));
+    act(() => back.result.current.record(relabel(), uuid() as never));
+    await settle();
+    expect(made()).toBe(1);
+    expect(local.pushed.map((b) => b.seq)).toEqual([1, 2]);
+    pool.dispose();
+  });
+
+  it('離した持ち手の知らせは、残ったセッションから呼ばれない', async () => {
+    const local = new RecordingProvider();
+    const { pool } = poolWith(local);
+    const calls: string[] = [];
+    const front = borrow(pool, 'front', () => calls.push('front'));
+    // 背後のタブは知らせを持たずに File を持つだけ (App の `holdBackground` と同じ)
+    pool.hold('background', [FID]);
+    await settle();
+
+    const notify = async () => {
+      const channel = new BroadcastChannel(LOCAL_CHANGES_CHANNEL);
+      channel.postMessage({ fileId: FID });
+      channel.close();
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 20));
+      });
+    };
+    await notify();
+    expect(calls).toEqual(['front']);
+
+    front.unmount();
+    await notify();
+    // セッションは背後の持ち手が持っているので生きている。知らせだけが外れている
+    expect(pool.session(FID)).toBeDefined();
+    expect(calls).toEqual(['front']);
+    pool.dispose();
+  });
+});

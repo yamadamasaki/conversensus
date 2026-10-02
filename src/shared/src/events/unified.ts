@@ -178,11 +178,12 @@ export const CommitSchema = z.object({
   sourceBranchId: BranchIdSchema.optional(),
   sourceAt: z.number().int().nonnegative().optional(),
   /**
-   * 分岐点の vector (step3 Phase 1 D3)。branch / fork の base コミットだけが持つ。
-   * 分岐した時点で actor ごとに持っていた最大の seq で、base はこれに覆われる batch
-   * である (`batchesUpTo`)
+   * コミットが指す切断面 (step3 Phase 1 D3 / Phase 3 S3-1)。コミットした時点で actor ごとに
+   * 持っていた最大の seq で、コミット時点はこれに覆われる batch である (`batchesUpTo`)。
+   * Phase 1 では base コミットだけが `baseVector` として持っていた (互換は取らない:
+   * 古い記録は vector 無しとして読まれ、clock で切られる)
    */
-  baseVector: VersionVectorSchema.optional(),
+  vector: VersionVectorSchema.optional(),
 });
 
 /**

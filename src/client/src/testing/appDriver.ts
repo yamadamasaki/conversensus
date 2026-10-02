@@ -102,12 +102,54 @@ export function branchLabel(name: string): RegExp {
   return new RegExp(`${name}( \\((merged|closed)\\))?$`);
 }
 
-/** branch を開く。一覧は非同期に読み直されるので、行が出るまで待つ */
-export async function openBranch(user: UserEvent, name: string) {
-  await user.click(
-    await screen.findByText(branchLabel(name), {}, WIRING_TIMEOUT),
+/** 選ばれているタブの名前。タブが無ければ null */
+function selectedTabLabel(): string | null {
+  return (
+    screen
+      .queryAllByRole('tab')
+      .find((t) => t.getAttribute('aria-selected') === 'true')?.textContent ??
+    null
   );
 }
+
+/**
+ * File を開く。**前回この端末で開いていたなら、タブの復元 (step3 Phase 3 Q3) で既に開く** ので
+ * 押さない — 開いている File の名前を押すと、サイドバーの展開が閉じる
+ */
+export async function openFileNamed(user: UserEvent, name: string) {
+  if (!selectedTabLabel()?.startsWith(name)) {
+    await user.click(screen.getByText(name));
+  }
+  await waitFor(
+    () => expect(document.querySelector('.react-flow')).not.toBeNull(),
+    WIRING_TIMEOUT,
+  );
+}
+
+/**
+ * branch を開く。一覧は非同期に読み直されるので、行が出るまで待つ。
+ *
+ * **復元したタブが既に branch なら押さない** — 開いている branch の行を押すと trunk に戻る。
+ * 復元した直後のタブの名前には branch の名前がまだ無い (一覧が読まれてから付く) ので、
+ * 名前ではなく「branch のタブか」で決め、その branch の名前が付くまで待つ。
+ * 復元の移動は非同期なので、最後に branch の操作 (コミット) が出るまで待つ
+ */
+export async function openBranch(user: UserEvent, name: string) {
+  if (selectedTabLabel()?.includes(BRANCH_TAB_MARK)) {
+    await waitFor(
+      () => expect(selectedTabLabel()).toEndWith(`${BRANCH_TAB_MARK}${name})`),
+      WIRING_TIMEOUT,
+    );
+  } else {
+    await user.click(
+      await screen.findByText(branchLabel(name), {}, WIRING_TIMEOUT),
+    );
+  }
+  await screen.findByRole('button', { name: 'コミット' }, WIRING_TIMEOUT);
+}
+
+/** branch のタブの名前に付く印 (App の `tabLabelOf`) */
+const BRANCH_TAB_MARK = '(⎇ ';
 
 /**
  * pane をダブルクリックしてノードを足す。
@@ -121,6 +163,19 @@ export async function addNode(user: UserEvent, appearance = 'Markdown') {
   fireEvent.click(pane, PANE_CLICK);
   fireEvent.click(pane, PANE_CLICK);
   await user.click(await screen.findByRole('button', { name: appearance }));
+}
+
+/**
+ * 描かれている最初のノードを選ぶ。
+ *
+ * **`user.click` を使わない。**pointer の押下から React Flow のドラッグ (d3-drag) が始まり、
+ * happy-dom の mousedown は `view` を持たないので d3-drag が例外を出す (テストは通るが雑音になる)。
+ * 選択は click だけで起きるので、click だけを送る
+ */
+export function selectFirstNode() {
+  const node = document.querySelector('.react-flow__node');
+  if (!node) throw new Error('appDriver: ノードが描かれていない');
+  fireEvent.click(node);
 }
 
 /** **画面に描かれている**ノードの数。op-log や state ではなく DOM を数える */

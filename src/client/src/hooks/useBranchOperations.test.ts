@@ -76,12 +76,6 @@ const mockActiveFile: GraphFile = {
   description: '',
   sheets: [{ id: 's1' as SheetId, name: 'Sheet 1', nodes: [], edges: [] }],
 };
-const mockActiveSheet = {
-  id: 's1' as SheetId,
-  name: 'Sheet 1',
-  nodes: [],
-  edges: [],
-};
 
 afterEach(() => {
   cleanup();
@@ -241,11 +235,10 @@ async function renderOplog(
     ]);
   };
   const view = renderHook(
-    ({ activeFile, activeSheetId, activeSheet, receiveEpoch }) =>
+    ({ activeFile, activeSheetId, receiveEpoch }) =>
       useBranchOperations({
         activeFile,
         activeSheetId: activeSheetId ?? null,
-        activeSheet: activeSheet ?? null,
         onSetActiveFile: mockOnSetActiveFile,
         setConfirmState: mockSetConfirmState,
         setInputState: mockSetInputState,
@@ -264,7 +257,6 @@ async function renderOplog(
       initialProps: {
         activeFile: mockActiveFile,
         activeSheetId: SHEET_ID,
-        activeSheet: mockActiveSheet,
         receiveEpoch: 0,
       },
     },
@@ -382,7 +374,6 @@ describe('useBranchOperations — 表示状態', () => {
       viewer.rerender({
         activeFile: mockActiveFile,
         activeSheetId: SHEET_ID,
-        activeSheet: mockActiveSheet,
         receiveEpoch: 1,
       });
       await act(async () => {
@@ -499,7 +490,6 @@ describe('useBranchOperations — 表示状態', () => {
         view.rerender({
           activeFile: { ...mockActiveFile, id: 'f2' as FileId },
           activeSheetId: SHEET_ID,
-          activeSheet: mockActiveSheet,
           receiveEpoch: 0,
         });
         await new Promise((r) => setTimeout(r, 10));
@@ -558,39 +548,40 @@ describe('useBranchOperations — branch 操作 (op-log)', () => {
   });
 
   describe('handleSelectBranch', () => {
-    it('branch のシート内容を projection から差し替える', async () => {
-      const { branch, oplogDeps } = await withOpenBranch();
+    it('branch のシート内容を projection から組み立てる (trunk の姿には触らない)', async () => {
+      const { result, branch, oplogDeps } = await withOpenBranch();
       // 分岐直後は base = trunk の内容
-      const passed = mockOnSetActiveFile.mock.calls.at(-1)?.[0];
-      const sheet = passed?.sheets.find((s) => s.id === SHEET_ID);
-      expect(sheet?.nodes.map((n) => n.content)).toEqual(['trunk']);
+      expect(result.current.branchSheet?.nodes.map((n) => n.content)).toEqual([
+        'trunk',
+      ]);
+      // **activeFile は branch の中身で差し替えない** (step3 Phase 3 S3-2)
+      expect(mockOnSetActiveFile).not.toHaveBeenCalled();
       expect((await metaOf(oplogDeps)).branches.get(branch.id)?.status).toBe(
         'open',
       );
     });
 
-    it('trunk に戻ると分岐前のファイルへ復帰する', async () => {
+    it('trunk に戻ると branch のシートを手放す (trunk の姿は activeFile がそのまま持つ)', async () => {
       const { result } = await withOpenBranch();
       await act(async () => {
         await result.current.handleSelectBranch(SHEET_ID, null);
       });
       expect(result.current.activeBranch).toBeNull();
       expect(result.current.isTrunk).toBe(true);
-      expect(mockOnSetActiveFile.mock.calls.at(-1)?.[0]).toEqual(
-        mockActiveFile,
-      );
+      expect(result.current.branchSheet).toBeNull();
+      // 以前は退避した trunk を復元していた。いまは何も書き戻さない
+      expect(mockOnSetActiveFile).not.toHaveBeenCalled();
     });
 
-    it('resetBranchState は復帰した trunk のファイルを返す', async () => {
-      // 呼び出し側 (App のシート追加) が **trunk のファイルを土台に**続けるための返り値。
-      // branch 表示中の activeFile を土台にすると branch の内容が trunk へ移る。
+    it('画面の編集で branch のシートが進む', async () => {
       const { result } = await withOpenBranch();
-      let restored: unknown;
+      const base = result.current.branchSheet;
+      if (!base) throw new Error('branch のシートが無い');
+      const edited = { ...base, name: '編集後' };
       act(() => {
-        restored = result.current.resetBranchState();
+        result.current.onBranchSheetChange(edited);
       });
-      expect(restored).toEqual(mockActiveFile);
-      expect(result.current.isTrunk).toBe(true);
+      expect(result.current.branchSheet).toEqual(edited);
     });
   });
 
@@ -715,31 +706,13 @@ describe('useBranchOperations — branch 操作 (op-log)', () => {
 
       const branchLog = oplogDeps._batches.get(branch.branchFileId) ?? [];
       expect(branchLog.map((b) => b.id as string)).toEqual(['b-remote']);
-      const shown = mockOnSetActiveFile.mock.calls.at(-1)?.[0];
-      const sheet = shown?.sheets.find((s) => s.id === SHEET_ID);
-      expect(sheet?.nodes.map((n) => n.id as string)).toContain('n-remote');
+      expect(
+        result.current.branchSheet?.nodes.map((n) => n.id as string),
+      ).toContain('n-remote');
       // 🔴 **state だけでは canvas に出ない** (T7-7 実機で発覚)。GraphEditor は
       // receiveEpoch が進んだときにしか再 seed しないので、組み直したら epoch を進める
       // (branch を開く待ちの間に受信と組み直しは済んでいる。フックは 0 から始まる)
       expect(result.current.branchReceiveEpoch).toBeGreaterThan(0);
-    });
-
-    it('🔴 branch を開いている間に受信した trunk が、戻ったときに出る (2026-09-17)', async () => {
-      // 受信の差し替えは branch 表示中は見送る (画面が trunk の姿に化けるため)。
-      // 見送るだけだと**戻ったときに branch へ入る前の trunk が出る**ので、控えを更新する
-      const view = await withOpenBranch();
-      const received: GraphFile = {
-        ...mockActiveFile,
-        name: '受信で進んだ trunk',
-      };
-      act(() => {
-        view.result.current.keepTrunkForReturn(received);
-      });
-      mockOnSetActiveFile.mockClear();
-      await act(async () => {
-        await view.result.current.handleSelectBranch(SHEET_ID, null);
-      });
-      expect(mockOnSetActiveFile).toHaveBeenLastCalledWith(received);
     });
 
     it('trunk 表示中は branchSyncRecord が null (trunk 用 tap を使う)', async () => {
@@ -1076,26 +1049,20 @@ describe('useBranchOperations — 差分状態 (ANA-120)', () => {
   // biome-ignore lint/suspicious/noExplicitAny: テストで branded 型の Sheet を組まない
   type TestSheet = any;
 
-  /** hook が最後に渡してきた branch の projection */
-  const projectedSheet = (): TestSheet => {
-    const file = mockOnSetActiveFile.mock.calls.at(-1)?.[0];
-    const sheet = file?.sheets.find((s) => s.id === SHEET_ID);
+  /** hook が組み立てた branch の projection */
+  const projectedSheet = (view: Pick<View, 'result'>): TestSheet => {
+    const sheet = view.result.current.branchSheet;
     if (!sheet) throw new Error('branch の projection が取れていない');
     return sheet;
   };
 
   /**
-   * activeSheet を差し替える = 画面でシートを編集したのと同じ状態にする。
-   * **`rerender` しか使わない**ので、branch を持たない view (開き直した直後) も受ける
+   * 画面でシートを編集する (GraphEditor の `onSheetChange` → `onBranchSheetChange`)。
+   * branch を持たない view (開き直した直後) も受ける
    */
-  async function edit(view: Pick<View, 'rerender'>, sheet: TestSheet) {
+  async function edit(view: Pick<View, 'result'>, sheet: TestSheet) {
     await act(async () => {
-      view.rerender({
-        activeFile: mockActiveFile,
-        activeSheetId: SHEET_ID,
-        activeSheet: sheet,
-        receiveEpoch: 0,
-      });
+      view.result.current.onBranchSheetChange(sheet);
     });
   }
 
@@ -1121,7 +1088,7 @@ describe('useBranchOperations — 差分状態 (ANA-120)', () => {
       [],
       { realChanges: true },
     );
-    const base = projectedSheet();
+    const base = projectedSheet(view);
     await edit(view, base);
     return { view, base };
   }
@@ -1299,7 +1266,7 @@ describe('useBranchOperations — 差分状態 (ANA-120)', () => {
         await reopened.result.current.handleSelectBranch(SHEET_ID, merged);
       });
       // 画面には branch の projection が載る (開き直した直後は未編集)
-      await edit(reopened, projectedSheet());
+      await edit(reopened, projectedSheet(reopened));
       return reopened;
     }
 
@@ -1319,7 +1286,7 @@ describe('useBranchOperations — 差分状態 (ANA-120)', () => {
       const reopened = await reopen(view);
       await edit(
         reopened,
-        relabelNode(projectedSheet(), NODE_A, 'merge 後の編集'),
+        relabelNode(projectedSheet(reopened), NODE_A, 'merge 後の編集'),
       );
 
       expect(reopened.result.current.diffState).toBe(BRANCH_DIFF_STATE.EDITING);
@@ -1332,7 +1299,7 @@ describe('useBranchOperations — 差分状態 (ANA-120)', () => {
       const reopened = await reopen(view);
       await edit(
         reopened,
-        relabelNode(projectedSheet(), NODE_A, 'merge 後の編集'),
+        relabelNode(projectedSheet(reopened), NODE_A, 'merge 後の編集'),
       );
       await commit(reopened, '2 回目');
 

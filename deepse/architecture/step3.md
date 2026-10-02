@@ -172,9 +172,10 @@ graph node 以外の node/edge だけである。
 
 ### 3.5 未決 (O)
 
-- **O1**: 「グラフ view のアドレス」`(file, sheet, branch, 切断面, mode, highlight)` を 1 つ定義し、
+- **O1**: 「グラフ view のアドレス」`(file, sheet, branch, 切断面, highlight)` を 1 つ定義し、
   アプリ内タブ・Deep Link・timeline の inspector・global search の結果・merger の
-  merge 元/先をすべてその上に載せるか。切断面を正しく指すには vector が要る
+  merge 元/先をすべてその上に載せるか。切断面を正しく指すには vector が要る。
+  **→ 載せる (計画 Q2)。mode は外した (Phase 3 Q1: textual view は消し忘れだった)。merge も切断面の一つ**
 - **O2**: merger を implicit merge から起動するとき、merge 元/先は何を指すか (T7 の fork 同士か)。
   implicit 側で競合表示を対称にするには batch への vector が要る
 - **O3**: merger 作業中に merge 先が進んだときの扱い (実質 rebase)。競合の同定と

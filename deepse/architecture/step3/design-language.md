@@ -90,7 +90,6 @@ conversensus は, 以下のデザイン・スタイルから成る. これは, �
   - property editor 表示の on/off
   - (Step 3) map 表示の on/off
     - graphical view 時のみ enabled
-  - (Step 3) graphical/textual view の切り替え
 
 ## ボディ
 

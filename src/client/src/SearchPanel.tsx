@@ -99,7 +99,7 @@ export function SearchPanel({
       aria-label="検索"
       style={{
         position: 'absolute',
-        top: 52,
+        top: 12,
         right: 12,
         width: RESULTS_WIDTH,
         maxWidth: 'calc(100vw - 24px)',

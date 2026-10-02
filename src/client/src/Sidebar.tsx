@@ -19,6 +19,14 @@ import { ShareStatusIcon } from './ShareStatusIcon';
 import { SyncStatusIndicator } from './SyncStatusIndicator';
 import type { FileSharing } from './sync/rosterView';
 
+/** サイドバーから開くときの指定 (step3 Phase 3 S3-4c) */
+export type OpenOptions = { newTab: boolean };
+
+/** ⌘ (mac) / Ctrl を押しながら選んだら別のタブで開く。ブラウザのリンクと同じ約束 */
+function openOptionsOf(e: { metaKey: boolean; ctrlKey: boolean }): OpenOptions {
+  return { newTab: e.metaKey || e.ctrlKey };
+}
+
 type Props = {
   files: GraphFileListItem[];
   activeFile: GraphFile | null;
@@ -33,7 +41,8 @@ type Props = {
   onImportFile: (data: ConversensusFile) => void;
   onToggleExpand: (id: string) => void;
   onOpenFile: (id: string) => void;
-  onSelectSheet: (sheetId: SheetId) => void;
+  /** シートを開く。`newTab` は ⌘ / Ctrl を押しながら選んだ (別のタブで開く, Q2) */
+  onSelectSheet: (sheetId: SheetId, options: OpenOptions) => void;
   /** template を当てずに作るなら省略する (Phase 5 D1: 紐づけは作成時のみ) */
   onAddSheet: (templateIds?: TemplateId[]) => void;
   onSetPopupTarget: (target: PopupTarget | null) => void;
@@ -42,7 +51,11 @@ type Props = {
   onExportFile: (fileId: string) => void;
   onSaveSheetSettings: (sheetId: string, name: string, desc: string) => void;
   onDeleteSheet: (sheetId: string) => void;
-  onSelectBranch: (sheetId: SheetId, branch: BranchMeta | null) => void;
+  onSelectBranch: (
+    sheetId: SheetId,
+    branch: BranchMeta | null,
+    options: OpenOptions,
+  ) => void;
   onCreateBranch: (sheetId: SheetId) => void;
   onMergeBranch: (branch: BranchMeta) => void;
   onCloseBranch: (branch: BranchMeta) => void;
@@ -177,8 +190,11 @@ export function Sidebar({
   return (
     <aside
       style={{
-        width: 240,
-        borderRight: '1px solid #ddd',
+        // 幅と境の線は外枠 (`SidePanel`) が持つ (step3 Phase 3 S3-4b)
+        flex: 1,
+        minHeight: 0,
+        minWidth: 0,
+        boxSizing: 'border-box',
         display: 'flex',
         flexDirection: 'column',
         padding: 12,
@@ -432,7 +448,9 @@ export function Sidebar({
                               textAlign: 'left',
                               padding: 0,
                             }}
-                            onClick={() => onSelectSheet(s.id)}
+                            onClick={(e) =>
+                              onSelectSheet(s.id, openOptionsOf(e))
+                            }
                           >
                             {s.name}
                           </button>
@@ -532,12 +550,18 @@ export function Sidebar({
                                             padding: 0,
                                             color: textColor,
                                           }}
-                                          onClick={() =>
+                                          onClick={(e) => {
+                                            const options = openOptionsOf(e);
+                                            // 開いている branch の行を押すと trunk に戻る。別のタブで
+                                            // 開くときは戻らず、その branch を開く
                                             onSelectBranch(
                                               s.id,
-                                              isActiveBranch ? null : branch,
-                                            )
-                                          }
+                                              isActiveBranch && !options.newTab
+                                                ? null
+                                                : branch,
+                                              options,
+                                            );
+                                          }}
                                         >
                                           {'⎇ '}
                                           {branch.name}

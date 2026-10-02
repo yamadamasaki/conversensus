@@ -188,7 +188,7 @@ S0-4 の結果で形が決まる。既定案は次のとおりである。
 
 ### Phase 3: 画面の枠
 
-- **S3-1 グラフ view のアドレス** (O1)。`(file, sheet, branch, 切断面, mode, highlight)`。
+- **S3-1 グラフ view のアドレス** (O1)。`(file, sheet, branch, 切断面, highlight)` (mode は Phase 3 Q1 で外した)。
   切断面は Phase 1 の vector である
 - **S3-2 アプリ内タブ**。タブ = アドレスの並び。閉じても再現できる
 - **S3-3 右サイドバー** (property editor、以後の inspector の置き場)。左右サイドバーの
@@ -248,7 +248,7 @@ S0-4 の結果で形が決まる。既定案は次のとおりである。
 i18n (en の追加) / 無限キャンバス / timeline view (version tree・operation inspector・
 change inspector) / global search / デザイン言語の細部の適用 / Deep Link の URI スキーム /
 Jetstream による近リアルタイム化 (O6) / 左サイドバーの File・Sheet 名検索 /
-graphical・textual view の切り替え / map 表示。
+map 表示。
 
 **timeline view と global search は Phase 3 のアドレスの上に乗る**ので、FPR 後に UI だけで
 足せる。これが Q2 を「載せる」にしたい理由である。

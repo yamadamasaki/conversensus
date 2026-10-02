@@ -5,7 +5,13 @@ import {
   type FileId,
   projectFile,
 } from '@conversensus/shared';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import App from './App';
 import { NSID } from './atproto/types';
@@ -20,8 +26,10 @@ import {
   login,
   mergeOpenBranch,
   openBranch,
+  openFileNamed,
   participate,
   renderedNodeCount,
+  selectFirstNode,
   syncNow,
   WIRING_TIMEOUT,
   waitForResumedSession,
@@ -97,7 +105,7 @@ describe('App 結合: 受信した変更が画面まで届く (step2 T7-3 の実
 
     // alice: branch を切って 1 つ目のノードを置き、送る
     let user = await startOn('alice', ALICE);
-    await user.click(screen.getByText(FILE_NAME));
+    await openFileNamed(user, FILE_NAME);
     await createBranch(user, BRANCH_NAME);
     await openBranch(user, BRANCH_NAME);
     await addNode(user);
@@ -131,7 +139,7 @@ describe('App 結合: 受信した変更が画面まで届く (step2 T7-3 の実
 
     // alice: branch を切るが、まだ届かないように保留する
     let user = await startOn('alice', ALICE);
-    await user.click(screen.getByText(FILE_NAME));
+    await openFileNamed(user, FILE_NAME);
     world.pds.withhold(ALICE.did);
     await createBranch(user, BRANCH_NAME);
     await syncNow(user);
@@ -206,7 +214,7 @@ describe('App 結合: 因果の点が端末をまたいで載る (step3 Phase 1)
     // alice の編集は、bob の tap が復元を済ませた**後**に届くよう保留する。復元より前に
     // 届くと、手元のログからの復元で知識に入ってしまい、受信の経路を検証できない
     let user = await startOn('alice', ALICE);
-    await user.click(screen.getByText(FILE_NAME));
+    await openFileNamed(user, FILE_NAME);
     world.pds.withhold(ALICE.did);
     await addNode(user);
     await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
@@ -271,7 +279,7 @@ describe('App 結合: 同じ branch を 2 人が並行に merge しても収束�
 
     // alice: branch を切ってノードを置き、コミットして送る
     let user = await startOn('alice', ALICE);
-    await user.click(screen.getByText(FILE_NAME));
+    await openFileNamed(user, FILE_NAME);
     await createBranch(user, BRANCH_NAME);
     await openBranch(user, BRANCH_NAME);
     await addNode(user);
@@ -291,7 +299,7 @@ describe('App 結合: 同じ branch を 2 人が並行に merge しても収束�
 
     // alice: bob の merge を知らずに、同じ branch を merge する
     user = await startOn('alice', ALICE);
-    await user.click(screen.getByText(FILE_NAME));
+    await openFileNamed(user, FILE_NAME);
     await openBranch(user, BRANCH_NAME);
     await mergeOpenBranch(user, 'alice が取り込む');
     await syncNow(user);
@@ -299,12 +307,12 @@ describe('App 結合: 同じ branch を 2 人が並行に merge しても収束�
     // 互いの merge が届く。写しは 2 組あるが、畳み込みは同じ元の写しを 1 つだけ採る
     world.pds.release(BOB.did);
     await syncNow(user);
-    await user.click(screen.getByText(FILE_NAME));
+    await openFileNamed(user, FILE_NAME);
     await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
 
     user = await startOn('bob', BOB);
     await syncNow(user);
-    await user.click(screen.getByText(FILE_NAME));
+    await openFileNamed(user, FILE_NAME);
     await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
 
     // PDS には写しが 2 組ある (両方とも書かれている) ことを確かめておく — 重複除去が
@@ -375,5 +383,500 @@ describe('App 結合: 同じブラウザの別のタブの書き込み (step3 Ph
         .at(-1);
       expect(mine?.deps[otherTab]).toBe(7);
     }, WIRING_TIMEOUT);
+  });
+});
+
+/**
+ * step3 Phase 3 S3-2 の網。branch を開くと、以前は `activeFile` のシートを branch の中身で
+ * 差し替え、trunk を退避して戻るときに復元していた (設計 F1)。S3-2 でこの「化け」を撤去する
+ * ので、**撤去の前に**、それが守っていた振る舞いを画面の側から固定しておく
+ */
+describe('App 結合: branch の出入りで trunk と branch が混ざらない (step3 Phase 3 S3-2)', () => {
+  const TRUNK_SHEET = 'Sheet 1';
+
+  /** 1 端末・未ログインで File と branch を作り、branch を開いてノードを 1 つ置く */
+  async function branchWithOneNode() {
+    await world.activate('solo');
+    render(<App />);
+    const user = userEvent.setup();
+    await createFile(user, FILE_NAME);
+    await createBranch(user, BRANCH_NAME);
+    await openBranch(user, BRANCH_NAME);
+    await addNode(user);
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+    return user;
+  }
+
+  test('trunk に戻ると branch のノードは出ず、branch を開き直すと出る', async () => {
+    const user = await branchWithOneNode();
+
+    await user.click(screen.getByRole('button', { name: TRUNK_SHEET }));
+    await waitFor(() => expect(renderedNodeCount()).toBe(0), WIRING_TIMEOUT);
+
+    await openBranch(user, BRANCH_NAME);
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+  });
+
+  test('branch を開いたままシートを足しても、branch の中身は trunk に移らない', async () => {
+    const user = await branchWithOneNode();
+
+    await user.click(screen.getByText('+ シートを追加'));
+    await screen.findByRole('button', { name: 'Sheet 2' }, WIRING_TIMEOUT);
+    await waitFor(() => expect(renderedNodeCount()).toBe(0), WIRING_TIMEOUT);
+
+    // 元のシートの trunk にも出ない (画面と op-log の両方)
+    await user.click(screen.getByRole('button', { name: TRUNK_SHEET }));
+    await waitFor(() => expect(renderedNodeCount()).toBe(0), WIRING_TIMEOUT);
+    const fileId = world.localStore().listFiles()[0]?.id as FileId;
+    const trunk = projectFile(world.localStore().getBatches(fileId), fileId);
+    expect(trunk.sheets.map((s) => s.nodes.length)).toEqual([0, 0]);
+  });
+
+  test('branch を開いている間に届いた trunk の編集は、trunk に戻ると見える', async () => {
+    const { code } = await aliceSharesFileWithBob();
+
+    // bob: 参加して branch を切り、開いておく
+    let user = await startOn('bob', BOB);
+    await participate(user, code, FILE_NAME);
+    await syncNow(user);
+    await createBranch(user, BRANCH_NAME);
+    await openBranch(user, BRANCH_NAME);
+    await syncNow(user);
+
+    // alice: trunk にノードを置いて送る
+    user = await startOn('alice', ALICE);
+    await openFileNamed(user, FILE_NAME);
+    await addNode(user);
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+    await syncNow(user);
+
+    // bob: branch を開いたまま受信し、branch には出ない
+    user = await startOn('bob', BOB);
+    await openFileNamed(user, FILE_NAME);
+    await openBranch(user, BRANCH_NAME);
+    await syncNow(user);
+    await new Promise((resolve) => setTimeout(resolve, SETTLE_MS));
+    expect(renderedNodeCount()).toBe(0);
+
+    // trunk に戻ると見える (以前は戻り先の控えを受信で入れ直す必要があった)
+    await user.click(screen.getByRole('button', { name: TRUNK_SHEET }));
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+  });
+});
+
+describe('App 結合: タブ (step3 Phase 3 S3-3)', () => {
+  /** タブの帯の並び (名前) */
+  const tabLabels = () =>
+    screen.queryAllByRole('tab').map((t) => t.textContent ?? '');
+  const selectedTab = () =>
+    screen
+      .getAllByRole('tab')
+      .find((t) => t.getAttribute('aria-selected') === 'true');
+
+  /**
+   * 1 端末・未ログインで File を作り、Sheet 1 に 1 つ、branch b1 に 2 つ置く。
+   * タブは Sheet 1 (trunk) と b1 の 2 枚になる
+   */
+  async function fileWithTrunkAndBranch() {
+    await world.activate('solo');
+    render(<App />);
+    const user = userEvent.setup();
+    await createFile(user, FILE_NAME);
+    await addNode(user);
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+    await createBranch(user, BRANCH_NAME);
+    await openBranch(user, BRANCH_NAME);
+    await addNode(user);
+    await waitFor(() => expect(renderedNodeCount()).toBe(2), WIRING_TIMEOUT);
+    return user;
+  }
+
+  test('シートと branch はそれぞれのタブで開き、タブを切り替えるとその中身が出る', async () => {
+    const user = await fileWithTrunkAndBranch();
+    expect(tabLabels()).toEqual([
+      `${FILE_NAME} / Sheet 1`,
+      `${FILE_NAME} / Sheet 1 (⎇ ${BRANCH_NAME})`,
+    ]);
+
+    await user.click(
+      screen.getByRole('tab', { name: `${FILE_NAME} / Sheet 1` }),
+    );
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+    await user.click(
+      screen.getByRole('tab', {
+        name: `${FILE_NAME} / Sheet 1 (⎇ ${BRANCH_NAME})`,
+      }),
+    );
+    await waitFor(() => expect(renderedNodeCount()).toBe(2), WIRING_TIMEOUT);
+  });
+
+  test('既に開いているアドレスをサイドバーから開くと、そのタブへ移る (Q2)', async () => {
+    const user = await fileWithTrunkAndBranch();
+
+    await user.click(screen.getByRole('button', { name: 'Sheet 1' }));
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+    expect(tabLabels()).toHaveLength(2);
+    expect(selectedTab()?.textContent).toBe(`${FILE_NAME} / Sheet 1`);
+  });
+
+  test('タブを閉じると隣のタブの中身が出る', async () => {
+    const user = await fileWithTrunkAndBranch();
+
+    await user.click(
+      screen.getByRole('button', {
+        name: `${FILE_NAME} / Sheet 1 (⎇ ${BRANCH_NAME}) を閉じる`,
+      }),
+    );
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+    expect(tabLabels()).toEqual([`${FILE_NAME} / Sheet 1`]);
+  });
+
+  test('再読み込みしてもタブが並び、アクティブなタブ (branch) の中身が出る (Q3)', async () => {
+    await fileWithTrunkAndBranch();
+
+    cleanup();
+    await world.activate('solo');
+    render(<App />);
+    await waitFor(() => expect(renderedNodeCount()).toBe(2), WIRING_TIMEOUT);
+    await screen.findByRole('button', { name: 'コミット' }, WIRING_TIMEOUT);
+    expect(tabLabels()).toHaveLength(2);
+  });
+
+  test('別の File を作ると新しいタブで開き、元の File のタブへ戻れる', async () => {
+    const user = await fileWithTrunkAndBranch();
+    const OTHER = '別のファイル';
+
+    await createFile(user, OTHER);
+    await waitFor(() => expect(renderedNodeCount()).toBe(0), WIRING_TIMEOUT);
+    expect(tabLabels()).toEqual([
+      `${FILE_NAME} / Sheet 1`,
+      `${FILE_NAME} / Sheet 1 (⎇ ${BRANCH_NAME})`,
+      `${OTHER} / Sheet 1`,
+    ]);
+
+    await user.click(
+      screen.getByRole('tab', { name: `${FILE_NAME} / Sheet 1` }),
+    );
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+  });
+
+  test('背後のタブの File も同期を続け、切り替えたときには届いている (Q4)', async () => {
+    const OTHER = '別のファイル';
+    const { code } = await aliceSharesFileWithBob();
+
+    // bob: 参加し、自分の File も作る。共有の File のタブは背後に回る
+    let user = await startOn('bob', BOB);
+    await participate(user, code, FILE_NAME);
+    await syncNow(user);
+    await createFile(user, OTHER);
+
+    // alice: 共有の File にノードを置いて送る
+    user = await startOn('alice', ALICE);
+    await openFileNamed(user, FILE_NAME);
+    await addNode(user);
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+    await syncNow(user);
+
+    // bob: 自分の File を前に出したまま同期する
+    user = await startOn('bob', BOB);
+    await waitFor(
+      () => expect(selectedTab()?.textContent).toStartWith(OTHER),
+      WIRING_TIMEOUT,
+    );
+    await syncNow(user);
+
+    // **切り替える前に**手元の正典に入っている (開いたときの同期で取りに行ったのではない)
+    const shared = world
+      .localStore()
+      .listFiles()
+      .find((f) => f.name === FILE_NAME)?.id as FileId;
+    await waitFor(() => {
+      const trunk = projectFile(world.localStore().getBatches(shared), shared);
+      expect(trunk.sheets[0]?.nodes).toHaveLength(1);
+    }, WIRING_TIMEOUT);
+
+    await user.click(
+      screen.getByRole('tab', { name: new RegExp(`^${FILE_NAME}`) }),
+    );
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+  });
+});
+
+describe('App 結合: ヘッダ (step3 Phase 3 S3-4a)', () => {
+  async function soloFileWithOneNode() {
+    await world.activate('solo');
+    render(<App />);
+    const user = userEvent.setup();
+    await createFile(user, FILE_NAME);
+    await addNode(user);
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+    return user;
+  }
+  const header = () => screen.getByRole('toolbar', { name: 'グラフの操作' });
+
+  test('ヘッダの Undo で置いたノードが消え、Redo で戻る', async () => {
+    const user = await soloFileWithOneNode();
+    await user.click(within(header()).getByRole('button', { name: 'Undo' }));
+    await waitFor(() => expect(renderedNodeCount()).toBe(0), WIRING_TIMEOUT);
+    await user.click(within(header()).getByRole('button', { name: 'Redo' }));
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+  });
+
+  test('🏷 を on にしてノードを選ぶと property editor が出て、足したプロパティが op-log に載る', async () => {
+    const user = await soloFileWithOneNode();
+    await user.click(within(header()).getByTitle('プロパティ'));
+    selectFirstNode();
+    const editor = await screen.findByRole(
+      'region',
+      { name: 'プロパティ' },
+      WIRING_TIMEOUT,
+    );
+    await user.type(
+      within(editor).getByLabelText('追加するプロパティの名前'),
+      'owner',
+    );
+    await user.type(
+      within(editor).getByLabelText('追加するプロパティの値'),
+      'alice',
+    );
+    await user.click(within(editor).getByRole('button', { name: '追加' }));
+
+    const fileId = world.localStore().listFiles()[0]?.id as FileId;
+    await waitFor(() => {
+      const file = projectFile(world.localStore().getBatches(fileId), fileId);
+      expect(file.sheets[0]?.nodes[0]?.properties).toEqual({ owner: 'alice' });
+    }, WIRING_TIMEOUT);
+  });
+
+  test('検索の窓は、別の view (タブ) へ移ると閉じる', async () => {
+    const user = await soloFileWithOneNode();
+    await user.click(screen.getByText('+ シートを追加'));
+    await screen.findByRole('button', { name: 'Sheet 2' }, WIRING_TIMEOUT);
+    await user.click(within(header()).getByTitle('このシートを検索'));
+    await screen.findByRole('region', { name: '検索' });
+
+    await user.click(
+      screen.getByRole('tab', { name: `${FILE_NAME} / Sheet 1` }),
+    );
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+    // 要素そのものを toBeNull に渡さない — 落ちたとき bun が DOM 全体を差分に出そうとして膨れる
+    expect(screen.queryByRole('region', { name: '検索' }) === null).toBe(true);
+  });
+});
+
+describe('App 結合: 右サイドバー (step3 Phase 3 S3-4b)', () => {
+  test('右サイドバーの property editor で足したプロパティが op-log に載り、ボディ内のものにも出る', async () => {
+    await world.activate('solo');
+    render(<App />);
+    const user = userEvent.setup();
+    await createFile(user, FILE_NAME);
+    await addNode(user);
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+
+    await user.click(
+      screen.getByRole('button', { name: '右サイドバーを広げる' }),
+    );
+    selectFirstNode();
+    const docked = await screen.findByRole(
+      'region',
+      { name: '詳細のプロパティ' },
+      WIRING_TIMEOUT,
+    );
+    await user.type(
+      within(docked).getByLabelText('追加するプロパティの名前'),
+      'owner',
+    );
+    await user.type(
+      within(docked).getByLabelText('追加するプロパティの値'),
+      'alice',
+    );
+    await user.click(within(docked).getByRole('button', { name: '追加' }));
+
+    const fileId = world.localStore().listFiles()[0]?.id as FileId;
+    await waitFor(() => {
+      const file = projectFile(world.localStore().getBatches(fileId), fileId);
+      expect(file.sheets[0]?.nodes[0]?.properties).toEqual({ owner: 'alice' });
+    }, WIRING_TIMEOUT);
+
+    // 併用: ボディ内の property editor も同じ選択の同じ値を出す
+    await user.click(
+      within(screen.getByRole('toolbar', { name: 'グラフの操作' })).getByTitle(
+        'プロパティ',
+      ),
+    );
+    const floating = await screen.findByRole('region', { name: 'プロパティ' });
+    await waitFor(
+      () =>
+        expect(within(floating).getByLabelText('owner の値')).toHaveProperty(
+          'value',
+          'alice',
+        ),
+      WIRING_TIMEOUT,
+    );
+  });
+});
+
+describe('App 結合: 別のタブで開く明示の操作 (step3 Phase 3 S3-4c)', () => {
+  const tabLabels = () =>
+    screen.queryAllByRole('tab').map((t) => t.textContent ?? '');
+
+  /** ⌘ を押しながら押す (Ctrl も同じ扱い。どちらか片方を見れば足りる) */
+  async function metaClick(
+    user: ReturnType<typeof userEvent.setup>,
+    el: Element,
+  ) {
+    await user.keyboard('{Meta>}');
+    await user.click(el);
+    await user.keyboard('{/Meta}');
+  }
+
+  test('⌘ を押しながらシートを選ぶと、同じアドレスでも新しいタブで開く (Q2)', async () => {
+    await world.activate('solo');
+    render(<App />);
+    const user = userEvent.setup();
+    await createFile(user, FILE_NAME);
+    expect(tabLabels()).toEqual([`${FILE_NAME} / Sheet 1`]);
+
+    await metaClick(user, screen.getByRole('button', { name: 'Sheet 1' }));
+    await waitFor(
+      () =>
+        expect(tabLabels()).toEqual([
+          `${FILE_NAME} / Sheet 1`,
+          `${FILE_NAME} / Sheet 1`,
+        ]),
+      WIRING_TIMEOUT,
+    );
+    // 押さずに選ぶと、これまでどおり既存のタブへ移る (増えない)
+    await user.click(screen.getByRole('button', { name: 'Sheet 1' }));
+    expect(tabLabels()).toHaveLength(2);
+  });
+
+  test('⌘ を押しながら開いている branch を選ぶと、trunk に戻らずその branch を別のタブで開く', async () => {
+    await world.activate('solo');
+    render(<App />);
+    const user = userEvent.setup();
+    await createFile(user, FILE_NAME);
+    await createBranch(user, BRANCH_NAME);
+    await openBranch(user, BRANCH_NAME);
+
+    // 文字で引くと、ヘッダの branch の状態 (⎇ b1) にも当たる。サイドバーの行はボタンである
+    await metaClick(
+      user,
+      screen.getByRole('button', { name: branchLabel(BRANCH_NAME) }),
+    );
+    await waitFor(
+      () =>
+        expect(
+          tabLabels().filter((l) => l.endsWith(`(⎇ ${BRANCH_NAME})`)),
+        ).toHaveLength(2),
+      WIRING_TIMEOUT,
+    );
+    await screen.findByRole('button', { name: 'コミット' }, WIRING_TIMEOUT);
+  });
+});
+
+describe('App 結合: multiple モード (step3 Phase 3 S3-5)', () => {
+  const TRUNK_LABEL = `${FILE_NAME} / Sheet 1`;
+  const BRANCH_LABEL = `${TRUNK_LABEL} (⎇ ${BRANCH_NAME})`;
+  /** pane の中に描かれているノードの数 */
+  const nodesInPane = (label: string) =>
+    screen
+      .getByRole('region', { name: `pane: ${label}` })
+      .querySelectorAll('.react-flow__node').length;
+
+  beforeEach(() => {
+    // 開発用の入口を開ける (Q6: 利用者の入口は作らない)。`devPanesEnabled` は描画のたびに読む
+    process.env.VITE_DEV_PANES = 'true';
+  });
+  afterEach(() => {
+    delete process.env.VITE_DEV_PANES;
+  });
+
+  /** trunk に 1 つ、branch b1 に 1 つ足して commit し、b1 のタブに trunk を並べる */
+  async function branchBesideTrunk() {
+    await world.activate('solo');
+    render(<App />);
+    const user = userEvent.setup();
+    await createFile(user, FILE_NAME);
+    await addNode(user);
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+    await createBranch(user, BRANCH_NAME);
+    await openBranch(user, BRANCH_NAME);
+    await addNode(user);
+    await waitFor(() => expect(renderedNodeCount()).toBe(2), WIRING_TIMEOUT);
+    await commitBranch(user, '案');
+
+    await user.click(screen.getByTitle('並べる (開発用)'));
+    await user.click(screen.getByRole('menuitem', { name: TRUNK_LABEL }));
+    await screen.findByRole('region', { name: `pane: ${TRUNK_LABEL}` });
+    return user;
+  }
+
+  test('他のタブを並べると、アクティブな pane は編集のまま、並べた pane はその姿を見せる', async () => {
+    await branchBesideTrunk();
+    await waitFor(() => {
+      expect(nodesInPane(BRANCH_LABEL)).toBe(2);
+      expect(nodesInPane(TRUNK_LABEL)).toBe(1);
+    }, WIRING_TIMEOUT);
+    // ヘッダの branch の操作は、アクティブな pane (b1) を対象にしている
+    expect(screen.getByRole('button', { name: 'コミット' })).toBeTruthy();
+  });
+
+  test('アクティブな pane で merge すると、並べた trunk の pane が読み直して merge 後の姿になる', async () => {
+    const user = await branchBesideTrunk();
+    await waitFor(
+      () => expect(nodesInPane(TRUNK_LABEL)).toBe(1),
+      WIRING_TIMEOUT,
+    );
+    await mergeOpenBranch(user, '取り込む');
+    // 同じタブの中の書き込みの知らせ (BroadcastChannel は送り手自身に届かない) で読み直す
+    await waitFor(
+      () => expect(nodesInPane(TRUNK_LABEL)).toBe(2),
+      WIRING_TIMEOUT,
+    );
+  });
+
+  test('前に出すとアクティブが入れ替わり、pane を閉じると single に戻る', async () => {
+    const user = await branchBesideTrunk();
+    const trunkPane = screen.getByRole('region', {
+      name: `pane: ${TRUNK_LABEL}`,
+    });
+    await user.click(
+      within(trunkPane).getByRole('button', { name: '前に出す' }),
+    );
+    // 画面の仕組みが trunk へ移る: branch の操作がヘッダから消え、b1 は見るだけになる
+    await waitFor(
+      () =>
+        expect(
+          screen.queryByRole('button', { name: 'コミット' }) === null,
+        ).toBe(true),
+      WIRING_TIMEOUT,
+    );
+    await waitFor(() => {
+      expect(nodesInPane(TRUNK_LABEL)).toBe(1);
+      expect(nodesInPane(BRANCH_LABEL)).toBe(2);
+    }, WIRING_TIMEOUT);
+
+    await user.click(
+      screen.getByRole('button', { name: `${BRANCH_LABEL} の pane を閉じる` }),
+    );
+    await waitFor(
+      () =>
+        expect(
+          screen.queryByRole('region', { name: `pane: ${TRUNK_LABEL}` }) ===
+            null,
+        ).toBe(true),
+      WIRING_TIMEOUT,
+    );
+    expect(renderedNodeCount()).toBe(1);
+  });
+
+  test('開発用の入口が閉じていれば「⧉」は出ない (利用者の入口は作らない, Q6)', async () => {
+    delete process.env.VITE_DEV_PANES;
+    await world.activate('solo');
+    render(<App />);
+    const user = userEvent.setup();
+    await createFile(user, FILE_NAME);
+    expect(screen.queryByTitle('並べる (開発用)') === null).toBe(true);
   });
 });

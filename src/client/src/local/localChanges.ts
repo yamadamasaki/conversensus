@@ -48,15 +48,25 @@ function tabChannel(): ChannelLike | null {
 }
 
 /**
- * 書き込みのたびに他のタブへ知らせるバックエンドで包む。**書けたときだけ**知らせる
- * (失敗した書き込みで他のタブを測り直させない)
+ * **このタブの中**で正典が動いたことを受ける口 (step3 Phase 3 S3-5)。BroadcastChannel は送った
+ * channel 自身に届かないので、同じタブの中の知らせは別に持つ。見るだけの pane (multiple モード) が、
+ * アクティブな pane の編集・merge・受信で動いた正典を読み直すのに使う
+ */
+const ownListeners = new Set<(change: LocalChange) => void>();
+
+/**
+ * 書き込みのたびに知らせるバックエンドで包む。他のタブへは `target` で、このタブの中へは
+ * `subscribeOwnChanges` の受け手へ。**書けたときだけ**知らせる (失敗した書き込みで測り直させない)。
+ * `target` が無い (BroadcastChannel の無い環境・テスト) ときも、このタブの中へは知らせる
  */
 export function broadcastingBackend(
   backend: LocalBackend,
   target: ChannelLike | null = tabChannel(),
 ): LocalBackend {
-  if (!target) return backend;
-  const notify = (fileId: FileId) => target.postMessage({ fileId });
+  const notify = (fileId: FileId) => {
+    target?.postMessage({ fileId });
+    for (const listener of ownListeners) listener({ fileId });
+  };
   return {
     ...backend,
     createFile: async (name) => {
@@ -91,4 +101,28 @@ export function subscribeLocalChanges(
   const handler = (event: { data: LocalChange }) => listener(event.data);
   source.addEventListener('message', handler);
   return () => source.removeEventListener('message', handler);
+}
+
+/** このタブ自身の書き込みを受ける。@returns 購読をやめる関数 */
+export function subscribeOwnChanges(
+  listener: (change: LocalChange) => void,
+): () => void {
+  ownListeners.add(listener);
+  return () => ownListeners.delete(listener);
+}
+
+/**
+ * 手元の正典が動いた (このタブの書き込み + 別のタブの書き込み)。画面に出ているものを正典から
+ * 読み直す側 (見るだけの pane) が使う。@returns 購読をやめる関数
+ */
+export function subscribeCanonChanges(
+  listener: (change: LocalChange) => void,
+  source: ChannelLike | null = tabChannel(),
+): () => void {
+  const stopOthers = subscribeLocalChanges(listener, source);
+  const stopOwn = subscribeOwnChanges(listener);
+  return () => {
+    stopOthers();
+    stopOwn();
+  };
 }

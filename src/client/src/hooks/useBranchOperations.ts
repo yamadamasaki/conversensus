@@ -174,9 +174,10 @@ export const defaultBranchOplogDeps: BranchOplogDeps = {
 };
 
 interface UseBranchOperationsParams {
+  /** 開いている File (trunk の姿)。**branch の中身では差し替えない** (step3 Phase 3 S3-2) */
   activeFile: GraphFile | null;
   activeSheetId: SheetId | null;
-  activeSheet: Sheet | null;
+  /** merge で進んだ trunk を画面の state に入れる */
   onSetActiveFile: (file: GraphFile | null) => void;
   setConfirmState: (s: ConfirmState | null) => void;
   setInputState: (s: InputState | null) => void;
@@ -227,7 +228,6 @@ interface UseBranchOperationsParams {
 export function useBranchOperations({
   activeFile,
   activeSheetId,
-  activeSheet,
   onSetActiveFile,
   setConfirmState,
   setInputState,
@@ -275,7 +275,15 @@ export function useBranchOperations({
   const [branchOriginalBase, setBranchOriginalBase] = useState<Sheet | null>(
     null,
   );
-  const preBranchFile = useRef<GraphFile | null>(null);
+  /**
+   * 開いている branch のシート (step3 Phase 3 S3-2)。branch の projection で始まり、
+   * 画面の編集 (`onBranchSheetChange`) で進む。
+   *
+   * 以前はこれを持たず、`activeFile` の当該シートを branch の中身で差し替えていた。
+   * そのため trunk を退避して戻るときに復元し、受信した trunk を控え直し、シートを足す前に
+   * trunk へ戻す、という後始末が要った (設計 F1)。branch の中身を別に持てば、どれも要らない
+   */
+  const [branchSheet, setBranchSheet] = useState<Sheet | null>(null);
 
   const isTrunk = !activeBranch || activeBranch.name === TRUNK_PREFIX;
 
@@ -330,7 +338,7 @@ export function useBranchOperations({
     setLastCommitBase(null);
     setBranchOriginalBase(null);
     setNewCommitsSinceMerge(0);
-    preBranchFile.current = null;
+    setBranchSheet(null);
   }, [activeFile?.id]);
 
   /**
@@ -346,13 +354,13 @@ export function useBranchOperations({
     if (
       isTrunk ||
       !lastCommitBase ||
-      !activeSheet ||
+      !branchSheet ||
       (activeBranch?.status !== BRANCH_STATUS.OPEN &&
         activeBranch?.status !== BRANCH_STATUS.MERGED)
     )
       return [];
-    return deps.computeSheetChanges(lastCommitBase, activeSheet);
-  }, [isTrunk, lastCommitBase, activeSheet, activeBranch?.status, deps]);
+    return deps.computeSheetChanges(lastCommitBase, branchSheet);
+  }, [isTrunk, lastCommitBase, branchSheet, activeBranch?.status, deps]);
 
   const diffState = useMemo(
     () =>
@@ -377,9 +385,9 @@ export function useBranchOperations({
    */
   const changes = useMemo(() => {
     if (diffState === BRANCH_DIFF_STATE.EDITING) return pendingChanges;
-    if (!diffBase || !activeSheet) return [];
-    return deps.computeSheetChanges(diffBase, activeSheet);
-  }, [diffState, diffBase, activeSheet, pendingChanges, deps]);
+    if (!diffBase || !branchSheet) return [];
+    return deps.computeSheetChanges(diffBase, branchSheet);
+  }, [diffState, diffBase, branchSheet, pendingChanges, deps]);
 
   const [addedNodeIds, updatedNodeIds, addedEdgeIds, updatedEdgeIds] =
     useMemo(() => {
@@ -417,53 +425,23 @@ export function useBranchOperations({
       ] as const;
     }, [diffBase, changes]);
 
-  /**
-   * branch 状態を捨てて trunk へ戻る。
-   *
-   * @returns 復帰した trunk のファイル。**呼び出し側が trunk のファイルを起点に
-   *   処理を続けられるようにする** — branch 表示中の `activeFile` は該当シートが
-   *   branch の内容なので、それを土台にファイルを組み立てると branch の内容が
-   *   trunk へ移ってしまう (シート追加の経路で実際に起きていた)。
-   */
-  const resetBranchState = useCallback((): GraphFile | null => {
+  /** branch 状態を捨てて trunk へ戻る。trunk の姿は `activeFile` がそのまま持っている */
+  const resetBranchState = useCallback(() => {
     setActiveBranch(null);
     setLastCommitBase(null);
     setBranchOriginalBase(null);
     setNewCommitsSinceMerge(0);
-    const restored = preBranchFile.current;
-    if (restored) {
-      onSetActiveFile(restored);
-      preBranchFile.current = null;
-    }
-    return restored;
-  }, [onSetActiveFile]);
-
-  /**
-   * branch を開いている間に受信した trunk を、戻ったときに見せるために控え直す
-   * (T7-7 の実機で発覚した欠陥, 2026-09-17)。
-   *
-   * 戻り先は「branch へ入る前の trunk の写し」なので、受信した分を入れ直さないと
-   * **閉じた瞬間に古い trunk が出る**。branch を開いていないときは何もしない
-   * (写しが無いので、trunk の表示は受信の差し替えがそのまま担う)。
-   */
-  const keepTrunkForReturn = useCallback((file: GraphFile) => {
-    if (preBranchFile.current) preBranchFile.current = file;
+    setBranchSheet(null);
   }, []);
 
   /** trunk へ戻る。branch 側の内容は branch tap が既に op-log へ書いている */
-  const backToTrunk = useCallback(
-    (branch: BranchMeta | null) => {
-      setActiveBranch(branch);
-      setLastCommitBase(null);
-      setBranchOriginalBase(null);
-      setNewCommitsSinceMerge(0);
-      if (preBranchFile.current) {
-        onSetActiveFile(preBranchFile.current);
-        preBranchFile.current = null;
-      }
-    },
-    [onSetActiveFile],
-  );
+  const backToTrunk = useCallback((branch: BranchMeta | null) => {
+    setActiveBranch(branch);
+    setLastCommitBase(null);
+    setBranchOriginalBase(null);
+    setNewCommitsSinceMerge(0);
+    setBranchSheet(null);
+  }, []);
 
   /** branch のシート内容を op-log の projection から組み立てて表示に載せる */
   const selectBranchFromOplog = useCallback(
@@ -494,11 +472,6 @@ export function useBranchOperations({
         },
       );
 
-      // trunk からブランチに入る時のみ trunk の状態を保存
-      if (!activeBranch || activeBranch.name === TRUNK_PREFIX) {
-        preBranchFile.current = activeFile;
-      }
-
       // 旧経路と違い、どの時点の控えも持たずログから導出する。
       // merge 対象の起点は「最後の merge 時点」— 未 merge なら分岐点と同じ値になるので
       // 状態による場合分けが要らない
@@ -509,14 +482,11 @@ export function useBranchOperations({
           ? atLastCommit
           : null,
       );
-      onSetActiveFile({
-        ...activeFile,
-        sheets: activeFile.sheets.map((s) => (s.id === sheetId ? current : s)),
-      });
+      setBranchSheet(current);
       setNewCommitsSinceMerge(countCommitsAfter(commits, lastMergeAt));
       setActiveBranch(meta);
     },
-    [activeFile, activeBranch, onSetActiveFile, oplogDeps, projectionDeps],
+    [activeFile, oplogDeps, projectionDeps],
   );
 
   const handleSelectBranch = useCallback(
@@ -606,25 +576,26 @@ export function useBranchOperations({
         );
         return next;
       });
-      // trunk へ戻ったときに merge 済みの内容が見えるようにする
+      // trunk の姿を merge 後へ進める (trunk へ戻ったときに merge 済みの内容が見える)。
+      // 再 projection に失敗したときは、画面の branch の中身を trunk のシートに当てて近似する
       if (mergedTrunk) {
-        preBranchFile.current = mergedTrunk;
-      } else if (activeFile && activeSheet) {
-        preBranchFile.current = {
+        onSetActiveFile(mergedTrunk);
+      } else if (activeFile && branchSheet) {
+        onSetActiveFile({
           ...activeFile,
           sheets: activeFile.sheets.map((s) =>
-            s.id === sheetId ? activeSheet : s,
+            s.id === sheetId ? branchSheet : s,
           ),
-        };
+        });
       }
       setActiveBranch(merged);
       // merge した時点 = branch op-log の先端 = いま画面に出ている内容。
       // 再オープン時は同じ値を trunk の merge コミット (`sourceAt`) から導き直す (S6)
-      setBranchOriginalBase(activeSheet ?? null);
-      setLastCommitBase(activeSheet ?? null);
+      setBranchOriginalBase(branchSheet);
+      setLastCommitBase(branchSheet);
       setNewCommitsSinceMerge(0);
     },
-    [activeFile, activeSheet],
+    [activeFile, branchSheet, onSetActiveFile],
   );
 
   const handleMergeBranch = useCallback(
@@ -800,7 +771,7 @@ export function useBranchOperations({
 
   const handleCommit = useCallback(
     async (message: string) => {
-      if (!activeBranch || !activeSheetId || !activeSheet) return;
+      if (!activeBranch || !activeSheetId || !branchSheet) return;
       if (pendingChanges.length === 0) return;
 
       try {
@@ -820,7 +791,7 @@ export function useBranchOperations({
         );
         branchMeta.commitAdded(commit, activeBranch.id);
 
-        setLastCommitBase(activeSheet);
+        setLastCommitBase(branchSheet);
         setNewCommitsSinceMerge((prev) => prev + 1);
         setCommitDialogOpen(false);
       } catch (err) {
@@ -833,7 +804,7 @@ export function useBranchOperations({
     [
       activeBranch,
       activeSheetId,
-      activeSheet,
+      branchSheet,
       pendingChanges,
       setAlertState,
       oplogDeps,
@@ -923,10 +894,12 @@ export function useBranchOperations({
      */
     syncBranchNow,
     /**
-     * branch を開いている間に受信した trunk の控え先 (2026-09-17)。
-     * App が `useFileSheetOperations` へ渡す
+     * 開いている branch のシート (step3 Phase 3 S3-2)。trunk 表示中は null。
+     * 画面はこれを描き、編集は `onBranchSheetChange` で返す
      */
-    keepTrunkForReturn,
+    branchSheet: activeBranch ? branchSheet : null,
+    /** 画面で branch のシートを編集した (GraphEditor の `onSheetChange`) */
+    onBranchSheetChange: setBranchSheet,
     handleSelectBranch,
     handleCreateBranch,
     handleMergeBranch,

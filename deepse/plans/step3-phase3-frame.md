@@ -1,0 +1,587 @@
+# step3 Phase 3: 画面の枠 — 設計
+
+> ステータス: **Q1〜Q6 確定、実装中** / 作成日: 2026-10-02
+> 親: [step3 実装計画](./step3-implementation.md) の Phase 3。入力は計画の Q2 (アドレスを 1 つ定義して
+> タブ・Deep Link・inspector・検索結果・merger を載せる) と、仕様
+> [design language](../architecture/step3/design-language.md) /
+> [property editor](../architecture/step3/property-editor.md) / [merger](../architecture/step3/merger.md)。
+>
+> **データはほぼ変わらない** (計画 §2)。op の語彙には触れない。例外は 1 つ: commit と merge の commit に
+> vector を任意の項目として足す (§2.1、F4)。
+
+## 0. この Phase で入れるもの
+
+| | 変更 | 計画の番号 |
+| --- | --- | --- |
+| 1 | **グラフ view のアドレス** `(file, sheet, branch, 切断面, highlight)` | S3-1 |
+| 2 | **アプリ内タブ**。タブ = アドレスの並び。閉じても再現できる | S3-2 |
+| 3 | **ヘッダ・右サイドバー**。property editor の置き場。左右サイドバーの幅変更と折り畳み | S3-3 |
+| 4 | **ボディの multiple モード** (merger の前提) | S3-4 |
+| 5 | 検索とプロパティを `GraphEditor` から割る (S0-2 の残り) | — |
+
+---
+
+## 1. コードを読んで判明した事実
+
+🔵 = コードで確認 / ⚪ = 推論・仕様の読み・未確認
+
+### F1: 画面の状態は「開いている 1 つの File」に束ねられている
+
+🔵 いま見ているものは 3 つの state の組で表されている。
+
+- `useFileSheetOperations` の `activeFile` (**`GraphFile` 全体**) と `activeSheetId`
+- `useBranchOperations` の `activeBranch`
+
+🔵 **branch を開くと `activeFile` の当該シートを branch の中身で差し替え**、戻るために trunk を
+退避する (`preBranchFile`, `resetBranchState`)。つまり「branch を見ている」は、アドレスではなく
+**`activeFile` の中身が化けている状態**として表されている。シートの追加が `branchOps.isTrunk` を
+見て trunk に戻してから行う (`App.tsx` の `handleAddSheet`) のは、この化けの後始末である。
+
+⚪ 帰結: アドレスを導入すると、この「化け」は**アドレスから projection した結果**に置き換わる。
+退避と復元 (`preBranchFile` / `keepTrunkForReturn` / `branchViewRef`) は構造ごと不要になるはずである。
+
+### F2: tap・定期同期・因果の発番器が `activeFile.id` 1 つに束ねられている
+
+🔵 `useEventSyncTap(activeFile?.id ?? null, …)` が、書き込みの tap・定期同期 (`SYNC_POLL_INTERVAL_MS`)・
+受信・`CausalClock` を **開いている File 1 つについてだけ** 持つ。別の File を開くと前の tap は
+作り直される。branch の tap は trunk の `CausalClock` を共有する (`causal` オプション)。
+
+⚪ 帰結が 2 つある。
+
+- **タブで別々の File を同時に開くと、tap が File の数だけ要る。**背後のタブの File も同期を続けるか
+  (続けないと、タブを切り替えたときに古い姿が見える) を決める必要がある
+- **同じ File を 2 つの view (タブまたは multiple の pane) で開くとき、発番器は 1 つでなければならない。**
+  別々に作ると同じ点 `(actor, seq)` を 2 回発番する — Phase 2 F4 (ブラウザのタブが同じ actor を
+  名乗る) と同じ壊れ方が、**1 つのブラウザのタブの中で**起きる
+
+したがって **「File ごとのセッション」(tap・発番器・同期) を「view」から切り離し**、開いている
+view が参照する間だけ生かす (参照数で持つ) 形が要る。これが Phase 3 で最も重い変更である。
+
+### F3: `GraphEditor` は File 全体を受け取り、File 全体を `onChange` で返す
+
+🔵 `GraphEditor` は `file: GraphFile` と `activeSheetId` を受け、編集のたびに `onChange(updated)` で
+File 全体を返す。App はそれを `activeFile` に入れる。編集の永続は `syncRecord` (tap) が別に行う。
+`key` は `sheetId/branchId` で、切り替えるたびに作り直す。undo の履歴は `graphKey` ごとに App の
+`undoStateMap` に退避する。
+
+⚪ 帰結: 2 つの view が同じ File を開いて `onChange` で File 全体を返すと、**後から返した方が
+前の方の変更を画面の state から消す** (op-log には両方載っているので、次の projection で戻る)。
+view の内容は**共有の `activeFile` ではなく、view ごとにアドレスから projection したもの**にする。
+もう一方の view の変更は、既にある `subscribeLocalChanges` (ローカル正典への追記の知らせ) で拾える。
+
+### F4: 切断面で切る仕組みは branch の分岐点に既にある
+
+🔵 Phase 1 で分岐点は `baseVector: VersionVector` になり、「batch がその時点に含まれるか」は
+`covers(baseVector, batch.actor, batch.seq)` で決まる (`branchLog.ts`)。
+
+⚪ 帰結: アドレスの切断面は **`'head'` (最新) か `VersionVector`** で表せる。任意の切断面での
+projection は、分岐点での切り出しの一般化である。**過去の切断面は読み取り専用**になる
+(そこへ書くと、その後の op と並ばない)。
+
+🔵 **ただし vector を持つのは分岐点の commit (`baseVector`) だけである。**通常の commit と merge の
+commit は scalar の `at` しか持たず、`isUpTo` は `clock <= at` で切る。これは Phase 1 で分岐点について
+直したずれ (別の actor の batch が遅れて届くと、clock が小さいというだけで「その時点」に入る) を残している。
+
+⚪ 帰結: merge は切断面の一つである (2026-10-02 利用者との確認)。「merge の直前/直後」「ある commit の時点」を
+正確な切断面にするには、**commit と merge の commit にも vector を記録する** (`baseVector` と同じ
+`heldMaxima`)。merger の pane との対応は、merge 元 = branch の最後の commit (切断面)、merge 先 = trunk の
+`'head'` (動く。O3)、merge 後 = 解決用 branch の `'head'` (切断面ではない)。
+
+### F5: ヘッダに当たるものは `GraphEditor` の中の浮きパネルである
+
+🔵 🏷 (property) / 🔍 (検索) / Undo / Redo / グループ化 / 解除 / PNG は React Flow の
+`<Panel position="top-right">` にあり、開閉の state (`propertyOpen` / `searchOpen`) も `GraphEditor` が持つ。
+branch のコミット・merge のボタンは App の `position: fixed` の浮き要素である。
+
+⚪ 帰結: 仕様のヘッダ (graph management) は「ボディで表示されているグラフ全体のオプション・アクション」
+なので、**アクティブな view に対して 1 本**置くのが仕様の図 (layout.png) に合う。そのためには
+undo/redo・グループ化・PNG・選択を **`GraphEditor` の外から呼べる口**にする必要がある。
+
+### F6: ルーティングは無い。URL は OAuth が使っている
+
+🔵 router は無い。`location` を触るのは OAuth の redirect だけである (`atproto/oauthAuth.ts`)。
+⚪ Deep Link は FPR の後 (計画 §6)。Phase 3 ではアドレスを **直列化できる形** にしておくだけで、
+URL には載せない (OAuth の callback との衝突を今は考えずに済む)。
+
+### F7: 左サイドバーは幅 240 の固定である
+
+🔵 `Sidebar.tsx` の `width: 240`。幅変更も折り畳みも無い。
+
+---
+
+## 2. 設計
+
+### 2.1 アドレス
+
+```ts
+type GraphViewAddress = {
+  fileId: FileId;
+  sheetId: SheetId;
+  branchId: BranchId | null;      // null = trunk
+  cut: 'head' | VersionVector;    // 'head' は最新 (追随する)、vector は固定
+  highlight?: { nodeIds: NodeId[]; edgeIds: EdgeId[] };
+};
+```
+
+- **アドレスから view の中身を決める関数** `projectAddress(batches, address) → Sheet` を純関数で書く。
+  ここが Phase 3 の正しさの中心なので **性質として書く**:
+  - `cut = 'head'` の projection は、いまの projection と一致する
+  - branch のアドレスで `cut = baseVector` を取ると、分岐点の姿と一致する
+  - ~~切断面について単調~~ → 実装では「**切断面で切った姿 = その時点に実際にあった姿**」として書いた
+    (S3-1 の記録)。単調性より強く、比べる相手 (各時点の実物) を生成器が作れる
+- **commit に vector を足す** (F4)。`Commit.vector?: VersionVector` を任意の項目とし、`makeCommit` /
+  merge の commit で `heldMaxima` を記録する。`isUpTo` は vector があればそれで切る。古い commit
+  (vector 無し) は従来どおり `at` で切る
+- **mode は持たない** (Q1)。view の種類が増えたら、そのとき項目を足す
+- **編集できるか** はアドレスから導く: `cut` が vector なら読み取り専用。merger の元/先も読み取り専用
+  (これは Phase 5 が pane に付ける)
+
+### 2.2 File のセッションと view を分ける (F2, F3)
+
+- **`FileSession`** = File 1 つにつき 1 つの tap・`CausalClock`・同期・受信。branch の tap はその中に持ち、
+  発番器を共有する (いまと同じ)
+- **セッションは開いている view が参照している間だけ生きる** (参照数)。背後のタブの File も同期を
+  続ける (Q4)
+- **view** = アドレス + その projection + undo の履歴 + 選択。編集は File のセッションの tap へ流し、
+  自分の画面は自分で更新する。他の view の編集は `subscribeLocalChanges` で知って projection し直す
+
+### 2.3 タブ
+
+- タブ = アドレスの並び (single なら 1 つ、multiple なら複数) + レイアウト
+- 左サイドバーからグラフを開くと新しいタブで開く (仕様)。既に同じアドレスのタブがあるとき (Q2)
+- タブを閉じても変更は op-log にあるので、開き直せば再現される (仕様)。タブの並び自体を
+  再読み込みの後に復元するか (Q3)
+
+### 2.4 ヘッダ・右サイドバー・左サイドバー
+
+- **ヘッダはアクティブな view に対して 1 本** (F5)。multiple モードではアクティブな pane が対象 (Q5)
+- branch のコミット・merge はヘッダへ移す (浮き要素をやめる)
+- **右サイドバー**: いまは property editor の pane 1 つ。仕様の timeline / inspector は後の Phase で
+  pane として足す。**選択を view の state にする** (いまは React Flow の内部) ので、右サイドバーは
+  アクティブな view の選択を読む。ボディ内の property editor とは併用する (仕様)
+- 左右とも幅変更と折り畳み。幅と開閉は端末ごとの好みなので `localStorage` に置く
+
+### 2.5 multiple モード
+
+- ボディが複数の pane を持つ。pane は view 1 つ。**アクティブな pane** がヘッダと右サイドバーの対象
+- Phase 3 では「任意の 2〜3 個のアドレスを並べられる」まで。**pane 間の選択の連動や差分・競合の表示は
+  Phase 5 (merger)** が載せる。ここではそのための口 (pane のアドレスと選択を外から読める) だけ用意する
+- 入口: Phase 3 では利用者が自分で multiple を作る入口を作るか (Q6)
+
+---
+
+## 3. スライス
+
+| | 内容 | 画面の変化 | 検証 |
+| --- | --- | --- | --- |
+| **S3-0** ✅ | `FileSession` を切り出す (tap・同期・契機を React の外へ)。**見た目は変えない** | 無し | 既存の単体・App 結合・E2E がそのまま緑 |
+| **S3-1** ✅ | アドレスと `projectAddress`。commit に vector を足す (F4) | 無し | 単体 + 性質 |
+| **S3-2** ✅ | view をアドレスで持つ。`activeFile` の化け (F1) と退避・復元を撤去 | 無し | App 結合 (branch の出入り・受信・シート追加) |
+| **S3-3** ✅ | タブ。File ごとのセッションの置き場 (参照数で生かす、同じ File は発番器を 1 つ)。アドレスから view を開く口と、view ごとの `projectAddress` | タブ帯 | App 結合 (2 つの File を開いて両方に受信が届く、同じ File の 2 view で発番が重ならない) |
+| **S3-4** ✅ | ヘッダ・右サイドバー・左右の幅変更と折り畳み。検索とプロパティを `GraphEditor` から割る | 枠 | 単体 + E2E (WebKit) |
+| **S3-5** ✅ | multiple モード | pane | App 結合 |
+
+**S3-0 と S3-2 が重く、見た目が変わらない。**先に網 (Phase 0 の App 結合) で今の振る舞いを固めてから
+動かす。特に「branch を開いたまま受信」「branch を抜けてシート追加」「別 File を開いたら tap が切り替わる」
+は App 結合で先に書く。
+
+---
+
+## 4. 着手前に訊くこと (Q)
+
+| | 問い | 既定案 → 確定 |
+| --- | --- | --- |
+| **Q1** | アドレスの `mode` は何を指すか | **→ 確定: mode は持たない (2026-10-02)。**当初は graphical / textual の view の種類を想定したが、textual view は一度作って外したもので、仕様に残っていたのは消し忘れ (利用者)。編集可否は切断面と pane の役割から導く |
+| **Q2** | 既に同じアドレスを開いているタブがあるとき、左サイドバーから開いたら | **そのタブへ移る。**同じ branch の head を 2 つのタブで編集できても得が無く、undo の履歴が 2 つに割れて紛らわしい。別のタブで開きたいときの明示の操作 (例: 修飾キー) は残す → **確定: 既定案のとおり (2026-10-02)** |
+| **Q3** | タブの並びを再読み込みの後に復元するか | **復元する** (`localStorage`)。ブラウザのタブごとに別にしたいなら `sessionStorage` → **確定: 既定案のとおり (`localStorage`、端末で共通) (2026-10-02)** |
+| **Q4** | 背後のタブの File も同期を続けるか | **続ける。**止めると切り替えた瞬間に古い姿が見え、受信の競合通知も遅れる。費用は S0-3 のとおり取得に比例するので、開いている File の数で増える (Jetstream (O6) までの割り切り) → **確定: 既定案のとおり (2026-10-02)** |
+| **Q5** | multiple モードのヘッダは 1 本か pane ごとか | **1 本 (アクティブな pane が対象)。**pane ごとに置くと merger の 3 pane で縦が足りない → **確定: 既定案のとおり (2026-10-02)** |
+| **Q6** | Phase 3 で利用者が multiple を自分で作れるようにするか | **作らない。**Phase 3 では開発用の入口 (テストと実機確認用) だけにし、利用者の入口は Phase 5 の merger の起動にする。仕様の multiple は「特別な場合に用いる」ものなので → **確定: 既定案のとおり (2026-10-02)** |
+
+## 5. 未決 (U)
+
+- **U1**: 選択を view の state にすると、React Flow の内部の選択と二重になる。どちらを正にするか
+  (S3-4 で、React Flow の controlled な選択で足りるかを確かめる)
+- **U2**: 背後のタブの File の数に上限を置くか (Q4 の費用)
+- **U3**: 過去の切断面の view をどこから開くか。入口は timeline view (FPR 後) なので、Phase 3 では
+  アドレスとしては表せるが UI の入口が無い
+
+---
+
+## 6. 実施記録
+
+### S3-0: `FileSession` を切り出す (2026-10-02)
+
+`useEventSyncTap` の中身 (tap・同期のサイクル・同期の契機・別のタブの知らせ) を
+`sync/fileSession.ts` の `FileSession` へ移し、フックは「1 つの File についてセッションを作り、
+契機を張り、知らせを最新に差し替える」だけの包みにした。
+
+#### 分かったこと
+
+- **範囲を絞った。**当初は「File ごとのセッションの置き場 (参照数)」まで S3-0 に入れるつもりだったが、
+  使う側 (タブ) が無いうちに作ると、形を想像で決めることになる。**S3-0 は React の外へ出すところまで**
+  とし、置き場は S3-3 (タブ) で使う側と一緒に作る
+- **発番器はセッションの外に置いたまま。**ログインで remote キューが付くとセッションは作り直されるが、
+  発番器は File と actor が同じ限り同じものを使い続ける (以前のフックと同じ寿命)。S3-3 の置き場でも
+  発番器は File ごとに 1 つで、セッションより長く生きる
+- **知らせの差し替えでタイマーを張り直さなくなった。**以前は知らせ (`onReceived` など) が変わると
+  `syncNow` が作り直され、契機の effect が張り直されて同期が 1 回余分に走っていた。知らせは
+  「安定参照であること」と注記して避けていたが、構造として起きなくなった
+
+#### 検証
+
+単体 1805 件 (`fileSession.test.ts` の 3 件を追加)・App 結合 8 件・E2E が緑。既存の
+`useEventSyncTap.test.ts` 30 件はそのまま通る (振る舞いの固定はこちらが持つ)。
+`online` のリスナを外さない変異で「止めた後は同期しない」が落ちる。
+
+### S3-1: アドレスと `projectAddress`、commit の vector (2026-10-02)
+
+- `shared/src/events/address.ts`: `GraphViewAddress` / `Cut` (`'head'` か `VersionVector`) /
+  `batchesWithin` / `isReadOnlyCut` / `projectAddress`
+- **commit の vector**: `Commit.baseVector` を `Commit.vector` に改め、`makeCommit` (通常の commit・
+  分岐点) と `makeMergeCommit` (追記後の trunk) の全てが記録する。`isUpTo` は vector があれば
+  それで切る。**互換は取らない** (architecture §1.1) — Phase 1 以降に作った分岐点の `baseVector` は
+  読み捨てられ、vector 無しとして clock で切られる (開発用のデータだけが該当する)
+
+#### 分かったこと
+
+- **1 つの vector が trunk と branch の両方に効く。**trunk・branch・判断ログは発番器を共有するので
+  (Phase 1)、actor の seq は File の中で 1 系列である。branch のアドレスは「分岐点で切った trunk +
+  切断面で切った branch」ではなく、**trunk も切断面で切る** — 切断面が分岐点より前なら、branch は
+  「分岐する前の trunk」と同じ姿になる (性質として固定した)
+- **単調性ではなく「その時点に実際にあった姿」を性質にした。**生成器が歴史を 1 本の時間で再生し、
+  各手の後の実物を残せるので、比べる相手がある。単調性 (vector を大きくして消える要素は
+  その間に消されたもの) より強く、書くのも易しい
+- **branch の projection は metagraph の導出 node を持たない** (`branchSheet` が `projectBatches` を
+  導出 node 無しで呼ぶ)。いまの画面と同じ振る舞いなので S3-1 では変えない。metagraph の branch を
+  切る場面が出たら (Phase 4) 扱う
+
+#### 検証
+
+単体 1815 件 (address 8 件・branchLog 2 件を追加)・App 結合 8 件が緑。切断面を無視する変異で 3 件、
+branch 側を切断面で切らない変異で 2 件が落ちる。
+
+### S3-2: view をアドレスで持つ、`activeFile` の化けの撤去 (2026-10-02)
+
+3 段に分けて commit した。
+
+- **S3-2a** `GraphEditor` はシートを受け取りシートを返す (`sheet` / `onSheetChange`)。File 全体の
+  受け渡しが、親に「開いている File の state」を 1 つしか持たせない一因だった
+- **S3-2b** branch の中身を `useBranchOperations` の state (`branchSheet`) に移し、`activeFile` は
+  常に trunk の姿だけを持つ。撤去したもの: 退避 (`preBranchFile`)・受信した trunk の控え直し
+  (`keepTrunkForReturn` / `isBranchOpen`, 2026-09-17 の修正)・シート追加前に trunk を取り戻す返り値
+  (`resetBranchState` の戻り値)。App は描く方 (trunk / branch) のシート・編集の宛先・再 seed の契機を
+  同じ分かれ目 (`viewingBranch`) で切り替える
+- **S3-2c** `addressKey` (アドレスの同一性。highlight を含めない、vector は actor 順) を足し、App は
+  いまの選択をアドレス (`viewAddress`) として組み立てる。`GraphEditor` の作り直しと undo の履歴の置き場は
+  `addressKey` で決める
+
+#### 分かったこと
+
+- **撤去の前に網を張った。**退避と復元が守っていた振る舞いを、App 結合で画面の側から 3 件固定した
+  (trunk に戻ると branch のノードは出ない / branch を開いたままシートを足しても trunk に移らない /
+  branch を開いている間に届いた trunk の編集は戻ると見える)。いずれも今のコードで緑を確かめてから
+  撤去した。branch を開くときに `activeFile` を branch の中身で差し替える (昔の形に戻す) 変異で、
+  3 件目が落ちる
+- **2 つの受信の epoch は「足す」から「描く方を選ぶ」に変えた。**以前は trunk と branch の epoch の和を
+  渡していたので、branch を開いている間の trunk の受信でも branch の画面が再 seed された (中身は同じ
+  なので害は無かった)。いまは描いている方の epoch だけを渡す
+- **範囲を絞った。**「アドレスから view を開く口」と「view ごとに `projectAddress` で中身を求める」は、
+  view が 1 つしか無いうちは使い手がいない。タブ (S3-3) で、置き場 (S3-0 から送った) と一緒に作る
+
+#### 検証
+
+単体 1816 件・App 結合 11 件 (網の 3 件を追加)・E2E が緑。単体は撤去した仕組みのテスト
+(控え直し・復元の返り値) を消し、`branchSheet` / `onBranchSheetChange` で同じことを見る形に書き換えた。
+
+**実機 (Chrome, 1 端末・未ログイン, 2026-10-02)**: File 作成 → trunk にノード → branch b1 を作って開き
+ノードを追加 (「(1 変更)」・追加の強調が出る) → trunk に戻る (1 つ) → b1 を開き直す (2 つ) → コミット
+(「変更」が消え merge が押せる) → branch を開いたままシート追加 (空の Sheet 2、Sheet 1 の trunk は 1 つの
+まま) → merge (b1 は merged、trunk に戻ると 2 つ) → trunk で追加して Undo (3 → 2) → 再読み込み後も 2 つ・
+branch は merged。コンソールのエラー 0 件。2 人の受信 (branch 表示中の trunk の受信) は PDS とログインが
+要るので、App 結合に任せた
+
+### S3-3: タブ (2026-10-02)
+
+3 段に割る。
+
+- **S3-3a** タブの並び (純関数)・保存と復元・アドレスへ移る手順 (`client/src/tabs/`)。画面は変えない
+- **S3-3b** タブ帯と App の配線。サイドバーから開く・タブを切り替える・閉じるを、すべて
+  「アドレスを開く」に揃える
+- **S3-3c** 背後のタブの File の同期 (Q4) と、発番器を File ごとに 1 つにする置き場 (参照数)
+
+#### S3-3a で決めたこと
+
+- **タブはアドレスとは別に id を持つ。**Q2 の明示の操作 (`forceNew`) で同じアドレスのタブを
+  2 つ開けるので、アドレスは識別子にならない
+- **アドレスへ移るのは段ごと** (`nextNavigationStep`)。画面の state は File → シート → branch の順に
+  非同期に動くので、いまの画面と行き先を比べて次の 1 段だけを返す。App は state が動くたびに呼ぶ。
+  同じ段を 2 度頼まないための鍵 (`stepKey`) を添える
+- **画面の側でアドレスが動いたら、アクティブなタブを置き換える** (`retargetActive`)。branch を
+  閉じて trunk に戻る、受信でシートが消えて別のシートへ退避する、など。そのため Q2 (同じアドレスの
+  タブは 2 つできない) は「開く」操作の規則で、並び全体の不変条件ではない
+- **復元はタブ 1 枚ごとに検める。**壊れたタブだけを捨てる。指す File が手元から消えている場合は
+  保存の層では分からないので、開くときに捨てる (S3-3b)。アドレスの schema は shared に置いた
+  (`GraphViewAddressSchema`、後の Deep Link も使う)
+- **「view ごとの `projectAddress`」は S3-5 (multiple) へ送る。**single のタブでは描く view は
+  常に 1 つで、中身はいまの経路 (trunk の projection / `branchSheet`) で求まる。`projectAddress` が
+  要るのは過去の切断面 (入口は U3 のとおり無い) と、同じ File を 2 つ同時に描くとき (multiple) である
+
+#### 検証 (S3-3a)
+
+単体 16 件 (性質 6・例 10)。重複の判定を外す変異で Q2 の性質と highlight の例が、閉じたときの
+移り先を左隣優先にする変異で移り先の例が落ちる。
+
+#### S3-3b: タブ帯と App の配線
+
+- `useTabs` (state と `localStorage`)、`useTabNavigation` (画面をアクティブなタブへ)、`TabBar`
+- サイドバーでシート・branch を選ぶ = そのアドレスを開く。シートを足す = 新しいタブで開く
+- **向きは 2 つある。**タブ → 画面 (段ごとに移る) と、画面 → タブ (着いた後で画面の側が動いた)。
+  分けるのは「このタブのこのアドレスに一度着いたか」。着いた後の食い違いは、File が変わったなら
+  新しいタブ (File を作った・取り込んだ)、同じ File ならアクティブなタブを置き換える (branch を
+  閉じた・受信でシートが消えた)、何も出ていなければタブを閉じる (File を消した)
+- 開けない File・消えたシートを指すタブは、移るときに閉じる。消えた branch は trunk に置き換える
+- タブの名前: File の名前は一覧から、シート・branch の名前は**この画面で見たことのあるもの**から引く。
+  復元した直後の背後のタブは File の名前だけになる
+- `toggleExpand` は開かなくなった。サイドバーが先に `onOpenFile` を呼ぶので、閉じた File の行を
+  押すと同じ File を 2 回読み込んでいた
+
+#### 分かったこと (S3-3b)
+
+- **復元が既存の網を変えた。**同じ端末で App を描き直すと前回のタブから画面が自分で開くので、
+  「File の名前を押す」が展開を閉じ、「開いている branch の行を押す」が trunk に戻す。網の
+  操作手順 (`openFileNamed` / `openBranch`) を、選ばれているタブが既に行き先なら押さない形にした。
+  利用者にとっても同じことが起きる — 再読み込みの後は、もう開いている
+- **File を開き替えた直後の 1 回の描画では、branch の state が前の File のものである** (リセットは
+  effect)。そのままアドレスに入れると「別の File の branch」を指すタブが一瞬できるので、表示中の
+  branch を開いている File とシートのものに限った (`viewedBranchId`)
+
+#### 積み残し (S3-3b)
+
+- ~~**別のタブで開く明示の操作 (Q2 の修飾キー)** は画面に繋いでいない~~ → S3-4c で繋いだ
+- **File を開く段を 2 つ続けて頼むと、後から終わった方が画面に残る。**タブを素早く 2 回切り替え、
+  先に頼んだ File の読み込みが後に終わると、そちらの File が画面に出て新しいタブになる。読み込みを
+  取り消す口が `openFile` に無い。実機で問題になれば、最後に頼んだ段の結果だけを採る形にする
+
+#### 検証 (S3-3b)
+
+単体 1832 件・App 結合 16 件 (タブ 5 件を追加)・E2E 36 件が緑。移動の段を頼まない変異で App 結合
+16 件すべてが落ちる。
+
+#### S3-3c: 背後のタブの同期と、セッションの置き場
+
+- `sync/fileSessionPool.ts`: 持ち手 (前に出ている File・背後のタブ) が参照する File の集合を宣言し、
+  置き場がセッションを作り・止める。発番器は File ごとに 1 つで、セッションより長く持つ
+- 前に出ている tap (`useEventSyncTap` の `pool`) もここから借りる。背後のタブは App が
+  `holdBackground` で宣言する (知らせは持たない)。branch の tap はいまのまま自前で作る (開く branch は 1 つ)
+- 「今すぐ同期」は開いている File すべてを引く (背後のタブも同期を続けるので、押したときだけ
+  前に限る理由が無い)
+
+#### 分かったこと (S3-3c)
+
+- **参照数は「持ち手ごとの集合の宣言」で数える。**足し引きだと StrictMode が effect を 2 度走らせる
+  だけで数がずれ、閉じたタブの File が同期を続ける。宣言は何度しても同じ。止めるのは 1 拍
+  (`setTimeout(0)`) 遅らせ、離してすぐ持ち直す間 (StrictMode・タブの切り替え) に作り直さない
+- **描画のうちに借りる。**effect まで待つと、その描画のうちの書き込みを落とす。持つのは宣言なので
+  描画の中でしてよい。代わりに、後始末で外した知らせは持ち直したときに付け直す (StrictMode は
+  後始末の直後に持ち直し、描画を挟まない。付け直さないと、開発の間だけ受信が画面に出なくなる)
+- **同期が描画のうちに始まるので、受信が effect より先に着く。**`activeFileRef` を effect で
+  写していたため、File を開いた直後の受信が「開いていない File」として見送られた。しかも見送った
+  のに「画面が古い」の物差しを進めていたので、次の確認も古い画面を新しいと見なした (前からあった
+  潜在の誤り)。S3-2 の網が捕まえた。ref は描画の中で写し、物差しは画面に入れたときにだけ進める
+- **網の操作手順にも競争があった。**復元した branch のタブの名前は一覧が読まれてから付くので、
+  名前で「もう開いているか」を決めると、開いている branch の行を押して trunk に戻すことがある
+
+#### 積み残し (S3-3c)
+
+- **背後のタブの File の競合・上書きの通知は出ない。**背後のセッションは知らせを持たない。
+  implicit merge と fork の書き込みは走るので記録は残るが、人に知らせるのはそのタブを前に出して
+  からになる。通知を File ごとに溜める形は、右サイドバー (S3-4) の通知の置き場と一緒に決める
+- 背後のタブの File の数に上限は置いていない (U2 のまま)
+
+#### 検証 (S3-3c)
+
+単体 1843 件 (置き場 8 件・借りる tap 3 件を追加)・App 結合 17 件 (Q4 の 1 件を追加)・E2E 36 件が緑。
+背後のタブの宣言を空にする変異で Q4 が、後始末で知らせを外さない変異で借りる tap の 3 件目が落ちる。
+
+#### 実機 (Chrome, 1 端末・未ログイン, 2026-10-02)
+
+File 作成 (タブ 1 枚) → trunk にノード → branch b1 を作ってサイドバーから開く (タブ 2 枚目) → b1 に
+ノード → タブを行き来する (trunk 1 つ ⇔ b1 2 つ) → b1 のタブからサイドバーの Sheet 1 を押す
+(Q2: 新しいタブは足さず trunk のタブへ移る) → 別の File (S3-2 の確認で作ったもの) をサイドバーから
+開く (3 枚目) → b1 のタブへ戻る (File をまたいで branch まで着く) → 再読み込み (Q3: 3 枚が並び、
+アクティブだった b1 に着いてコミットの操作が出る。一度も前に出していない File のタブは File の名前
+だけになる — 設計どおり) → b1 のタブを閉じる (右隣へ) → 別の File の merge 済み branch を開く
+(4 枚目)。押す操作だけで回した分ではコンソールのエラー 0 件。
+
+ページを読み込んだ直後に、確認用のスクリプトを注入した瞬間に一度だけ
+`Cannot read properties of undefined (reading 'global')` が出た (出どころの位置なし)。
+読み込み直して押す操作だけで同じ手順を回すと出ないので、注入の側のものと見ている。
+背後のタブの同期 (Q4) は PDS とログインが要るので App 結合に任せた
+
+### S3-4: ヘッダ・右サイドバー・幅変更と折り畳み (2026-10-02)
+
+3 段に割る。
+
+- **S3-4a** ヘッダを `GraphEditor` の外へ出す。`GraphEditor` は**外から呼べる口** (undo / redo /
+  グループ化 / 解除 / PNG / 検索結果を示す / プロパティを設定する) と**選択の知らせ**を出し、
+  ヘッダ (`GraphHeader`) と検索・ボディ内の property editor は App が描く。branch のコミット・merge も
+  浮き要素をやめてヘッダへ移す (§2.4)
+- **S3-4b** 右サイドバー (property editor の pane。ボディ内のものと併用) と、左右の幅変更・折り畳み。
+  幅と開閉は端末ごとの好みなので `localStorage` (§2.4)
+- **S3-4c** Q2 の修飾キー (S3-3b の積み残し): サイドバーで ⌘ / Ctrl を押しながら選ぶと別のタブで開く
+
+#### U1 の判断: 選択の正は React Flow に置いたまま、外へは写しを知らせる
+
+選択を view の state に持ち上げると、React Flow の内部の選択と二重になり、どちらかを controlled に
+しなければならない。controlled にすると、ドラッグ・範囲選択・検索結果の選択 (`setNodes` で
+`selected` を立てる) のすべてを外の state 経由にすることになる。**右サイドバーとボディ内の editor が
+要るのは「いま何が選ばれているか」の読みだけ**なので、正は React Flow に残し、`GraphEditor` が選択の
+写し (property editor の対象) を外へ知らせる。知らせるのは**中身が変わったときだけ** — nodes は
+ドラッグの間じゅう変わるので、毎回知らせると App がドラッグの各フレームで描き直す。
+merger (Phase 5) で pane 間の選択を連動させるときに、外から選ばせる口を足す
+
+#### S3-4a: ヘッダを `GraphEditor` の外へ
+
+- `GraphEditor` は浮きパネル (🏷 / 🔍 / Undo / Redo / グループ化 / 解除 / PNG)・検索の窓・property editor を
+  描かなくなった。代わりに `onControls` (口: `graph/editorControls.ts`) と `onSelectionChange`
+  (選択の写し) を出す
+- App はタブ帯の下に `GraphHeader` を置く。branch の状態・コミット・merge は浮き要素をやめてヘッダの右端へ
+- 検索・ボディ内の property editor の状態は `useGraphPanels`。検索は view が変わると閉じる (以前は再マウントで
+  閉じていた)。property editor の on/off はヘッダのオプションなので view をまたいで保つ
+
+##### 分かったこと
+
+- **口は描かれている間ずっと同じものにする。**口の中身 (undo など) は描画ごとに変わりうるが、口を作り直して
+  知らせると App が描き直し、また口が変わる。口は mount で 1 度だけ渡し、中身は ref から最新を呼ぶ
+- **選択の写しは中身が変わったときだけ知らせる** (U1 の判断のとおり)。比べるのは対象の種類・id・名前・
+  プロパティ・追加の候補を並べた文字列
+
+##### 検証
+
+単体 1849 件・App 結合 20 件 (ヘッダ 3 件を追加)・E2E 36 件が緑。選択を知らせない変異と、view が変わっても
+検索を閉じない変異で、それぞれ 1 件ずつ落ちる。変異の途中で、落ちたアサーションに要素を渡していたために
+bun が DOM 全体を展開して止まらなくなった (`toBeNull()` に要素を渡さない。App.app-test.md に注記)
+
+#### S3-4b: 右サイドバーと、左右の幅変更・折り畳み
+
+- `layout/sidePanels.ts` (幅を範囲 160〜560 に収める・ドラッグの向き・保存と読み戻し) と `useSidePanels`
+  (`localStorage`)。`SidePanel` は外枠で、ボディ側の端に取っ手 (`role="separator"`、ポインタで引くほか
+  ← / → でも変えられる) と、畳む・広げるボタンを持つ
+- 左は `Sidebar` を外枠で包む (固定幅 240 は外枠の既定幅になった)。右は `RightSidebar` で、いまの pane は
+  property editor 1 つ (`PropertyEditor` の `placement="docked"`)。ボディ内のものと併用し、同じ選択の写しを
+  読み、同じ口で書く
+- **右サイドバーの既定は畳んだ状態** (仕様 property editor: 使われる機会が限られる)
+- 何も選んでいないときは「要素を選ぶと…」とだけ出す。仕様は「グラフ全体の詳細」だが、シートの
+  プロパティを書く op がまだ無い
+
+##### 分かったこと
+
+- **幅を狭められるようにしたので、#51 (新規作成の行が溢れる) を最小の幅でも見る必要があった。**
+  #51 は既定の 240 で直したもので、160 では確かめていなかった。E2E で最小まで狭めて測った (溢れない)
+- 実機で、右サイドバーの畳むボタンを左上に置くと見出し「詳細」の文字に重なった。左右とも右上に置く
+- App 結合でノードを `user.click` すると、d3-drag が happy-dom の mousedown (`view` が無い) で例外を出す。
+  テストは通るが雑音になるので、click だけを送る `selectFirstNode` にした
+
+##### 検証
+
+単体 1849 件 (幅と開閉 6 件)・App 結合 21 件 (右サイドバー 1 件を追加)・E2E 44 件 (幅と開閉 4 件 × 2 エンジン)
+が緑。右サイドバーの書き込みを口に繋がない変異で App 結合の 1 件が落ちる
+
+#### S3-4c: 別のタブで開く明示の操作 (Q2)
+
+サイドバーでシート・branch を ⌘ (mac) / Ctrl を押しながら選ぶと、同じアドレスのタブがあっても新しいタブで
+開く (ブラウザのリンクと同じ約束)。開いている branch の行を押すと trunk に戻る働きは、修飾キーの無いときだけ
+にした — 修飾キー付きで押したのに trunk のタブが開くと、明示の操作の意味が無い。
+
+App 結合 2 件を追加 (23 件)。修飾キーを見ない変異で 2 件とも落ちる
+
+#### 実機 (Chrome, 1 端末・未ログイン, 2026-10-02)
+
+File 作成 → ノード 2 つ → ヘッダの Undo / Redo (2 → 1 → 2) → ノードを選んでヘッダのグループ化
+(グループができる) → グループを選んで解除 → ノードを選び**右サイドバー**で owner = alice を足す →
+ヘッダの 🏷 で**ボディ内**の property editor を開くと同じ値が出る (併用) → ヘッダの 🔍 で `alice` を
+引くと property で 1 件当たり、結果をダブルクリックするとそのノードが選ばれる → branch b1 を作って
+開きノードを足す (ヘッダに「(1 変更)」) → ヘッダからコミット → merge ↑ が押せるようになり merge
+(`(merged)`) → trunk のタブで 3 つ → 左の取っ手を実際にドラッグして 240 → 340、右サイドバーを畳む →
+再読み込み (幅 340・右は畳んだまま・アクティブなタブと 3 つのノードが戻る) → ⌘ を押しながら
+サイドバーの Sheet 1 (タブが 1 枚増える)・押さずに Sheet 1 (増えない)。コンソールのエラー 0 件。
+PNG は書き出し (ダウンロード) になるので押していない。
+
+**起動直後に File の名前を打っても入らないことがあった**ので切り分けた。入力欄は起動から作り直されて
+おらず、focusin / keydown を記録すると、**ブラウザ操作ツールの押下が document に 1 件も届いていなかった**
+(ナビゲーションの後にスクリーンショットを撮る前の座標の操作)。撮った後の同じ操作では mousedown → focusin
+→ keydown が届いて入る。アプリの不具合ではない
+
+### S3-5: multiple モード (2026-10-02)
+
+#### コードを読んで判明した事実
+
+- 🔵 キー操作は **window に張られている** — undo/redo (`useEventStore`)・コピー/貼り付け (`useClipboard`)・
+  グループ化 (`useGroupNodes`)・削除 (`GraphEditor`)・画像の貼り付け (`useImageIntake`)。`GraphEditor` を
+  pane の数だけ描くと、1 回のキー操作がすべての pane に効く
+- 🔵 読み取り専用の context (`readOnlyContext`) が止めるのはドラッグ・接続・付け替え・文字の編集だけで、
+  ノードの追加・貼り付け・画像の drop は止めない
+- 🔵 同じタブの中の書き込みの知らせは無い。`localChanges` の BroadcastChannel は送った channel 自身に届かない
+
+#### 決めたこと
+
+- **編集できるのはアクティブな pane 1 つ。**描くのはいまの `GraphEditor` (と、その周りの File・branch の
+  仕組み) で、手を入れない。**アクティブでない pane は見るだけ**の軽い部品 (`GraphPreview`) で描き、
+  キー操作を張らない。中身は `projectAddress` (S3-3 から送った「view ごとの projection」) で求め、
+  手元の正典が動くたびに読み直す。押すと前に出る (アクティブが入れ替わり、画面の仕組みがそのアドレスへ移る)
+  - merger (Phase 5) の元・先は読み取り専用、後 (解決用 branch) だけが編集できる (§2.1) ので、この形に載る
+- **タブ = pane の並び + アクティブな pane。**single は pane 1 つ。保存した古い形 (アドレス 1 つ) も読む
+- **Q2 (同じアドレスは既存のタブへ) は single のタブだけを見る。**multiple は特別な場合の並びなので、
+  サイドバーから開いて multiple のタブに吸い込まれると紛らわしい
+- **手元の正典が動いた知らせを、同じタブの中にも出す** (`subscribeCanonChanges` = このタブの書き込み +
+  別のタブの書き込み)。見るだけの pane は、アクティブな pane の編集・merge・受信のどれで動いても読み直す
+- **入口は開発用だけ** (Q6)。開発ビルドのヘッダに「⧉」を置き、開いている他のタブのアドレスを pane として
+  並べる。利用者の入口は Phase 5 の merger の起動
+
+#### スライス
+
+- **S3-5a** タブのモデルを pane の並びに (純関数・保存の読み戻し・既存の呼び出しの載せ替え)。画面は変えない
+- **S3-5b** 見るだけの pane (`GraphPreview` + アドレスからの projection と読み直し) と、同じタブの中の知らせ
+- **S3-5c** ボディに pane を並べる・前に出す・pane を閉じる、開発用の入口。App 結合
+
+#### 実施 (S3-5a〜c)
+
+- **S3-5a** `tabs.ts`: タブは `panes` + `active`。pane を足す・前に出す・外す。Q2 は single のタブだけを
+  見る。S3-3 の形 (アドレス 1 つ) の保存も読む
+- **S3-5b** `GraphPreview` (キー操作を張らない見るだけの React Flow) と `usePaneSheet` / `loadAddressSheet`
+  (アドレスから `projectAddress` で求め、正典が動くたびに読み直す)。`localChanges` に**同じタブの中の知らせ**
+  (`subscribeOwnChanges` / `subscribeCanonChanges`) を足した。nodeTypes / edgeTypes は `graph/flowTypes.ts` で共有
+- **S3-5c** ボディに pane を並べる (`PaneFrame`、アクティブな pane には今の `GraphEditor`、ほかは
+  `PassivePane`)。前に出す・pane を閉じる。開発用の入口はヘッダの「⧉ 並べる」(`devPanesEnabled()`:
+  開発ビルドか `VITE_DEV_PANES=true`) で、開いている他のタブのアドレスを pane として並べる
+
+#### 分かったこと (S3-5)
+
+- **前に出すことは、タブの切り替えと同じ道を通る。**アクティブな pane のアドレスが変わるので、
+  `useTabNavigation` が画面の仕組みをそこへ段ごとに移す。新しい道は要らなかった
+- **背後の同期 (Q4) も pane に効く。**`openFileIds` がすべての pane の File を返すので、見るだけの pane の
+  File も同期を続ける
+- App 結合の世界も本番と同じく `broadcastingBackend` で包んだ (別のタブへは送らず、同じタブの中の知らせ
+  だけを出す)。包まないと、見るだけの pane の読み直しが App 結合で起きない
+
+#### Phase 5 (merger) への口と積み残し
+
+- pane のアドレスはタブの state (`panes`) から、アクティブな pane の選択は `useGraphPanels.selection` から読める
+- **見るだけの pane では選べない** (`elementsSelectable={false}`)。merger の pane 間の選択の連動は、
+  見るだけの pane に選択を足すところから始まる
+- 見るだけの pane の画像は、アクティブな File の由来 (`originOf`) しか引けない。別の File の pane で
+  他人が貼った画像は出ないことがある
+- 見るだけの pane は過去の切断面も描ける (`projectAddress` は vector を受ける) が、その入口は無い (U3 のまま)
+
+#### 検証 (S3-5)
+
+単体 1862 件・App 結合 27 件 (multiple 4 件を追加)・E2E 44 件が緑。
+
+#### 実機 (Chrome, 1 端末・未ログイン, 2026-10-02)
+
+S3-4 の確認で作った File の trunk のタブで、ヘッダの「⧉ 並べる」から b1 のタブを選ぶ → pane が 2 つ並ぶ
+(左がアクティブで青枠の編集の canvas、右の b1 は見るだけで「前に出す」を持つ) → アクティブな pane に
+ノードを足して ⌘Z (左 4 → 3、右は 3 のまま: **キー操作はアクティブな pane だけに効く**) → 見るだけの pane を
+ダブルクリックしてもノードの追加メニューは出ない → 右を前に出す (アクティブが b1 に移り、ヘッダに branch の
+操作が出る) → 再読み込み (multiple のタブがアクティブな pane ごと戻る)。コンソールのエラー 0 件。

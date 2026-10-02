@@ -20,40 +20,39 @@ import type {
   Participation,
   SheetId,
 } from '@conversensus/shared';
-import { CausalClock, didFromActor } from '@conversensus/shared';
+import { CausalClock } from '@conversensus/shared';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { fetchBatches, pushReceivedBatches } from '../api';
-import { FanoutSyncProvider } from '../atproto/fanoutSyncProvider';
 import type { RemoteSyncQueue } from '../atproto/remoteSyncQueue';
 import { SYNC_POLL_INTERVAL_MS } from '../config';
 import type { GraphEvent } from '../events/GraphEvent';
-import { subscribeLocalChanges } from '../local/localChanges';
-import { branchMetaRecorder, readBranchMeta } from '../sync/branchMetaLog';
 import type { DetectedConflicts } from '../sync/conflicts';
-import { EventSyncTap } from '../sync/eventSyncTap';
-import { LocalServerSyncProvider } from '../sync/localServerSyncProvider';
-import type { DetectedOverwrites } from '../sync/overwrites';
 import {
-  collectParticipantBatches,
-  receiveParticipantBatches,
-} from '../sync/receiveParticipantBatches';
-import { receiveRemoteBatches } from '../sync/receiveRemoteBatches';
+  FileSession,
+  providerFor,
+  type ReceivedSummary,
+  type TapHandle,
+} from '../sync/fileSession';
+import type { FileSessionPool } from '../sync/fileSessionPool';
+import type { DetectedOverwrites } from '../sync/overwrites';
 import type { RosterSource } from '../sync/rosterSource';
 import type { SyncProvider } from '../sync/syncProvider';
 import type { ForkWriterDeps } from '../sync/writeForks';
 
-/**
- * 受信通知に添える tap の待ち合わせ点 (Phase 4e-3, critic MED3)。
- * `settled` はローカル drain (flushChain) の完了を待つ — remote は待たない。
- * `pending` は未 push 件数。`settled()` はローカル push 失敗時も resolve するため、
- * 再 projection の可否は `pending() === 0` で判定する (reprojectAfterReceive)。
- */
-export type TapHandle = {
-  settled: () => Promise<void>;
-  pending: () => number;
-};
+export type { ReceivedSummary, TapHandle } from '../sync/fileSession';
 
 export type UseEventSyncTapOptions = {
+  /**
+   * セッションの置き場 (step3 Phase 3 S3-3c)。渡すと**セッションを自分で作らず置き場から借りる** —
+   * 背後のタブが同じ File を持っていれば、同じセッションと発番器を使う。作り方 (remote キュー・
+   * 名簿など) は置き場が持つので、下の設定の項目は使われない (知らせだけが効く)。
+   * `holder` は置き場の持ち手の名前 (`FileSessionPool.hold`)。
+   *
+   * **知らせを持つのは 1 つの File につき 1 つのフックだけにする。**セッションの知らせは
+   * 1 組で、描画のたびに差し替える。同じ File を 2 つのフックが借りると後から描いた方が勝つ。
+   * 背後のタブは知らせを持たないので、フックを通さず置き場に直接宣言する
+   */
+  pool?: { pool: FileSessionPool<FileSession>; holder: string };
   /** remote 送信キュー。null/未指定なら local-only (未ログイン時と同じ挙動) */
   remoteQueue?: RemoteSyncQueue | null;
   /**
@@ -193,20 +192,6 @@ export type UseEventSyncTapOptions = {
   onLocalChanged?: (fileId: FileId, tap: TapHandle) => void;
 };
 
-/**
- * 1 サイクルの受信の合計 (step2 Phase 2 S2)。
- *
- * Phase 2 で受信の脚が 2 本 (自分の repo / 参加者の repo) になり、結果の型も 2 つに
- * なったので、通知はその共通部分に絞る。**消費者 (`reprojectAfterReceive`) は
- * 「着地したか」しか見ない** ので、これで足りる。
- */
-export type ReceivedSummary = {
-  /** 取り込みの対象にした batch 数 */
-  received: number;
-  /** ローカル正典に**新規に**追記された batch 数 */
-  appended: number;
-};
-
 export type UseEventSyncTapResult = {
   /** dispatch された event を op-log へ流す (content 経路は sheetId 付き) */
   record: (event: GraphEvent, sheetId?: SheetId) => void;
@@ -235,6 +220,7 @@ export type UseEventSyncTapResult = {
 export function useEventSyncTap(
   fileId: FileId | null,
   {
+    pool: pooled,
     remoteQueue = null,
     actor,
     roster = null,
@@ -245,7 +231,7 @@ export function useEventSyncTap(
     createLocalProvider,
     appendReceived = pushReceivedBatches,
     fetchLocal = fetchBatches,
-    forkDeps: forkDepsOverride,
+    forkDeps,
     onReceived,
     onRoster,
     onConflicts,
@@ -257,357 +243,125 @@ export function useEventSyncTap(
 ): UseEventSyncTapResult {
   // remote キューがあるときだけ fanout で包む。ローカル正典への経路は両者で同一。
   // (createLocalProvider を渡す場合は安定参照であること — 毎レンダー再生成すると tap が作り直される)
-  const provider = useMemo(() => {
-    if (!fileId) return null;
-    const local = createLocalProvider
-      ? createLocalProvider(fileId)
-      : new LocalServerSyncProvider(fileId);
-    return remoteQueue
-      ? new FanoutSyncProvider({ local, remoteQueue, fileId })
-      : local;
-  }, [fileId, remoteQueue, createLocalProvider]);
+  // 置き場から借りるときは自分では作らない (`ownFileId` が null になる)
+  const ownFileId = pooled ? null : fileId;
+  const provider = useMemo(
+    () =>
+      ownFileId
+        ? providerFor(ownFileId, remoteQueue, createLocalProvider)
+        : null,
+    [ownFileId, remoteQueue, createLocalProvider],
+  );
 
-  // 因果の発番器は File と actor ごと。渡されたら (branch の tap) それを使う
+  // 因果の発番器は File と actor ごと。渡されたら (branch の tap) それを使う。
+  // **セッションより長く生きる** — ログインで remote キューが付いてセッションが
+  // 作り直されても、発番器は同じものを使い続ける
   const ownCausal = useMemo(
-    () => (fileId ? new CausalClock(actor) : null),
-    [fileId, actor],
+    () => (ownFileId ? new CausalClock(actor) : null),
+    [ownFileId, actor],
   );
   const causal = causalOverride ?? ownCausal;
 
-  // fileId / provider が変われば新しい tap (outbox を分離)。未オープン時は no-op。
-  const tap = useMemo(
+  // fileId / provider が変われば新しいセッション (outbox を分離)。未オープン時は null
+  const ownSession = useMemo(
     () =>
-      provider && causal
-        ? new EventSyncTap({
+      ownFileId && provider && causal
+        ? new FileSession({
+            fileId: ownFileId,
             provider,
-            actor,
-            clockFloor,
             causal,
-            onError: (error) =>
-              console.warn('[sync] batch flush failed:', error),
+            actor,
+            remoteQueue,
+            roster,
+            trunkFileId,
+            clockFloor,
+            appendReceived,
+            fetchLocal,
+            forkDeps,
+            pollIntervalMs,
           })
         : null,
-    [provider, actor, clockFloor, causal],
+    [
+      ownFileId,
+      provider,
+      causal,
+      actor,
+      remoteQueue,
+      roster,
+      trunkFileId,
+      clockFloor,
+      appendReceived,
+      fetchLocal,
+      forkDeps,
+      pollIntervalMs,
+    ],
   );
 
-  // fork の器 (T7-1)。既定は tap の `record` から組み立てる — tap が作り直されたら
-  // 器も作り直す (古い tap の outbox へ書かない)
-  const forkDeps = useMemo<ForkWriterDeps>(
-    () =>
-      forkDepsOverride ?? {
-        readBranches: async (trunkFileId) => [
-          ...(await readBranchMeta(fetchLocal, trunkFileId)).branches.values(),
-        ],
-        recordBranchCreated: branchMetaRecorder((event) => tap?.record(event))
-          .branchCreated,
-        newId: () => crypto.randomUUID(),
-      },
-    [forkDepsOverride, fetchLocal, tap],
-  );
+  // 置き場から借りる。**描画の中で持つ** — 持つのは宣言なので何度しても同じで、ここで
+  // 持てばこの描画のうちにセッションが手に入る (effect まで待つと最初の書き込みを落とす)
+  if (pooled) pooled.pool.hold(pooled.holder, fileId ? [fileId] : []);
+  const session = pooled
+    ? fileId
+      ? (pooled.pool.session(fileId) ?? null)
+      : null
+    : ownSession;
 
-  // settled は tap の作り直しをまたいで同じ参照でいてほしい
-  const tapRef = useRef(tap);
-  tapRef.current = tap;
-
-  // tap が無い (未オープン) ときは待つものが無いので即 resolve
-  const settled = useCallback(
-    () => tapRef.current?.settled() ?? Promise.resolve(),
-    [],
-  );
-
-  // catch-up (§3.6): ローカル正典にあって remote に無い batch を回収する。オフライン中に
-  // best-effort push が落とした分をここで拾う。
-  //
-  // **受信 (Phase 4d-5) も同じ契機に相乗りする** (§3.4)。送信 catch-up と受信は
-  // 「remote と突き合わせて差分を埋める」同じ性質の操作なので、発火経路を分けない。
-  /**
-   * remote と突き合わせて差分を埋める (送信の catch-up + 受信)。
-   *
-   * **契機は 4 つある** (§3.4 + ANA-202 + step2 Phase 2 S4):
-   *
-   * 1. ファイルを開いたとき (下の effect)
-   * 2. `online` イベント (再接続)
-   * 3. 利用者が「今すぐ同期」を押したとき (`SyncStatusIndicator`)
-   * 4. **定期ポーリング** (step2 Phase 2 S4)
-   *
-   * 3 を足したのは, 1 と 2 だけでは**開いている間に他所で起きた変更を取りに行く手段が
-   * 無かった**ためである (GitHub #202)。step1 では 4 を採らなかった — 1 回あたり
-   * remote 取得 1 往復のコストを常時払うことになるためで, 自動反映は Jetstream 購読へ
-   * 委ねる予定だった。**step2 でこれを覆す**: 多アクタでは「相手の編集が見えるまでの
-   * 遅れ」がそのまま体験になるので, 人が押すまで待つ形は成立しない。
-   *
-   * 送信と受信は**独立に catch する** — 送信の失敗が受信を止めないようにする。
-   * 呼び出し側が完了を待てるよう Promise を返す (ボタンの「同期中…」表示に使う)。
-   *
-   * **走っているサイクルがあれば、それに相乗りする** (S4)。契機が 4 つに増えたので、
-   * ポーリングと手動と `visibilitychange` が重なる場面が普通に起きる。2 本走らせても
-   * べき等なので壊れないが, 遅い PDS では要求が積み上がる。
-   */
-  const runningSync = useRef<Promise<void> | null>(null);
-
-  const syncNow = useCallback((): Promise<void> => {
-    if (!(provider instanceof FanoutSyncProvider)) return Promise.resolve();
-    if (!fileId || !remoteQueue || !tap) return Promise.resolve();
-    // 走っているサイクルに相乗りする (S4)。契機が 4 つあるので重なりは常態である
-    const running = runningSync.current;
-    if (running) return running;
-
-    /**
-     * 受信の 2 本の脚 (step2 Phase 2 S2)。
-     *
-     * **順序が意味を持つ。**自分の repo は名簿によらず読めるので先に読む。参加者の repo は
-     * 「読む順序は名簿 → グラフに固定される」ので、名簿を読んでからでないと読めない。
-     *
-     * 名簿が読めなくても自分の分は取り込み済である — 相手の PDS が応答しないことは
-     * 正常に起こるので、そこで自分の別端末の編集まで止めない。
-     */
-    const receiveAll = async (): Promise<ReceivedSummary> => {
-      // 受信は fanout を通さない (echo ループ回避, §3.3a)。ローカル正典への直書き。
-      const own = await receiveRemoteBatches(fileId, {
-        // 取得はファイル単位 (Phase 7 p7-2)。repo 全体を落として捨てる形を止めた
-        pullRemoteForFile: (id) => remoteQueue.pullRemoteForFile(id),
-        appendReceived,
-        observeRemote: (batches) => tap.observeRemote(batches),
-      });
-      if (!roster) return own;
-
-      // branch は名簿を持たないので trunk の名簿を読む (T7-3)
-      const seen = await roster.read(trunkFileId ?? fileId);
-
-      // ⚠️ **判断ログの clock も観測する** (2026-09-05 実機で発覚)。
-      //
-      // 判断ログとグラフの op-log は clock 空間を共有すると決めた (Phase 1) が、
-      // **tap はグラフ側の最大値からしか seed していなかった**。承認 (`accept`) は
-      // 判断ログの最大値 + 1 で発番されるので、承認直後にこの File を開くと
-      // tap の clock は承認より小さいところから始まる。すると**参加した本人の最初の
-      // 編集が「参加より前」に見え**、相手側の期間フィルタが落とす。
-      //
-      // Lamport の受信規則そのものである — 承認は自分の次の編集に因果的に先行する。
-      //
-      // **開いてから最初のサイクルが終わるまでの窓は残る。**その間に編集すると
-      // 低い clock が振られる。判断ログはローカルに無く PDS を読まないと分からない
-      // ので、tap の復元 (ローカル正典の max) だけでは埋められない。契機 1 (開いた
-      // とき) がすぐ走るので実際には狭いが、構造として残っていることは記しておく。
-      tap.observeRemote(seen.batches);
-
-      const participation = seen.participation;
-      // 共有状態の表示元 (2026-09-05)。読んだ名簿をそのまま渡す —
-      // 表示のために名簿をもう一度読むと、参加者分のリクエストが倍になる。
-      // branch の tap は通知しない (T7-3) — 共有状態は trunk の File のものである。
-      if (!trunkFileId) onRoster?.(fileId, participation);
-
-      // **自分が参加者でなければ他 actor の repo を読まない** (2026-09-05 実機で発覚)。
-      //
-      // 期間フィルタは「書いた人がその時参加していたか」を見るので、**読む側が
-      // 離脱していても相手の編集は通ってしまう**。取り消されたのに相手の編集が
-      // 届き続けるのは, 取り消しを共有を切る操作として使えないということである。
-      //
-      // 仕様のワークフロー 6-3 (再参加する前に標準 projection へ同期しなければ
-      // ならない) が成り立つのも, **離脱中は受け取っていない**からである。
-      // 受け取り続けるなら同期義務は要らない。
-      //
-      // ローカル正典はそのまま残る (自分の写しである)。止まるのは取り込みだけで、
-      // 「共有が切れている」ことは画面に出す責務が別にある。
-      if (!participation.participating.has(didFromActor(actor))) {
-        console.info(
-          `[sync] ${fileId}: この File の参加者ではないので他 actor の repo を読まない`,
-        );
-        return own;
-      }
-
-      // branch の受信は集めて追記するだけ (T7-3)。implicit merge の検出と fork は
-      // trunk の受信のものなので走らせない (オプションの説明を参照)
-      if (trunkFileId) {
-        const collected = await collectParticipantBatches(
-          fileId,
-          participation,
-          didFromActor(actor),
-          {
-            pullRemoteForFile: (id, repo) =>
-              remoteQueue.pullRemoteForFile(id, repo),
-          },
-        );
-        const appended =
-          collected.batches.length > 0
-            ? await appendReceived(fileId, collected.batches)
-            : 0;
-        // 受信規則。書き込みが成功してから前進させる (`receiveParticipantBatches` と同じ)
-        tap.observeRemote(collected.batches);
-        return {
-          received: own.received + collected.batches.length,
-          appended: own.appended + appended,
-        };
-      }
-
-      const others = await receiveParticipantBatches(
-        fileId,
-        participation,
-        didFromActor(actor),
-        {
-          pullRemoteForFile: (id, repo) =>
-            remoteQueue.pullRemoteForFile(id, repo),
-          fetchLocal,
-          ...forkDeps,
-          appendReceived,
-          observeRemote: (batches) => tap.observeRemote(batches),
-        },
-      );
-      // **0 件では呼ばない。**サイクルは定期的に走るので、空で上書きすると
-      // 人が読んでいる通知が消える
-      if (others.conflicts.conflicts.length > 0) {
-        onConflicts?.(fileId, others.conflicts, others.forks.length);
-      }
-      // 上書きの報告は競合と**別系列**である (Phase 3 T8)。同じ受信で両方 0 件でない
-      // ことはあるが、同じ組が両方に出ることはない (並行か、見た上でかで排他に振り分ける)
-      if (others.overwrites.reports.length > 0) {
-        onOverwrites?.(fileId, others.overwrites);
-      }
-      // 相手が保留した競合の到着 (T7-5)。自分が書いた fork は `onConflicts` が伝えている
-      if (others.arrivedForks.length > 0) {
-        onForksArrived?.(fileId, others.arrivedForks);
-      }
-      if (others.readRepos.length > 0 || others.outsidePeriod > 0) {
-        console.info(
-          `[sync] read ${others.readRepos.length} participant repo(s): ` +
-            `${others.received} batch(es) in period, ${others.appended} new, ` +
-            `${others.outsidePeriod} outside period`,
-        );
-      }
-      return {
-        received: own.received + others.received,
-        appended: own.appended + others.appended,
-      };
-    };
-
-    const cycle = Promise.all([
-      provider
-        .catchUpRemote()
-        .catch((error) =>
-          console.warn('[sync] remote catch-up failed:', error),
-        ),
-      receiveAll()
-        .then((result) => {
-          if (result.appended > 0) {
-            console.info(
-              `[sync] received ${result.received} remote batch(es), ` +
-                `${result.appended} new`,
-            );
-            // 画面反映の起点 (Phase 4e-3)。着地していない受信 (appended=0) では
-            // 呼ばない — 再 projection しても画面は変わらない。
-            onReceived?.(fileId, result, {
-              settled: () => tap.settled(),
-              pending: () => tap.pending,
-            });
-          }
-          // **義務の解除はここである** (S6)。着地の有無によらず、受信が最後まで
-          // 走ったことだけを伝える。
-          //
-          // **画面が古いままかの確認もここに乗る** (#202)。`onReceived` は
-          // 「このブラウザが追記したとき」しか鳴らないので、**同じデーモンを共有する
-          // 別の窓**が書いた分では鳴らない (もう正典に入っているので追記が 0 になる)。
-          // 古いのはローカル正典ではなく画面の方である
-          onSynced?.(fileId, {
-            settled: () => tap.settled(),
-            pending: () => tap.pending,
-          });
-        })
-        .catch((error) => console.warn('[sync] remote receive failed:', error)),
-    ])
-      .then(() => undefined)
-      // **自分が最新のときだけ外す。**失敗したサイクルを残すと、以後の呼び出しが
-      // 同じ失敗を受け取り続ける (`rosterSource` と同じ判断)
-      .finally(() => {
-        if (runningSync.current === cycle) runningSync.current = null;
-      });
-    runningSync.current = cycle;
-    return cycle;
-  }, [
-    provider,
-    fileId,
-    remoteQueue,
-    tap,
-    roster,
-    trunkFileId,
-    actor,
-    appendReceived,
-    fetchLocal,
-    forkDeps,
+  // 知らせは毎レンダー最新に差し替える。セッション (とタイマー) は作り直さない
+  const listeners = {
     onReceived,
     onRoster,
     onConflicts,
     onOverwrites,
     onForksArrived,
     onSynced,
-  ]);
+    onLocalChanged,
+  };
+  session?.setListeners(listeners);
+  const listenersRef = useRef(listeners);
+  listenersRef.current = listeners;
 
-  // 同期の契機 (§3.4 + step2 Phase 2 S4)。
-  //
-  // **定期ポーリングは「前回の完了から N ミリ秒」で回す。**`setInterval` にすると
-  // 遅い PDS で要求が積み上がる (前のサイクルが終わる前に次が始まる)。
-  //
-  // 止める条件を 2 つ持つ。どちらも「見ていない画面のために相手の PDS を叩かない」
-  // ためである。
-  //
-  //   - **タブが不可視のとき** (`document.hidden)。裏で開いたままのタブが 30 秒ごとに
-  //     参加者全員の repo を読み続けると、参加者が増えるほど無駄が効く
-  //   - **オフラインのとき** (`navigator.onLine`)。`online` イベントが復帰を拾う
-  //
-  // 不可視の間に溜まった変更は、**可視に戻った瞬間に取りに行く** — 次の tick を
-  // 待つと最大で間隔ぶん古い画面を見せることになる。
+  // 離すのは effect の後始末で。**借りていたセッションの知らせを外す** — 背後のタブが
+  // 持ち続けるセッションが、前に出ている view の知らせ (共有状態・同期義務の更新) を呼ばないように。
+  // 持ち直したら知らせも付け直す (StrictMode は後始末の直後に持ち直し、描画は挟まない)
   useEffect(() => {
-    let stopped = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-
-    const tick = async () => {
-      if (stopped) return;
-      // 画面を見ていて回線があるときだけ取りに行く。条件を満たさなくても
-      // **タイマーは回し続ける** — 復帰したときに次の tick が拾う
-      if (!document.hidden && navigator.onLine) await syncNow();
-      if (stopped) return;
-      timer = setTimeout(tick, pollIntervalMs);
-    };
-    void tick(); // 契機 1: ファイルを開いたとき
-
-    const onOnline = () => void syncNow(); // 契機 2: 再接続
-    const onVisible = () => {
-      if (!document.hidden) void syncNow();
-    };
-    window.addEventListener('online', onOnline);
-    document.addEventListener('visibilitychange', onVisible);
+    if (!pooled || !fileId) return;
+    const { pool, holder } = pooled;
+    pool.hold(holder, [fileId]);
+    pool.session(fileId)?.setListeners(listenersRef.current);
     return () => {
-      stopped = true;
-      clearTimeout(timer);
-      window.removeEventListener('online', onOnline);
-      document.removeEventListener('visibilitychange', onVisible);
+      pool.session(fileId)?.setListeners({});
+      pool.release(holder);
     };
-  }, [syncNow, pollIntervalMs]);
+  }, [pooled, fileId]);
 
-  // **別のタブの書き込みを受ける** (step3 Phase 2 D3)。画面より先に**因果の知識**に入れる —
-  // 入れないと、別のタブの編集を見た上で書いた batch の deps にそれが載らず、並行と判定されて
-  // 偽の競合になる (step3 Phase 1 D4)。`restore` は何度呼んでもよい (各値の最大を取るだけ)
-  useEffect(() => {
-    if (!fileId) return;
-    return subscribeLocalChanges((change) => {
-      if (change.fileId !== fileId) return;
-      fetchLocal(fileId)
-        .then((batches) => {
-          causal?.restore(batches);
-          onLocalChanged?.(fileId, {
-            settled: () => tapRef.current?.settled() ?? Promise.resolve(),
-            pending: () => tapRef.current?.pending ?? 0,
-          });
-        })
-        .catch((error) =>
-          console.warn('[sync] 別のタブの書き込みを読めなかった:', error),
-        );
-    });
-  }, [fileId, fetchLocal, causal, onLocalChanged]);
+  // 契機を張る (開いたとき・定期・再接続・可視化・別のタブの書き込み)。借りたセッションの
+  // 契機は置き場が張る
+  useEffect(() => ownSession?.start(), [ownSession]);
+
+  // settled は セッションの作り直しをまたいで同じ参照でいてほしい
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
+  // セッションが無い (未オープン) ときは待つものが無いので即 resolve
+  const settled = useCallback(
+    () => sessionRef.current?.settled() ?? Promise.resolve(),
+    [],
+  );
+
+  const syncNow = useCallback(
+    () => session?.syncNow() ?? Promise.resolve(),
+    [session],
+  );
 
   // content 経路は sheetId を渡す (W3c2)。structure 経路は省略 → file-level batch。
   const record = useCallback(
-    (event: GraphEvent, sheetId?: SheetId) => tap?.record(event, sheetId),
-    [tap],
+    (event: GraphEvent, sheetId?: SheetId) => session?.record(event, sheetId),
+    [session],
   );
 
-  return { record, causal, settled, syncNow };
+  return {
+    record,
+    causal: pooled && fileId ? pooled.pool.causalOf(fileId) : causal,
+    settled,
+    syncNow,
+  };
 }
