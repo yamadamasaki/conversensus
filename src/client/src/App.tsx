@@ -50,7 +50,7 @@ import { propertyRows } from './property/propertyRows';
 import { RightSidebar } from './RightSidebar';
 import { ReadOnlyProvider } from './readOnlyContext';
 import { SearchPanel } from './SearchPanel';
-import { Sidebar } from './Sidebar';
+import { type OpenOptions, Sidebar } from './Sidebar';
 import { SidePanel } from './SidePanel';
 import { accumulateArrivedForks, NO_ARRIVED_FORKS } from './sync/forkArrival';
 import {
@@ -420,9 +420,13 @@ export default function App() {
    */
   const activeFileId = fileOps.activeFile?.id ?? null;
   const openSheetTab = useCallback(
-    (sheetId: SheetId, branchId: BranchId | null) => {
+    (sheetId: SheetId, branchId: BranchId | null, { newTab }: OpenOptions) => {
       if (!activeFileId) return;
-      openTab({ fileId: activeFileId, sheetId, branchId, cut: HEAD_CUT });
+      // ⌘ / Ctrl で選んだときだけ、同じアドレスのタブがあっても新しく足す (Q2 の明示の操作)
+      openTab(
+        { fileId: activeFileId, sheetId, branchId, cut: HEAD_CUT },
+        { forceNew: newTab },
+      );
     },
     [activeFileId, openTab],
   );
@@ -467,7 +471,9 @@ export default function App() {
           onImportFile={fileOps.handleImportFile}
           onToggleExpand={fileOps.toggleExpand}
           onOpenFile={fileOps.openFile}
-          onSelectSheet={(sheetId) => openSheetTab(sheetId, null)}
+          onSelectSheet={(sheetId, options) =>
+            openSheetTab(sheetId, null, options)
+          }
           onAddSheet={handleAddSheet}
           onSetPopupTarget={fileOps.setPopupTarget}
           onSaveFileSettings={fileOps.handleSaveFileSettings}
@@ -477,8 +483,8 @@ export default function App() {
           onDeleteSheet={fileOps.handleDeleteSheet}
           sheetBranches={branchOps.sheetBranches}
           activeBranchId={branchOps.activeBranch?.id ?? null}
-          onSelectBranch={(sheetId, selected) =>
-            openSheetTab(sheetId, selected?.id ?? null)
+          onSelectBranch={(sheetId, selected, options) =>
+            openSheetTab(sheetId, selected?.id ?? null, options)
           }
           onCreateBranch={branchOps.handleCreateBranch}
           onMergeBranch={branchOps.handleMergeBranch}

@@ -715,3 +715,62 @@ describe('App 結合: 右サイドバー (step3 Phase 3 S3-4b)', () => {
     );
   });
 });
+
+describe('App 結合: 別のタブで開く明示の操作 (step3 Phase 3 S3-4c)', () => {
+  const tabLabels = () =>
+    screen.queryAllByRole('tab').map((t) => t.textContent ?? '');
+
+  /** ⌘ を押しながら押す (Ctrl も同じ扱い。どちらか片方を見れば足りる) */
+  async function metaClick(
+    user: ReturnType<typeof userEvent.setup>,
+    el: Element,
+  ) {
+    await user.keyboard('{Meta>}');
+    await user.click(el);
+    await user.keyboard('{/Meta}');
+  }
+
+  test('⌘ を押しながらシートを選ぶと、同じアドレスでも新しいタブで開く (Q2)', async () => {
+    await world.activate('solo');
+    render(<App />);
+    const user = userEvent.setup();
+    await createFile(user, FILE_NAME);
+    expect(tabLabels()).toEqual([`${FILE_NAME} / Sheet 1`]);
+
+    await metaClick(user, screen.getByRole('button', { name: 'Sheet 1' }));
+    await waitFor(
+      () =>
+        expect(tabLabels()).toEqual([
+          `${FILE_NAME} / Sheet 1`,
+          `${FILE_NAME} / Sheet 1`,
+        ]),
+      WIRING_TIMEOUT,
+    );
+    // 押さずに選ぶと、これまでどおり既存のタブへ移る (増えない)
+    await user.click(screen.getByRole('button', { name: 'Sheet 1' }));
+    expect(tabLabels()).toHaveLength(2);
+  });
+
+  test('⌘ を押しながら開いている branch を選ぶと、trunk に戻らずその branch を別のタブで開く', async () => {
+    await world.activate('solo');
+    render(<App />);
+    const user = userEvent.setup();
+    await createFile(user, FILE_NAME);
+    await createBranch(user, BRANCH_NAME);
+    await openBranch(user, BRANCH_NAME);
+
+    // 文字で引くと、ヘッダの branch の状態 (⎇ b1) にも当たる。サイドバーの行はボタンである
+    await metaClick(
+      user,
+      screen.getByRole('button', { name: branchLabel(BRANCH_NAME) }),
+    );
+    await waitFor(
+      () =>
+        expect(
+          tabLabels().filter((l) => l.endsWith(`(⎇ ${BRANCH_NAME})`)),
+        ).toHaveLength(2),
+      WIRING_TIMEOUT,
+    );
+    await screen.findByRole('button', { name: 'コミット' }, WIRING_TIMEOUT);
+  });
+});
