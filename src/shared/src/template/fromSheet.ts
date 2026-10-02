@@ -27,7 +27,6 @@ import type {
   TemplateRef,
 } from '../schemas';
 import { isKindProperty } from './kind';
-import { BUILTIN_TEMPLATES } from './registry';
 import {
   ANY_NODE_KIND,
   type EdgeKindId,
@@ -94,10 +93,9 @@ export function templateFromSheet(
  *
  * - `{ sheet, at }`: 同じ File の template graph を**その切断面**で読み (仕様: 適用する内容は適用先の
  *   生成時に決まる)、`templateFromSheet` で読み替える
- * - 作り込みの id: `BUILTIN_TEMPLATES` から引く (S4-1c で Toulmin を template graph にするまでの間)
+ * - 作り込みの id: **解決しない** (Q1)。template はすべて File の中の template graph である
  *
- * **解決できないものは黙って落とす** (`templatesOf` と同じ縮退): 無い sheet、種別が template でない
- * sheet、知らない id。相手の作ったシートを開けなくなるより、種類が少し引けない方が遥かに軽い
+ * **解決できないものは黙って落とす**: 無い sheet、種別が template でない sheet、作り込みの id。相手の作ったシートを開けなくなるより、種類が少し引けない方が遥かに軽い
  */
 export function resolveTemplates(
   refs: readonly TemplateRef[] | undefined,
@@ -106,9 +104,9 @@ export function resolveTemplates(
 ): Template[] {
   if (!refs) return [];
   return refs.flatMap((ref): Template[] => {
-    if (typeof ref === 'string') {
-      return BUILTIN_TEMPLATES.filter((t) => t.id === ref);
-    }
+    // 作り込みの id は解決しない (Q1: template はすべて File の中の template graph)。Phase 4 より前に
+    // 作り込みの Toulmin を当てたシートは、ただのシートに縮退する (互換は取らない)
+    if (typeof ref === 'string') return [];
     const sheet = projectAddress(
       { fileId, sheetId: ref.sheet, branchId: null, cut: ref.at },
       { trunk },

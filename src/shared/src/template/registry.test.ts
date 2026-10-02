@@ -1,59 +1,17 @@
 import { describe, expect, test } from 'bun:test';
-import { SheetIdSchema, type TemplateId, TemplateIdSchema } from '../schemas';
-import { BUILTIN_TEMPLATES, templatesOf } from './registry';
-import { TOULMIN_TEMPLATE } from './toulmin';
+import { SEED_TEMPLATES } from './registry';
+import { TemplateSchema } from './types';
 
-const tid = (s: string): TemplateId => TemplateIdSchema.parse(s);
-
-describe('BUILTIN_TEMPLATES', () => {
-  test('step2 では toulmin ひとつだけ', () => {
-    expect(BUILTIN_TEMPLATES.map((t) => String(t.id))).toEqual([
+describe('SEED_TEMPLATES', () => {
+  test('種は Toulmin model ひとつ (File に複製する元の表)', () => {
+    expect(SEED_TEMPLATES.map((t) => String(t.id))).toEqual([
       'jp.co.metabolics.toulmin',
     ]);
   });
-});
 
-describe('templatesOf', () => {
-  test('id から実体を引く', () => {
-    expect(templatesOf([tid('jp.co.metabolics.toulmin')])).toEqual([
-      TOULMIN_TEMPLATE,
-    ]);
-  });
-
-  test('未指定は空 — template を当てていないシート', () => {
-    expect(templatesOf(undefined)).toEqual([]);
-    expect(templatesOf([])).toEqual([]);
-  });
-
-  test('知らない id は黙って落とす — 相手のシートが開けなくなる方が悪い', () => {
-    expect(templatesOf([tid('com.example.unknown')])).toEqual([]);
-    expect(
-      templatesOf([
-        tid('com.example.unknown'),
-        tid('jp.co.metabolics.toulmin'),
-      ]),
-    ).toEqual([TOULMIN_TEMPLATE]);
-  });
-
-  test('template graph の切断面はまだ解決せず、落とす (step3 Phase 1 D7)', () => {
-    // 知らない id と同じ扱い — 「template を当てていないシート」に縮退する
-    const graphRef = {
-      sheet: SheetIdSchema.parse('11111111-1111-4111-8111-111111111111'),
-      at: { 'did:plc:alice#dev': 3 },
-    };
-    expect(templatesOf([graphRef, tid('jp.co.metabolics.toulmin')])).toEqual([
-      TOULMIN_TEMPLATE,
-    ]);
-  });
-
-  test('指定した順に返す (種別メニューの並びが決まる)', () => {
-    const other = { ...TOULMIN_TEMPLATE, id: tid('com.example.other') };
-    const available = [TOULMIN_TEMPLATE, other];
-    expect(
-      templatesOf(
-        [tid('com.example.other'), tid('jp.co.metabolics.toulmin')],
-        available,
-      ).map((t) => String(t.id)),
-    ).toEqual(['com.example.other', 'jp.co.metabolics.toulmin']);
+  test('種は template の参照整合性を満たす (綴り違いは import 時に落ちる)', () => {
+    for (const t of SEED_TEMPLATES) {
+      expect(TemplateSchema.safeParse(t).success).toBe(true);
+    }
   });
 });

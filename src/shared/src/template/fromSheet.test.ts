@@ -281,13 +281,10 @@ describe('resolveTemplates', () => {
     expect(resolveTemplates([{ sheet: SHEET, at }], plain, FILE)).toEqual([]);
   });
 
-  test('作り込みの id は作り込みの template を引く。知らない id は落とす', () => {
+  test('作り込みの id は解決しない (Q1: template はすべて File の中の template graph)', () => {
     const { trunk } = history();
     expect(
-      resolveTemplates(['jp.co.metabolics.toulmin' as never], trunk, FILE).map(
-        (t) => String(t.id),
-      ),
-    ).toEqual(['jp.co.metabolics.toulmin']);
-    expect(resolveTemplates(['x.unknown' as never], trunk, FILE)).toEqual([]);
+      resolveTemplates(['jp.co.metabolics.toulmin' as never], trunk, FILE),
+    ).toEqual([]);
   });
 });

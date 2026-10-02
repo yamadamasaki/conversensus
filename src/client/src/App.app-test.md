@@ -309,7 +309,13 @@ template graph のシートを読み替えた種類 (`templateFromSheet`) は、
   owner = '') を置く → 「+ シートを追加」のダイアログで当てる → 種類のメニューの「主張」で node を作る →
   op-log のその node が label「主張」・種別 (`template.<SheetId>.kind` = 主張の NodeId)・既定値を持つ
 
+- **Toulmin model を追加すると種から template graph ができ、当てたシートで Toulmin の種類を使える** (Q1):
+  「▾ → + Toulmin model を追加」で 5 つの種類の node を持つ template graph ができ (ふつうの template graph
+  として印が付く)、当てたシートで「主張」を作ると、種別の値は**複製された** template graph の node の id、
+  名前空間はその template graph になる (作り込みの `jp.co.metabolics.toulmin` ではない)
+
 template graph の中身は、React Flow の中の文字の入力を避けて、**別のタブが書いたものとして正典に入れて
 知らせる** (S2-4 と同じ手)。
 
-変異で確かめたこと: `GraphEditor` に解決した template を渡さない変異と、既定値を書かない変異で落ちる。
+変異で確かめたこと: `GraphEditor` に解決した template を渡さない変異と、既定値を書かない変異で 1 件目が、
+種の中身を積まない変異で 2 件目が落ちる。

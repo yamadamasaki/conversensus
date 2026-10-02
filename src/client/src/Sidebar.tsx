@@ -1,17 +1,17 @@
 import {
   BRANCH_STATUS,
   type BranchMeta,
-  BUILTIN_TEMPLATES,
   type ConversensusFile,
   type GraphFile,
   type GraphFileListItem,
   METAGRAPH_SHEET_KIND,
   parseConversensusFile,
+  SEED_TEMPLATES,
   type SheetId,
   type SheetKind,
   sheetKindOf,
   TEMPLATE_SHEET_KIND,
-  type TemplateId,
+  type Template,
 } from '@conversensus/shared';
 import { useRef, useState } from 'react';
 import { AlertDialog } from './AlertDialog';
@@ -71,7 +71,10 @@ type Props = {
   /** シートを開く。`newTab` は ⌘ / Ctrl を押しながら選んだ (別のタブで開く, Q2) */
   onSelectSheet: (sheetId: SheetId, options: OpenOptions) => void;
   /** template を当てずに作るなら省略する (Phase 5 D1: 紐づけは作成時のみ) */
-  onAddSheet: (templateIds?: TemplateId[]) => void;
+  /** シートを足す。File に template graph があれば、当てるものを選ばせるのは App */
+  onAddSheet: () => void;
+  /** template graph の種 (`SEED_TEMPLATES`) を File に複製する (step3 Phase 4 Q1) */
+  onAddSeedTemplate: (seed: Template) => void;
   /** 特殊なグラフのシートを足す (step3 Phase 4)。`kind` はシートの種別 */
   onAddKindSheet: (kind: SheetKind) => void;
   onSetPopupTarget: (target: PopupTarget | null) => void;
@@ -153,6 +156,7 @@ export function Sidebar({
   onSelectSheet,
   onAddSheet,
   onAddKindSheet,
+  onAddSeedTemplate,
   onSetPopupTarget,
   onSaveFileSettings,
   onDeleteFile,
@@ -787,27 +791,18 @@ export function Sidebar({
                       </li>
                     ))}
                   {templateMenuFileId === f.id &&
-                    BUILTIN_TEMPLATES.map((t) => (
+                    // 種を File の template graph に複製する (step3 Phase 4 Q1)
+                    SEED_TEMPLATES.map((t) => (
                       <li key={t.id}>
                         <button
                           type="button"
                           onClick={() => {
                             setTemplateMenuFileId(null);
-                            onAddSheet([t.id]);
+                            onAddSeedTemplate(t);
                           }}
-                          style={{
-                            display: 'block',
-                            width: '100%',
-                            textAlign: 'left',
-                            padding: '3px 4px 3px 36px',
-                            fontSize: 11,
-                            color: '#4f6ef7',
-                            background: 'none',
-                            border: 'none',
-                            cursor: 'pointer',
-                          }}
+                          style={MENU_ITEM}
                         >
-                          + {t.name} のシート
+                          + {t.name} を追加
                         </button>
                       </li>
                     ))}

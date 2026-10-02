@@ -246,3 +246,18 @@ resolveTemplates(refs: TemplateRef[] | undefined, trunk: Batch[], fileId: FileId
 単体 1880 件・App 結合 28 件 (template graph 1 件を追加)・E2E 44 件が緑。解決した template を
 渡さない・既定値を書かない・繋ぎ替えを旧規則に戻す、の各変異で落ちる。接続から種類のメニューが出ることは
 happy-dom では扱えないので、メニューの約束を部品のテストで固め、接続からは実機で見る
+
+### S4-1c: Toulmin を template graph にする (2026-10-03, Q1)
+
+- **作り込みの解決を撤去した**: `BUILTIN_TEMPLATES` / `templatesOf` を消し、`resolveTemplates` は作り込みの id を
+  解決しない (ただのシートに縮退)。当てたシートが参照するのは File の中の template graph とその切断面だけ
+- Toulmin の表 (`TOULMIN_TEMPLATE`) は **template graph の種** (`SEED_TEMPLATES`) として残した。「▾ → + Toulmin
+  model を追加」で `templateGraphOf` が表を template graph の中身にし、File に複製する (以後はふつうの
+  template graph)。表を残したのは、単体テストの多くが「既知の template」として使っているためでもある
+- `templateGraphOf` は `templateFromSheet` の逆向きで、**往復で同じ種類に戻る**ことを性質で固めた
+- App のシート追加は中身 (`content`: node・edge・置き場所) ごと作れるようにした。中身は content の op として
+  そのシートに積む (canvas で置いたのと同じ形)
+
+#### 検証
+
+単体 1880 件 (往復の性質を含む)・App 結合 29 件 (Toulmin の複製 1 件を追加)・E2E 44 件が緑。種の中身を積まない変異で落ちる。

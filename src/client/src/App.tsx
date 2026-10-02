@@ -17,8 +17,10 @@ import {
   type SheetKind,
   sheetKindOf,
   TEMPLATE_SHEET_KIND,
-  type TemplateId,
+  type Template,
+  type TemplateGraphContent,
   type TemplateRef,
+  templateGraphOf,
 } from '@conversensus/shared';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AcceptInvitationDialog } from './AcceptInvitationDialog';
@@ -272,10 +274,13 @@ export default function App() {
       name,
       templateIds,
       properties,
+      content,
     }: {
       name?: string;
       templateIds?: TemplateRef[];
       properties?: Record<PropertyName, unknown>;
+      /** 作るときに置く中身 (template graph の種の複製, step3 Phase 4 S4-1c) */
+      content?: TemplateGraphContent;
     } = {}) => {
       const trunkFile = fileOps.activeFile;
       if (!trunkFile) return;
@@ -286,8 +291,12 @@ export default function App() {
       const newSheet: Sheet = {
         id: generateId() as SheetId,
         name: name ?? `Sheet ${trunkFile.sheets.length + 1}`,
-        nodes: [],
-        edges: [],
+        nodes: content?.nodes ?? [],
+        edges: content?.edges ?? [],
+        ...(content && {
+          layouts: content.layouts,
+          edgeLayouts: content.edgeLayouts,
+        }),
         // 紐づけは作成時にしか持たない (Phase 5 D1)。空配列は「無し」と区別しないので落とす
         ...(templateIds?.length ? { templateIds } : {}),
         ...(properties && { properties }),
@@ -305,6 +314,31 @@ export default function App() {
         ...(templateIds?.length ? { templateIds } : {}),
         ...(properties && { properties }),
       });
+      // 中身は content の op としてシートに積む (canvas で置いたのと同じ形)。layout も同じ batch に載せる
+      for (const node of content?.nodes ?? []) {
+        fileOps.syncRecord(
+          {
+            ...makeEventBase('structure'),
+            type: 'NODE_ADDED',
+            nodeId: node.id,
+            data: node,
+            layout: content?.layouts.find((l) => l.nodeId === node.id),
+          },
+          newSheet.id,
+        );
+      }
+      for (const edge of content?.edges ?? []) {
+        fileOps.syncRecord(
+          {
+            ...makeEventBase('structure'),
+            type: 'EDGE_ADDED',
+            edgeId: edge.id,
+            data: edge,
+            edgeLayout: content?.edgeLayouts.find((l) => l.edgeId === edge.id),
+          },
+          newSheet.id,
+        );
+      }
       fileOps.setActiveSheetId(newSheet.id);
       fileOps.updateFileState(updated);
       // 足したシートは新しいタブで開く。画面の state と同じ更新で足すので、移動は起きない
@@ -332,16 +366,23 @@ export default function App() {
   const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
 
   /**
-   * サイドバーの「シートを追加」。作り込みの template の id が来たらそれを当てる。そうでなく、
-   * File に template graph があれば当てるものを選ばせる (Q7)。無ければ 1 クリックのまま足す
+   * サイドバーの「シートを追加」。File に template graph があれば当てるものを選ばせる (Q7)。
+   * 無ければ 1 クリックのまま足す
    */
-  const handleAddSheet = useCallback(
-    (templateIds?: TemplateId[]) => {
-      if (templateIds?.length) addSheet({ templateIds });
-      else if (templateGraphs.length > 0) setTemplateDialogOpen(true);
-      else addSheet();
-    },
-    [addSheet, templateGraphs.length],
+  const handleAddSheet = useCallback(() => {
+    if (templateGraphs.length > 0) setTemplateDialogOpen(true);
+    else addSheet();
+  }, [addSheet, templateGraphs.length]);
+
+  /** template graph の種を File に複製する (Q1)。複製した template graph はふつうの template graph */
+  const handleAddSeedTemplate = useCallback(
+    (seed: Template) =>
+      addSheet({
+        name: seed.name,
+        properties: { [SHEET_KIND_PROPERTY]: TEMPLATE_SHEET_KIND },
+        content: templateGraphOf(seed, generateId),
+      }),
+    [addSheet],
   );
 
   /**
@@ -687,6 +728,7 @@ export default function App() {
           }
           onAddSheet={handleAddSheet}
           onAddKindSheet={handleAddKindSheet}
+          onAddSeedTemplate={handleAddSeedTemplate}
           onSetPopupTarget={fileOps.setPopupTarget}
           onSaveFileSettings={fileOps.handleSaveFileSettings}
           onDeleteFile={fileOps.handleDeleteFile}

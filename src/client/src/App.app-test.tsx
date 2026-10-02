@@ -962,4 +962,49 @@ describe('App 結合: template graph (step3 Phase 4 S4-1b)', () => {
       });
     }, WIRING_TIMEOUT);
   });
+
+  test('Toulmin model を追加すると種から template graph ができ、当てたシートで Toulmin の種類を使える (Q1)', async () => {
+    await world.activate('solo');
+    render(<App />);
+    const user = userEvent.setup();
+    await createFile(user, FILE_NAME);
+
+    await user.click(
+      screen.getByRole('button', { name: 'template 付きでシートを追加' }),
+    );
+    await user.click(
+      screen.getByRole('button', { name: '+ Toulmin model を追加' }),
+    );
+    // 種の 5 つの種類が node として並ぶ (ふつうの template graph として描かれる)
+    await waitFor(() => expect(renderedNodeCount()).toBe(5), WIRING_TIMEOUT);
+    await screen.findByTitle('template graph', {}, WIRING_TIMEOUT);
+
+    await user.click(screen.getByText('+ シートを追加'));
+    const dialog = await screen.findByRole('dialog', { name: 'シートを追加' });
+    await user.click(
+      within(dialog).getByRole('checkbox', { name: 'Toulmin model' }),
+    );
+    await user.click(
+      within(dialog).getByRole('button', { name: 'シートを追加' }),
+    );
+    await waitFor(() => expect(renderedNodeCount()).toBe(0), WIRING_TIMEOUT);
+
+    await addNode(user, '主張');
+    const store = world.localStore();
+    const fileId = store.listFiles()[0]?.id as FileId;
+    await waitFor(() => {
+      const file = projectFile(store.getBatches(fileId), fileId);
+      const toulmin = file.sheets.find(
+        (s) => sheetKindOf(s) === TEMPLATE_SHEET_KIND,
+      );
+      const applied = file.sheets.find((s) => s.templateIds?.length);
+      const claim = toulmin?.nodes.find((n) => n.label === '主張');
+      const node = applied?.nodes[0];
+      // 種類の id は複製された template graph の node の id、名前空間はその template graph
+      expect(node?.label).toBe('主張');
+      expect(
+        node?.properties?.[kindPropertyOf(templateIdOf(toulmin?.id ?? ''))],
+      ).toBe(claim?.id);
+    }, WIRING_TIMEOUT);
+  });
 });
