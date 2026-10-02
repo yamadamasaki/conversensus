@@ -1,9 +1,12 @@
 import {
+  addressKey,
   BRANCH_STATUS,
   type Did,
   type FileId,
   type ForkMeta,
   type GraphFile,
+  type GraphViewAddress,
+  HEAD_CUT,
   type Sheet,
   type SheetId,
   type TemplateId,
@@ -12,7 +15,6 @@ import { useCallback, useRef, useState } from 'react';
 import { AcceptInvitationDialog } from './AcceptInvitationDialog';
 import { AlertDialog } from './AlertDialog';
 import { AtprotoLoginDialog } from './AtprotoLoginDialog';
-import { TRUNK_PREFIX } from './atproto';
 import { authNeedsPassword } from './atproto/client';
 import { CommitDialog } from './CommitDialog';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -300,6 +302,19 @@ export default function App() {
    */
   const viewingBranch = !branchOps.isTrunk && branchOps.branchSheet !== null;
   const viewSheet = viewingBranch ? branchOps.branchSheet : fileOps.activeSheet;
+  /**
+   * いま見ているもののアドレス (step3 Phase 3 S3-2)。タブ (S3-3) はこれを並べて持つ。
+   * `GraphEditor` の作り直しと undo の履歴の置き場は、このアドレスの同一性 (`addressKey`) で決める
+   */
+  const viewAddress: GraphViewAddress | null =
+    fileOps.activeFile && fileOps.activeSheetId
+      ? {
+          fileId: fileOps.activeFile.id,
+          sheetId: fileOps.activeSheetId,
+          branchId: viewingBranch ? (branchOps.activeBranch?.id ?? null) : null,
+          cut: HEAD_CUT,
+        }
+      : null;
 
   return (
     <div style={{ display: 'flex', height: '100vh', fontFamily: 'sans-serif' }}>
@@ -421,7 +436,7 @@ export default function App() {
         />
       )}
       <main style={{ flex: 1 }}>
-        {fileOps.activeFile && viewSheet ? (
+        {fileOps.activeFile && viewSheet && viewAddress ? (
           // 画像 blob の由来を降ろす (step2 Phase 2 S5)。**`GraphEditor` の props には
           // 足さない** — `ImageNode` は React Flow が描くので props が届かず、
           // 途中の層はこの値に用が無い (`blobOriginContext`)
@@ -432,8 +447,8 @@ export default function App() {
           >
             <BlobOriginProvider value={fileOps.originOf}>
               <GraphEditor
-                key={`${fileOps.activeSheetId}/${branchOps.activeBranch?.id ?? TRUNK_PREFIX}`}
-                graphKey={`${fileOps.activeSheetId}/${branchOps.activeBranch?.id ?? TRUNK_PREFIX}`}
+                key={addressKey(viewAddress)}
+                graphKey={addressKey(viewAddress)}
                 undoStateMap={undoStateMapRef}
                 sheet={viewSheet}
                 fileId={fileOps.activeFile.id}

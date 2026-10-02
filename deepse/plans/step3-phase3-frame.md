@@ -176,8 +176,8 @@ type GraphViewAddress = {
 | --- | --- | --- | --- |
 | **S3-0** ✅ | `FileSession` を切り出す (tap・同期・契機を React の外へ)。**見た目は変えない** | 無し | 既存の単体・App 結合・E2E がそのまま緑 |
 | **S3-1** ✅ | アドレスと `projectAddress`。commit に vector を足す (F4) | 無し | 単体 + 性質 |
-| **S3-2** | view をアドレスで持つ。`activeFile` の化け (F1) と退避・復元を撤去 | 無し | App 結合 (branch の出入り・受信・シート追加) |
-| **S3-3** | タブ。File ごとのセッションの置き場 (参照数で生かす、同じ File は発番器を 1 つ) | タブ帯 | App 結合 (2 つの File を開いて両方に受信が届く、同じ File の 2 view で発番が重ならない) |
+| **S3-2** ✅ | view をアドレスで持つ。`activeFile` の化け (F1) と退避・復元を撤去 | 無し | App 結合 (branch の出入り・受信・シート追加) |
+| **S3-3** | タブ。File ごとのセッションの置き場 (参照数で生かす、同じ File は発番器を 1 つ)。アドレスから view を開く口と、view ごとの `projectAddress` | タブ帯 | App 結合 (2 つの File を開いて両方に受信が届く、同じ File の 2 view で発番が重ならない) |
 | **S3-4** | ヘッダ・右サイドバー・左右の幅変更と折り畳み。検索とプロパティを `GraphEditor` から割る | 枠 | 単体 + E2E (WebKit) |
 | **S3-5** | multiple モード | pane | App 結合 |
 
@@ -260,3 +260,36 @@ type GraphViewAddress = {
 
 単体 1815 件 (address 8 件・branchLog 2 件を追加)・App 結合 8 件が緑。切断面を無視する変異で 3 件、
 branch 側を切断面で切らない変異で 2 件が落ちる。
+
+### S3-2: view をアドレスで持つ、`activeFile` の化けの撤去 (2026-10-02)
+
+3 段に分けて commit した。
+
+- **S3-2a** `GraphEditor` はシートを受け取りシートを返す (`sheet` / `onSheetChange`)。File 全体の
+  受け渡しが、親に「開いている File の state」を 1 つしか持たせない一因だった
+- **S3-2b** branch の中身を `useBranchOperations` の state (`branchSheet`) に移し、`activeFile` は
+  常に trunk の姿だけを持つ。撤去したもの: 退避 (`preBranchFile`)・受信した trunk の控え直し
+  (`keepTrunkForReturn` / `isBranchOpen`, 2026-09-17 の修正)・シート追加前に trunk を取り戻す返り値
+  (`resetBranchState` の戻り値)。App は描く方 (trunk / branch) のシート・編集の宛先・再 seed の契機を
+  同じ分かれ目 (`viewingBranch`) で切り替える
+- **S3-2c** `addressKey` (アドレスの同一性。highlight を含めない、vector は actor 順) を足し、App は
+  いまの選択をアドレス (`viewAddress`) として組み立てる。`GraphEditor` の作り直しと undo の履歴の置き場は
+  `addressKey` で決める
+
+#### 分かったこと
+
+- **撤去の前に網を張った。**退避と復元が守っていた振る舞いを、App 結合で画面の側から 3 件固定した
+  (trunk に戻ると branch のノードは出ない / branch を開いたままシートを足しても trunk に移らない /
+  branch を開いている間に届いた trunk の編集は戻ると見える)。いずれも今のコードで緑を確かめてから
+  撤去した。branch を開くときに `activeFile` を branch の中身で差し替える (昔の形に戻す) 変異で、
+  3 件目が落ちる
+- **2 つの受信の epoch は「足す」から「描く方を選ぶ」に変えた。**以前は trunk と branch の epoch の和を
+  渡していたので、branch を開いている間の trunk の受信でも branch の画面が再 seed された (中身は同じ
+  なので害は無かった)。いまは描いている方の epoch だけを渡す
+- **範囲を絞った。**「アドレスから view を開く口」と「view ごとに `projectAddress` で中身を求める」は、
+  view が 1 つしか無いうちは使い手がいない。タブ (S3-3) で、置き場 (S3-0 から送った) と一緒に作る
+
+#### 検証
+
+単体 1816 件・App 結合 11 件 (網の 3 件を追加)・E2E が緑。単体は撤去した仕組みのテスト
+(控え直し・復元の返り値) を消し、`branchSheet` / `onBranchSheetChange` で同じことを見る形に書き換えた。

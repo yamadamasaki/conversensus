@@ -47,6 +47,32 @@ export type GraphViewAddress = {
   highlight?: { nodeIds: NodeId[]; edgeIds: EdgeId[] };
 };
 
+/** trunk を表すキーの綴り (`addressKey`) */
+const TRUNK_KEY = 'trunk';
+
+/**
+ * アドレスの同一性を表す文字列。**中身を決める項目だけで作る** — highlight は強調にすぎず、
+ * 同じグラフの同じ時点を指すアドレスは highlight が違っても同じ view である。
+ *
+ * タブの重複の判定 (Phase 3 Q2: 同じアドレスは既存のタブへ移る)、React の key、
+ * undo の履歴の置き場に使う。vector は actor の順に並べて綴る (同じ vector が同じ文字列になる)
+ */
+export function addressKey(address: GraphViewAddress): string {
+  const cut =
+    address.cut === HEAD_CUT
+      ? HEAD_CUT
+      : Object.entries(address.cut)
+          .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+          .map(([actor, seq]) => `${actor}:${seq}`)
+          .join(',');
+  return [
+    address.fileId,
+    address.sheetId,
+    address.branchId ?? TRUNK_KEY,
+    cut,
+  ].join('/');
+}
+
 /** その切断面に含まれる batch。`'head'` なら全部 */
 export function batchesWithin(batches: Batch[], cut: Cut): Batch[] {
   if (cut === HEAD_CUT) return batches;

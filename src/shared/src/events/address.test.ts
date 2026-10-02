@@ -12,6 +12,7 @@ import {
   SheetIdSchema,
 } from '../schemas';
 import {
+  addressKey,
   type GraphViewAddress,
   HEAD_CUT,
   isReadOnlyCut,
@@ -263,5 +264,32 @@ describe('projectAddress (step3 Phase 3 S3-1)', () => {
   test('過去の切断面は読み取り専用、head は編集できる', () => {
     expect(isReadOnlyCut(HEAD_CUT)).toBe(false);
     expect(isReadOnlyCut({ [ALICE]: 1 })).toBe(true);
+  });
+});
+
+describe('addressKey (step3 Phase 3 S3-2)', () => {
+  test('highlight が違っても同じ view を指せば同じキーになる', () => {
+    const plain = trunkAddress(HEAD_CUT);
+    const highlighted = {
+      ...plain,
+      highlight: { nodeIds: [NODES[0] as NodeId], edgeIds: [] },
+    };
+    expect(addressKey(highlighted)).toBe(addressKey(plain));
+  });
+
+  test('vector は actor の順に依らず同じキーになる', () => {
+    expect(addressKey(trunkAddress({ [ALICE]: 1, [BOB]: 2 }))).toBe(
+      addressKey(trunkAddress({ [BOB]: 2, [ALICE]: 1 })),
+    );
+  });
+
+  test('trunk と branch、head と過去、seq の違いは別のキーになる', () => {
+    const keys = [
+      trunkAddress(HEAD_CUT),
+      branchAddress(HEAD_CUT),
+      trunkAddress({ [ALICE]: 1 }),
+      trunkAddress({ [ALICE]: 2 }),
+    ].map(addressKey);
+    expect(new Set(keys).size).toBe(keys.length);
   });
 });
