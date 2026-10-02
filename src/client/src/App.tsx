@@ -8,9 +8,15 @@ import {
   type GraphFile,
   type GraphViewAddress,
   HEAD_CUT,
+  heldMaxima,
+  METAGRAPH_SHEET_KIND,
   type PropertyName,
+  SHEET_KIND_PROPERTY,
   type Sheet,
   type SheetId,
+  type SheetKind,
+  sheetKindOf,
+  TEMPLATE_SHEET_KIND,
   type TemplateId,
   type TemplateRef,
 } from '@conversensus/shared';
@@ -18,6 +24,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AcceptInvitationDialog } from './AcceptInvitationDialog';
 import { AlertDialog } from './AlertDialog';
 import { AtprotoLoginDialog } from './AtprotoLoginDialog';
+import { fetchBatches } from './api';
 import { authNeedsPassword } from './atproto/client';
 import { CommitDialog } from './CommitDialog';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -38,6 +45,7 @@ import { useFileSheetOperations } from './hooks/useFileSheetOperations';
 import { useGraphPanels } from './hooks/useGraphPanels';
 import { useParticipation } from './hooks/useParticipation';
 import { useRemoteSyncQueue } from './hooks/useRemoteSyncQueue';
+import { useResolvedTemplates } from './hooks/useResolvedTemplates';
 import { useRosterSource } from './hooks/useRosterSource';
 import { useSidePanels } from './hooks/useSidePanels';
 import { useTabNavigation } from './hooks/useTabNavigation';
@@ -66,6 +74,7 @@ import {
 } from './sync/overwrites';
 import { participationRounds } from './sync/participationHistoryView';
 import { TabBar } from './TabBar';
+import { TemplateApplyDialog } from './TemplateApplyDialog';
 import {
   activeTab,
   isMultiple,
@@ -74,6 +83,12 @@ import {
   tabAddress,
 } from './tabs/tabs';
 import { generateId } from './uuid';
+
+/** 特殊なグラフのシートの既定の名前 (step3 Phase 4)。n は同じ種類の何枚目か */
+const SPECIAL_SHEET_NAMES: Record<SheetKind, (n: number) => string> = {
+  [TEMPLATE_SHEET_KIND]: (n) => `Template ${n}`,
+  [METAGRAPH_SHEET_KIND]: (n) => (n === 1 ? 'index' : `index ${n}`),
+};
 
 export default function App() {
   // Dialog state (UI only)
@@ -310,10 +325,65 @@ export default function App() {
       branchOps.resetBranchState,
     ],
   );
-  /** サイドバーの「シートを追加」(作り込みの template を当てる口) */
+  /** File の中の template graph (step3 Phase 4)。「シートを追加」で当てる候補になる */
+  const templateGraphs = (fileOps.activeFile?.sheets ?? []).filter(
+    (s) => sheetKindOf(s) === TEMPLATE_SHEET_KIND,
+  );
+  const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
+
+  /**
+   * サイドバーの「シートを追加」。作り込みの template の id が来たらそれを当てる。そうでなく、
+   * File に template graph があれば当てるものを選ばせる (Q7)。無ければ 1 クリックのまま足す
+   */
   const handleAddSheet = useCallback(
-    (templateIds?: TemplateId[]) => addSheet({ templateIds }),
-    [addSheet],
+    (templateIds?: TemplateId[]) => {
+      if (templateIds?.length) addSheet({ templateIds });
+      else if (templateGraphs.length > 0) setTemplateDialogOpen(true);
+      else addSheet();
+    },
+    [addSheet, templateGraphs.length],
+  );
+
+  /**
+   * template graph を当ててシートを足す。**当てる内容は、いまの姿 (切断面) で固定する** (仕様:
+   * 適用先グラフの生成時に決まる)。切断面は手元の trunk の op-log の vector で、直前の template graph の
+   * 編集が漏れないよう、書き込みが落ち切ってから読む
+   */
+  const { trunkSettled } = fileOps;
+  const applyTemplateGraphs = useCallback(
+    async (templateSheetIds: string[]) => {
+      setTemplateDialogOpen(false);
+      const fileId = fileOps.activeFile?.id;
+      if (!fileId) return;
+      if (templateSheetIds.length === 0) {
+        addSheet();
+        return;
+      }
+      await trunkSettled();
+      const at = heldMaxima(await fetchBatches(fileId));
+      addSheet({
+        templateIds: templateSheetIds.map((sheet) => ({
+          sheet: sheet as SheetId,
+          at,
+        })),
+      });
+    },
+    [fileOps.activeFile?.id, addSheet, trunkSettled],
+  );
+
+  /** 特殊なグラフのシート (template graph・metagraph) を足す */
+  const handleAddKindSheet = useCallback(
+    (kind: SheetKind) => {
+      const count =
+        (fileOps.activeFile?.sheets ?? []).filter(
+          (s) => sheetKindOf(s) === kind,
+        ).length + 1;
+      addSheet({
+        name: SPECIAL_SHEET_NAMES[kind]?.(count) ?? `Sheet ${count}`,
+        properties: { [SHEET_KIND_PROPERTY]: kind },
+      });
+    },
+    [fileOps.activeFile?.sheets, addSheet],
   );
 
   // Phase 6 p6-4: セッション確立後の PDS legacy file レコード同期 (`loadAtprotoFiles`)
@@ -385,6 +455,12 @@ export default function App() {
       : null;
 
   const viewKey = viewAddress ? addressKey(viewAddress) : null;
+  // 描いているシートに当てた template の実体 (step3 Phase 4 S4-1b)。template graph の切断面は
+  // op-log を読んで解決する
+  const viewTemplates = useResolvedTemplates(
+    fileOps.activeFile?.id ?? null,
+    viewSheet?.templateIds,
+  );
   // 左右のサイドバーの幅と開閉 (S3-4b)。端末ごとの好みなので localStorage に置く
   const sidePanels = useSidePanels();
   // ヘッダが開閉する窓と、canvas の口・選択の写し (step3 Phase 3 S3-4a)
@@ -538,6 +614,7 @@ export default function App() {
                   ? branchOps.branchReceiveEpoch
                   : fileOps.receiveEpoch
               }
+              templates={viewTemplates}
               onControls={panels.setControls}
               onSelectionChange={panels.setSelection}
             />
@@ -609,6 +686,7 @@ export default function App() {
             openSheetTab(sheetId, null, options)
           }
           onAddSheet={handleAddSheet}
+          onAddKindSheet={handleAddKindSheet}
           onSetPopupTarget={fileOps.setPopupTarget}
           onSaveFileSettings={fileOps.handleSaveFileSettings}
           onDeleteFile={fileOps.handleDeleteFile}
@@ -781,6 +859,13 @@ export default function App() {
           readOnly={readOnly}
         />
       </SidePanel>
+      {templateDialogOpen && (
+        <TemplateApplyDialog
+          templateGraphs={templateGraphs}
+          onSubmit={(selected) => void applyTemplateGraphs(selected)}
+          onCancel={() => setTemplateDialogOpen(false)}
+        />
+      )}
       {branchOps.commitDialogOpen && (
         <CommitDialog
           changes={branchOps.pendingChanges}

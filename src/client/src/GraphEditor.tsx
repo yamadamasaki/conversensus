@@ -8,7 +8,12 @@ import type {
   NodeLayout,
   SheetId,
 } from '@conversensus/shared';
-import { kindPropertyOf, nodeKindsOf, templatesOf } from '@conversensus/shared';
+import {
+  type EdgeKindRef,
+  kindPropertyOf,
+  nodeKindsOf,
+  type Template,
+} from '@conversensus/shared';
 import {
   Background,
   type Connection,
@@ -32,6 +37,7 @@ import '@xyflow/react/dist/style.css';
 import type { FileId, Sheet } from '@conversensus/shared';
 import { AlertDialog } from './AlertDialog';
 import { EdgeContextMenu } from './EdgeContextMenu';
+import { EdgeKindMenu } from './EdgeKindMenu';
 import { EventDispatchContext } from './EventDispatchContext';
 import { type GraphEvent, makeEventBase } from './events/GraphEvent';
 import { contentOf, createChangeGate } from './graph/changeGate';
@@ -46,7 +52,7 @@ import { FLOW_EDGE_TYPES, FLOW_NODE_TYPES } from './graph/flowTypes';
 import {
   canConnectByTemplate,
   canReconnectByTemplate,
-  edgeKindFor,
+  edgeKindCandidatesFor,
 } from './graph/templateEdge';
 import {
   DEFAULT_EDGE_PATH_TYPE,
@@ -106,6 +112,12 @@ type Props = {
   // 差し替わったとき、この値の増加を契機に React Flow の state を再 seed する。
   receiveEpoch?: number;
   /**
+   * このシートに当てた template の実体 (step3 Phase 4 S4-1b)。**当たっていなければ空**で、空で
+   * あることが「種別の段を出さない」「接続に制約をかけない」の両方の根拠になる (設計 D1/D3/D5)。
+   * template graph の切断面の解決は op-log を読むので、外 (`useResolvedTemplates`) が行う
+   */
+  templates: readonly Template[];
+  /**
    * 外から呼べる口 (step3 Phase 3 S3-4a)。描かれている間は口を、外されるときは null を渡す。
    * ヘッダ (undo・グループ化・PNG) と検索・property editor はこの口を通して canvas に触れる
    */
@@ -134,6 +146,7 @@ function GraphEditorInner({
   graphKey,
   undoStateMap,
   receiveEpoch,
+  templates,
   onControls,
   onSelectionChange,
 }: Props) {
@@ -143,12 +156,6 @@ function GraphEditorInner({
   // **props ではなく context で受ける** — 途中の層はこの値に用が無い
   const readOnly = useReadOnly();
 
-  // このシートに当たっている template。**当たっていなければ空**で、空であることが
-  // 「種別の段を出さない」「接続に制約をかけない」の両方の根拠になる (設計 D1/D3/D5)
-  const templates = useMemo(
-    () => templatesOf(activeSheet.templateIds),
-    [activeSheet.templateIds],
-  );
   const nodeKinds = useMemo(() => nodeKindsOf(templates), [templates]);
 
   const ghostDeletedNodeIds = useMemo(
@@ -533,25 +540,25 @@ function GraphEditorInner({
     [templates, getNodes],
   );
 
-  const onConnect: OnConnect = useCallback(
-    (connection) => {
+  /**
+   * edge を作る。種類が決まっていれば label・種別・既定値を一緒に載せる (仕様 OnCreation の
+   * `edge.label ← edge の種類名`。node と同じく **id が実体で label は表示**なので、両方を 1 つの
+   * op に載せる。既定値は template 側の property の値, step3 Phase 4)
+   */
+  const createEdge = useCallback(
+    (connection: Connection, kind: EdgeKindRef | undefined) => {
       const edgeId = crypto.randomUUID() as EdgeId;
-      const kind = edgeKindFor(
-        templates,
-        getNodes(),
-        connection.source as string,
-        connection.target as string,
-      );
       const graphEdge: GraphEdge = {
         id: edgeId,
         source: connection.source as NodeId,
         target: connection.target as NodeId,
-        // 仕様 OnCreation の `edge.label ← edge の種類名`。node と同じく
-        // **id が実体で label は表示**なので、両方を 1 つの op に載せる
         ...(kind
           ? {
-              label: kind.kind.label,
-              properties: { [kindPropertyOf(kind.templateId)]: kind.kind.id },
+              ...(kind.kind.label !== '' && { label: kind.kind.label }),
+              properties: {
+                ...kind.kind.defaults,
+                [kindPropertyOf(kind.templateId)]: kind.kind.id,
+              },
             }
           : {}),
       };
@@ -569,7 +576,56 @@ function GraphEditorInner({
         edgeLayout,
       });
     },
-    [dispatch, templates, getNodes],
+    [dispatch],
+  );
+
+  /**
+   * 種類の候補が複数ある接続 (step3 Phase 4 Q8)。**選ぶまで edge を作らない** — 作ってから種類を
+   * 書き足すと、op が 2 つに割れ、undo も 2 回要る。メニューの位置は接続を終えた所 (`onConnectEnd`)
+   */
+  const [pendingEdge, setPendingEdge] = useState<{
+    connection: Connection;
+    candidates: EdgeKindRef[];
+    position?: { x: number; y: number };
+  } | null>(null);
+
+  const onConnect: OnConnect = useCallback(
+    (connection) => {
+      const candidates = edgeKindCandidatesFor(
+        templates,
+        getNodes(),
+        connection.source as string,
+        connection.target as string,
+      );
+      if (candidates.length > 1) {
+        setPendingEdge({ connection, candidates });
+        return;
+      }
+      createEdge(connection, candidates[0]);
+    },
+    [templates, getNodes, createEdge],
+  );
+
+  const onConnectEnd = useCallback((event: MouseEvent | TouchEvent) => {
+    const point =
+      'changedTouches' in event
+        ? event.changedTouches[0]
+        : (event as MouseEvent);
+    if (!point) return;
+    setPendingEdge((pending) =>
+      pending && !pending.position
+        ? { ...pending, position: { x: point.clientX, y: point.clientY } }
+        : pending,
+    );
+  }, []);
+
+  // **更新関数の中で edge を作らない** — StrictMode は更新関数を 2 度呼ぶので、edge が 2 本できる
+  const resolvePendingEdge = useCallback(
+    (kind: EdgeKindRef | undefined) => {
+      if (pendingEdge) createEdge(pendingEdge.connection, kind);
+      setPendingEdge(null);
+    },
+    [pendingEdge, createEdge],
   );
 
   const addNode = useCallback(
@@ -600,6 +656,9 @@ function GraphEditorInner({
           ? {
               properties: {
                 ...properties,
+                // 種類の既定値 (template 側の property の値, step3 Phase 4)。種別より前に置く —
+                // 既定値に種別の名前が紛れても、種別の方が勝つ
+                ...(kind?.kind.defaults ?? {}),
                 ...(kind
                   ? { [kindPropertyOf(kind.templateId)]: kind.kind.id }
                   : {}),
@@ -752,6 +811,7 @@ function GraphEditorInner({
               onEdgesChange={handleEdgesChange}
               connectionMode={ConnectionMode.Loose}
               onConnect={onConnect}
+              onConnectEnd={onConnectEnd}
               isValidConnection={isValidConnection}
               onReconnect={onReconnect}
               onReconnectStart={onReconnectStart}
@@ -806,6 +866,14 @@ function GraphEditorInner({
                   );
                   clearNodeTypeMenu();
                 }}
+              />
+            )}
+            {pendingEdge?.position && (
+              <EdgeKindMenu
+                position={pendingEdge.position}
+                candidates={pendingEdge.candidates}
+                templates={templates}
+                onSelect={resolvePendingEdge}
               />
             )}
             {contextMenu && (

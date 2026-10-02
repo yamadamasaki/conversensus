@@ -461,27 +461,28 @@ export function useFileSheetOperations({
 
   // 操作ログ tap をファイル単位で保持する (W3c1)。content (GraphEditor) と
   // structure (以下の構造ハンドラ) の両方が単一の tap = 単一 Lamport 発番源を共有する。
-  const { record: internalSyncRecord, causal: trunkCausal } = useEventSyncTap(
-    activeFile?.id ?? null,
-    {
-      pool: poolHold,
-      remoteQueue,
-      actor,
-      // 「読む順序は名簿 → グラフ」の前半 (step2 Phase 2 S2)
-      roster,
-      // 受信 (a) の書き込み口も discovery (4e-2b) と同じ deps 抽象を通す。
-      // 既定は api の pushReceivedBatches なので挙動は変わらない (deps は安定参照)。
-      appendReceived: deps.pushReceivedBatches,
-      fetchLocal: deps.fetchBatches,
-      onReceived: handleReceived,
-      onLocalChanged: refreshIfStale,
-      onRoster: handleRoster,
-      onConflicts: handleConflicts,
-      onOverwrites: handleOverwrites,
-      onForksArrived: handleForksArrived,
-      onSynced: handleSynced,
-    },
-  );
+  const {
+    record: internalSyncRecord,
+    causal: trunkCausal,
+    settled: trunkSettled,
+  } = useEventSyncTap(activeFile?.id ?? null, {
+    pool: poolHold,
+    remoteQueue,
+    actor,
+    // 「読む順序は名簿 → グラフ」の前半 (step2 Phase 2 S2)
+    roster,
+    // 受信 (a) の書き込み口も discovery (4e-2b) と同じ deps 抽象を通す。
+    // 既定は api の pushReceivedBatches なので挙動は変わらない (deps は安定参照)。
+    appendReceived: deps.pushReceivedBatches,
+    fetchLocal: deps.fetchBatches,
+    onReceived: handleReceived,
+    onLocalChanged: refreshIfStale,
+    onRoster: handleRoster,
+    onConflicts: handleConflicts,
+    onOverwrites: handleOverwrites,
+    onForksArrived: handleForksArrived,
+    onSynced: handleSynced,
+  });
   const syncRecord = syncRecordOverride ?? internalSyncRecord;
 
   /**
@@ -1046,6 +1047,11 @@ export function useFileSheetOperations({
      * (File を開いていなければ null)
      */
     trunkCausal,
+    /**
+     * trunk に record した event が op-log に落ち切るのを待つ (step3 Phase 4)。op-log を読み直して
+     * 切断面を作る前 (template graph を当てるときなど) に待つ — 直前の編集が切断面から漏れないように
+     */
+    trunkSettled,
     receiveEpoch,
     // 「今すぐ同期」(SyncStatusIndicator) の口。開いている間に他所で起きた変更を
     // 取りに行く手段がこれしかない (GitHub #202)

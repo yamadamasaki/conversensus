@@ -3,7 +3,12 @@ import {
   type Batch,
   type Did,
   type FileId,
+  kindPropertyOf,
+  type NodeId,
   projectFile,
+  sheetKindOf,
+  TEMPLATE_SHEET_KIND,
+  templateIdOf,
 } from '@conversensus/shared';
 import {
   cleanup,
@@ -48,6 +53,8 @@ const BOB: FakeAccount = {
   password: 'bob-pw',
 };
 const FILE_NAME = '共有ファイル';
+/** 未ログインの端末の DID (別のタブの actor を作るのに使う) */
+const LOCAL_TEST_ACTOR = 'local';
 /** 「何も起きないこと」を見る前に、描画と計測が落ち着くのを待つ時間 */
 const SETTLE_MS = 500;
 const BRANCH_NAME = 'b1';
@@ -878,5 +885,81 @@ describe('App 結合: multiple モード (step3 Phase 3 S3-5)', () => {
     const user = userEvent.setup();
     await createFile(user, FILE_NAME);
     expect(screen.queryByTitle('並べる (開発用)') === null).toBe(true);
+  });
+});
+
+describe('App 結合: template graph (step3 Phase 4 S4-1b)', () => {
+  /** 開いている File の中の、種別 template のシート */
+  const templateSheetOf = (fileId: FileId) =>
+    projectFile(world.localStore().getBatches(fileId), fileId).sheets.find(
+      (s) => sheetKindOf(s) === TEMPLATE_SHEET_KIND,
+    );
+
+  test('template graph の label の node が、当てたシートの種類のメニューに出て、作った node は種別と既定値を持つ', async () => {
+    await world.activate('solo');
+    render(<App />);
+    const user = userEvent.setup();
+    await createFile(user, FILE_NAME);
+
+    // template graph を作る。branch は切れない (「+ branch」が出ない)
+    await user.click(
+      screen.getByRole('button', { name: 'template 付きでシートを追加' }),
+    );
+    await user.click(screen.getByRole('button', { name: '+ template graph' }));
+    await screen.findByTitle('template graph', {}, WIRING_TIMEOUT);
+    expect(screen.queryByRole('button', { name: '+ branch' }) === null).toBe(
+      true,
+    );
+
+    // template graph に「主張」(既定値 owner = '') を置く。文字の入力は React Flow の中で扱いにくいので、
+    // 別のタブが書いたものとして正典に入れて知らせる (S2-4 と同じ手)
+    const store = world.localStore();
+    const fileId = store.listFiles()[0]?.id as FileId;
+    const templateSheet = templateSheetOf(fileId);
+    if (!templateSheet) throw new Error('template graph が正典に無い');
+    const claim = crypto.randomUUID() as NodeId;
+    store.appendBatches(fileId, [
+      {
+        id: crypto.randomUUID() as Batch['id'],
+        actor: `${LOCAL_TEST_ACTOR}#other-tab`,
+        clock: 1000,
+        seq: 1,
+        deps: {},
+        timestamp: Date.now(),
+        sheetId: templateSheet.id,
+        ops: [
+          { kind: 'node.add', target: claim, content: '結論' },
+          { kind: 'node.setLabel', target: claim, label: '主張' },
+          { kind: 'node.setProperty', target: claim, name: 'owner', value: '' },
+        ],
+      },
+    ]);
+    const channel = new BroadcastChannel(LOCAL_CHANGES_CHANNEL);
+    channel.postMessage({ fileId });
+    channel.close();
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+
+    // 当ててシートを足す (Q7: チェックボックスのダイアログ)
+    await user.click(screen.getByText('+ シートを追加'));
+    const dialog = await screen.findByRole('dialog', { name: 'シートを追加' });
+    await user.click(within(dialog).getByRole('checkbox'));
+    await user.click(
+      within(dialog).getByRole('button', { name: 'シートを追加' }),
+    );
+    await waitFor(() => expect(renderedNodeCount()).toBe(0), WIRING_TIMEOUT);
+
+    // 種類のメニューに「主張」が出て、作った node は種別・label・既定値を持つ
+    await addNode(user, '主張');
+    await waitFor(() => {
+      const applied = projectFile(store.getBatches(fileId), fileId).sheets.find(
+        (s) => s.templateIds?.length,
+      );
+      const node = applied?.nodes[0];
+      expect(node?.label).toBe('主張');
+      expect(node?.properties).toEqual({
+        owner: '',
+        [kindPropertyOf(templateIdOf(templateSheet.id))]: claim,
+      });
+    }, WIRING_TIMEOUT);
   });
 });

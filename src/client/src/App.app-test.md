@@ -292,3 +292,24 @@ multiple のタブでは、**編集できるのはアクティブな pane だけ
 
 変異で確かめたこと: 同じタブの中の知らせを出さない変異と、見るだけの pane が知らせで読み直さない
 変異の、どちらでも 2 件目が落ちる。
+
+## template graph (step3 Phase 4 S4-1b)
+
+### なぜ
+
+template graph のシートを読み替えた種類 (`templateFromSheet`) は、**当てたシートを描く `GraphEditor` に
+届いて初めて**種類のメニュー・既定値になる。解決 (`useResolvedTemplates`: 切断面で op-log を読む) と、
+「シートを追加」のダイアログで切断面を作るところが配線されていなくても、画面は普通に描かれる
+(種類のメニューが出ないだけ) ので、作った node の op まで見る。
+
+### テストケース
+
+- **template graph の label の node が、当てたシートの種類のメニューに出て、作った node は種別と既定値を持つ**:
+  「▾ → + template graph」で template graph を作る (印が付き、「+ branch」が出ない) → 「主張」(既定値
+  owner = '') を置く → 「+ シートを追加」のダイアログで当てる → 種類のメニューの「主張」で node を作る →
+  op-log のその node が label「主張」・種別 (`template.<SheetId>.kind` = 主張の NodeId)・既定値を持つ
+
+template graph の中身は、React Flow の中の文字の入力を避けて、**別のタブが書いたものとして正典に入れて
+知らせる** (S2-4 と同じ手)。
+
+変異で確かめたこと: `GraphEditor` に解決した template を渡さない変異と、既定値を書かない変異で落ちる。

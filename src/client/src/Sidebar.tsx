@@ -5,8 +5,12 @@ import {
   type ConversensusFile,
   type GraphFile,
   type GraphFileListItem,
+  METAGRAPH_SHEET_KIND,
   parseConversensusFile,
   type SheetId,
+  type SheetKind,
+  sheetKindOf,
+  TEMPLATE_SHEET_KIND,
   type TemplateId,
 } from '@conversensus/shared';
 import { useRef, useState } from 'react';
@@ -18,6 +22,29 @@ import { SettingsPopup } from './SettingsPopup';
 import { ShareStatusIcon } from './ShareStatusIcon';
 import { SyncStatusIndicator } from './SyncStatusIndicator';
 import type { FileSharing } from './sync/rosterView';
+
+/** 特殊なグラフのシートの印 (step3 Phase 4)。名前の後ろに出す */
+const SHEET_KIND_MARK: Record<SheetKind, { mark: string; title: string }> = {
+  [TEMPLATE_SHEET_KIND]: { mark: '◇', title: 'template graph' },
+  [METAGRAPH_SHEET_KIND]: { mark: '⌘', title: 'metagraph' },
+};
+
+/** 「シートを追加 ▾」から作れる特殊なグラフ */
+const SPECIAL_SHEETS: readonly { kind: SheetKind; label: string }[] = [
+  { kind: TEMPLATE_SHEET_KIND, label: 'template graph' },
+];
+
+const MENU_ITEM = {
+  display: 'block',
+  width: '100%',
+  textAlign: 'left',
+  padding: '3px 4px 3px 36px',
+  fontSize: 11,
+  color: '#4f6ef7',
+  background: 'none',
+  border: 'none',
+  cursor: 'pointer',
+} as const;
 
 /** サイドバーから開くときの指定 (step3 Phase 3 S3-4c) */
 export type OpenOptions = { newTab: boolean };
@@ -45,6 +72,8 @@ type Props = {
   onSelectSheet: (sheetId: SheetId, options: OpenOptions) => void;
   /** template を当てずに作るなら省略する (Phase 5 D1: 紐づけは作成時のみ) */
   onAddSheet: (templateIds?: TemplateId[]) => void;
+  /** 特殊なグラフのシートを足す (step3 Phase 4)。`kind` はシートの種別 */
+  onAddKindSheet: (kind: SheetKind) => void;
   onSetPopupTarget: (target: PopupTarget | null) => void;
   onSaveFileSettings: (fileId: string, name: string, desc: string) => void;
   onDeleteFile: (id: string) => void;
@@ -123,6 +152,7 @@ export function Sidebar({
   onOpenFile,
   onSelectSheet,
   onAddSheet,
+  onAddKindSheet,
   onSetPopupTarget,
   onSaveFileSettings,
   onDeleteFile,
@@ -413,6 +443,11 @@ export function Sidebar({
                 <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
                   {fileData.sheets.map((s) => {
                     const isActiveSheet = activeSheetId === s.id;
+                    const kind = sheetKindOf(s);
+                    // template graph と metagraph は branch を切れない (仕様。versioning の対象ではない)
+                    const versioned =
+                      kind !== TEMPLATE_SHEET_KIND &&
+                      kind !== METAGRAPH_SHEET_KIND;
                     const isSheetPopupOpen =
                       popupTarget?.type === 'sheet' &&
                       popupTarget.sheetId === s.id;
@@ -453,6 +488,14 @@ export function Sidebar({
                             }
                           >
                             {s.name}
+                            {kind && SHEET_KIND_MARK[kind] && (
+                              <span
+                                title={SHEET_KIND_MARK[kind].title}
+                                style={{ marginLeft: 4, color: '#888' }}
+                              >
+                                {SHEET_KIND_MARK[kind].mark}
+                              </span>
+                            )}
                           </button>
 
                           {/* ギアボタン */}
@@ -661,25 +704,27 @@ export function Sidebar({
                                   );
                                 })}
                                 {/* 新しい branch を作成 */}
-                                <li>
-                                  <button
-                                    type="button"
-                                    onClick={() => onCreateBranch(s.id)}
-                                    style={{
-                                      display: 'block',
-                                      width: '100%',
-                                      textAlign: 'left',
-                                      padding: '2px 4px 2px 36px',
-                                      fontSize: 11,
-                                      color: '#4f6ef7',
-                                      background: 'none',
-                                      border: 'none',
-                                      cursor: 'pointer',
-                                    }}
-                                  >
-                                    + branch
-                                  </button>
-                                </li>
+                                {versioned && (
+                                  <li>
+                                    <button
+                                      type="button"
+                                      onClick={() => onCreateBranch(s.id)}
+                                      style={{
+                                        display: 'block',
+                                        width: '100%',
+                                        textAlign: 'left',
+                                        padding: '2px 4px 2px 36px',
+                                        fontSize: 11,
+                                        color: '#4f6ef7',
+                                        background: 'none',
+                                        border: 'none',
+                                        cursor: 'pointer',
+                                      }}
+                                    >
+                                      + branch
+                                    </button>
+                                  </li>
+                                )}
                               </ul>
                             );
                           })()}
@@ -726,6 +771,21 @@ export function Sidebar({
                       ▾
                     </button>
                   </li>
+                  {templateMenuFileId === f.id &&
+                    SPECIAL_SHEETS.map((special) => (
+                      <li key={special.kind}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setTemplateMenuFileId(null);
+                            onAddKindSheet(special.kind);
+                          }}
+                          style={MENU_ITEM}
+                        >
+                          + {special.label}
+                        </button>
+                      </li>
+                    ))}
                   {templateMenuFileId === f.id &&
                     BUILTIN_TEMPLATES.map((t) => (
                       <li key={t.id}>

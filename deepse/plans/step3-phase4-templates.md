@@ -220,3 +220,29 @@ resolveTemplates(refs: TemplateRef[] | undefined, trunk: Batch[], fileId: FileId
 
 単体 1875 件 (読み替えの性質 4・例 3、解決 3) が緑。任意の端を無視する・説明書きの edge も種類にする・
 切断面を無視する、の各変異で落ちる。
+
+### S4-1b: 画面で template graph を作り、当てる (2026-10-03)
+
+- 「シートを追加 ▾」に「+ template graph」(種別 template のシートを作る)。template graph と metagraph の
+  シートには印 (◇ / ⌘) を付け、「+ branch」を出さない
+- File に template graph があれば、「+ シートを追加」でチェックボックスのダイアログ (`TemplateApplyDialog`, Q7)。
+  当てる切断面は**手元の trunk の op-log の vector** (`heldMaxima`)。直前の template graph の編集が漏れない
+  よう、trunk の書き込みが落ち切るのを待ってから読む (`trunkSettled` を `useFileSheetOperations` から出した)
+- `GraphEditor` は当てた template を props (`templates`) で受ける。解決は App の `useResolvedTemplates`
+  (切断面の中身は後から変わらないので 1 度だけ読む)
+- 作るときに種類の既定値を書く (node・edge)。種別より前に置く (既定値に種別の名前が紛れても種別が勝つ)
+- edge の種類の候補が複数なら、**選ぶまで edge を作らない**で、繋いだ所にメニューを出す (`EdgeKindMenu`, Q8)。
+  作ってから種類を書き足すと op が 2 つに割れ、undo も 2 回要る。閉じたら種類無しで繋ぐ
+- 繋ぎ替えの判定 (`canReconnectByTemplate`) を「いまの種類が候補に入っていれば可」に直した (候補が複数の組で、
+  種類が変わらない繋ぎ替えを塞いでいた)
+
+#### 分かったこと
+
+- 選んだ edge を状態の更新関数の中で作ると、StrictMode が更新関数を 2 度呼んで edge が 2 本できる。
+  選んだ時点の値から直接作る
+
+#### 検証
+
+単体 1880 件・App 結合 28 件 (template graph 1 件を追加)・E2E 44 件が緑。解決した template を
+渡さない・既定値を書かない・繋ぎ替えを旧規則に戻す、の各変異で落ちる。接続から種類のメニューが出ることは
+happy-dom では扱えないので、メニューの約束を部品のテストで固め、接続からは実機で見る
