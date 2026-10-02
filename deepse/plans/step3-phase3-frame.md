@@ -293,3 +293,10 @@ branch 側を切断面で切らない変異で 2 件が落ちる。
 
 単体 1816 件・App 結合 11 件 (網の 3 件を追加)・E2E が緑。単体は撤去した仕組みのテスト
 (控え直し・復元の返り値) を消し、`branchSheet` / `onBranchSheetChange` で同じことを見る形に書き換えた。
+
+**実機 (Chrome, 1 端末・未ログイン, 2026-10-02)**: File 作成 → trunk にノード → branch b1 を作って開き
+ノードを追加 (「(1 変更)」・追加の強調が出る) → trunk に戻る (1 つ) → b1 を開き直す (2 つ) → コミット
+(「変更」が消え merge が押せる) → branch を開いたままシート追加 (空の Sheet 2、Sheet 1 の trunk は 1 つの
+まま) → merge (b1 は merged、trunk に戻ると 2 つ) → trunk で追加して Undo (3 → 2) → 再読み込み後も 2 つ・
+branch は merged。コンソールのエラー 0 件。2 人の受信 (branch 表示中の trunk の受信) は PDS とログインが
+要るので、App 結合に任せた
