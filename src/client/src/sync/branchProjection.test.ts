@@ -121,8 +121,8 @@ describe('createBranchOnOplog', () => {
     expect(meta.base.at).toBe(3);
     expect(meta.base.authorActor).toBe(ACTOR);
     // 分岐点の vector も記録する (step3 Phase 1 D3)。切り出しの権威はこちら
-    expect(meta.base.baseVector).toBeDefined();
-    expect(Object.keys(meta.base.baseVector ?? {})).not.toHaveLength(0);
+    expect(meta.base.vector).toBeDefined();
+    expect(Object.keys(meta.base.vector ?? {})).not.toHaveLength(0);
   });
 
   it('trunk の複製をせず、メタを 1 件保存するだけ', async () => {

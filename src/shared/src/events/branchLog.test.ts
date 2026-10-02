@@ -165,14 +165,38 @@ describe('makeBaseCommit / isUpTo: 分岐点は vector で切る', () => {
   test('歯抜けがあっても、持っていた最大の seq まで base に入る', () => {
     const held = [pointOf('bob', 1, 1), pointOf('bob', 3, 7)];
     const base = makeBaseCommit(cid(), 'base', 'alice', held);
-    expect(base.baseVector).toEqual({ bob: 3 });
+    expect(base.vector).toEqual({ bob: 3 });
     expect(batchesUpTo(held, base)).toHaveLength(2);
   });
 
-  test('vector を持たないコミット (branch の途中のコミット) は clock で切る', () => {
+  test('vector を持たない古いコミットは clock で切る', () => {
+    const { vector: _, ...legacy } = makeCommit(cid(), 'c', 'alice', [
+      pointOf('alice', 1, 3),
+    ]);
+    expect(isUpTo(legacy, pointOf('bob', 9, 3))).toBe(true);
+    expect(isUpTo(legacy, pointOf('bob', 1, 4))).toBe(false);
+  });
+
+  /**
+   * step3 Phase 3 S3-1: 「merge も切断面の一つ」。分岐点だけでなく通常の commit と
+   * merge の commit も vector で切る。clock で切ると、遅れて届いた別の actor の batch が
+   * clock が小さいというだけで「その時点」に入る (分岐点で Phase 1 が直したのと同じずれ)
+   */
+  test('通常の commit も vector で切る (遅れて届いた別の actor の batch は入らない)', () => {
     const commit = makeCommit(cid(), 'c', 'alice', [pointOf('alice', 1, 3)]);
-    expect(commit.baseVector).toBeUndefined();
-    expect(isUpTo(commit, pointOf('bob', 9, 3))).toBe(true);
-    expect(isUpTo(commit, pointOf('bob', 1, 4))).toBe(false);
+    expect(commit.vector).toEqual({ alice: 1 });
+    // clock は小さいがコミット時点には持っていなかった
+    expect(isUpTo(commit, pointOf('bob', 1, 2))).toBe(false);
+    expect(isUpTo(commit, pointOf('alice', 1, 3))).toBe(true);
+  });
+
+  test('merge の commit は追記後の trunk の切断面を持つ', () => {
+    const trunk = [pointOf('alice', 1, 1), pointOf('bob', 2, 4)];
+    const merge = makeMergeCommit(cid(), 'm', 'alice', trunk, {
+      branchId: bid(),
+      at: 4,
+    });
+    expect(merge.vector).toEqual({ alice: 1, bob: 2 });
+    expect(batchesUpTo(trunk, merge)).toHaveLength(2);
   });
 });

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { GraphFileSchema } from './schemas';
 
 export * from './blob';
+export * from './events/address';
 export * from './events/applicability';
 export * from './events/branchFold';
 export * from './events/branchLog';

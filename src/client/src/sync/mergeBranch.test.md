@@ -44,7 +44,7 @@ batch に改めた。
 
 対立の検出は「分岐後に trunk 側で起きた変更」と「branch の変更」の間で行う。「分岐後」を scalar の
 `base.at` で決めると、**分岐後に届いたが clock が小さい**trunk 側の変更が base 側に吸い込まれ、
-branch との対立を取り逃す。base コミットの `baseVector` で切る (`isUpTo`)。
+branch との対立を取り逃す。base コミットの `vector` で切る (`isUpTo`)。
 
 - **🔴 分岐後に届いた clock の小さい trunk 側の変更も、対立として検出する** — scalar で切る変異で落ちる
 

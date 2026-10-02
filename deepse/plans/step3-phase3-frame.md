@@ -127,7 +127,8 @@ type GraphViewAddress = {
   ここが Phase 3 の正しさの中心なので **性質として書く**:
   - `cut = 'head'` の projection は、いまの projection と一致する
   - branch のアドレスで `cut = baseVector` を取ると、分岐点の姿と一致する
-  - 切断面について単調 (vector を大きくして消える要素は、その間に消されたものに限る)
+  - ~~切断面について単調~~ → 実装では「**切断面で切った姿 = その時点に実際にあった姿**」として書いた
+    (S3-1 の記録)。単調性より強く、比べる相手 (各時点の実物) を生成器が作れる
 - **commit に vector を足す** (F4)。`Commit.vector?: VersionVector` を任意の項目とし、`makeCommit` /
   merge の commit で `heldMaxima` を記録する。`isUpTo` は vector があればそれで切る。古い commit
   (vector 無し) は従来どおり `at` で切る
@@ -174,7 +175,7 @@ type GraphViewAddress = {
 | | 内容 | 画面の変化 | 検証 |
 | --- | --- | --- | --- |
 | **S3-0** ✅ | `FileSession` を切り出す (tap・同期・契機を React の外へ)。**見た目は変えない** | 無し | 既存の単体・App 結合・E2E がそのまま緑 |
-| **S3-1** | アドレスと `projectAddress`。commit に vector を足す (F4) | 無し | 単体 + 性質 |
+| **S3-1** ✅ | アドレスと `projectAddress`。commit に vector を足す (F4) | 無し | 単体 + 性質 |
 | **S3-2** | view をアドレスで持つ。`activeFile` の化け (F1) と退避・復元を撤去 | 無し | App 結合 (branch の出入り・受信・シート追加) |
 | **S3-3** | タブ。File ごとのセッションの置き場 (参照数で生かす、同じ File は発番器を 1 つ) | タブ帯 | App 結合 (2 つの File を開いて両方に受信が届く、同じ File の 2 view で発番が重ならない) |
 | **S3-4** | ヘッダ・右サイドバー・左右の幅変更と折り畳み。検索とプロパティを `GraphEditor` から割る | 枠 | 単体 + E2E (WebKit) |
@@ -232,3 +233,30 @@ type GraphViewAddress = {
 単体 1805 件 (`fileSession.test.ts` の 3 件を追加)・App 結合 8 件・E2E が緑。既存の
 `useEventSyncTap.test.ts` 30 件はそのまま通る (振る舞いの固定はこちらが持つ)。
 `online` のリスナを外さない変異で「止めた後は同期しない」が落ちる。
+
+### S3-1: アドレスと `projectAddress`、commit の vector (2026-10-02)
+
+- `shared/src/events/address.ts`: `GraphViewAddress` / `Cut` (`'head'` か `VersionVector`) /
+  `batchesWithin` / `isReadOnlyCut` / `projectAddress`
+- **commit の vector**: `Commit.baseVector` を `Commit.vector` に改め、`makeCommit` (通常の commit・
+  分岐点) と `makeMergeCommit` (追記後の trunk) の全てが記録する。`isUpTo` は vector があれば
+  それで切る。**互換は取らない** (architecture §1.1) — Phase 1 以降に作った分岐点の `baseVector` は
+  読み捨てられ、vector 無しとして clock で切られる (開発用のデータだけが該当する)
+
+#### 分かったこと
+
+- **1 つの vector が trunk と branch の両方に効く。**trunk・branch・判断ログは発番器を共有するので
+  (Phase 1)、actor の seq は File の中で 1 系列である。branch のアドレスは「分岐点で切った trunk +
+  切断面で切った branch」ではなく、**trunk も切断面で切る** — 切断面が分岐点より前なら、branch は
+  「分岐する前の trunk」と同じ姿になる (性質として固定した)
+- **単調性ではなく「その時点に実際にあった姿」を性質にした。**生成器が歴史を 1 本の時間で再生し、
+  各手の後の実物を残せるので、比べる相手がある。単調性 (vector を大きくして消える要素は
+  その間に消されたもの) より強く、書くのも易しい
+- **branch の projection は metagraph の導出 node を持たない** (`branchSheet` が `projectBatches` を
+  導出 node 無しで呼ぶ)。いまの画面と同じ振る舞いなので S3-1 では変えない。metagraph の branch を
+  切る場面が出たら (Phase 4) 扱う
+
+#### 検証
+
+単体 1815 件 (address 8 件・branchLog 2 件を追加)・App 結合 8 件が緑。切断面を無視する変異で 3 件、
+branch 側を切断面で切らない変異で 2 件が落ちる。
