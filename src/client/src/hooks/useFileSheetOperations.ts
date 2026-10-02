@@ -463,45 +463,55 @@ export function useFileSheetOperations({
     [deps, foreignCount],
   );
 
+  /**
+   * File を開く。開けたら File を、開けなければ null を返す。
+   *
+   * `sheetId` を渡すとそのシートに着く (タブのアドレスから開くとき, step3 Phase 3 S3-3)。
+   * 無ければ (消されていれば) 先頭のシート。`quiet` は失敗を alert に出さない — 復元した
+   * タブが消えた File を指していた、は利用者の操作の失敗ではないので、タブを閉じるだけにする
+   */
   const openFile = useCallback(
-    async (id: string) => {
+    async (
+      id: string,
+      { sheetId, quiet = false }: { sheetId?: SheetId; quiet?: boolean } = {},
+    ): Promise<GraphFile | null> => {
       try {
         const file = await loadFile(id);
         setActiveFile(file);
-        setActiveSheetId((file.sheets[0]?.id ?? null) as SheetId | null);
+        const landing =
+          file.sheets.find((s) => s.id === sheetId) ?? file.sheets[0];
+        setActiveSheetId((landing?.id ?? null) as SheetId | null);
         setExpandedFileIds((prev) => new Set([...prev, id]));
+        return file;
       } catch (err) {
         console.error('Failed to open file:', err);
-        await new Promise<void>((resolve) => {
-          setAlertState({
-            message: 'ファイルを開けませんでした。',
-            resolve,
+        if (!quiet) {
+          await new Promise<void>((resolve) => {
+            setAlertState({
+              message: 'ファイルを開けませんでした。',
+              resolve,
+            });
           });
-        });
+        }
+        return null;
       }
     },
     [loadFile, setAlertState],
   );
 
-  const toggleExpand = useCallback(
-    (id: string) => {
-      let isExpanding = false;
-      setExpandedFileIds((prev) => {
-        const next = new Set(prev);
-        if (next.has(id)) {
-          next.delete(id);
-        } else {
-          next.add(id);
-          isExpanding = true;
-        }
-        return next;
-      });
-      if (isExpanding && (!activeFile || activeFile.id !== id)) {
-        openFile(id);
-      }
-    },
-    [activeFile, openFile],
-  );
+  /**
+   * サイドバーの File の展開を切り替える。**開きはしない** — 開くのはサイドバーが先に呼ぶ
+   * `onOpenFile` で、タブを作るのは App である (step3 Phase 3 S3-3)。以前はここでも開いて
+   * いたので、閉じた File の行を押すと同じ File を 2 回読み込んでいた
+   */
+  const toggleExpand = useCallback((id: string) => {
+    setExpandedFileIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
 
   const handleCreate = useCallback(async () => {
     try {

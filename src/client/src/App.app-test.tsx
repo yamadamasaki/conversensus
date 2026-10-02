@@ -20,6 +20,7 @@ import {
   login,
   mergeOpenBranch,
   openBranch,
+  openFileNamed,
   participate,
   renderedNodeCount,
   syncNow,
@@ -97,7 +98,7 @@ describe('App 結合: 受信した変更が画面まで届く (step2 T7-3 の実
 
     // alice: branch を切って 1 つ目のノードを置き、送る
     let user = await startOn('alice', ALICE);
-    await user.click(screen.getByText(FILE_NAME));
+    await openFileNamed(user, FILE_NAME);
     await createBranch(user, BRANCH_NAME);
     await openBranch(user, BRANCH_NAME);
     await addNode(user);
@@ -131,7 +132,7 @@ describe('App 結合: 受信した変更が画面まで届く (step2 T7-3 の実
 
     // alice: branch を切るが、まだ届かないように保留する
     let user = await startOn('alice', ALICE);
-    await user.click(screen.getByText(FILE_NAME));
+    await openFileNamed(user, FILE_NAME);
     world.pds.withhold(ALICE.did);
     await createBranch(user, BRANCH_NAME);
     await syncNow(user);
@@ -206,7 +207,7 @@ describe('App 結合: 因果の点が端末をまたいで載る (step3 Phase 1)
     // alice の編集は、bob の tap が復元を済ませた**後**に届くよう保留する。復元より前に
     // 届くと、手元のログからの復元で知識に入ってしまい、受信の経路を検証できない
     let user = await startOn('alice', ALICE);
-    await user.click(screen.getByText(FILE_NAME));
+    await openFileNamed(user, FILE_NAME);
     world.pds.withhold(ALICE.did);
     await addNode(user);
     await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
@@ -271,7 +272,7 @@ describe('App 結合: 同じ branch を 2 人が並行に merge しても収束�
 
     // alice: branch を切ってノードを置き、コミットして送る
     let user = await startOn('alice', ALICE);
-    await user.click(screen.getByText(FILE_NAME));
+    await openFileNamed(user, FILE_NAME);
     await createBranch(user, BRANCH_NAME);
     await openBranch(user, BRANCH_NAME);
     await addNode(user);
@@ -291,7 +292,7 @@ describe('App 結合: 同じ branch を 2 人が並行に merge しても収束�
 
     // alice: bob の merge を知らずに、同じ branch を merge する
     user = await startOn('alice', ALICE);
-    await user.click(screen.getByText(FILE_NAME));
+    await openFileNamed(user, FILE_NAME);
     await openBranch(user, BRANCH_NAME);
     await mergeOpenBranch(user, 'alice が取り込む');
     await syncNow(user);
@@ -299,12 +300,12 @@ describe('App 結合: 同じ branch を 2 人が並行に merge しても収束�
     // 互いの merge が届く。写しは 2 組あるが、畳み込みは同じ元の写しを 1 つだけ採る
     world.pds.release(BOB.did);
     await syncNow(user);
-    await user.click(screen.getByText(FILE_NAME));
+    await openFileNamed(user, FILE_NAME);
     await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
 
     user = await startOn('bob', BOB);
     await syncNow(user);
-    await user.click(screen.getByText(FILE_NAME));
+    await openFileNamed(user, FILE_NAME);
     await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
 
     // PDS には写しが 2 組ある (両方とも書かれている) ことを確かめておく — 重複除去が
@@ -437,14 +438,14 @@ describe('App 結合: branch の出入りで trunk と branch が混ざらない
 
     // alice: trunk にノードを置いて送る
     user = await startOn('alice', ALICE);
-    await user.click(screen.getByText(FILE_NAME));
+    await openFileNamed(user, FILE_NAME);
     await addNode(user);
     await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
     await syncNow(user);
 
     // bob: branch を開いたまま受信し、branch には出ない
     user = await startOn('bob', BOB);
-    await user.click(screen.getByText(FILE_NAME));
+    await openFileNamed(user, FILE_NAME);
     await openBranch(user, BRANCH_NAME);
     await syncNow(user);
     await new Promise((resolve) => setTimeout(resolve, SETTLE_MS));
@@ -452,6 +453,103 @@ describe('App 結合: branch の出入りで trunk と branch が混ざらない
 
     // trunk に戻ると見える (以前は戻り先の控えを受信で入れ直す必要があった)
     await user.click(screen.getByRole('button', { name: TRUNK_SHEET }));
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+  });
+});
+
+describe('App 結合: タブ (step3 Phase 3 S3-3)', () => {
+  /** タブの帯の並び (名前) */
+  const tabLabels = () =>
+    screen.queryAllByRole('tab').map((t) => t.textContent ?? '');
+  const selectedTab = () =>
+    screen
+      .getAllByRole('tab')
+      .find((t) => t.getAttribute('aria-selected') === 'true');
+
+  /**
+   * 1 端末・未ログインで File を作り、Sheet 1 に 1 つ、branch b1 に 2 つ置く。
+   * タブは Sheet 1 (trunk) と b1 の 2 枚になる
+   */
+  async function fileWithTrunkAndBranch() {
+    await world.activate('solo');
+    render(<App />);
+    const user = userEvent.setup();
+    await createFile(user, FILE_NAME);
+    await addNode(user);
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+    await createBranch(user, BRANCH_NAME);
+    await openBranch(user, BRANCH_NAME);
+    await addNode(user);
+    await waitFor(() => expect(renderedNodeCount()).toBe(2), WIRING_TIMEOUT);
+    return user;
+  }
+
+  test('シートと branch はそれぞれのタブで開き、タブを切り替えるとその中身が出る', async () => {
+    const user = await fileWithTrunkAndBranch();
+    expect(tabLabels()).toEqual([
+      `${FILE_NAME} / Sheet 1`,
+      `${FILE_NAME} / Sheet 1 (⎇ ${BRANCH_NAME})`,
+    ]);
+
+    await user.click(
+      screen.getByRole('tab', { name: `${FILE_NAME} / Sheet 1` }),
+    );
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+    await user.click(
+      screen.getByRole('tab', {
+        name: `${FILE_NAME} / Sheet 1 (⎇ ${BRANCH_NAME})`,
+      }),
+    );
+    await waitFor(() => expect(renderedNodeCount()).toBe(2), WIRING_TIMEOUT);
+  });
+
+  test('既に開いているアドレスをサイドバーから開くと、そのタブへ移る (Q2)', async () => {
+    const user = await fileWithTrunkAndBranch();
+
+    await user.click(screen.getByRole('button', { name: 'Sheet 1' }));
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+    expect(tabLabels()).toHaveLength(2);
+    expect(selectedTab()?.textContent).toBe(`${FILE_NAME} / Sheet 1`);
+  });
+
+  test('タブを閉じると隣のタブの中身が出る', async () => {
+    const user = await fileWithTrunkAndBranch();
+
+    await user.click(
+      screen.getByRole('button', {
+        name: `${FILE_NAME} / Sheet 1 (⎇ ${BRANCH_NAME}) を閉じる`,
+      }),
+    );
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+    expect(tabLabels()).toEqual([`${FILE_NAME} / Sheet 1`]);
+  });
+
+  test('再読み込みしてもタブが並び、アクティブなタブ (branch) の中身が出る (Q3)', async () => {
+    await fileWithTrunkAndBranch();
+
+    cleanup();
+    await world.activate('solo');
+    render(<App />);
+    await waitFor(() => expect(renderedNodeCount()).toBe(2), WIRING_TIMEOUT);
+    await screen.findByRole('button', { name: 'コミット' }, WIRING_TIMEOUT);
+    expect(tabLabels()).toHaveLength(2);
+  });
+
+  test('別の File を作ると新しいタブで開き、元の File のタブへ戻れる', async () => {
+    const user = await fileWithTrunkAndBranch();
+    const OTHER = '別のファイル';
+
+    await createFile(user, OTHER);
+    await waitFor(() => expect(renderedNodeCount()).toBe(0), WIRING_TIMEOUT);
+    expect(tabLabels()).toEqual([
+      `${FILE_NAME} / Sheet 1`,
+      `${FILE_NAME} / Sheet 1 (⎇ ${BRANCH_NAME})`,
+      `${OTHER} / Sheet 1`,
+    ]);
+
+    await user.click(
+      screen.getByRole('tab', { name: `${FILE_NAME} / Sheet 1` }),
+    );
     await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
   });
 });

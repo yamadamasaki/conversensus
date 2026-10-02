@@ -102,11 +102,43 @@ export function branchLabel(name: string): RegExp {
   return new RegExp(`${name}( \\((merged|closed)\\))?$`);
 }
 
-/** branch を開く。一覧は非同期に読み直されるので、行が出るまで待つ */
-export async function openBranch(user: UserEvent, name: string) {
-  await user.click(
-    await screen.findByText(branchLabel(name), {}, WIRING_TIMEOUT),
+/** 選ばれているタブの名前。タブが無ければ null */
+function selectedTabLabel(): string | null {
+  return (
+    screen
+      .queryAllByRole('tab')
+      .find((t) => t.getAttribute('aria-selected') === 'true')?.textContent ??
+    null
   );
+}
+
+/**
+ * File を開く。**前回この端末で開いていたなら、タブの復元 (step3 Phase 3 Q3) で既に開く** ので
+ * 押さない — 開いている File の名前を押すと、サイドバーの展開が閉じる
+ */
+export async function openFileNamed(user: UserEvent, name: string) {
+  if (!selectedTabLabel()?.startsWith(name)) {
+    await user.click(screen.getByText(name));
+  }
+  await waitFor(
+    () => expect(document.querySelector('.react-flow')).not.toBeNull(),
+    WIRING_TIMEOUT,
+  );
+}
+
+/**
+ * branch を開く。一覧は非同期に読み直されるので、行が出るまで待つ。
+ *
+ * 復元したタブが既にその branch なら押さない — 開いている branch の行を押すと trunk に戻る。
+ * 復元の移動は非同期なので、branch の操作 (コミット) が出るまで待つ
+ */
+export async function openBranch(user: UserEvent, name: string) {
+  if (!selectedTabLabel()?.endsWith(`(⎇ ${name})`)) {
+    await user.click(
+      await screen.findByText(branchLabel(name), {}, WIRING_TIMEOUT),
+    );
+  }
+  await screen.findByRole('button', { name: 'コミット' }, WIRING_TIMEOUT);
 }
 
 /**

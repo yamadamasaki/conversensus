@@ -1,6 +1,7 @@
 import {
   addressKey,
   BRANCH_STATUS,
+  type BranchId,
   type Did,
   type FileId,
   type ForkMeta,
@@ -11,7 +12,7 @@ import {
   type SheetId,
   type TemplateId,
 } from '@conversensus/shared';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { AcceptInvitationDialog } from './AcceptInvitationDialog';
 import { AlertDialog } from './AlertDialog';
 import { AtprotoLoginDialog } from './AtprotoLoginDialog';
@@ -33,6 +34,8 @@ import { useFileSheetOperations } from './hooks/useFileSheetOperations';
 import { useParticipation } from './hooks/useParticipation';
 import { useRemoteSyncQueue } from './hooks/useRemoteSyncQueue';
 import { useRosterSource } from './hooks/useRosterSource';
+import { useTabNavigation } from './hooks/useTabNavigation';
+import { useTabs } from './hooks/useTabs';
 import { InputDialog } from './InputDialog';
 import { InvitationDialog } from './InvitationDialog';
 import { BlobOriginProvider } from './images/blobOriginContext';
@@ -50,6 +53,8 @@ import {
   type OverwriteNoticeState,
 } from './sync/overwrites';
 import { participationRounds } from './sync/participationHistoryView';
+import { TabBar } from './TabBar';
+import { activeTab, type Tab } from './tabs/tabs';
 import { generateId } from './uuid';
 
 export default function App() {
@@ -219,6 +224,12 @@ export default function App() {
     [fileOps.setActiveSheetId, branchOps.resetBranchState],
   );
 
+  // タブ (step3 Phase 3 S3-3)。サイドバーから開く・タブを切り替える・閉じるは、すべて
+  // 「アドレスを開く」になる。画面をそのアドレスへ持っていくのは useTabNavigation
+  const tabs = useTabs();
+  const currentTab = activeTab(tabs.state);
+  const { open: openTab } = tabs;
+
   const handleAddSheet = useCallback(
     (templateIds?: TemplateId[]) => {
       const trunkFile = fileOps.activeFile;
@@ -249,8 +260,16 @@ export default function App() {
       });
       fileOps.setActiveSheetId(newSheet.id);
       fileOps.updateFileState(updated);
+      // 足したシートは新しいタブで開く。画面の state と同じ更新で足すので、移動は起きない
+      openTab({
+        fileId: trunkFile.id,
+        sheetId: newSheet.id,
+        branchId: null,
+        cut: HEAD_CUT,
+      });
     },
     [
+      openTab,
       fileOps.activeFile,
       fileOps.setActiveSheetId,
       fileOps.updateFileState,
@@ -303,7 +322,19 @@ export default function App() {
   const viewingBranch = !branchOps.isTrunk && branchOps.branchSheet !== null;
   const viewSheet = viewingBranch ? branchOps.branchSheet : fileOps.activeSheet;
   /**
-   * いま見ているもののアドレス (step3 Phase 3 S3-2)。タブ (S3-3) はこれを並べて持つ。
+   * 表示している branch。**開いている File とシートのものに限る** — File を開き替えた直後の
+   * 1 回の描画では、branch の state はまだ前の File のものが残っている (リセットは effect)。
+   * それをアドレスに入れると、タブが「別の File の branch」を指してしまう
+   */
+  const viewedBranchId: BranchId | null =
+    viewingBranch &&
+    branch &&
+    branch.trunkFileId === fileOps.activeFile?.id &&
+    branch.sheetId === fileOps.activeSheetId
+      ? branch.id
+      : null;
+  /**
+   * いま見ているもののアドレス (step3 Phase 3 S3-2)。タブはこれを並べて持つ。
    * `GraphEditor` の作り直しと undo の履歴の置き場は、このアドレスの同一性 (`addressKey`) で決める
    */
   const viewAddress: GraphViewAddress | null =
@@ -311,10 +342,61 @@ export default function App() {
       ? {
           fileId: fileOps.activeFile.id,
           sheetId: fileOps.activeSheetId,
-          branchId: viewingBranch ? (branchOps.activeBranch?.id ?? null) : null,
+          branchId: viewedBranchId,
           cut: HEAD_CUT,
         }
       : null;
+
+  const { close: closeTab, closeWhere, retarget } = tabs;
+  const tabControls = useMemo(
+    () => ({ open: openTab, close: closeTab, closeWhere, retarget }),
+    [openTab, closeTab, closeWhere, retarget],
+  );
+  useTabNavigation({
+    tab: currentTab,
+    viewed: {
+      fileId: fileOps.activeFile?.id ?? null,
+      sheetId: fileOps.activeSheetId,
+      branchId: viewedBranchId,
+    },
+    activeFile: fileOps.activeFile,
+    sheetBranches: branchOps.sheetBranches,
+    openFile: fileOps.openFile,
+    selectSheet: handleSelectSheet,
+    selectBranch: branchOps.handleSelectBranch,
+    tabs: tabControls,
+  });
+
+  /**
+   * サイドバーでシート・branch を選ぶ = そのアドレスを開く (同じアドレスのタブがあればそこへ, Q2)。
+   * サイドバーに並ぶシートは開いている File のものだけである
+   */
+  const activeFileId = fileOps.activeFile?.id ?? null;
+  const openSheetTab = useCallback(
+    (sheetId: SheetId, branchId: BranchId | null) => {
+      if (!activeFileId) return;
+      openTab({ fileId: activeFileId, sheetId, branchId, cut: HEAD_CUT });
+    },
+    [activeFileId, openTab],
+  );
+
+  /**
+   * タブの名前。File の名前は一覧から、シートと branch の名前は**見たことのあるもの**から引く —
+   * 背後のタブの File は開いていないので、シートの名前が手元に無い。見たことが無ければ出さない
+   */
+  const seenNamesRef = useRef(new Map<string, string>());
+  for (const s of fileOps.activeFile?.sheets ?? [])
+    seenNamesRef.current.set(s.id, s.name);
+  for (const list of branchOps.sheetBranches.values())
+    for (const b of list) seenNamesRef.current.set(b.id, b.name);
+  const tabLabelOf = (tab: Tab) => {
+    const { fileId, sheetId, branchId } = tab.address;
+    const names = seenNamesRef.current;
+    const fileName = fileOps.files.find((f) => f.id === fileId)?.name ?? '';
+    const sheetName = names.get(sheetId);
+    const base = sheetName ? `${fileName} / ${sheetName}` : fileName;
+    return branchId ? `${base} (⎇ ${names.get(branchId) ?? ''})` : base;
+  };
 
   return (
     <div style={{ display: 'flex', height: '100vh', fontFamily: 'sans-serif' }}>
@@ -331,7 +413,7 @@ export default function App() {
         onImportFile={fileOps.handleImportFile}
         onToggleExpand={fileOps.toggleExpand}
         onOpenFile={fileOps.openFile}
-        onSelectSheet={handleSelectSheet}
+        onSelectSheet={(sheetId) => openSheetTab(sheetId, null)}
         onAddSheet={handleAddSheet}
         onSetPopupTarget={fileOps.setPopupTarget}
         onSaveFileSettings={fileOps.handleSaveFileSettings}
@@ -341,7 +423,9 @@ export default function App() {
         onDeleteSheet={fileOps.handleDeleteSheet}
         sheetBranches={branchOps.sheetBranches}
         activeBranchId={branchOps.activeBranch?.id ?? null}
-        onSelectBranch={branchOps.handleSelectBranch}
+        onSelectBranch={(sheetId, selected) =>
+          openSheetTab(sheetId, selected?.id ?? null)
+        }
         onCreateBranch={branchOps.handleCreateBranch}
         onMergeBranch={branchOps.handleMergeBranch}
         onCloseBranch={branchOps.handleCloseBranch}
@@ -435,63 +519,79 @@ export default function App() {
           }}
         />
       )}
-      <main style={{ flex: 1 }}>
-        {fileOps.activeFile && viewSheet && viewAddress ? (
-          // 画像 blob の由来を降ろす (step2 Phase 2 S5)。**`GraphEditor` の props には
-          // 足さない** — `ImageNode` は React Flow が描くので props が届かず、
-          // 途中の層はこの値に用が無い (`blobOriginContext`)
-          // 再参加した後は, 同期が済むまで読み取り専用にする (step2 Phase 2 S6)。
-          // 頼んで守られなかった場合に壊れるのは相手なので, 頼まずに止める
-          <ReadOnlyProvider
-            value={fileOps.obligation?.fileId === fileOps.activeFile.id}
-          >
-            <BlobOriginProvider value={fileOps.originOf}>
-              <GraphEditor
-                key={addressKey(viewAddress)}
-                graphKey={addressKey(viewAddress)}
-                undoStateMap={undoStateMapRef}
-                sheet={viewSheet}
-                fileId={fileOps.activeFile.id}
-                fileName={fileOps.activeFile.name}
-                onSheetChange={
-                  viewingBranch
-                    ? branchOps.onBranchSheetChange
-                    : handleSheetChange
-                }
-                // branch 表示中の編集は branch 専用 op-log へ (p5-4)。trunk 用の tap に
-                // 流すと branch の編集が trunk のログに混ざる。
-                syncRecord={branchOps.branchSyncRecord ?? fileOps.syncRecord}
-                addedNodeIds={branchOps.addedNodeIds}
-                updatedNodeIds={branchOps.updatedNodeIds}
-                addedEdgeIds={branchOps.addedEdgeIds}
-                updatedEdgeIds={branchOps.updatedEdgeIds}
-                deletedNodes={branchOps.deletedNodes}
-                deletedEdges={branchOps.deletedEdges}
-                deletedNodeLayouts={branchOps.deletedNodeLayouts}
-                deletedEdgeLayouts={branchOps.deletedEdgeLayouts}
-                // 受信による差し替えの契機。描いている方 (trunk / branch) の受信だけを見る —
-                // branch を開いている間の trunk の受信は branch の画面を変えない
-                receiveEpoch={
-                  viewingBranch
-                    ? branchOps.branchReceiveEpoch
-                    : fileOps.receiveEpoch
-                }
-              />
-            </BlobOriginProvider>
-          </ReadOnlyProvider>
-        ) : (
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              height: '100%',
-              color: '#999',
-            }}
-          >
-            ファイルを選択するか, 新規作成してください
-          </div>
-        )}
+      <main
+        style={{
+          flex: 1,
+          minWidth: 0,
+          display: 'flex',
+          flexDirection: 'column',
+        }}
+      >
+        <TabBar
+          tabs={tabs.state.tabs}
+          activeId={tabs.state.activeId}
+          labelOf={tabLabelOf}
+          onActivate={tabs.activate}
+          onClose={tabs.close}
+        />
+        <div style={{ flex: 1, minHeight: 0 }}>
+          {fileOps.activeFile && viewSheet && viewAddress ? (
+            // 画像 blob の由来を降ろす (step2 Phase 2 S5)。**`GraphEditor` の props には
+            // 足さない** — `ImageNode` は React Flow が描くので props が届かず、
+            // 途中の層はこの値に用が無い (`blobOriginContext`)
+            // 再参加した後は, 同期が済むまで読み取り専用にする (step2 Phase 2 S6)。
+            // 頼んで守られなかった場合に壊れるのは相手なので, 頼まずに止める
+            <ReadOnlyProvider
+              value={fileOps.obligation?.fileId === fileOps.activeFile.id}
+            >
+              <BlobOriginProvider value={fileOps.originOf}>
+                <GraphEditor
+                  key={addressKey(viewAddress)}
+                  graphKey={addressKey(viewAddress)}
+                  undoStateMap={undoStateMapRef}
+                  sheet={viewSheet}
+                  fileId={fileOps.activeFile.id}
+                  fileName={fileOps.activeFile.name}
+                  onSheetChange={
+                    viewingBranch
+                      ? branchOps.onBranchSheetChange
+                      : handleSheetChange
+                  }
+                  // branch 表示中の編集は branch 専用 op-log へ (p5-4)。trunk 用の tap に
+                  // 流すと branch の編集が trunk のログに混ざる。
+                  syncRecord={branchOps.branchSyncRecord ?? fileOps.syncRecord}
+                  addedNodeIds={branchOps.addedNodeIds}
+                  updatedNodeIds={branchOps.updatedNodeIds}
+                  addedEdgeIds={branchOps.addedEdgeIds}
+                  updatedEdgeIds={branchOps.updatedEdgeIds}
+                  deletedNodes={branchOps.deletedNodes}
+                  deletedEdges={branchOps.deletedEdges}
+                  deletedNodeLayouts={branchOps.deletedNodeLayouts}
+                  deletedEdgeLayouts={branchOps.deletedEdgeLayouts}
+                  // 受信による差し替えの契機。描いている方 (trunk / branch) の受信だけを見る —
+                  // branch を開いている間の trunk の受信は branch の画面を変えない
+                  receiveEpoch={
+                    viewingBranch
+                      ? branchOps.branchReceiveEpoch
+                      : fileOps.receiveEpoch
+                  }
+                />
+              </BlobOriginProvider>
+            </ReadOnlyProvider>
+          ) : (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                height: '100%',
+                color: '#999',
+              }}
+            >
+              ファイルを選択するか, 新規作成してください
+            </div>
+          )}
+        </div>
       </main>
       {!branchOps.isTrunk &&
         branch &&
