@@ -34,6 +34,7 @@ import { subscribeLocalChanges } from '../local/localChanges';
 import { branchMetaRecorder, readBranchMeta } from './branchMetaLog';
 import type { DetectedConflicts } from './conflicts';
 import { EventSyncTap } from './eventSyncTap';
+import { LocalServerSyncProvider } from './localServerSyncProvider';
 import type { DetectedOverwrites } from './overwrites';
 import {
   collectParticipantBatches,
@@ -43,6 +44,23 @@ import { receiveRemoteBatches } from './receiveRemoteBatches';
 import type { RosterSource } from './rosterSource';
 import type { SyncProvider } from './syncProvider';
 import type { ForkWriterDeps } from './writeForks';
+
+/**
+ * File の書き込み先。ローカル正典が成功条件で、remote キューがある (ログイン中) ときだけ
+ * fanout で remote へも積む (W3d5-5)。`createLocal` はテストがローカル正典を差し替える口
+ */
+export function providerFor(
+  fileId: FileId,
+  remoteQueue: RemoteSyncQueue | null,
+  createLocal?: (fileId: FileId) => SyncProvider,
+): SyncProvider {
+  const local = createLocal
+    ? createLocal(fileId)
+    : new LocalServerSyncProvider(fileId);
+  return remoteQueue
+    ? new FanoutSyncProvider({ local, remoteQueue, fileId })
+    : local;
+}
 
 /**
  * 受信通知に添える tap の待ち合わせ点 (Phase 4e-3, critic MED3)。

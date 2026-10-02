@@ -552,4 +552,45 @@ describe('App 結合: タブ (step3 Phase 3 S3-3)', () => {
     );
     await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
   });
+
+  test('背後のタブの File も同期を続け、切り替えたときには届いている (Q4)', async () => {
+    const OTHER = '別のファイル';
+    const { code } = await aliceSharesFileWithBob();
+
+    // bob: 参加し、自分の File も作る。共有の File のタブは背後に回る
+    let user = await startOn('bob', BOB);
+    await participate(user, code, FILE_NAME);
+    await syncNow(user);
+    await createFile(user, OTHER);
+
+    // alice: 共有の File にノードを置いて送る
+    user = await startOn('alice', ALICE);
+    await openFileNamed(user, FILE_NAME);
+    await addNode(user);
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+    await syncNow(user);
+
+    // bob: 自分の File を前に出したまま同期する
+    user = await startOn('bob', BOB);
+    await waitFor(
+      () => expect(selectedTab()?.textContent).toStartWith(OTHER),
+      WIRING_TIMEOUT,
+    );
+    await syncNow(user);
+
+    // **切り替える前に**手元の正典に入っている (開いたときの同期で取りに行ったのではない)
+    const shared = world
+      .localStore()
+      .listFiles()
+      .find((f) => f.name === FILE_NAME)?.id as FileId;
+    await waitFor(() => {
+      const trunk = projectFile(world.localStore().getBatches(shared), shared);
+      expect(trunk.sheets[0]?.nodes).toHaveLength(1);
+    }, WIRING_TIMEOUT);
+
+    await user.click(
+      screen.getByRole('tab', { name: new RegExp(`^${FILE_NAME}`) }),
+    );
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+  });
 });

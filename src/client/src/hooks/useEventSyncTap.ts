@@ -23,17 +23,17 @@ import type {
 import { CausalClock } from '@conversensus/shared';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { fetchBatches, pushReceivedBatches } from '../api';
-import { FanoutSyncProvider } from '../atproto/fanoutSyncProvider';
 import type { RemoteSyncQueue } from '../atproto/remoteSyncQueue';
 import { SYNC_POLL_INTERVAL_MS } from '../config';
 import type { GraphEvent } from '../events/GraphEvent';
 import type { DetectedConflicts } from '../sync/conflicts';
 import {
   FileSession,
+  providerFor,
   type ReceivedSummary,
   type TapHandle,
 } from '../sync/fileSession';
-import { LocalServerSyncProvider } from '../sync/localServerSyncProvider';
+import type { FileSessionPool } from '../sync/fileSessionPool';
 import type { DetectedOverwrites } from '../sync/overwrites';
 import type { RosterSource } from '../sync/rosterSource';
 import type { SyncProvider } from '../sync/syncProvider';
@@ -42,6 +42,17 @@ import type { ForkWriterDeps } from '../sync/writeForks';
 export type { ReceivedSummary, TapHandle } from '../sync/fileSession';
 
 export type UseEventSyncTapOptions = {
+  /**
+   * セッションの置き場 (step3 Phase 3 S3-3c)。渡すと**セッションを自分で作らず置き場から借りる** —
+   * 背後のタブが同じ File を持っていれば、同じセッションと発番器を使う。作り方 (remote キュー・
+   * 名簿など) は置き場が持つので、下の設定の項目は使われない (知らせだけが効く)。
+   * `holder` は置き場の持ち手の名前 (`FileSessionPool.hold`)。
+   *
+   * **知らせを持つのは 1 つの File につき 1 つのフックだけにする。**セッションの知らせは
+   * 1 組で、描画のたびに差し替える。同じ File を 2 つのフックが借りると後から描いた方が勝つ。
+   * 背後のタブは知らせを持たないので、フックを通さず置き場に直接宣言する
+   */
+  pool?: { pool: FileSessionPool<FileSession>; holder: string };
   /** remote 送信キュー。null/未指定なら local-only (未ログイン時と同じ挙動) */
   remoteQueue?: RemoteSyncQueue | null;
   /**
@@ -209,6 +220,7 @@ export type UseEventSyncTapResult = {
 export function useEventSyncTap(
   fileId: FileId | null,
   {
+    pool: pooled,
     remoteQueue = null,
     actor,
     roster = null,
@@ -231,31 +243,31 @@ export function useEventSyncTap(
 ): UseEventSyncTapResult {
   // remote キューがあるときだけ fanout で包む。ローカル正典への経路は両者で同一。
   // (createLocalProvider を渡す場合は安定参照であること — 毎レンダー再生成すると tap が作り直される)
-  const provider = useMemo(() => {
-    if (!fileId) return null;
-    const local = createLocalProvider
-      ? createLocalProvider(fileId)
-      : new LocalServerSyncProvider(fileId);
-    return remoteQueue
-      ? new FanoutSyncProvider({ local, remoteQueue, fileId })
-      : local;
-  }, [fileId, remoteQueue, createLocalProvider]);
+  // 置き場から借りるときは自分では作らない (`ownFileId` が null になる)
+  const ownFileId = pooled ? null : fileId;
+  const provider = useMemo(
+    () =>
+      ownFileId
+        ? providerFor(ownFileId, remoteQueue, createLocalProvider)
+        : null,
+    [ownFileId, remoteQueue, createLocalProvider],
+  );
 
   // 因果の発番器は File と actor ごと。渡されたら (branch の tap) それを使う。
   // **セッションより長く生きる** — ログインで remote キューが付いてセッションが
   // 作り直されても、発番器は同じものを使い続ける
   const ownCausal = useMemo(
-    () => (fileId ? new CausalClock(actor) : null),
-    [fileId, actor],
+    () => (ownFileId ? new CausalClock(actor) : null),
+    [ownFileId, actor],
   );
   const causal = causalOverride ?? ownCausal;
 
   // fileId / provider が変われば新しいセッション (outbox を分離)。未オープン時は null
-  const session = useMemo(
+  const ownSession = useMemo(
     () =>
-      fileId && provider && causal
+      ownFileId && provider && causal
         ? new FileSession({
-            fileId,
+            fileId: ownFileId,
             provider,
             causal,
             actor,
@@ -270,7 +282,7 @@ export function useEventSyncTap(
           })
         : null,
     [
-      fileId,
+      ownFileId,
       provider,
       causal,
       actor,
@@ -285,8 +297,17 @@ export function useEventSyncTap(
     ],
   );
 
+  // 置き場から借りる。**描画の中で持つ** — 持つのは宣言なので何度しても同じで、ここで
+  // 持てばこの描画のうちにセッションが手に入る (effect まで待つと最初の書き込みを落とす)
+  if (pooled) pooled.pool.hold(pooled.holder, fileId ? [fileId] : []);
+  const session = pooled
+    ? fileId
+      ? (pooled.pool.session(fileId) ?? null)
+      : null
+    : ownSession;
+
   // 知らせは毎レンダー最新に差し替える。セッション (とタイマー) は作り直さない
-  session?.setListeners({
+  const listeners = {
     onReceived,
     onRoster,
     onConflicts,
@@ -294,10 +315,28 @@ export function useEventSyncTap(
     onForksArrived,
     onSynced,
     onLocalChanged,
-  });
+  };
+  session?.setListeners(listeners);
+  const listenersRef = useRef(listeners);
+  listenersRef.current = listeners;
 
-  // 契機を張る (開いたとき・定期・再接続・可視化・別のタブの書き込み)
-  useEffect(() => session?.start(), [session]);
+  // 離すのは effect の後始末で。**借りていたセッションの知らせを外す** — 背後のタブが
+  // 持ち続けるセッションが、前に出ている view の知らせ (共有状態・同期義務の更新) を呼ばないように。
+  // 持ち直したら知らせも付け直す (StrictMode は後始末の直後に持ち直し、描画は挟まない)
+  useEffect(() => {
+    if (!pooled || !fileId) return;
+    const { pool, holder } = pooled;
+    pool.hold(holder, [fileId]);
+    pool.session(fileId)?.setListeners(listenersRef.current);
+    return () => {
+      pool.session(fileId)?.setListeners({});
+      pool.release(holder);
+    };
+  }, [pooled, fileId]);
+
+  // 契機を張る (開いたとき・定期・再接続・可視化・別のタブの書き込み)。借りたセッションの
+  // 契機は置き場が張る
+  useEffect(() => ownSession?.start(), [ownSession]);
 
   // settled は セッションの作り直しをまたいで同じ参照でいてほしい
   const sessionRef = useRef(session);
@@ -319,5 +358,10 @@ export function useEventSyncTap(
     [session],
   );
 
-  return { record, causal, settled, syncNow };
+  return {
+    record,
+    causal: pooled && fileId ? pooled.pool.causalOf(fileId) : causal,
+    settled,
+    syncNow,
+  };
 }

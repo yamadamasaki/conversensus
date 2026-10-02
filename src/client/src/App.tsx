@@ -12,7 +12,7 @@ import {
   type SheetId,
   type TemplateId,
 } from '@conversensus/shared';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AcceptInvitationDialog } from './AcceptInvitationDialog';
 import { AlertDialog } from './AlertDialog';
 import { AtprotoLoginDialog } from './AtprotoLoginDialog';
@@ -54,7 +54,7 @@ import {
 } from './sync/overwrites';
 import { participationRounds } from './sync/participationHistoryView';
 import { TabBar } from './TabBar';
-import { activeTab, type Tab } from './tabs/tabs';
+import { activeTab, openFileIds, type Tab } from './tabs/tabs';
 import { generateId } from './uuid';
 
 export default function App() {
@@ -366,6 +366,21 @@ export default function App() {
     selectBranch: branchOps.handleSelectBranch,
     tabs: tabControls,
   });
+
+  /**
+   * 背後のタブの File も同期を続ける (Q4)。前に出ている File は tap が持つので除く。
+   * 並びが変わるたびに丸ごと宣言し直す (置き場は宣言の差だけを動かす)
+   */
+  const { holdBackground } = fileOps;
+  const backgroundFileIds = openFileIds(tabs.state).filter(
+    (id) => id !== fileOps.activeFile?.id,
+  );
+  const backgroundKey = backgroundFileIds.join(',');
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 並びの中身 (backgroundKey) が変わったときだけ宣言し直す
+  useEffect(
+    () => holdBackground(backgroundFileIds),
+    [holdBackground, backgroundKey],
+  );
 
   /**
    * サイドバーでシート・branch を選ぶ = そのアドレスを開く (同じアドレスのタブがあればそこへ, Q2)。
