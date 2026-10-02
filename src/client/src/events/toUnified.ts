@@ -288,6 +288,15 @@ export function graphEventToOps(event: GraphEvent): Op[] {
             templateIds: event.templateIds,
           }),
         },
+        // 種別などのプロパティは作成と同じ batch に続けて置く (event の注)
+        ...Object.entries(event.properties ?? {}).map(
+          ([name, value]): Op => ({
+            kind: 'sheet.setProperty',
+            target: event.sheetId,
+            name,
+            value,
+          }),
+        ),
       ];
     case 'SHEET_REMOVED':
       return [{ kind: 'sheet.remove', target: event.sheetId }];
@@ -303,6 +312,15 @@ export function graphEventToOps(event: GraphEvent): Op[] {
           ...(event.description !== undefined && {
             description: event.description,
           }),
+        },
+      ];
+    case 'SHEET_PROPERTY_CHANGED':
+      return [
+        {
+          kind: 'sheet.setProperty',
+          target: event.sheetId,
+          name: event.name,
+          ...(event.value !== undefined && { value: event.value }),
         },
       ];
     case 'FILE_RENAMED':

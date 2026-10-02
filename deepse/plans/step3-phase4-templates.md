@@ -199,4 +199,11 @@ resolveTemplates(refs: TemplateRef[] | undefined, trunk: Batch[], fileId: FileId
 
 ## 6. 実施記録
 
-(着手後に書く)
+### S4-0: シートのプロパティを書く event (2026-10-03)
+
+- `SHEET_CREATED` に `properties` を足し、作成と**同じ batch** に `sheet.setProperty` を続けて出す。
+  `templateIds` は `TemplateRef[]` (template graph の切断面も載る) に広げた
+- `SHEET_PROPERTY_CHANGED` → `sheet.setProperty` (値の省略は削除)。undo の対象外 (他の構造の event と同じ)
+- App のシート追加は `addSheet({ name, templateIds, properties })` に広げた (画面の口は S4-1b / S4-2b)
+
+単体 1865 件・App 結合 27 件が緑。

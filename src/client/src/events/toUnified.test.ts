@@ -2,11 +2,16 @@ import { describe, expect, test } from 'bun:test';
 import {
   type EdgeId,
   EdgeIdSchema,
+  FileIdSchema,
+  METAGRAPH_SHEET_KIND,
   type NodeId,
   NodeIdSchema,
   projectBatches,
+  projectFile,
+  SHEET_KIND_PROPERTY,
   type SheetId,
   SheetIdSchema,
+  sheetKindOf,
   TemplateIdSchema,
 } from '@conversensus/shared';
 import type { GraphEvent } from './GraphEvent';
@@ -666,5 +671,77 @@ describe('graphEventToOps: node の種別 (Phase 5 P4)', () => {
         to: '',
       }),
     ).toEqual([{ kind: 'node.setLabel', target: nodeId, label: '' }]);
+  });
+});
+
+describe('シートのプロパティ (step3 Phase 4 S4-0)', () => {
+  const sid = (): SheetId => SheetIdSchema.parse(crypto.randomUUID());
+  const FILE = FileIdSchema.parse(crypto.randomUUID());
+
+  test('作成時のプロパティは、作成と同じ batch の sheet.setProperty として続く', () => {
+    const sheetId = sid();
+    expect(
+      graphEventToOps({
+        ...makeEventBase('file'),
+        type: 'SHEET_CREATED',
+        sheetId,
+        name: 'index',
+        properties: { [SHEET_KIND_PROPERTY]: METAGRAPH_SHEET_KIND },
+      }),
+    ).toEqual([
+      { kind: 'sheet.create', target: sheetId, name: 'index' },
+      {
+        kind: 'sheet.setProperty',
+        target: sheetId,
+        name: SHEET_KIND_PROPERTY,
+        value: METAGRAPH_SHEET_KIND,
+      },
+    ]);
+  });
+
+  test('SHEET_PROPERTY_CHANGED → sheet.setProperty。値の省略は削除 (value を持たない op)', () => {
+    const sheetId = sid();
+    expect(
+      graphEventToOps({
+        ...makeEventBase('file'),
+        type: 'SHEET_PROPERTY_CHANGED',
+        sheetId,
+        name: 'owner',
+        value: 'alice',
+      }),
+    ).toEqual([
+      {
+        kind: 'sheet.setProperty',
+        target: sheetId,
+        name: 'owner',
+        value: 'alice',
+      },
+    ]);
+    expect(
+      graphEventToOps({
+        ...makeEventBase('file'),
+        type: 'SHEET_PROPERTY_CHANGED',
+        sheetId,
+        name: 'owner',
+      }),
+    ).toEqual([{ kind: 'sheet.setProperty', target: sheetId, name: 'owner' }]);
+  });
+
+  test('作成時に置いた種別は、projection で読める (ただのシートとして出ない)', () => {
+    const sheetId = sid();
+    const batch = graphEventToBatch(
+      {
+        ...makeEventBase('file'),
+        type: 'SHEET_CREATED',
+        sheetId,
+        name: 'index',
+        properties: { [SHEET_KIND_PROPERTY]: METAGRAPH_SHEET_KIND },
+      },
+      { clock: 1, seq: 1, deps: {}, actor: ACTOR },
+    );
+    const sheet = projectFile([batch], FILE).sheets.find(
+      (s) => s.id === sheetId,
+    );
+    expect(sheet && sheetKindOf(sheet)).toBe(METAGRAPH_SHEET_KIND);
   });
 });

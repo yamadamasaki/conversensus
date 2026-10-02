@@ -8,9 +8,11 @@ import {
   type GraphFile,
   type GraphViewAddress,
   HEAD_CUT,
+  type PropertyName,
   type Sheet,
   type SheetId,
   type TemplateId,
+  type TemplateRef,
 } from '@conversensus/shared';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AcceptInvitationDialog } from './AcceptInvitationDialog';
@@ -246,8 +248,20 @@ export default function App() {
   const currentTab = activeTab(tabs.state);
   const { open: openTab } = tabs;
 
-  const handleAddSheet = useCallback(
-    (templateIds?: TemplateId[]) => {
+  /**
+   * シートを足す。`templateIds` は当てる template、`properties` は作成時に置くシートのプロパティ
+   * (特殊なグラフの種別, step3 Phase 4 S4-0)。名前を省くと `Sheet N`
+   */
+  const addSheet = useCallback(
+    ({
+      name,
+      templateIds,
+      properties,
+    }: {
+      name?: string;
+      templateIds?: TemplateRef[];
+      properties?: Record<PropertyName, unknown>;
+    } = {}) => {
       const trunkFile = fileOps.activeFile;
       if (!trunkFile) return;
       // branch は per-sheet なので、シートを増やす操作は branch を抜けてから行う
@@ -256,11 +270,12 @@ export default function App() {
       if (!branchOps.isTrunk) branchOps.resetBranchState();
       const newSheet: Sheet = {
         id: generateId() as SheetId,
-        name: `Sheet ${trunkFile.sheets.length + 1}`,
+        name: name ?? `Sheet ${trunkFile.sheets.length + 1}`,
         nodes: [],
         edges: [],
         // 紐づけは作成時にしか持たない (Phase 5 D1)。空配列は「無し」と区別しないので落とす
         ...(templateIds?.length ? { templateIds } : {}),
+        ...(properties && { properties }),
       };
       const updated: GraphFile = {
         ...trunkFile,
@@ -273,6 +288,7 @@ export default function App() {
         sheetId: newSheet.id,
         name: newSheet.name,
         ...(templateIds?.length ? { templateIds } : {}),
+        ...(properties && { properties }),
       });
       fileOps.setActiveSheetId(newSheet.id);
       fileOps.updateFileState(updated);
@@ -293,6 +309,11 @@ export default function App() {
       branchOps.isTrunk,
       branchOps.resetBranchState,
     ],
+  );
+  /** サイドバーの「シートを追加」(作り込みの template を当てる口) */
+  const handleAddSheet = useCallback(
+    (templateIds?: TemplateId[]) => addSheet({ templateIds }),
+    [addSheet],
   );
 
   // Phase 6 p6-4: セッション確立後の PDS legacy file レコード同期 (`loadAtprotoFiles`)

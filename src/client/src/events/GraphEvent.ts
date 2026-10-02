@@ -10,8 +10,9 @@ import type {
   GraphNode,
   NodeId,
   NodeLayout,
+  PropertyName,
   SheetId,
-  TemplateId,
+  TemplateRef,
 } from '@conversensus/shared';
 
 type Position = { x: number; y: number };
@@ -259,8 +260,17 @@ export type SheetCreatedEvent = EventBase & {
   sheetId: SheetId;
   name: string;
   description?: string;
-  /** 作成時に当てる template (Phase 5 D1)。後から変える口は無い */
-  templateIds?: TemplateId[];
+  /**
+   * 作成時に当てる template (Phase 5 D1)。後から変える口は無い。作り込みの id か、
+   * template graph の切断面 (`{ sheet, at }`, step3 Phase 4)
+   */
+  templateIds?: TemplateRef[];
+  /**
+   * 作成時に置くシートのプロパティ (step3 Phase 4 S4-0)。特殊なグラフ (template graph・metagraph) の
+   * 種別はここに載る。**作成と同じ batch で置く** — 別の batch に割ると、種別の無いシートが
+   * 一瞬存在し、その間に届いた相手の画面にはただのシートとして出る
+   */
+  properties?: Record<PropertyName, unknown>;
 };
 export type SheetRemovedEvent = EventBase & {
   category: 'file';
@@ -278,6 +288,17 @@ export type SheetDescribedEvent = EventBase & {
   type: 'SHEET_DESCRIBED';
   sheetId: SheetId;
   description?: string;
+};
+/**
+ * シートのプロパティを 1 つ置く (step3 Phase 4 S4-0)。`value` の省略はそのプロパティの削除
+ * (`sheet.setProperty` と同じ規則)
+ */
+export type SheetPropertyChangedEvent = EventBase & {
+  category: 'file';
+  type: 'SHEET_PROPERTY_CHANGED';
+  sheetId: SheetId;
+  name: PropertyName;
+  value?: unknown;
 };
 export type FileRenamedEvent = EventBase & {
   category: 'file';
@@ -357,6 +378,7 @@ export type GraphEvent =
   | SheetRemovedEvent
   | SheetRenamedEvent
   | SheetDescribedEvent
+  | SheetPropertyChangedEvent
   | FileRenamedEvent
   | FileDescribedEvent
   | FileDeletedEvent
