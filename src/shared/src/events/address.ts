@@ -12,13 +12,20 @@
  * mode (view の種類) は持たない (Phase 3 Q1)。編集できるかどうかは切断面と pane の役割から導く。
  */
 
-import type {
-  BranchId,
-  EdgeId,
-  FileId,
-  NodeId,
-  Sheet,
-  SheetId,
+import { z } from 'zod';
+import {
+  type BranchId,
+  BranchIdSchema,
+  type EdgeId,
+  EdgeIdSchema,
+  type FileId,
+  FileIdSchema,
+  type NodeId,
+  NodeIdSchema,
+  type Sheet,
+  type SheetId,
+  SheetIdSchema,
+  VersionVectorSchema,
 } from '../schemas';
 import { type Branch, branchSheet } from './branchLog';
 import { covers, type VersionVector } from './causality';
@@ -46,6 +53,23 @@ export type GraphViewAddress = {
   /** 強調する要素 (検索の結果など)。中身には影響しない */
   highlight?: { nodeIds: NodeId[]; edgeIds: EdgeId[] };
 };
+
+/**
+ * アドレスを外に置くときの形 (タブの復元、後の Deep Link)。**外から読み戻す値は検める** —
+ * 保存した後に形を変えた、別の版が書いた、などで壊れた値を画面の state に入れない
+ */
+export const GraphViewAddressSchema = z.object({
+  fileId: FileIdSchema,
+  sheetId: SheetIdSchema,
+  branchId: BranchIdSchema.nullable(),
+  cut: z.union([z.literal(HEAD_CUT), VersionVectorSchema]),
+  highlight: z
+    .object({
+      nodeIds: z.array(NodeIdSchema),
+      edgeIds: z.array(EdgeIdSchema),
+    })
+    .optional(),
+});
 
 /** trunk を表すキーの綴り (`addressKey`) */
 const TRUNK_KEY = 'trunk';
