@@ -15,10 +15,23 @@ import type { TabsState } from './tabs';
 
 export const TABS_STORAGE_KEY = 'conversensus.tabs';
 
-const StoredTabSchema = z.object({
-  id: z.string().min(1),
-  address: GraphViewAddressSchema,
-});
+const StoredTabSchema = z.union([
+  z
+    .object({
+      id: z.string().min(1),
+      panes: z.array(GraphViewAddressSchema).min(1),
+      active: z.number().int().nonnegative(),
+    })
+    // アクティブが並びの外を指していたら先頭にする
+    .transform((t) => ({
+      ...t,
+      active: t.active < t.panes.length ? t.active : 0,
+    })),
+  // S3-3 の形 (pane 1 つ = アドレス 1 つ)。開発中の端末に保存されているので読む
+  z
+    .object({ id: z.string().min(1), address: GraphViewAddressSchema })
+    .transform((t) => ({ id: t.id, panes: [t.address], active: 0 })),
+]);
 
 const StoredTabsSchema = z.object({
   tabs: z.array(z.unknown()),

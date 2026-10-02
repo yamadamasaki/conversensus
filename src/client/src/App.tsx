@@ -61,7 +61,7 @@ import {
 } from './sync/overwrites';
 import { participationRounds } from './sync/participationHistoryView';
 import { TabBar } from './TabBar';
-import { activeTab, openFileIds, type Tab } from './tabs/tabs';
+import { activeTab, openFileIds, type Tab, tabAddress } from './tabs/tabs';
 import { generateId } from './uuid';
 
 export default function App() {
@@ -441,7 +441,7 @@ export default function App() {
   for (const list of branchOps.sheetBranches.values())
     for (const b of list) seenNamesRef.current.set(b.id, b.name);
   const tabLabelOf = (tab: Tab) => {
-    const { fileId, sheetId, branchId } = tab.address;
+    const { fileId, sheetId, branchId } = tabAddress(tab);
     const names = seenNamesRef.current;
     const fileName = fileOps.files.find((f) => f.id === fileId)?.name ?? '';
     const sheetName = names.get(sheetId);

@@ -1,7 +1,8 @@
 /**
- * アプリ内タブ (step3 Phase 3 S3-3)
+ * アプリ内タブ (step3 Phase 3 S3-3 / S3-5)
  *
- * **タブ = アドレス (`GraphViewAddress`) の並び。**タブは中身を持たない — 中身は op-log にあり、
+ * **タブ = pane の並び。pane = アドレス (`GraphViewAddress`)。**single のタブは pane 1 つ、multiple の
+ * タブは複数 (S3-5)。そのうち 1 つがアクティブで、編集できるのはそれだけである。タブは中身を持たない — 中身は op-log にあり、
  * アドレスから projection して決める。だからタブを閉じても、同じアドレスで開き直せば同じ姿が出る
  * (仕様 design-language)。
  *
@@ -20,8 +21,25 @@ export type TabId = string;
 
 export type Tab = {
   id: TabId;
-  address: GraphViewAddress;
+  /** 1 つ以上。並びは画面の左から右 */
+  panes: readonly GraphViewAddress[];
+  /** アクティブな pane の位置。ヘッダ・右サイドバー・画面の仕組みはこれを対象にする */
+  active: number;
 };
+
+/** タブのアクティブな pane のアドレス */
+export function tabAddress(tab: Tab): GraphViewAddress {
+  return tab.panes[tab.active] ?? (tab.panes[0] as GraphViewAddress);
+}
+
+export function isMultiple(tab: Tab): boolean {
+  return tab.panes.length > 1;
+}
+
+/** pane 1 つのタブ */
+function singleTab(id: TabId, address: GraphViewAddress): Tab {
+  return { id, panes: [address], active: 0 };
+}
 
 export type TabsState = {
   tabs: readonly Tab[];
@@ -41,7 +59,10 @@ export function activeTab(state: TabsState): Tab | null {
  * **同じアドレスのタブが既にあればそこへ移る** (Q2)。同じ branch の head を 2 つのタブで
  * 編集できても得が無く、紛らわしいだけである。`forceNew` (修飾キーでの明示の操作) のときだけ
  * 新しいタブを足す。同じかどうかは `addressKey` で決める (highlight は見ない)。
- * 既存のタブへ移るときは、highlight だけは新しい方に差し替える (検索の結果から開いた場合など)
+ * 既存のタブへ移るときは、highlight だけは新しい方に差し替える (検索の結果から開いた場合など)。
+ *
+ * **見るのは single のタブだけ** (S3-5)。multiple は特別な場合の並びなので、サイドバーから
+ * 開いたものがそこへ吸い込まれると紛らわしい
  */
 export function openTab(
   state: TabsState,
@@ -51,17 +72,19 @@ export function openTab(
 ): TabsState {
   if (!forceNew) {
     const key = addressKey(address);
-    const existing = state.tabs.find((t) => addressKey(t.address) === key);
+    const existing = state.tabs.find(
+      (t) => !isMultiple(t) && addressKey(tabAddress(t)) === key,
+    );
     if (existing) {
       return {
         tabs: state.tabs.map((t) =>
-          t.id === existing.id ? { ...t, address } : t,
+          t.id === existing.id ? singleTab(t.id, address) : t,
         ),
         activeId: existing.id,
       };
     }
   }
-  const tab: Tab = { id: newId(), address };
+  const tab = singleTab(newId(), address);
   return { tabs: [...state.tabs, tab], activeId: tab.id };
 }
 
@@ -84,20 +107,78 @@ export function closeTab(state: TabsState, id: TabId): TabsState {
 }
 
 /**
- * 条件に合うタブをまとめて閉じる (File・シートの削除、開けなかったアドレス)。
- * アクティブが閉じられたら、`closeTab` と同じく隣へ移る
+ * pane を 1 つ外す。アクティブな pane を外したら右隣、無ければ左隣がアクティブになる。
+ * 最後の pane を外すとタブごと閉じる
+ */
+export function closePane(
+  state: TabsState,
+  tabId: TabId,
+  index: number,
+): TabsState {
+  const tab = state.tabs.find((t) => t.id === tabId);
+  if (!tab || !tab.panes[index]) return state;
+  if (tab.panes.length === 1) return closeTab(state, tabId);
+  const panes = tab.panes.filter((_, i) => i !== index);
+  const active =
+    index < tab.active
+      ? tab.active - 1
+      : index === tab.active
+        ? Math.min(index, panes.length - 1)
+        : tab.active;
+  return {
+    ...state,
+    tabs: state.tabs.map((t) => (t.id === tabId ? { ...t, panes, active } : t)),
+  };
+}
+
+/**
+ * 条件に合う pane をまとめて外す (File・シートの削除、開けなかったアドレス)。pane が無くなった
+ * タブは閉じる。アクティブが閉じられたら、`closeTab` と同じく隣へ移る
  */
 export function closeTabsWhere(
   state: TabsState,
   predicate: (address: GraphViewAddress) => boolean,
 ): TabsState {
-  return state.tabs
-    .filter((t) => predicate(t.address))
-    .reduce((s, t) => closeTab(s, t.id), state);
+  let next = state;
+  for (const tab of state.tabs) {
+    // 後ろから外す — 前から外すと位置がずれる
+    for (let i = tab.panes.length - 1; i >= 0; i--) {
+      const pane = tab.panes[i];
+      if (pane && predicate(pane)) next = closePane(next, tab.id, i);
+    }
+  }
+  return next;
+}
+
+/** アクティブなタブに pane を足す (multiple にする)。アクティブな pane は動かさない */
+export function addPane(
+  state: TabsState,
+  address: GraphViewAddress,
+): TabsState {
+  const active = activeTab(state);
+  if (!active) return state;
+  return {
+    ...state,
+    tabs: state.tabs.map((t) =>
+      t.id === active.id ? { ...t, panes: [...t.panes, address] } : t,
+    ),
+  };
+}
+
+/** アクティブなタブの pane を前に出す */
+export function activatePane(state: TabsState, index: number): TabsState {
+  const active = activeTab(state);
+  if (!active || !active.panes[index] || active.active === index) return state;
+  return {
+    ...state,
+    tabs: state.tabs.map((t) =>
+      t.id === active.id ? { ...t, active: index } : t,
+    ),
+  };
 }
 
 /**
- * アクティブなタブのアドレスを置き換える。
+ * アクティブなタブの、アクティブな pane のアドレスを置き換える。
  *
  * **画面の側でアドレスが動いたとき**に使う — branch を閉じて trunk に戻った、受信で
  * シートが消えて別のシートに退避した、など。タブを足しはしない (それは `openTab`)
@@ -107,17 +188,21 @@ export function retargetActive(
   address: GraphViewAddress,
 ): TabsState {
   const active = activeTab(state);
-  if (!active || addressKey(active.address) === addressKey(address))
+  if (!active || addressKey(tabAddress(active)) === addressKey(address))
     return state;
   return {
     ...state,
-    tabs: state.tabs.map((t) => (t.id === active.id ? { ...t, address } : t)),
+    tabs: state.tabs.map((t) =>
+      t.id === active.id
+        ? { ...t, panes: t.panes.map((p, i) => (i === t.active ? address : p)) }
+        : t,
+    ),
   };
 }
 
-/** タブが参照している File (重複なし、並びの順)。背後のタブの同期 (Q4) が使う */
+/** タブ (のすべての pane) が参照している File (重複なし、並びの順)。背後のタブの同期 (Q4) が使う */
 export function openFileIds(state: TabsState): FileId[] {
-  return [...new Set(state.tabs.map((t) => t.address.fileId))];
+  return [...new Set(state.tabs.flatMap((t) => t.panes.map((p) => p.fileId)))];
 }
 
 /** 指定のシートを指すか (シートの削除で閉じるタブの判定) */

@@ -28,7 +28,13 @@ import {
   stepKey,
   type ViewedPlace,
 } from '../tabs/navigation';
-import { isOnFile, isOnSheet, type Tab, type TabId } from '../tabs/tabs';
+import {
+  isOnFile,
+  isOnSheet,
+  type Tab,
+  type TabId,
+  tabAddress,
+} from '../tabs/tabs';
 
 type Params = {
   tab: Tab | null;
@@ -78,7 +84,7 @@ export function useTabNavigation({
       if (viewedAddress) tabs.open(viewedAddress);
       return;
     }
-    const target = tab.address;
+    const target = tabAddress(tab);
     const here = `${tab.id}@${addressKey(target)}`;
     const step = nextNavigationStep(target, { fileId, sheetId, branchId });
     if (step.kind === 'arrived') {
