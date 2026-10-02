@@ -150,22 +150,6 @@ export default function App() {
     );
   }, []);
 
-  /**
-   * branch の表示状態への口 (2026-09-17)。**`fileOps` は `branchOps` より先に作られる**ので、
-   * 値では渡せない。`isEditingActive` と同じく安定した関数にして、中身を ref で差す
-   */
-  const branchViewRef = useRef<{
-    isBranchOpen: boolean;
-    keepTrunkForReturn: (file: GraphFile) => void;
-  } | null>(null);
-  const isBranchOpen = useCallback(
-    () => branchViewRef.current?.isBranchOpen ?? false,
-    [],
-  );
-  const keepTrunkForReturn = useCallback((file: GraphFile) => {
-    branchViewRef.current?.keepTrunkForReturn(file);
-  }, []);
-
   // File & sheet operations
   const fileOps = useFileSheetOperations({
     setConfirmState,
@@ -178,16 +162,12 @@ export default function App() {
     // 多アクタ同期は名簿を先に読む (step2 Phase 2 S2)。ダイアログと同じ供給元である
     roster,
     isEditingActive,
-    // branch を開いている間は受信で画面を差し替えない (2026-09-17)
-    isBranchOpen,
-    keepTrunkForReturn,
   });
 
   // Branch operations
   const branchOps = useBranchOperations({
     activeFile: fileOps.activeFile,
     activeSheetId: fileOps.activeSheetId,
-    activeSheet: fileOps.activeSheet,
     onSetActiveFile: fileOps.setActiveFile,
     setConfirmState,
     setInputState,
@@ -204,13 +184,6 @@ export default function App() {
     roster,
     receiveEpoch: fileOps.receiveEpoch,
   });
-
-  // `fileOps` へ渡した口の中身をここで差す (上の branchViewRef の注を参照)。
-  // **レンダーごとに更新する** — branch を開閉するたびに判定が変わる
-  branchViewRef.current = {
-    isBranchOpen: !branchOps.isTrunk,
-    keepTrunkForReturn: branchOps.keepTrunkForReturn,
-  };
 
   // Cross-domain wired callbacks
   //
@@ -246,14 +219,12 @@ export default function App() {
 
   const handleAddSheet = useCallback(
     (templateIds?: TemplateId[]) => {
-      if (!fileOps.activeFile) return;
-      // 🔴 シート追加は **trunk のファイルを土台に**行う。branch 表示中の activeFile は
-      // 該当シートが branch の内容なので、それを土台にすると branch の内容が trunk へ移る。
-      // branch は per-sheet なので、シートを増やす操作は branch を抜けてから行うのが筋
-      // (シート切替 `handleSelectSheet` が branch を抜けるのと同じ扱い)。
-      const trunkFile = branchOps.isTrunk
-        ? fileOps.activeFile
-        : (branchOps.resetBranchState() ?? fileOps.activeFile);
+      const trunkFile = fileOps.activeFile;
+      if (!trunkFile) return;
+      // branch は per-sheet なので、シートを増やす操作は branch を抜けてから行う
+      // (シート切替 `handleSelectSheet` が branch を抜けるのと同じ扱い)。`activeFile` は
+      // trunk の姿だけを持つので、そのまま土台にしてよい (step3 Phase 3 S3-2)
+      if (!branchOps.isTrunk) branchOps.resetBranchState();
       const newSheet: Sheet = {
         id: generateId() as SheetId,
         name: `Sheet ${trunkFile.sheets.length + 1}`,
@@ -322,6 +293,13 @@ export default function App() {
 
   const branch = branchOps.activeBranch;
   const canMerge = branchOps.diffState === BRANCH_DIFF_STATE.COMMITTED;
+  /**
+   * 画面に出すシート (step3 Phase 3 S3-2)。branch を開いていれば branch の中身、
+   * そうでなければ trunk の姿。編集の宛先 (`syncRecord` / `onSheetChange`) と
+   * 再 seed の契機 (`receiveEpoch`) も同じ分かれ目で切り替える
+   */
+  const viewingBranch = !branchOps.isTrunk && branchOps.branchSheet !== null;
+  const viewSheet = viewingBranch ? branchOps.branchSheet : fileOps.activeSheet;
 
   return (
     <div style={{ display: 'flex', height: '100vh', fontFamily: 'sans-serif' }}>
@@ -443,7 +421,7 @@ export default function App() {
         />
       )}
       <main style={{ flex: 1 }}>
-        {fileOps.activeFile && fileOps.activeSheet ? (
+        {fileOps.activeFile && viewSheet ? (
           // 画像 blob の由来を降ろす (step2 Phase 2 S5)。**`GraphEditor` の props には
           // 足さない** — `ImageNode` は React Flow が描くので props が届かず、
           // 途中の層はこの値に用が無い (`blobOriginContext`)
@@ -457,10 +435,14 @@ export default function App() {
                 key={`${fileOps.activeSheetId}/${branchOps.activeBranch?.id ?? TRUNK_PREFIX}`}
                 graphKey={`${fileOps.activeSheetId}/${branchOps.activeBranch?.id ?? TRUNK_PREFIX}`}
                 undoStateMap={undoStateMapRef}
-                sheet={fileOps.activeSheet}
+                sheet={viewSheet}
                 fileId={fileOps.activeFile.id}
                 fileName={fileOps.activeFile.name}
-                onSheetChange={handleSheetChange}
+                onSheetChange={
+                  viewingBranch
+                    ? branchOps.onBranchSheetChange
+                    : handleSheetChange
+                }
                 // branch 表示中の編集は branch 専用 op-log へ (p5-4)。trunk 用の tap に
                 // 流すと branch の編集が trunk のログに混ざる。
                 syncRecord={branchOps.branchSyncRecord ?? fileOps.syncRecord}
@@ -472,10 +454,12 @@ export default function App() {
                 deletedEdges={branchOps.deletedEdges}
                 deletedNodeLayouts={branchOps.deletedNodeLayouts}
                 deletedEdgeLayouts={branchOps.deletedEdgeLayouts}
-                // 受信による差し替えの契機。trunk の受信と、開いている branch の受信
-                // (step2 Phase 3 T7-3) の和 — どちらかが進めば React Flow を再 seed する
+                // 受信による差し替えの契機。描いている方 (trunk / branch) の受信だけを見る —
+                // branch を開いている間の trunk の受信は branch の画面を変えない
                 receiveEpoch={
-                  fileOps.receiveEpoch + branchOps.branchReceiveEpoch
+                  viewingBranch
+                    ? branchOps.branchReceiveEpoch
+                    : fileOps.receiveEpoch
                 }
               />
             </BlobOriginProvider>

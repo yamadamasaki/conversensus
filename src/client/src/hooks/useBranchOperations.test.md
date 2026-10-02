@@ -34,8 +34,8 @@ branch のライフサイクル全体の正確性を保証する必要がある�
 **なぜここだけ差分計算を本物にするか**: 他のテストは `computeSheetChanges` をスタブに
 差し替えているが、スタブは**基準に関わらず同じ配列を返す**ので「どの Sheet を起点に
 したか」を区別できない。起点の切り替わりこそがこのスライスの検証対象なので、
-`realChanges` オプションで本物の差分計算を使い、`activeSheet` を rerender で
-差し替えることで画面上の編集を再現する。
+`realChanges` オプションで本物の差分計算を使い、`onBranchSheetChange` で branch のシートを
+差し替えることで画面上の編集を再現する (GraphEditor の `onSheetChange` と同じ口)。
 
 判定規則は `resolveBranchDiffState` として hook の外に切り出してあり、4 状態
 (trunk / 無変更 / 変更中 / commit 済み) を単体で固定する。**未コミットの変更があれば
@@ -138,26 +138,28 @@ T7-1 で branch のメタが trunk の op-log に、T7-2 で branch の編集が
 - **開いている branch に相手の編集が届くと、画面の branch を組み直す**: 相手の repo だけが
   branch の編集を返す remote キューと、自分と相手が clock 0 から参加している名簿
   (`history` の accept を持たせる) を渡して branch を開く。同期のサイクルで編集が branch の
-  op-log に着地し、最後に画面へ渡したファイルのシートにそのノードが出ること。
+  op-log に着地し、hook が持つ branch のシート (`branchSheet`) にそのノードが出ること。
   受信の書き込み口は `oplogDeps.appendReceived` で in-memory ストアへ差し替えている
   (既定は実 fetch)。**加えて `branchReceiveEpoch` が進むこと**を見る — GraphEditor は
   file.id / シート / `receiveEpoch` の変化でしか React Flow を再 seed しないので、state を
   差し替えただけでは canvas に出ない。**T7-7 の実機 (2 アカウント) で、op-log には相手の編集が
   届いているのに画面に出ないことで発覚した** (当初のテストは state しか見ておらず通っていた)
 
-### branch を開いている間の受信 (2026-09-17)
+### branch の中身は `activeFile` と別に持つ (step3 Phase 3 S3-2)
 
-受信の差し替えが渡してくるのは **trunk の projection** なので、branch を開いている間に画面へ
-入れると、シートが trunk の姿に化ける (消したノードが戻り、差分が空になりコミットできなくなる)。
-そこで `useFileSheetOperations` 側は branch 表示中に画面を差し替えず、**受信した trunk を
-`keepTrunkForReturn` で控えに渡す**。
+以前は branch を開くと `activeFile` の当該シートを branch の中身で差し替え、trunk を退避して
+戻るときに復元していた。そのため受信した trunk を控え直す口 (`keepTrunkForReturn`, 2026-09-17) や、
+シート追加の前に trunk を取り戻す返り値 (`resetBranchState`) が要った。S3-2 で branch の中身を
+hook の state (`branchSheet`) に移し、これらを撤去した。
 
-- **🔴 branch を開いている間に受信した trunk が、戻ったときに出る**: 戻り先は「branch へ入る前の
-  trunk の写し」なので、控えを更新しないと**閉じた瞬間に古い trunk が出る**。控えを渡してから
-  trunk へ戻り、画面に渡されたファイルが受信後のものであることを見る
+- **branch のシート内容を projection から組み立てる (trunk の姿には触らない)**: `branchSheet` に
+  分岐点の内容が入り、`onSetActiveFile` は呼ばれないこと
+- **trunk に戻ると branch のシートを手放す**: `branchSheet` が null になり、何も書き戻さないこと
+- **画面の編集で branch のシートが進む**: `onBranchSheetChange` がそのまま `branchSheet` になること
 
-利用者の実機シナリオ (Notion 2026.09.17) で発覚した。**op-log は正しく、画面だけが壊れる**形なので、
-op-log を見るテストでは捕まらない。
+「branch を開いている間に受信した trunk が、戻ったときに出る」「branch を開いたままシートを足しても
+branch の中身が trunk に移らない」は、退避の仕組みが無くなったので hook の単体ではなく
+**App 結合で画面の側から**見ている (`App.app-test.tsx`「branch の出入りで trunk と branch が混ざらない」)。
 
 ### commit — ログ上のオフセット
 - 保存されるのは `{message, at}` であって差分ではない。`at` は branch op-log の先端。
@@ -224,6 +226,3 @@ revert の経路が無い。人が押す操作なので、人の判断が要る�
   テストは branch tap の push を 30ms 遅らせ、`record` の直後に `handleCommit` を呼ぶ
   (`slowBranchPush`)。**待ちを外すと落ちることを確認済み**。merge も同じ理由で待つ
   (待たないと trunk に載らないまま branch だけ MERGED になる)。
-- **`resetBranchState` が復帰した trunk のファイルを返す**: 呼び出し側 (App のシート追加)
-  が **trunk のファイルを土台に**処理を続けるための返り値。branch 表示中の `activeFile` を
-  土台にすると branch の内容が trunk へ移る。
