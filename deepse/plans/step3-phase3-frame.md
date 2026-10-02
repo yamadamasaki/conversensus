@@ -179,7 +179,7 @@ type GraphViewAddress = {
 | **S3-2** ✅ | view をアドレスで持つ。`activeFile` の化け (F1) と退避・復元を撤去 | 無し | App 結合 (branch の出入り・受信・シート追加) |
 | **S3-3** ✅ | タブ。File ごとのセッションの置き場 (参照数で生かす、同じ File は発番器を 1 つ)。アドレスから view を開く口と、view ごとの `projectAddress` | タブ帯 | App 結合 (2 つの File を開いて両方に受信が届く、同じ File の 2 view で発番が重ならない) |
 | **S3-4** ✅ | ヘッダ・右サイドバー・左右の幅変更と折り畳み。検索とプロパティを `GraphEditor` から割る | 枠 | 単体 + E2E (WebKit) |
-| **S3-5** | multiple モード | pane | App 結合 |
+| **S3-5** ✅ | multiple モード | pane | App 結合 |
 
 **S3-0 と S3-2 が重く、見た目が変わらない。**先に網 (Phase 0 の App 結合) で今の振る舞いを固めてから
 動かす。特に「branch を開いたまま受信」「branch を抜けてシート追加」「別 File を開いたら tap が切り替わる」
@@ -513,7 +513,7 @@ PNG は書き出し (ダウンロード) になるので押していない。
 (ナビゲーションの後にスクリーンショットを撮る前の座標の操作)。撮った後の同じ操作では mousedown → focusin
 → keydown が届いて入る。アプリの不具合ではない
 
-### S3-5: multiple モード (2026-10-02, 進行中)
+### S3-5: multiple モード (2026-10-02)
 
 #### コードを読んで判明した事実
 
@@ -544,3 +544,36 @@ PNG は書き出し (ダウンロード) になるので押していない。
 - **S3-5a** タブのモデルを pane の並びに (純関数・保存の読み戻し・既存の呼び出しの載せ替え)。画面は変えない
 - **S3-5b** 見るだけの pane (`GraphPreview` + アドレスからの projection と読み直し) と、同じタブの中の知らせ
 - **S3-5c** ボディに pane を並べる・前に出す・pane を閉じる、開発用の入口。App 結合
+
+#### 実施 (S3-5a〜c)
+
+- **S3-5a** `tabs.ts`: タブは `panes` + `active`。pane を足す・前に出す・外す。Q2 は single のタブだけを
+  見る。S3-3 の形 (アドレス 1 つ) の保存も読む
+- **S3-5b** `GraphPreview` (キー操作を張らない見るだけの React Flow) と `usePaneSheet` / `loadAddressSheet`
+  (アドレスから `projectAddress` で求め、正典が動くたびに読み直す)。`localChanges` に**同じタブの中の知らせ**
+  (`subscribeOwnChanges` / `subscribeCanonChanges`) を足した。nodeTypes / edgeTypes は `graph/flowTypes.ts` で共有
+- **S3-5c** ボディに pane を並べる (`PaneFrame`、アクティブな pane には今の `GraphEditor`、ほかは
+  `PassivePane`)。前に出す・pane を閉じる。開発用の入口はヘッダの「⧉ 並べる」(`devPanesEnabled()`:
+  開発ビルドか `VITE_DEV_PANES=true`) で、開いている他のタブのアドレスを pane として並べる
+
+#### 分かったこと (S3-5)
+
+- **前に出すことは、タブの切り替えと同じ道を通る。**アクティブな pane のアドレスが変わるので、
+  `useTabNavigation` が画面の仕組みをそこへ段ごとに移す。新しい道は要らなかった
+- **背後の同期 (Q4) も pane に効く。**`openFileIds` がすべての pane の File を返すので、見るだけの pane の
+  File も同期を続ける
+- App 結合の世界も本番と同じく `broadcastingBackend` で包んだ (別のタブへは送らず、同じタブの中の知らせ
+  だけを出す)。包まないと、見るだけの pane の読み直しが App 結合で起きない
+
+#### Phase 5 (merger) への口と積み残し
+
+- pane のアドレスはタブの state (`panes`) から、アクティブな pane の選択は `useGraphPanels.selection` から読める
+- **見るだけの pane では選べない** (`elementsSelectable={false}`)。merger の pane 間の選択の連動は、
+  見るだけの pane に選択を足すところから始まる
+- 見るだけの pane の画像は、アクティブな File の由来 (`originOf`) しか引けない。別の File の pane で
+  他人が貼った画像は出ないことがある
+- 見るだけの pane は過去の切断面も描ける (`projectAddress` は vector を受ける) が、その入口は無い (U3 のまま)
+
+#### 検証 (S3-5)
+
+単体 1862 件・App 結合 27 件 (multiple 4 件を追加)・E2E 44 件が緑。

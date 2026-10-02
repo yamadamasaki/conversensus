@@ -9,7 +9,7 @@
  * それらのボタンを押せなくする。
  */
 
-import type { CSSProperties } from 'react';
+import { type CSSProperties, useState } from 'react';
 import type { GraphEditorControls } from './graph/editorControls';
 
 export const GRAPH_HEADER_HEIGHT = 40;
@@ -31,6 +31,11 @@ type Props = {
   propertyOpen: boolean;
   onToggleProperty: () => void;
   branch: HeaderBranch | null;
+  /**
+   * 並べられるもの (multiple モードの開発用の入口, S3-5 / Q6)。開いている他のタブのアドレスで、
+   * 選ぶとこのタブの pane として並ぶ。渡さなければ「⧉」は出さない (本番の既定)
+   */
+  paneCandidates?: readonly { label: string; onAdd: () => void }[];
 };
 
 const BUTTON: CSSProperties = {
@@ -67,8 +72,10 @@ export function GraphHeader({
   propertyOpen,
   onToggleProperty,
   branch,
+  paneCandidates,
 }: Props) {
   const ready = controls !== null;
+  const [paneMenuOpen, setPaneMenuOpen] = useState(false);
   return (
     <div
       role="toolbar"
@@ -149,6 +156,67 @@ export function GraphHeader({
       >
         PNG
       </button>
+      {paneCandidates && (
+        <div style={{ position: 'relative', marginLeft: 8 }}>
+          <button
+            type="button"
+            title="並べる (開発用)"
+            aria-expanded={paneMenuOpen}
+            onClick={() => setPaneMenuOpen((open) => !open)}
+            style={toggleStyle(paneMenuOpen)}
+          >
+            ⧉
+          </button>
+          {paneMenuOpen && (
+            <div
+              role="menu"
+              aria-label="並べるグラフ"
+              style={{
+                position: 'absolute',
+                top: '100%',
+                left: 0,
+                zIndex: 10,
+                background: '#fff',
+                border: '1px solid #ccc',
+                borderRadius: 6,
+                boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
+                minWidth: 200,
+                padding: 4,
+              }}
+            >
+              {paneCandidates.length === 0 ? (
+                <div style={{ fontSize: 12, color: '#888', padding: 6 }}>
+                  並べられるタブがありません
+                </div>
+              ) : (
+                paneCandidates.map((c) => (
+                  <button
+                    key={c.label}
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      c.onAdd();
+                      setPaneMenuOpen(false);
+                    }}
+                    style={{
+                      display: 'block',
+                      width: '100%',
+                      textAlign: 'left',
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      fontSize: 12,
+                      padding: '4px 6px',
+                    }}
+                  >
+                    {c.label}
+                  </button>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+      )}
       {branch && (
         <div
           style={{

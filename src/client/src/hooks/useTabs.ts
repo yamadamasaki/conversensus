@@ -10,7 +10,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { safeLocalStorage } from '../sync/safeStorage';
 import { parseTabs, serializeTabs, TABS_STORAGE_KEY } from '../tabs/tabStorage';
 import {
+  activatePane,
   activateTab,
+  addPane,
+  closePane,
   closeTab,
   closeTabsWhere,
   openTab,
@@ -64,5 +67,29 @@ export function useTabs() {
     [],
   );
 
-  return { state, open, activate, close, closeWhere, retarget };
+  // multiple モード (S3-5): アクティブなタブの pane を足す・前に出す・外す
+  const addPaneToActive = useCallback(
+    (address: GraphViewAddress) => setState((s) => addPane(s, address)),
+    [],
+  );
+  const activatePaneOfActive = useCallback(
+    (index: number) => setState((s) => activatePane(s, index)),
+    [],
+  );
+  const closePaneOf = useCallback(
+    (id: TabId, index: number) => setState((s) => closePane(s, id, index)),
+    [],
+  );
+
+  return {
+    state,
+    open,
+    activate,
+    close,
+    closeWhere,
+    retarget,
+    addPane: addPaneToActive,
+    activatePane: activatePaneOfActive,
+    closePane: closePaneOf,
+  };
 }

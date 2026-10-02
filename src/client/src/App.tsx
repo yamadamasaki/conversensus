@@ -20,6 +20,7 @@ import { authNeedsPassword } from './atproto/client';
 import { CommitDialog } from './CommitDialog';
 import { ConfirmDialog } from './ConfirmDialog';
 import { ConflictNotice, NOTICE_Z_INDEX } from './ConflictNotice';
+import { devPanesEnabled } from './config';
 import { makeEventBase } from './events/GraphEvent';
 import { GraphEditor } from './GraphEditor';
 import { GraphHeader, type HeaderBranch } from './GraphHeader';
@@ -43,8 +44,10 @@ import { InputDialog } from './InputDialog';
 import { InvitationDialog } from './InvitationDialog';
 import { BlobOriginProvider } from './images/blobOriginContext';
 import { OverwriteNotice } from './OverwriteNotice';
+import { PaneFrame } from './PaneFrame';
 import { ParticipateDialog } from './ParticipateDialog';
 import { ParticipationHistoryDialog } from './ParticipationHistoryDialog';
+import { PassivePane } from './PassivePane';
 import { PropertyEditor } from './PropertyEditor';
 import { propertyRows } from './property/propertyRows';
 import { RightSidebar } from './RightSidebar';
@@ -61,7 +64,13 @@ import {
 } from './sync/overwrites';
 import { participationRounds } from './sync/participationHistoryView';
 import { TabBar } from './TabBar';
-import { activeTab, openFileIds, type Tab, tabAddress } from './tabs/tabs';
+import {
+  activeTab,
+  isMultiple,
+  openFileIds,
+  type Tab,
+  tabAddress,
+} from './tabs/tabs';
 import { generateId } from './uuid';
 
 export default function App() {
@@ -440,14 +449,118 @@ export default function App() {
     seenNamesRef.current.set(s.id, s.name);
   for (const list of branchOps.sheetBranches.values())
     for (const b of list) seenNamesRef.current.set(b.id, b.name);
-  const tabLabelOf = (tab: Tab) => {
-    const { fileId, sheetId, branchId } = tabAddress(tab);
+  const addressLabelOf = (address: GraphViewAddress) => {
+    const { fileId, sheetId, branchId } = address;
     const names = seenNamesRef.current;
     const fileName = fileOps.files.find((f) => f.id === fileId)?.name ?? '';
     const sheetName = names.get(sheetId);
     const base = sheetName ? `${fileName} / ${sheetName}` : fileName;
     return branchId ? `${base} (⎇ ${names.get(branchId) ?? ''})` : base;
   };
+  /** multiple のタブは pane の名前を並べる */
+  const tabLabelOf = (tab: Tab) => tab.panes.map(addressLabelOf).join(' | ');
+
+  /**
+   * 並べられるもの (multiple モードの開発用の入口, Q6)。開いている**他のタブ**のアクティブな
+   * pane のアドレス。開発ビルドのときだけ出す
+   */
+  const paneCandidates = devPanesEnabled()
+    ? tabs.state.tabs
+        .filter((t) => t.id !== currentTab?.id)
+        .map((t) => {
+          const address = tabAddress(t);
+          return {
+            label: addressLabelOf(address),
+            onAdd: () => tabs.addPane(address),
+          };
+        })
+    : undefined;
+
+  /** アクティブな pane の中身 (single ならボディそのもの) */
+  const activeBody = (
+    <>
+      {fileOps.activeFile && viewSheet && viewAddress ? (
+        // 画像 blob の由来を降ろす (step2 Phase 2 S5)。**`GraphEditor` の props には
+        // 足さない** — `ImageNode` は React Flow が描くので props が届かず、
+        // 途中の層はこの値に用が無い (`blobOriginContext`)
+        // 再参加した後は, 同期が済むまで読み取り専用にする (step2 Phase 2 S6)。
+        // 頼んで守られなかった場合に壊れるのは相手なので, 頼まずに止める
+        <ReadOnlyProvider value={readOnly}>
+          <BlobOriginProvider value={fileOps.originOf}>
+            <GraphEditor
+              key={addressKey(viewAddress)}
+              graphKey={addressKey(viewAddress)}
+              undoStateMap={undoStateMapRef}
+              sheet={viewSheet}
+              fileId={fileOps.activeFile.id}
+              fileName={fileOps.activeFile.name}
+              onSheetChange={
+                viewingBranch
+                  ? branchOps.onBranchSheetChange
+                  : handleSheetChange
+              }
+              // branch 表示中の編集は branch 専用 op-log へ (p5-4)。trunk 用の tap に
+              // 流すと branch の編集が trunk のログに混ざる。
+              syncRecord={branchOps.branchSyncRecord ?? fileOps.syncRecord}
+              addedNodeIds={branchOps.addedNodeIds}
+              updatedNodeIds={branchOps.updatedNodeIds}
+              addedEdgeIds={branchOps.addedEdgeIds}
+              updatedEdgeIds={branchOps.updatedEdgeIds}
+              deletedNodes={branchOps.deletedNodes}
+              deletedEdges={branchOps.deletedEdges}
+              deletedNodeLayouts={branchOps.deletedNodeLayouts}
+              deletedEdgeLayouts={branchOps.deletedEdgeLayouts}
+              // 受信による差し替えの契機。描いている方 (trunk / branch) の受信だけを見る —
+              // branch を開いている間の trunk の受信は branch の画面を変えない
+              receiveEpoch={
+                viewingBranch
+                  ? branchOps.branchReceiveEpoch
+                  : fileOps.receiveEpoch
+              }
+              onControls={panels.setControls}
+              onSelectionChange={panels.setSelection}
+            />
+          </BlobOriginProvider>
+        </ReadOnlyProvider>
+      ) : (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            height: '100%',
+            color: '#999',
+          }}
+        >
+          ファイルを選択するか, 新規作成してください
+        </div>
+      )}
+      {/* ボディ内の property editor (仕様: ヘッダで on にしていれば、選択している要素に
+              対して出す)。右サイドバーのものと併用する */}
+      {viewAddress && panels.propertyOpen && panels.selection && (
+        <PropertyEditor
+          title={panels.selection.title}
+          rows={propertyRows(panels.selection.properties)}
+          addable={panels.selection.addable}
+          onSet={(name, value) => panels.controls?.setProperty(name, value)}
+          onRemove={(name) => panels.controls?.setProperty(name, undefined)}
+          readOnly={readOnly}
+          onClose={panels.closeProperty}
+        />
+      )}
+      {viewSheet && panels.searchOpen && (
+        <SearchPanel
+          onSearch={(query, caseSensitive) =>
+            panels.search(viewSheet, query, caseSensitive)
+          }
+          hits={panels.searchHits}
+          searched={panels.searched}
+          onReveal={(hit) => panels.controls?.reveal(hit)}
+          onClose={panels.closeSearch}
+        />
+      )}
+    </>
+  );
 
   return (
     <div style={{ display: 'flex', height: '100vh', fontFamily: 'sans-serif' }}>
@@ -603,88 +716,32 @@ export default function App() {
             propertyOpen={panels.propertyOpen}
             onToggleProperty={panels.toggleProperty}
             branch={headerBranch}
+            paneCandidates={paneCandidates}
           />
         )}
-        <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
-          {fileOps.activeFile && viewSheet && viewAddress ? (
-            // 画像 blob の由来を降ろす (step2 Phase 2 S5)。**`GraphEditor` の props には
-            // 足さない** — `ImageNode` は React Flow が描くので props が届かず、
-            // 途中の層はこの値に用が無い (`blobOriginContext`)
-            // 再参加した後は, 同期が済むまで読み取り専用にする (step2 Phase 2 S6)。
-            // 頼んで守られなかった場合に壊れるのは相手なので, 頼まずに止める
-            <ReadOnlyProvider value={readOnly}>
-              <BlobOriginProvider value={fileOps.originOf}>
-                <GraphEditor
-                  key={addressKey(viewAddress)}
-                  graphKey={addressKey(viewAddress)}
-                  undoStateMap={undoStateMapRef}
-                  sheet={viewSheet}
-                  fileId={fileOps.activeFile.id}
-                  fileName={fileOps.activeFile.name}
-                  onSheetChange={
-                    viewingBranch
-                      ? branchOps.onBranchSheetChange
-                      : handleSheetChange
-                  }
-                  // branch 表示中の編集は branch 専用 op-log へ (p5-4)。trunk 用の tap に
-                  // 流すと branch の編集が trunk のログに混ざる。
-                  syncRecord={branchOps.branchSyncRecord ?? fileOps.syncRecord}
-                  addedNodeIds={branchOps.addedNodeIds}
-                  updatedNodeIds={branchOps.updatedNodeIds}
-                  addedEdgeIds={branchOps.addedEdgeIds}
-                  updatedEdgeIds={branchOps.updatedEdgeIds}
-                  deletedNodes={branchOps.deletedNodes}
-                  deletedEdges={branchOps.deletedEdges}
-                  deletedNodeLayouts={branchOps.deletedNodeLayouts}
-                  deletedEdgeLayouts={branchOps.deletedEdgeLayouts}
-                  // 受信による差し替えの契機。描いている方 (trunk / branch) の受信だけを見る —
-                  // branch を開いている間の trunk の受信は branch の画面を変えない
-                  receiveEpoch={
-                    viewingBranch
-                      ? branchOps.branchReceiveEpoch
-                      : fileOps.receiveEpoch
-                  }
-                  onControls={panels.setControls}
-                  onSelectionChange={panels.setSelection}
-                />
-              </BlobOriginProvider>
-            </ReadOnlyProvider>
+        <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
+          {currentTab && isMultiple(currentTab) ? (
+            // multiple モード (S3-5)。編集できるのはアクティブな pane だけで、ほかは見るだけ
+            currentTab.panes.map((pane, i) => {
+              const label = addressLabelOf(pane);
+              const isActive = i === currentTab.active;
+              return (
+                <PaneFrame
+                  // biome-ignore lint/suspicious/noArrayIndexKey: 同じアドレスの pane を並べられるので、位置が識別子になる
+                  key={i}
+                  label={label}
+                  active={isActive}
+                  onActivate={() => tabs.activatePane(i)}
+                  onClose={() => tabs.closePane(currentTab.id, i)}
+                >
+                  {isActive ? activeBody : <PassivePane address={pane} />}
+                </PaneFrame>
+              );
+            })
           ) : (
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                height: '100%',
-                color: '#999',
-              }}
-            >
-              ファイルを選択するか, 新規作成してください
+            <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
+              {activeBody}
             </div>
-          )}
-          {/* ボディ内の property editor (仕様: ヘッダで on にしていれば、選択している要素に
-              対して出す)。右サイドバーのものと併用する */}
-          {viewAddress && panels.propertyOpen && panels.selection && (
-            <PropertyEditor
-              title={panels.selection.title}
-              rows={propertyRows(panels.selection.properties)}
-              addable={panels.selection.addable}
-              onSet={(name, value) => panels.controls?.setProperty(name, value)}
-              onRemove={(name) => panels.controls?.setProperty(name, undefined)}
-              readOnly={readOnly}
-              onClose={panels.closeProperty}
-            />
-          )}
-          {viewSheet && panels.searchOpen && (
-            <SearchPanel
-              onSearch={(query, caseSensitive) =>
-                panels.search(viewSheet, query, caseSensitive)
-              }
-              hits={panels.searchHits}
-              searched={panels.searched}
-              onReveal={(hit) => panels.controls?.reveal(hit)}
-              onClose={panels.closeSearch}
-            />
           )}
         </div>
       </main>

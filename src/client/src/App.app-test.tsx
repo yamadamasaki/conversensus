@@ -774,3 +774,109 @@ describe('App 結合: 別のタブで開く明示の操作 (step3 Phase 3 S3-4c)
     await screen.findByRole('button', { name: 'コミット' }, WIRING_TIMEOUT);
   });
 });
+
+describe('App 結合: multiple モード (step3 Phase 3 S3-5)', () => {
+  const TRUNK_LABEL = `${FILE_NAME} / Sheet 1`;
+  const BRANCH_LABEL = `${TRUNK_LABEL} (⎇ ${BRANCH_NAME})`;
+  /** pane の中に描かれているノードの数 */
+  const nodesInPane = (label: string) =>
+    screen
+      .getByRole('region', { name: `pane: ${label}` })
+      .querySelectorAll('.react-flow__node').length;
+
+  beforeEach(() => {
+    // 開発用の入口を開ける (Q6: 利用者の入口は作らない)。`devPanesEnabled` は描画のたびに読む
+    process.env.VITE_DEV_PANES = 'true';
+  });
+  afterEach(() => {
+    delete process.env.VITE_DEV_PANES;
+  });
+
+  /** trunk に 1 つ、branch b1 に 1 つ足して commit し、b1 のタブに trunk を並べる */
+  async function branchBesideTrunk() {
+    await world.activate('solo');
+    render(<App />);
+    const user = userEvent.setup();
+    await createFile(user, FILE_NAME);
+    await addNode(user);
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+    await createBranch(user, BRANCH_NAME);
+    await openBranch(user, BRANCH_NAME);
+    await addNode(user);
+    await waitFor(() => expect(renderedNodeCount()).toBe(2), WIRING_TIMEOUT);
+    await commitBranch(user, '案');
+
+    await user.click(screen.getByTitle('並べる (開発用)'));
+    await user.click(screen.getByRole('menuitem', { name: TRUNK_LABEL }));
+    await screen.findByRole('region', { name: `pane: ${TRUNK_LABEL}` });
+    return user;
+  }
+
+  test('他のタブを並べると、アクティブな pane は編集のまま、並べた pane はその姿を見せる', async () => {
+    await branchBesideTrunk();
+    await waitFor(() => {
+      expect(nodesInPane(BRANCH_LABEL)).toBe(2);
+      expect(nodesInPane(TRUNK_LABEL)).toBe(1);
+    }, WIRING_TIMEOUT);
+    // ヘッダの branch の操作は、アクティブな pane (b1) を対象にしている
+    expect(screen.getByRole('button', { name: 'コミット' })).toBeTruthy();
+  });
+
+  test('アクティブな pane で merge すると、並べた trunk の pane が読み直して merge 後の姿になる', async () => {
+    const user = await branchBesideTrunk();
+    await waitFor(
+      () => expect(nodesInPane(TRUNK_LABEL)).toBe(1),
+      WIRING_TIMEOUT,
+    );
+    await mergeOpenBranch(user, '取り込む');
+    // 同じタブの中の書き込みの知らせ (BroadcastChannel は送り手自身に届かない) で読み直す
+    await waitFor(
+      () => expect(nodesInPane(TRUNK_LABEL)).toBe(2),
+      WIRING_TIMEOUT,
+    );
+  });
+
+  test('前に出すとアクティブが入れ替わり、pane を閉じると single に戻る', async () => {
+    const user = await branchBesideTrunk();
+    const trunkPane = screen.getByRole('region', {
+      name: `pane: ${TRUNK_LABEL}`,
+    });
+    await user.click(
+      within(trunkPane).getByRole('button', { name: '前に出す' }),
+    );
+    // 画面の仕組みが trunk へ移る: branch の操作がヘッダから消え、b1 は見るだけになる
+    await waitFor(
+      () =>
+        expect(
+          screen.queryByRole('button', { name: 'コミット' }) === null,
+        ).toBe(true),
+      WIRING_TIMEOUT,
+    );
+    await waitFor(() => {
+      expect(nodesInPane(TRUNK_LABEL)).toBe(1);
+      expect(nodesInPane(BRANCH_LABEL)).toBe(2);
+    }, WIRING_TIMEOUT);
+
+    await user.click(
+      screen.getByRole('button', { name: `${BRANCH_LABEL} の pane を閉じる` }),
+    );
+    await waitFor(
+      () =>
+        expect(
+          screen.queryByRole('region', { name: `pane: ${TRUNK_LABEL}` }) ===
+            null,
+        ).toBe(true),
+      WIRING_TIMEOUT,
+    );
+    expect(renderedNodeCount()).toBe(1);
+  });
+
+  test('開発用の入口が閉じていれば「⧉」は出ない (利用者の入口は作らない, Q6)', async () => {
+    delete process.env.VITE_DEV_PANES;
+    await world.activate('solo');
+    render(<App />);
+    const user = userEvent.setup();
+    await createFile(user, FILE_NAME);
+    expect(screen.queryByTitle('並べる (開発用)') === null).toBe(true);
+  });
+});
