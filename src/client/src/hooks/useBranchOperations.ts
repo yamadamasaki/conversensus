@@ -124,6 +124,11 @@ export type ConflictNoticeState = {
    * **explicit merge では 0** — 人が押した merge は保留ではなく取り込みである
    */
   forkCount?: number;
+  /**
+   * どの File の競合か (step3 Phase 6 S6-1a)。閉じたときに既読を File ごとに書く。
+   * 無ければ既読を書かない
+   */
+  fileId?: FileId;
 };
 
 export type AlertState = {
@@ -647,6 +652,7 @@ export function useBranchOperations({
         setConflictNotice({
           conflicts: result.conflicts,
           labels: result.conflictLabels,
+          fileId: branch.trunkFileId,
         });
       }
       if (notify && result.conflicts.length > 0) {

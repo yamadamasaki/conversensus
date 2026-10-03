@@ -7,7 +7,6 @@ import {
   type Did,
   derivedNodeIdOf,
   type FileId,
-  type ForkMeta,
   type GraphFile,
   type GraphViewAddress,
   HEAD_CUT,
@@ -48,7 +47,6 @@ import { alignToPane } from './graph/alignToPane';
 import { splitMetagraphEvent } from './graph/metagraphEvents';
 import { useActor } from './hooks/useActor';
 import { useAtprotoSession } from './hooks/useAtprotoSession';
-import type { ConflictNoticeState } from './hooks/useBranchOperations';
 import {
   BRANCH_DIFF_STATE,
   useBranchOperations,
@@ -58,6 +56,7 @@ import type { UndoState } from './hooks/useEventStore';
 import { useFileSheetOperations } from './hooks/useFileSheetOperations';
 import { useGraphPanels } from './hooks/useGraphPanels';
 import { useMergerSnapshot } from './hooks/useMergerSnapshot';
+import { useNoticeInbox } from './hooks/useNoticeInbox';
 import { useParticipation } from './hooks/useParticipation';
 import { useRemoteSyncQueue } from './hooks/useRemoteSyncQueue';
 import { useResolvedTemplates } from './hooks/useResolvedTemplates';
@@ -80,19 +79,12 @@ import { ReadOnlyProvider } from './readOnlyContext';
 import { SearchPanel } from './SearchPanel';
 import { type OpenOptions, Sidebar } from './Sidebar';
 import { SidePanel } from './SidePanel';
-import { accumulateArrivedForks, NO_ARRIVED_FORKS } from './sync/forkArrival';
 import {
   carryChecks,
   conflictTargets,
   diffMarks,
   forkSideLabels,
 } from './sync/merger';
-import {
-  accumulateOverwrites,
-  type DetectedOverwrites,
-  NO_OVERWRITE_NOTICE,
-  type OverwriteNoticeState,
-} from './sync/overwrites';
 import { participationRounds } from './sync/participationHistoryView';
 import { TabBar } from './TabBar';
 import { TemplateApplyDialog } from './TemplateApplyDialog';
@@ -129,33 +121,25 @@ export default function App() {
     message: string;
     resolve: () => void;
   } | null>(null);
-  /** merge で検出した競合 (Phase 3 T4)。非モーダルなので resolve を持たない */
-  const [conflictNotice, setConflictNotice] = useState<ConflictNoticeState>({
-    conflicts: [],
-    labels: new Map(),
-  });
-  /**
-   * 上書きの報告 (Phase 3 T8)。**受信サイクルをまたいで溜める。**
-   *
-   * 競合の通知と違って自動では開かないので、上書きして消すと**人が見に行く前に
-   * 消える**。検出は競合と同じく 1 度きり (次のサイクルではその batch は手元にある)
-   * なので、溜めるのはここしかない。
-   */
-  const [overwriteNotice, setOverwriteNotice] =
-    useState<OverwriteNoticeState>(NO_OVERWRITE_NOTICE);
-  const handleOverwrites = useCallback((detected: DetectedOverwrites) => {
-    setOverwriteNotice((prev) => accumulateOverwrites(prev, detected));
-  }, []);
-  /**
-   * 相手が保留した競合 (fork) の到着 (Phase 3 T7-5)。**競合の通知に出す** — 仕様は fork の
-   * 通知を対話グラフ (DtR) への入口とする。ただし競合の検出は毎回置き換わるので、同じ state に
-   * 入れると次の検出で消える。受信サイクルをまたいで溜め、通知を閉じたときに一緒に消す
-   */
-  const [arrivedForks, setArrivedForks] =
-    useState<readonly ForkMeta[]>(NO_ARRIVED_FORKS);
-  const handleForksArrived = useCallback((forks: readonly ForkMeta[]) => {
-    setArrivedForks((prev) => accumulateArrivedForks(prev, forks));
-  }, []);
+  const undoStateMapRef = useRef<Map<string, UndoState>>(new Map());
+
+  // ATProto セッション
+  const {
+    session: atprotoSession,
+    login: atprotoLogin,
+    logout: atprotoLogout,
+  } = useAtprotoSession();
+  /** 画面右下の通知と、閉じた通知の既読 (step3 Phase 6 S6-1a) */
+  const {
+    conflictNotice,
+    showConflicts,
+    closeConflictNotice,
+    overwriteNotice,
+    handleOverwrites,
+    dismissOverwrites,
+    arrivedForks,
+    handleForksArrived,
+  } = useNoticeInbox(atprotoSession?.did ?? null);
   /** 上書きの報告の対象名。競合と同じ「分岐点での名前」から引く */
   const overwriteLabelOf = useCallback(
     (target: string) => overwriteNotice.labels.get(target) ?? target,
@@ -176,14 +160,6 @@ export default function App() {
     [conflictNotice.labels],
   );
 
-  const undoStateMapRef = useRef<Map<string, UndoState>>(new Map());
-
-  // ATProto セッション
-  const {
-    session: atprotoSession,
-    login: atprotoLogin,
-    logout: atprotoLogout,
-  } = useAtprotoSession();
   const [loginDialogOpen, setLoginDialogOpen] = useState(false);
 
   // remote (ATProto) 送信キュー。未ログイン時は null → tap は local-only (W3d5-5)
@@ -219,7 +195,7 @@ export default function App() {
   const fileOps = useFileSheetOperations({
     setConfirmState,
     setAlertState,
-    setConflictNotice,
+    setConflictNotice: showConflicts,
     onOverwrites: handleOverwrites,
     onForksArrived: handleForksArrived,
     remoteQueue,
@@ -248,7 +224,7 @@ export default function App() {
     setConfirmState,
     setInputState,
     setAlertState,
-    setConflictNotice,
+    setConflictNotice: showConflicts,
     actor,
     // branch の tap と merge の写しは trunk の因果の発番器を共有する (step3 Phase 1)
     trunkCausal: fileOps.trunkCausal,
@@ -1407,16 +1383,13 @@ export default function App() {
           forkCount={conflictNotice.forkCount ?? 0}
           arrivedForks={arrivedForks}
           onOpenMerger={handleOpenMerger}
-          onClose={() => {
-            setConflictNotice({ conflicts: [], labels: new Map() });
-            setArrivedForks(NO_ARRIVED_FORKS);
-          }}
+          onClose={closeConflictNotice}
         />
         <OverwriteNotice
           reports={overwriteNotice.reports}
           labelOf={overwriteLabelOf}
           actorLabelOf={participation.state.labelOf}
-          onDismiss={() => setOverwriteNotice(NO_OVERWRITE_NOTICE)}
+          onDismiss={dismissOverwrites}
         />
       </div>
       {loginDialogOpen && (

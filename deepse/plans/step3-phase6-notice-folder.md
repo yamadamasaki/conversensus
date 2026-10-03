@@ -209,3 +209,31 @@ type FilePlacementRecord = {
 - 単体: rkey の文法・長さ・prefix・単射 (性質)、往復 (性質)、壊れたレコード、`listAllRecords` の 4 件
 - 変異: rkey の hash を 2 文字に切ると単射の性質が落ちる
 - lint / typecheck / `bun run test` (単体 1934 + App 結合 41) 緑
+
+### S6-1a: 閉じた通知を PDS に書き、出す前に落とす (2026-10-04)
+
+- **既読の鍵** (`notices/noticeKeys.ts`): 競合 = `conflictKeyOf` (= fork の鍵。競合を閉じた人には同じ競合の fork も
+  出さない)、fork = `conflictKey`、上書き = `overwriteKeyOf` + 上書きされた / した batchId (F3)
+- **既読の集合** (`notices/noticeDismissals.ts`): File ごとに 1 度だけ PDS から読む。閉じた鍵はすぐ手元で既読にし、
+  PDS へは未記録のものだけを書く。読めない・書けないときは警告だけで、閉じる操作は手元で完結する。ログインして
+  いなければ記憶の中だけで動く。保存先は `atproto/noticeDismissalStore.ts` (judgment と同じく outbox を通さない)
+- **`hooks/useNoticeInbox.ts`**: App にあった 3 つの通知の state (競合 / 上書き / 届いた fork) をここへ移し、
+  出す前に File の既読を待って落とす。競合の通知は検出のたびに置き換わるので、既読を待つ間に次の検出が来たら
+  古い方を捨てる (連番)。通知に File を付けるため、`ConflictNoticeState.fileId` (implicit / explicit merge の両方で
+  付ける) と `onOverwrites(fileId, detected)` を足した
+
+#### 分かったこと
+
+- **2 台目は同じ競合を自分でも検出する** (fork の到着だけが知らせになるとは限らない)。自分の repo と相手の repo を
+  別々に引くので、自分の編集が先に手元に入り、相手の編集が新着として 2 側構造で検出される。どちらの経路でも
+  鍵は同じなので、既読で落ちる
+- 上書きの報告の既読は配線したが、App 結合では見ていない (鍵の単射は単体の性質で見ている)
+
+#### 検証
+
+- 単体: 鍵 (上書きの鍵の単射を性質で)、既読の集合 (読み込み 1 回・未記録だけ書く・別の端末が読む・未ログイン・
+  読めない / 書けない、2 台が別々に閉じても和集合になる性質)
+- App 結合: bob の 2 台目に、1 台目で閉じた競合の通知が出ない
+- 変異: 既読で落とす filter を外すと App 結合が落ちる (このとき `toBeNull` に要素を渡すと bun が DOM 全体を
+  整形して止まらなくなったので、`textContent` で比べる形にした)
+- lint / typecheck / `bun run test` (単体 1944 + App 結合 42) 緑

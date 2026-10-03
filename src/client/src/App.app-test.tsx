@@ -1128,38 +1128,39 @@ describe('App 結合: metagraph (step3 Phase 4 S4-2b)', () => {
   });
 });
 
+/** 描かれている唯一の node の本文を書き換える (本文のダブルクリック → 入力 → 外す) */
+async function editOnlyNode(
+  user: ReturnType<typeof userEvent.setup>,
+  text: string,
+  root: ParentNode = document,
+) {
+  // 本文を持つ node を優先する (足しただけの空の node より、書き換えたい node を選ぶ)
+  const nodes = [...root.querySelectorAll('.react-flow__node')];
+  const written = (n: Element) =>
+    !(n.textContent ?? '').includes('ダブルクリックで編集');
+  const node = nodes.find(written) ?? nodes[0];
+  const body = node?.querySelector('[data-node-body]');
+  if (!body) throw new Error('node が描かれていない');
+  fireEvent.doubleClick(body);
+  const input = await waitFor(() => {
+    const el = node?.querySelector('textarea');
+    if (!el) throw new Error('本文の編集が始まらない');
+    return el as HTMLTextAreaElement;
+  }, WIRING_TIMEOUT);
+  await user.clear(input);
+  await user.type(input, text);
+  fireEvent.blur(input);
+}
+/** trunk の Sheet 1 の、本文を持つ node の本文 (足しただけの空の node は数えない) */
+const trunkContent = () => {
+  const store = world.localStore();
+  const fileId = store.listFiles()[0]?.id as FileId;
+  return projectFile(store.getBatches(fileId), fileId)
+    .sheets.find((s) => s.name === 'Sheet 1')
+    ?.nodes.find((n) => n.content !== '')?.content;
+};
+
 describe('App 結合: merger (step3 Phase 5 S5-1a)', () => {
-  /** 描かれている唯一の node の本文を書き換える (本文のダブルクリック → 入力 → 外す) */
-  async function editOnlyNode(
-    user: ReturnType<typeof userEvent.setup>,
-    text: string,
-    root: ParentNode = document,
-  ) {
-    // 本文を持つ node を優先する (足しただけの空の node より、書き換えたい node を選ぶ)
-    const nodes = [...root.querySelectorAll('.react-flow__node')];
-    const written = (n: Element) =>
-      !(n.textContent ?? '').includes('ダブルクリックで編集');
-    const node = nodes.find(written) ?? nodes[0];
-    const body = node?.querySelector('[data-node-body]');
-    if (!body) throw new Error('node が描かれていない');
-    fireEvent.doubleClick(body);
-    const input = await waitFor(() => {
-      const el = node?.querySelector('textarea');
-      if (!el) throw new Error('本文の編集が始まらない');
-      return el as HTMLTextAreaElement;
-    }, WIRING_TIMEOUT);
-    await user.clear(input);
-    await user.type(input, text);
-    fireEvent.blur(input);
-  }
-  /** trunk の Sheet 1 の、本文を持つ node の本文 (足しただけの空の node は数えない) */
-  const trunkContent = () => {
-    const store = world.localStore();
-    const fileId = store.listFiles()[0]?.id as FileId;
-    return projectFile(store.getBatches(fileId), fileId)
-      .sheets.find((s) => s.name === 'Sheet 1')
-      ?.nodes.find((n) => n.content !== '')?.content;
-  };
   const TRUNK_TAB = `${FILE_NAME} / Sheet 1`;
   const BRANCH_TAB = `${TRUNK_TAB} (⎇ ${BRANCH_NAME})`;
 
@@ -1528,6 +1529,83 @@ describe('App 結合: merger (step3 Phase 5 S5-1a)', () => {
         () => expect(trunkContent()).toBe('まとめ案'),
         WIRING_TIMEOUT,
       );
+    },
+    MERGER_TEST_MS * 2,
+  );
+});
+
+describe('App 結合: 通知の既読 (step3 Phase 6 S6-1a)', () => {
+  test(
+    '競合の通知を 1 台で閉じると、同じ人の別の端末には同じ競合 (fork) の到着が出ない',
+    async () => {
+      const { code } = await aliceSharesFileWithBob();
+      let user = await startOn('alice', ALICE);
+      await openFileNamed(user, FILE_NAME);
+      await addNode(user);
+      await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+      await editOnlyNode(user, 'もと');
+      await waitFor(() => expect(trunkContent()).toBe('もと'), WIRING_TIMEOUT);
+      await syncNow(user);
+
+      // bob の 2 台目: 競合の前に File を持っておく (届く batch が「新着」になる側)
+      user = await startOn('bob-2', BOB);
+      await participate(user, code, FILE_NAME);
+      await syncNow(user);
+      await waitFor(() => expect(trunkContent()).toBe('もと'), WIRING_TIMEOUT);
+
+      // bob の 1 台目: 同じ node を書き換える。alice に届かないよう保留する
+      user = await startOn('bob', BOB);
+      await openFileNamed(user, FILE_NAME);
+      await syncNow(user);
+      await waitFor(() => expect(trunkContent()).toBe('もと'), WIRING_TIMEOUT);
+      world.pds.withhold(BOB.did);
+      await editOnlyNode(user, 'bob 案');
+      await waitFor(
+        () => expect(trunkContent()).toBe('bob 案'),
+        WIRING_TIMEOUT,
+      );
+
+      // alice: 並行に同じ node を書き換えて送る
+      user = await startOn('alice', ALICE);
+      await openFileNamed(user, FILE_NAME);
+      await editOnlyNode(user, 'alice 案');
+      await waitFor(
+        () => expect(trunkContent()).toBe('alice 案'),
+        WIRING_TIMEOUT,
+      );
+      await syncNow(user);
+
+      // bob の 1 台目: 受け取ると競合を検出して fork を書く。通知を閉じる
+      user = await startOn('bob', BOB);
+      world.pds.release(BOB.did);
+      await openFileNamed(user, FILE_NAME);
+      await syncNow(user);
+      await screen.findByText(/件を保留として記録しました/, {}, WIRING_TIMEOUT);
+      await user.click(
+        screen.getByRole('button', { name: '競合の通知を閉じる' }),
+      );
+      // 閉じたことが自分の PDS に載る
+      await waitFor(
+        () =>
+          expect(
+            world.pds.records(BOB.did, NSID.noticeDismissal).length,
+          ).toBeGreaterThan(0),
+        WIRING_TIMEOUT,
+      );
+
+      // bob の 2 台目: bob の編集・alice の編集・fork が届く。2 台目も同じ競合を自分で検出する
+      // (同じ鍵になる) が、1 台目で閉じたので出ない。fork の branch が一覧に出るまで待つ
+      // のは、受信が済んだことの印である
+      user = await startOn('bob-2', BOB);
+      await openFileNamed(user, FILE_NAME);
+      await syncNow(user);
+      await openBranch(user, '競合: .+ の内容');
+      await new Promise((r) => setTimeout(r, SETTLE_MS));
+      // 失敗したときに DOM 全体を出力させない (textContent で比べる)
+      expect(
+        screen.queryByRole('status', { name: '競合の通知' })?.textContent ??
+          null,
+      ).toBeNull();
     },
     MERGER_TEST_MS * 2,
   );
