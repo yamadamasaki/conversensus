@@ -1,7 +1,10 @@
 import type { NodeKindRef } from '@conversensus/shared';
 import { DIALOG_Z_INDEX } from './ConfirmDialog';
 
-export type NodeTypeOption = 'markdown' | 'group' | 'image';
+/**
+ * 作る node の見た目。`graph` は metagraph の graph node (step3 Phase 4) で、作るとシートが増える
+ */
+export type NodeTypeOption = 'markdown' | 'group' | 'image' | 'graph';
 
 type Props = {
   position: { x: number; y: number };
@@ -16,6 +19,8 @@ type Props = {
    * template ごとに分かれるためである (`kindPropertyOf`)
    */
   onSelect: (nodeType: NodeTypeOption, kind?: NodeKindRef) => void;
+  /** metagraph では「グラフ」(graph node = シートを足す) を出す (step3 Phase 4) */
+  graphNodeOption?: boolean;
 };
 
 const HEADING: React.CSSProperties = {
@@ -59,7 +64,12 @@ const APPEARANCES: [NodeTypeOption, string][] = [
  * **ここが種別を決める唯一の場所である** (設計 D3, 2026-09-12)。toulmin node の
  * 種別とラベルは作成時に決まり、その後変更できない。
  */
-export function NodeTypeMenu({ position, nodeKinds, onSelect }: Props) {
+export function NodeTypeMenu({
+  position,
+  nodeKinds,
+  onSelect,
+  graphNodeOption = false,
+}: Props) {
   return (
     <div
       data-node-type-menu
@@ -76,6 +86,16 @@ export function NodeTypeMenu({ position, nodeKinds, onSelect }: Props) {
         padding: '4px 0',
       }}
     >
+      {graphNodeOption && (
+        <button
+          type="button"
+          title="この File にシートを足し、その graph node を置く"
+          onClick={() => onSelect('graph')}
+          style={ITEM}
+        >
+          グラフ
+        </button>
+      )}
       <div style={HEADING}>ノードの見た目</div>
       {APPEARANCES.map(([type, label]) => (
         <button

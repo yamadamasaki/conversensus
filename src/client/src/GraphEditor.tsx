@@ -9,6 +9,7 @@ import type {
   SheetId,
 } from '@conversensus/shared';
 import {
+  DERIVED_FROM_SHEET_PROPERTY,
   type EdgeKindRef,
   kindPropertyOf,
   nodeKindsOf,
@@ -49,6 +50,7 @@ import {
 } from './graph/editorControls';
 import { exportPng } from './graph/exportPng';
 import { FLOW_EDGE_TYPES, FLOW_NODE_TYPES } from './graph/flowTypes';
+import { GraphNodeProvider } from './graph/graphNodeContext';
 import {
   canConnectByTemplate,
   canReconnectByTemplate,
@@ -118,6 +120,19 @@ type Props = {
    */
   templates: readonly Template[];
   /**
+   * dispatch の前の読み替え (step3 Phase 4 S4-2b)。null を返すと dispatch しない。metagraph の
+   * graph node への操作をシートの操作に回すのに使う (`splitMetagraphEvent`)
+   */
+  transformEvent?: (event: GraphEvent) => GraphEvent | null;
+  /**
+   * metagraph の graph node の口 (step3 Phase 4 S4-2b)。渡すと種類のメニューに「グラフ」が出て、
+   * graph node のダブルクリックでそのシートを開く。名前の変更は選んで Enter / F2
+   */
+  graphNodes?: {
+    onOpen: (sheetId: SheetId) => void;
+    onAdd: (position: { x: number; y: number }) => void;
+  };
+  /**
    * 外から呼べる口 (step3 Phase 3 S3-4a)。描かれている間は口を、外されるときは null を渡す。
    * ヘッダ (undo・グループ化・PNG) と検索・property editor はこの口を通して canvas に触れる
    */
@@ -147,6 +162,8 @@ function GraphEditorInner({
   undoStateMap,
   receiveEpoch,
   templates,
+  transformEvent,
+  graphNodes,
   onControls,
   onSelectionChange,
 }: Props) {
@@ -415,8 +432,28 @@ function GraphEditorInner({
     (event: GraphEvent) => syncRecord(event, activeSheet.id),
     [syncRecord, activeSheet.id],
   );
-  const { dispatch, undo, redo, setDragging, exportState, importState } =
-    useEventStore(nodes, edges, setNodes, setEdges, recordContent);
+  const {
+    dispatch: storeDispatch,
+    undo,
+    redo,
+    setDragging,
+    exportState,
+    importState,
+  } = useEventStore(nodes, edges, setNodes, setEdges, recordContent);
+  /**
+   * dispatch の前の読み替え (step3 Phase 4 S4-2b)。metagraph では graph node への削除・本文の変更を
+   * シートの操作に回し (undo に入れない)、残りだけを dispatch する。読み替えが無ければそのまま
+   */
+  const transformEventRef = useRef(transformEvent);
+  transformEventRef.current = transformEvent;
+  const dispatch = useCallback(
+    (event: GraphEvent) => {
+      const transform = transformEventRef.current;
+      const rest = transform ? transform(event) : event;
+      if (rest) storeDispatch(rest);
+    },
+    [storeDispatch],
+  );
 
   /**
    * プロパティ 1 つの変更を op へ流す (step2 Phase 4 Q2)。
@@ -757,6 +794,39 @@ function GraphEditorInner({
     reportError: setImageError,
   });
 
+  // metagraph の graph node (step3 Phase 4 S4-2b)。名前の変更は選んで Enter / F2 で始める —
+  // ダブルクリックはシートを開くのに使う (Q6)
+  const [renameRequest, setRenameRequest] = useState<NodeId | null>(null);
+  useEffect(() => {
+    if (!graphNodes) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Enter' && e.key !== 'F2') return;
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      const selected = getNodes().filter((n) => n.selected);
+      const only = selected.length === 1 ? selected[0] : undefined;
+      const props = only?.data?.properties as
+        | Record<string, unknown>
+        | undefined;
+      if (!only || props?.[DERIVED_FROM_SHEET_PROPERTY] === undefined) return;
+      e.preventDefault();
+      setRenameRequest(only.id as NodeId);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [graphNodes, getNodes]);
+  const graphNodeHandlers = useMemo(
+    () =>
+      graphNodes
+        ? {
+            openSheet: graphNodes.onOpen,
+            renameRequest,
+            clearRenameRequest: () => setRenameRequest(null),
+          }
+        : null,
+    [graphNodes, renameRequest],
+  );
+
   const handleExportPng = useCallback(() => {
     void exportPng(getNodes(), fileNameRef.current, sheetRef.current.name);
   }, [getNodes]);
@@ -796,99 +866,107 @@ function GraphEditorInner({
           描くので props を渡せず, context で降ろす (ANA-117 S6) */}
       <ImageErrorProvider value={setImageError}>
         <NodeCreationContext.Provider value={{ openNodeTypeMenu }}>
-          {/* biome-ignore lint/a11y/noStaticElementInteractions: drop target wrapper */}
-          <div
-            style={{ width: '100%', height: '100%' }}
-            onDragOver={handleDragOver}
-            onDrop={handleDrop}
-          >
-            <ReactFlow
-              nodes={nodes}
-              edges={edges}
-              nodeTypes={FLOW_NODE_TYPES}
-              edgeTypes={FLOW_EDGE_TYPES}
-              onNodesChange={handleNodesChange}
-              onEdgesChange={handleEdgesChange}
-              connectionMode={ConnectionMode.Loose}
-              onConnect={onConnect}
-              onConnectEnd={onConnectEnd}
-              isValidConnection={isValidConnection}
-              onReconnect={onReconnect}
-              onReconnectStart={onReconnectStart}
-              onReconnectEnd={onReconnectEnd}
-              onNodeDragStart={onNodeDragStart}
-              onNodeDrag={onNodeDrag}
-              onNodeDragStop={onNodeDragStop}
-              // 読み取り専用のときは動かす・繋ぐ・繋ぎ替えるを止める
-              // (step2 Phase 2 S6)。**選択と拡大縮小は残す** — 読むための操作である
-              nodesDraggable={!readOnly}
-              nodesConnectable={!readOnly}
-              edgesReconnectable={!readOnly}
-              onPaneClick={onPaneClick}
-              onEdgeContextMenu={onEdgeContextMenu}
-              zoomOnDoubleClick={false}
-              deleteKeyCode={null}
-              fitView
+          <GraphNodeProvider value={graphNodeHandlers}>
+            {/* biome-ignore lint/a11y/noStaticElementInteractions: drop target wrapper */}
+            <div
+              style={{ width: '100%', height: '100%' }}
+              onDragOver={handleDragOver}
+              onDrop={handleDrop}
             >
-              {readOnly && (
-                <Panel position="top-center">
-                  {/* **なぜ編集できないかを出す。**出さないと「動かない」に見える */}
-                  <div
-                    role="status"
-                    style={{
-                      background: '#fdf3d0',
-                      border: '1px solid #e6d28a',
-                      color: '#8a6d1f',
-                      borderRadius: 4,
-                      padding: '4px 10px',
-                      fontSize: 12,
-                    }}
-                  >
-                    参加していなかった間の編集を取り込んでいます。終わるまで読み取り専用です
-                  </div>
-                </Panel>
+              <ReactFlow
+                nodes={nodes}
+                edges={edges}
+                nodeTypes={FLOW_NODE_TYPES}
+                edgeTypes={FLOW_EDGE_TYPES}
+                onNodesChange={handleNodesChange}
+                onEdgesChange={handleEdgesChange}
+                connectionMode={ConnectionMode.Loose}
+                onConnect={onConnect}
+                onConnectEnd={onConnectEnd}
+                isValidConnection={isValidConnection}
+                onReconnect={onReconnect}
+                onReconnectStart={onReconnectStart}
+                onReconnectEnd={onReconnectEnd}
+                onNodeDragStart={onNodeDragStart}
+                onNodeDrag={onNodeDrag}
+                onNodeDragStop={onNodeDragStop}
+                // 読み取り専用のときは動かす・繋ぐ・繋ぎ替えるを止める
+                // (step2 Phase 2 S6)。**選択と拡大縮小は残す** — 読むための操作である
+                nodesDraggable={!readOnly}
+                nodesConnectable={!readOnly}
+                edgesReconnectable={!readOnly}
+                onPaneClick={onPaneClick}
+                onEdgeContextMenu={onEdgeContextMenu}
+                zoomOnDoubleClick={false}
+                deleteKeyCode={null}
+                fitView
+              >
+                {readOnly && (
+                  <Panel position="top-center">
+                    {/* **なぜ編集できないかを出す。**出さないと「動かない」に見える */}
+                    <div
+                      role="status"
+                      style={{
+                        background: '#fdf3d0',
+                        border: '1px solid #e6d28a',
+                        color: '#8a6d1f',
+                        borderRadius: 4,
+                        padding: '4px 10px',
+                        fontSize: 12,
+                      }}
+                    >
+                      参加していなかった間の編集を取り込んでいます。終わるまで読み取り専用です
+                    </div>
+                  </Panel>
+                )}
+                <Background />
+                <Controls />
+                <MiniMap />
+              </ReactFlow>
+              {nodeTypeMenu && (
+                <NodeTypeMenu
+                  position={nodeTypeMenu.screenPos}
+                  nodeKinds={nodeKinds}
+                  graphNodeOption={graphNodes !== undefined}
+                  onSelect={(nodeType, kind) => {
+                    if (nodeType === 'graph') {
+                      graphNodes?.onAdd(nodeTypeMenu.position);
+                      clearNodeTypeMenu();
+                      return;
+                    }
+                    addNode(
+                      nodeTypeMenu.position,
+                      nodeType,
+                      undefined,
+                      kind,
+                      nodeTypeMenu.containerId,
+                    );
+                    clearNodeTypeMenu();
+                  }}
+                />
               )}
-              <Background />
-              <Controls />
-              <MiniMap />
-            </ReactFlow>
-            {nodeTypeMenu && (
-              <NodeTypeMenu
-                position={nodeTypeMenu.screenPos}
-                nodeKinds={nodeKinds}
-                onSelect={(nodeType, kind) => {
-                  addNode(
-                    nodeTypeMenu.position,
-                    nodeType,
-                    undefined,
-                    kind,
-                    nodeTypeMenu.containerId,
-                  );
-                  clearNodeTypeMenu();
-                }}
-              />
-            )}
-            {pendingEdge?.position && (
-              <EdgeKindMenu
-                position={pendingEdge.position}
-                candidates={pendingEdge.candidates}
-                templates={templates}
-                onSelect={resolvePendingEdge}
-              />
-            )}
-            {contextMenu && (
-              <EdgeContextMenu
-                contextMenu={contextMenu}
-                onSelect={setEdgePathType}
-              />
-            )}
-            {imageError && (
-              <AlertDialog
-                message={imageError}
-                onClose={() => setImageError(null)}
-              />
-            )}
-          </div>
+              {pendingEdge?.position && (
+                <EdgeKindMenu
+                  position={pendingEdge.position}
+                  candidates={pendingEdge.candidates}
+                  templates={templates}
+                  onSelect={resolvePendingEdge}
+                />
+              )}
+              {contextMenu && (
+                <EdgeContextMenu
+                  contextMenu={contextMenu}
+                  onSelect={setEdgePathType}
+                />
+              )}
+              {imageError && (
+                <AlertDialog
+                  message={imageError}
+                  onClose={() => setImageError(null)}
+                />
+              )}
+            </div>
+          </GraphNodeProvider>
         </NodeCreationContext.Provider>
       </ImageErrorProvider>
     </EventDispatchContext.Provider>

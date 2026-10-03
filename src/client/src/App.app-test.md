@@ -319,3 +319,31 @@ template graph の中身は、React Flow の中の文字の入力を避けて、
 
 変異で確かめたこと: `GraphEditor` に解決した template を渡さない変異と、既定値を書かない変異で 1 件目が、
 種の中身を積まない変異で 2 件目が落ちる。
+
+## metagraph (step3 Phase 4 S4-2b)
+
+### なぜ
+
+metagraph の graph node はシートの一覧から導くもので、node の op では変わらない。画面の操作を
+**シートの操作に読み替える** (`splitMetagraphEvent`) ことと、自分でシートを足す・消す・名前を変えた後に
+**いまの一覧で graph node を導き直す** (`refreshDerivedNodes`) ことのどちらが欠けても、画面は普通に描かれる。
+欠けたときの壊れ方は「消したはずの graph node が戻る」「足したのに出ない」で、どちらも静かである。
+
+### テストケース
+
+File を作って index を開く (Sheet 1 と index 自身が graph node として並ぶ, Q4)。
+
+- **File を作ると index があり、Sheet 1 と index 自身が graph node として並ぶ**
+- **「グラフ」で graph node を足すとシートが増え、metagraph に留まったまま graph node が出る** (足したシートは開かない)
+- **graph node を消すと、確認の後にシートが消える。断れば消えない** (シートの削除は undo に入れないので確認を挟む)
+- **graph node を選んで F2 で名前を変えると、シートの名前が変わる** (サイドバーにも出る)
+- **graph node をダブルクリックすると、そのシートを新しいタブで開く** (Q6)
+
+ノードの選択と削除は、React Flow のドラッグを起こさないよう `fireEvent` (click / keyDown) で送る。
+ダブルクリックは**本文の要素** (`data-node-body`) に送る — React Flow の外枠に送っても本文のハンドラに届かない。
+
+変異で確かめたこと: 読み替えを渡さない変異で削除と名前の変更が、導き直さない変異で追加と削除が、
+ダブルクリックを常に文字の編集にする変異で開く件が落ちる。
+
+**変異はリポジトリの直下から走らせる。**`src/client/src` から `bun test` を走らせると、直下の設定
+(happy-dom の準備) が読まれず、変異と関係ない件まで全部落ちて「全部捕まった」ように見える (S4-2b で実際に起きた)

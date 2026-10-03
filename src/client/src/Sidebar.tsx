@@ -32,6 +32,8 @@ const SHEET_KIND_MARK: Record<SheetKind, { mark: string; title: string }> = {
 /** 「シートを追加 ▾」から作れる特殊なグラフ */
 const SPECIAL_SHEETS: readonly { kind: SheetKind; label: string }[] = [
   { kind: TEMPLATE_SHEET_KIND, label: 'template graph' },
+  // 仕様: 複数の metagraph が存在しても構わない (それぞれが File に対する視点)
+  { kind: METAGRAPH_SHEET_KIND, label: 'metagraph' },
 ];
 
 const MENU_ITEM = {

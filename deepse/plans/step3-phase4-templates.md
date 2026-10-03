@@ -277,3 +277,24 @@ happy-dom では扱えないので、メニューの約束を部品のテスト�
 
 - 既存の歴史の生成器では、「一覧から外した sheet の導出 node に繋がった生きている edge」を 100 回に 1 回しか
   引かず、edge を外さない変異が通った。前置き (全部の sheet を作り全部の組に edge を張る) を足した
+
+### S4-2b: metagraph の画面 (2026-10-03)
+
+- App は metagraph を描くとき、graph node を**いまの sheet の一覧で導き直し**、置き場所の無いものを格子に並べる
+  (`refreshDerivedNodes` → `placeDerivedNodes`)。一覧 (id と名前) が変わったら canvas を seed し直す
+  (`useChangeCounter` を `receiveEpoch` に足す)
+- `GraphEditor` に dispatch の前の読み替え (`transformEvent`) を足した。metagraph では graph node への削除・本文の
+  変更をシートの削除 (確認を挟む)・名前の変更に回し、undo に入れない
+- 種類のメニューに「グラフ」(metagraph のときだけ)。シートを作り (開かない)、置いた所を graph node の位置として積む
+- graph node のダブルクリックでそのシートを新しいタブで開く (Q6)。名前の変更は選んで Enter / F2
+  (`graphNodeContext` で `EditableNode` に降ろす)
+- 「シートを追加 ▾」に「+ metagraph」(複数の metagraph を許す)
+
+#### 分かったこと
+
+- **変異をサブディレクトリから走らせると、直下の設定が読まれず全部落ちる。**「全部捕まった」に見えて
+  効き目を誤って確かめたことになる。直下から走らせ直すと、変異ごとに関係する件だけが落ちた
+
+#### 検証
+
+単体 1888 件・App 結合 34 件 (metagraph 5 件を追加)・E2E 44 件が緑。
