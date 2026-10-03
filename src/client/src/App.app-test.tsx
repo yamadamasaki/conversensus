@@ -1280,6 +1280,19 @@ describe('App 結合: merger (step3 Phase 5 S5-1a)', () => {
           ).toBe(false),
         WIRING_TIMEOUT,
       );
+      // merger で決めた競合を「LWW で確定した」と知らせない
+      expect(screen.queryByRole('status', { name: '競合の通知' })).toBeNull();
+      // 戻った branch の画面にも解決の編集が出る。merger と branch のタブは同じ branch を指すので
+      // タブを移っても branch は選び直されず、merger を開いた時の姿のまま残っていた (実機で発覚)
+      await waitFor(() => {
+        const nodes = [...document.querySelectorAll('.react-flow__node')];
+        expect(nodes.some((n) => n.textContent?.includes('まとめ案'))).toBe(
+          true,
+        );
+        expect(nodes.some((n) => n.textContent?.includes('branch 案'))).toBe(
+          false,
+        );
+      }, WIRING_TIMEOUT);
     },
     MERGER_TEST_MS,
   );

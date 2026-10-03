@@ -601,6 +601,15 @@ export default function App() {
     mergerTab !== undefined && viewedBranchId === mergerTab.branchId;
   const editorSheet =
     isMergerResult && merger?.snapshot.result ? merger.snapshot.result : null;
+  // merger の merge 後から branch 自身の表示に戻ったら、branch を op-log から組み直す。merger と
+  // branch のタブは同じ branch を指すので、タブを移っても branch は選び直されず、merge 後で積んだ
+  // 解決の編集 (と merge の後の状態) が branch の画面に出ない (step3 Phase 5 の実機で発覚)
+  const wasMergerResult = useRef(false);
+  const { reloadBranch } = branchOps;
+  useEffect(() => {
+    if (wasMergerResult.current && !isMergerResult) reloadBranch();
+    wasMergerResult.current = isMergerResult;
+  }, [isMergerResult, reloadBranch]);
   /** いまの競合に残っているチェックだけを見せる (merge 先が進んで消えた競合のチェックは捨てる, S5-2) */
   const mergerChecked = carryChecks(
     mergerTab?.checked ?? [],

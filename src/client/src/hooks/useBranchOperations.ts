@@ -535,6 +535,13 @@ export function useBranchOperations({
       );
   };
 
+  /**
+   * 開いている branch を op-log から組み直して canvas に出す (受信と同じ経路)。merger の merge 後の
+   * pane は branch の op-log に解決の編集を積むが、branch 自身の表示 (`branchSheet`) は動かさない。
+   * merger から branch の表示に戻ったときに呼ぶ (step3 Phase 5 の実機で発覚)
+   */
+  const reloadBranch = useCallback(() => reselectOnReceiveRef.current(), []);
+
   const handleCreateBranch = useCallback(
     async (sheetId: SheetId) => {
       const name = await new Promise<string>((resolve) => {
@@ -608,10 +615,13 @@ export function useBranchOperations({
 
   /**
    * branch を trunk へ merge する本体 (確認も理由の入力も挟まない)。explicit merge の確認の後と、
-   * merger の merge ボタン (`mergeResolved`) が呼ぶ
+   * merger の merge ボタン (`mergeResolved`) が呼ぶ。
+   *
+   * `notify: false` は競合の通知を出さない — merger では人が競合を 1 件ずつ見て決めた後なので、
+   * 「LWW で確定した」と知らせるのは事実に反する
    */
   const applyMerge = useCallback(
-    async (branch: BranchMeta, message: string) => {
+    async (branch: BranchMeta, message: string, { notify = true } = {}) => {
       if (!activeSheetId) return;
       // branch の batch を写して trunk op-log へ追記する。写しは merge した人自身の batch で、
       // 点は trunk の tap と同じ発番器で振る (step3 Phase 1 D2)
@@ -633,11 +643,13 @@ export function useBranchOperations({
       // 収束は LWW で確定させ、対立は**画面に届ける** (Phase 3 T4)。
       // **通知に出すのは確認で見せた先読みではなく、実際に適用した結果である** —
       // 先読みと適用の間に trunk が動けば件数は食い違いうる。
-      setConflictNotice({
-        conflicts: result.conflicts,
-        labels: result.conflictLabels,
-      });
-      if (result.conflicts.length > 0) {
+      if (notify) {
+        setConflictNotice({
+          conflicts: result.conflicts,
+          labels: result.conflictLabels,
+        });
+      }
+      if (notify && result.conflicts.length > 0) {
         console.warn(
           `[branch] merge: ${describeConflicts(result.conflicts)} を LWW で確定`,
           result.conflicts,
@@ -687,7 +699,7 @@ export function useBranchOperations({
             branch.id,
           );
         }
-        await applyMerge(branch, message);
+        await applyMerge(branch, message, { notify: false });
       } catch (err) {
         console.warn('[merger] merge failed:', err);
         await new Promise<void>((resolve) => {
@@ -979,6 +991,7 @@ export function useBranchOperations({
     handleDeleteBranch,
     handleCommit,
     mergeResolved,
+    reloadBranch,
     resetBranchState,
   };
 }

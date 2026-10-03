@@ -18,6 +18,7 @@ import { useEventDispatch } from './EventDispatchContext';
 import { makeEventBase } from './events/GraphEvent';
 import { useGraphNodeHandlers } from './graph/graphNodeContext';
 import { useInlineEdit } from './hooks/useInlineEdit';
+import { useReadOnly } from './readOnlyContext';
 
 /** ラベルの見た目。空のとき (ラベルを付ける口) は破線の枠だけにする */
 function chipStyle(label: string, editable: boolean): React.CSSProperties {
@@ -92,6 +93,13 @@ export function EditableNode({ id, data, selected }: NodeProps) {
    * シートを開く (Q6)。名前の変更 (= 本文の編集) は選んで Enter / F2 で始まる
    */
   const graphNodes = useGraphNodeHandlers();
+  /**
+   * 読み取り専用の画面 (見るだけの pane・同期待ちの File) では文字の編集を始めさせない。ラベルの口も
+   * 変更できないラベルと同じく出さない — merger の見るだけの pane は選択が連動する (step3 Phase 5) ので、
+   * 選択中にだけ出る「ラベル」の口が、押しても何も起きない形で現れていた (実機で発覚)
+   */
+  const readOnly = useReadOnly();
+  const labelLocked = kindFromTemplate || readOnly;
   const derivedFrom = (
     data.properties as Record<string, unknown> | undefined
   )?.[DERIVED_FROM_SHEET_PROPERTY];
@@ -233,7 +241,9 @@ export function EditableNode({ id, data, selected }: NodeProps) {
             ? undefined
             : graphNodeSheet && graphNodes
               ? () => graphNodes.openSheet(graphNodeSheet)
-              : startEdit
+              : readOnly
+                ? undefined
+                : startEdit
         }
       >
         {/*
@@ -269,10 +279,10 @@ export function EditableNode({ id, data, selected }: NodeProps) {
             }}
           />
         ) : (
-          (label || (selected && !kindFromTemplate)) &&
+          (label || (selected && !labelLocked)) &&
           // **編集できるかで要素そのものを変える。**変更できないラベルを button に
           // すると、押せそうに見えて押せない要素になる (仕様 OnMutation)
-          (kindFromTemplate ? (
+          (labelLocked ? (
             <div data-node-label style={chipStyle(label, false)}>
               {label}
             </div>
