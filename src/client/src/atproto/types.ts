@@ -41,6 +41,15 @@ export const NSID = {
    * LWW / add-wins で解決するので「無効な op」という概念がない。
    */
   judgment: 'app.conversensus.v2.judgment',
+  /**
+   * 閉じた通知 (step3 Phase 6)。通知の内容は op-log から導出するので、ここには
+   * 「閉じた」ことだけを置く。1 件 1 record の足すだけの集合
+   */
+  noticeDismissal: 'app.conversensus.v2.noticeDismissal',
+  /** Folder (step3 Phase 6)。actor 固有の state。1 Folder 1 record (rkey = FolderId) */
+  folder: 'app.conversensus.v2.folder',
+  /** File の置き場 (step3 Phase 6)。1 File 1 record (rkey = FileId) */
+  filePlacement: 'app.conversensus.v2.filePlacement',
 } as const;
 
 export type RecordResult = { uri: AtUri; cid: string };
@@ -106,6 +115,31 @@ export type JudgmentRecord = {
   timestamp: number;
   ops: unknown[];
   createdAt: ISODateString;
+};
+
+/**
+ * 閉じた通知の PDS 表現 (step3 Phase 6)。rkey は `<fileId>~<鍵の SHA-256>`
+ * (`noticeDismissalRkey`)。鍵は rkey に使えない文字を含むので、本文に持つ
+ */
+export type NoticeDismissalRecord = {
+  $type: typeof NSID.noticeDismissal;
+  fileId: string;
+  key: string;
+  dismissedAt: ISODateString;
+};
+
+/** Folder の PDS 表現 (step3 Phase 6)。**id は rkey が持つ** (本文に二重に持たない) */
+export type FolderRecord = {
+  $type: typeof NSID.folder;
+  name: string;
+  parent?: string;
+  createdAt: ISODateString;
+};
+
+/** File の置き場の PDS 表現 (step3 Phase 6)。**fileId は rkey が持つ** */
+export type FilePlacementRecord = {
+  $type: typeof NSID.filePlacement;
+  folder: string;
 };
 
 /** 判断ログの運搬単位。`RemoteBatch` と同じ非対称 (ローカルは文脈・remote は埋め込み) */

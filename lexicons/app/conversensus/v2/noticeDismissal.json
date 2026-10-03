@@ -1,0 +1,23 @@
+{
+  "lexicon": 1,
+  "id": "app.conversensus.v2.noticeDismissal",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "One notice the actor has dismissed (step3 Phase 6). The notice itself is NOT stored: its content is derived from the op-log when batches arrive. Only the fact that it was dismissed is kept, so that the actor's other devices do not show it again. One dismissal is one record, so dismissals made concurrently on two devices are both kept (a grow-only set). The rkey is <fileId>~<sha-256 hex of key>.",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": ["fileId", "key", "dismissedAt"],
+        "properties": {
+          "fileId": { "type": "string", "description": "The file the notice is about (UUID)." },
+          "key": {
+            "type": "string",
+            "description": "The notice's identity, the same on every device that detects it (conflict key / fork key / overwrite notice key)."
+          },
+          "dismissedAt": { "type": "string", "format": "datetime", "description": "When the notice was dismissed (ISO 8601)." }
+        }
+      }
+    }
+  }
+}

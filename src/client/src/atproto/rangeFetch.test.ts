@@ -3,6 +3,7 @@ import type { FileId } from '@conversensus/shared';
 import { batchRkey } from './batchRkey';
 import {
   type ListRecordsPage,
+  listAllRecords,
   listBatchFileHeads,
   listByRkeyPrefix,
   type RecordPage,
@@ -248,5 +249,42 @@ describe('listBatchFileHeads (Phase 7 p7-3)', () => {
 
     expect(ids).toHaveLength(3); // 上限までの分だけ
     expect(pager.requests).toBe(3);
+  });
+});
+
+describe('listAllRecords (step3 Phase 6)', () => {
+  const ids = (n: number) =>
+    Array.from({ length: n }, (_, i) => `rk-${String(i).padStart(3, '0')}`);
+
+  it('ページをまたいで全件を rkey 昇順で返す', async () => {
+    const rkeys = ids(7);
+    const pager = fakePager(rkeys, 3);
+    const found = await listAllRecords(pager.listPage);
+    expect(found.map((r) => (r.value as { rkey: string }).rkey)).toEqual(rkeys);
+  });
+
+  it('空の collection は空で返る', async () => {
+    const pager = fakePager([], 3);
+    expect(await listAllRecords(pager.listPage)).toEqual([]);
+    expect(pager.requests).toBe(1);
+  });
+
+  it('cursor が前進しない PDS でも止まる', async () => {
+    let requests = 0;
+    const stuck: ListRecordsPage = async () => {
+      requests += 1;
+      return { records: [record('a')], cursor: 'a' };
+    };
+    const found = await listAllRecords(stuck);
+    // 1 回目 (cursor 無し) と、同じ cursor が返った 2 回目で止まる
+    expect(requests).toBe(2);
+    expect(found).toHaveLength(2);
+  });
+
+  it('ページ数の上限で打ち切る', async () => {
+    const pager = fakePager(ids(10), 1);
+    const found = await listAllRecords(pager.listPage, 3);
+    expect(pager.requests).toBe(3);
+    expect(found).toHaveLength(3);
   });
 });

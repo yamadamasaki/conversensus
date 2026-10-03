@@ -1,0 +1,18 @@
+{
+  "lexicon": 1,
+  "id": "app.conversensus.v2.filePlacement",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "Which folder a file is placed in (step3 Phase 6). rkey = file id (UUID). A file without a record is at the top level; returning a file to the top level deletes its record. A placement whose folder no longer exists is shown at the top level.",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": ["folder"],
+        "properties": {
+          "folder": { "type": "string", "description": "The folder id (UUID)." }
+        }
+      }
+    }
+  }
+}

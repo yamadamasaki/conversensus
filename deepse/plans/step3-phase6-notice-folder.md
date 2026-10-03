@@ -1,6 +1,6 @@
 # step3 Phase 6: 通知とフォルダ — 設計
 
-> ステータス: **ドラフト (Q 未確定)** / 作成日: 2026-10-03
+> ステータス: **Q1〜Q7 確定 (2026-10-03、すべて既定案)、実装中** / 作成日: 2026-10-03
 > 親: [step3 実装計画](./step3-implementation.md) の Phase 6 (S6-1, S6-2)。仕様は [notification](../architecture/step3/notification.md) と
 > [design-language](../architecture/step3/design-language.md) の Folder の節 (端末間の同時編集の決定 2026-10-02 を含む)。
 > 計画の Q4 で「通知の内容は op-log から導出し、PDS に置くのは既読状態とフォルダ」と確定している。
@@ -175,20 +175,37 @@ type FilePlacementRecord = {
 
 | | 問い | 既定案 |
 | --- | --- | --- |
-| **Q1** | 既読の record の形 | **1 件の「閉じた」を 1 record** (grow-only set)。File ごとに 1 record (鍵の配列) にすると、2 台が同時に閉じたとき片方の既読が後勝ちで消える (通知が出直すだけで害は小さいが、F7 と同じ理由で避ける) |
-| **Q2** | 閉じていない競合・上書きを再読み込みの後まで残す方法 (F4) | **端末に控える** (localStorage、PDS には置かない = Q4 の「内容は導出」を守る)。検出を op-log 全体からの導出に変えるのは分岐点の定義を変えるので Phase 6 ではやらない。fork だけは op-log から求め直す |
-| **Q3** | Folder を別の Folder へ移せるようにするか | **入れない**。仕様は File の移動だけを明記している。入れると同時移動で輪ができ、その解き方の規則が要る。要るとなったら別 issue |
-| **Q4** | 名前の重複を「表示だけ変える」か「改名を書く」か | **改名を書く**。仕様は「片方の名前を変える」。規則が決定的なので、2 台が同時に書いても同じ値になる |
-| **Q5** | ログインしていないときのフォルダ | **端末の写しだけで動き、ログインしたら送る** (別の actor でログインしたら? → 写しは actor ごとに分け、未ログインの写しはログインした actor へ引き継ぐ) |
-| **Q6** | 折り畳みの状態の置き場 | **端末ごと (localStorage)**。開閉は見た目の都合で、端末間で揃える意味が薄い |
-| **Q7** | 背後のタブの通知 (Phase 3 の積み残し) | **Phase 6 では扱わない**。S6-1b で控えが File ごとになるので、その File を開いたときに出る。右サイドバーの通知 pane などは FPR 後 |
+| **Q1** | 既読の record の形 | **1 件の「閉じた」を 1 record** (grow-only set)。File ごとに 1 record (鍵の配列) にすると、2 台が同時に閉じたとき片方の既読が後勝ちで消える (通知が出直すだけで害は小さいが、F7 と同じ理由で避ける) → **確定: 既定案のとおり (2026-10-03)** |
+| **Q2** | 閉じていない競合・上書きを再読み込みの後まで残す方法 (F4) | **端末に控える** (localStorage、PDS には置かない = Q4 の「内容は導出」を守る)。検出を op-log 全体からの導出に変えるのは分岐点の定義を変えるので Phase 6 ではやらない。fork だけは op-log から求め直す → **確定: 既定案のとおり (2026-10-03)** |
+| **Q3** | Folder を別の Folder へ移せるようにするか | **入れない**。仕様は File の移動だけを明記している。入れると同時移動で輪ができ、その解き方の規則が要る。要るとなったら別 issue → **確定: 既定案のとおり (2026-10-03)** |
+| **Q4** | 名前の重複を「表示だけ変える」か「改名を書く」か | **改名を書く**。仕様は「片方の名前を変える」。規則が決定的なので、2 台が同時に書いても同じ値になる → **確定: 既定案のとおり (2026-10-03)** |
+| **Q5** | ログインしていないときのフォルダ | **端末の写しだけで動き、ログインしたら送る** (別の actor でログインしたら? → 写しは actor ごとに分け、未ログインの写しはログインした actor へ引き継ぐ) → **確定: 既定案のとおり (2026-10-03)** |
+| **Q6** | 折り畳みの状態の置き場 | **端末ごと (localStorage)**。開閉は見た目の都合で、端末間で揃える意味が薄い → **確定: 既定案のとおり (2026-10-03)** |
+| **Q7** | 背後のタブの通知 (Phase 3 の積み残し) | **Phase 6 では扱わない**。S6-1b で控えが File ごとになるので、その File を開いたときに出る。右サイドバーの通知 pane などは FPR 後 → **確定: 既定案のとおり (2026-10-03)** |
 
 ## 5. 未決 (U)
 
 - **U1**: 既読 record の数。通知を閉じるたびに 1 件増える。File の削除で片付けるが、長く使う File では溜まる。
   merge 済みの fork や、op-log に居ない batch を指す鍵の record を掃除するかは、量を見てから
-- **U2**: lexicon の `$type` と検証。今は judgment だけ Zod で検証している。新しい 3 つも mapper で検証する予定
+- **U2**: ~~lexicon の `$type` と検証~~ → **S6-0 で解消**: 新しい 3 つは mapper で Zod 検証する
 
 ## 6. 実施記録
 
-(未着手)
+### S6-0: lexicon と PDS の読み書き層 (2026-10-04)
+
+- lexicon 3 つ (`lexicons/app/conversensus/v2/noticeDismissal.json` / `folder.json` / `filePlacement.json`)、
+  `NSID` と Record 型 (`atproto/types.ts`)、`collections.ts` の `noticeDismissals` / `folders` / `filePlacements`。
+  3 つとも**自分の repo だけ**を読む (他の actor の整理や既読を読む理由が無い)
+- 型: `FolderId` (branded UUID) と `FolderName` を `shared/schemas.ts` に、`Folder` / `FilePlacement` を
+  `folders/types.ts`、`NoticeKey` / `NoticeDismissal` を `notices/types.ts` に
+- **既読の rkey は `<fileId>~<鍵の SHA-256>`** (`noticeDismissalRkey`)。鍵は `\u0000` を含み長さも決まらないので
+  hash する。fileId を先頭に置くので batch と同じ prefix 範囲取得 (`listByRkeyPrefix`) で 1 File 分を引ける
+- **Folder と置き場の id は rkey にだけ持つ** (`folderMapper`)。後勝ちが rkey の単位なので、同一性の権威を 1 箇所にする
+- 3 つとも mapper で Zod 検証する (U2 を解消)。壊れたレコードは `null`
+- 全件取得 `listAllRecords` を `rangeFetch.ts` に足した (ページ数の上限・cursor が進まないときの停止付き)
+
+#### 検証
+
+- 単体: rkey の文法・長さ・prefix・単射 (性質)、往復 (性質)、壊れたレコード、`listAllRecords` の 4 件
+- 変異: rkey の hash を 2 文字に切ると単射の性質が落ちる
+- lint / typecheck / `bun run test` (単体 1934 + App 結合 41) 緑
