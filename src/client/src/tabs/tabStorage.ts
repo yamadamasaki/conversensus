@@ -9,7 +9,11 @@
  * 指す File が手元から消えている場合は、ここでは分からないので開くときに捨てる (App)。
  */
 
-import { GraphViewAddressSchema } from '@conversensus/shared';
+import {
+  BranchIdSchema,
+  GraphViewAddressSchema,
+  VersionVectorSchema,
+} from '@conversensus/shared';
 import { z } from 'zod';
 import type { TabsState } from './tabs';
 
@@ -21,6 +25,14 @@ const StoredTabSchema = z.union([
       id: z.string().min(1),
       panes: z.array(GraphViewAddressSchema).min(1),
       active: z.number().int().nonnegative(),
+      // merger のタブ (step3 Phase 5)。壊れていたらタブごと捨てる (merger の pane だけが残ると紛らわしい)
+      merger: z
+        .object({
+          branchId: BranchIdSchema,
+          startedAt: VersionVectorSchema,
+          checked: z.array(z.string()),
+        })
+        .optional(),
     })
     // アクティブが並びの外を指していたら先頭にする
     .transform((t) => ({

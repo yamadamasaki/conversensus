@@ -21,10 +21,13 @@ import {
   closeTabsWhere,
   isOnFile,
   isOnSheet,
+  MERGER_PANE,
   NO_TABS,
   openFileIds,
+  openMergerTab,
   openTab,
   retargetActive,
+  setMergerChecks,
   type Tab,
   type TabsState,
   tabAddress,
@@ -382,5 +385,57 @@ describe('タブ: 復元 (Q3)', () => {
       activeId: 'tab-2',
     });
     expect(parseTabs(raw).activeId).toBe('tab-1');
+  });
+});
+
+describe('merger のタブ (step3 Phase 5)', () => {
+  const target = {
+    fileId: FILE_A,
+    sheetId: SHEET_1,
+    branchId: BRANCH,
+    startedAt: { 'did:plc:alice#dev': 3 },
+  };
+
+  test('merge 元 (開いた時点)・merge 先 (trunk の最新)・merge 後 (branch の最新, アクティブ) の 3 つの pane で開く', () => {
+    const state = openMergerTab(NO_TABS, target, () => 'm');
+    const tab = activeTab(state) as Tab;
+    expect(tab.panes).toEqual([
+      {
+        fileId: FILE_A,
+        sheetId: SHEET_1,
+        branchId: BRANCH,
+        cut: target.startedAt,
+      },
+      { fileId: FILE_A, sheetId: SHEET_1, branchId: null, cut: HEAD_CUT },
+      { fileId: FILE_A, sheetId: SHEET_1, branchId: BRANCH, cut: HEAD_CUT },
+    ]);
+    expect(tab.active).toBe(MERGER_PANE.result);
+    expect(tab.merger).toEqual({
+      branchId: BRANCH,
+      startedAt: target.startedAt,
+      checked: [],
+    });
+  });
+
+  test('同じ branch の merger のタブがあれば、新しく開かずそこへ移る (チェックが割れない)', () => {
+    const opened = openMergerTab(NO_TABS, target, () => 'm');
+    const elsewhere = openTab(
+      opened,
+      { ...target, branchId: null, cut: HEAD_CUT },
+      () => 'x',
+    );
+    const again = openMergerTab(elsewhere, target, () => 'm2');
+    expect(again.tabs).toHaveLength(2);
+    expect(again.activeId).toBe('m');
+  });
+
+  test('チェック状態を置き換え、保存して読み戻しても残る (Q5)', () => {
+    const state = setMergerChecks(
+      openMergerTab(NO_TABS, target, () => 'm'),
+      'm',
+      ['k1'],
+    );
+    expect(activeTab(state)?.merger?.checked).toEqual(['k1']);
+    expect(parseTabs(serializeTabs(state))).toEqual(state);
   });
 });

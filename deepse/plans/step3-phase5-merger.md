@@ -176,3 +176,27 @@ merge 後 = trunk の head + fork。解決の編集は fork の op-log へ積み
 #### 検証
 
 単体 (merger 5 件: 性質 2・例 1・チェック 2) と既存の merge のテスト 34 件が緑。写しの点を trunk の下に潜らせる変異で落ちる。
+
+### S5-1a: merger のタブと、競合があれば merger を開く (2026-10-03)
+
+- タブに `merger` (merge する branch・開いた時点・チェック) を持たせた。pane は [元 (開いた時点で切った branch)、
+  先 (trunk の最新)、後 (branch の最新, アクティブ)]。同じ branch の merger のタブがあればそこへ移る。保存も読む
+- `useBranchOperations`: 人の判断が要る競合があり、merger を開く口 (`onOpenMerger`) があれば確認の代わりに merger を
+  開く。merge の本体を `applyMerge` に括り出し、merger の merge ボタン用に `mergeResolved` (未コミットの解決の編集が
+  あればコミットしてから merge, Q3) を足した。**未コミットかは op-log で判る** (merger は branch 自身の表示を動かさない
+  ので、表示から数えた変更は当てにならない)
+- App: merger のタブは 2×2 (Q7)。後の pane は branch を開いた画面の仕組みの上で、描くシートだけを
+  `useMergerSnapshot` の「後」に差し替える。merge 先が進んだら seed し直す (trunk の batch の数の変化)。ヘッダの
+  branch の操作は出さない
+- `ConflictList`: チェック・対象の名前・両側の値・コメント・merge
+
+#### 分かったこと
+
+- **チェックの鍵を fork の同一性 (`conflictKeyOf`、両側の batch を含む) で作ると、解決の編集のたびにチェックが外れる。**
+  直した本文の op と trunk の op の組が新しい競合として現れるため。鍵は merge 先 (trunk) 側の batch だけで作り
+  (`mergerCheckKey`)、一覧も同じ鍵でまとめる (`mergerConflicts`)。trunk が進めば鍵が変わって再びチェックが要る (O3)
+- App 結合の手数が多い件は、既定の 5 秒の上限で「失敗ではなく時間切れ」になる。merger の件だけ上限を延ばした
+
+#### 検証
+
+単体 1898 件 (チェックの鍵 2 件を追加)・App 結合 36 件 (merger 2 件を追加)・E2E 44 件が緑。

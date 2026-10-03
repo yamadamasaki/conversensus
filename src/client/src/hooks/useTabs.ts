@@ -16,8 +16,10 @@ import {
   closePane,
   closeTab,
   closeTabsWhere,
+  openMergerTab,
   openTab,
   retargetActive,
+  setMergerChecks,
   type TabId,
   type TabsState,
 } from '../tabs/tabs';
@@ -81,9 +83,23 @@ export function useTabs() {
     [],
   );
 
+  // merger (step3 Phase 5)
+  const openMerger = useCallback(
+    (target: Parameters<typeof openMergerTab>[1]) =>
+      setState((s) => openMergerTab(s, target, generateId)),
+    [],
+  );
+  const setChecks = useCallback(
+    (id: TabId, checked: readonly string[]) =>
+      setState((s) => setMergerChecks(s, id, checked)),
+    [],
+  );
+
   return {
     state,
     open,
+    openMerger,
+    setMergerChecks: setChecks,
     activate,
     close,
     closeWhere,

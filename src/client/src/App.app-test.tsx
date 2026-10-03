@@ -58,6 +58,11 @@ const FILE_NAME = '共有ファイル';
 const LOCAL_TEST_ACTOR = 'local';
 /** 「何も起きないこと」を見る前に、描画と計測が落ち着くのを待つ時間 */
 const SETTLE_MS = 500;
+/**
+ * merger の件の時間の上限。File・branch・コミット・merge を画面の操作で積むので手数が多く、既定の
+ * 5 秒では足りない (失敗ではなく時間切れになる)
+ */
+const MERGER_TEST_MS = 15_000;
 const BRANCH_NAME = 'b1';
 
 let world: AppWorld;
@@ -1121,4 +1126,161 @@ describe('App 結合: metagraph (step3 Phase 4 S4-2b)', () => {
       WIRING_TIMEOUT,
     );
   });
+});
+
+describe('App 結合: merger (step3 Phase 5 S5-1a)', () => {
+  /** 描かれている唯一の node の本文を書き換える (本文のダブルクリック → 入力 → 外す) */
+  async function editOnlyNode(
+    user: ReturnType<typeof userEvent.setup>,
+    text: string,
+    root: ParentNode = document,
+  ) {
+    // 本文を持つ node を優先する (足しただけの空の node より、書き換えたい node を選ぶ)
+    const nodes = [...root.querySelectorAll('.react-flow__node')];
+    const written = (n: Element) =>
+      !(n.textContent ?? '').includes('ダブルクリックで編集');
+    const node = nodes.find(written) ?? nodes[0];
+    const body = node?.querySelector('[data-node-body]');
+    if (!body) throw new Error('node が描かれていない');
+    fireEvent.doubleClick(body);
+    const input = await waitFor(() => {
+      const el = node?.querySelector('textarea');
+      if (!el) throw new Error('本文の編集が始まらない');
+      return el as HTMLTextAreaElement;
+    }, WIRING_TIMEOUT);
+    await user.clear(input);
+    await user.type(input, text);
+    fireEvent.blur(input);
+  }
+  /** trunk の Sheet 1 の、本文を持つ node の本文 (足しただけの空の node は数えない) */
+  const trunkContent = () => {
+    const store = world.localStore();
+    const fileId = store.listFiles()[0]?.id as FileId;
+    return projectFile(store.getBatches(fileId), fileId)
+      .sheets.find((s) => s.name === 'Sheet 1')
+      ?.nodes.find((n) => n.content !== '')?.content;
+  };
+  const TRUNK_TAB = `${FILE_NAME} / Sheet 1`;
+  const BRANCH_TAB = `${TRUNK_TAB} (⎇ ${BRANCH_NAME})`;
+
+  /** 同じ node の本文を branch (コミット済み) と trunk で書き換え、branch から merge ↑ を押す */
+  async function conflictingMerge() {
+    await world.activate('solo');
+    render(<App />);
+    const user = userEvent.setup();
+    await createFile(user, FILE_NAME);
+    await addNode(user);
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+    await editOnlyNode(user, 'もと');
+    await waitFor(() => expect(trunkContent()).toBe('もと'), WIRING_TIMEOUT);
+
+    await createBranch(user, BRANCH_NAME);
+    await openBranch(user, BRANCH_NAME);
+    await editOnlyNode(user, 'branch 案');
+    await commitBranch(user, '案');
+
+    await user.click(screen.getByRole('tab', { name: TRUNK_TAB }));
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+    await editOnlyNode(user, 'trunk 案');
+    await waitFor(
+      () => expect(trunkContent()).toBe('trunk 案'),
+      WIRING_TIMEOUT,
+    );
+    // trunk にだけある node。merge 後 (trunk の最新 + branch) には出て、branch 自身の姿には出ない
+    await addNode(user);
+    await waitFor(() => expect(renderedNodeCount()).toBe(2), WIRING_TIMEOUT);
+
+    await user.click(screen.getByRole('tab', { name: BRANCH_TAB }));
+    await screen.findByRole('button', { name: 'コミット' }, WIRING_TIMEOUT);
+    const mergeButton = screen.getByRole('button', { name: 'merge ↑' });
+    await waitFor(
+      () => expect(mergeButton).toHaveProperty('disabled', false),
+      WIRING_TIMEOUT,
+    );
+    await user.click(mergeButton);
+    return user;
+  }
+
+  test(
+    '競合があると merger が新しいタブで開き、merge 後は branch の値、conflict list に競合が出る',
+    async () => {
+      await conflictingMerge();
+      await waitFor(
+        () =>
+          expect(
+            screen
+              .getAllByRole('tab')
+              .find((t) => t.getAttribute('aria-selected') === 'true')
+              ?.textContent,
+          ).toBe(`merge: ${BRANCH_TAB}`),
+        WIRING_TIMEOUT,
+      );
+      const list = await screen.findByRole('region', { name: 'conflict list' });
+      await waitFor(
+        () => expect(within(list).getAllByRole('checkbox')).toHaveLength(1),
+        WIRING_TIMEOUT,
+      );
+      const result = screen.getByRole('region', { name: 'pane: merge 後' });
+      await waitFor(() => {
+        expect(result.textContent).toContain('branch 案');
+        // trunk の最新の上に重ねた姿 (branch 自身の姿なら node は 1 つ)
+        expect(result.querySelectorAll('.react-flow__node')).toHaveLength(2);
+      }, WIRING_TIMEOUT);
+      // 確認のダイアログは出ない (merger が引き取った)
+      expect(
+        screen.queryByRole('button', { name: 'merge する' }) === null,
+      ).toBe(true);
+      // まだ trunk には載っていない
+      expect(trunkContent()).toBe('trunk 案');
+    },
+    MERGER_TEST_MS,
+  );
+
+  test(
+    'チェックとコメントが揃うまで merge は押せず、merge すると trunk に載ってタブが閉じる',
+    async () => {
+      const user = await conflictingMerge();
+      const list = await screen.findByRole(
+        'region',
+        { name: 'conflict list' },
+        WIRING_TIMEOUT,
+      );
+      const merge = () => within(list).getByRole('button', { name: 'merge' });
+      await waitFor(
+        () => expect(within(list).getAllByRole('checkbox')).toHaveLength(1),
+        WIRING_TIMEOUT,
+      );
+      expect(merge()).toHaveProperty('disabled', true);
+      await user.click(within(list).getByRole('checkbox'));
+      expect(merge()).toHaveProperty('disabled', true);
+      await user.type(
+        within(list).getByLabelText('merge のコメント'),
+        'branch 案を採る',
+      );
+      expect(merge()).toHaveProperty('disabled', false);
+
+      // 解決の編集: merge 後で本文を直す。branch の op-log に積まれ (Q1)、未コミットなので merge の前に
+      // コメントでコミットされ (Q3)、merge で trunk に載る
+      await editOnlyNode(
+        user,
+        'まとめ案',
+        screen.getByRole('region', { name: 'pane: merge 後' }),
+      );
+      await user.click(merge());
+      await waitFor(
+        () => expect(trunkContent()).toBe('まとめ案'),
+        WIRING_TIMEOUT,
+      );
+      await waitFor(
+        () =>
+          expect(
+            screen
+              .queryAllByRole('tab')
+              .some((t) => t.textContent?.startsWith('merge:')),
+          ).toBe(false),
+        WIRING_TIMEOUT,
+      );
+    },
+    MERGER_TEST_MS,
+  );
 });

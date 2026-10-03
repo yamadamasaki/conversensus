@@ -347,3 +347,28 @@ File を作って index を開く (Sheet 1 と index 自身が graph node とし
 
 **変異はリポジトリの直下から走らせる。**`src/client/src` から `bun test` を走らせると、直下の設定
 (happy-dom の準備) が読まれず、変異と関係ない件まで全部落ちて「全部捕まった」ように見える (S4-2b で実際に起きた)
+
+## merger (step3 Phase 5 S5-1a)
+
+### なぜ
+
+merger は「merge したらこうなる」を見せ、利用者が直してから merge する。配線のどこかが欠けると、merger は
+**開くが嘘の姿を出す** (branch 自身の姿を merge 後として出す)、**解決の編集が trunk に届かない**、**merge が
+押せないまま**、のどれかになる。いずれも画面は普通に描かれる。
+
+### テストケース
+
+同じ node の本文を branch (コミット済み) では「branch 案」、trunk では「trunk 案」に書き換え、trunk にだけ node を
+もう 1 つ足してから、branch で merge ↑ を押す。
+
+- **競合があると merger が新しいタブで開き、merge 後は branch の値、conflict list に競合が出る**: 確認のダイアログは
+  出ない。merge 後の pane は「branch 案」を持ち、**node が 2 つ** (trunk の最新の上に重ねた姿。branch 自身の姿なら 1 つ)。
+  まだ trunk には載っていない
+- **チェックとコメントが揃うまで merge は押せず、merge すると trunk に載ってタブが閉じる**: チェックだけ・コメントだけ
+  では押せない。merge 後の pane で本文を「まとめ案」に直す (**解決の編集。branch に積まれ、未コミットなので merge の前に
+  コメントでコミットされる**, Q1/Q3) と、merge の後の trunk は「まとめ案」になり、merger のタブは閉じる
+
+手数が多いので、この 2 件だけテストの時間の上限を 15 秒にしている (`MERGER_TEST_MS`)。
+
+変異で確かめたこと: merger を開く口を渡さない変異で 2 件とも、merge 後の姿に差し替えない変異で 1 件目が、チェックの
+鍵に branch 側の batch を含める変異で 2 件目が落ちる (解決の編集のたびに「新しい競合」が増えて押せなくなる)。

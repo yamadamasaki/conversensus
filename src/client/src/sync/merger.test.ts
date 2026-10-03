@@ -7,7 +7,6 @@ import {
   CausalClock,
   COMMIT_KIND,
   type CommitId,
-  conflictKeyOf,
   type FileId,
   LamportClock,
   type MergeConflict,
@@ -17,7 +16,13 @@ import {
 } from '@conversensus/shared';
 import fc from 'fast-check';
 import { type MergeBranchDeps, mergeBranchOnOplog } from './mergeBranch';
-import { allChecked, carryChecks, mergerSnapshot } from './merger';
+import {
+  allChecked,
+  carryChecks,
+  mergerCheckKey,
+  mergerConflicts,
+  mergerSnapshot,
+} from './merger';
 
 const TRUNK = 'trunk-file' as FileId;
 const BRANCH_LOG = 'branch-file' as FileId;
@@ -230,13 +235,45 @@ describe('チェック状態', () => {
   const b = conflict('n2', 'b3', 'b4');
 
   test('残っている競合のチェックは引き継ぎ、消えた競合のチェックは捨てる', () => {
-    const checked = [conflictKeyOf(a), conflictKeyOf(b)];
-    expect(carryChecks(checked, [a])).toEqual([conflictKeyOf(a)]);
+    const checked = [mergerCheckKey(a), mergerCheckKey(b)];
+    expect(carryChecks(checked, [a])).toEqual([mergerCheckKey(a)]);
   });
 
   test('すべてにチェックが入ったときだけ merge できる。新しい競合が増えたら押せなくなる', () => {
-    expect(allChecked([conflictKeyOf(a)], [a])).toBe(true);
-    expect(allChecked([conflictKeyOf(a)], [a, b])).toBe(false);
+    expect(allChecked([mergerCheckKey(a)], [a])).toBe(true);
+    expect(allChecked([mergerCheckKey(a)], [a, b])).toBe(false);
     expect(allChecked([], [])).toBe(true);
+  });
+});
+
+describe('チェックの鍵 (step3 Phase 5)', () => {
+  const conflict = (ours: string, theirs: string): MergeConflict => ({
+    category: 'content',
+    target: 'n1',
+    ours: {
+      batchId: ours as Batch['id'],
+      op: { kind: 'node.remove', target: 'n1' as NodeId },
+    },
+    theirs: {
+      batchId: theirs as Batch['id'],
+      op: { kind: 'node.remove', target: 'n1' as NodeId },
+    },
+  });
+
+  test('branch 側 (解決の編集) が変わっても鍵は変わらず、trunk 側が進めば変わる', () => {
+    expect(mergerCheckKey(conflict('t1', 'b1'))).toBe(
+      mergerCheckKey(conflict('t1', 'b2')),
+    );
+    expect(mergerCheckKey(conflict('t1', 'b1'))).not.toBe(
+      mergerCheckKey(conflict('t2', 'b1')),
+    );
+  });
+
+  test('同じ鍵の競合は 1 つにまとめ、いちばん新しい branch 側を残す', () => {
+    expect(
+      mergerConflicts([conflict('t1', 'b1'), conflict('t1', 'b2')]).map(
+        (c) => c.theirs.batchId,
+      ),
+    ).toEqual(['b2' as Batch['id']]);
   });
 });

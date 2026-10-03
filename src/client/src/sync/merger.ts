@@ -17,7 +17,6 @@ import {
   type Batch,
   type BatchId,
   type BranchMeta,
-  conflictKeyOf,
   type MergeConflict,
   projectAddress,
   projectFile,
@@ -77,9 +76,44 @@ export function mergerSnapshot(
     ),
     target: sheetOf(trunk),
     result: sheetOf([...trunk, ...previewCopies(plan.toAppend, trunk, branch)]),
-    conflicts: plan.conflicts,
+    conflicts: mergerConflicts(plan.conflicts),
     labels: labelsOfConflicts(plan.base, plan.conflicts),
   };
+}
+
+/**
+ * conflict list のチェックの鍵 (step3 Phase 5)。種別・対象・揉めた単位と、**merge 先 (trunk) 側の batch**
+ * から作る。
+ *
+ * `conflictKeyOf` (fork の同一性) は両側の batch を含むが、merger では branch 側の batch は**利用者自身の
+ * 解決の編集で変わる** — 競合した本文を直すと、その op と trunk の op の組が新しい競合として現れる。それを
+ * 別の競合とみなすと、解決の編集をするたびにチェックが外れて merge できない。trunk 側が進んだ (新しい
+ * batch になった) ときだけ鍵が変わり、もう一度チェックが要る (仕様: merge 先が進んで再び競合が起きる, O3)
+ */
+export function mergerCheckKey(conflict: MergeConflict): string {
+  const about =
+    conflict.category === 'layout'
+      ? conflict.aspect
+      : (conflict.propertyName ?? '');
+  return [
+    conflict.category,
+    conflict.target,
+    about,
+    conflict.ours.batchId,
+  ].join('\u0000');
+}
+
+/**
+ * conflict list に並べる競合。**チェックの鍵でまとめる** — 同じ対象に branch の op が複数あれば、
+ * 競合は op の数だけ検出されるが、利用者にとっては 1 つである。残すのは最後の (いちばん新しい
+ * branch 側の) もの
+ */
+export function mergerConflicts(
+  conflicts: readonly MergeConflict[],
+): MergeConflict[] {
+  const byKey = new Map<string, MergeConflict>();
+  for (const c of conflicts) byKey.set(mergerCheckKey(c), c);
+  return [...byKey.values()];
 }
 
 /**
@@ -90,7 +124,7 @@ export function carryChecks(
   checked: readonly string[],
   conflicts: readonly MergeConflict[],
 ): string[] {
-  const present = new Set(conflicts.map(conflictKeyOf));
+  const present = new Set(conflicts.map(mergerCheckKey));
   return checked.filter((key) => present.has(key));
 }
 
@@ -100,5 +134,5 @@ export function allChecked(
   conflicts: readonly MergeConflict[],
 ): boolean {
   const done = new Set(checked);
-  return conflicts.every((c) => done.has(conflictKeyOf(c)));
+  return conflicts.every((c) => done.has(mergerCheckKey(c)));
 }
