@@ -1,6 +1,6 @@
 # step3 Phase 5: merger — 設計
 
-> ステータス: **ドラフト (Q1〜Q9 未確定)** / 作成日: 2026-10-03
+> ステータス: **Q1〜Q9 確定 (2026-10-03、すべて既定案)、実装中** / 作成日: 2026-10-03
 > 親: [step3 実装計画](./step3-implementation.md) の Phase 5 (S5-1〜S5-3)。仕様は [merger](../architecture/step3/merger.md)
 > (図 `merger.png`)。土台は Phase 3 の multiple モード (見るだけの pane とアクティブな pane) と、Phase 1 の
 > 分岐点の vector・`projectAddress`。
@@ -136,17 +136,17 @@ merge 後 = trunk の head + fork。解決の編集は fork の op-log へ積み
 
 ## 4. 着手前に訊くこと (Q)
 
-| | 問い | 既定案 |
+| | 問い | 既定案 → 確定 |
 | --- | --- | --- |
-| **Q1** | merge 後のグラフでの編集をどこに積むか | **B (merge する branch) 自身の op-log** (F2)。解決用の新しい branch を作らない。仕様の「branch 側の op-log に積まれる」と合い、merge は今の仕組み (B を写して足す) のままで、見えていた姿がそのまま結果になる |
-| **Q2** | merge 後のグラフの初めの姿 | **trunk の head + B** (今の merge の結果と同じ = branch の後勝ち)。競合の箇所は B の値が出ていて、trunk の値を採りたければ先の pane から「取り込む」 |
-| **Q3** | merger の merge ボタン | **後の編集が未コミットなら、コメントを message にして commit してから merge する**。今の「commit 済みでないと merge できない」規則を merger の中では 1 つの操作にまとめる |
-| **Q4** | merge 元の pane が見せる B の姿 | **merger を開いた時点で固定** (`startedAt` の切断面)。後での編集が B に積まれるので、head を見せると元の姿が編集に追随してしまい、比べる相手にならない |
-| **Q5** | チェック状態の置き場 | **タブ (`localStorage`、端末ごと)**。共有は step forward council と一緒に先送り (仕様)。閉じて開き直したら、競合はあるがチェックは空から |
-| **Q6** | explicit merge で競合が無いとき / layout の競合だけのとき | **今どおり merger を開かずに merge する** (確認も今どおり)。仕様の起動条件は「conflict が検出されたとき」で、layout は今も確認で止めない種別 (`requiresConfirmation`) |
-| **Q7** | 画面の配置 | **仕様の図どおり 2×2 固定** (上に 元・先、下に 後・conflict list)。左サイドバーは開いたまま (畳める)。pane の大きさの調整は後で |
-| **Q8** | implicit merge から開くとき (O2) | **fork を B とみなす** (§2.5)。元 = fork の分岐点、先 = trunk の head、後 = trunk + fork、競合の一覧は fork の凍結した記述から |
-| **Q9** | 右クリックの「取り込む」の単位 | **選んだ要素ごとに、その pane の姿に揃える** (本文・label・プロパティ・位置・在否)。後の pane で dispatch するので undo できる。edge を取り込むとき端の node が後に無ければ一緒に取り込む |
+| **Q1** | merge 後のグラフでの編集をどこに積むか | **B (merge する branch) 自身の op-log** (F2)。解決用の新しい branch を作らない。仕様の「branch 側の op-log に積まれる」と合い、merge は今の仕組み (B を写して足す) のままで、見えていた姿がそのまま結果になる → **確定: 既定案のとおり (2026-10-03)** |
+| **Q2** | merge 後のグラフの初めの姿 | **trunk の head + B** (今の merge の結果と同じ = branch の後勝ち)。競合の箇所は B の値が出ていて、trunk の値を採りたければ先の pane から「取り込む」 → **確定: 既定案のとおり (2026-10-03)** |
+| **Q3** | merger の merge ボタン | **後の編集が未コミットなら、コメントを message にして commit してから merge する**。今の「commit 済みでないと merge できない」規則を merger の中では 1 つの操作にまとめる → **確定: 既定案のとおり (2026-10-03)** |
+| **Q4** | merge 元の pane が見せる B の姿 | **merger を開いた時点で固定** (`startedAt` の切断面)。後での編集が B に積まれるので、head を見せると元の姿が編集に追随してしまい、比べる相手にならない → **確定: 既定案のとおり (2026-10-03)** |
+| **Q5** | チェック状態の置き場 | **タブ (`localStorage`、端末ごと)**。共有は step forward council と一緒に先送り (仕様)。閉じて開き直したら、競合はあるがチェックは空から → **確定: 既定案のとおり (2026-10-03)** |
+| **Q6** | explicit merge で競合が無いとき / layout の競合だけのとき | **今どおり merger を開かずに merge する** (確認も今どおり)。仕様の起動条件は「conflict が検出されたとき」で、layout は今も確認で止めない種別 (`requiresConfirmation`) → **確定: 既定案のとおり (2026-10-03)** |
+| **Q7** | 画面の配置 | **仕様の図どおり 2×2 固定** (上に 元・先、下に 後・conflict list)。左サイドバーは開いたまま (畳める)。pane の大きさの調整は後で → **確定: 既定案のとおり (2026-10-03)** |
+| **Q8** | implicit merge から開くとき (O2) | **fork を B とみなす** (§2.5)。元 = fork の分岐点、先 = trunk の head、後 = trunk + fork、競合の一覧は fork の凍結した記述から → **確定: 既定案のとおり (2026-10-03)** |
+| **Q9** | 右クリックの「取り込む」の単位 | **選んだ要素ごとに、その pane の姿に揃える** (本文・label・プロパティ・位置・在否)。後の pane で dispatch するので undo できる。edge を取り込むとき端の node が後に無ければ一緒に取り込む → **確定: 既定案のとおり (2026-10-03)** |
 
 ## 5. 未決 (U)
 
