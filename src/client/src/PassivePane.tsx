@@ -19,10 +19,16 @@ type Props = {
   address: GraphViewAddress;
   /** 印 (merger)。シートから求めるので、求めた姿を受け取って印を返す関数で渡す */
   marksFor?: (sheet: Sheet) => PreviewMarks;
-  onElementClick?: (id: string) => void;
+  onElementClick?: (id: string, additive: boolean) => void;
+  onElementContextMenu?: (id: string, at: { x: number; y: number }) => void;
 };
 
-export function PassivePane({ address, marksFor, onElementClick }: Props) {
+export function PassivePane({
+  address,
+  marksFor,
+  onElementClick,
+  onElementContextMenu,
+}: Props) {
   const state = usePaneSheet(address);
   if (state.kind === 'loading') return <div style={MESSAGE}>読み込み中…</div>;
   if (state.kind === 'missing')
@@ -32,6 +38,7 @@ export function PassivePane({ address, marksFor, onElementClick }: Props) {
       sheet={state.sheet}
       {...(marksFor && { marks: marksFor(state.sheet) })}
       {...(onElementClick && { onElementClick })}
+      {...(onElementContextMenu && { onElementContextMenu })}
     />
   );
 }

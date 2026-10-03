@@ -6,6 +6,7 @@
  * `useEventStore` に触れるので、中身は `GraphEditor` に残し、外へは口だけを出す。
  */
 
+import type { GraphEvent } from '../events/GraphEvent';
 import type { SearchHit } from '../search/searchSheet';
 
 /** 外から呼ぶ操作。`GraphEditor` が描かれている間だけ渡される */
@@ -24,6 +25,11 @@ export type GraphEditorControls = {
    * 選ばせる (Phase 3 U1: 選択の正は React Flow に置いたまま、外から選ばせる口を足す)
    */
   select: (ids: readonly string[]) => void;
+  /**
+   * event の列をこの canvas に dispatch する (step3 Phase 5 S5-1c)。merger の「取り込む」が使う。
+   * dispatch を通すので undo / redo できる
+   */
+  apply: (events: readonly GraphEvent[]) => void;
 };
 
 /**

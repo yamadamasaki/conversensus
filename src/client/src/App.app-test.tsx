@@ -1343,4 +1343,33 @@ describe('App 結合: merger (step3 Phase 5 S5-1a)', () => {
     },
     MERGER_TEST_MS,
   );
+  test(
+    '先の pane で右クリックして取り込むと、merge 後がその姿になり、Undo で戻る (S5-1c)',
+    async () => {
+      const user = await conflictingMerge();
+      const target = await waitFor(
+        () => nodeIn('merge 先', 'trunk 案'),
+        WIRING_TIMEOUT,
+      );
+      fireEvent.contextMenu(target);
+      await user.click(
+        await screen.findByRole('menuitem', { name: /merge 後に取り込む/ }),
+      );
+      await waitFor(
+        () => expect(nodeIn('merge 後', 'trunk 案')).toBeTruthy(),
+        WIRING_TIMEOUT,
+      );
+      await user.click(
+        within(screen.getByRole('toolbar', { name: 'グラフの操作' })).getByRole(
+          'button',
+          { name: 'Undo' },
+        ),
+      );
+      await waitFor(
+        () => expect(nodeIn('merge 後', 'branch 案')).toBeTruthy(),
+        WIRING_TIMEOUT,
+      );
+    },
+    MERGER_TEST_MS,
+  );
 });

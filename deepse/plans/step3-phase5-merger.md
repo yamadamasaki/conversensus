@@ -212,3 +212,16 @@ merge 後 = trunk の head + fork。解決の編集は fork の op-log へ積み
 #### 検証
 
 単体 1900 件 (差分の印 2 件を追加)・App 結合 38 件 (印と選択の連動 2 件を追加)・E2E 44 件が緑。
+
+### S5-1c: 右クリックで取り込む (2026-10-03, Q9)
+
+- `alignToPane(result, pane, ids)`: 選んだ要素ごとに、merge 後をその pane の姿に揃える event の列 (在否・本文・名前・
+  プロパティ・位置)。edge を取り込むとき端の node が無ければ連れてくる。node を消すときは繋がる edge を先に消す。
+  「揃えた後は pane と同じ」「選ばなかった node は変わらない」を性質で固めた
+- 見るだけの pane: 右クリックで「merge 後に取り込む」。⌘ / Ctrl / Shift を押しながら押すと複数を選べ、選んだもの全部を
+  一斉に取り込む (仕様)
+- `GraphEditorControls.apply(events)`: merge 後の canvas で dispatch する (undo / redo できる)
+
+#### 検証
+
+単体 1903 件 (取り込みの性質 2・例 1 を追加)・App 結合 39 件 (取り込み 1 件を追加)・E2E 44 件が緑。

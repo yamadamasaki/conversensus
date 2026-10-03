@@ -856,6 +856,7 @@ function GraphEditorInner({
     handleReveal,
     applyPropertyChange,
     selectIds,
+    dispatch,
   };
   const latestRef = useRef(latest);
   latestRef.current = latest;
@@ -872,6 +873,9 @@ function GraphEditorInner({
       setProperty: (name, value) =>
         latestRef.current.applyPropertyChange(name, value),
       select: (ids) => latestRef.current.selectIds(ids),
+      apply: (events) => {
+        for (const event of events) latestRef.current.dispatch(event);
+      },
     });
     return () => onControls(null);
   }, []);

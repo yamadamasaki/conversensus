@@ -43,6 +43,7 @@ import { type GraphEvent, makeEventBase } from './events/GraphEvent';
 import { GraphEditor } from './GraphEditor';
 import { GraphHeader, type HeaderBranch } from './GraphHeader';
 import type { PreviewMarks } from './GraphPreview';
+import { alignToPane } from './graph/alignToPane';
 import { splitMetagraphEvent } from './graph/metagraphEvents';
 import { useActor } from './hooks/useActor';
 import { useAtprotoSession } from './hooks/useAtprotoSession';
@@ -726,13 +727,45 @@ export default function App() {
    * merger の選択の連動 (S5-1b)。選択の正は merge 後の canvas (React Flow) で、見るだけの pane で押した
    * 要素はそこへも選ばせる。merge 後に居ない要素 (消された) を押したときは、押した id を覚えて印にする
    */
-  const [mergerPick, setMergerPick] = useState<string | null>(null);
-  const mergerSelected = new Set<string>(
-    panels.selection ? [panels.selection.id] : mergerPick ? [mergerPick] : [],
-  );
-  const pickInMerger = (id: string) => {
-    setMergerPick(id);
-    panels.controls?.select([id]);
+  const [mergerPicks, setMergerPicks] = useState<readonly string[]>([]);
+  const mergerSelected = new Set<string>([
+    ...(panels.selection ? [panels.selection.id] : []),
+    ...mergerPicks,
+  ]);
+  /** 押した要素を選ぶ。⌘ / Ctrl / Shift を押しながらなら足し引きする (複数を一斉に取り込む, 仕様) */
+  const pickInMerger = (id: string, additive: boolean) => {
+    const next = additive
+      ? mergerPicks.includes(id)
+        ? mergerPicks.filter((p) => p !== id)
+        : [...mergerPicks, id]
+      : [id];
+    setMergerPicks(next);
+    panels.controls?.select(next);
+  };
+  /**
+   * 「取り込む」のメニュー (S5-1c)。右クリックした要素が選ばれていれば選んだもの全部、そうでなければ
+   * その要素だけを対象にする
+   */
+  const [takeMenu, setTakeMenu] = useState<{
+    at: { x: number; y: number };
+    from: 'source' | 'target';
+    ids: readonly string[];
+  } | null>(null);
+  const openTakeMenu =
+    (from: 'source' | 'target') => (id: string, at: { x: number; y: number }) =>
+      setTakeMenu({
+        at,
+        from,
+        ids: mergerPicks.includes(id) ? mergerPicks : [id],
+      });
+  /** merge 後を、元 / 先の pane の姿に揃える (Q9)。merge 後の canvas で dispatch するので undo できる */
+  const takeIntoResult = () => {
+    const pane = takeMenu ? merger?.snapshot[takeMenu.from] : undefined;
+    const result = merger?.snapshot.result;
+    if (takeMenu && pane && result) {
+      panels.controls?.apply(alignToPane(result, pane, takeMenu.ids));
+    }
+    setTakeMenu(null);
   };
   const mergerConflictTargets = conflictTargets(
     merger?.snapshot.conflicts ?? [],
@@ -1157,6 +1190,7 @@ export default function App() {
                   }
                   marksFor={mergerMarksFor(merger?.snapshot.target)}
                   onElementClick={pickInMerger}
+                  onElementContextMenu={openTakeMenu('source')}
                 />
               </PaneFrame>
               <PaneFrame
@@ -1169,11 +1203,54 @@ export default function App() {
                   }
                   marksFor={mergerMarksFor(merger?.snapshot.source)}
                   onElementClick={pickInMerger}
+                  onElementContextMenu={openTakeMenu('target')}
                 />
               </PaneFrame>
               <PaneFrame label="merge 後" active>
                 {activeBody}
               </PaneFrame>
+              {takeMenu && (
+                // 取り込むメニュー。外を押せば閉じる
+                // biome-ignore lint/a11y/useKeyWithClickEvents: 外を押して閉じるための幕。Escape はメニュー側で受ける
+                // biome-ignore lint/a11y/noStaticElementInteractions: 同上
+                <div
+                  style={{ position: 'fixed', inset: 0, zIndex: 900 }}
+                  onClick={() => setTakeMenu(null)}
+                >
+                  <div
+                    role="menu"
+                    aria-label="取り込む"
+                    style={{
+                      position: 'fixed',
+                      left: takeMenu.at.x,
+                      top: takeMenu.at.y,
+                      background: '#fff',
+                      border: '1px solid #ccc',
+                      borderRadius: 6,
+                      boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
+                      padding: 4,
+                      fontSize: 12,
+                    }}
+                  >
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        takeIntoResult();
+                      }}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        padding: '4px 8px',
+                      }}
+                    >
+                      merge 後に取り込む ({takeMenu.ids.length})
+                    </button>
+                  </div>
+                </div>
+              )}
               <ConflictList
                 conflicts={merger?.snapshot.conflicts ?? []}
                 labelOf={(target) =>

@@ -21,6 +21,12 @@ import { ReadOnlyProvider } from './readOnlyContext';
 import type { DiffMarks } from './sync/merger';
 
 const NOTHING = () => {};
+/** 複数を選ぶ押し方か (⌘ / Ctrl / Shift) */
+const isAdditive = (e: {
+  metaKey: boolean;
+  ctrlKey: boolean;
+  shiftKey: boolean;
+}) => e.metaKey || e.ctrlKey || e.shiftKey;
 const INERT_DISPATCH = { dispatch: NOTHING, setDragging: NOTHING };
 const INERT_CREATION = { openNodeTypeMenu: NOTHING };
 
@@ -39,11 +45,21 @@ const CONFLICT_OUTLINE = '2px dashed #dc2626';
 type Props = {
   sheet: Sheet;
   marks?: PreviewMarks;
-  /** 要素 (node / edge) を押した。選択を連動させるのに使う */
-  onElementClick?: (id: string) => void;
+  /**
+   * 要素 (node / edge) を押した。選択を連動させるのに使う。`additive` は ⌘ / Ctrl / Shift を押しながら
+   * (複数を選ぶ)
+   */
+  onElementClick?: (id: string, additive: boolean) => void;
+  /** 要素の上で右クリックした (merger の「取り込む」のメニュー) */
+  onElementContextMenu?: (id: string, at: { x: number; y: number }) => void;
 };
 
-export function GraphPreview({ sheet, marks, onElementClick }: Props) {
+export function GraphPreview({
+  sheet,
+  marks,
+  onElementClick,
+  onElementContextMenu,
+}: Props) {
   const nodes = useMemo(
     () =>
       toFlowNodes(
@@ -94,8 +110,20 @@ export function GraphPreview({ sheet, marks, onElementClick }: Props) {
               deleteKeyCode={null}
               fitView
               {...(onElementClick && {
-                onNodeClick: (_, node) => onElementClick(node.id),
-                onEdgeClick: (_, edge) => onElementClick(edge.id),
+                onNodeClick: (e, node) =>
+                  onElementClick(node.id, isAdditive(e)),
+                onEdgeClick: (e, edge) =>
+                  onElementClick(edge.id, isAdditive(e)),
+              })}
+              {...(onElementContextMenu && {
+                onNodeContextMenu: (e, node) => {
+                  e.preventDefault();
+                  onElementContextMenu(node.id, { x: e.clientX, y: e.clientY });
+                },
+                onEdgeContextMenu: (e, edge) => {
+                  e.preventDefault();
+                  onElementContextMenu(edge.id, { x: e.clientX, y: e.clientY });
+                },
               })}
             >
               <Background />

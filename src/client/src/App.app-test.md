@@ -381,3 +381,11 @@ merger は「merge したらこうなる」を見せ、利用者が直してか�
   merge 後の canvas で、見るだけの pane で押した要素は外から選ばせる口 (`select`) で伝える
 
 変異で確かめたこと: 競合の印を渡さない変異で 1 件目が、押しても merge 後で選ばせない変異で 2 件目が落ちる。
+
+### merger の取り込み (S5-1c)
+
+- **先の pane で右クリックして取り込むと、merge 後がその姿になり、Undo で戻る**: 「trunk 案」の node を右クリック →
+  「merge 後に取り込む」→ merge 後の node が「trunk 案」になる → ヘッダの Undo で「branch 案」に戻る (仕様: どの操作も
+  undo/redo 対象)
+
+変異で確かめたこと: 取り込みの event を merge 後に適用しない変異で落ちる。
