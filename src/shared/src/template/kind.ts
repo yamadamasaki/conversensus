@@ -1,7 +1,12 @@
 import type { PropertyName } from '../events/unified';
 import type { TemplateId } from '../schemas';
 import type { EdgeKindRef } from './fold';
-import type { NodeKind, NodeKindId, Template } from './types';
+import {
+  ANY_NODE_KIND,
+  type NodeKind,
+  type NodeKindId,
+  type Template,
+} from './types';
 
 /**
  * この template が「どの種別か」を記録するプロパティ名 (設計 D3)。
@@ -98,9 +103,15 @@ export function edgeKindCandidates(
   return templates.flatMap((t) => {
     const from = kindIdIn(t, fromProperties);
     const to = kindIdIn(t, toProperties);
-    if (from === undefined || to === undefined) return [];
+    // 両端とも種別を持たない組は、この template の対象外 (任意どうしの種類は作らない)
+    if (from === undefined && to === undefined) return [];
+    // 種別を持たない端は「任意」に当たる (step3 Phase 4)
+    const matches = (
+      ends: readonly NodeKindId[],
+      kind: NodeKindId | undefined,
+    ) => ends.includes(kind ?? ANY_NODE_KIND);
     return t.edgeKinds
-      .filter((ek) => ek.from.includes(from) && ek.to.includes(to))
+      .filter((ek) => matches(ek.from, from) && matches(ek.to, to))
       .map((kind) => ({ templateId: t.id, kind }));
   });
 }

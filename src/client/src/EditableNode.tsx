@@ -1,4 +1,9 @@
-import { hasTemplateKind, type NodeId } from '@conversensus/shared';
+import {
+  DERIVED_FROM_SHEET_PROPERTY,
+  hasTemplateKind,
+  type NodeId,
+  type SheetId,
+} from '@conversensus/shared';
 import {
   Handle,
   type NodeProps,
@@ -6,11 +11,12 @@ import {
   Position,
   useReactFlow,
 } from '@xyflow/react';
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useEventDispatch } from './EventDispatchContext';
 import { makeEventBase } from './events/GraphEvent';
+import { useGraphNodeHandlers } from './graph/graphNodeContext';
 import { useInlineEdit } from './hooks/useInlineEdit';
 
 /** ラベルの見た目。空のとき (ラベルを付ける口) は破線の枠だけにする */
@@ -81,6 +87,16 @@ export function EditableNode({ id, data, selected }: NodeProps) {
   const kindFromTemplate = hasTemplateKind(
     data.properties as Record<string, unknown> | undefined,
   );
+  /**
+   * metagraph の graph node なら、そのシート (step3 Phase 4)。ダブルクリックは文字の編集ではなく
+   * シートを開く (Q6)。名前の変更 (= 本文の編集) は選んで Enter / F2 で始まる
+   */
+  const graphNodes = useGraphNodeHandlers();
+  const derivedFrom = (
+    data.properties as Record<string, unknown> | undefined
+  )?.[DERIVED_FROM_SHEET_PROPERTY];
+  const graphNodeSheet =
+    typeof derivedFrom === 'string' ? (derivedFrom as SheetId) : undefined;
   const diffType = data.diffType as 'add' | 'update' | undefined;
   const ghost = data.ghost === true;
 
@@ -108,6 +124,13 @@ export function EditableNode({ id, data, selected }: NodeProps) {
         });
       }
     });
+
+  // 選んで Enter / F2 で名前の変更を始める (graph node, step3 Phase 4)。合図は 1 度使ったら消す
+  useEffect(() => {
+    if (graphNodes?.renameRequest !== id) return;
+    startEdit();
+    graphNodes.clearRenameRequest();
+  }, [graphNodes, id, startEdit]);
 
   if (ghost) {
     // ghost のハンドルは ghost エッジの端点として座標を提供するだけで、
@@ -185,6 +208,7 @@ export function EditableNode({ id, data, selected }: NodeProps) {
       <Handle type="source" position={Position.Top} id="source-top" />
       {/* biome-ignore lint/a11y/noStaticElementInteractions: ノードコンテナはダブルクリックで編集を開始する */}
       <div
+        data-node-body
         style={{
           padding: '8px 12px',
           borderRadius: 6,
@@ -204,7 +228,13 @@ export function EditableNode({ id, data, selected }: NodeProps) {
           overflow: 'auto',
           cursor: 'default',
         }}
-        onDoubleClick={!editing ? startEdit : undefined}
+        onDoubleClick={
+          editing
+            ? undefined
+            : graphNodeSheet && graphNodes
+              ? () => graphNodes.openSheet(graphNodeSheet)
+              : startEdit
+        }
       >
         {/*
           ラベル。**template の種別なら変更できない** (仕様 OnMutation) ので編集の口を

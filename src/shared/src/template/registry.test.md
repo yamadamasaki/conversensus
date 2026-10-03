@@ -1,30 +1,20 @@
-# template/registry のテスト仕様
+# SEED_TEMPLATES のテスト
 
 ## 何を
 
-作り込みの template 一覧 (`BUILTIN_TEMPLATES`) と、シートの `templateIds` から実体を引く
-`templatesOf` を見る。
+`SEED_TEMPLATES` — template graph の**種** (step3 Phase 4 S4-1c, Q1)。「シートを追加 ▾」の
+「Toulmin model を追加」が、これを File の template graph に複製する。
 
 ## なぜ
 
-一覧という形にしてあるのは、**シート作成時の選択肢がここから出るから**である。UI に
-toulmin を直書きすると、template が増えたときに画面を書き直すことになる。step2 では
-1 つしか無いので、一覧であること自体が唯一の主張になる。
-
-`templatesOf` の主題は **知らない id をどうするか** である。
+step2 の `BUILTIN_TEMPLATES` / `templatesOf` (作り込みの template を id で引く) は撤去した。template は
+すべて File の中の template graph で、当てたシートはその切断面を参照する。種は**実行時に引く先ではない**ので、
+ここで見るのは「何が種として並ぶか」と「種の表が正しいか」だけである。
 
 ## どのように
 
-- **step2 では toulmin ひとつだけ**: spec の「step 2 で作るのは toulmin model の template を
-  直接コードに書いたもの一つだけ」を固定する。
-- **id から実体を引く / 未指定は空**: 空は「template を当てていないシート」であり、
-  **種別メニューを出さない**根拠になる (設計 Exit 2)。
-- **知らない id は黙って落とす**: 共同作業では、相手が持っている template を自分が持たない
-  ことが起こり得る (step3 でユーザ定義になれば普通に起こる)。そこで例外を投げると
-  **相手の作ったシートを開けなくなる**。種別が少し引けないことより遥かに悪い。
-  落とした結果は「template を当てていないシート」に連続的に近づく、という壊れ方を選んでいる。
-- **template graph の切断面はまだ解決せず、落とす** (step3 Phase 1 D7): `templateIds` は
-  `TemplateRef` (作り込みの id か `{ sheet, at }`) の配列になった。切断面の解決は後の Phase で、
-  それまでは知らない id と同じく落とす — 同じ「縮退」の壊れ方に揃える。
-- **指定した順に返す**: 種別メニューの並びが `templateIds` の順で決まる。
-  複数当てたときに並びが実装依存だと、参加者ごとにメニューが違って見える。
+- 種は Toulmin model ひとつ
+- 種は template の参照整合性を満たす (`from` / `to` の綴り違いは import 時に落ちる)
+
+作り込みの id を解決しない (縮退する) ことは `fromSheet.test.ts` が、種を複製して読み替えると同じ種類に
+戻ることは `seed.test.ts` が見る。

@@ -220,6 +220,7 @@ export function invertEvent(event: GraphEvent): GraphEvent {
     case 'SHEET_REMOVED':
     case 'SHEET_RENAMED':
     case 'SHEET_DESCRIBED':
+    case 'SHEET_PROPERTY_CHANGED':
     case 'FILE_RENAMED':
     case 'FILE_DESCRIBED':
     case 'FILE_DELETED':

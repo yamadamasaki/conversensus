@@ -1,7 +1,11 @@
 import { type Template, TemplateSchema } from './types';
 
 /**
- * toulmin model の template。**step2 で作るのはこれ一つだけ**である (spec/template.md)。
+ * toulmin model の template の**表** (step3 Phase 4 S4-1c で役目が変わった)。
+ *
+ * step2 ではこれを作り込みの template として直接引いていた。step3 では **template graph の種**
+ * (`SEED_TEMPLATES`) で、「Toulmin model を追加」がこれを File の template graph に複製する
+ * (`templateGraphOf`)。当てたシートが参照するのは複製された template graph の方である。
  *
  * `TemplateSchema.parse` を通しているのは形式だけの理由ではない — `from` / `to` の
  * 綴り違いを **import 時に** 落とすためである。ここは手で書く表なので、参照の間違いが

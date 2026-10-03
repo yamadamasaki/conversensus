@@ -3,10 +3,16 @@ import {
   type Batch,
   type Did,
   type FileId,
+  kindPropertyOf,
+  type NodeId,
   projectFile,
+  sheetKindOf,
+  TEMPLATE_SHEET_KIND,
+  templateIdOf,
 } from '@conversensus/shared';
 import {
   cleanup,
+  fireEvent,
   render,
   screen,
   waitFor,
@@ -48,6 +54,8 @@ const BOB: FakeAccount = {
   password: 'bob-pw',
 };
 const FILE_NAME = '共有ファイル';
+/** 未ログインの端末の DID (別のタブの actor を作るのに使う) */
+const LOCAL_TEST_ACTOR = 'local';
 /** 「何も起きないこと」を見る前に、描画と計測が落ち着くのを待つ時間 */
 const SETTLE_MS = 500;
 const BRANCH_NAME = 'b1';
@@ -429,7 +437,12 @@ describe('App 結合: branch の出入りで trunk と branch が混ざらない
     await waitFor(() => expect(renderedNodeCount()).toBe(0), WIRING_TIMEOUT);
     const fileId = world.localStore().listFiles()[0]?.id as FileId;
     const trunk = projectFile(world.localStore().getBatches(fileId), fileId);
-    expect(trunk.sheets.map((s) => s.nodes.length)).toEqual([0, 0]);
+    // ふつうのシートだけを見る (index は sheet の一覧を graph node として持つ, step3 Phase 4)
+    expect(
+      trunk.sheets
+        .filter((s) => sheetKindOf(s) === undefined)
+        .map((s) => s.nodes.length),
+    ).toEqual([0, 0]);
   });
 
   test('branch を開いている間に届いた trunk の編集は、trunk に戻ると見える', async () => {
@@ -878,5 +891,234 @@ describe('App 結合: multiple モード (step3 Phase 3 S3-5)', () => {
     const user = userEvent.setup();
     await createFile(user, FILE_NAME);
     expect(screen.queryByTitle('並べる (開発用)') === null).toBe(true);
+  });
+});
+
+describe('App 結合: template graph (step3 Phase 4 S4-1b)', () => {
+  /** 開いている File の中の、種別 template のシート */
+  const templateSheetOf = (fileId: FileId) =>
+    projectFile(world.localStore().getBatches(fileId), fileId).sheets.find(
+      (s) => sheetKindOf(s) === TEMPLATE_SHEET_KIND,
+    );
+
+  test('template graph の label の node が、当てたシートの種類のメニューに出て、作った node は種別と既定値を持つ', async () => {
+    await world.activate('solo');
+    render(<App />);
+    const user = userEvent.setup();
+    await createFile(user, FILE_NAME);
+
+    // template graph を作る。branch は切れない (「+ branch」が出ない)
+    await user.click(
+      screen.getByRole('button', { name: 'template 付きでシートを追加' }),
+    );
+    await user.click(screen.getByRole('button', { name: '+ template graph' }));
+    await screen.findByTitle('template graph', {}, WIRING_TIMEOUT);
+    expect(screen.queryByRole('button', { name: '+ branch' }) === null).toBe(
+      true,
+    );
+
+    // template graph に「主張」(既定値 owner = '') を置く。文字の入力は React Flow の中で扱いにくいので、
+    // 別のタブが書いたものとして正典に入れて知らせる (S2-4 と同じ手)
+    const store = world.localStore();
+    const fileId = store.listFiles()[0]?.id as FileId;
+    const templateSheet = templateSheetOf(fileId);
+    if (!templateSheet) throw new Error('template graph が正典に無い');
+    const claim = crypto.randomUUID() as NodeId;
+    store.appendBatches(fileId, [
+      {
+        id: crypto.randomUUID() as Batch['id'],
+        actor: `${LOCAL_TEST_ACTOR}#other-tab`,
+        clock: 1000,
+        seq: 1,
+        deps: {},
+        timestamp: Date.now(),
+        sheetId: templateSheet.id,
+        ops: [
+          { kind: 'node.add', target: claim, content: '結論' },
+          { kind: 'node.setLabel', target: claim, label: '主張' },
+          { kind: 'node.setProperty', target: claim, name: 'owner', value: '' },
+        ],
+      },
+    ]);
+    const channel = new BroadcastChannel(LOCAL_CHANGES_CHANNEL);
+    channel.postMessage({ fileId });
+    channel.close();
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+
+    // 当ててシートを足す (Q7: チェックボックスのダイアログ)
+    await user.click(screen.getByText('+ シートを追加'));
+    const dialog = await screen.findByRole('dialog', { name: 'シートを追加' });
+    await user.click(within(dialog).getByRole('checkbox'));
+    await user.click(
+      within(dialog).getByRole('button', { name: 'シートを追加' }),
+    );
+    await waitFor(() => expect(renderedNodeCount()).toBe(0), WIRING_TIMEOUT);
+
+    // 種類のメニューに「主張」が出て、作った node は種別・label・既定値を持つ
+    await addNode(user, '主張');
+    await waitFor(() => {
+      const applied = projectFile(store.getBatches(fileId), fileId).sheets.find(
+        (s) => s.templateIds?.length,
+      );
+      const node = applied?.nodes[0];
+      expect(node?.label).toBe('主張');
+      expect(node?.properties).toEqual({
+        owner: '',
+        [kindPropertyOf(templateIdOf(templateSheet.id))]: claim,
+      });
+    }, WIRING_TIMEOUT);
+  });
+
+  test('Toulmin model を追加すると種から template graph ができ、当てたシートで Toulmin の種類を使える (Q1)', async () => {
+    await world.activate('solo');
+    render(<App />);
+    const user = userEvent.setup();
+    await createFile(user, FILE_NAME);
+
+    await user.click(
+      screen.getByRole('button', { name: 'template 付きでシートを追加' }),
+    );
+    await user.click(
+      screen.getByRole('button', { name: '+ Toulmin model を追加' }),
+    );
+    // 種の 5 つの種類が node として並ぶ (ふつうの template graph として描かれる)
+    await waitFor(() => expect(renderedNodeCount()).toBe(5), WIRING_TIMEOUT);
+    await screen.findByTitle('template graph', {}, WIRING_TIMEOUT);
+
+    await user.click(screen.getByText('+ シートを追加'));
+    const dialog = await screen.findByRole('dialog', { name: 'シートを追加' });
+    await user.click(
+      within(dialog).getByRole('checkbox', { name: 'Toulmin model' }),
+    );
+    await user.click(
+      within(dialog).getByRole('button', { name: 'シートを追加' }),
+    );
+    await waitFor(() => expect(renderedNodeCount()).toBe(0), WIRING_TIMEOUT);
+
+    await addNode(user, '主張');
+    const store = world.localStore();
+    const fileId = store.listFiles()[0]?.id as FileId;
+    await waitFor(() => {
+      const file = projectFile(store.getBatches(fileId), fileId);
+      const toulmin = file.sheets.find(
+        (s) => sheetKindOf(s) === TEMPLATE_SHEET_KIND,
+      );
+      const applied = file.sheets.find((s) => s.templateIds?.length);
+      const claim = toulmin?.nodes.find((n) => n.label === '主張');
+      const node = applied?.nodes[0];
+      // 種類の id は複製された template graph の node の id、名前空間はその template graph
+      expect(node?.label).toBe('主張');
+      expect(
+        node?.properties?.[kindPropertyOf(templateIdOf(toulmin?.id ?? ''))],
+      ).toBe(claim?.id);
+    }, WIRING_TIMEOUT);
+  });
+});
+
+describe('App 結合: metagraph (step3 Phase 4 S4-2b)', () => {
+  /** graph node (導出 node) の DOM。本文 (= シートの名前) で探す */
+  const graphNode = (name: string) => {
+    const node = [...document.querySelectorAll('.react-flow__node')].find((n) =>
+      n.textContent?.includes(name),
+    );
+    if (!node) throw new Error(`graph node「${name}」が描かれていない`);
+    return node as HTMLElement;
+  };
+  const sheetNames = () => {
+    const store = world.localStore();
+    const fileId = store.listFiles()[0]?.id as FileId;
+    return projectFile(store.getBatches(fileId), fileId).sheets.map(
+      (s) => s.name,
+    );
+  };
+
+  /** File を作り、index を開く */
+  async function openIndex() {
+    await world.activate('solo');
+    render(<App />);
+    const user = userEvent.setup();
+    await createFile(user, FILE_NAME);
+    await user.click(screen.getByRole('button', { name: /^index/ }));
+    // Sheet 1 と index 自身 (Q4) が graph node として並ぶ
+    await waitFor(() => expect(renderedNodeCount()).toBe(2), WIRING_TIMEOUT);
+    return user;
+  }
+
+  test('File を作ると index があり、Sheet 1 と index 自身が graph node として並ぶ', async () => {
+    await openIndex();
+    expect(sheetNames()).toEqual(['Sheet 1', 'index']);
+    graphNode('Sheet 1');
+    graphNode('index');
+  });
+
+  test('「グラフ」で graph node を足すとシートが増え、metagraph に留まったまま graph node が出る', async () => {
+    const user = await openIndex();
+    await addNode(user, 'グラフ');
+    await waitFor(() => expect(renderedNodeCount()).toBe(3), WIRING_TIMEOUT);
+    expect(sheetNames()).toEqual(['Sheet 1', 'index', 'Sheet 2']);
+    // 足したシートは開かない (index のタブのまま)
+    expect(
+      screen
+        .getAllByRole('tab')
+        .find((t) => t.getAttribute('aria-selected') === 'true')?.textContent,
+    ).toBe(`${FILE_NAME} / index`);
+    graphNode('Sheet 2');
+  });
+
+  test('graph node を消すと、確認の後にシートが消える。断れば消えない', async () => {
+    const user = await openIndex();
+    await addNode(user, 'グラフ');
+    await waitFor(() => expect(renderedNodeCount()).toBe(3), WIRING_TIMEOUT);
+
+    fireEvent.click(graphNode('Sheet 2'));
+    fireEvent.keyDown(window, { key: 'Delete' });
+    await user.click(await screen.findByRole('button', { name: 'キャンセル' }));
+    expect(sheetNames()).toContain('Sheet 2');
+
+    fireEvent.click(graphNode('Sheet 2'));
+    fireEvent.keyDown(window, { key: 'Delete' });
+    await user.click(await screen.findByRole('button', { name: 'OK' }));
+    await waitFor(
+      () => expect(sheetNames()).not.toContain('Sheet 2'),
+      WIRING_TIMEOUT,
+    );
+    await waitFor(() => expect(renderedNodeCount()).toBe(2), WIRING_TIMEOUT);
+  });
+
+  test('graph node を選んで F2 で名前を変えると、シートの名前が変わる', async () => {
+    const user = await openIndex();
+    fireEvent.click(graphNode('Sheet 1'));
+    fireEvent.keyDown(window, { key: 'F2' });
+    const input = await waitFor(() => {
+      const el = graphNode('Sheet 1').querySelector('textarea');
+      if (!el) throw new Error('名前の編集が始まらない');
+      return el;
+    }, WIRING_TIMEOUT);
+    await user.clear(input);
+    await user.type(input, '本論');
+    fireEvent.blur(input);
+    await waitFor(
+      () => expect(sheetNames()).toEqual(['本論', 'index']),
+      WIRING_TIMEOUT,
+    );
+    await screen.findByRole('button', { name: '本論' }, WIRING_TIMEOUT);
+  });
+
+  test('graph node をダブルクリックすると、そのシートを新しいタブで開く (Q6)', async () => {
+    await openIndex();
+    // ダブルクリックの受け手は本文の要素 (React Flow の外枠ではない)
+    const body = graphNode('Sheet 1').querySelector('[data-node-body]');
+    if (!body) throw new Error('graph node の本文が無い');
+    fireEvent.doubleClick(body);
+    await waitFor(
+      () =>
+        expect(
+          screen
+            .getAllByRole('tab')
+            .find((t) => t.getAttribute('aria-selected') === 'true')
+            ?.textContent,
+        ).toBe(`${FILE_NAME} / Sheet 1`),
+      WIRING_TIMEOUT,
+    );
   });
 });

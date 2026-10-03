@@ -236,7 +236,20 @@ export function graphFileToBatches(file: GraphFile): Batch[] {
         ...(sheet.description !== undefined && {
           description: sheet.description,
         }),
+        // 当てた template と、シートのプロパティ (特殊なグラフの種別) も起点に載せる
+        // (step3 Phase 4)。以前は落としていたので、取り込むと template も種別も失われた
+        ...(sheet.templateIds !== undefined && {
+          templateIds: sheet.templateIds,
+        }),
       },
+      ...Object.entries(sheet.properties ?? {}).map(
+        ([name, value]): Op => ({
+          kind: 'sheet.setProperty',
+          target: sheet.id,
+          name,
+          value,
+        }),
+      ),
     ]);
     push(sheetContentOps(sheet), sheet.id);
   }

@@ -2,28 +2,45 @@ import {
   addressKey,
   BRANCH_STATUS,
   type BranchId,
+  DERIVED_FROM_SHEET_PROPERTY,
   type Did,
+  derivedNodeIdOf,
   type FileId,
   type ForkMeta,
   type GraphFile,
   type GraphViewAddress,
   HEAD_CUT,
+  heldMaxima,
+  METAGRAPH_SHEET_KIND,
+  type NodeId,
+  type PropertyName,
+  placeDerivedNodes,
+  refreshDerivedNodes,
+  SHEET_KIND_PROPERTY,
   type Sheet,
   type SheetId,
-  type TemplateId,
+  type SheetKind,
+  sheetKindOf,
+  TEMPLATE_SHEET_KIND,
+  type Template,
+  type TemplateGraphContent,
+  type TemplateRef,
+  templateGraphOf,
 } from '@conversensus/shared';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AcceptInvitationDialog } from './AcceptInvitationDialog';
 import { AlertDialog } from './AlertDialog';
 import { AtprotoLoginDialog } from './AtprotoLoginDialog';
+import { fetchBatches } from './api';
 import { authNeedsPassword } from './atproto/client';
 import { CommitDialog } from './CommitDialog';
 import { ConfirmDialog } from './ConfirmDialog';
 import { ConflictNotice, NOTICE_Z_INDEX } from './ConflictNotice';
 import { devPanesEnabled } from './config';
-import { makeEventBase } from './events/GraphEvent';
+import { type GraphEvent, makeEventBase } from './events/GraphEvent';
 import { GraphEditor } from './GraphEditor';
 import { GraphHeader, type HeaderBranch } from './GraphHeader';
+import { splitMetagraphEvent } from './graph/metagraphEvents';
 import { useActor } from './hooks/useActor';
 import { useAtprotoSession } from './hooks/useAtprotoSession';
 import type { ConflictNoticeState } from './hooks/useBranchOperations';
@@ -31,11 +48,13 @@ import {
   BRANCH_DIFF_STATE,
   useBranchOperations,
 } from './hooks/useBranchOperations';
+import { useChangeCounter } from './hooks/useChangeCounter';
 import type { UndoState } from './hooks/useEventStore';
 import { useFileSheetOperations } from './hooks/useFileSheetOperations';
 import { useGraphPanels } from './hooks/useGraphPanels';
 import { useParticipation } from './hooks/useParticipation';
 import { useRemoteSyncQueue } from './hooks/useRemoteSyncQueue';
+import { useResolvedTemplates } from './hooks/useResolvedTemplates';
 import { useRosterSource } from './hooks/useRosterSource';
 import { useSidePanels } from './hooks/useSidePanels';
 import { useTabNavigation } from './hooks/useTabNavigation';
@@ -64,6 +83,7 @@ import {
 } from './sync/overwrites';
 import { participationRounds } from './sync/participationHistoryView';
 import { TabBar } from './TabBar';
+import { TemplateApplyDialog } from './TemplateApplyDialog';
 import {
   activeTab,
   isMultiple,
@@ -72,6 +92,12 @@ import {
   tabAddress,
 } from './tabs/tabs';
 import { generateId } from './uuid';
+
+/** 特殊なグラフのシートの既定の名前 (step3 Phase 4)。n は同じ種類の何枚目か */
+const SPECIAL_SHEET_NAMES: Record<SheetKind, (n: number) => string> = {
+  [TEMPLATE_SHEET_KIND]: (n) => `Template ${n}`,
+  [METAGRAPH_SHEET_KIND]: (n) => (n === 1 ? 'index' : `index ${n}`),
+};
 
 export default function App() {
   // Dialog state (UI only)
@@ -246,21 +272,47 @@ export default function App() {
   const currentTab = activeTab(tabs.state);
   const { open: openTab } = tabs;
 
-  const handleAddSheet = useCallback(
-    (templateIds?: TemplateId[]) => {
+  /**
+   * シートを足す。`templateIds` は当てる template、`properties` は作成時に置くシートのプロパティ
+   * (特殊なグラフの種別, step3 Phase 4 S4-0)。名前を省くと `Sheet N`
+   */
+  const addSheet = useCallback(
+    ({
+      name,
+      templateIds,
+      properties,
+      content,
+      open = true,
+    }: {
+      /** 足したシートを開く (新しいタブ)。metagraph から足すときは開かない (metagraph に留まる) */
+      open?: boolean;
+      name?: string;
+      templateIds?: TemplateRef[];
+      properties?: Record<PropertyName, unknown>;
+      /** 作るときに置く中身 (template graph の種の複製, step3 Phase 4 S4-1c) */
+      content?: TemplateGraphContent;
+    } = {}): SheetId | undefined => {
       const trunkFile = fileOps.activeFile;
-      if (!trunkFile) return;
+      if (!trunkFile) return undefined;
       // branch は per-sheet なので、シートを増やす操作は branch を抜けてから行う
       // (シート切替 `handleSelectSheet` が branch を抜けるのと同じ扱い)。`activeFile` は
       // trunk の姿だけを持つので、そのまま土台にしてよい (step3 Phase 3 S3-2)
       if (!branchOps.isTrunk) branchOps.resetBranchState();
       const newSheet: Sheet = {
         id: generateId() as SheetId,
-        name: `Sheet ${trunkFile.sheets.length + 1}`,
-        nodes: [],
-        edges: [],
+        // 既定の名前は「ふつうのシートの何枚目か」で付ける。index などの特殊なグラフは数えない
+        name:
+          name ??
+          `Sheet ${trunkFile.sheets.filter((s) => sheetKindOf(s) === undefined).length + 1}`,
+        nodes: content?.nodes ?? [],
+        edges: content?.edges ?? [],
+        ...(content && {
+          layouts: content.layouts,
+          edgeLayouts: content.edgeLayouts,
+        }),
         // 紐づけは作成時にしか持たない (Phase 5 D1)。空配列は「無し」と区別しないので落とす
         ...(templateIds?.length ? { templateIds } : {}),
+        ...(properties && { properties }),
       };
       const updated: GraphFile = {
         ...trunkFile,
@@ -273,16 +325,45 @@ export default function App() {
         sheetId: newSheet.id,
         name: newSheet.name,
         ...(templateIds?.length ? { templateIds } : {}),
+        ...(properties && { properties }),
       });
-      fileOps.setActiveSheetId(newSheet.id);
+      // 中身は content の op としてシートに積む (canvas で置いたのと同じ形)。layout も同じ batch に載せる
+      for (const node of content?.nodes ?? []) {
+        fileOps.syncRecord(
+          {
+            ...makeEventBase('structure'),
+            type: 'NODE_ADDED',
+            nodeId: node.id,
+            data: node,
+            layout: content?.layouts.find((l) => l.nodeId === node.id),
+          },
+          newSheet.id,
+        );
+      }
+      for (const edge of content?.edges ?? []) {
+        fileOps.syncRecord(
+          {
+            ...makeEventBase('structure'),
+            type: 'EDGE_ADDED',
+            edgeId: edge.id,
+            data: edge,
+            edgeLayout: content?.edgeLayouts.find((l) => l.edgeId === edge.id),
+          },
+          newSheet.id,
+        );
+      }
       fileOps.updateFileState(updated);
-      // 足したシートは新しいタブで開く。画面の state と同じ更新で足すので、移動は起きない
-      openTab({
-        fileId: trunkFile.id,
-        sheetId: newSheet.id,
-        branchId: null,
-        cut: HEAD_CUT,
-      });
+      if (open) {
+        fileOps.setActiveSheetId(newSheet.id);
+        // 足したシートは新しいタブで開く。画面の state と同じ更新で足すので、移動は起きない
+        openTab({
+          fileId: trunkFile.id,
+          sheetId: newSheet.id,
+          branchId: null,
+          cut: HEAD_CUT,
+        });
+      }
+      return newSheet.id;
     },
     [
       openTab,
@@ -293,6 +374,73 @@ export default function App() {
       branchOps.isTrunk,
       branchOps.resetBranchState,
     ],
+  );
+  /** File の中の template graph (step3 Phase 4)。「シートを追加」で当てる候補になる */
+  const templateGraphs = (fileOps.activeFile?.sheets ?? []).filter(
+    (s) => sheetKindOf(s) === TEMPLATE_SHEET_KIND,
+  );
+  const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
+
+  /**
+   * サイドバーの「シートを追加」。File に template graph があれば当てるものを選ばせる (Q7)。
+   * 無ければ 1 クリックのまま足す
+   */
+  const handleAddSheet = useCallback(() => {
+    if (templateGraphs.length > 0) setTemplateDialogOpen(true);
+    else addSheet();
+  }, [addSheet, templateGraphs.length]);
+
+  /** template graph の種を File に複製する (Q1)。複製した template graph はふつうの template graph */
+  const handleAddSeedTemplate = useCallback(
+    (seed: Template) =>
+      addSheet({
+        name: seed.name,
+        properties: { [SHEET_KIND_PROPERTY]: TEMPLATE_SHEET_KIND },
+        content: templateGraphOf(seed, generateId),
+      }),
+    [addSheet],
+  );
+
+  /**
+   * template graph を当ててシートを足す。**当てる内容は、いまの姿 (切断面) で固定する** (仕様:
+   * 適用先グラフの生成時に決まる)。切断面は手元の trunk の op-log の vector で、直前の template graph の
+   * 編集が漏れないよう、書き込みが落ち切ってから読む
+   */
+  const { trunkSettled } = fileOps;
+  const applyTemplateGraphs = useCallback(
+    async (templateSheetIds: string[]) => {
+      setTemplateDialogOpen(false);
+      const fileId = fileOps.activeFile?.id;
+      if (!fileId) return;
+      if (templateSheetIds.length === 0) {
+        addSheet();
+        return;
+      }
+      await trunkSettled();
+      const at = heldMaxima(await fetchBatches(fileId));
+      addSheet({
+        templateIds: templateSheetIds.map((sheet) => ({
+          sheet: sheet as SheetId,
+          at,
+        })),
+      });
+    },
+    [fileOps.activeFile?.id, addSheet, trunkSettled],
+  );
+
+  /** 特殊なグラフのシート (template graph・metagraph) を足す */
+  const handleAddKindSheet = useCallback(
+    (kind: SheetKind) => {
+      const count =
+        (fileOps.activeFile?.sheets ?? []).filter(
+          (s) => sheetKindOf(s) === kind,
+        ).length + 1;
+      addSheet({
+        name: SPECIAL_SHEET_NAMES[kind]?.(count) ?? `Sheet ${count}`,
+        properties: { [SHEET_KIND_PROPERTY]: kind },
+      });
+    },
+    [fileOps.activeFile?.sheets, addSheet],
   );
 
   // Phase 6 p6-4: セッション確立後の PDS legacy file レコード同期 (`loadAtprotoFiles`)
@@ -336,7 +484,34 @@ export default function App() {
    * 再 seed の契機 (`receiveEpoch`) も同じ分かれ目で切り替える
    */
   const viewingBranch = !branchOps.isTrunk && branchOps.branchSheet !== null;
-  const viewSheet = viewingBranch ? branchOps.branchSheet : fileOps.activeSheet;
+  const shownSheet = viewingBranch
+    ? branchOps.branchSheet
+    : fileOps.activeSheet;
+  /**
+   * metagraph なら、graph node を**いまの sheet の一覧**で導き直し、置き場所の無いものを並べる
+   * (step3 Phase 4 S4-2b)。自分でシートを足す・消す・名前を変えても、自分の書き込みでは
+   * projection し直さないので、読み込んだ時点の graph node のままでは古い
+   */
+  const isMetagraphView =
+    shownSheet !== null &&
+    shownSheet !== undefined &&
+    sheetKindOf(shownSheet) === METAGRAPH_SHEET_KIND;
+  const fileSheets = fileOps.activeFile?.sheets;
+  const viewSheet = useMemo(
+    () =>
+      isMetagraphView && shownSheet && fileSheets
+        ? placeDerivedNodes(refreshDerivedNodes(shownSheet, fileSheets))
+        : shownSheet,
+    [isMetagraphView, shownSheet, fileSheets],
+  );
+  /**
+   * metagraph の描き直しの合図。sheet の一覧 (id と名前) が変わったら canvas を seed し直す —
+   * `GraphEditor` は props のシートが変わっただけでは React Flow の state を入れ替えない
+   */
+  const sheetListKey = (fileSheets ?? [])
+    .map((s) => `${s.id}:${s.name}`)
+    .join('|');
+  const metagraphEpoch = useChangeCounter(isMetagraphView ? sheetListKey : '');
   /**
    * 表示している branch。**開いている File とシートのものに限る** — File を開き替えた直後の
    * 1 回の描画では、branch の state はまだ前の File のものが残っている (リセットは effect)。
@@ -364,6 +539,113 @@ export default function App() {
       : null;
 
   const viewKey = viewAddress ? addressKey(viewAddress) : null;
+
+  /**
+   * metagraph の graph node への操作をシートの操作に回す (step3 Phase 4 S4-2b)。シートの削除は
+   * 中身ごと消えて undo で戻せないので、確認を挟む
+   */
+  const {
+    handleDeleteSheet,
+    handleSaveSheetSettings,
+    setActiveFile: setFileState,
+  } = fileOps;
+  const metagraphTransform = useCallback(
+    (event: GraphEvent): GraphEvent | null => {
+      const sheetOf = (nodeId: NodeId) => {
+        const value = viewSheet?.nodes.find((n) => n.id === nodeId)
+          ?.properties?.[DERIVED_FROM_SHEET_PROPERTY];
+        return typeof value === 'string' ? (value as SheetId) : undefined;
+      };
+      const { rest, intents } = splitMetagraphEvent(event, sheetOf);
+      for (const intent of intents) {
+        const target = fileSheets?.find((s) => s.id === intent.sheetId);
+        if (!target) continue;
+        if (intent.kind === 'renameSheet') {
+          handleSaveSheetSettings(
+            target.id,
+            intent.name,
+            target.description ?? '',
+          );
+          continue;
+        }
+        void new Promise<boolean>((resolve) =>
+          setConfirmState({
+            message: `シート「${target.name}」を削除しますか？\n中身も全て削除されます。`,
+            resolve,
+          }),
+        ).then((ok) => {
+          if (ok) void handleDeleteSheet(target.id);
+        });
+      }
+      return rest;
+    },
+    [viewSheet, fileSheets, handleDeleteSheet, handleSaveSheetSettings],
+  );
+  /** metagraph の graph node の口: 開く (Q6) と、足す (シートを作り、その graph node を置いた所に置く) */
+  const metagraphSheetId = isMetagraphView ? shownSheet?.id : undefined;
+  const metagraphFileId = fileOps.activeFile?.id;
+  const { syncRecord: trunkRecord } = fileOps;
+  const metagraphGraphNodes = useMemo(
+    () => ({
+      onOpen: (sheetId: SheetId) => {
+        if (!metagraphFileId) return;
+        openTab({
+          fileId: metagraphFileId,
+          sheetId,
+          branchId: null,
+          cut: HEAD_CUT,
+        });
+      },
+      onAdd: (position: { x: number; y: number }) => {
+        const sheetId = addSheet({ open: false });
+        if (!sheetId || !metagraphSheetId) return;
+        const nodeId = derivedNodeIdOf(sheetId);
+        // 置いた所を graph node の位置として積む (導出 node への node.setLayout は畳み込みが受ける)
+        trunkRecord(
+          {
+            ...makeEventBase('layout'),
+            type: 'NODE_MOVED',
+            nodeId,
+            from: position,
+            to: position,
+          },
+          metagraphSheetId,
+        );
+        setFileState((file) =>
+          file
+            ? {
+                ...file,
+                sheets: file.sheets.map((s) =>
+                  s.id === metagraphSheetId
+                    ? {
+                        ...s,
+                        layouts: [
+                          ...(s.layouts ?? []),
+                          { nodeId, x: position.x, y: position.y },
+                        ],
+                      }
+                    : s,
+                ),
+              }
+            : file,
+        );
+      },
+    }),
+    [
+      metagraphFileId,
+      openTab,
+      addSheet,
+      metagraphSheetId,
+      trunkRecord,
+      setFileState,
+    ],
+  );
+  // 描いているシートに当てた template の実体 (step3 Phase 4 S4-1b)。template graph の切断面は
+  // op-log を読んで解決する
+  const viewTemplates = useResolvedTemplates(
+    fileOps.activeFile?.id ?? null,
+    viewSheet?.templateIds,
+  );
   // 左右のサイドバーの幅と開閉 (S3-4b)。端末ごとの好みなので localStorage に置く
   const sidePanels = useSidePanels();
   // ヘッダが開閉する窓と、canvas の口・選択の写し (step3 Phase 3 S3-4a)
@@ -513,10 +795,15 @@ export default function App() {
               // 受信による差し替えの契機。描いている方 (trunk / branch) の受信だけを見る —
               // branch を開いている間の trunk の受信は branch の画面を変えない
               receiveEpoch={
-                viewingBranch
+                (viewingBranch
                   ? branchOps.branchReceiveEpoch
-                  : fileOps.receiveEpoch
+                  : fileOps.receiveEpoch) + metagraphEpoch
               }
+              {...(isMetagraphView && {
+                transformEvent: metagraphTransform,
+                graphNodes: metagraphGraphNodes,
+              })}
+              templates={viewTemplates}
               onControls={panels.setControls}
               onSelectionChange={panels.setSelection}
             />
@@ -588,6 +875,8 @@ export default function App() {
             openSheetTab(sheetId, null, options)
           }
           onAddSheet={handleAddSheet}
+          onAddKindSheet={handleAddKindSheet}
+          onAddSeedTemplate={handleAddSeedTemplate}
           onSetPopupTarget={fileOps.setPopupTarget}
           onSaveFileSettings={fileOps.handleSaveFileSettings}
           onDeleteFile={fileOps.handleDeleteFile}
@@ -760,6 +1049,13 @@ export default function App() {
           readOnly={readOnly}
         />
       </SidePanel>
+      {templateDialogOpen && (
+        <TemplateApplyDialog
+          templateGraphs={templateGraphs}
+          onSubmit={(selected) => void applyTemplateGraphs(selected)}
+          onCancel={() => setTemplateDialogOpen(false)}
+        />
+      )}
       {branchOps.commitDialogOpen && (
         <CommitDialog
           changes={branchOps.pendingChanges}

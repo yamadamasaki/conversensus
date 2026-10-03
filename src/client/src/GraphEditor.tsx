@@ -8,7 +8,13 @@ import type {
   NodeLayout,
   SheetId,
 } from '@conversensus/shared';
-import { kindPropertyOf, nodeKindsOf, templatesOf } from '@conversensus/shared';
+import {
+  DERIVED_FROM_SHEET_PROPERTY,
+  type EdgeKindRef,
+  kindPropertyOf,
+  nodeKindsOf,
+  type Template,
+} from '@conversensus/shared';
 import {
   Background,
   type Connection,
@@ -32,6 +38,7 @@ import '@xyflow/react/dist/style.css';
 import type { FileId, Sheet } from '@conversensus/shared';
 import { AlertDialog } from './AlertDialog';
 import { EdgeContextMenu } from './EdgeContextMenu';
+import { EdgeKindMenu } from './EdgeKindMenu';
 import { EventDispatchContext } from './EventDispatchContext';
 import { type GraphEvent, makeEventBase } from './events/GraphEvent';
 import { contentOf, createChangeGate } from './graph/changeGate';
@@ -43,10 +50,11 @@ import {
 } from './graph/editorControls';
 import { exportPng } from './graph/exportPng';
 import { FLOW_EDGE_TYPES, FLOW_NODE_TYPES } from './graph/flowTypes';
+import { GraphNodeProvider } from './graph/graphNodeContext';
 import {
   canConnectByTemplate,
   canReconnectByTemplate,
-  edgeKindFor,
+  edgeKindCandidatesFor,
 } from './graph/templateEdge';
 import {
   DEFAULT_EDGE_PATH_TYPE,
@@ -106,6 +114,25 @@ type Props = {
   // 差し替わったとき、この値の増加を契機に React Flow の state を再 seed する。
   receiveEpoch?: number;
   /**
+   * このシートに当てた template の実体 (step3 Phase 4 S4-1b)。**当たっていなければ空**で、空で
+   * あることが「種別の段を出さない」「接続に制約をかけない」の両方の根拠になる (設計 D1/D3/D5)。
+   * template graph の切断面の解決は op-log を読むので、外 (`useResolvedTemplates`) が行う
+   */
+  templates: readonly Template[];
+  /**
+   * dispatch の前の読み替え (step3 Phase 4 S4-2b)。null を返すと dispatch しない。metagraph の
+   * graph node への操作をシートの操作に回すのに使う (`splitMetagraphEvent`)
+   */
+  transformEvent?: (event: GraphEvent) => GraphEvent | null;
+  /**
+   * metagraph の graph node の口 (step3 Phase 4 S4-2b)。渡すと種類のメニューに「グラフ」が出て、
+   * graph node のダブルクリックでそのシートを開く。名前の変更は選んで Enter / F2
+   */
+  graphNodes?: {
+    onOpen: (sheetId: SheetId) => void;
+    onAdd: (position: { x: number; y: number }) => void;
+  };
+  /**
    * 外から呼べる口 (step3 Phase 3 S3-4a)。描かれている間は口を、外されるときは null を渡す。
    * ヘッダ (undo・グループ化・PNG) と検索・property editor はこの口を通して canvas に触れる
    */
@@ -134,6 +161,9 @@ function GraphEditorInner({
   graphKey,
   undoStateMap,
   receiveEpoch,
+  templates,
+  transformEvent,
+  graphNodes,
   onControls,
   onSelectionChange,
 }: Props) {
@@ -143,12 +173,6 @@ function GraphEditorInner({
   // **props ではなく context で受ける** — 途中の層はこの値に用が無い
   const readOnly = useReadOnly();
 
-  // このシートに当たっている template。**当たっていなければ空**で、空であることが
-  // 「種別の段を出さない」「接続に制約をかけない」の両方の根拠になる (設計 D1/D3/D5)
-  const templates = useMemo(
-    () => templatesOf(activeSheet.templateIds),
-    [activeSheet.templateIds],
-  );
   const nodeKinds = useMemo(() => nodeKindsOf(templates), [templates]);
 
   const ghostDeletedNodeIds = useMemo(
@@ -408,8 +432,28 @@ function GraphEditorInner({
     (event: GraphEvent) => syncRecord(event, activeSheet.id),
     [syncRecord, activeSheet.id],
   );
-  const { dispatch, undo, redo, setDragging, exportState, importState } =
-    useEventStore(nodes, edges, setNodes, setEdges, recordContent);
+  const {
+    dispatch: storeDispatch,
+    undo,
+    redo,
+    setDragging,
+    exportState,
+    importState,
+  } = useEventStore(nodes, edges, setNodes, setEdges, recordContent);
+  /**
+   * dispatch の前の読み替え (step3 Phase 4 S4-2b)。metagraph では graph node への削除・本文の変更を
+   * シートの操作に回し (undo に入れない)、残りだけを dispatch する。読み替えが無ければそのまま
+   */
+  const transformEventRef = useRef(transformEvent);
+  transformEventRef.current = transformEvent;
+  const dispatch = useCallback(
+    (event: GraphEvent) => {
+      const transform = transformEventRef.current;
+      const rest = transform ? transform(event) : event;
+      if (rest) storeDispatch(rest);
+    },
+    [storeDispatch],
+  );
 
   /**
    * プロパティ 1 つの変更を op へ流す (step2 Phase 4 Q2)。
@@ -533,25 +577,25 @@ function GraphEditorInner({
     [templates, getNodes],
   );
 
-  const onConnect: OnConnect = useCallback(
-    (connection) => {
+  /**
+   * edge を作る。種類が決まっていれば label・種別・既定値を一緒に載せる (仕様 OnCreation の
+   * `edge.label ← edge の種類名`。node と同じく **id が実体で label は表示**なので、両方を 1 つの
+   * op に載せる。既定値は template 側の property の値, step3 Phase 4)
+   */
+  const createEdge = useCallback(
+    (connection: Connection, kind: EdgeKindRef | undefined) => {
       const edgeId = crypto.randomUUID() as EdgeId;
-      const kind = edgeKindFor(
-        templates,
-        getNodes(),
-        connection.source as string,
-        connection.target as string,
-      );
       const graphEdge: GraphEdge = {
         id: edgeId,
         source: connection.source as NodeId,
         target: connection.target as NodeId,
-        // 仕様 OnCreation の `edge.label ← edge の種類名`。node と同じく
-        // **id が実体で label は表示**なので、両方を 1 つの op に載せる
         ...(kind
           ? {
-              label: kind.kind.label,
-              properties: { [kindPropertyOf(kind.templateId)]: kind.kind.id },
+              ...(kind.kind.label !== '' && { label: kind.kind.label }),
+              properties: {
+                ...kind.kind.defaults,
+                [kindPropertyOf(kind.templateId)]: kind.kind.id,
+              },
             }
           : {}),
       };
@@ -569,7 +613,56 @@ function GraphEditorInner({
         edgeLayout,
       });
     },
-    [dispatch, templates, getNodes],
+    [dispatch],
+  );
+
+  /**
+   * 種類の候補が複数ある接続 (step3 Phase 4 Q8)。**選ぶまで edge を作らない** — 作ってから種類を
+   * 書き足すと、op が 2 つに割れ、undo も 2 回要る。メニューの位置は接続を終えた所 (`onConnectEnd`)
+   */
+  const [pendingEdge, setPendingEdge] = useState<{
+    connection: Connection;
+    candidates: EdgeKindRef[];
+    position?: { x: number; y: number };
+  } | null>(null);
+
+  const onConnect: OnConnect = useCallback(
+    (connection) => {
+      const candidates = edgeKindCandidatesFor(
+        templates,
+        getNodes(),
+        connection.source as string,
+        connection.target as string,
+      );
+      if (candidates.length > 1) {
+        setPendingEdge({ connection, candidates });
+        return;
+      }
+      createEdge(connection, candidates[0]);
+    },
+    [templates, getNodes, createEdge],
+  );
+
+  const onConnectEnd = useCallback((event: MouseEvent | TouchEvent) => {
+    const point =
+      'changedTouches' in event
+        ? event.changedTouches[0]
+        : (event as MouseEvent);
+    if (!point) return;
+    setPendingEdge((pending) =>
+      pending && !pending.position
+        ? { ...pending, position: { x: point.clientX, y: point.clientY } }
+        : pending,
+    );
+  }, []);
+
+  // **更新関数の中で edge を作らない** — StrictMode は更新関数を 2 度呼ぶので、edge が 2 本できる
+  const resolvePendingEdge = useCallback(
+    (kind: EdgeKindRef | undefined) => {
+      if (pendingEdge) createEdge(pendingEdge.connection, kind);
+      setPendingEdge(null);
+    },
+    [pendingEdge, createEdge],
   );
 
   const addNode = useCallback(
@@ -600,6 +693,9 @@ function GraphEditorInner({
           ? {
               properties: {
                 ...properties,
+                // 種類の既定値 (template 側の property の値, step3 Phase 4)。種別より前に置く —
+                // 既定値に種別の名前が紛れても、種別の方が勝つ
+                ...(kind?.kind.defaults ?? {}),
                 ...(kind
                   ? { [kindPropertyOf(kind.templateId)]: kind.kind.id }
                   : {}),
@@ -698,6 +794,39 @@ function GraphEditorInner({
     reportError: setImageError,
   });
 
+  // metagraph の graph node (step3 Phase 4 S4-2b)。名前の変更は選んで Enter / F2 で始める —
+  // ダブルクリックはシートを開くのに使う (Q6)
+  const [renameRequest, setRenameRequest] = useState<NodeId | null>(null);
+  useEffect(() => {
+    if (!graphNodes) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Enter' && e.key !== 'F2') return;
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      const selected = getNodes().filter((n) => n.selected);
+      const only = selected.length === 1 ? selected[0] : undefined;
+      const props = only?.data?.properties as
+        | Record<string, unknown>
+        | undefined;
+      if (!only || props?.[DERIVED_FROM_SHEET_PROPERTY] === undefined) return;
+      e.preventDefault();
+      setRenameRequest(only.id as NodeId);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [graphNodes, getNodes]);
+  const graphNodeHandlers = useMemo(
+    () =>
+      graphNodes
+        ? {
+            openSheet: graphNodes.onOpen,
+            renameRequest,
+            clearRenameRequest: () => setRenameRequest(null),
+          }
+        : null,
+    [graphNodes, renameRequest],
+  );
+
   const handleExportPng = useCallback(() => {
     void exportPng(getNodes(), fileNameRef.current, sheetRef.current.name);
   }, [getNodes]);
@@ -737,90 +866,107 @@ function GraphEditorInner({
           描くので props を渡せず, context で降ろす (ANA-117 S6) */}
       <ImageErrorProvider value={setImageError}>
         <NodeCreationContext.Provider value={{ openNodeTypeMenu }}>
-          {/* biome-ignore lint/a11y/noStaticElementInteractions: drop target wrapper */}
-          <div
-            style={{ width: '100%', height: '100%' }}
-            onDragOver={handleDragOver}
-            onDrop={handleDrop}
-          >
-            <ReactFlow
-              nodes={nodes}
-              edges={edges}
-              nodeTypes={FLOW_NODE_TYPES}
-              edgeTypes={FLOW_EDGE_TYPES}
-              onNodesChange={handleNodesChange}
-              onEdgesChange={handleEdgesChange}
-              connectionMode={ConnectionMode.Loose}
-              onConnect={onConnect}
-              isValidConnection={isValidConnection}
-              onReconnect={onReconnect}
-              onReconnectStart={onReconnectStart}
-              onReconnectEnd={onReconnectEnd}
-              onNodeDragStart={onNodeDragStart}
-              onNodeDrag={onNodeDrag}
-              onNodeDragStop={onNodeDragStop}
-              // 読み取り専用のときは動かす・繋ぐ・繋ぎ替えるを止める
-              // (step2 Phase 2 S6)。**選択と拡大縮小は残す** — 読むための操作である
-              nodesDraggable={!readOnly}
-              nodesConnectable={!readOnly}
-              edgesReconnectable={!readOnly}
-              onPaneClick={onPaneClick}
-              onEdgeContextMenu={onEdgeContextMenu}
-              zoomOnDoubleClick={false}
-              deleteKeyCode={null}
-              fitView
+          <GraphNodeProvider value={graphNodeHandlers}>
+            {/* biome-ignore lint/a11y/noStaticElementInteractions: drop target wrapper */}
+            <div
+              style={{ width: '100%', height: '100%' }}
+              onDragOver={handleDragOver}
+              onDrop={handleDrop}
             >
-              {readOnly && (
-                <Panel position="top-center">
-                  {/* **なぜ編集できないかを出す。**出さないと「動かない」に見える */}
-                  <div
-                    role="status"
-                    style={{
-                      background: '#fdf3d0',
-                      border: '1px solid #e6d28a',
-                      color: '#8a6d1f',
-                      borderRadius: 4,
-                      padding: '4px 10px',
-                      fontSize: 12,
-                    }}
-                  >
-                    参加していなかった間の編集を取り込んでいます。終わるまで読み取り専用です
-                  </div>
-                </Panel>
+              <ReactFlow
+                nodes={nodes}
+                edges={edges}
+                nodeTypes={FLOW_NODE_TYPES}
+                edgeTypes={FLOW_EDGE_TYPES}
+                onNodesChange={handleNodesChange}
+                onEdgesChange={handleEdgesChange}
+                connectionMode={ConnectionMode.Loose}
+                onConnect={onConnect}
+                onConnectEnd={onConnectEnd}
+                isValidConnection={isValidConnection}
+                onReconnect={onReconnect}
+                onReconnectStart={onReconnectStart}
+                onReconnectEnd={onReconnectEnd}
+                onNodeDragStart={onNodeDragStart}
+                onNodeDrag={onNodeDrag}
+                onNodeDragStop={onNodeDragStop}
+                // 読み取り専用のときは動かす・繋ぐ・繋ぎ替えるを止める
+                // (step2 Phase 2 S6)。**選択と拡大縮小は残す** — 読むための操作である
+                nodesDraggable={!readOnly}
+                nodesConnectable={!readOnly}
+                edgesReconnectable={!readOnly}
+                onPaneClick={onPaneClick}
+                onEdgeContextMenu={onEdgeContextMenu}
+                zoomOnDoubleClick={false}
+                deleteKeyCode={null}
+                fitView
+              >
+                {readOnly && (
+                  <Panel position="top-center">
+                    {/* **なぜ編集できないかを出す。**出さないと「動かない」に見える */}
+                    <div
+                      role="status"
+                      style={{
+                        background: '#fdf3d0',
+                        border: '1px solid #e6d28a',
+                        color: '#8a6d1f',
+                        borderRadius: 4,
+                        padding: '4px 10px',
+                        fontSize: 12,
+                      }}
+                    >
+                      参加していなかった間の編集を取り込んでいます。終わるまで読み取り専用です
+                    </div>
+                  </Panel>
+                )}
+                <Background />
+                <Controls />
+                <MiniMap />
+              </ReactFlow>
+              {nodeTypeMenu && (
+                <NodeTypeMenu
+                  position={nodeTypeMenu.screenPos}
+                  nodeKinds={nodeKinds}
+                  graphNodeOption={graphNodes !== undefined}
+                  onSelect={(nodeType, kind) => {
+                    if (nodeType === 'graph') {
+                      graphNodes?.onAdd(nodeTypeMenu.position);
+                      clearNodeTypeMenu();
+                      return;
+                    }
+                    addNode(
+                      nodeTypeMenu.position,
+                      nodeType,
+                      undefined,
+                      kind,
+                      nodeTypeMenu.containerId,
+                    );
+                    clearNodeTypeMenu();
+                  }}
+                />
               )}
-              <Background />
-              <Controls />
-              <MiniMap />
-            </ReactFlow>
-            {nodeTypeMenu && (
-              <NodeTypeMenu
-                position={nodeTypeMenu.screenPos}
-                nodeKinds={nodeKinds}
-                onSelect={(nodeType, kind) => {
-                  addNode(
-                    nodeTypeMenu.position,
-                    nodeType,
-                    undefined,
-                    kind,
-                    nodeTypeMenu.containerId,
-                  );
-                  clearNodeTypeMenu();
-                }}
-              />
-            )}
-            {contextMenu && (
-              <EdgeContextMenu
-                contextMenu={contextMenu}
-                onSelect={setEdgePathType}
-              />
-            )}
-            {imageError && (
-              <AlertDialog
-                message={imageError}
-                onClose={() => setImageError(null)}
-              />
-            )}
-          </div>
+              {pendingEdge?.position && (
+                <EdgeKindMenu
+                  position={pendingEdge.position}
+                  candidates={pendingEdge.candidates}
+                  templates={templates}
+                  onSelect={resolvePendingEdge}
+                />
+              )}
+              {contextMenu && (
+                <EdgeContextMenu
+                  contextMenu={contextMenu}
+                  onSelect={setEdgePathType}
+                />
+              )}
+              {imageError && (
+                <AlertDialog
+                  message={imageError}
+                  onClose={() => setImageError(null)}
+                />
+              )}
+            </div>
+          </GraphNodeProvider>
         </NodeCreationContext.Provider>
       </ImageErrorProvider>
     </EventDispatchContext.Provider>

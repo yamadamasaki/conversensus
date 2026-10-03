@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test } from 'bun:test';
 import { computeBlobCid, MAX_BLOB_SIZE } from '../blob';
 import { projectFile } from '../events/project';
+import { METAGRAPH_SHEET_KIND, sheetKindOf } from '../events/sheetKind';
 import type { Batch } from '../events/unified';
 import type { FileId } from '../schemas';
 import { BunSqliteDriver, IN_MEMORY } from './bunSqliteDriver';
@@ -50,10 +51,10 @@ const batch = (id: string, clock: number): Batch => ({
 });
 
 describe('createFile', () => {
-  test('既定の名前と 1 枚のシートで作り、genesis の op-log を書く', () => {
+  test('既定の名前で、Sheet 1 と目次の metagraph "index" を持つ File を作り、genesis の op-log を書く', () => {
     const file = store.createFile({});
     expect(file.name).toBe('無題');
-    expect(file.sheets.map((s) => s.name)).toEqual(['Sheet 1']);
+    expect(file.sheets.map((s) => s.name)).toEqual(['Sheet 1', 'index']);
 
     // 作った時点で op-log が正典 — projection が返り値と一致する
     const projected = projectFile(store.getBatches(file.id), file.id);
@@ -61,6 +62,11 @@ describe('createFile', () => {
     expect(projected.sheets.map((s) => s.id)).toEqual(
       file.sheets.map((s) => s.id),
     );
+    // index の種別も起点の op-log に載る (step3 Phase 4。以前の genesis はシートのプロパティを落としていた)
+    expect(projected.sheets.map((s) => sheetKindOf(s))).toEqual([
+      undefined,
+      METAGRAPH_SHEET_KIND,
+    ]);
   });
 
   test('一覧に現れる', () => {

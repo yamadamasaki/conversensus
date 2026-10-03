@@ -18,6 +18,23 @@ function propertiesOf(
 }
 
 /**
+ * 両端から edge になりうる種類の候補をすべて返す (step3 Phase 4 Q8)。候補が複数なら、
+ * 繋いだ直後に選ばせる
+ */
+export function edgeKindCandidatesFor(
+  templates: readonly Template[],
+  nodes: readonly Node[],
+  source: string,
+  target: string,
+): EdgeKindRef[] {
+  return edgeKindCandidates(
+    templates,
+    propertiesOf(nodes, source),
+    propertiesOf(nodes, target),
+  );
+}
+
+/**
  * 両端から edge の種類を決める (設計 D5)。**候補がちょうど 1 のときだけ**返す。
  *
  * 候補 0 は「繋げない」だが、**止めるのは `canConnectByTemplate` の仕事**である。
@@ -30,11 +47,7 @@ export function edgeKindFor(
   source: string,
   target: string,
 ): EdgeKindRef | undefined {
-  const candidates = edgeKindCandidates(
-    templates,
-    propertiesOf(nodes, source),
-    propertiesOf(nodes, target),
-  );
+  const candidates = edgeKindCandidatesFor(templates, nodes, source, target);
   return candidates.length === 1 ? candidates[0] : undefined;
 }
 
@@ -113,11 +126,11 @@ export function canReconnectByTemplate(
   const current = currentEdgeKindId(templates, edge);
   if (!current) return true; // 当たっている template の種類ではない = 制約の対象外
 
-  const next = edgeKindFor(templates, nodes, source, target);
-  if (!next) return false; // 種類が決まらない先へは繋ぎ替えられない
-  // **同じ種類に落ちるときだけ許す。**id で比べる — label は表示なので、
-  // template が種別名を変えても判定が揺れてはいけない
-  return (
-    next.templateId === current.templateId && next.kind.id === current.kindId
+  // **同じ種類になりうる先にだけ許す。**id で比べる — label は表示なので、template が
+  // 種別名を変えても判定が揺れてはいけない。候補が複数あっても、いまの種類がその中にあれば
+  // 種類は変わらない (step3 Phase 4 Q8 で候補が複数になりうるようになった)
+  return edgeKindCandidatesFor(templates, nodes, source, target).some(
+    (next) =>
+      next.templateId === current.templateId && next.kind.id === current.kindId,
   );
 }

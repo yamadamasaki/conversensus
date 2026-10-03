@@ -9,6 +9,7 @@ import type { Edge, Node } from '@xyflow/react';
 import {
   canConnectByTemplate,
   canReconnectByTemplate,
+  edgeKindCandidatesFor,
   edgeKindFor,
 } from './templateEdge';
 
@@ -169,6 +170,45 @@ describe('canReconnectByTemplate', () => {
         edgeOf('supports'),
         'warrant',
         'claim',
+      ),
+    ).toBe(true);
+  });
+});
+
+describe('候補が複数の組 (step3 Phase 4 Q8)', () => {
+  /** データ → 主張 に「支える」と「補う」の 2 つの種類を持つ template */
+  const MULTI: Template = TemplateSchema.parse({
+    ...TOULMIN_TEMPLATE,
+    edgeKinds: [
+      ...TOULMIN_TEMPLATE.edgeKinds,
+      { id: 'complements', label: '補う', from: ['data'], to: ['claim'] },
+    ],
+  });
+  const edge = (kindId: string): Edge =>
+    ({
+      id: 'e1',
+      source: 'data',
+      target: 'claim',
+      data: { properties: { [KIND]: kindId } },
+    }) as Edge;
+
+  it('候補をすべて返し、edgeKindFor は 1 つに決めない', () => {
+    expect(
+      edgeKindCandidatesFor([MULTI], NODES, 'data', 'claim')
+        .map((r) => String(r.kind.id))
+        .sort(),
+    ).toEqual(['complements', 'supports']);
+    expect(edgeKindFor([MULTI], NODES, 'data', 'claim')).toBeUndefined();
+  });
+
+  it('繋ぎ替えは、いまの種類が候補に入っていれば許す (候補が複数でも種類は変わらない)', () => {
+    expect(
+      canReconnectByTemplate(
+        [MULTI],
+        NODES2,
+        edge('complements'),
+        'data',
+        'claim2',
       ),
     ).toBe(true);
   });

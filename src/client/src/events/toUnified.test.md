@@ -58,3 +58,14 @@ actor 節と `step1-phase4d-receive.md` §3.1)。
 - **`NODE_LABEL_CHANGED` → `node.setLabel`**: 後から変える経路。
 - **外すのは空文字を載せることである**: op が消えるのではない。op-log は追記なので、
   「外した」を表せるのは値だけである。
+
+## シートのプロパティ (step3 Phase 4 S4-0)
+
+特殊なグラフ (template graph・metagraph) は「種別プロパティが特別な値を持つ sheet」で、op の種類は
+足さない (architecture step3 §3.3 D3)。画面から種別を置く口として、作成の event に `properties` を、
+後から変える event に `SHEET_PROPERTY_CHANGED` を足した。
+
+- **作成時のプロパティは、作成と同じ batch の `sheet.setProperty` として続く** — 別の batch に割ると、
+  種別の無いシートが一瞬存在し、その間に届いた相手にはただのシートとして出る
+- **`SHEET_PROPERTY_CHANGED` → `sheet.setProperty`。値の省略は削除** (`value` を持たない op)
+- **作成時に置いた種別は、projection で読める** (event → batch → `projectFile` → `sheetKindOf`)

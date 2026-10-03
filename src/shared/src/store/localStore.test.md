@@ -40,3 +40,9 @@ HTTP に置いたままだと、ブラウザ側に**第 2 の実装**ができ�
   薄い層である。App 結合 (`*.app-test.tsx`) がこれを通って動く。経路を潰す変異 (受信の追記を
   捨てる) で App 結合の 6 件が落ちることを確かめた
 - **HTTP の要求の形の検証** — サーバが撤去されるまで `index.test.ts`
+
+## File 作成時の metagraph (step3 Phase 4)
+
+- **Sheet 1 と目次の metagraph "index" を持つ File を作る** (仕様: File を作るとその中の sheet の一つとして
+  metagraph が作られる)。**index の種別が起点の op-log に載る** — 以前の起点 (`graphFileToBatches`) は
+  シートのプロパティと `templateIds` を落としていたので、ここで projection の種別まで見る

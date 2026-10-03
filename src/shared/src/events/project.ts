@@ -543,8 +543,11 @@ function reconcileOrder(s: FileStructure): SheetId[] {
 
 /**
  * その sheet が metagraph なら、File の sheet の一覧から導出 node を求める (D8)。
- * **metagraph 自身は導出 node にしない** — metagraph はグラフの一覧を見せる view であって、
- * 一覧の中のグラフではない
+ *
+ * **metagraph 自身も導出 node にする** (step3 Phase 4 Q4, 仕様: metagraph 自身も特殊な sheet として
+ * metagraph に登場する)。Phase 1 では「一覧を見せる view であって一覧の中のグラフではない」として
+ * 除いていたが、複数の metagraph が互いを指す (視点どうしの関係を書く) には、metagraph も node である
+ * 必要がある
  */
 function derivedNodesOf(
   structure: FileStructure,
@@ -553,9 +556,7 @@ function derivedNodesOf(
   if (meta === undefined || sheetKindOf(meta) !== METAGRAPH_SHEET_KIND) {
     return undefined;
   }
-  const shown = [...structure.sheets]
-    .filter(([, m]) => sheetKindOf(m) !== METAGRAPH_SHEET_KIND)
-    .map(([id, m]) => ({ id, name: m.name }));
+  const shown = [...structure.sheets].map(([id, m]) => ({ id, name: m.name }));
   return derivedNodesFor(shown, structure.created);
 }
 
