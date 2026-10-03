@@ -237,3 +237,28 @@ type FilePlacementRecord = {
 - 変異: 既読で落とす filter を外すと App 結合が落ちる (このとき `toBeNull` に要素を渡すと bun が DOM 全体を
   整形して止まらなくなったので、`textContent` で比べる形にした)
 - lint / typecheck / `bun run test` (単体 1944 + App 結合 42) 緑
+
+### S6-1b: 閉じていない通知の端末の控えと、未決着の fork (2026-10-04, Q2)
+
+- **控え** (`notices/noticeCache.ts`): 競合の通知と上書きの報告を localStorage に **DID ごと**に控える
+  (`conversensus.notices.<did|local>`)。空になったら消す。壊れていたら読まない
+- **未決着の fork** (`openForksOf`, `sync/forkArrival.ts`): merge / close されていない fork を op-log から求める。
+  App は File を開くたびにこれを `handleForksArrived` に渡す。既読のものと、**競合の通知に出ている競合と同じ鍵**の
+  fork は落とす (自分が検出して書いた fork を再読み込みの後に求め直すと、競合の通知と重なるため)
+- `useNoticeInbox` は actor が替わったら控えを読み、**今の通知に足す** (置き換えない)。そのうえで、控えから
+  戻したもの・復元の前に検出したもの・届いた fork を、その actor の既読で落とし直す
+
+#### 分かったこと
+
+- **受信はセッションの復元より先に走りうる** (did が React の state に載る前)。最初は actor が替わったときに控えで
+  **置き換えて**いたので、復元の直前に検出した競合の通知が消えた (S5-3 の App 結合が落ちて判明)。足す形にした
+- 同じ理由で、復元の前に作られた受け取り口は保存先の無い既読を握っている。受け取り口は ref でいまの既読を引く
+- 閉じた直後に再読み込みすると、PDS への既読の書き込みが間に合わずに失われうる (他の端末で出直すだけ)
+
+#### 検証
+
+- 単体: 控えの往復・actor ごと・空なら消す・壊れた控え・localStorage 無し / `openForksOf` (決着した fork を除く)
+- App 結合 2 件: 再読み込みしても残り fork を重ねず、閉じた後は出ない / 控えが無くても未決着の fork が出る
+- 変異: 控えを書かない・fork を重ねる・開いても fork を求めない、の 3 つは落ちる。復元の後に fork を既読で落とし直す
+  処理を外す変異は**落ちない** (テストでは復元の前に fork を求める窓に入らない。防御として残した)
+- lint / typecheck / `bun run test` (単体 1952 + App 結合 44) 緑

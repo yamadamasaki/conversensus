@@ -79,6 +79,7 @@ import { ReadOnlyProvider } from './readOnlyContext';
 import { SearchPanel } from './SearchPanel';
 import { type OpenOptions, Sidebar } from './Sidebar';
 import { SidePanel } from './SidePanel';
+import { openForksOf } from './sync/forkArrival';
 import {
   carryChecks,
   conflictTargets,
@@ -204,6 +205,23 @@ export default function App() {
     roster,
     isEditingActive,
   });
+
+  /**
+   * File を開いたら、まだ決着していない fork を op-log から出す (step3 Phase 6 S6-1b)。
+   * 到着の知らせは受信の瞬間にしか出ないので、閉じる前に再読み込みすると消えていた。
+   * 既読のものと、競合の通知に出ているものは `handleForksArrived` が落とす
+   */
+  const openFileId = fileOps.activeFile?.id;
+  useEffect(() => {
+    if (openFileId === undefined) return;
+    let cancelled = false;
+    void fetchBatches(openFileId).then((batches) => {
+      if (!cancelled) handleForksArrived(openForksOf(batches, openFileId));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [openFileId, handleForksArrived]);
 
   // Branch operations
   /**

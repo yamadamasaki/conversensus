@@ -22,6 +22,7 @@ import userEvent from '@testing-library/user-event';
 import App from './App';
 import { NSID } from './atproto/types';
 import { LOCAL_CHANGES_CHANNEL } from './local/localChanges';
+import { noticeCacheKey } from './notices/noticeCache';
 import {
   addNode,
   branchLabel,
@@ -1606,6 +1607,105 @@ describe('App 結合: 通知の既読 (step3 Phase 6 S6-1a)', () => {
         screen.queryByRole('status', { name: '競合の通知' })?.textContent ??
           null,
       ).toBeNull();
+    },
+    MERGER_TEST_MS * 2,
+  );
+});
+
+describe('App 結合: 閉じていない通知の控え (step3 Phase 6 S6-1b)', () => {
+  /** alice と bob が同じ node を並行に書き換え、bob が受信して競合を検出し fork を書くまで */
+  async function bobDetectsConflict() {
+    const { code } = await aliceSharesFileWithBob();
+    let user = await startOn('alice', ALICE);
+    await openFileNamed(user, FILE_NAME);
+    await addNode(user);
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+    await editOnlyNode(user, 'もと');
+    await waitFor(() => expect(trunkContent()).toBe('もと'), WIRING_TIMEOUT);
+    await syncNow(user);
+
+    user = await startOn('bob', BOB);
+    await participate(user, code, FILE_NAME);
+    await syncNow(user);
+    await waitFor(() => expect(trunkContent()).toBe('もと'), WIRING_TIMEOUT);
+    world.pds.withhold(BOB.did);
+    await editOnlyNode(user, 'bob 案');
+    await waitFor(() => expect(trunkContent()).toBe('bob 案'), WIRING_TIMEOUT);
+
+    user = await startOn('alice', ALICE);
+    await openFileNamed(user, FILE_NAME);
+    await editOnlyNode(user, 'alice 案');
+    await waitFor(
+      () => expect(trunkContent()).toBe('alice 案'),
+      WIRING_TIMEOUT,
+    );
+    await syncNow(user);
+
+    user = await startOn('bob', BOB);
+    // ここからの bob の書き込み (fork・既読) は PDS に載せる
+    world.pds.release(BOB.did);
+    await openFileNamed(user, FILE_NAME);
+    await syncNow(user);
+    await screen.findByText(/件を保留として記録しました/, {}, WIRING_TIMEOUT);
+    return user;
+  }
+
+  /** 競合の通知の文面 (無ければ null)。要素を比べると失敗時に DOM 全体が出力される */
+  const noticeText = () =>
+    screen.queryByRole('status', { name: '競合の通知' })?.textContent ?? null;
+
+  test(
+    '閉じる前に再読み込みしても競合の通知が残り、同じ競合の fork は重ねない。閉じた後は出ない',
+    async () => {
+      await bobDetectsConflict();
+
+      // 再読み込み: 受信はもう新着ではないので検出し直されない。控えから戻る
+      let user = await startOn('bob', BOB);
+      await waitFor(
+        () => expect(noticeText()).toContain('件の競合を検出しました'),
+        WIRING_TIMEOUT,
+      );
+      // File を開くと未決着の fork を op-log から求めるが、通知に出ている競合と同じなので重ねない
+      await openFileNamed(user, FILE_NAME);
+      await screen.findAllByText(/競合: .+ の内容/, {}, WIRING_TIMEOUT);
+      await new Promise((r) => setTimeout(r, SETTLE_MS));
+      expect(noticeText()).not.toContain('相手が保留した競合');
+
+      await user.click(
+        screen.getByRole('button', { name: '競合の通知を閉じる' }),
+      );
+      // 既読が PDS に載るのを待つ (書き終える前に再読み込みすると、既読は失われる)
+      await waitFor(
+        () =>
+          expect(
+            world.pds.records(BOB.did, NSID.noticeDismissal).length,
+          ).toBeGreaterThan(0),
+        WIRING_TIMEOUT,
+      );
+      user = await startOn('bob', BOB);
+      await openFileNamed(user, FILE_NAME);
+      await screen.findAllByText(/競合: .+ の内容/, {}, WIRING_TIMEOUT);
+      await new Promise((r) => setTimeout(r, SETTLE_MS));
+      expect(noticeText()).toBeNull();
+    },
+    MERGER_TEST_MS * 2,
+  );
+
+  test(
+    '通知の控えが無くても、まだ決着していない fork は File を開くと出る',
+    async () => {
+      await bobDetectsConflict();
+      // 控えを失った端末 (閉じずに localStorage を消した、など)。activate の前に消すと、
+      // 端末の localStorage の控えにも載らない
+      cleanup();
+      localStorage.removeItem(noticeCacheKey(BOB.did));
+
+      const user = await startOn('bob', BOB);
+      await openFileNamed(user, FILE_NAME);
+      await waitFor(
+        () => expect(noticeText()).toContain('保留した競合 1 件'),
+        WIRING_TIMEOUT,
+      );
     },
     MERGER_TEST_MS * 2,
   );
