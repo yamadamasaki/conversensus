@@ -19,6 +19,8 @@ import { type MergeBranchDeps, mergeBranchOnOplog } from './mergeBranch';
 import {
   allChecked,
   carryChecks,
+  conflictTargets,
+  diffMarks,
   mergerCheckKey,
   mergerConflicts,
   mergerSnapshot,
@@ -275,5 +277,47 @@ describe('チェックの鍵 (step3 Phase 5)', () => {
         (c) => c.theirs.batchId,
       ),
     ).toEqual(['b2' as Batch['id']]);
+  });
+});
+
+describe('diffMarks / conflictTargets (step3 Phase 5 S5-1b)', () => {
+  const sheet = (nodes: [string, string][]) => ({
+    id: SHEET,
+    name: 'S',
+    nodes: nodes.map(([id, content]) => ({ id: id as NodeId, content })),
+    edges: [],
+  });
+
+  test('足した node は追加、本文が違う node は変更、同じ node は印なし。消えた node は印を付けない', () => {
+    const marks = diffMarks(
+      sheet([
+        ['n1', 'もと'],
+        ['n2', 'そのまま'],
+        ['n3', '消える'],
+      ]),
+      sheet([
+        ['n1', '変えた'],
+        ['n2', 'そのまま'],
+        ['n4', '足した'],
+      ]),
+    );
+    expect([...marks.addedNodes]).toEqual(['n4']);
+    expect([...marks.updatedNodes]).toEqual(['n1']);
+  });
+
+  test('競合の対象の集合', () => {
+    const c: MergeConflict = {
+      category: 'content',
+      target: 'n1',
+      ours: {
+        batchId: 'a' as Batch['id'],
+        op: { kind: 'node.remove', target: 'n1' as NodeId },
+      },
+      theirs: {
+        batchId: 'b' as Batch['id'],
+        op: { kind: 'node.remove', target: 'n1' as NodeId },
+      },
+    };
+    expect([...conflictTargets([c, c])]).toEqual(['n1']);
   });
 });

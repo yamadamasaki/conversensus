@@ -1283,4 +1283,64 @@ describe('App 結合: merger (step3 Phase 5 S5-1a)', () => {
     },
     MERGER_TEST_MS,
   );
+  /** pane の中の node。本文で探す */
+  const nodeIn = (pane: string, text: string) => {
+    // pane の名前は「pane: merge 元: … (開いた時点)」のように続くので先頭で探す
+    const region = screen.getByRole('region', {
+      name: new RegExp(`^pane: ${pane}`),
+    });
+    const node = [...region.querySelectorAll('.react-flow__node')].find((n) =>
+      n.textContent?.includes(text),
+    );
+    if (!node) throw new Error(`${pane} に「${text}」が無い`);
+    return node as HTMLElement;
+  };
+
+  test(
+    '元・先の両方で競合している node が点線で囲まれ、先では trunk にだけある node が追加の色になる (S5-1b)',
+    async () => {
+      await conflictingMerge();
+      await waitFor(() => {
+        expect(nodeIn('merge 元', 'branch 案').style.outline).toContain(
+          'dashed',
+        );
+        expect(nodeIn('merge 先', 'trunk 案').style.outline).toContain(
+          'dashed',
+        );
+      }, WIRING_TIMEOUT);
+      // 先 (trunk) の空の node は、元 (branch を開いた時点) に無いので追加の色
+      const target = screen.getByRole('region', { name: /^pane: merge 先/ });
+      const added = [
+        ...target.querySelectorAll('.react-flow__node [data-node-body]'),
+      ]
+        .map((b) => (b as HTMLElement).style.background)
+        .filter((bg) => bg.includes('240, 253, 244') || bg.includes('f0fdf4'));
+      expect(added).toHaveLength(1);
+    },
+    MERGER_TEST_MS,
+  );
+
+  test(
+    '元の pane で node を押すと、merge 後の同じ node も選ばれる (選択の連動, S5-1b)',
+    async () => {
+      await conflictingMerge();
+      const source = await waitFor(
+        () => nodeIn('merge 元', 'branch 案'),
+        WIRING_TIMEOUT,
+      );
+      fireEvent.click(source);
+      await waitFor(
+        () =>
+          expect(
+            nodeIn('merge 後', 'branch 案').classList.contains('selected'),
+          ).toBe(true),
+        WIRING_TIMEOUT,
+      );
+      // 先の同じ node も選ばれた見た目になる
+      expect(
+        nodeIn('merge 先', 'trunk 案').classList.contains('selected'),
+      ).toBe(true);
+    },
+    MERGER_TEST_MS,
+  );
 });

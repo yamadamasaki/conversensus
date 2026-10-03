@@ -24,6 +24,7 @@ import {
   tipClock,
   type VersionVector,
 } from '@conversensus/shared';
+import { computeSheetChanges } from './computeOperations';
 import { labelsOfConflicts } from './conflicts';
 import { originOf, planMerge } from './mergeBranch';
 
@@ -135,4 +136,39 @@ export function allChecked(
 ): boolean {
   const done = new Set(checked);
   return conflicts.every((c) => done.has(mergerCheckKey(c)));
+}
+
+/** pane に付ける差分の印 (step3 Phase 5 S5-1b)。branch の表示と同じ色分けに使う */
+export type DiffMarks = {
+  addedNodes: Set<string>;
+  updatedNodes: Set<string>;
+  addedEdges: Set<string>;
+  updatedEdges: Set<string>;
+};
+
+/**
+ * `current` が `base` に比べて足した・変えた要素 (仕様: merge 元/先は互いとの差分、merge 後は merge 先との
+ * 差分を、通常の branch と同様の方法で表示する)。消えた要素は `current` に居ないので印を付けない
+ */
+export function diffMarks(base: Sheet, current: Sheet): DiffMarks {
+  const marks: DiffMarks = {
+    addedNodes: new Set(),
+    updatedNodes: new Set(),
+    addedEdges: new Set(),
+    updatedEdges: new Set(),
+  };
+  for (const { op } of computeSheetChanges(base, current)) {
+    if (op.op === 'node.add') marks.addedNodes.add(op.nodeId);
+    else if (op.op === 'node.update') marks.updatedNodes.add(op.nodeId);
+    else if (op.op === 'edge.add') marks.addedEdges.add(op.edgeId);
+    else if (op.op === 'edge.update') marks.updatedEdges.add(op.edgeId);
+  }
+  return marks;
+}
+
+/** 競合している要素の id (merge 元/先で点線で囲う) */
+export function conflictTargets(
+  conflicts: readonly MergeConflict[],
+): Set<string> {
+  return new Set(conflicts.map((c) => c.target));
 }

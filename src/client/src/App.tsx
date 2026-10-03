@@ -42,6 +42,7 @@ import { devPanesEnabled } from './config';
 import { type GraphEvent, makeEventBase } from './events/GraphEvent';
 import { GraphEditor } from './GraphEditor';
 import { GraphHeader, type HeaderBranch } from './GraphHeader';
+import type { PreviewMarks } from './GraphPreview';
 import { splitMetagraphEvent } from './graph/metagraphEvents';
 import { useActor } from './hooks/useActor';
 import { useAtprotoSession } from './hooks/useAtprotoSession';
@@ -78,7 +79,7 @@ import { SearchPanel } from './SearchPanel';
 import { type OpenOptions, Sidebar } from './Sidebar';
 import { SidePanel } from './SidePanel';
 import { accumulateArrivedForks, NO_ARRIVED_FORKS } from './sync/forkArrival';
-import { carryChecks } from './sync/merger';
+import { carryChecks, conflictTargets, diffMarks } from './sync/merger';
 import {
   accumulateOverwrites,
   type DetectedOverwrites,
@@ -721,6 +722,41 @@ export default function App() {
   const sidePanels = useSidePanels();
   // ヘッダが開閉する窓と、canvas の口・選択の写し (step3 Phase 3 S3-4a)
   const panels = useGraphPanels(viewKey);
+  /**
+   * merger の選択の連動 (S5-1b)。選択の正は merge 後の canvas (React Flow) で、見るだけの pane で押した
+   * 要素はそこへも選ばせる。merge 後に居ない要素 (消された) を押したときは、押した id を覚えて印にする
+   */
+  const [mergerPick, setMergerPick] = useState<string | null>(null);
+  const mergerSelected = new Set<string>(
+    panels.selection ? [panels.selection.id] : mergerPick ? [mergerPick] : [],
+  );
+  const pickInMerger = (id: string) => {
+    setMergerPick(id);
+    panels.controls?.select([id]);
+  };
+  const mergerConflictTargets = conflictTargets(
+    merger?.snapshot.conflicts ?? [],
+  );
+  /** 見るだけの pane の印。差分は互いとの差分 (元は先と、先は元と比べる) */
+  const mergerMarksFor =
+    (other: Sheet | undefined) =>
+    (sheet: Sheet): PreviewMarks => ({
+      ...(other
+        ? diffMarks(other, sheet)
+        : {
+            addedNodes: new Set(),
+            updatedNodes: new Set(),
+            addedEdges: new Set(),
+            updatedEdges: new Set(),
+          }),
+      conflicts: mergerConflictTargets,
+      selected: mergerSelected,
+    });
+  /** merge 後の差分の色は merge 先との差分 (branch 自身の分岐点との差分ではない) */
+  const mergerResultMarks =
+    isMergerResult && merger?.snapshot.target && merger.snapshot.result
+      ? diffMarks(merger.snapshot.target, merger.snapshot.result)
+      : null;
   const readOnly = fileOps.obligation?.fileId === fileOps.activeFile?.id;
   /**
    * 開いている branch の状態と操作 (ヘッダに出す)。merge 済みでも出す — 続けて編集・コミット
@@ -864,10 +900,18 @@ export default function App() {
               // branch 表示中の編集は branch 専用 op-log へ (p5-4)。trunk 用の tap に
               // 流すと branch の編集が trunk のログに混ざる。
               syncRecord={branchOps.branchSyncRecord ?? fileOps.syncRecord}
-              addedNodeIds={branchOps.addedNodeIds}
-              updatedNodeIds={branchOps.updatedNodeIds}
-              addedEdgeIds={branchOps.addedEdgeIds}
-              updatedEdgeIds={branchOps.updatedEdgeIds}
+              addedNodeIds={
+                mergerResultMarks?.addedNodes ?? branchOps.addedNodeIds
+              }
+              updatedNodeIds={
+                mergerResultMarks?.updatedNodes ?? branchOps.updatedNodeIds
+              }
+              addedEdgeIds={
+                mergerResultMarks?.addedEdges ?? branchOps.addedEdgeIds
+              }
+              updatedEdgeIds={
+                mergerResultMarks?.updatedEdges ?? branchOps.updatedEdgeIds
+              }
               deletedNodes={branchOps.deletedNodes}
               deletedEdges={branchOps.deletedEdges}
               deletedNodeLayouts={branchOps.deletedNodeLayouts}
@@ -1111,6 +1155,8 @@ export default function App() {
                   address={
                     currentTab.panes[MERGER_PANE.source] as GraphViewAddress
                   }
+                  marksFor={mergerMarksFor(merger?.snapshot.target)}
+                  onElementClick={pickInMerger}
                 />
               </PaneFrame>
               <PaneFrame
@@ -1121,6 +1167,8 @@ export default function App() {
                   address={
                     currentTab.panes[MERGER_PANE.target] as GraphViewAddress
                   }
+                  marksFor={mergerMarksFor(merger?.snapshot.source)}
+                  onElementClick={pickInMerger}
                 />
               </PaneFrame>
               <PaneFrame label="merge 後" active>

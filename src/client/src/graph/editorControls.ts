@@ -19,6 +19,11 @@ export type GraphEditorControls = {
   reveal: (hit: SearchHit) => void;
   /** 選ばれている要素のプロパティを 1 つ設定する。値の省略 (undefined) は削除 */
   setProperty: (name: string, value: unknown) => void;
+  /**
+   * 要素を外から選ぶ (step3 Phase 5 S5-1b)。merger で、見るだけの pane で選んだ要素を merge 後でも
+   * 選ばせる (Phase 3 U1: 選択の正は React Flow に置いたまま、外から選ばせる口を足す)
+   */
+  select: (ids: readonly string[]) => void;
 };
 
 /**
