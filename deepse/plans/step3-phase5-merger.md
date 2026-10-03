@@ -158,4 +158,21 @@ merge 後 = trunk の head + fork。解決の編集は fork の op-log へ積み
 
 ## 6. 実施記録
 
-(着手後に書く)
+### S5-0: merger の姿を求める純関数 (2026-10-03)
+
+- `planMerge` (読みも書きもしない merge の計画) を `mergeBranch.ts` から括り出した。`previewMerge`・
+  `mergeBranchOnOplog`・merger が同じ計画を使う
+- `mergerSnapshot`: 元 = branch を `startedAt` で切った姿、先 = trunk の最新、後 = trunk の最新 + 写しを仮の点で
+  重ねた姿、競合と対象の名前
+- `carryChecks` / `allChecked`: チェックは `conflictKeyOf` で持ち、残っている競合のチェックだけを引き継ぐ
+
+#### 分かったこと
+
+- **`startedAt` は全 actor を含む vector でなければならない。**branch の actor だけの vector だと、trunk の genesis の
+  batch (シートの作成) まで切断面の外に出て、元の姿が「シートが無い」になる。開いたときの手元の知識を使う
+- 写し済みの batch を二重に写しても、projection の D3 (再 merge の写しは承認まで出さない) が消すので姿は変わらない。
+  写し済みを落とす処理は見た目の上では防御で、性質では観測できない
+
+#### 検証
+
+単体 (merger 5 件: 性質 2・例 1・チェック 2) と既存の merge のテスト 34 件が緑。写しの点を trunk の下に潜らせる変異で落ちる。

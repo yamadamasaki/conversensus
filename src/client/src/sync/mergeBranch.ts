@@ -62,7 +62,7 @@ import { labelsOfConflicts } from './conflicts';
  * batch の「元」の点。写しの写し (branch に写しが載っていた) なら、その写しが指す元を返す —
  * 同じ編集の写しは何段写しても同じ元を指し、重複の判定がずれない
  */
-function originOf(batch: Batch): { actor: string; seq: number } {
+export function originOf(batch: Batch): { actor: string; seq: number } {
   return batch.copyOf ?? { actor: batch.actor, seq: batch.seq };
 }
 
@@ -133,8 +133,11 @@ export type MergePreview = {
   toAppendCount: number;
 };
 
-/** merge の計画。`previewMerge` と `mergeBranchOnOplog` が同じ手順で組む */
-type MergePlan = {
+/**
+ * merge の計画。`previewMerge`・`mergeBranchOnOplog`・merger (`mergerSnapshot`, step3 Phase 5) が
+ * **同じ手順で組む** — merger が見せる「merge 後の姿」が実際の merge と食い違わないように
+ */
+export type MergePlan = {
   trunkBatches: Batch[];
   branchBatches: Batch[];
   /** まだ写していない branch の batch (写す前, clock 昇順) */
@@ -152,7 +155,15 @@ async function buildMergePlan(
     deps.fetchBatches(meta.trunkFileId),
     deps.fetchBatches(meta.branchFileId),
   ]);
+  return planMerge(meta, trunkBatches, branchBatches);
+}
 
+/** merge の計画を、読んだ op-log から組む (読みも書きもしない) */
+export function planMerge(
+  meta: BranchMeta,
+  trunkBatches: Batch[],
+  branchBatches: Batch[],
+): MergePlan {
   // 既に写してある元は落とす (べき等)。trunk の写しの `copyOf` が「写し済みの元」の集合である
   const copied = new Set(
     trunkBatches.flatMap((b) => (b.copyOf ? [copyKeyOf(b.copyOf)] : [])),
