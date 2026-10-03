@@ -73,9 +73,17 @@ export class CausalClock {
     return { clock, seq: this.seq, deps };
   }
 
-  /** 受け取った batch を観測する (Lamport の受信規則 + 因果の知識への取り込み) */
+  /**
+   * 受け取った batch を観測する (Lamport の受信規則 + 因果の知識への取り込み)。
+   *
+   * **自分の点も seq を進める。**同じ actor の点を別の発番器が振ることがある — File を開いていない
+   * ときの判断ログ (`appendJudgment` の使い捨ての発番器)。それを観測しても seq が据え置きだと、次に
+   * 振る点が同じ `(actor, seq)` になり、相手がその判断を知っただけで「この編集を見た」ことになる
+   * (step3 Phase 5 S5-3 の App 結合で発覚: 並行の書き換えが競合ではなく上書きに分類された)
+   */
   observe(point: ObservedPoint): void {
     this.lamport.observe(point.clock);
+    if (point.actor === this.self && point.seq > this.seq) this.seq = point.seq;
     this.knowledge = observe(this.knowledge, point);
   }
 

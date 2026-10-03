@@ -827,6 +827,20 @@ function GraphEditorInner({
     [graphNodes, renameRequest],
   );
 
+  /** 外から選ぶ (merger の選択の連動)。React Flow の選択を入れ替えるだけで、op は積まない */
+  const selectIds = useCallback(
+    (ids: readonly string[]) => {
+      const chosen = new Set(ids);
+      setNodes((current) =>
+        current.map((n) => ({ ...n, selected: chosen.has(n.id) })),
+      );
+      setEdges((current) =>
+        current.map((e) => ({ ...e, selected: chosen.has(e.id) })),
+      );
+    },
+    [setNodes, setEdges],
+  );
+
   const handleExportPng = useCallback(() => {
     void exportPng(getNodes(), fileNameRef.current, sheetRef.current.name);
   }, [getNodes]);
@@ -841,6 +855,8 @@ function GraphEditorInner({
     handleExportPng,
     handleReveal,
     applyPropertyChange,
+    selectIds,
+    dispatch,
   };
   const latestRef = useRef(latest);
   latestRef.current = latest;
@@ -856,6 +872,10 @@ function GraphEditorInner({
       reveal: (hit) => latestRef.current.handleReveal(hit),
       setProperty: (name, value) =>
         latestRef.current.applyPropertyChange(name, value),
+      select: (ids) => latestRef.current.selectIds(ids),
+      apply: (events) => {
+        for (const event of events) latestRef.current.dispatch(event);
+      },
     });
     return () => onControls(null);
   }, []);

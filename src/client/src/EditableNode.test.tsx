@@ -40,6 +40,7 @@ const { render, screen, fireEvent, cleanup } = await import(
   '@testing-library/react'
 );
 const { EditableNode } = await import('./EditableNode');
+const { ReadOnlyProvider } = await import('./readOnlyContext');
 
 // NodeProps の最小スタブ
 // biome-ignore lint/suspicious/noExplicitAny: テスト用 NodeProps スタブ
@@ -189,6 +190,28 @@ describe('EditableNode', () => {
       const { container } = render(<EditableNode {...props} />);
 
       expect(container.querySelector('[data-editable]')).toBeNull();
+    });
+
+    it('読み取り専用の画面では、選択中でも付ける口を出さず、あるラベルも編集の口にしない (step3 Phase 5)', () => {
+      // merger の見るだけの pane は選択が連動するので、選択中の node がここに当たる
+      const { container, rerender } = render(
+        <ReadOnlyProvider value={true}>
+          <EditableNode {...withKind(undefined, true)} />
+        </ReadOnlyProvider>,
+      );
+      expect(container.querySelector('[data-node-label]')).toBeNull();
+
+      rerender(
+        <ReadOnlyProvider value={true}>
+          <EditableNode {...withKind('私見', true)} />
+        </ReadOnlyProvider>,
+      );
+      const chip = container.querySelector('[data-node-label]');
+      expect(chip?.tagName.toLowerCase()).toBe('div');
+      expect(chip?.textContent).toBe('私見');
+      // 本文もダブルクリックで編集に入らない
+      fireEvent.doubleClick(screen.getByText('本文'));
+      expect(container.querySelector('textarea')).toBeNull();
     });
 
     it('クリック 1 回で編集に入り、確定すると NODE_LABEL_CHANGED を出す', () => {

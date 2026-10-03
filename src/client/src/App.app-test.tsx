@@ -58,6 +58,11 @@ const FILE_NAME = '共有ファイル';
 const LOCAL_TEST_ACTOR = 'local';
 /** 「何も起きないこと」を見る前に、描画と計測が落ち着くのを待つ時間 */
 const SETTLE_MS = 500;
+/**
+ * merger の件の時間の上限。File・branch・コミット・merge を画面の操作で積むので手数が多く、既定の
+ * 5 秒では足りない (失敗ではなく時間切れになる)
+ */
+const MERGER_TEST_MS = 15_000;
 const BRANCH_NAME = 'b1';
 
 let world: AppWorld;
@@ -1121,4 +1126,409 @@ describe('App 結合: metagraph (step3 Phase 4 S4-2b)', () => {
       WIRING_TIMEOUT,
     );
   });
+});
+
+describe('App 結合: merger (step3 Phase 5 S5-1a)', () => {
+  /** 描かれている唯一の node の本文を書き換える (本文のダブルクリック → 入力 → 外す) */
+  async function editOnlyNode(
+    user: ReturnType<typeof userEvent.setup>,
+    text: string,
+    root: ParentNode = document,
+  ) {
+    // 本文を持つ node を優先する (足しただけの空の node より、書き換えたい node を選ぶ)
+    const nodes = [...root.querySelectorAll('.react-flow__node')];
+    const written = (n: Element) =>
+      !(n.textContent ?? '').includes('ダブルクリックで編集');
+    const node = nodes.find(written) ?? nodes[0];
+    const body = node?.querySelector('[data-node-body]');
+    if (!body) throw new Error('node が描かれていない');
+    fireEvent.doubleClick(body);
+    const input = await waitFor(() => {
+      const el = node?.querySelector('textarea');
+      if (!el) throw new Error('本文の編集が始まらない');
+      return el as HTMLTextAreaElement;
+    }, WIRING_TIMEOUT);
+    await user.clear(input);
+    await user.type(input, text);
+    fireEvent.blur(input);
+  }
+  /** trunk の Sheet 1 の、本文を持つ node の本文 (足しただけの空の node は数えない) */
+  const trunkContent = () => {
+    const store = world.localStore();
+    const fileId = store.listFiles()[0]?.id as FileId;
+    return projectFile(store.getBatches(fileId), fileId)
+      .sheets.find((s) => s.name === 'Sheet 1')
+      ?.nodes.find((n) => n.content !== '')?.content;
+  };
+  const TRUNK_TAB = `${FILE_NAME} / Sheet 1`;
+  const BRANCH_TAB = `${TRUNK_TAB} (⎇ ${BRANCH_NAME})`;
+
+  /** 同じ node の本文を branch (コミット済み) と trunk で書き換え、branch から merge ↑ を押す */
+  async function conflictingMerge() {
+    await world.activate('solo');
+    render(<App />);
+    const user = userEvent.setup();
+    await createFile(user, FILE_NAME);
+    await addNode(user);
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+    await editOnlyNode(user, 'もと');
+    await waitFor(() => expect(trunkContent()).toBe('もと'), WIRING_TIMEOUT);
+
+    await createBranch(user, BRANCH_NAME);
+    await openBranch(user, BRANCH_NAME);
+    await editOnlyNode(user, 'branch 案');
+    await commitBranch(user, '案');
+
+    await user.click(screen.getByRole('tab', { name: TRUNK_TAB }));
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+    await editOnlyNode(user, 'trunk 案');
+    await waitFor(
+      () => expect(trunkContent()).toBe('trunk 案'),
+      WIRING_TIMEOUT,
+    );
+    // trunk にだけある node。merge 後 (trunk の最新 + branch) には出て、branch 自身の姿には出ない
+    await addNode(user);
+    await waitFor(() => expect(renderedNodeCount()).toBe(2), WIRING_TIMEOUT);
+
+    await user.click(screen.getByRole('tab', { name: BRANCH_TAB }));
+    await screen.findByRole('button', { name: 'コミット' }, WIRING_TIMEOUT);
+    const mergeButton = screen.getByRole('button', { name: 'merge ↑' });
+    await waitFor(
+      () => expect(mergeButton).toHaveProperty('disabled', false),
+      WIRING_TIMEOUT,
+    );
+    await user.click(mergeButton);
+    return user;
+  }
+
+  test(
+    '競合があると merger が新しいタブで開き、merge 後は branch の値、conflict list に競合が出る',
+    async () => {
+      await conflictingMerge();
+      await waitFor(
+        () =>
+          expect(
+            screen
+              .getAllByRole('tab')
+              .find((t) => t.getAttribute('aria-selected') === 'true')
+              ?.textContent,
+          ).toBe(`merge: ${BRANCH_TAB}`),
+        WIRING_TIMEOUT,
+      );
+      const list = await screen.findByRole('region', { name: 'conflict list' });
+      await waitFor(
+        () => expect(within(list).getAllByRole('checkbox')).toHaveLength(1),
+        WIRING_TIMEOUT,
+      );
+      const result = screen.getByRole('region', { name: 'pane: merge 後' });
+      await waitFor(() => {
+        expect(result.textContent).toContain('branch 案');
+        // trunk の最新の上に重ねた姿 (branch 自身の姿なら node は 1 つ)
+        expect(result.querySelectorAll('.react-flow__node')).toHaveLength(2);
+      }, WIRING_TIMEOUT);
+      // 確認のダイアログは出ない (merger が引き取った)
+      expect(
+        screen.queryByRole('button', { name: 'merge する' }) === null,
+      ).toBe(true);
+      // まだ trunk には載っていない
+      expect(trunkContent()).toBe('trunk 案');
+    },
+    MERGER_TEST_MS,
+  );
+
+  test(
+    'チェックとコメントが揃うまで merge は押せず、merge すると trunk に載ってタブが閉じる',
+    async () => {
+      const user = await conflictingMerge();
+      const list = await screen.findByRole(
+        'region',
+        { name: 'conflict list' },
+        WIRING_TIMEOUT,
+      );
+      const merge = () => within(list).getByRole('button', { name: 'merge' });
+      await waitFor(
+        () => expect(within(list).getAllByRole('checkbox')).toHaveLength(1),
+        WIRING_TIMEOUT,
+      );
+      expect(merge()).toHaveProperty('disabled', true);
+      await user.click(within(list).getByRole('checkbox'));
+      expect(merge()).toHaveProperty('disabled', true);
+      await user.type(
+        within(list).getByLabelText('merge のコメント'),
+        'branch 案を採る',
+      );
+      expect(merge()).toHaveProperty('disabled', false);
+
+      // 解決の編集: merge 後で本文を直す。branch の op-log に積まれ (Q1)、未コミットなので merge の前に
+      // コメントでコミットされ (Q3)、merge で trunk に載る
+      await editOnlyNode(
+        user,
+        'まとめ案',
+        screen.getByRole('region', { name: 'pane: merge 後' }),
+      );
+      await user.click(merge());
+      await waitFor(
+        () => expect(trunkContent()).toBe('まとめ案'),
+        WIRING_TIMEOUT,
+      );
+      await waitFor(
+        () =>
+          expect(
+            screen
+              .queryAllByRole('tab')
+              .some((t) => t.textContent?.startsWith('merge:')),
+          ).toBe(false),
+        WIRING_TIMEOUT,
+      );
+      // merger で決めた競合を「LWW で確定した」と知らせない
+      expect(screen.queryByRole('status', { name: '競合の通知' })).toBeNull();
+      // 戻った branch の画面にも解決の編集が出る。merger と branch のタブは同じ branch を指すので
+      // タブを移っても branch は選び直されず、merger を開いた時の姿のまま残っていた (実機で発覚)
+      await waitFor(() => {
+        const nodes = [...document.querySelectorAll('.react-flow__node')];
+        expect(nodes.some((n) => n.textContent?.includes('まとめ案'))).toBe(
+          true,
+        );
+        expect(nodes.some((n) => n.textContent?.includes('branch 案'))).toBe(
+          false,
+        );
+      }, WIRING_TIMEOUT);
+    },
+    MERGER_TEST_MS,
+  );
+  /** pane の中の node。本文で探す */
+  const nodeIn = (pane: string, text: string) => {
+    // pane の名前は「pane: merge 元: … (開いた時点)」のように続くので先頭で探す
+    const region = screen.getByRole('region', {
+      name: new RegExp(`^pane: ${pane}`),
+    });
+    const node = [...region.querySelectorAll('.react-flow__node')].find((n) =>
+      n.textContent?.includes(text),
+    );
+    if (!node) throw new Error(`${pane} に「${text}」が無い`);
+    return node as HTMLElement;
+  };
+
+  test(
+    '元・先の両方で競合している node が点線で囲まれ、先では trunk にだけある node が追加の色になる (S5-1b)',
+    async () => {
+      await conflictingMerge();
+      await waitFor(() => {
+        expect(nodeIn('merge 元', 'branch 案').style.outline).toContain(
+          'dashed',
+        );
+        expect(nodeIn('merge 先', 'trunk 案').style.outline).toContain(
+          'dashed',
+        );
+      }, WIRING_TIMEOUT);
+      // 先 (trunk) の空の node は、元 (branch を開いた時点) に無いので追加の色
+      const target = screen.getByRole('region', { name: /^pane: merge 先/ });
+      const added = [
+        ...target.querySelectorAll('.react-flow__node [data-node-body]'),
+      ]
+        .map((b) => (b as HTMLElement).style.background)
+        .filter((bg) => bg.includes('240, 253, 244') || bg.includes('f0fdf4'));
+      expect(added).toHaveLength(1);
+    },
+    MERGER_TEST_MS,
+  );
+
+  test(
+    '元の pane で node を押すと、merge 後の同じ node も選ばれる (選択の連動, S5-1b)',
+    async () => {
+      await conflictingMerge();
+      const source = await waitFor(
+        () => nodeIn('merge 元', 'branch 案'),
+        WIRING_TIMEOUT,
+      );
+      fireEvent.click(source);
+      await waitFor(
+        () =>
+          expect(
+            nodeIn('merge 後', 'branch 案').classList.contains('selected'),
+          ).toBe(true),
+        WIRING_TIMEOUT,
+      );
+      // 先の同じ node も選ばれた見た目になる
+      expect(
+        nodeIn('merge 先', 'trunk 案').classList.contains('selected'),
+      ).toBe(true);
+    },
+    MERGER_TEST_MS,
+  );
+  test(
+    '先の pane で右クリックして取り込むと、merge 後がその姿になり、Undo で戻る (S5-1c)',
+    async () => {
+      const user = await conflictingMerge();
+      const target = await waitFor(
+        () => nodeIn('merge 先', 'trunk 案'),
+        WIRING_TIMEOUT,
+      );
+      fireEvent.contextMenu(target);
+      await user.click(
+        await screen.findByRole('menuitem', { name: /merge 後に取り込む/ }),
+      );
+      await waitFor(
+        () => expect(nodeIn('merge 後', 'trunk 案')).toBeTruthy(),
+        WIRING_TIMEOUT,
+      );
+      await user.click(
+        within(screen.getByRole('toolbar', { name: 'グラフの操作' })).getByRole(
+          'button',
+          { name: 'Undo' },
+        ),
+      );
+      await waitFor(
+        () => expect(nodeIn('merge 後', 'branch 案')).toBeTruthy(),
+        WIRING_TIMEOUT,
+      );
+    },
+    MERGER_TEST_MS,
+  );
+  test(
+    'merger を開いている間に merge 先が進むと、先が更新されてチェックが外れ、チェックし直すと merge できる (S5-2, O3)',
+    async () => {
+      const user = await conflictingMerge();
+      const list = await screen.findByRole(
+        'region',
+        { name: 'conflict list' },
+        WIRING_TIMEOUT,
+      );
+      await waitFor(
+        () => expect(within(list).getAllByRole('checkbox')).toHaveLength(1),
+        WIRING_TIMEOUT,
+      );
+      await user.click(within(list).getByRole('checkbox'));
+      await user.type(within(list).getByLabelText('merge のコメント'), '採る');
+      const merge = () => within(list).getByRole('button', { name: 'merge' });
+      expect(merge()).toHaveProperty('disabled', false);
+
+      // 別のタブが trunk の同じ node を書き換える (S2-4 と同じ手: 正典に入れて知らせる)
+      const store = world.localStore();
+      const fileId = store.listFiles()[0]?.id as FileId;
+      const trunk = projectFile(store.getBatches(fileId), fileId);
+      const sheet = trunk.sheets.find((s) => s.name === 'Sheet 1');
+      const node = sheet?.nodes.find((n) => n.content === 'trunk 案');
+      if (!sheet || !node) throw new Error('trunk に競合の node が無い');
+      store.appendBatches(fileId, [
+        {
+          id: crypto.randomUUID() as Batch['id'],
+          actor: `${LOCAL_TEST_ACTOR}#other-tab`,
+          clock: 5000,
+          seq: 1,
+          deps: {},
+          timestamp: Date.now(),
+          sheetId: sheet.id,
+          ops: [
+            { kind: 'node.setContent', target: node.id, content: 'trunk 更に' },
+          ],
+        },
+      ]);
+      const channel = new BroadcastChannel(LOCAL_CHANGES_CHANNEL);
+      channel.postMessage({ fileId });
+      channel.close();
+
+      // 先が更新され、競合の trunk 側が新しくなったのでチェックが外れ、merge は押せなくなる
+      await waitFor(
+        () => expect(nodeIn('merge 先', 'trunk 更に')).toBeTruthy(),
+        WIRING_TIMEOUT,
+      );
+      await waitFor(() => {
+        expect(within(list).getByRole('checkbox')).toHaveProperty(
+          'checked',
+          false,
+        );
+        expect(merge()).toHaveProperty('disabled', true);
+      }, WIRING_TIMEOUT);
+      // チェックし直すと merge できる。merge 後は branch の勝ち
+      await user.click(within(list).getByRole('checkbox'));
+      expect(merge()).toHaveProperty('disabled', false);
+      await user.click(merge());
+      await waitFor(
+        () => expect(trunkContent()).toBe('branch 案'),
+        WIRING_TIMEOUT,
+      );
+    },
+    MERGER_TEST_MS,
+  );
+
+  test(
+    'implicit merge が保留した競合 (fork) を merge ↑ すると merger が開き、凍結した競合を決めて trunk に載せる (S5-3)',
+    async () => {
+      const { code } = await aliceSharesFileWithBob();
+      let user = await startOn('alice', ALICE);
+      await openFileNamed(user, FILE_NAME);
+      await addNode(user);
+      await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+      await editOnlyNode(user, 'もと');
+      await waitFor(() => expect(trunkContent()).toBe('もと'), WIRING_TIMEOUT);
+      await syncNow(user);
+
+      // bob: 参加して同じ node を書き換える (alice の次の編集はまだ知らない)
+      user = await startOn('bob', BOB);
+      await participate(user, code, FILE_NAME);
+      await syncNow(user);
+      await waitFor(() => expect(trunkContent()).toBe('もと'), WIRING_TIMEOUT);
+      // bob の編集は alice に届かないよう保留する。届くと alice は見た上で書き換えたことになり、
+      // 競合ではなく上書きの報告になる
+      world.pds.withhold(BOB.did);
+      await editOnlyNode(user, 'bob 案');
+      await waitFor(
+        () => expect(trunkContent()).toBe('bob 案'),
+        WIRING_TIMEOUT,
+      );
+
+      // alice: 並行に同じ node を書き換えて送る
+      user = await startOn('alice', ALICE);
+      await openFileNamed(user, FILE_NAME);
+      await editOnlyNode(user, 'alice 案');
+      await waitFor(
+        () => expect(trunkContent()).toBe('alice 案'),
+        WIRING_TIMEOUT,
+      );
+      await syncNow(user);
+
+      // bob: 受け取ると implicit merge が競合を保留し、fork を記録する
+      user = await startOn('bob', BOB);
+      await openFileNamed(user, FILE_NAME);
+      await syncNow(user);
+      await screen.findByText(/件を保留として記録しました/, {}, WIRING_TIMEOUT);
+      // fork の名前は対象の分岐点 (検出時点の手元) での本文から付く
+      await openBranch(user, '競合: .+ の内容');
+      await user.click(screen.getByRole('button', { name: 'merge ↑' }));
+
+      // 確認のダイアログではなく merger が開き、fork に凍結した競合が conflict list に出る
+      const list = await screen.findByRole(
+        'region',
+        { name: 'conflict list' },
+        WIRING_TIMEOUT,
+      );
+      await waitFor(
+        () => expect(within(list).getAllByRole('checkbox')).toHaveLength(1),
+        WIRING_TIMEOUT,
+      );
+      // 元は fork の分岐点 = 検出した bob の手元 (bob の案)。届いた alice の案はどの pane にも無く、
+      // conflict list が両側を書いた人の名前で示す
+      expect(nodeIn('merge 元', 'bob 案')).toBeTruthy();
+      // (名前はこの世界では handle に解けず DID のまま出る。上書きの報告と同じ)
+      expect(list.textContent).toContain(`${BOB.did}: 本文「bob 案」`);
+      expect(list.textContent).toContain(`${ALICE.did}: 本文「alice 案」`);
+      await user.click(within(list).getByRole('checkbox'));
+      await user.type(
+        within(list).getByLabelText('merge のコメント'),
+        '両案をまとめる',
+      );
+      await editOnlyNode(
+        user,
+        'まとめ案',
+        screen.getByRole('region', { name: 'pane: merge 後' }),
+      );
+      await user.click(within(list).getByRole('button', { name: 'merge' }));
+      await waitFor(
+        () => expect(trunkContent()).toBe('まとめ案'),
+        WIRING_TIMEOUT,
+      );
+    },
+    MERGER_TEST_MS * 2,
+  );
 });

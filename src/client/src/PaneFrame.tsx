@@ -12,8 +12,10 @@ const PASSIVE_BORDER = '#ddd';
 type Props = {
   label: string;
   active: boolean;
-  onActivate: () => void;
-  onClose: () => void;
+  /** 前に出す。省くとボタンを出さない (merger の pane は並びが固定) */
+  onActivate?: () => void;
+  /** pane を閉じる。省くとボタンを出さない */
+  onClose?: () => void;
   children: ReactNode;
 };
 
@@ -58,19 +60,21 @@ export function PaneFrame({
           {label}
         </span>
         {/* 見るだけの pane を編集するには前に出す。押すと画面の仕組みがこの pane のアドレスへ移る */}
-        {!active && (
+        {!active && onActivate && (
           <button type="button" onClick={onActivate} style={BUTTON}>
             前に出す
           </button>
         )}
-        <button
-          type="button"
-          aria-label={`${label} の pane を閉じる`}
-          onClick={onClose}
-          style={BUTTON}
-        >
-          ×
-        </button>
+        {onClose && (
+          <button
+            type="button"
+            aria-label={`${label} の pane を閉じる`}
+            onClick={onClose}
+            style={BUTTON}
+          >
+            ×
+          </button>
+        )}
       </div>
       <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
         {children}

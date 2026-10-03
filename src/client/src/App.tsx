@@ -2,6 +2,7 @@ import {
   addressKey,
   BRANCH_STATUS,
   type BranchId,
+  type BranchMeta,
   DERIVED_FROM_SHEET_PROPERTY,
   type Did,
   derivedNodeIdOf,
@@ -11,6 +12,7 @@ import {
   type GraphViewAddress,
   HEAD_CUT,
   heldMaxima,
+  isFork,
   METAGRAPH_SHEET_KIND,
   type NodeId,
   type PropertyName,
@@ -35,11 +37,14 @@ import { fetchBatches } from './api';
 import { authNeedsPassword } from './atproto/client';
 import { CommitDialog } from './CommitDialog';
 import { ConfirmDialog } from './ConfirmDialog';
+import { ConflictList } from './ConflictList';
 import { ConflictNotice, NOTICE_Z_INDEX } from './ConflictNotice';
 import { devPanesEnabled } from './config';
 import { type GraphEvent, makeEventBase } from './events/GraphEvent';
 import { GraphEditor } from './GraphEditor';
 import { GraphHeader, type HeaderBranch } from './GraphHeader';
+import type { PreviewMarks } from './GraphPreview';
+import { alignToPane } from './graph/alignToPane';
 import { splitMetagraphEvent } from './graph/metagraphEvents';
 import { useActor } from './hooks/useActor';
 import { useAtprotoSession } from './hooks/useAtprotoSession';
@@ -52,6 +57,7 @@ import { useChangeCounter } from './hooks/useChangeCounter';
 import type { UndoState } from './hooks/useEventStore';
 import { useFileSheetOperations } from './hooks/useFileSheetOperations';
 import { useGraphPanels } from './hooks/useGraphPanels';
+import { useMergerSnapshot } from './hooks/useMergerSnapshot';
 import { useParticipation } from './hooks/useParticipation';
 import { useRemoteSyncQueue } from './hooks/useRemoteSyncQueue';
 import { useResolvedTemplates } from './hooks/useResolvedTemplates';
@@ -76,6 +82,12 @@ import { type OpenOptions, Sidebar } from './Sidebar';
 import { SidePanel } from './SidePanel';
 import { accumulateArrivedForks, NO_ARRIVED_FORKS } from './sync/forkArrival';
 import {
+  carryChecks,
+  conflictTargets,
+  diffMarks,
+  forkSideLabels,
+} from './sync/merger';
+import {
   accumulateOverwrites,
   type DetectedOverwrites,
   NO_OVERWRITE_NOTICE,
@@ -87,6 +99,7 @@ import { TemplateApplyDialog } from './TemplateApplyDialog';
 import {
   activeTab,
   isMultiple,
+  MERGER_PANE,
   openFileIds,
   type Tab,
   tabAddress,
@@ -98,6 +111,9 @@ const SPECIAL_SHEET_NAMES: Record<SheetKind, (n: number) => string> = {
   [TEMPLATE_SHEET_KIND]: (n) => `Template ${n}`,
   [METAGRAPH_SHEET_KIND]: (n) => (n === 1 ? 'index' : `index ${n}`),
 };
+
+/** merger の後の pane で、画面の state へ返さない (`onSheetChange` の受け手) */
+const ignoreSheetChange = () => {};
 
 export default function App() {
   // Dialog state (UI only)
@@ -214,7 +230,18 @@ export default function App() {
   });
 
   // Branch operations
+  /**
+   * explicit merge で人の判断が要る競合があったときに merger を開く (step3 Phase 5)。タブは
+   * この後で作るので、ref で後から繋ぐ
+   */
+  const openMergerRef = useRef<((branch: BranchMeta) => void) | null>(null);
+  const handleOpenMerger = useCallback(
+    (branch: BranchMeta) => openMergerRef.current?.(branch),
+    [],
+  );
+
   const branchOps = useBranchOperations({
+    onOpenMerger: handleOpenMerger,
     activeFile: fileOps.activeFile,
     activeSheetId: fileOps.activeSheetId,
     onSetActiveFile: fileOps.setActiveFile,
@@ -269,6 +296,23 @@ export default function App() {
   // タブ (step3 Phase 3 S3-3)。サイドバーから開く・タブを切り替える・閉じるは、すべて
   // 「アドレスを開く」になる。画面をそのアドレスへ持っていくのは useTabNavigation
   const tabs = useTabs();
+  /**
+   * merger を新しいタブで開く (仕様: 進行中の作業を邪魔しないように)。merge 元の姿は**開いた時点で
+   * 固定する** (Q4) — 開いた時点の手元の知識 (trunk と branch の全 actor の vector) を切断面にする
+   */
+  openMergerRef.current = (branch: BranchMeta) => {
+    void Promise.all([
+      fetchBatches(branch.trunkFileId),
+      fetchBatches(branch.branchFileId),
+    ]).then(([trunk, branchBatches]) =>
+      tabs.openMerger({
+        fileId: branch.trunkFileId,
+        sheetId: branch.sheetId,
+        branchId: branch.id,
+        startedAt: heldMaxima([...trunk, ...branchBatches]),
+      }),
+    );
+  };
   const currentTab = activeTab(tabs.state);
   const { open: openTab } = tabs;
 
@@ -477,7 +521,11 @@ export default function App() {
   }, [syncTrunkNow, syncBranchNow]);
 
   const branch = branchOps.activeBranch;
-  const canMerge = branchOps.diffState === BRANCH_DIFF_STATE.COMMITTED;
+  // fork (保留した競合) は空で始まるのでコミットが無いが、merger を開いて決める入口として押せる
+  // (step3 Phase 5 S5-3)。merger の merge が未コミットの解決の編集をコミットしてから取り込む
+  const canMerge =
+    branchOps.diffState === BRANCH_DIFF_STATE.COMMITTED ||
+    (branch !== null && isFork(branch));
   /**
    * 画面に出すシート (step3 Phase 3 S3-2)。branch を開いていれば branch の中身、
    * そうでなければ trunk の姿。編集の宛先 (`syncRecord` / `onSheetChange`) と
@@ -539,6 +587,50 @@ export default function App() {
       : null;
 
   const viewKey = viewAddress ? addressKey(viewAddress) : null;
+
+  // merger (step3 Phase 5)。merge 後の pane は branch を開いた画面の仕組みの上で、描くシートだけを
+  // 「trunk の最新 + branch」に差し替える。編集は branch の tap が branch の op-log に積む (Q1)
+  const mergerTab = currentTab?.merger;
+  const mergerBranch = mergerTab
+    ? [...branchOps.sheetBranches.values()]
+        .flat()
+        .find((b) => b.id === mergerTab.branchId)
+    : undefined;
+  const merger = useMergerSnapshot(mergerBranch, mergerTab?.startedAt);
+  const isMergerResult =
+    mergerTab !== undefined && viewedBranchId === mergerTab.branchId;
+  const editorSheet =
+    isMergerResult && merger?.snapshot.result ? merger.snapshot.result : null;
+  // merger の merge 後から branch 自身の表示に戻ったら、branch を op-log から組み直す。merger と
+  // branch のタブは同じ branch を指すので、タブを移っても branch は選び直されず、merge 後で積んだ
+  // 解決の編集 (と merge の後の状態) が branch の画面に出ない (step3 Phase 5 の実機で発覚)
+  const wasMergerResult = useRef(false);
+  const { reloadBranch } = branchOps;
+  useEffect(() => {
+    if (wasMergerResult.current && !isMergerResult) reloadBranch();
+    wasMergerResult.current = isMergerResult;
+  }, [isMergerResult, reloadBranch]);
+  /** いまの競合に残っているチェックだけを見せる (merge 先が進んで消えた競合のチェックは捨てる, S5-2) */
+  const mergerChecked = carryChecks(
+    mergerTab?.checked ?? [],
+    merger?.snapshot.conflicts ?? [],
+  );
+  const [mergerBusy, setMergerBusy] = useState(false);
+  const { mergeResolved } = branchOps;
+  /** merger の merge (Q3)。済んだらタブを閉じる */
+  const mergeFromMerger = useCallback(
+    async (comment: string) => {
+      if (!mergerBranch || !currentTab) return;
+      setMergerBusy(true);
+      try {
+        await mergeResolved(mergerBranch, comment);
+        tabs.close(currentTab.id);
+      } finally {
+        setMergerBusy(false);
+      }
+    },
+    [mergerBranch, currentTab, mergeResolved, tabs],
+  );
 
   /**
    * metagraph の graph node への操作をシートの操作に回す (step3 Phase 4 S4-2b)。シートの削除は
@@ -650,12 +742,81 @@ export default function App() {
   const sidePanels = useSidePanels();
   // ヘッダが開閉する窓と、canvas の口・選択の写し (step3 Phase 3 S3-4a)
   const panels = useGraphPanels(viewKey);
+  /**
+   * merger の選択の連動 (S5-1b)。選択の正は merge 後の canvas (React Flow) で、見るだけの pane で押した
+   * 要素はそこへも選ばせる。merge 後に居ない要素 (消された) を押したときは、押した id を覚えて印にする
+   */
+  const [mergerPicks, setMergerPicks] = useState<readonly string[]>([]);
+  const mergerSelected = new Set<string>([
+    ...(panels.selection ? [panels.selection.id] : []),
+    ...mergerPicks,
+  ]);
+  /** 押した要素を選ぶ。⌘ / Ctrl / Shift を押しながらなら足し引きする (複数を一斉に取り込む, 仕様) */
+  const pickInMerger = (id: string, additive: boolean) => {
+    const next = additive
+      ? mergerPicks.includes(id)
+        ? mergerPicks.filter((p) => p !== id)
+        : [...mergerPicks, id]
+      : [id];
+    setMergerPicks(next);
+    panels.controls?.select(next);
+  };
+  /**
+   * 「取り込む」のメニュー (S5-1c)。右クリックした要素が選ばれていれば選んだもの全部、そうでなければ
+   * その要素だけを対象にする
+   */
+  const [takeMenu, setTakeMenu] = useState<{
+    at: { x: number; y: number };
+    from: 'source' | 'target';
+    ids: readonly string[];
+  } | null>(null);
+  const openTakeMenu =
+    (from: 'source' | 'target') => (id: string, at: { x: number; y: number }) =>
+      setTakeMenu({
+        at,
+        from,
+        ids: mergerPicks.includes(id) ? mergerPicks : [id],
+      });
+  /** merge 後を、元 / 先の pane の姿に揃える (Q9)。merge 後の canvas で dispatch するので undo できる */
+  const takeIntoResult = () => {
+    const pane = takeMenu ? merger?.snapshot[takeMenu.from] : undefined;
+    const result = merger?.snapshot.result;
+    if (takeMenu && pane && result) {
+      panels.controls?.apply(alignToPane(result, pane, takeMenu.ids));
+    }
+    setTakeMenu(null);
+  };
+  const mergerConflictTargets = conflictTargets(
+    merger?.snapshot.conflicts ?? [],
+  );
+  /** 見るだけの pane の印。差分は互いとの差分 (元は先と、先は元と比べる) */
+  const mergerMarksFor =
+    (other: Sheet | undefined) =>
+    (sheet: Sheet): PreviewMarks => ({
+      ...(other
+        ? diffMarks(other, sheet)
+        : {
+            addedNodes: new Set(),
+            updatedNodes: new Set(),
+            addedEdges: new Set(),
+            updatedEdges: new Set(),
+          }),
+      conflicts: mergerConflictTargets,
+      selected: mergerSelected,
+    });
+  /** merge 後の差分の色は merge 先との差分 (branch 自身の分岐点との差分ではない) */
+  const mergerResultMarks =
+    isMergerResult && merger?.snapshot.target && merger.snapshot.result
+      ? diffMarks(merger.snapshot.target, merger.snapshot.result)
+      : null;
   const readOnly = fileOps.obligation?.fileId === fileOps.activeFile?.id;
   /**
    * 開いている branch の状態と操作 (ヘッダに出す)。merge 済みでも出す — 続けて編集・コミット
    * できる (merge 後の差分の起点は ANA-119 S6)
    */
   const headerBranch: HeaderBranch | null =
+    // merger のタブでは出さない — merge は conflict list から行う
+    !currentTab?.merger &&
     !branchOps.isTrunk &&
     branch &&
     (branch.status === BRANCH_STATUS.OPEN ||
@@ -740,7 +901,10 @@ export default function App() {
     return branchId ? `${base} (⎇ ${names.get(branchId) ?? ''})` : base;
   };
   /** multiple のタブは pane の名前を並べる */
-  const tabLabelOf = (tab: Tab) => tab.panes.map(addressLabelOf).join(' | ');
+  const tabLabelOf = (tab: Tab) =>
+    tab.merger
+      ? `merge: ${addressLabelOf(tab.panes[MERGER_PANE.result] as GraphViewAddress)}`
+      : tab.panes.map(addressLabelOf).join(' | ');
 
   /**
    * 並べられるもの (multiple モードの開発用の入口, Q6)。開いている**他のタブ**のアクティブな
@@ -773,21 +937,33 @@ export default function App() {
               key={addressKey(viewAddress)}
               graphKey={addressKey(viewAddress)}
               undoStateMap={undoStateMapRef}
-              sheet={viewSheet}
+              sheet={editorSheet ?? viewSheet}
               fileId={fileOps.activeFile.id}
               fileName={fileOps.activeFile.name}
               onSheetChange={
-                viewingBranch
-                  ? branchOps.onBranchSheetChange
-                  : handleSheetChange
+                isMergerResult
+                  ? // merger の後の姿は「trunk + branch」なので branch 自身の表示に戻さない。
+                    // 編集そのものは branch の tap が op-log に積む
+                    ignoreSheetChange
+                  : viewingBranch
+                    ? branchOps.onBranchSheetChange
+                    : handleSheetChange
               }
               // branch 表示中の編集は branch 専用 op-log へ (p5-4)。trunk 用の tap に
               // 流すと branch の編集が trunk のログに混ざる。
               syncRecord={branchOps.branchSyncRecord ?? fileOps.syncRecord}
-              addedNodeIds={branchOps.addedNodeIds}
-              updatedNodeIds={branchOps.updatedNodeIds}
-              addedEdgeIds={branchOps.addedEdgeIds}
-              updatedEdgeIds={branchOps.updatedEdgeIds}
+              addedNodeIds={
+                mergerResultMarks?.addedNodes ?? branchOps.addedNodeIds
+              }
+              updatedNodeIds={
+                mergerResultMarks?.updatedNodes ?? branchOps.updatedNodeIds
+              }
+              addedEdgeIds={
+                mergerResultMarks?.addedEdges ?? branchOps.addedEdgeIds
+              }
+              updatedEdgeIds={
+                mergerResultMarks?.updatedEdges ?? branchOps.updatedEdgeIds
+              }
               deletedNodes={branchOps.deletedNodes}
               deletedEdges={branchOps.deletedEdges}
               deletedNodeLayouts={branchOps.deletedNodeLayouts}
@@ -797,7 +973,10 @@ export default function App() {
               receiveEpoch={
                 (viewingBranch
                   ? branchOps.branchReceiveEpoch
-                  : fileOps.receiveEpoch) + metagraphEpoch
+                  : fileOps.receiveEpoch) +
+                metagraphEpoch +
+                // merge 先が進んだら merge 後を seed し直す (O3)。自分の解決の編集では変わらない
+                (isMergerResult ? (merger?.trunkVersion ?? 0) : 0)
               }
               {...(isMetagraphView && {
                 transformEvent: metagraphTransform,
@@ -1009,7 +1188,114 @@ export default function App() {
           />
         )}
         <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
-          {currentTab && isMultiple(currentTab) ? (
+          {currentTab?.merger ? (
+            // merger (step3 Phase 5): 上に merge 元・先 (見るだけ)、下に merge 後 (編集)・conflict list (Q7)
+            <div
+              style={{
+                flex: 1,
+                minHeight: 0,
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gridTemplateRows: '1fr 1fr',
+              }}
+            >
+              <PaneFrame
+                label={`merge 元: ${addressLabelOf(currentTab.panes[MERGER_PANE.source] as GraphViewAddress)} (開いた時点)`}
+                active={false}
+              >
+                <PassivePane
+                  address={
+                    currentTab.panes[MERGER_PANE.source] as GraphViewAddress
+                  }
+                  marksFor={mergerMarksFor(merger?.snapshot.target)}
+                  onElementClick={pickInMerger}
+                  onElementContextMenu={openTakeMenu('source')}
+                />
+              </PaneFrame>
+              <PaneFrame
+                label={`merge 先: ${addressLabelOf(currentTab.panes[MERGER_PANE.target] as GraphViewAddress)}`}
+                active={false}
+              >
+                <PassivePane
+                  address={
+                    currentTab.panes[MERGER_PANE.target] as GraphViewAddress
+                  }
+                  marksFor={mergerMarksFor(merger?.snapshot.source)}
+                  onElementClick={pickInMerger}
+                  onElementContextMenu={openTakeMenu('target')}
+                />
+              </PaneFrame>
+              <PaneFrame label="merge 後" active>
+                {activeBody}
+              </PaneFrame>
+              {takeMenu && (
+                // 取り込むメニュー。外を押せば閉じる
+                // biome-ignore lint/a11y/useKeyWithClickEvents: 外を押して閉じるための幕。Escape はメニュー側で受ける
+                // biome-ignore lint/a11y/noStaticElementInteractions: 同上
+                <div
+                  style={{ position: 'fixed', inset: 0, zIndex: 900 }}
+                  onClick={() => setTakeMenu(null)}
+                >
+                  <div
+                    role="menu"
+                    aria-label="取り込む"
+                    style={{
+                      position: 'fixed',
+                      left: takeMenu.at.x,
+                      top: takeMenu.at.y,
+                      background: '#fff',
+                      border: '1px solid #ccc',
+                      borderRadius: 6,
+                      boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
+                      padding: 4,
+                      fontSize: 12,
+                    }}
+                  >
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        takeIntoResult();
+                      }}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        padding: '4px 8px',
+                      }}
+                    >
+                      merge 後に取り込む ({takeMenu.ids.length})
+                    </button>
+                  </div>
+                </div>
+              )}
+              <ConflictList
+                conflicts={merger?.snapshot.conflicts ?? []}
+                labelOf={(target) =>
+                  merger?.snapshot.labels.get(target) ?? target
+                }
+                checked={mergerChecked}
+                onToggle={(key) =>
+                  tabs.setMergerChecks(
+                    currentTab.id,
+                    mergerChecked.includes(key)
+                      ? mergerChecked.filter((k) => k !== key)
+                      : [...mergerChecked, key],
+                  )
+                }
+                busy={mergerBusy}
+                {...(mergerBranch &&
+                  isFork(mergerBranch) && {
+                    sideLabels: forkSideLabels(
+                      mergerBranch,
+                      participation.state.labelOf,
+                    ),
+                  })}
+                onMerge={(comment) => void mergeFromMerger(comment)}
+              />
+            </div>
+          ) : currentTab && isMultiple(currentTab) ? (
             // multiple モード (S3-5)。編集できるのはアクティブな pane だけで、ほかは見るだけ
             currentTab.panes.map((pane, i) => {
               const label = addressLabelOf(pane);
@@ -1120,6 +1406,7 @@ export default function App() {
           labelOf={conflictLabelOf}
           forkCount={conflictNotice.forkCount ?? 0}
           arrivedForks={arrivedForks}
+          onOpenMerger={handleOpenMerger}
           onClose={() => {
             setConflictNotice({ conflicts: [], labels: new Map() });
             setArrivedForks(NO_ARRIVED_FORKS);

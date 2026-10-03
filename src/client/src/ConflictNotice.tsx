@@ -143,6 +143,8 @@ type Props = {
    * 競合なので、こちらの projection からは引けないことがある
    */
   arrivedForks?: readonly ForkMeta[];
+  /** 保留した競合を merger で決める (step3 Phase 5 S5-3)。無ければ入口を出さない */
+  onOpenMerger?: (fork: ForkMeta) => void;
   onClose: () => void;
 };
 
@@ -151,6 +153,7 @@ export function ConflictNotice({
   labelOf,
   forkCount = 0,
   arrivedForks = [],
+  onOpenMerger,
   onClose,
 }: Props) {
   if (conflicts.length === 0 && arrivedForks.length === 0) return null;
@@ -251,6 +254,23 @@ export function ConflictNotice({
                     : fork.origin.targetLabel}
                 </span>
                 : {describe(fork.origin)}
+                {onOpenMerger && (
+                  <button
+                    type="button"
+                    onClick={() => onOpenMerger(fork)}
+                    style={{
+                      marginLeft: 6,
+                      padding: '0 6px',
+                      fontSize: 12,
+                      cursor: 'pointer',
+                      background: 'none',
+                      border: '1px solid #ccc',
+                      borderRadius: 4,
+                    }}
+                  >
+                    merger で決める
+                  </button>
+                )}
               </li>
             ))}
           </ul>

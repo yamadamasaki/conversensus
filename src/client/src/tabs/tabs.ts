@@ -11,16 +11,37 @@
 
 import {
   addressKey,
+  type BranchId,
   type FileId,
   type GraphViewAddress,
+  HEAD_CUT,
   type SheetId,
+  type VersionVector,
 } from '@conversensus/shared';
 
 /** タブの識別子。**アドレスとは別に持つ** — 同じアドレスのタブを明示で 2 つ開けるため (Q2) */
 export type TabId = string;
 
+/**
+ * merger のタブ (step3 Phase 5)。pane は [merge 元, merge 先, merge 後] の 3 つで、アクティブは常に
+ * merge 後 (元・先は読み取り専用)
+ */
+export type MergerTabState = {
+  /** merge する branch */
+  branchId: BranchId;
+  /** merger を開いた時点 (merge 元の姿を固定する, Q4)。全 actor を含む手元の知識 */
+  startedAt: VersionVector;
+  /** 解消したとユーザが判断した競合 (`conflictKeyOf`)。端末ごと (Q5) */
+  checked: readonly string[];
+};
+
+/** merger のタブの pane の位置 */
+export const MERGER_PANE = { source: 0, target: 1, result: 2 } as const;
+
 export type Tab = {
   id: TabId;
+  /** merger のタブなら、その状態 (step3 Phase 5) */
+  merger?: MergerTabState;
   /** 1 つ以上。並びは画面の左から右 */
   panes: readonly GraphViewAddress[];
   /** アクティブな pane の位置。ヘッダ・右サイドバー・画面の仕組みはこれを対象にする */
@@ -214,4 +235,63 @@ export function isOnSheet(fileId: FileId, sheetId: SheetId) {
 /** 指定の File を指すか (File の削除で閉じるタブの判定) */
 export function isOnFile(fileId: FileId) {
   return (address: GraphViewAddress) => address.fileId === fileId;
+}
+
+/**
+ * merger のタブを開く (step3 Phase 5)。**同じ branch の merger のタブがあればそこへ移る** — 1 つの
+ * branch の merge を 2 か所で進めると、チェック状態が割れる
+ */
+export function openMergerTab(
+  state: TabsState,
+  target: {
+    fileId: FileId;
+    sheetId: SheetId;
+    branchId: BranchId;
+    startedAt: VersionVector;
+  },
+  newId: () => TabId,
+): TabsState {
+  const existing = state.tabs.find(
+    (t) =>
+      t.merger?.branchId === target.branchId &&
+      t.panes[0]?.fileId === target.fileId,
+  );
+  if (existing) return { ...state, activeId: existing.id };
+  const at = (branchId: BranchId | null, cut: GraphViewAddress['cut']) => ({
+    fileId: target.fileId,
+    sheetId: target.sheetId,
+    branchId,
+    cut,
+  });
+  const tab: Tab = {
+    id: newId(),
+    panes: [
+      at(target.branchId, target.startedAt),
+      at(null, HEAD_CUT),
+      at(target.branchId, HEAD_CUT),
+    ],
+    active: MERGER_PANE.result,
+    merger: {
+      branchId: target.branchId,
+      startedAt: target.startedAt,
+      checked: [],
+    },
+  };
+  return { tabs: [...state.tabs, tab], activeId: tab.id };
+}
+
+/** merger のタブのチェック状態を置き換える */
+export function setMergerChecks(
+  state: TabsState,
+  tabId: TabId,
+  checked: readonly string[],
+): TabsState {
+  return {
+    ...state,
+    tabs: state.tabs.map((t) =>
+      t.id === tabId && t.merger
+        ? { ...t, merger: { ...t.merger, checked } }
+        : t,
+    ),
+  };
 }

@@ -16,6 +16,8 @@ import type {
 } from '@conversensus/shared';
 import {
   BRANCH_STATUS,
+  isFork,
+  isUpTo,
   makeCommit,
   requiresConfirmation,
 } from '@conversensus/shared';
@@ -221,6 +223,11 @@ interface UseBranchOperationsParams {
    * シートを切り替えるまで一覧に出ない
    */
   receiveEpoch?: number;
+  /**
+   * explicit merge で人の判断が要る競合があったときに merger を開く (step3 Phase 5)。省略すると
+   * 今までどおり確認を挟んで branch の勝ちで進める
+   */
+  onOpenMerger?: (branch: BranchMeta) => void;
   deps?: BranchOpsDeps;
   oplogDeps?: BranchOplogDeps;
 }
@@ -241,6 +248,7 @@ export function useBranchOperations({
   receiveEpoch = 0,
   deps = defaultBranchOpsDeps,
   oplogDeps = defaultBranchOplogDeps,
+  onOpenMerger,
 }: UseBranchOperationsParams) {
   // branch / commit のメタの書き込み口 (T7-1)。読み取りは `readBranchMeta` で trunk を畳む
   const branchMeta = useMemo(
@@ -527,6 +535,13 @@ export function useBranchOperations({
       );
   };
 
+  /**
+   * 開いている branch を op-log から組み直して canvas に出す (受信と同じ経路)。merger の merge 後の
+   * pane は branch の op-log に解決の編集を積むが、branch 自身の表示 (`branchSheet`) は動かさない。
+   * merger から branch の表示に戻ったときに呼ぶ (step3 Phase 5 の実機で発覚)
+   */
+  const reloadBranch = useCallback(() => reselectOnReceiveRef.current(), []);
+
   const handleCreateBranch = useCallback(
     async (sheetId: SheetId) => {
       const name = await new Promise<string>((resolve) => {
@@ -598,6 +613,103 @@ export function useBranchOperations({
     [activeFile, branchSheet, onSetActiveFile],
   );
 
+  /**
+   * branch を trunk へ merge する本体 (確認も理由の入力も挟まない)。explicit merge の確認の後と、
+   * merger の merge ボタン (`mergeResolved`) が呼ぶ。
+   *
+   * `notify: false` は競合の通知を出さない — merger では人が競合を 1 件ずつ見て決めた後なので、
+   * 「LWW で確定した」と知らせるのは事実に反する
+   */
+  const applyMerge = useCallback(
+    async (branch: BranchMeta, message: string, { notify = true } = {}) => {
+      if (!activeSheetId) return;
+      // branch の batch を写して trunk op-log へ追記する。写しは merge した人自身の batch で、
+      // 点は trunk の tap と同じ発番器で振る (step3 Phase 1 D2)
+      if (!trunkCausal)
+        throw new Error('merge: trunk の発番器が無い (File が開かれていない)');
+      const result = await mergeBranchOnOplog(
+        branch,
+        { message: message, actor },
+        {
+          fetchBatches: oplogDeps.fetchBatches,
+          appendBatches: oplogDeps.appendBatches,
+          recordStatus: branchMeta.statusChanged,
+          // merge は trunk のコミットなので branchId を付けない
+          recordCommit: (commit) => branchMeta.commitAdded(commit),
+          newId: oplogDeps.newId,
+          causal: trunkCausal,
+        },
+      );
+      // 収束は LWW で確定させ、対立は**画面に届ける** (Phase 3 T4)。
+      // **通知に出すのは確認で見せた先読みではなく、実際に適用した結果である** —
+      // 先読みと適用の間に trunk が動けば件数は食い違いうる。
+      if (notify) {
+        setConflictNotice({
+          conflicts: result.conflicts,
+          labels: result.conflictLabels,
+        });
+      }
+      if (notify && result.conflicts.length > 0) {
+        console.warn(
+          `[branch] merge: ${describeConflicts(result.conflicts)} を LWW で確定`,
+          result.conflicts,
+        );
+      }
+      afterMerge(activeSheetId, result.branch, result.trunk);
+    },
+    [
+      activeSheetId,
+      trunkCausal,
+      actor,
+      oplogDeps,
+      branchMeta,
+      setConflictNotice,
+      afterMerge,
+    ],
+  );
+
+  /**
+   * merger の merge ボタン (step3 Phase 5 Q3)。解決の編集 (branch に積んだもの) が未コミットなら、
+   * 同じ message でコミットしてから merge する。
+   *
+   * **未コミットかは op-log で判る** — merger の画面は「trunk + branch」の姿を出していて、branch 自身の
+   * 表示 (`branchSheet`) は動かないので、表示から数えた変更 (`pendingChanges`) は当てにならない
+   */
+  const mergeResolved = useCallback(
+    async (branch: BranchMeta, message: string) => {
+      try {
+        await branchSettled();
+        const branchBatches = await oplogDeps.fetchBatches(branch.branchFileId);
+        const { branchCommits } = await readBranchMeta(
+          oplogDeps.fetchBatches,
+          branch.trunkFileId,
+        );
+        const last = branchCommits.get(branch.id)?.at(-1);
+        const uncommitted = branchBatches.some(
+          (b) => last === undefined || !isUpTo(last, b),
+        );
+        if (uncommitted) {
+          branchMeta.commitAdded(
+            makeCommit(
+              oplogDeps.newId() as CommitId,
+              message,
+              actor,
+              branchBatches,
+            ),
+            branch.id,
+          );
+        }
+        await applyMerge(branch, message, { notify: false });
+      } catch (err) {
+        console.warn('[merger] merge failed:', err);
+        await new Promise<void>((resolve) => {
+          setAlertState({ message: 'merge に失敗しました。', resolve });
+        });
+      }
+    },
+    [branchSettled, oplogDeps, branchMeta, actor, applyMerge, setAlertState],
+  );
+
   const handleMergeBranch = useCallback(
     async (branch: BranchMeta) => {
       if (!activeSheetId || !activeFile) return;
@@ -614,6 +726,13 @@ export function useBranchOperations({
           fetchBatches: oplogDeps.fetchBatches,
         });
         const blocking = preview.conflicts.filter(requiresConfirmation);
+        // 人の判断が要る競合があれば merger を開く (step3 Phase 5)。開けない (口が無い) ときは
+        // 今までどおり確認を挟む。fork (保留した競合) は中身が空なので計算し直しても競合は出ないが、
+        // 保留したのは人の判断が要るからなので、やはり merger で決める (S5-3, Q8)
+        if ((blocking.length > 0 || isFork(branch)) && onOpenMerger) {
+          onOpenMerger(branch);
+          return;
+        }
         if (blocking.length > 0) {
           const proceed = await new Promise<boolean>((resolve) => {
             setConfirmState({
@@ -634,39 +753,7 @@ export function useBranchOperations({
         });
         if (!message.trim()) return;
 
-        // branch の batch を写して trunk op-log へ追記する。写しは merge した人自身の batch で、
-        // 点は trunk の tap と同じ発番器で振る (step3 Phase 1 D2)
-        if (!trunkCausal)
-          throw new Error(
-            'merge: trunk の発番器が無い (File が開かれていない)',
-          );
-        const result = await mergeBranchOnOplog(
-          branch,
-          { message: message.trim(), actor },
-          {
-            fetchBatches: oplogDeps.fetchBatches,
-            appendBatches: oplogDeps.appendBatches,
-            recordStatus: branchMeta.statusChanged,
-            // merge は trunk のコミットなので branchId を付けない
-            recordCommit: (commit) => branchMeta.commitAdded(commit),
-            newId: oplogDeps.newId,
-            causal: trunkCausal,
-          },
-        );
-        // 収束は LWW で確定させ、対立は**画面に届ける** (Phase 3 T4)。
-        // **通知に出すのは確認で見せた先読みではなく、実際に適用した結果である** —
-        // 先読みと適用の間に trunk が動けば件数は食い違いうる。
-        setConflictNotice({
-          conflicts: result.conflicts,
-          labels: result.conflictLabels,
-        });
-        if (result.conflicts.length > 0) {
-          console.warn(
-            `[branch] merge: ${describeConflicts(result.conflicts)} を LWW で確定`,
-            result.conflicts,
-          );
-        }
-        afterMerge(activeSheetId, result.branch, result.trunk);
+        await applyMerge(branch, message.trim());
       } catch (err) {
         console.warn('[branch] merge failed:', err);
         await new Promise<void>((resolve) => {
@@ -680,13 +767,10 @@ export function useBranchOperations({
       setInputState,
       setConfirmState,
       setAlertState,
-      setConflictNotice,
       oplogDeps,
-      branchMeta,
-      trunkCausal,
-      actor,
-      afterMerge,
       branchSettled,
+      onOpenMerger,
+      applyMerge,
     ],
   );
 
@@ -906,6 +990,8 @@ export function useBranchOperations({
     handleCloseBranch,
     handleDeleteBranch,
     handleCommit,
+    mergeResolved,
+    reloadBranch,
     resetBranchState,
   };
 }

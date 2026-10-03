@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+import fc from 'fast-check';
 import { CausalClock } from './causalClock';
 import { happenedBefore } from './causality';
 import { LamportClock } from './unified';
@@ -52,5 +53,50 @@ describe('CausalClock', () => {
     const clock = new CausalClock(ME, lamport);
     clock.issue();
     expect(lamport.current()).toBe(21);
+  });
+});
+
+describe('CausalClock: 同じ actor の発番器が 2 つあるとき', () => {
+  /**
+   * 判断ログの使い捨ての発番器 (other) と、グラフの tap の発番器 (mine)。どちらも振る前に相手が
+   * 振った点を観測する (受信・復元で互いのログを読む)
+   */
+  const arbTurn = fc.record({
+    who: fc.constantFrom('mine', 'other'),
+    count: fc.integer({ min: 1, max: 3 }),
+  });
+
+  it('∀ 振る順. 相手の点を観測してから振るなら、同じ (actor, seq) は 2 度振られない', () => {
+    fc.assert(
+      fc.property(fc.array(arbTurn, { maxLength: 8 }), (turns) => {
+        const clocks = {
+          mine: new CausalClock(ME),
+          other: new CausalClock(ME),
+        };
+        const issued: {
+          who: string;
+          actor: string;
+          seq: number;
+          clock: number;
+          deps: Record<string, number>;
+        }[] = [];
+        for (const { who, count } of turns) {
+          const clock = clocks[who as 'mine' | 'other'];
+          for (const p of issued.filter((p) => p.who !== who)) clock.observe(p);
+          for (let i = 0; i < count; i++) {
+            issued.push({ who, actor: ME, ...clock.issue() });
+          }
+        }
+        const seqs = issued.map((p) => p.seq);
+        expect(new Set(seqs).size).toBe(seqs.length);
+      }),
+    );
+  });
+
+  it('使い捨ての発番器が振った判断 (seq 1) を観測した後の編集は seq 2 になる (S5-3 で発覚した例)', () => {
+    const judgment = new CausalClock(ME).issue();
+    const tap = new CausalClock(ME);
+    tap.observe({ actor: ME, ...judgment });
+    expect(tap.issue().seq).toBe(2);
   });
 });
