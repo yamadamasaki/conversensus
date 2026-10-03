@@ -1438,4 +1438,84 @@ describe('App 結合: merger (step3 Phase 5 S5-1a)', () => {
     },
     MERGER_TEST_MS,
   );
+
+  test(
+    'implicit merge が保留した競合 (fork) を merge ↑ すると merger が開き、凍結した競合を決めて trunk に載せる (S5-3)',
+    async () => {
+      const { code } = await aliceSharesFileWithBob();
+      let user = await startOn('alice', ALICE);
+      await openFileNamed(user, FILE_NAME);
+      await addNode(user);
+      await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+      await editOnlyNode(user, 'もと');
+      await waitFor(() => expect(trunkContent()).toBe('もと'), WIRING_TIMEOUT);
+      await syncNow(user);
+
+      // bob: 参加して同じ node を書き換える (alice の次の編集はまだ知らない)
+      user = await startOn('bob', BOB);
+      await participate(user, code, FILE_NAME);
+      await syncNow(user);
+      await waitFor(() => expect(trunkContent()).toBe('もと'), WIRING_TIMEOUT);
+      // bob の編集は alice に届かないよう保留する。届くと alice は見た上で書き換えたことになり、
+      // 競合ではなく上書きの報告になる
+      world.pds.withhold(BOB.did);
+      await editOnlyNode(user, 'bob 案');
+      await waitFor(
+        () => expect(trunkContent()).toBe('bob 案'),
+        WIRING_TIMEOUT,
+      );
+
+      // alice: 並行に同じ node を書き換えて送る
+      user = await startOn('alice', ALICE);
+      await openFileNamed(user, FILE_NAME);
+      await editOnlyNode(user, 'alice 案');
+      await waitFor(
+        () => expect(trunkContent()).toBe('alice 案'),
+        WIRING_TIMEOUT,
+      );
+      await syncNow(user);
+
+      // bob: 受け取ると implicit merge が競合を保留し、fork を記録する
+      user = await startOn('bob', BOB);
+      await openFileNamed(user, FILE_NAME);
+      await syncNow(user);
+      await screen.findByText(/件を保留として記録しました/, {}, WIRING_TIMEOUT);
+      // fork の名前は対象の分岐点 (検出時点の手元) での本文から付く
+      await openBranch(user, '競合: .+ の内容');
+      await user.click(screen.getByRole('button', { name: 'merge ↑' }));
+
+      // 確認のダイアログではなく merger が開き、fork に凍結した競合が conflict list に出る
+      const list = await screen.findByRole(
+        'region',
+        { name: 'conflict list' },
+        WIRING_TIMEOUT,
+      );
+      await waitFor(
+        () => expect(within(list).getAllByRole('checkbox')).toHaveLength(1),
+        WIRING_TIMEOUT,
+      );
+      // 元は fork の分岐点 = 検出した bob の手元 (bob の案)。届いた alice の案はどの pane にも無く、
+      // conflict list が両側を書いた人の名前で示す
+      expect(nodeIn('merge 元', 'bob 案')).toBeTruthy();
+      // (名前はこの世界では handle に解けず DID のまま出る。上書きの報告と同じ)
+      expect(list.textContent).toContain(`${BOB.did}: 本文「bob 案」`);
+      expect(list.textContent).toContain(`${ALICE.did}: 本文「alice 案」`);
+      await user.click(within(list).getByRole('checkbox'));
+      await user.type(
+        within(list).getByLabelText('merge のコメント'),
+        '両案をまとめる',
+      );
+      await editOnlyNode(
+        user,
+        'まとめ案',
+        screen.getByRole('region', { name: 'pane: merge 後' }),
+      );
+      await user.click(within(list).getByRole('button', { name: 'merge' }));
+      await waitFor(
+        () => expect(trunkContent()).toBe('まとめ案'),
+        WIRING_TIMEOUT,
+      );
+    },
+    MERGER_TEST_MS * 2,
+  );
 });

@@ -8,7 +8,7 @@
 
 import type { MergeConflict, Op } from '@conversensus/shared';
 import { useState } from 'react';
-import { mergerCheckKey } from './sync/merger';
+import { mergerCheckKey, type SideLabels } from './sync/merger';
 
 type Props = {
   conflicts: readonly MergeConflict[];
@@ -19,6 +19,16 @@ type Props = {
   onMerge: (comment: string) => void;
   /** merge を実行中 (二度押しさせない) */
   busy?: boolean;
+  /**
+   * 競合の両側の呼び名。既定は merge 先 (trunk) と merge 元 (branch)。fork (保留した競合, S5-3) の
+   * 両側は trunk と branch ではなく、並行に書いた 2 人である
+   */
+  sideLabels?: SideLabels;
+};
+
+const BRANCH_SIDE_LABELS: SideLabels = {
+  ours: 'merge 先',
+  theirs: 'merge 元',
 };
 
 const CATEGORY_LABEL = {
@@ -58,6 +68,7 @@ export function ConflictList({
   onToggle,
   onMerge,
   busy = false,
+  sideLabels = BRANCH_SIDE_LABELS,
 }: Props) {
   const [comment, setComment] = useState('');
   const done = new Set(checked);
@@ -114,8 +125,8 @@ export function ConflictList({
                     {about} ({CATEGORY_LABEL[c.category]})
                   </strong>
                   <br />
-                  merge 先: {describeSide(c.ours.op)} / merge 元:{' '}
-                  {describeSide(c.theirs.op)}
+                  {sideLabels.ours}: {describeSide(c.ours.op)} /{' '}
+                  {sideLabels.theirs}: {describeSide(c.theirs.op)}
                 </span>
               </label>
             </li>

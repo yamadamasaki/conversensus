@@ -17,6 +17,10 @@ import {
   type Batch,
   type BatchId,
   type BranchMeta,
+  type Did,
+  didFromActor,
+  type ForkMeta,
+  isFork,
   type MergeConflict,
   projectAddress,
   projectFile,
@@ -27,6 +31,68 @@ import {
 import { computeSheetChanges } from './computeOperations';
 import { labelsOfConflicts } from './conflicts';
 import { originOf, planMerge } from './mergeBranch';
+
+/**
+ * fork が凍結した競合の記述を、merger の競合の形に戻す (S5-3)。両側の batch と op は記述に焼き込まれている
+ * (相手の batch が後から引けるとは限らない, `ForkSide`)
+ */
+export function conflictOfFork(fork: ForkMeta): MergeConflict {
+  const { origin } = fork;
+  const base = {
+    target: origin.target,
+    ...(origin.propertyName !== undefined && {
+      propertyName: origin.propertyName,
+    }),
+    ours: { batchId: origin.ours.batchId, op: origin.ours.op },
+    theirs: { batchId: origin.theirs.batchId, op: origin.theirs.op },
+  };
+  if (origin.category === 'layout') {
+    return { ...base, category: 'layout', aspect: origin.aspect ?? 'position' };
+  }
+  if (origin.category === 'structure') {
+    return {
+      ...base,
+      category: 'structure',
+      kind: origin.kind ?? 'parallelChange',
+    };
+  }
+  return { ...base, category: 'content' };
+}
+
+/** conflict list での競合の両側の呼び名 */
+export type SideLabels = { ours: string; theirs: string };
+
+/**
+ * fork の両側の呼び名 (S5-3)。fork の両側は trunk と branch ではなく**並行に書いた 2 人**なので、書いた人の
+ * 名前で呼ぶ。書いた人が引けなかった側 (`ForkSide.actor` が空) は「一方」「もう一方」と呼ぶ
+ */
+export function forkSideLabels(
+  fork: ForkMeta,
+  labelOf: (did: Did) => string,
+): SideLabels {
+  const nameOf = (actor: string, fallback: string) =>
+    actor === '' ? fallback : labelOf(didFromActor(actor) as Did);
+  return {
+    ours: nameOf(fork.origin.ours.actor, '一方'),
+    theirs: nameOf(fork.origin.theirs.actor, 'もう一方'),
+  };
+}
+
+/**
+ * 計算し直した競合が、fork に凍結した競合と同じものか。
+ *
+ * fork の分岐点は**検出した人の手元**なので、届いた側の op (凍結した記述の片側) は分岐点の後の trunk に
+ * 居る。解決の編集をすると、その op と解決の編集の組が競合として計算し直される。これは凍結した競合を
+ * 解いている最中の姿であって、別の競合ではない — 揉めた単位が同じで、trunk 側がどちらかの側の batch で
+ * あるものを同じとみなす。trunk 側が別の batch (fork の後に trunk が進んだ) なら新しい競合である (O3)
+ */
+function isSameFork(frozen: MergeConflict, c: MergeConflict): boolean {
+  return (
+    conflictUnit(frozen) === conflictUnit(c) &&
+    (c.ours.batchId === frozen.ours.batchId ||
+      c.ours.batchId === frozen.theirs.batchId)
+  );
+}
 
 /** 仮の写しの actor。実際の merge では merge した人の actor になる */
 const PREVIEW_ACTOR = 'merger-preview';
@@ -70,6 +136,15 @@ export function mergerSnapshot(
   const sheetOf = (batches: Batch[]) =>
     projectFile(batches, fileId).sheets.find((s) => s.id === meta.sheetId);
   const plan = planMerge(meta, trunk, branch);
+  // fork (implicit merge が保留した競合, S5-3) は中身が空なので、計算し直しても競合は出ない。
+  // 競合は fork が検出時点で凍結した記述から作る (Q8)
+  const frozen = isFork(meta) ? [conflictOfFork(meta)] : [];
+  const conflicts = mergerConflicts([
+    ...frozen,
+    ...plan.conflicts.filter((c) => !frozen.some((f) => isSameFork(f, c))),
+  ]);
+  const labels = labelsOfConflicts(plan.base, plan.conflicts);
+  if (isFork(meta)) labels.set(meta.origin.target, meta.origin.targetLabel);
   return {
     source: projectAddress(
       { fileId, sheetId: meta.sheetId, branchId: meta.id, cut: startedAt },
@@ -77,8 +152,8 @@ export function mergerSnapshot(
     ),
     target: sheetOf(trunk),
     result: sheetOf([...trunk, ...previewCopies(plan.toAppend, trunk, branch)]),
-    conflicts: mergerConflicts(plan.conflicts),
-    labels: labelsOfConflicts(plan.base, plan.conflicts),
+    conflicts,
+    labels,
   };
 }
 
@@ -92,16 +167,16 @@ export function mergerSnapshot(
  * batch になった) ときだけ鍵が変わり、もう一度チェックが要る (仕様: merge 先が進んで再び競合が起きる, O3)
  */
 export function mergerCheckKey(conflict: MergeConflict): string {
+  return [conflictUnit(conflict), conflict.ours.batchId].join('\u0000');
+}
+
+/** 揉めた単位 (種別・対象・プロパティ名か layout の観点)。どちらの側の batch かは含めない */
+function conflictUnit(conflict: MergeConflict): string {
   const about =
     conflict.category === 'layout'
       ? conflict.aspect
       : (conflict.propertyName ?? '');
-  return [
-    conflict.category,
-    conflict.target,
-    about,
-    conflict.ours.batchId,
-  ].join('\u0000');
+  return [conflict.category, conflict.target, about].join('\u0000');
 }
 
 /**

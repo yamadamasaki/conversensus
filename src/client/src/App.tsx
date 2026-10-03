@@ -12,6 +12,7 @@ import {
   type GraphViewAddress,
   HEAD_CUT,
   heldMaxima,
+  isFork,
   METAGRAPH_SHEET_KIND,
   type NodeId,
   type PropertyName,
@@ -80,7 +81,12 @@ import { SearchPanel } from './SearchPanel';
 import { type OpenOptions, Sidebar } from './Sidebar';
 import { SidePanel } from './SidePanel';
 import { accumulateArrivedForks, NO_ARRIVED_FORKS } from './sync/forkArrival';
-import { carryChecks, conflictTargets, diffMarks } from './sync/merger';
+import {
+  carryChecks,
+  conflictTargets,
+  diffMarks,
+  forkSideLabels,
+} from './sync/merger';
 import {
   accumulateOverwrites,
   type DetectedOverwrites,
@@ -515,7 +521,11 @@ export default function App() {
   }, [syncTrunkNow, syncBranchNow]);
 
   const branch = branchOps.activeBranch;
-  const canMerge = branchOps.diffState === BRANCH_DIFF_STATE.COMMITTED;
+  // fork (保留した競合) は空で始まるのでコミットが無いが、merger を開いて決める入口として押せる
+  // (step3 Phase 5 S5-3)。merger の merge が未コミットの解決の編集をコミットしてから取り込む
+  const canMerge =
+    branchOps.diffState === BRANCH_DIFF_STATE.COMMITTED ||
+    (branch !== null && isFork(branch));
   /**
    * 画面に出すシート (step3 Phase 3 S3-2)。branch を開いていれば branch の中身、
    * そうでなければ trunk の姿。編集の宛先 (`syncRecord` / `onSheetChange`) と
@@ -1266,6 +1276,13 @@ export default function App() {
                   )
                 }
                 busy={mergerBusy}
+                {...(mergerBranch &&
+                  isFork(mergerBranch) && {
+                    sideLabels: forkSideLabels(
+                      mergerBranch,
+                      participation.state.labelOf,
+                    ),
+                  })}
                 onMerge={(comment) => void mergeFromMerger(comment)}
               />
             </div>
@@ -1380,6 +1397,7 @@ export default function App() {
           labelOf={conflictLabelOf}
           forkCount={conflictNotice.forkCount ?? 0}
           arrivedForks={arrivedForks}
+          onOpenMerger={handleOpenMerger}
           onClose={() => {
             setConflictNotice({ conflicts: [], labels: new Map() });
             setArrivedForks(NO_ARRIVED_FORKS);

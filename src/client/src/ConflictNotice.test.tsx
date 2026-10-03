@@ -276,6 +276,33 @@ describe('ConflictNotice', () => {
       );
       expect(screen.getByText('(名前のない要素)')).toBeTruthy();
     });
+
+    it('届いた保留から merger を開ける。口が無ければ入口を出さない (step3 Phase 5 S5-3)', () => {
+      const arrived = fork(content(NODE), '要件A');
+      const onOpenMerger = mock((_: typeof arrived) => {});
+      const { rerender } = render(
+        <ConflictNotice
+          conflicts={[]}
+          labelOf={labelOf}
+          arrivedForks={[arrived]}
+          onClose={onClose}
+        />,
+      );
+      expect(
+        screen.queryByRole('button', { name: 'merger で決める' }),
+      ).toBeNull();
+      rerender(
+        <ConflictNotice
+          conflicts={[]}
+          labelOf={labelOf}
+          arrivedForks={[arrived]}
+          onOpenMerger={onOpenMerger}
+          onClose={onClose}
+        />,
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'merger で決める' }));
+      expect(onOpenMerger).toHaveBeenCalledWith(arrived);
+    });
   });
 
   it('閉じられる', () => {

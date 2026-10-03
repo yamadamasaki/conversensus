@@ -16,6 +16,7 @@ import type {
 } from '@conversensus/shared';
 import {
   BRANCH_STATUS,
+  isFork,
   isUpTo,
   makeCommit,
   requiresConfirmation,
@@ -714,8 +715,9 @@ export function useBranchOperations({
         });
         const blocking = preview.conflicts.filter(requiresConfirmation);
         // 人の判断が要る競合があれば merger を開く (step3 Phase 5)。開けない (口が無い) ときは
-        // 今までどおり確認を挟む
-        if (blocking.length > 0 && onOpenMerger) {
+        // 今までどおり確認を挟む。fork (保留した競合) は中身が空なので計算し直しても競合は出ないが、
+        // 保留したのは人の判断が要るからなので、やはり merger で決める (S5-3, Q8)
+        if ((blocking.length > 0 || isFork(branch)) && onOpenMerger) {
           onOpenMerger(branch);
           return;
         }

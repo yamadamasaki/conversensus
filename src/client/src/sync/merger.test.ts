@@ -10,6 +10,7 @@ import {
   type FileId,
   LamportClock,
   type MergeConflict,
+  makeFork,
   type NodeId,
   type Op,
   type SheetId,
@@ -19,8 +20,10 @@ import { type MergeBranchDeps, mergeBranchOnOplog } from './mergeBranch';
 import {
   allChecked,
   carryChecks,
+  conflictOfFork,
   conflictTargets,
   diffMarks,
+  forkSideLabels,
   mergerCheckKey,
   mergerConflicts,
   mergerSnapshot,
@@ -319,5 +322,188 @@ describe('diffMarks / conflictTargets (step3 Phase 5 S5-1b)', () => {
       },
     };
     expect([...conflictTargets([c, c])]).toEqual(['n1']);
+  });
+});
+
+describe('fork から merger を開く (step3 Phase 5 S5-3)', () => {
+  const forkOf = (conflict: MergeConflict, localBatches: Batch[]) => {
+    let n = 0;
+    return makeFork({
+      conflict,
+      targetLabel: 'もと',
+      batchOf: () => undefined,
+      localBatches,
+      sheetId: SHEET,
+      trunkFileId: TRUNK,
+      authorActor: ALICE,
+      newId: () => `fork-${++n}`,
+    });
+  };
+
+  /**
+   * 種別ごとの細目 (structure の kind / layout の aspect) とプロパティ名の有無を全部引く。op は本文の
+   * 書き換えに固定する — 往復で落ちうるのは記述の形 (種別と細目) であって、op は素通しされる
+   */
+  const arbConflict: fc.Arbitrary<MergeConflict> = fc
+    .record({
+      variant: fc.constantFrom(
+        { category: 'content' as const },
+        { category: 'structure' as const, kind: 'removeDependency' as const },
+        { category: 'structure' as const, kind: 'parallelChange' as const },
+        { category: 'layout' as const, aspect: 'position' as const },
+        { category: 'layout' as const, aspect: 'size' as const },
+        { category: 'layout' as const, aspect: 'route' as const },
+      ),
+      target: fc.constantFrom(...NODES),
+      propertyName: fc.option(fc.constantFrom('担当', '期限'), {
+        nil: undefined,
+      }),
+      ours: fc.constantFrom('b1', 'b2'),
+      theirs: fc.constantFrom('b3', 'b4'),
+    })
+    .map(
+      ({ variant, target, propertyName, ours, theirs }) =>
+        ({
+          ...variant,
+          target,
+          ...(propertyName !== undefined && { propertyName }),
+          ours: {
+            batchId: ours as Batch['id'],
+            op: { kind: 'node.setContent', target, content: 'y' },
+          },
+          theirs: {
+            batchId: theirs as Batch['id'],
+            op: { kind: 'node.setContent', target, content: 'x' },
+          },
+        }) as MergeConflict,
+    );
+
+  test('∀ 競合. fork に凍結した記述から戻した競合は、元の競合と同じ', () => {
+    fc.assert(
+      fc.property(arbConflict, (conflict) => {
+        expect(conflictOfFork(forkOf(conflict, genesis()))).toEqual(conflict);
+      }),
+    );
+  });
+
+  test('元は fork の分岐点、後は trunk の最新 (fork は空)。競合は計算し直さず凍結した記述から出す', () => {
+    // 検出時点の手元 = genesis。その後 trunk に n2 が足された
+    const trunk = [
+      ...genesis(),
+      {
+        id: 't2' as Batch['id'],
+        actor: BOB,
+        clock: 3,
+        seq: 3,
+        deps: {},
+        timestamp: 3,
+        sheetId: SHEET,
+        ops: [
+          { kind: 'node.add', target: NODES[1] as NodeId, content: 'あと' },
+        ],
+      } satisfies Batch,
+    ];
+    const conflict: MergeConflict = {
+      category: 'content',
+      target: NODES[0] as NodeId,
+      ours: {
+        batchId: 'b1' as Batch['id'],
+        op: {
+          kind: 'node.setContent',
+          target: NODES[0] as NodeId,
+          content: 'y',
+        },
+      },
+      theirs: {
+        batchId: 'b2' as Batch['id'],
+        op: {
+          kind: 'node.setContent',
+          target: NODES[0] as NodeId,
+          content: 'x',
+        },
+      },
+    };
+    const fork = forkOf(conflict, genesis());
+    const snapshot = mergerSnapshot(fork, trunk, [], {
+      genesis: 1,
+      [ALICE]: 2,
+      [BOB]: 3,
+    });
+    expect(shape(snapshot.source)).toEqual([['n1', 'もと']]);
+    expect(shape(snapshot.target)).toEqual([
+      ['n1', 'もと'],
+      ['n2', 'あと'],
+    ]);
+    expect(shape(snapshot.result)).toEqual(shape(snapshot.target));
+    expect(snapshot.conflicts).toEqual([conflict]);
+    expect(snapshot.labels.get('n1')).toBe('もと');
+  });
+
+  /** 届いた側 (alice の b2) は分岐点 (検出した人の手元 = genesis) の後の trunk に居る */
+  const setContent = (
+    id: string,
+    actor: string,
+    clock: number,
+    content: string,
+  ): Batch => ({
+    id: id as Batch['id'],
+    actor,
+    clock,
+    seq: clock,
+    deps: {},
+    timestamp: clock,
+    sheetId: SHEET,
+    ops: [{ kind: 'node.setContent', target: NODES[0] as NodeId, content }],
+  });
+  const frozenConflict: MergeConflict = {
+    category: 'content',
+    target: NODES[0] as NodeId,
+    ours: {
+      batchId: 't1' as Batch['id'],
+      op: { kind: 'node.add', target: NODES[0] as NodeId, content: 'もと' },
+    },
+    theirs: {
+      batchId: 'b2' as Batch['id'],
+      op: { kind: 'node.setContent', target: NODES[0] as NodeId, content: 'x' },
+    },
+  };
+  const everything = { genesis: 1, [ALICE]: 9, [BOB]: 9 };
+
+  test('解決の編集と、分岐点の後に居る届いた側の組は、凍結した競合と同じものとみなす (増えない)', () => {
+    const fork = forkOf(frozenConflict, genesis());
+    const trunk = [...genesis(), setContent('b2', BOB, 3, 'x')];
+    const resolution = [setContent('r1', ALICE, 4, 'まとめ')];
+    const snapshot = mergerSnapshot(fork, trunk, resolution, everything);
+    expect(snapshot.conflicts).toEqual([frozenConflict]);
+    expect(shape(snapshot.result)).toEqual([['n1', 'まとめ']]);
+  });
+
+  test('fork の後に trunk が別の batch で進めば、それは新しい競合 (O3)', () => {
+    const fork = forkOf(frozenConflict, genesis());
+    const trunk = [
+      ...genesis(),
+      setContent('b2', BOB, 3, 'x'),
+      setContent('b3', BOB, 4, 'さらに'),
+    ];
+    const resolution = [setContent('r1', ALICE, 5, 'まとめ')];
+    const snapshot = mergerSnapshot(fork, trunk, resolution, everything);
+    expect(
+      snapshot.conflicts.map((c) => c.ours.batchId as string).sort(),
+    ).toEqual(['b3', 't1']);
+  });
+
+  test('両側は書いた人の名前で呼び、書いた人が引けない側は「一方」「もう一方」', () => {
+    const fork = forkOf(frozenConflict, genesis());
+    const named = {
+      ...fork,
+      origin: {
+        ...fork.origin,
+        ours: { ...fork.origin.ours, actor: `${BOB}` },
+      },
+    };
+    expect(forkSideLabels(named, (did) => `@${did}`)).toEqual({
+      ours: '@did:plc:bob',
+      theirs: 'もう一方',
+    });
   });
 });
