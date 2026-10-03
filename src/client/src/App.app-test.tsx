@@ -1372,4 +1372,70 @@ describe('App 結合: merger (step3 Phase 5 S5-1a)', () => {
     },
     MERGER_TEST_MS,
   );
+  test(
+    'merger を開いている間に merge 先が進むと、先が更新されてチェックが外れ、チェックし直すと merge できる (S5-2, O3)',
+    async () => {
+      const user = await conflictingMerge();
+      const list = await screen.findByRole(
+        'region',
+        { name: 'conflict list' },
+        WIRING_TIMEOUT,
+      );
+      await waitFor(
+        () => expect(within(list).getAllByRole('checkbox')).toHaveLength(1),
+        WIRING_TIMEOUT,
+      );
+      await user.click(within(list).getByRole('checkbox'));
+      await user.type(within(list).getByLabelText('merge のコメント'), '採る');
+      const merge = () => within(list).getByRole('button', { name: 'merge' });
+      expect(merge()).toHaveProperty('disabled', false);
+
+      // 別のタブが trunk の同じ node を書き換える (S2-4 と同じ手: 正典に入れて知らせる)
+      const store = world.localStore();
+      const fileId = store.listFiles()[0]?.id as FileId;
+      const trunk = projectFile(store.getBatches(fileId), fileId);
+      const sheet = trunk.sheets.find((s) => s.name === 'Sheet 1');
+      const node = sheet?.nodes.find((n) => n.content === 'trunk 案');
+      if (!sheet || !node) throw new Error('trunk に競合の node が無い');
+      store.appendBatches(fileId, [
+        {
+          id: crypto.randomUUID() as Batch['id'],
+          actor: `${LOCAL_TEST_ACTOR}#other-tab`,
+          clock: 5000,
+          seq: 1,
+          deps: {},
+          timestamp: Date.now(),
+          sheetId: sheet.id,
+          ops: [
+            { kind: 'node.setContent', target: node.id, content: 'trunk 更に' },
+          ],
+        },
+      ]);
+      const channel = new BroadcastChannel(LOCAL_CHANGES_CHANNEL);
+      channel.postMessage({ fileId });
+      channel.close();
+
+      // 先が更新され、競合の trunk 側が新しくなったのでチェックが外れ、merge は押せなくなる
+      await waitFor(
+        () => expect(nodeIn('merge 先', 'trunk 更に')).toBeTruthy(),
+        WIRING_TIMEOUT,
+      );
+      await waitFor(() => {
+        expect(within(list).getByRole('checkbox')).toHaveProperty(
+          'checked',
+          false,
+        );
+        expect(merge()).toHaveProperty('disabled', true);
+      }, WIRING_TIMEOUT);
+      // チェックし直すと merge できる。merge 後は branch の勝ち
+      await user.click(within(list).getByRole('checkbox'));
+      expect(merge()).toHaveProperty('disabled', false);
+      await user.click(merge());
+      await waitFor(
+        () => expect(trunkContent()).toBe('branch 案'),
+        WIRING_TIMEOUT,
+      );
+    },
+    MERGER_TEST_MS,
+  );
 });

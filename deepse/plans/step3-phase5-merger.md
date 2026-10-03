@@ -225,3 +225,14 @@ merge 後 = trunk の head + fork。解決の編集は fork の op-log へ積み
 #### 検証
 
 単体 1903 件 (取り込みの性質 2・例 1 を追加)・App 結合 39 件 (取り込み 1 件を追加)・E2E 44 件が緑。
+
+### S5-2: merge 先が進んだとき (2026-10-03, O3)
+
+仕組みは S5-0・S5-1a で入っていた: merger の姿は正典の知らせ (このタブ + 別のタブ + 受信の着地) で読み直し
+(`useMergerSnapshot`)、merge 後は trunk の batch の数が変わったら seed し直し、チェックは trunk 側の batch で作った鍵
+(`mergerCheckKey`) で引き継ぐ (`carryChecks`)。trunk 側が新しい batch になった競合は鍵が変わるので、チェックが外れて
+merge がまた押せなくなる。S5-2 ではそれを App 結合で通した (別のタブが trunk の同じ node を書き換える)。
+
+#### 検証
+
+App 結合 40 件 (O3 の 1 件を追加) が緑。読み直さない変異と、鍵から trunk 側を外す変異で落ちる。
