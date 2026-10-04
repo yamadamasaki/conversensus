@@ -11,19 +11,25 @@
  *   - `batches`:   op-log の正典コレクション (Phase 4c 以降のグラフの同期単位)
  *   - `judgments`: 判断ログ (step2 Phase 1)。名簿と、Phase 6 の DtR 承認
  *   - `files`:     legacy file レコードの後始末 (ファイル削除時の `delete` のみ)
+ *   - `noticeDismissals` / `folders` / `filePlacements`: actor 固有の state (step3 Phase 6)。
+ *     **自分の repo だけを読む** — 他の actor の整理や既読を読む理由が無い
  */
 
 import type { AtUri, Did, FileId, Rkey } from '@conversensus/shared';
 import { batchRkeyFileCursor, batchRkeyPrefix } from './batchRkey';
 import { currentDid, getAgent } from './client';
 import {
+  listAllRecords,
   listBatchFileHeads,
   listByRkeyPrefix,
   type RecordPage,
 } from './rangeFetch';
 import {
   type BatchRecord,
+  type FilePlacementRecord,
+  type FolderRecord,
   type JudgmentRecord,
+  type NoticeDismissalRecord,
   NSID,
   type RecordResult,
 } from './types';
@@ -203,5 +209,68 @@ export const judgments = {
   },
   delete(rkey: string) {
     return deleteRecord(NSID.judgment, rkey);
+  },
+};
+
+// --- actor 固有の state (step3 Phase 6) ---
+
+/**
+ * 閉じた通知。rkey は `noticeDismissalRkey()` だけが組み立てる (`<fileId>~…` でないと
+ * `listByFile` の範囲から漏れる)。
+ */
+export const noticeDismissals = {
+  put(
+    rkey: string,
+    data: Omit<NoticeDismissalRecord, '$type'>,
+  ): Promise<RecordResult> {
+    return putRecord(NSID.noticeDismissal, rkey, {
+      $type: NSID.noticeDismissal,
+      ...data,
+    });
+  },
+  /** 1 File 分の既読だけを取得する (rkey が `<fileId>~` で始まる) */
+  listByFile(fileId: FileId) {
+    return listByRkeyPrefix(
+      (params) => listRecordsPage(NSID.noticeDismissal, params),
+      batchRkeyPrefix(fileId),
+      batchRkeyFileCursor(fileId),
+    );
+  },
+  delete(rkey: string) {
+    return deleteRecord(NSID.noticeDismissal, rkey);
+  },
+};
+
+/** Folder。rkey = FolderId */
+export const folders = {
+  put(id: Rkey, data: Omit<FolderRecord, '$type'>): Promise<RecordResult> {
+    return putRecord(NSID.folder, id, { $type: NSID.folder, ...data });
+  },
+  list() {
+    return listAllRecords((params) => listRecordsPage(NSID.folder, params));
+  },
+  delete(id: Rkey) {
+    return deleteRecord(NSID.folder, id);
+  },
+};
+
+/** File の置き場。rkey = FileId。トップ・レベルに戻す = `delete` */
+export const filePlacements = {
+  put(
+    fileId: FileId,
+    data: Omit<FilePlacementRecord, '$type'>,
+  ): Promise<RecordResult> {
+    return putRecord(NSID.filePlacement, fileId, {
+      $type: NSID.filePlacement,
+      ...data,
+    });
+  },
+  list() {
+    return listAllRecords((params) =>
+      listRecordsPage(NSID.filePlacement, params),
+    );
+  },
+  delete(fileId: FileId) {
+    return deleteRecord(NSID.filePlacement, fileId);
   },
 };

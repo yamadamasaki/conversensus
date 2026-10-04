@@ -167,3 +167,36 @@ export async function listBatchFileHeads(
   }
   return heads;
 }
+
+/**
+ * 全件取得のページ数の上限 (step3 Phase 6)。Folder と置き場は actor 1 人の整理なので
+ * 数百件のオーダーで、100 件 × 100 ページは十分な余裕である。超えたら打ち切って警告する
+ * (cursor が前進しない PDS で静かに回り続けない, §3.6 と同じ考え方)
+ */
+export const MAX_LIST_ALL_PAGES = 100;
+
+/**
+ * collection を**全件** rkey 昇順で取得する (step3 Phase 6)。
+ *
+ * batch と違って File ごとに仕切られていない、actor 固有の小さな collection
+ * (Folder・File の置き場) のためのもの。
+ */
+export async function listAllRecords(
+  listPage: ListRecordsPage,
+  maxPages: number = MAX_LIST_ALL_PAGES,
+): Promise<RecordSummary[]> {
+  const found: RecordSummary[] = [];
+  let cursor: string | undefined;
+  for (let pages = 0; pages < maxPages; pages += 1) {
+    const page = await listPage({ cursor, reverse: true });
+    found.push(...page.records);
+    // 空ページ・cursor 無し・cursor が前進しない、のどれでも終わり
+    if (page.records.length === 0 || !page.cursor || page.cursor === cursor)
+      return found;
+    cursor = page.cursor;
+  }
+  console.warn(
+    `[atproto] listing hit the page cap (${maxPages}); the result may be incomplete`,
+  );
+  return found;
+}

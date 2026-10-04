@@ -94,6 +94,16 @@ describe('InputDialog', () => {
     expect(mockOnSubmit).toHaveBeenCalledWith('feature-y');
   });
 
+  it('Enter の既定の動作を止める (次に出たダイアログのボタンを同じ打鍵で押さない)', () => {
+    render(
+      <InputDialog message="名前" onSubmit={() => {}} onCancel={() => {}} />,
+    );
+    const input = screen.getByRole('textbox');
+    fireEvent.change(input, { target: { value: 'a' } });
+    // fireEvent は既定の動作が止められたら false を返す
+    expect(fireEvent.keyDown(input, { key: 'Enter' })).toBe(false);
+  });
+
   it('IME 変換中の Enter では onSubmit が呼ばれない', () => {
     renderDialog();
     const input = screen.getByRole('textbox');

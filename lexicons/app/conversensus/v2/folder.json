@@ -1,0 +1,20 @@
+{
+  "lexicon": 1,
+  "id": "app.conversensus.v2.folder",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "One folder of the actor's own file organisation (step3 Phase 6). Actor-specific state shared across the actor's devices; not part of any op-log. One folder is one record (rkey = folder id, UUID) so that folders created on two devices offline are both kept. The tree, name-collision renames and orphan handling are derived on read.",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": ["name", "createdAt"],
+        "properties": {
+          "name": { "type": "string", "description": "Display name. Unique among siblings; collisions arising from sync are resolved by renaming the later one." },
+          "parent": { "type": "string", "description": "Parent folder id (UUID). Absent for a top-level folder." },
+          "createdAt": { "type": "string", "format": "datetime", "description": "Creation time (ISO 8601). Orders folders when a name collision is resolved." }
+        }
+      }
+    }
+  }
+}

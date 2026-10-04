@@ -200,6 +200,13 @@ export type BranchId = z.infer<typeof BranchIdSchema>;
 export const CommitIdSchema = z.string().uuid().brand<'CommitId'>();
 export type CommitId = z.infer<typeof CommitIdSchema>;
 
+// --- Folder (step3 Phase 6) ---
+// File を整理する入れ子の Folder。actor 固有の state で、op-log には載らない
+
+export const FolderIdSchema = z.string().uuid().brand<'FolderId'>();
+export type FolderId = z.infer<typeof FolderIdSchema>;
+export type FolderName = string;
+
 export const CommitOperationSchema = z.discriminatedUnion('op', [
   z.object({
     op: z.literal('node.add'),

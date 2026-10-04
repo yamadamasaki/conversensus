@@ -26,6 +26,7 @@
 
 import {
   type Batch,
+  BRANCH_STATUS,
   type FileId,
   type ForkMeta,
   foldBranches,
@@ -85,4 +86,24 @@ export function accumulateArrivedForks(
     if (!byKey.has(fork.conflictKey)) byKey.set(fork.conflictKey, fork);
   }
   return [...byKey.values()];
+}
+
+/**
+ * まだ決着していない fork (step3 Phase 6 S6-1b)。
+ *
+ * 到着の検出 (`detectArrivedForks`) は受信の瞬間の差なので、閉じる前に再読み込みすると
+ * 知らせが消える。fork そのものは trunk の op-log にあるので、**File を開くたびに
+ * op-log から求め直す**。merge (merger で決めた) か close されたものは決着している
+ */
+export function openForksOf(
+  batches: readonly Batch[],
+  trunkFileId: FileId,
+): ForkMeta[] {
+  return [...foldBranches(batches, trunkFileId).branches.values()]
+    .filter(isFork)
+    .filter(
+      (fork) =>
+        fork.status !== BRANCH_STATUS.MERGED &&
+        fork.status !== BRANCH_STATUS.CLOSED,
+    );
 }

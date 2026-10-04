@@ -118,7 +118,7 @@ interface UseFileSheetOperationsParams {
    * **競合と違って「溜める」ので、値ではなく更新関数を受け取る形にする** —
    * この報告は自動では出ない印なので、上書きすると人が見に行く前に消える。
    */
-  onOverwrites: (detected: DetectedOverwrites) => void;
+  onOverwrites: (fileId: FileId, detected: DetectedOverwrites) => void;
   /**
    * 相手が書いた fork (保留した競合) の到着を画面へ渡す (step2 Phase 3 T7-5)。
    * 上書きの報告と同じく**受け手が溜める**。省略すると通知しない
@@ -236,11 +236,12 @@ export function useFileSheetOperations({
    * どちらも「競合が起きた」であって、経路の違いは関心事ではない。
    */
   const handleConflicts = useCallback(
-    (_fileId: FileId, detected: DetectedConflicts, forkCount: number) => {
+    (fileId: FileId, detected: DetectedConflicts, forkCount: number) => {
       setConflictNotice({
         conflicts: detected.conflicts,
         labels: detected.labels,
         forkCount,
+        fileId,
       });
     },
     [setConflictNotice],
@@ -253,8 +254,8 @@ export function useFileSheetOperations({
    * 言い方も扱いも別である、というのが T8 の決着そのものである。
    */
   const handleOverwrites = useCallback(
-    (_fileId: FileId, detected: DetectedOverwrites) => {
-      onOverwrites(detected);
+    (fileId: FileId, detected: DetectedOverwrites) => {
+      onOverwrites(fileId, detected);
     },
     [onOverwrites],
   );

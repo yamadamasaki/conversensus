@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import {
   type Actor,
   type Batch,
+  BRANCH_STATUS,
   type FileId,
   type ForkMeta,
   type MergeConflict,
@@ -15,6 +16,7 @@ import {
   accumulateArrivedForks,
   detectArrivedForks,
   NO_ARRIVED_FORKS,
+  openForksOf,
 } from './forkArrival';
 
 const FILE = '11111111-1111-4111-8111-111111111111' as FileId;
@@ -175,5 +177,40 @@ describe('accumulateArrivedForks', () => {
   it('何も届かなければ溜めてある束をそのまま返す (再描画を起こさない)', () => {
     const prev = [forkBy(BOB)];
     expect(accumulateArrivedForks(prev, [])).toBe(prev);
+  });
+});
+
+describe('openForksOf (step3 Phase 6 S6-1b)', () => {
+  const statusOf = (
+    fork: ForkMeta,
+    status: ForkMeta['status'],
+    clock: number,
+  ) => recorded((r) => r.statusChanged(fork.id, status), BOB, clock);
+
+  it('op-log にある、まだ決着していない fork を返す (自分の書いたものも)', () => {
+    const mine = forkBy(ALICE);
+    expect(
+      openForksOf([created(mine, ALICE, 5)], FILE).map((f) => f.conflictKey),
+    ).toEqual([mine.conflictKey]);
+  });
+
+  it('merge された fork と close された fork は返さない', () => {
+    const merged = forkBy(BOB);
+    const closed = forkBy(BOB, conflict(uuid(), uuid()));
+    const open = forkBy(BOB, conflict(uuid(), uuid()));
+    const batches = [
+      created(merged, BOB, 10),
+      created(closed, BOB, 11),
+      created(open, BOB, 12),
+      statusOf(merged, BRANCH_STATUS.MERGED, 13),
+      statusOf(closed, BRANCH_STATUS.CLOSED, 14),
+    ];
+    expect(openForksOf(batches, FILE).map((f) => f.conflictKey)).toEqual([
+      open.conflictKey,
+    ]);
+  });
+
+  it('fork でない branch は返さない', () => {
+    expect(openForksOf([], FILE)).toEqual([]);
   });
 });

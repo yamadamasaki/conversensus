@@ -26,7 +26,7 @@ const mockSetConfirmState = mock((_s: ConfirmState | null) => {});
 const mockSetAlertState = mock((_s: AlertState | null) => {});
 /** implicit merge の競合の通知先 (step2 Phase 3 T5) */
 const mockSetConflictNotice = mock((_n: ConflictNoticeState) => {});
-const mockOnOverwrites = mock((_d: DetectedOverwrites) => {});
+const mockOnOverwrites = mock((_f: FileId, _d: DetectedOverwrites) => {});
 
 afterEach(() => {
   cleanup();
