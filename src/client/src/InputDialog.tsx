@@ -91,7 +91,12 @@ export function InputDialog({
           }}
           onKeyDown={(e) => {
             if (composingRef.current) return;
-            if (e.key === 'Enter') handleSubmit();
+            if (e.key !== 'Enter') return;
+            // **既定の動作を止める。**送信の後に別のダイアログ (検査の断りなど) が出て
+            // ボタンにフォーカスが移ると、同じ打鍵の keypress がそのボタンに届いて押してしまい、
+            // 出たダイアログが一瞬で閉じる (step3 Phase 6 の実機確認で見つかった)
+            e.preventDefault();
+            handleSubmit();
           }}
           style={{
             width: '100%',
