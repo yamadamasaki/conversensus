@@ -156,3 +156,47 @@ export function buildFolderTree(
 export function isEmptyFolder(node: FolderNode): boolean {
   return node.folders.length === 0 && node.files.length === 0;
 }
+
+/** 木を深さ優先で辿る (親が先) */
+export function* walkFolders(
+  nodes: readonly FolderNode[],
+): Generator<FolderNode> {
+  for (const node of nodes) {
+    yield node;
+    yield* walkFolders(node.folders);
+  }
+}
+
+/**
+ * その階層に同じ表示名の Folder があるか (作成・改名の前の検査, 仕様)。
+ * `except` は改名する Folder 自身 (自分の今の名前とは比べない)
+ */
+export function siblingNameTaken(
+  tree: FolderTree,
+  parent: FolderId | undefined,
+  name: FolderName,
+  except?: FolderId,
+): boolean {
+  const siblings =
+    parent === undefined
+      ? tree.folders
+      : ([...walkFolders(tree.folders)].find((n) => n.folder.id === parent)
+          ?.folders ?? []);
+  return siblings.some((n) => n.name === name && n.folder.id !== except);
+}
+
+/** File の移し先の一覧。「親 / 子」の道で名前を付ける (同じ名前の Folder が別の階層にありうる) */
+export function folderPaths(
+  tree: FolderTree,
+): { id: FolderId; path: string }[] {
+  const out: { id: FolderId; path: string }[] = [];
+  const visit = (nodes: readonly FolderNode[], prefix: string) => {
+    for (const node of nodes) {
+      const path = prefix === '' ? node.name : `${prefix} / ${node.name}`;
+      out.push({ id: node.folder.id, path });
+      visit(node.folders, path);
+    }
+  };
+  visit(tree.folders, '');
+  return out;
+}

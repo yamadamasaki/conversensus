@@ -5,7 +5,9 @@ import {
   buildFolderTree,
   type FolderNode,
   type FolderTree,
+  folderPaths,
   isEmptyFolder,
+  siblingNameTaken,
 } from './folderTree';
 import type { FilePlacement, Folder } from './types';
 
@@ -225,5 +227,36 @@ describe('buildFolderTree の例', () => {
   test('トップ・レベルの File は一覧の順', () => {
     const tree = buildFolderTree([], [], [file(3), file(1), file(2)]);
     expect(tree.files).toEqual([file(3), file(1), file(2)]);
+  });
+});
+
+describe('siblingNameTaken / folderPaths (S6-2c)', () => {
+  const tree = buildFolderTree(
+    [
+      folder(1, '研究'),
+      folder(2, 'メモ', { parent: fid(1) }),
+      folder(3, 'メモ'),
+    ],
+    [],
+    [],
+  );
+
+  test('同じ階層の表示名とだけ比べる', () => {
+    expect(siblingNameTaken(tree, undefined, '研究')).toBe(true);
+    expect(siblingNameTaken(tree, undefined, '別')).toBe(false);
+    expect(siblingNameTaken(tree, fid(1), 'メモ')).toBe(true);
+    expect(siblingNameTaken(tree, fid(1), '研究')).toBe(false);
+  });
+
+  test('改名する Folder 自身の今の名前とは比べない', () => {
+    expect(siblingNameTaken(tree, undefined, '研究', fid(1))).toBe(false);
+  });
+
+  test('移し先は「親 / 子」の道で名前を付け、同じ名前の Folder も見分けられる', () => {
+    expect(folderPaths(tree)).toEqual([
+      { id: fid(3), path: 'メモ' },
+      { id: fid(1), path: '研究' },
+      { id: fid(2), path: '研究 / メモ' },
+    ]);
   });
 });

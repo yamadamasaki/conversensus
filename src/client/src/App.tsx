@@ -7,6 +7,7 @@ import {
   type Did,
   derivedNodeIdOf,
   type FileId,
+  type FolderId,
   type GraphFile,
   type GraphViewAddress,
   HEAD_CUT,
@@ -40,6 +41,7 @@ import { ConflictList } from './ConflictList';
 import { ConflictNotice, NOTICE_Z_INDEX } from './ConflictNotice';
 import { devPanesEnabled } from './config';
 import { type GraphEvent, makeEventBase } from './events/GraphEvent';
+import { type FolderNode, siblingNameTaken } from './folders/folderTree';
 import { GraphEditor } from './GraphEditor';
 import { GraphHeader, type HeaderBranch } from './GraphHeader';
 import type { PreviewMarks } from './GraphPreview';
@@ -54,6 +56,7 @@ import {
 import { useChangeCounter } from './hooks/useChangeCounter';
 import type { UndoState } from './hooks/useEventStore';
 import { useFileSheetOperations } from './hooks/useFileSheetOperations';
+import { useFolders } from './hooks/useFolders';
 import { useGraphPanels } from './hooks/useGraphPanels';
 import { useMergerSnapshot } from './hooks/useMergerSnapshot';
 import { useNoticeInbox } from './hooks/useNoticeInbox';
@@ -501,6 +504,63 @@ export default function App() {
   // は撤去した。リモートのファイル発見は `useFileSheetOperations` 内の
   // `discoverRemoteFiles` (op-log 経路) に一本化されている (設計 §3.8)。
 
+  /** 左サイドバーの Folder (step3 Phase 6 S6-2c) */
+  const fileIds = useMemo(
+    () => fileOps.files.map((f) => f.id as FileId),
+    [fileOps.files],
+  );
+  const folders = useFolders(atprotoSession?.did ?? null, fileIds);
+  const { syncFolders } = folders;
+  const askName = useCallback(
+    (message: string) =>
+      new Promise<string>((resolve) => setInputState({ message, resolve })),
+    [],
+  );
+  const showAlert = useCallback(
+    (message: string) =>
+      new Promise<void>((resolve) => setAlertState({ message, resolve })),
+    [],
+  );
+  /**
+   * Folder の名前を訊いて検査する。空なら取り消し、同じ階層に同じ名前があれば断る
+   * (仕様: Folder の名前は同じ階層で重ならない)。`except` は改名する Folder 自身
+   */
+  const askFolderName = useCallback(
+    async (
+      message: string,
+      parent: FolderId | undefined,
+      except?: FolderId,
+    ): Promise<string | null> => {
+      const name = (await askName(message)).trim();
+      if (name === '') return null;
+      if (siblingNameTaken(folders.tree, parent, name, except)) {
+        await showAlert(`同じ階層に「${name}」という Folder があります`);
+        return null;
+      }
+      return name;
+    },
+    [askName, showAlert, folders.tree],
+  );
+  const folderProps = {
+    tree: folders.tree,
+    collapsed: folders.collapsed,
+    onToggle: folders.toggleFolder,
+    onCreate: async (parent: FolderId | undefined) => {
+      const name = await askFolderName('Folder の名前:', parent);
+      if (name !== null) folders.createFolder(name, parent);
+    },
+    onRename: async (node: FolderNode) => {
+      const name = await askFolderName(
+        `「${node.name}」の新しい名前:`,
+        node.folder.parent,
+        node.folder.id,
+      );
+      if (name !== null) folders.renameFolder(node.folder.id, name);
+    },
+    onDelete: folders.deleteFolder,
+    onMoveFile: folders.moveFile,
+  };
+
   /**
    * 「今すぐ同期」。**trunk と、開いている branch の両方を引く** — branch の tap は
    * trunk とは別なので、trunk だけを引くと branch を開いたまま押しても相手の
@@ -512,7 +572,8 @@ export default function App() {
   const syncNow = useCallback(async () => {
     await syncTrunkNow();
     await syncBranchNow();
-  }, [syncTrunkNow, syncBranchNow]);
+    await syncFolders();
+  }, [syncTrunkNow, syncBranchNow, syncFolders]);
 
   const branch = branchOps.activeBranch;
   // fork (保留した競合) は空で始まるのでコミットが無いが、merger を開いて決める入口として押せる
@@ -1033,6 +1094,7 @@ export default function App() {
       >
         <Sidebar
           files={fileOps.files}
+          folders={folderProps}
           activeFile={fileOps.activeFile}
           activeSheetId={fileOps.activeSheetId}
           expandedFileIds={fileOps.expandedFileIds}

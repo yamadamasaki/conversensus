@@ -2,6 +2,8 @@ import {
   BRANCH_STATUS,
   type BranchMeta,
   type ConversensusFile,
+  type FileId,
+  type FolderId,
   type GraphFile,
   type GraphFileListItem,
   METAGRAPH_SHEET_KIND,
@@ -17,6 +19,12 @@ import { useRef, useState } from 'react';
 import { AlertDialog } from './AlertDialog';
 import { TRUNK_PREFIX } from './atproto';
 import type { RemoteSyncQueue } from './atproto/remoteSyncQueue';
+import {
+  type FolderNode,
+  type FolderTree,
+  folderPaths,
+  isEmptyFolder,
+} from './folders/folderTree';
 import type { PopupTarget } from './SettingsPopup';
 import { SettingsPopup } from './SettingsPopup';
 import { ShareStatusIcon } from './ShareStatusIcon';
@@ -56,8 +64,23 @@ function openOptionsOf(e: { metaKey: boolean; ctrlKey: boolean }): OpenOptions {
   return { newTab: e.metaKey || e.ctrlKey };
 }
 
+/** File を整理する Folder (step3 Phase 6 S6-2c)。渡さなければ平らな一覧 */
+type FolderProps = {
+  tree: FolderTree;
+  /** 折り畳んだ Folder (端末ごと) */
+  collapsed: ReadonlySet<FolderId>;
+  onToggle: (id: FolderId) => void;
+  /** Folder を作る。`parent` が無ければトップ・レベル。名前を訊くのは App */
+  onCreate: (parent: FolderId | undefined) => void;
+  onRename: (node: FolderNode) => void;
+  onDelete: (id: FolderId) => void;
+  /** File を Folder へ移す。`undefined` ならトップ・レベルに戻す */
+  onMoveFile: (fileId: FileId, folder: FolderId | undefined) => void;
+};
+
 type Props = {
   files: GraphFileListItem[];
+  folders?: FolderProps;
   activeFile: GraphFile | null;
   activeSheetId: SheetId | null;
   expandedFileIds: Set<string>;
@@ -143,6 +166,7 @@ const gearBtnStyle: React.CSSProperties = {
 
 export function Sidebar({
   files,
+  folders,
   activeFile,
   activeSheetId,
   expandedFileIds,
@@ -186,6 +210,8 @@ export function Sidebar({
   const [templateMenuFileId, setTemplateMenuFileId] = useState<string | null>(
     null,
   );
+  /** どの File の「Folder へ移す」を開いているか */
+  const [moveMenuFileId, setMoveMenuFileId] = useState<string | null>(null);
   const [alertState, setAlertState] = useState<{
     message: string;
     resolve: () => void;
@@ -221,6 +247,624 @@ export function Sidebar({
     reader.readAsText(file);
     // 同じファイルを再選択できるようリセット
     e.target.value = '';
+  };
+
+  const renderFile = (f: GraphFileListItem) => {
+    const isExpanded = expandedFileIds.has(f.id);
+    const isActiveFile = activeFile?.id === f.id;
+    // 共有状態は開いている File の分しか無い (同期するのはそれだけ)
+    const fileShare = sharing?.fileId === f.id ? sharing.state : null;
+    const fileData = isActiveFile ? activeFile : null;
+    const fileDesc = fileData?.description ?? f.description;
+    const isFilePopupOpen =
+      popupTarget?.type === 'file' && popupTarget.id === f.id;
+
+    return (
+      <li key={f.id}>
+        {/* ファイル行 */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 2,
+            padding: '4px 4px',
+            borderRadius: 4,
+            background: isActiveFile ? '#e8f0fe' : 'transparent',
+            position: 'relative',
+          }}
+        >
+          {/* 展開トグル */}
+          <button
+            type="button"
+            onClick={() => {
+              if (!isActiveFile) onOpenFile(f.id);
+              onToggleExpand(f.id);
+            }}
+            style={{
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              color: '#555',
+              fontSize: 10,
+              padding: '0 2px',
+              flexShrink: 0,
+            }}
+          >
+            {isExpanded ? '▼' : '▶'}
+          </button>
+
+          {/* ファイル名 (hover で description を表示) */}
+          <button
+            type="button"
+            title={fileDesc ?? undefined}
+            style={{
+              flex: 1,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              fontSize: 13,
+              fontWeight: 600,
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              textAlign: 'left',
+              padding: 0,
+            }}
+            onClick={() => {
+              if (!isActiveFile) onOpenFile(f.id);
+              onToggleExpand(f.id);
+            }}
+          >
+            {f.name}
+          </button>
+
+          {/* 参加者一覧 (step2 Phase 1)。ログイン中のファイル行にだけ出す。
+                    共有中なら人数を添える — 「誰かと共有している」ことが
+                    ダイアログを開かずに分かるようにする。
+
+                    **共有が切れた印もこのボタンが兼ねる** (step2 Phase 2)。
+                    取り消されても File は手元に残るので、何も出さないと
+                    「もう同期されない File」が普通の File に見える。以前は
+                    「同期していません」の札を File 名の隣に出していたが、
+                    **幅を食って File 名が読めなくなった** ので絵に畳んだ。
+                    押したときの働きは変わらない (名簿を見せる)。
+                    **開いている File の分しか分からない** (同期するのはそれだけ) */}
+          {onOpenInvitation && (
+            <button
+              type="button"
+              title={shareTitle(fileShare)}
+              style={gearBtnStyle}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!isActiveFile) onOpenFile(f.id);
+                onOpenInvitation(f.id);
+              }}
+            >
+              <ShareStatusIcon detached={fileShare?.isDetached ?? false} />
+              {/* 切れていても人数は出す — 「自分以外の N 人はまだ
+                        共有している」ことが、離脱の意味そのものである */}
+              {fileShare && fileShare.participants > 1 && (
+                <span style={{ fontSize: 9, marginLeft: 1 }}>
+                  {fileShare.participants}
+                </span>
+              )}
+            </button>
+          )}
+
+          {/* Folder へ移す (step3 Phase 6 S6-2c)。移し先は File 行の下に出す */}
+          {folders && (
+            <button
+              type="button"
+              title="Folder へ移す"
+              aria-label={`${f.name} を Folder へ移す`}
+              aria-expanded={moveMenuFileId === f.id}
+              style={gearBtnStyle}
+              onClick={(e) => {
+                e.stopPropagation();
+                setMoveMenuFileId(moveMenuFileId === f.id ? null : f.id);
+              }}
+            >
+              📁
+            </button>
+          )}
+
+          {/* ギアボタン */}
+          <button
+            type="button"
+            title="設定"
+            style={gearBtnStyle}
+            onClick={(e) => {
+              e.stopPropagation();
+              onSetPopupTarget(
+                isFilePopupOpen ? null : { type: 'file', id: f.id },
+              );
+              if (!isActiveFile) onOpenFile(f.id);
+            }}
+          >
+            ⚙
+          </button>
+
+          {/* ファイル設定ポップアップ */}
+          {isFilePopupOpen && fileData && (
+            <SettingsPopup
+              name={fileData.name}
+              description={fileData.description ?? ''}
+              onSave={(name, desc) => onSaveFileSettings(f.id, name, desc)}
+              onDelete={() => onDeleteFile(f.id)}
+              onClose={() => onSetPopupTarget(null)}
+              deleteLabel="ファイルを削除"
+              onExport={() => onExportFile(f.id)}
+            />
+          )}
+        </div>
+
+        {folders && moveMenuFileId === f.id && (
+          <ul
+            aria-label={`${f.name} の移し先`}
+            style={{ listStyle: 'none', margin: 0, padding: 0 }}
+          >
+            {[
+              { id: undefined, path: 'トップ・レベル' },
+              ...folderPaths(folders.tree),
+            ].map((dest) => (
+              <li key={dest.id ?? 'top'}>
+                <button
+                  type="button"
+                  style={MENU_ITEM}
+                  onClick={() => {
+                    setMoveMenuFileId(null);
+                    folders.onMoveFile(f.id as FileId, dest.id);
+                  }}
+                >
+                  → {dest.path}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {/* シート一覧 (展開時) */}
+        {isExpanded && fileData && (
+          <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+            {fileData.sheets.map((s) => {
+              const isActiveSheet = activeSheetId === s.id;
+              const kind = sheetKindOf(s);
+              // template graph と metagraph は branch を切れない (仕様。versioning の対象ではない)
+              const versioned =
+                kind !== TEMPLATE_SHEET_KIND && kind !== METAGRAPH_SHEET_KIND;
+              const isSheetPopupOpen =
+                popupTarget?.type === 'sheet' && popupTarget.sheetId === s.id;
+
+              return (
+                <li key={s.id}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 2,
+                      padding: '3px 4px 3px 20px',
+                      borderRadius: 4,
+                      background: isActiveSheet ? '#c8dcfe' : 'transparent',
+                      position: 'relative',
+                    }}
+                  >
+                    {/* シート名 (hover で description を表示) */}
+                    <button
+                      type="button"
+                      title={s.description ?? undefined}
+                      style={{
+                        flex: 1,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        fontSize: 12,
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        padding: 0,
+                      }}
+                      onClick={(e) => onSelectSheet(s.id, openOptionsOf(e))}
+                    >
+                      {s.name}
+                      {kind && SHEET_KIND_MARK[kind] && (
+                        <span
+                          title={SHEET_KIND_MARK[kind].title}
+                          style={{ marginLeft: 4, color: '#888' }}
+                        >
+                          {SHEET_KIND_MARK[kind].mark}
+                        </span>
+                      )}
+                    </button>
+
+                    {/* ギアボタン */}
+                    <button
+                      type="button"
+                      title="設定"
+                      style={{ ...gearBtnStyle, fontSize: 12 }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSetPopupTarget(
+                          isSheetPopupOpen
+                            ? null
+                            : {
+                                type: 'sheet',
+                                fileId: f.id,
+                                sheetId: s.id,
+                              },
+                        );
+                      }}
+                    >
+                      ⚙
+                    </button>
+
+                    {/* シート設定ポップアップ */}
+                    {isSheetPopupOpen && (
+                      <SettingsPopup
+                        name={s.name}
+                        description={s.description ?? ''}
+                        onSave={(name, desc) =>
+                          onSaveSheetSettings(s.id, name, desc)
+                        }
+                        onDelete={() => onDeleteSheet(s.id)}
+                        onClose={() => onSetPopupTarget(null)}
+                        deleteLabel="シートを削除"
+                      />
+                    )}
+                  </div>
+
+                  {/* Branch 一覧 (シート選択時に表示) */}
+                  {isActiveSheet &&
+                    (() => {
+                      const bs = (sheetBranches.get(s.id) ?? []).filter(
+                        (b) => b.name !== TRUNK_PREFIX,
+                      );
+                      return (
+                        <ul
+                          style={{
+                            listStyle: 'none',
+                            margin: 0,
+                            padding: 0,
+                          }}
+                        >
+                          {bs.map((branch) => {
+                            const isActiveBranch = activeBranchId === branch.id;
+                            const isMerged =
+                              branch.status === BRANCH_STATUS.MERGED;
+                            const isClosed =
+                              branch.status === BRANCH_STATUS.CLOSED;
+                            const bgColor = isActiveBranch
+                              ? '#dde8ff'
+                              : isMerged
+                                ? '#fff7ed'
+                                : 'transparent';
+                            const textColor = isMerged
+                              ? '#9a3412'
+                              : isClosed
+                                ? '#999'
+                                : '#333';
+                            return (
+                              <li key={branch.id}>
+                                <div
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 2,
+                                    padding: '2px 4px 2px 36px',
+                                    borderRadius: 4,
+                                    background: bgColor,
+                                  }}
+                                >
+                                  <button
+                                    type="button"
+                                    style={{
+                                      flex: 1,
+                                      overflow: 'hidden',
+                                      textOverflow: 'ellipsis',
+                                      whiteSpace: 'nowrap',
+                                      fontSize: 11,
+                                      fontFamily: 'monospace',
+                                      background: 'none',
+                                      border: 'none',
+                                      cursor: 'pointer',
+                                      textAlign: 'left',
+                                      padding: 0,
+                                      color: textColor,
+                                    }}
+                                    onClick={(e) => {
+                                      const options = openOptionsOf(e);
+                                      // 開いている branch の行を押すと trunk に戻る。別のタブで
+                                      // 開くときは戻らず、その branch を開く
+                                      onSelectBranch(
+                                        s.id,
+                                        isActiveBranch && !options.newTab
+                                          ? null
+                                          : branch,
+                                        options,
+                                      );
+                                    }}
+                                  >
+                                    {'⎇ '}
+                                    {branch.name}
+                                    {isMerged ? ' (merged)' : ''}
+                                    {isClosed ? ' (closed)' : ''}
+                                  </button>
+                                  {/* open + active: merge ↑ / close ✕ */}
+                                  {isActiveBranch && !isMerged && !isClosed && (
+                                    <>
+                                      <button
+                                        type="button"
+                                        title="trunk に merge"
+                                        style={{
+                                          ...gearBtnStyle,
+                                          fontSize: 10,
+                                        }}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          onMergeBranch(branch);
+                                        }}
+                                      >
+                                        ↑
+                                      </button>
+                                      <button
+                                        type="button"
+                                        title="close"
+                                        style={{
+                                          ...gearBtnStyle,
+                                          fontSize: 10,
+                                        }}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          onCloseBranch(branch);
+                                        }}
+                                      >
+                                        ✕
+                                      </button>
+                                    </>
+                                  )}
+                                  {/* open + not active: delete 🗑 */}
+                                  {!isActiveBranch &&
+                                    !isMerged &&
+                                    !isClosed && (
+                                      <button
+                                        type="button"
+                                        title="削除"
+                                        style={{
+                                          ...gearBtnStyle,
+                                          fontSize: 10,
+                                        }}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          onDeleteBranch(branch);
+                                        }}
+                                      >
+                                        🗑
+                                      </button>
+                                    )}
+                                  {/* merged: close ✕ */}
+                                  {isMerged && (
+                                    <button
+                                      type="button"
+                                      title="close"
+                                      style={{
+                                        ...gearBtnStyle,
+                                        fontSize: 10,
+                                      }}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        onCloseBranch(branch);
+                                      }}
+                                    >
+                                      ✕
+                                    </button>
+                                  )}
+                                  {/* closed: delete 🗑 */}
+                                  {isClosed && (
+                                    <button
+                                      type="button"
+                                      title="削除"
+                                      style={{
+                                        ...gearBtnStyle,
+                                        fontSize: 10,
+                                      }}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        onDeleteBranch(branch);
+                                      }}
+                                    >
+                                      🗑
+                                    </button>
+                                  )}
+                                </div>
+                              </li>
+                            );
+                          })}
+                          {/* 新しい branch を作成 */}
+                          {versioned && (
+                            <li>
+                              <button
+                                type="button"
+                                onClick={() => onCreateBranch(s.id)}
+                                style={{
+                                  display: 'block',
+                                  width: '100%',
+                                  textAlign: 'left',
+                                  padding: '2px 4px 2px 36px',
+                                  fontSize: 11,
+                                  color: '#4f6ef7',
+                                  background: 'none',
+                                  border: 'none',
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                + branch
+                              </button>
+                            </li>
+                          )}
+                        </ul>
+                      );
+                    })()}
+                </li>
+              );
+            })}
+
+            {/* シート追加。template 付きは別口にして、素の追加は 1 クリックのまま残す */}
+            <li style={{ display: 'flex', alignItems: 'center' }}>
+              <button
+                type="button"
+                onClick={() => onAddSheet()}
+                style={{
+                  flex: 1,
+                  textAlign: 'left',
+                  padding: '3px 4px 3px 20px',
+                  fontSize: 12,
+                  color: '#4f6ef7',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                }}
+              >
+                + シートを追加
+              </button>
+              <button
+                type="button"
+                aria-label="template 付きでシートを追加"
+                aria-expanded={templateMenuFileId === f.id}
+                onClick={() =>
+                  setTemplateMenuFileId(
+                    templateMenuFileId === f.id ? null : f.id,
+                  )
+                }
+                style={{
+                  padding: '3px 8px',
+                  fontSize: 12,
+                  color: '#4f6ef7',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                }}
+              >
+                ▾
+              </button>
+            </li>
+            {templateMenuFileId === f.id &&
+              SPECIAL_SHEETS.map((special) => (
+                <li key={special.kind}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTemplateMenuFileId(null);
+                      onAddKindSheet(special.kind);
+                    }}
+                    style={MENU_ITEM}
+                  >
+                    + {special.label}
+                  </button>
+                </li>
+              ))}
+            {templateMenuFileId === f.id &&
+              // 種を File の template graph に複製する (step3 Phase 4 Q1)
+              SEED_TEMPLATES.map((t) => (
+                <li key={t.id}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTemplateMenuFileId(null);
+                      onAddSeedTemplate(t);
+                    }}
+                    style={MENU_ITEM}
+                  >
+                    + {t.name} を追加
+                  </button>
+                </li>
+              ))}
+          </ul>
+        )}
+      </li>
+    );
+  };
+
+  const fileById = new Map(files.map((f) => [f.id, f]));
+
+  /** Folder の行と、その中身 (下位の Folder → File)。折り畳めば中身を出さない */
+  const renderFolder = (
+    node: FolderNode,
+    ops: FolderProps,
+  ): React.ReactElement => {
+    const { id } = node.folder;
+    const open = !ops.collapsed.has(id);
+    const empty = isEmptyFolder(node);
+    return (
+      <li key={id}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 2,
+            padding: '4px 4px',
+          }}
+        >
+          <button
+            type="button"
+            aria-label={`${node.name} を${open ? '畳む' : '開く'}`}
+            aria-expanded={open}
+            onClick={() => ops.onToggle(id)}
+            style={{ ...gearBtnStyle, color: '#555', fontSize: 10 }}
+          >
+            {open ? '▼' : '▶'}
+          </button>
+          <span
+            style={{
+              flex: 1,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              fontSize: 13,
+            }}
+          >
+            📁 {node.name}
+          </span>
+          <button
+            type="button"
+            title="この中に Folder を作る"
+            aria-label={`${node.name} の中に Folder を作る`}
+            style={gearBtnStyle}
+            onClick={() => ops.onCreate(id)}
+          >
+            ＋
+          </button>
+          <button
+            type="button"
+            title="名前を変える"
+            aria-label={`${node.name} の名前を変える`}
+            style={gearBtnStyle}
+            onClick={() => ops.onRename(node)}
+          >
+            ✎
+          </button>
+          <button
+            type="button"
+            // 空のときだけ削除できる (仕様)
+            title={empty ? '削除' : '空でない Folder は削除できません'}
+            aria-label={`${node.name} を削除`}
+            disabled={!empty}
+            style={{ ...gearBtnStyle, opacity: empty ? 1 : 0.3 }}
+            onClick={() => ops.onDelete(id)}
+          >
+            🗑
+          </button>
+        </div>
+        {open && (node.folders.length > 0 || node.files.length > 0) && (
+          <ul style={{ listStyle: 'none', margin: 0, padding: '0 0 0 12px' }}>
+            {node.folders.map((child) => renderFolder(child, ops))}
+            {node.files.map((fileId) => {
+              const f = fileById.get(fileId);
+              return f === undefined ? null : renderFile(f);
+            })}
+          </ul>
+        )}
+      </li>
+    );
   };
 
   return (
@@ -296,6 +940,17 @@ export function Sidebar({
             ⇥
           </button>
         )}
+        {folders && (
+          <button
+            type="button"
+            title="Folder を作る"
+            aria-label="Folder を作る"
+            onClick={() => folders.onCreate(undefined)}
+            style={{ padding: '4px 8px', fontSize: 13 }}
+          >
+            📁
+          </button>
+        )}
       </div>
 
       {/* ファイル一覧 */}
@@ -308,511 +963,30 @@ export function Sidebar({
           overflowY: 'auto',
         }}
       >
-        {files.map((f) => {
-          const isExpanded = expandedFileIds.has(f.id);
-          const isActiveFile = activeFile?.id === f.id;
-          // 共有状態は開いている File の分しか無い (同期するのはそれだけ)
-          const fileShare = sharing?.fileId === f.id ? sharing.state : null;
-          const fileData = isActiveFile ? activeFile : null;
-          const fileDesc = fileData?.description ?? f.description;
-          const isFilePopupOpen =
-            popupTarget?.type === 'file' && popupTarget.id === f.id;
-
-          return (
-            <li key={f.id}>
-              {/* ファイル行 */}
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 2,
-                  padding: '4px 4px',
-                  borderRadius: 4,
-                  background: isActiveFile ? '#e8f0fe' : 'transparent',
-                  position: 'relative',
-                }}
-              >
-                {/* 展開トグル */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!isActiveFile) onOpenFile(f.id);
-                    onToggleExpand(f.id);
-                  }}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    color: '#555',
-                    fontSize: 10,
-                    padding: '0 2px',
-                    flexShrink: 0,
-                  }}
-                >
-                  {isExpanded ? '▼' : '▶'}
-                </button>
-
-                {/* ファイル名 (hover で description を表示) */}
-                <button
-                  type="button"
-                  title={fileDesc ?? undefined}
-                  style={{
-                    flex: 1,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                    fontSize: 13,
-                    fontWeight: 600,
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    textAlign: 'left',
-                    padding: 0,
-                  }}
-                  onClick={() => {
-                    if (!isActiveFile) onOpenFile(f.id);
-                    onToggleExpand(f.id);
-                  }}
-                >
-                  {f.name}
-                </button>
-
-                {/* 参加者一覧 (step2 Phase 1)。ログイン中のファイル行にだけ出す。
-                    共有中なら人数を添える — 「誰かと共有している」ことが
-                    ダイアログを開かずに分かるようにする。
-
-                    **共有が切れた印もこのボタンが兼ねる** (step2 Phase 2)。
-                    取り消されても File は手元に残るので、何も出さないと
-                    「もう同期されない File」が普通の File に見える。以前は
-                    「同期していません」の札を File 名の隣に出していたが、
-                    **幅を食って File 名が読めなくなった** ので絵に畳んだ。
-                    押したときの働きは変わらない (名簿を見せる)。
-                    **開いている File の分しか分からない** (同期するのはそれだけ) */}
-                {onOpenInvitation && (
-                  <button
-                    type="button"
-                    title={shareTitle(fileShare)}
-                    style={gearBtnStyle}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (!isActiveFile) onOpenFile(f.id);
-                      onOpenInvitation(f.id);
+        {folders ? (
+          <>
+            {folders.tree.folders.map((node) => renderFolder(node, folders))}
+            {folders.tree.folders.length > 0 &&
+              folders.tree.files.length > 0 && (
+                // トップ・レベルの File はまとめて出し、Folder とは区切る (仕様)
+                <li aria-hidden="true">
+                  <hr
+                    style={{
+                      border: 'none',
+                      borderTop: '1px solid #eee',
+                      margin: '4px 0',
                     }}
-                  >
-                    <ShareStatusIcon
-                      detached={fileShare?.isDetached ?? false}
-                    />
-                    {/* 切れていても人数は出す — 「自分以外の N 人はまだ
-                        共有している」ことが、離脱の意味そのものである */}
-                    {fileShare && fileShare.participants > 1 && (
-                      <span style={{ fontSize: 9, marginLeft: 1 }}>
-                        {fileShare.participants}
-                      </span>
-                    )}
-                  </button>
-                )}
-
-                {/* ギアボタン */}
-                <button
-                  type="button"
-                  title="設定"
-                  style={gearBtnStyle}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onSetPopupTarget(
-                      isFilePopupOpen ? null : { type: 'file', id: f.id },
-                    );
-                    if (!isActiveFile) onOpenFile(f.id);
-                  }}
-                >
-                  ⚙
-                </button>
-
-                {/* ファイル設定ポップアップ */}
-                {isFilePopupOpen && fileData && (
-                  <SettingsPopup
-                    name={fileData.name}
-                    description={fileData.description ?? ''}
-                    onSave={(name, desc) =>
-                      onSaveFileSettings(f.id, name, desc)
-                    }
-                    onDelete={() => onDeleteFile(f.id)}
-                    onClose={() => onSetPopupTarget(null)}
-                    deleteLabel="ファイルを削除"
-                    onExport={() => onExportFile(f.id)}
                   />
-                )}
-              </div>
-
-              {/* シート一覧 (展開時) */}
-              {isExpanded && fileData && (
-                <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-                  {fileData.sheets.map((s) => {
-                    const isActiveSheet = activeSheetId === s.id;
-                    const kind = sheetKindOf(s);
-                    // template graph と metagraph は branch を切れない (仕様。versioning の対象ではない)
-                    const versioned =
-                      kind !== TEMPLATE_SHEET_KIND &&
-                      kind !== METAGRAPH_SHEET_KIND;
-                    const isSheetPopupOpen =
-                      popupTarget?.type === 'sheet' &&
-                      popupTarget.sheetId === s.id;
-
-                    return (
-                      <li key={s.id}>
-                        <div
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 2,
-                            padding: '3px 4px 3px 20px',
-                            borderRadius: 4,
-                            background: isActiveSheet
-                              ? '#c8dcfe'
-                              : 'transparent',
-                            position: 'relative',
-                          }}
-                        >
-                          {/* シート名 (hover で description を表示) */}
-                          <button
-                            type="button"
-                            title={s.description ?? undefined}
-                            style={{
-                              flex: 1,
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap',
-                              fontSize: 12,
-                              background: 'none',
-                              border: 'none',
-                              cursor: 'pointer',
-                              textAlign: 'left',
-                              padding: 0,
-                            }}
-                            onClick={(e) =>
-                              onSelectSheet(s.id, openOptionsOf(e))
-                            }
-                          >
-                            {s.name}
-                            {kind && SHEET_KIND_MARK[kind] && (
-                              <span
-                                title={SHEET_KIND_MARK[kind].title}
-                                style={{ marginLeft: 4, color: '#888' }}
-                              >
-                                {SHEET_KIND_MARK[kind].mark}
-                              </span>
-                            )}
-                          </button>
-
-                          {/* ギアボタン */}
-                          <button
-                            type="button"
-                            title="設定"
-                            style={{ ...gearBtnStyle, fontSize: 12 }}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onSetPopupTarget(
-                                isSheetPopupOpen
-                                  ? null
-                                  : {
-                                      type: 'sheet',
-                                      fileId: f.id,
-                                      sheetId: s.id,
-                                    },
-                              );
-                            }}
-                          >
-                            ⚙
-                          </button>
-
-                          {/* シート設定ポップアップ */}
-                          {isSheetPopupOpen && (
-                            <SettingsPopup
-                              name={s.name}
-                              description={s.description ?? ''}
-                              onSave={(name, desc) =>
-                                onSaveSheetSettings(s.id, name, desc)
-                              }
-                              onDelete={() => onDeleteSheet(s.id)}
-                              onClose={() => onSetPopupTarget(null)}
-                              deleteLabel="シートを削除"
-                            />
-                          )}
-                        </div>
-
-                        {/* Branch 一覧 (シート選択時に表示) */}
-                        {isActiveSheet &&
-                          (() => {
-                            const bs = (sheetBranches.get(s.id) ?? []).filter(
-                              (b) => b.name !== TRUNK_PREFIX,
-                            );
-                            return (
-                              <ul
-                                style={{
-                                  listStyle: 'none',
-                                  margin: 0,
-                                  padding: 0,
-                                }}
-                              >
-                                {bs.map((branch) => {
-                                  const isActiveBranch =
-                                    activeBranchId === branch.id;
-                                  const isMerged =
-                                    branch.status === BRANCH_STATUS.MERGED;
-                                  const isClosed =
-                                    branch.status === BRANCH_STATUS.CLOSED;
-                                  const bgColor = isActiveBranch
-                                    ? '#dde8ff'
-                                    : isMerged
-                                      ? '#fff7ed'
-                                      : 'transparent';
-                                  const textColor = isMerged
-                                    ? '#9a3412'
-                                    : isClosed
-                                      ? '#999'
-                                      : '#333';
-                                  return (
-                                    <li key={branch.id}>
-                                      <div
-                                        style={{
-                                          display: 'flex',
-                                          alignItems: 'center',
-                                          gap: 2,
-                                          padding: '2px 4px 2px 36px',
-                                          borderRadius: 4,
-                                          background: bgColor,
-                                        }}
-                                      >
-                                        <button
-                                          type="button"
-                                          style={{
-                                            flex: 1,
-                                            overflow: 'hidden',
-                                            textOverflow: 'ellipsis',
-                                            whiteSpace: 'nowrap',
-                                            fontSize: 11,
-                                            fontFamily: 'monospace',
-                                            background: 'none',
-                                            border: 'none',
-                                            cursor: 'pointer',
-                                            textAlign: 'left',
-                                            padding: 0,
-                                            color: textColor,
-                                          }}
-                                          onClick={(e) => {
-                                            const options = openOptionsOf(e);
-                                            // 開いている branch の行を押すと trunk に戻る。別のタブで
-                                            // 開くときは戻らず、その branch を開く
-                                            onSelectBranch(
-                                              s.id,
-                                              isActiveBranch && !options.newTab
-                                                ? null
-                                                : branch,
-                                              options,
-                                            );
-                                          }}
-                                        >
-                                          {'⎇ '}
-                                          {branch.name}
-                                          {isMerged ? ' (merged)' : ''}
-                                          {isClosed ? ' (closed)' : ''}
-                                        </button>
-                                        {/* open + active: merge ↑ / close ✕ */}
-                                        {isActiveBranch &&
-                                          !isMerged &&
-                                          !isClosed && (
-                                            <>
-                                              <button
-                                                type="button"
-                                                title="trunk に merge"
-                                                style={{
-                                                  ...gearBtnStyle,
-                                                  fontSize: 10,
-                                                }}
-                                                onClick={(e) => {
-                                                  e.stopPropagation();
-                                                  onMergeBranch(branch);
-                                                }}
-                                              >
-                                                ↑
-                                              </button>
-                                              <button
-                                                type="button"
-                                                title="close"
-                                                style={{
-                                                  ...gearBtnStyle,
-                                                  fontSize: 10,
-                                                }}
-                                                onClick={(e) => {
-                                                  e.stopPropagation();
-                                                  onCloseBranch(branch);
-                                                }}
-                                              >
-                                                ✕
-                                              </button>
-                                            </>
-                                          )}
-                                        {/* open + not active: delete 🗑 */}
-                                        {!isActiveBranch &&
-                                          !isMerged &&
-                                          !isClosed && (
-                                            <button
-                                              type="button"
-                                              title="削除"
-                                              style={{
-                                                ...gearBtnStyle,
-                                                fontSize: 10,
-                                              }}
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                onDeleteBranch(branch);
-                                              }}
-                                            >
-                                              🗑
-                                            </button>
-                                          )}
-                                        {/* merged: close ✕ */}
-                                        {isMerged && (
-                                          <button
-                                            type="button"
-                                            title="close"
-                                            style={{
-                                              ...gearBtnStyle,
-                                              fontSize: 10,
-                                            }}
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              onCloseBranch(branch);
-                                            }}
-                                          >
-                                            ✕
-                                          </button>
-                                        )}
-                                        {/* closed: delete 🗑 */}
-                                        {isClosed && (
-                                          <button
-                                            type="button"
-                                            title="削除"
-                                            style={{
-                                              ...gearBtnStyle,
-                                              fontSize: 10,
-                                            }}
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              onDeleteBranch(branch);
-                                            }}
-                                          >
-                                            🗑
-                                          </button>
-                                        )}
-                                      </div>
-                                    </li>
-                                  );
-                                })}
-                                {/* 新しい branch を作成 */}
-                                {versioned && (
-                                  <li>
-                                    <button
-                                      type="button"
-                                      onClick={() => onCreateBranch(s.id)}
-                                      style={{
-                                        display: 'block',
-                                        width: '100%',
-                                        textAlign: 'left',
-                                        padding: '2px 4px 2px 36px',
-                                        fontSize: 11,
-                                        color: '#4f6ef7',
-                                        background: 'none',
-                                        border: 'none',
-                                        cursor: 'pointer',
-                                      }}
-                                    >
-                                      + branch
-                                    </button>
-                                  </li>
-                                )}
-                              </ul>
-                            );
-                          })()}
-                      </li>
-                    );
-                  })}
-
-                  {/* シート追加。template 付きは別口にして、素の追加は 1 クリックのまま残す */}
-                  <li style={{ display: 'flex', alignItems: 'center' }}>
-                    <button
-                      type="button"
-                      onClick={() => onAddSheet()}
-                      style={{
-                        flex: 1,
-                        textAlign: 'left',
-                        padding: '3px 4px 3px 20px',
-                        fontSize: 12,
-                        color: '#4f6ef7',
-                        background: 'none',
-                        border: 'none',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      + シートを追加
-                    </button>
-                    <button
-                      type="button"
-                      aria-label="template 付きでシートを追加"
-                      aria-expanded={templateMenuFileId === f.id}
-                      onClick={() =>
-                        setTemplateMenuFileId(
-                          templateMenuFileId === f.id ? null : f.id,
-                        )
-                      }
-                      style={{
-                        padding: '3px 8px',
-                        fontSize: 12,
-                        color: '#4f6ef7',
-                        background: 'none',
-                        border: 'none',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      ▾
-                    </button>
-                  </li>
-                  {templateMenuFileId === f.id &&
-                    SPECIAL_SHEETS.map((special) => (
-                      <li key={special.kind}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setTemplateMenuFileId(null);
-                            onAddKindSheet(special.kind);
-                          }}
-                          style={MENU_ITEM}
-                        >
-                          + {special.label}
-                        </button>
-                      </li>
-                    ))}
-                  {templateMenuFileId === f.id &&
-                    // 種を File の template graph に複製する (step3 Phase 4 Q1)
-                    SEED_TEMPLATES.map((t) => (
-                      <li key={t.id}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setTemplateMenuFileId(null);
-                            onAddSeedTemplate(t);
-                          }}
-                          style={MENU_ITEM}
-                        >
-                          + {t.name} を追加
-                        </button>
-                      </li>
-                    ))}
-                </ul>
+                </li>
               )}
-            </li>
-          );
-        })}
+            {folders.tree.files.map((id) => {
+              const f = fileById.get(id);
+              return f === undefined ? null : renderFile(f);
+            })}
+          </>
+        ) : (
+          files.map(renderFile)
+        )}
       </ul>
       {/* ATProto セッション */}
       <div style={{ borderTop: '1px solid #eee', paddingTop: 8, fontSize: 12 }}>

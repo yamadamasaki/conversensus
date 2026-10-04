@@ -1710,3 +1710,153 @@ describe('App 結合: 閉じていない通知の控え (step3 Phase 6 S6-1b)', 
     MERGER_TEST_MS * 2,
   );
 });
+
+describe('App 結合: Folder (step3 Phase 6 S6-2c)', () => {
+  /** Folder を作る (トップ・レベル、または `parent` の中) */
+  async function createFolder(
+    user: ReturnType<typeof userEvent.setup>,
+    name: string,
+    parent?: string,
+  ) {
+    await user.click(
+      screen.getByRole('button', {
+        name:
+          parent === undefined
+            ? 'Folder を作る'
+            : `${parent} の中に Folder を作る`,
+      }),
+    );
+    const dialog = await screen.findByLabelText('入力');
+    await user.type(within(dialog).getByRole('textbox'), name);
+    await user.click(within(dialog).getByRole('button', { name: 'OK' }));
+  }
+
+  /** Folder の行を含む `<li>` (中身の File もここに描かれる) */
+  const folderItem = (name: string) =>
+    screen
+      .getByRole('button', { name: `${name} の名前を変える` })
+      .closest('li') as HTMLElement;
+
+  /** 表示されている Folder の名前 (並び順) */
+  const folderNames = () =>
+    screen
+      .queryAllByRole('button', { name: /の名前を変える$/ })
+      .map((b) =>
+        (b.getAttribute('aria-label') ?? '').replace(/ の名前を変える$/, ''),
+      );
+
+  test(
+    'File を Folder に移すと Folder の中に出て、同じ人の別の端末でも同じ Folder の中に出る',
+    async () => {
+      const user = await startOn('alice', ALICE);
+      await createFile(user, FILE_NAME);
+      await createFolder(user, '研究');
+      await screen.findByRole('button', { name: '研究 の名前を変える' });
+
+      await user.click(
+        screen.getByRole('button', { name: `${FILE_NAME} を Folder へ移す` }),
+      );
+      await user.click(screen.getByRole('button', { name: '→ 研究' }));
+      await waitFor(
+        () =>
+          expect(within(folderItem('研究')).getByText(FILE_NAME)).toBeTruthy(),
+        WIRING_TIMEOUT,
+      );
+      // 中身のある Folder は削除できない (仕様)
+      expect(
+        screen.getByRole('button', { name: '研究 を削除' }),
+      ).toHaveProperty('disabled', true);
+      // 自分の PDS に Folder と置き場が載る
+      await waitFor(() => {
+        expect(world.pds.records(ALICE.did, NSID.folder)).toHaveLength(1);
+        expect(world.pds.records(ALICE.did, NSID.filePlacement)).toHaveLength(
+          1,
+        );
+      }, WIRING_TIMEOUT);
+
+      // 別の端末: File を見つけ、Folder の中に出す
+      const user2 = await startOn('alice-2', ALICE);
+      await syncNow(user2);
+      await waitFor(
+        () =>
+          expect(within(folderItem('研究')).getByText(FILE_NAME)).toBeTruthy(),
+        WIRING_TIMEOUT,
+      );
+
+      // トップ・レベルに戻すと Folder は空になり、削除できる
+      await user2.click(
+        screen.getByRole('button', { name: `${FILE_NAME} を Folder へ移す` }),
+      );
+      await user2.click(
+        screen.getByRole('button', { name: '→ トップ・レベル' }),
+      );
+      await waitFor(
+        () =>
+          expect(
+            screen.getByRole('button', { name: '研究 を削除' }),
+          ).toHaveProperty('disabled', false),
+        WIRING_TIMEOUT,
+      );
+      await user2.click(screen.getByRole('button', { name: '研究 を削除' }));
+      await waitFor(
+        () => expect(world.pds.records(ALICE.did, NSID.folder)).toHaveLength(0),
+        WIRING_TIMEOUT,
+      );
+    },
+    MERGER_TEST_MS * 2,
+  );
+
+  test(
+    '同じ階層に同じ名前の Folder は作れない',
+    async () => {
+      const user = await startOn('alice', ALICE);
+      await createFolder(user, '研究');
+      await screen.findByRole('button', { name: '研究 の名前を変える' });
+      await createFolder(user, '研究');
+      await screen.findByText('同じ階層に「研究」という Folder があります');
+      await user.click(screen.getByRole('button', { name: 'OK' }));
+      // 別の階層なら同じ名前でよい
+      await createFolder(user, '研究', '研究');
+      await waitFor(
+        () => expect(folderNames()).toEqual(['研究', '研究']),
+        WIRING_TIMEOUT,
+      );
+    },
+    MERGER_TEST_MS,
+  );
+
+  test(
+    '2 台が互いを知らずに同じ名前の Folder を作ると、同期の後で後の方が「名前 (2)」に揃う',
+    async () => {
+      await startOn('alice-2', ALICE);
+      // 2 台とも、相手の Folder を読めない間に作る (保留している書き込みは本人の読みにも出ない)
+      world.pds.withhold(ALICE.did);
+      let user = await startOn('alice', ALICE);
+      await createFolder(user, '研究');
+      await screen.findByRole('button', { name: '研究 の名前を変える' });
+      user = await startOn('alice-2', ALICE);
+      await createFolder(user, '研究');
+      await screen.findByRole('button', { name: '研究 の名前を変える' });
+      world.pds.release(ALICE.did);
+
+      // 同期すると両方が見え、どちらの端末も同じ改名を書く
+      await syncNow(user);
+      await waitFor(
+        () => expect(folderNames()).toEqual(['研究', '研究 (2)']),
+        WIRING_TIMEOUT,
+      );
+      user = await startOn('alice', ALICE);
+      await syncNow(user);
+      await waitFor(
+        () => expect(folderNames()).toEqual(['研究', '研究 (2)']),
+        WIRING_TIMEOUT,
+      );
+      const names = world.pds
+        .records(ALICE.did, NSID.folder)
+        .map((r) => (r.value as { name: string }).name)
+        .sort();
+      expect(names).toEqual(['研究', '研究 (2)']);
+    },
+    MERGER_TEST_MS * 2,
+  );
+});
