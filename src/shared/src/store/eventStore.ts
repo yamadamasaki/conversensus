@@ -19,7 +19,7 @@ import {
   projectFile,
   toSheet,
 } from '../events/project';
-import type { Batch } from '../events/unified';
+import { type Batch, knownOpsOf } from '../events/unified';
 import type { FileId, GraphFileListItem, Sheet, SheetId } from '../schemas';
 import type { SqlDriver } from './sqlDriver';
 
@@ -270,8 +270,12 @@ export class EventStore {
   }
 }
 
+/**
+ * 保存の行 → Batch。**知らない種類の op はここで落とす** (`knownOpsOf`)。保存の JSON には
+ * 残すので、クライアントを更新すればその時から効く
+ */
 function rowToBatch(row: BatchRow): Batch {
-  return {
+  return knownOpsOf({
     id: row.batch_id as Batch['id'],
     actor: row.actor,
     clock: row.clock,
@@ -288,5 +292,5 @@ function rowToBatch(row: BatchRow): Batch {
     ...(row.merged_in !== null && {
       mergedIn: row.merged_in as Batch['mergedIn'],
     }),
-  };
+  });
 }

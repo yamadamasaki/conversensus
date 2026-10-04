@@ -1,16 +1,22 @@
 import { describe, expect, test } from 'bun:test';
+import fc from 'fast-check';
 import {
+  type Batch,
   BatchSchema,
   CONTAINER_OP_KINDS,
   FILE_OP_KINDS,
   isContentOp,
   isFileOp,
+  isKnownOpKind,
   isSyncable,
+  knownOpsOf,
   LamportClock,
   OP_CATEGORY,
   OpSchema,
   opCategory,
+  ReceivedBatchSchema,
   SEMANTIC_OP_KINDS,
+  StoredBatchSchema,
 } from './unified';
 
 describe('OP_CATEGORY', () => {
@@ -252,5 +258,66 @@ describe('branch / commit の op (step2 Phase 3 T7)', () => {
         status: 'archived',
       }).success,
     ).toBe(false);
+  });
+});
+
+describe('知らない種類の op (step3 FPR の確認 §5.3)', () => {
+  const base = {
+    id: '11111111-1111-4111-8111-111111111111' as Batch['id'],
+    actor: 'did:plc:a#d',
+    clock: 1,
+    seq: 1,
+    deps: {},
+    timestamp: 1,
+  };
+  const NODE = '22222222-2222-4222-8222-222222222222';
+  const known = { kind: 'node.remove', target: NODE };
+  const unknown = { kind: 'node.futureThing', target: NODE, extra: 1 };
+
+  test('今の語彙の種類は知っていて、無い種類は知らない', () => {
+    expect(isKnownOpKind('node.add')).toBe(true);
+    expect(isKnownOpKind('node.futureThing')).toBe(false);
+  });
+
+  test('受信した batch は知らない op を含んだまま通り、中身もそのまま残る', () => {
+    const parsed = ReceivedBatchSchema.parse({
+      ...base,
+      ops: [known, unknown],
+    });
+    expect(parsed.ops).toEqual([known, unknown]);
+  });
+
+  test('知っている種類の op が壊れていれば、受信でも弾く', () => {
+    const broken = { kind: 'node.remove' }; // target が無い
+    expect(
+      ReceivedBatchSchema.safeParse({ ...base, ops: [broken] }).success,
+    ).toBe(false);
+  });
+
+  test('保存から読んだ batch は ops が空でもよい (知らない op だけの batch)', () => {
+    expect(StoredBatchSchema.safeParse({ ...base, ops: [] }).success).toBe(
+      true,
+    );
+  });
+
+  test('knownOpsOf は知っている op だけを順に残し、落とすものが無ければ同じ参照を返す', () => {
+    const arbOp = fc.constantFrom(
+      known,
+      unknown,
+      { kind: 'edge.remove', target: NODE },
+      { kind: 'sheet.futureThing' },
+    );
+    fc.assert(
+      fc.property(fc.array(arbOp, { minLength: 1, maxLength: 6 }), (ops) => {
+        const batch = { ...base, ops } as unknown as Batch;
+        const result = knownOpsOf(batch);
+        expect(result.ops as unknown[]).toEqual(
+          ops.filter((op) => isKnownOpKind(op.kind)),
+        );
+        expect(result.id).toBe(batch.id);
+        if (ops.every((op) => isKnownOpKind(op.kind)))
+          expect(result).toBe(batch);
+      }),
+    );
   });
 });

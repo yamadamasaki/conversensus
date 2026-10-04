@@ -1860,3 +1860,81 @@ describe('App 結合: Folder (step3 Phase 6 S6-2c)', () => {
     MERGER_TEST_MS * 2,
   );
 });
+
+describe('App 結合: 知らない種類の op (step3 FPR の確認 §5.3)', () => {
+  test(
+    '新しい版が書いた知らない op を受け取っても受信は止まらず、同じ batch の知っている op も効く',
+    async () => {
+      const { code } = await aliceSharesFileWithBob();
+      let user = await startOn('bob', BOB);
+      await participate(user, code, FILE_NAME);
+      await syncNow(user);
+
+      // alice: node を置いて本文を書く。書いた record に、まだ無い種類の op を混ぜる
+      // (FPR の後で op を足した新しい版の alice、を表す)
+      user = await startOn('alice', ALICE);
+      await openFileNamed(user, FILE_NAME);
+      const before = new Set(
+        world.pds.records(ALICE.did, NSID.batch).map((r) => r.rkey),
+      );
+      world.pds.withhold(ALICE.did);
+      await addNode(user);
+      await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+      await editOnlyNode(user, '新しい版から');
+      await waitFor(
+        () => expect(trunkContent()).toBe('新しい版から'),
+        WIRING_TIMEOUT,
+      );
+      world.pds.release(ALICE.did);
+      await syncNow(user);
+      const written = world.pds
+        .records(ALICE.did, NSID.batch)
+        .filter((r) => !before.has(r.rkey));
+      expect(written.length).toBeGreaterThan(0);
+      for (const record of written) {
+        (record.value as { ops: unknown[] }).ops.push({
+          kind: 'node.futureThing',
+          target: 'x',
+        });
+      }
+
+      // bob: 受け取ると、知っている op (node の追加と本文) が効く
+      user = await startOn('bob', BOB);
+      await openFileNamed(user, FILE_NAME);
+      await syncNow(user);
+      await waitFor(
+        () => expect(trunkContent()).toBe('新しい版から'),
+        WIRING_TIMEOUT,
+      );
+      // 読み出しには知らない op が出てこない (保存の JSON には残る — eventStore の単体で見ている)
+      const stored = world
+        .localStore()
+        .getBatches(world.localStore().listFiles()[0]?.id as FileId);
+      expect(
+        stored.some((b) =>
+          (b.ops as { kind: string }[]).some(
+            (op) => op.kind === 'node.futureThing',
+          ),
+        ),
+      ).toBe(false);
+
+      // その後の編集も届き続ける (受信が止まっていない)
+      user = await startOn('alice', ALICE);
+      await openFileNamed(user, FILE_NAME);
+      await editOnlyNode(user, 'その後の編集');
+      await waitFor(
+        () => expect(trunkContent()).toBe('その後の編集'),
+        WIRING_TIMEOUT,
+      );
+      await syncNow(user);
+      user = await startOn('bob', BOB);
+      await openFileNamed(user, FILE_NAME);
+      await syncNow(user);
+      await waitFor(
+        () => expect(trunkContent()).toBe('その後の編集'),
+        WIRING_TIMEOUT,
+      );
+    },
+    MERGER_TEST_MS * 2,
+  );
+});

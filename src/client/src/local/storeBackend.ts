@@ -11,11 +11,21 @@ import {
   BatchSchema,
   GraphFileSchema,
   type LocalStore,
+  ReceivedBatchSchema,
+  StoredBatchSchema,
 } from '@conversensus/shared';
 import { z } from 'zod';
 import type { LocalBackend } from './backend';
 
+/** 自分が書く batch。知らない op はありえない */
 const BatchesSchema = z.array(BatchSchema);
+/**
+ * 受信した batch は**知らない種類の op を含んだまま**通して保存する (step3 FPR の確認 §5.3)。
+ * 弾くと受信がまるごと止まる
+ */
+const ReceivedBatchesSchema = z.array(ReceivedBatchSchema);
+/** 保存から読んだ batch は知らない op を落とした後なので、ops が空でありうる */
+const StoredBatchesSchema = z.array(StoredBatchSchema);
 
 export function storeBackend(store: LocalStore): LocalBackend {
   return {
@@ -31,9 +41,13 @@ export function storeBackend(store: LocalStore): LocalBackend {
     pushBatches: async (fileId, batches: Batch[]) =>
       store.appendBatches(fileId, BatchesSchema.parse(batches)),
     pushReceivedBatches: async (fileId, batches: Batch[]) =>
-      store.appendReceived(fileId, BatchesSchema.parse(batches)),
+      store.appendReceived(
+        fileId,
+        // 知らない op は `Op` の型に無いが、保存の JSON にはそのまま残す
+        ReceivedBatchesSchema.parse(batches) as Batch[],
+      ),
     fetchBatches: async (fileId, since) =>
-      BatchesSchema.parse(store.getBatches(fileId, since)),
+      StoredBatchesSchema.parse(store.getBatches(fileId, since)),
     putBlob: async (bytes, mimeType) => {
       const result = await store.putBlob(bytes, mimeType);
       // HTTP の経路と同じく、断った理由を呼び出し元へ渡す (利用者に「なぜ」を伝えるため)

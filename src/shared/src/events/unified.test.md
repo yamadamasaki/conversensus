@@ -78,3 +78,21 @@ branch のメタを trunk の op-log に載せるための 4 つの op (`branch.
 - **`commit.add` はコミット本体を `commit` の下に持つ**: `Commit` 自身が `kind`
   (commit / merge) を持ち、op の判別キーとぶつかるため。
 - **status は定数の値しか受け付けない**: `BRANCH_STATUS` と機械的に揃えてある。
+
+## 知らない種類の op (step3 FPR の確認 §5.3, 案 A)
+
+### 何を・なぜ
+
+FPR の後で op の種類を足すと、更新していないクライアントに知らない種類の op が届く。以前は検証で
+弾いていたので**受信がまるごと止まった**。受信は知らない op を含んだまま通して保存し
+(`ReceivedBatchSchema`)、読むときに落とす (`knownOpsOf`, `StoredBatchSchema`)。
+
+### どのように
+
+- 今の語彙の種類は知っていて、無い種類は知らない (`isKnownOpKind`)
+- 受信した batch は知らない op を含んだまま通り、**中身もそのまま残る** (`passthrough`)
+- **知っている種類の op が壊れていれば、受信でも弾く** — 知らない op と見分けるのは種類であって、
+  壊れた op を知らない op として素通りさせない
+- 保存から読んだ batch は ops が空でもよい (知らない op だけの batch)
+- `knownOpsOf` は性質で書く: 知っている op だけを順に残し、batch の他の値は変えず、落とすものが無ければ
+  同じ参照を返す。生成器は知っている種類 2 つと知らない種類 2 つ (node と sheet の名前空間) のプール

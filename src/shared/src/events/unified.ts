@@ -679,6 +679,55 @@ export const BatchSchema = z.object({
 });
 export type Batch = z.infer<typeof BatchSchema>;
 
+// --- 知らない op の扱い (step3 FPR の確認 §5.3, 案 A) ---
+//
+// FPR の後で op の種類を足すと、更新していないクライアントには知らない種類の op が届く。
+// それを検証で弾くと**受信がまるごと止まり**、以後の編集が 1 つも届かなくなる。そこで:
+//
+// - **受信した batch は知らない op を含んだまま通し、そのまま保存する** (`ReceivedBatchSchema`)。
+//   クライアントを更新すれば、保存してあった op がその時から効く (受信し直しは起きない —
+//   受信は手元に無い batch だけを引くので、捨てたら二度と戻らない)
+// - **読むときに知らない op を落とす** (`knownOpsOf`)。畳み込みや競合の検出は知っている op だけを見る。
+//   batch そのものは落とさない — 因果の点 (actor, seq) が歯抜けになると、後の batch が
+//   「まだ見ていないものに依存する」ことになる。知らない op だけの batch は ops が空のまま残る
+// - **知っている種類の op が壊れていれば今までどおり弾く** (種類で知らない op と見分ける)
+// - 判断ログは対象外。語彙に無い判断は今までどおり batch ごと落とす (`judgmentMapper`)。
+//   判断の畳み込みは op の種類で pre 条件を分けるので、一部を読み飛ばすと別の名簿になる
+
+/** 知っている op の種類か (この版の `OpSchema` にあるか) */
+export function isKnownOpKind(kind: string): boolean {
+  return OpSchema.optionsMap.has(kind);
+}
+
+/** 知らない種類の op。`kind` だけを確かめ、残りはそのまま持つ */
+const UnknownOpSchema = z
+  .object({ kind: z.string() })
+  .passthrough()
+  .refine((op) => !isKnownOpKind(op.kind), {
+    message: 'an op of a known kind must match its schema',
+  });
+
+/** 受信した batch。知らない op を含みうる (保存はこの形のまま) */
+export const ReceivedBatchSchema = BatchSchema.extend({
+  ops: z.array(z.union([OpSchema, UnknownOpSchema])).min(1),
+});
+
+/** 保存から読んだ batch。知らない op を落とした後なので、ops が空でありうる */
+export const StoredBatchSchema = BatchSchema.extend({
+  ops: z.array(OpSchema),
+});
+
+/**
+ * 知らない種類の op を落とす。落とすものが無ければ同じ参照を返す。
+ *
+ * 型の上では `Batch` だが、受信した直後や保存から読んだ直後の値は知らない op を持ちうる
+ * (PDS のレコードや保存の JSON は型を通っていない)。畳み込みに渡す前にここを通す
+ */
+export function knownOpsOf(batch: Batch): Batch {
+  const ops = batch.ops.filter((op) => isKnownOpKind(op.kind));
+  return ops.length === batch.ops.length ? batch : { ...batch, ops };
+}
+
 /** 写しが指す元の点の鍵 (`copyOf` の同一性) */
 export function copyKeyOf(copyOf: { actor: Actor; seq: number }): string {
   return `${copyOf.actor}${ACTOR_SEPARATOR}${copyOf.seq}`;

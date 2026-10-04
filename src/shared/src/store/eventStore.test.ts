@@ -369,6 +369,48 @@ describe('EventStore', () => {
 // 画像などのバイナリを置く content-addressed ストア (ANA-116 S2)。
 // cid はここでは計算せず呼び出し側から受け取る (API 境界の責務) ため、
 // テストも「渡した cid が鍵になる」ことを前提に書く。
+describe('EventStore: 知らない種類の op (step3 FPR の確認 §5.3)', () => {
+  const withOps = (id: string, seq: number, ops: unknown[]): Batch =>
+    ({ ...addNode(id, 'n1', 'x', seq), ops }) as unknown as Batch;
+  const unknownOp = { kind: 'node.futureThing', target: 'n1' };
+
+  it('読むときに知らない op を落とし、知っている op は効く', () => {
+    store.appendBatch(
+      FILE,
+      withOps('b1', 1, [
+        { kind: 'node.add', target: 'n1', content: 'A' },
+        unknownOp,
+      ]),
+    );
+    const [batch] = store.getBatches(FILE);
+    expect(batch?.ops as unknown[]).toEqual([
+      { kind: 'node.add', target: 'n1', content: 'A' },
+    ]);
+  });
+
+  it('保存の JSON には知らない op がそのまま残る (クライアントを更新したら効く)', () => {
+    const driver = new BunSqliteDriver(IN_MEMORY);
+    const raw = new EventStore(driver);
+    raw.appendBatch(FILE, withOps('b1', 1, [unknownOp]));
+    const [row] = driver.all<{ ops_json: string }>(
+      'SELECT ops_json FROM batches',
+    );
+    expect(JSON.parse(row?.ops_json ?? '[]')).toEqual([unknownOp]);
+  });
+
+  it('知らない op だけの batch も、ops が空のまま残る (因果の点を歯抜けにしない)', () => {
+    store.appendBatch(FILE, addNode('b1', 'n1', 'A', 1));
+    store.appendBatch(FILE, withOps('b2', 2, [unknownOp]));
+    store.appendBatch(FILE, addNode('b3', 'n2', 'B', 3));
+    const batches = store.getBatches(FILE);
+    expect(batches.map((b) => [b.seq, b.ops.length])).toEqual([
+      [1, 1],
+      [2, 0],
+      [3, 1],
+    ]);
+  });
+});
+
 describe('EventStore の blob ストア (ANA-116)', () => {
   const CID_A = 'bafkreibm6jg3ux5qumhcn2b3flc3tyu6dmlb4xa7u5bf44yegnrjhc4yeq';
   const CID_B = 'bafkreig7jg6oy63mykyfwfiumu3qwxbm3qggzffeidwl7bm2ulq6h7l2ta';
