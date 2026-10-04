@@ -533,6 +533,87 @@ step3 Phase 2 S2-7 (2026-10-01) で Tauri の配布をやめた. インストー
 (ブラウザの「ホーム画面に追加」/「アプリとしてインストール」). 以前の手順と spike の記録は
 git の履歴にある (`src-tauri/` と本書の旧 §9).
 
+## 10. FPR の完了基準を実機で確かめる (step3)
+
+FPR の完了基準 ([step3 実装計画 §0](../plans/step3-implementation.md)) のうち, **人の手と実機が要る 2 つ**の手順.
+結果は [`step3-fpr-check.md`](../plans/step3-fpr-check.md) の表に書く. 基準 3・4 は Claude が Chrome で確かめ済み,
+基準 5 は机上で確かめて決めることが 1 つ残っている (同書 §5.3).
+
+### 10.1 基準 1: PWA (Safari)
+
+> ブラウザ (Safari を含む) で PWA として開き, インストールでき, オフラインで編集できる
+
+**service worker は本番ビルドでだけ登録する** (`main.tsx`) ので, dev サーバ (`:5173`) では確かめられない.
+次のどちらかで開く.
+
+| | どこで | ログイン | 向いている確認 |
+| --- | --- | --- | --- |
+| a | 手元の本番ビルド `http://127.0.0.1:5175/` | **できない** (開発用 PDS が http, §1) | インストールとオフライン編集 |
+| b | 本番 `https://app.conversensus.site` | できる | a に加えて, オフラインの編集が戻ったときに PDS へ送られること |
+
+a の起動:
+
+```shell
+bun run --cwd src/client build
+bun run --cwd src/client preview --port 5175 --strictPort   # E2E の offline.spec.ts と同じ配信
+```
+
+b は **いまの main を本番に出してから**使う (出す手順は Claude の記録にある. 出してほしければ頼む).
+本番の Caddy は COOP/COEP を付けている (step3 Phase 2 D8) — 付いていないと保存領域 (OPFS) が開けない.
+
+#### 手順 (macOS の Safari)
+
+1. Safari で開き, File を 1 つ作って node を 2〜3 置く
+2. **インストール**: メニューの「ファイル」→「Dock に追加…」. Dock から開くと, アドレスバーの無い窓で開く
+3. インストールした窓で 1 の File が見えることを確かめる (同じ origin なので同じ保存領域を見る)
+4. **オフライン**: a なら preview を止める (`Ctrl+C`). b なら Wi-Fi を切る
+5. インストールした窓を**閉じて開き直す**. 起動し, 1 の File が開けることを見る (service worker が殻を返している)
+6. node を足す・本文を変える・シートを足す. **再読み込みしても残る**ことを見る (OPFS に書けている)
+7. b なら: オンラインに戻し, 左下の未送信の件数が 0 に戻ることを見る. 別の端末 (または Chrome) で
+   同じアカウントにログインし, 6 の編集が届くことを見る
+
+#### iPhone / iPad の Safari (できれば)
+
+共有ボタン →「ホーム画面に追加」. 以降は同じ. **iOS では保存領域が消されることがある** (ITP. 7 日使わないと
+消える場合がある, step3 Phase 2 U1). 長く置いてから開き直して File が残っているかも見る価値がある.
+
+#### 見るもの
+
+- オフラインで開いたとき「起動中…」で止まらない. 止まったら Web インスペクタのコンソールを写す
+- 保存領域が開けないときは「この窓では保存できません」の画面になる (プライベートブラウズなど, §7). これが
+  通常の窓で出たら, COOP/COEP か OPFS の問題である
+
+### 10.2 基準 2: 2 アカウントで merger
+
+> 2 アカウントが同じ File を編み, branch の explicit merge で競合したとき, merger で解消して merge できる
+
+開発環境で行う (§5.1 と同じ構成: alice が `127.0.0.1:5173`, bob が `127.0.0.1:5174`, どちらも Chrome).
+開発用 PDS (`:3000`) を先に起動しておく (§1).
+
+#### 手順
+
+1. **共有**: alice が File「FPR merger」を作り, node を 1 つ置いて本文を「もと」にする. 参加者ダイアログで
+   bob を招待し, bob が参加コードで参加する (§5.1 の 1〜4). 双方の画面に「もと」が出るまで待つ
+2. **branch で編集**: bob が Sheet 1 で「+ branch」→ 名前「b1」. b1 を開いて本文を「bob 案」に変え, コミットする
+3. **trunk で並行に編集**: alice が trunk の同じ node の本文を「alice 案」に変える. bob の画面の trunk に
+   「alice 案」が届くまで待つ (30 秒以内. 急ぐなら「今すぐ同期」)
+4. **merge**: bob が b1 を開いて「merge ↑」を押す → **確認のダイアログではなく merger が新しいタブで開く**
+   (上に merge 元・merge 先, 下に merge 後と conflict list)
+5. **解消**: conflict list に競合が 1 件 (本文が「alice 案」と「bob 案」). 例えば
+   - merge 先の pane で node を右クリック →「merge 後に取り込む」で alice 案にする, または
+   - merge 後の pane で本文を「両案をまとめる」に書き換える
+6. conflict list のチェックを入れ, コメントを書いて「merge」を押す
+7. **結果**: bob の trunk に 5 の値が出る. alice の画面にも届く (30 秒以内). branch b1 は「(merged)」になる
+
+#### 見るもの
+
+- 4 で merger が開かず確認のダイアログが出たら, 競合が layout だけだった可能性がある (layout だけなら merger を
+  開かない仕様, step3 Phase 5 Q6). 本文 (content) で競合させること
+- 5 のチェックとコメントが揃うまで merge は押せない
+- 7 で alice 側に**「競合を LWW で確定した」の通知が出ない**こと (merger で決めた競合なので, Phase 5)
+- 余力があれば: merger を開いたまま alice がもう一度同じ node を変える → merge 先の pane が新しくなり,
+  チェックが外れて merge が押せなくなる (Phase 5 S5-2)
+
 ## 関連
 
 - [`operation-manual-for-dev.md`](./operation-manual-for-dev.md) — アプリ GUI の操作手順 (product-owner 向け動作確認マニュアル)
