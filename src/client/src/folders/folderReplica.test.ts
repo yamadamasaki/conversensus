@@ -27,10 +27,14 @@ function fakeRemote() {
     if (failing) throw new Error('offline');
   };
   const remote: FolderRemote = {
-    listFolders: async () => (guard(), [...folders.values()]),
-    listPlacements: async () => (
-      guard(), [...places].map(([fileId, folder]) => ({ fileId, folder }))
-    ),
+    listFolders: async () => {
+      guard();
+      return [...folders.values()];
+    },
+    listPlacements: async () => {
+      guard();
+      return [...places].map(([fileId, folder]) => ({ fileId, folder }));
+    },
     putFolder: async (f) => {
       guard();
       folders.set(f.id, f);
