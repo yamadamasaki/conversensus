@@ -1938,3 +1938,94 @@ describe('App 結合: 知らない種類の op (step3 FPR の確認 §5.3)', () 
     MERGER_TEST_MS * 2,
   );
 });
+
+describe('App 結合: 未ログインの編集を出し直す (FPR 前 L-1)', () => {
+  /** ログインせずに File を作って node を置き、本文を書いてからログインする */
+  async function drawSignedOutThenLogin() {
+    cleanup();
+    await world.activate('alice');
+    render(<App />);
+    const user = userEvent.setup();
+    await createFile(user, FILE_NAME);
+    await addNode(user);
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+    await editOnlyNode(user, 'ログイン前');
+    await waitFor(
+      () => expect(trunkContent()).toBe('ログイン前'),
+      WIRING_TIMEOUT,
+    );
+    // ログインしていない間は、この端末にだけある編集があることを知らせる (L-3)
+    const banner = await screen.findByRole(
+      'button',
+      { name: '未ログインの編集' },
+      WIRING_TIMEOUT,
+    );
+    expect(banner.textContent).toMatch(/この端末にだけ \d+ 件の編集があります/);
+    await login(user, ALICE);
+    signedInDevices.add('alice');
+    return { user };
+  }
+
+  /** alice の PDS にある、この File の編集 (File の起源 genesis を除く) の batch の数 */
+  const remoteEditCount = () => {
+    const fileId = world.localStore().listFiles()[0]?.id as string;
+    return world.pds
+      .records(ALICE.did, NSID.batch)
+      .filter((r) => r.rkey.startsWith(fileId))
+      .filter((r) => (r.value as { actor: string }).actor !== 'genesis').length;
+  };
+
+  test(
+    '未ログインで描いたものは、ログインして送ると答えると、同じ人の別の端末に届く',
+    async () => {
+      const { user } = await drawSignedOutThenLogin();
+      await screen.findByText(
+        /ログインしていない間にこの端末で描いた編集が/,
+        {},
+        WIRING_TIMEOUT,
+      );
+      expect(
+        screen.getByText(new RegExp(`@${ALICE.handle} の編集として`)),
+      ).toBeTruthy();
+      await user.click(screen.getByRole('button', { name: 'OK' }));
+      // 付け替えた batch が自分の repo に載る
+      await waitFor(
+        () => expect(remoteEditCount()).toBeGreaterThan(0),
+        WIRING_TIMEOUT,
+      );
+      // 手元に未ログインの actor は残らない
+      expect(world.localStore().listLocalActorBatches()).toEqual([]);
+
+      // 別の端末: 同じ File が見つかり、ログイン前の本文が出る
+      const user2 = await startOn('alice-2', ALICE);
+      await syncNow(user2);
+      await openFileNamed(user2, FILE_NAME);
+      await waitFor(
+        () => expect(trunkContent()).toBe('ログイン前'),
+        WIRING_TIMEOUT,
+      );
+    },
+    MERGER_TEST_MS * 2,
+  );
+
+  test(
+    '送らないと答えたら、手元に未ログインのまま残り、編集は PDS に載らない',
+    async () => {
+      const { user } = await drawSignedOutThenLogin();
+      await screen.findByText(
+        /ログインしていない間にこの端末で描いた編集が/,
+        {},
+        WIRING_TIMEOUT,
+      );
+      await user.click(screen.getByRole('button', { name: 'キャンセル' }));
+      await new Promise((r) => setTimeout(r, SETTLE_MS));
+      // 編集は送られない。File の起源 (genesis: 名前・最初のシート) は今までどおりログインで送られる
+      // (他の端末の発見がそれに乗っている) ので、genesis 以外が無いことを見る
+      expect(remoteEditCount()).toBe(0);
+      expect(world.localStore().listLocalActorBatches().length).toBeGreaterThan(
+        0,
+      );
+    },
+    MERGER_TEST_MS * 2,
+  );
+});

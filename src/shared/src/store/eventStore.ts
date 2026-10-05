@@ -19,7 +19,13 @@ import {
   projectFile,
   toSheet,
 } from '../events/project';
-import { type Batch, knownOpsOf } from '../events/unified';
+import {
+  ACTOR_SEPARATOR,
+  type Actor,
+  type Batch,
+  knownOpsOf,
+  LOCAL_DID,
+} from '../events/unified';
 import type { FileId, GraphFileListItem, Sheet, SheetId } from '../schemas';
 import type { SqlDriver } from './sqlDriver';
 
@@ -160,6 +166,86 @@ export class EventStore {
     return rows.map((row) => rowToBatch(row));
   }
 
+  /**
+   * 未ログインの actor (`local#<deviceId>`) を数える (FPR 前 L-1)。ログインしたときに
+   * 「この端末に未ログインで描いたものが N 件 (File: …) あります」と訊くために使う。
+   * File ごと・actor ごとの件数を返す (branch 専用の file_id も含む)
+   */
+  listLocalActorBatches(): { fileId: FileId; actor: Actor; count: number }[] {
+    return this.db
+      .all<{ file_id: string; actor: string; n: number }>(
+        `SELECT file_id, actor, COUNT(*) AS n FROM batches
+          WHERE actor LIKE ? GROUP BY file_id, actor ORDER BY file_id, actor`,
+        [`${LOCAL_DID}${ACTOR_SEPARATOR}%`],
+      )
+      .map((row) => ({
+        fileId: row.file_id as FileId,
+        actor: row.actor,
+        count: row.n,
+      }));
+  }
+
+  /**
+   * actor を付け替える (FPR 前 L-1)。**1 トランザクション**で、保存の中にある `from` を
+   * すべて `to` にする — batch の actor 列、`deps` の鍵、merge の写しの元 (`copyOf`)、
+   * op の中 (branch のコミットの vector など actor を鍵や値に持つもの)。
+   *
+   * clock・seq・中身の順序は変えない。未ログインの batch は一度も送られていないので、
+   * 手元で書き換えても誰とも食い違わない (写しを足すと二重に効き、末尾で他人の編集を
+   * 上書きする — 設計 F4)。`to` は新しい actor でなければならない (同じ端末の
+   * `did#<deviceId>` は連番がぶつかる, 設計 F5)。
+   *
+   * @returns 付け替えた batch の数 (actor が `from` だったもの)
+   */
+  renameActor(from: Actor, to: Actor): number {
+    return this.db.transaction(() => {
+      const owned = this.db.get<{ n: number }>(
+        'SELECT COUNT(*) AS n FROM batches WHERE actor = ?',
+        [to],
+      );
+      if ((owned?.n ?? 0) > 0) {
+        throw new Error(`renameActor: ${to} already has batches`);
+      }
+      const rows = this.db.all<{
+        seq: number;
+        actor: string;
+        deps_json: string;
+        ops_json: string;
+        copy_of_json: string | null;
+      }>('SELECT seq, actor, deps_json, ops_json, copy_of_json FROM batches');
+      let renamed = 0;
+      for (const row of rows) {
+        const actor = row.actor === from ? to : row.actor;
+        const deps = renameInJson(row.deps_json, from, to);
+        const ops = renameInJson(row.ops_json, from, to);
+        const copyOf =
+          row.copy_of_json === null
+            ? null
+            : renameInJson(row.copy_of_json, from, to);
+        if (
+          actor === row.actor &&
+          deps === row.deps_json &&
+          ops === row.ops_json &&
+          copyOf === row.copy_of_json
+        )
+          continue;
+        this.db.run(
+          `UPDATE batches SET actor = $actor, deps_json = $deps, ops_json = $ops,
+                  copy_of_json = $copyOf WHERE seq = $seq`,
+          {
+            $actor: actor,
+            $deps: deps,
+            $ops: ops,
+            $copyOf: copyOf,
+            $seq: row.seq,
+          },
+        );
+        if (actor !== row.actor) renamed += 1;
+      }
+      return renamed;
+    });
+  }
+
   /** ファイルの操作ログを projection し、Sheet として導出する */
   projectSheet(
     fileId: FileId,
@@ -293,4 +379,23 @@ function rowToBatch(row: BatchRow): Batch {
       mergedIn: row.merged_in as Batch['mergedIn'],
     }),
   });
+}
+
+/**
+ * JSON の中で `from` に**ちょうど一致する**文字列 (鍵と値) を `to` にする。actor は
+ * `local#<uuid>` なので、一致すれば同じ actor である。変わらなければ同じ文字列を返す
+ */
+function renameInJson(json: string, from: string, to: string): string {
+  if (!json.includes(from)) return json;
+  const walk = (value: unknown): unknown => {
+    if (value === from) return to;
+    if (Array.isArray(value)) return value.map(walk);
+    if (value !== null && typeof value === 'object') {
+      return Object.fromEntries(
+        Object.entries(value).map(([k, v]) => [k === from ? to : k, walk(v)]),
+      );
+    }
+    return value;
+  };
+  return JSON.stringify(walk(JSON.parse(json)));
 }

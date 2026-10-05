@@ -22,7 +22,9 @@ import {
   fetchBatches,
   fetchFiles,
   fetchLocalFileIds,
+  listLocalActorBatches,
   pushReceivedBatches,
+  renameActor,
 } from '../api';
 import { listJudgmentFileIds, putJudgment } from '../atproto/judgmentStore';
 import type { RemoteSyncQueue } from '../atproto/remoteSyncQueue';
@@ -34,6 +36,7 @@ import { collectBlobOrigins } from '../images/blobOrigins';
 import { subscribeLocalChanges } from '../local/localChanges';
 import type { PopupTarget } from '../SettingsPopup';
 import { didFromActor } from '../sync/actor';
+import { adoptLocalActors } from '../sync/adoptLocalActors';
 import {
   bootstrapParticipation,
   hasParticipationBootstrapped,
@@ -86,6 +89,12 @@ export interface FileSheetOpsDeps {
    * 宛先 provider (local / ログイン中は fanout) はフック側が組み立てて渡す。
    */
   deleteFile: typeof deleteFileByTombstone;
+  /**
+   * 未ログインの batch を数える・付け替える (FPR 前 L-1)。**省けばログイン時の出し直しをしない**
+   * (この 2 つを持たないテスト用の deps のため)
+   */
+  listLocalActorBatches?: typeof listLocalActorBatches;
+  renameActor?: typeof renameActor;
 }
 
 /** セッションの置き場の持ち手 (`FileSessionPool.hold`)。前に出ている File と背後のタブ */
@@ -93,6 +102,8 @@ const FRONT_HOLDER = 'front';
 const BACKGROUND_HOLDER = 'background';
 
 export const defaultFileSheetOpsDeps: FileSheetOpsDeps = {
+  listLocalActorBatches,
+  renameActor,
   createFile,
   exportFile,
   fetchBatches,
@@ -125,6 +136,8 @@ interface UseFileSheetOperationsParams {
    */
   onForksArrived?: (forks: readonly ForkMeta[]) => void;
   deps?: FileSheetOpsDeps;
+  /** ログインしている人の名前 (handle)。未ログインの編集を出し直すか訊くときに見せる (FPR 前 L-1) */
+  accountLabel?: string;
   /**
    * テスト用: op-log tap の record を差し替える。未指定なら内部 tap (LocalServerSyncProvider)。
    * content 経路 (GraphEditor) は sheetId を渡し、structure 経路 (以下のハンドラ) は渡さない (W3c2)。
@@ -162,6 +175,7 @@ export function useFileSheetOperations({
   actor,
   roster = null,
   isEditingActive,
+  accountLabel,
 }: UseFileSheetOperationsParams) {
   const [files, setFiles] = useState<GraphFileListItem[]>([]);
   const [activeFile, setActiveFile] = useState<GraphFile | null>(null);
@@ -916,8 +930,15 @@ export function useFileSheetOperations({
   // 発見したら一覧を読み直す — GET /files が op-log との和集合 (4e-2a) なので、
   // materialize されたファイルはこれだけで Sidebar に現れる。
 
+  /** 未ログインの編集を出し直すか訊いた DID (FPR 前 L-1)。断られたら同じ DID には訊き直さない */
+  const adoptionAskedRef = useRef<string | null>(null);
+
   useEffect(() => {
-    if (!remoteQueue) return;
+    if (!remoteQueue) {
+      // ログアウトしたら、次にログインしたときにまた訊く
+      adoptionAskedRef.current = null;
+      return;
+    }
     const did = didFromActor(actor);
     // **Promise を返す。**`finally` のコールバックが thenable を返したときだけ
     // 後段がそれを待つ。返さないと名簿の bootstrap が発見の完了前に走る
@@ -989,15 +1010,65 @@ export function useFileSheetOperations({
           ),
         );
 
-    // 発見 → 名簿の起点 → 参加 File の発見 の順に走らせる。
+    // 未ログインの編集を出し直す (FPR 前 L-1)。**発見より先に走らせる** — 付け替えた batch は
+    // その後の catch-up と発見の既知集合にそのまま乗る
+    const adopt = async () => {
+      const { listLocalActorBatches: list, renameActor: rename } = deps;
+      // 断られたら、この人のこのセッションの間は訊き直さない (次のログインでまた訊く)
+      if (!list || !rename || adoptionAskedRef.current === did) return;
+      adoptionAskedRef.current = did;
+      const result = await adoptLocalActors(did as Did, {
+        listLocalActorBatches: list,
+        renameActor: rename,
+        newDeviceId: () => crypto.randomUUID(),
+        confirm: async ({ batches, fileIds }) => {
+          const names = new Map(
+            (await deps.fetchFiles()).map((f) => [f.id as string, f.name]),
+          );
+          const shown = fileIds
+            .map((id) => names.get(id))
+            .filter((name) => name !== undefined);
+          return new Promise<boolean>((resolve) =>
+            setConfirmState({
+              message: localAdoptionMessage(batches, shown, accountLabel),
+              resolve,
+            }),
+          );
+        },
+        catchUp: async (fileId) => {
+          await remoteQueue.catchUp(await deps.fetchBatches(fileId), fileId);
+        },
+      });
+      if (result.status === 'adopted') {
+        adoptionAskedRef.current = null;
+        console.info(
+          `[adopt] sent ${result.batches} batch(es) written while signed out, ` +
+            `in ${result.fileIds.length} file(s)`,
+        );
+        deps.fetchFiles().then(setFiles).catch(console.error);
+      }
+    };
+
+    // 出し直し → 発見 → 名簿の起点 → 参加 File の発見 の順に走らせる。
     // 前段の成否によらず後段は必ず実行する
     const sync = () => {
-      discover().finally(bootstrap).finally(discoverParticipating);
+      adopt()
+        .catch((error) => console.warn('[adopt] failed:', error))
+        .finally(discover)
+        .finally(bootstrap)
+        .finally(discoverParticipating);
     };
     sync();
     window.addEventListener('online', sync);
     return () => window.removeEventListener('online', sync);
-  }, [remoteQueue, deps, actor, discoverParticipating]);
+  }, [
+    remoteQueue,
+    deps,
+    actor,
+    discoverParticipating,
+    accountLabel,
+    setConfirmState,
+  ]);
 
   return {
     files,
@@ -1059,4 +1130,22 @@ export function useFileSheetOperations({
     syncNow,
     holdBackground,
   };
+}
+
+/** 未ログインの編集を出し直すか訊く文面 (FPR 前 L-1, 設計 Q1) */
+export function localAdoptionMessage(
+  batches: number,
+  fileNames: readonly string[],
+  accountLabel?: string,
+): string {
+  const files =
+    fileNames.length === 0 ? '' : `\n(File: ${fileNames.join('、')})`;
+  const who = accountLabel
+    ? `@${accountLabel} の編集として`
+    : 'あなたの編集として';
+  return (
+    `ログインしていない間にこの端末で描いた編集が ${batches} 件あります。${files}\n` +
+    `${who}送って、他の端末や共有相手に届くようにしますか?\n` +
+    '送らない場合は、この端末にだけ残ります (次にログインしたときにまた訊きます)。'
+  );
 }

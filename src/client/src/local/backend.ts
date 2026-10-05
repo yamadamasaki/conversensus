@@ -14,6 +14,7 @@
  */
 
 import type {
+  Actor,
   Batch,
   BlobCid,
   ConversensusFile,
@@ -44,4 +45,10 @@ export interface LocalBackend {
   putBlob(bytes: Uint8Array, mimeType: MimeType): Promise<StoredBlob>;
   /** blob の実体。**この端末に無ければ undefined** (他端末の画像では普通に起こる) */
   fetchBlob(cid: BlobCid): Promise<Blob | undefined>;
+  /** 未ログインの actor (`local#…`) の batch の件数 (File と actor ごと, FPR 前 L-1) */
+  listLocalActorBatches(): Promise<
+    { fileId: FileId; actor: Actor; count: number }[]
+  >;
+  /** actor を付け替える (FPR 前 L-1)。@returns 付け替えた batch の数 */
+  renameActor(from: Actor, to: Actor): Promise<number>;
 }
