@@ -523,3 +523,55 @@ describe('labelsOfConflicts', () => {
     expect(labels.has(unknown)).toBe(false);
   });
 });
+
+describe('知らない種類の op (step3 FPR の確認 §5.3)', () => {
+  // FPR の後で足された op が、更新していない手元に届いた場合。受信はそれを保存するが
+  // (`ReceivedBatchSchema`)、検出は知らない op を競合にも上書きにも数えず、例外も出さない
+  const NODE = '22222222-2222-4222-8222-222222222222';
+  const batch = (
+    id: string,
+    actor: string,
+    seq: number,
+    deps: Record<string, number>,
+    ops: unknown[],
+  ) =>
+    ({
+      id,
+      actor,
+      clock: seq,
+      seq,
+      deps,
+      timestamp: seq,
+      ops,
+    }) as unknown as Batch;
+  const genesis = batch(
+    '11111111-1111-4111-8111-000000000001',
+    'did:plc:a#d',
+    1,
+    {},
+    [{ kind: 'node.add', target: NODE, content: 'x' }],
+  );
+  const mine = batch(
+    '11111111-1111-4111-8111-000000000002',
+    'did:plc:a#d',
+    2,
+    {},
+    [{ kind: 'node.setContent', target: NODE, content: 'A' }],
+  );
+  const future = batch(
+    '11111111-1111-4111-8111-000000000003',
+    'did:plc:b#e',
+    1,
+    { 'did:plc:a#d': 1 },
+    [{ kind: 'node.futureThing', target: NODE, content: 'B' }],
+  );
+
+  test('同じ対象に知らない op が並行に届いても、競合にも上書きにも数えない', () => {
+    expect(
+      detectIncomingConflicts([genesis, mine], [future]).conflicts,
+    ).toEqual([]);
+    expect(
+      detectOverwrites([genesis, mine], [future], 'did:plc:a' as Did).reports,
+    ).toEqual([]);
+  });
+});

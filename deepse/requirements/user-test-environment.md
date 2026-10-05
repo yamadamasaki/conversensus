@@ -533,6 +533,183 @@ step3 Phase 2 S2-7 (2026-10-01) で Tauri の配布をやめた. インストー
 (ブラウザの「ホーム画面に追加」/「アプリとしてインストール」). 以前の手順と spike の記録は
 git の履歴にある (`src-tauri/` と本書の旧 §9).
 
+## 10. FPR の完了基準を実機で確かめる (step3)
+
+FPR の完了基準 ([step3 実装計画 §0](../plans/step3-implementation.md)) のうち, **人の手と実機が要る 2 つ**の手順.
+結果は [`step3-fpr-check.md`](../plans/step3-fpr-check.md) の表に書く. 基準 3・4 は Claude が Chrome で確かめ済み,
+基準 5 は机上で確かめて決めることが 1 つ残っている (同書 §5.3).
+
+### 10.1 基準 1: PWA (Safari)
+
+> ブラウザ (Safari を含む) で PWA として開き, インストールでき, オフラインで編集できる
+
+**service worker は本番ビルドでだけ登録する** (`main.tsx`) ので, dev サーバ (`:5173`) では確かめられない.
+次のどちらかで開く.
+
+| | どこで | ログイン | 向いている確認 |
+| --- | --- | --- | --- |
+| a | 手元の本番ビルド `http://127.0.0.1:5175/` | **できない** (開発用 PDS が http, §1) | インストールとオフライン編集 |
+| b | 本番 `https://app.conversensus.site` | できる | a に加えて, オフラインの編集が戻ったときに PDS へ送られること |
+
+a の起動:
+
+```shell
+bun run --cwd src/client build
+bun run --cwd src/client preview --port 5175 --strictPort   # E2E の offline.spec.ts と同じ配信
+```
+
+b は **いまの main を本番に出してから**使う (§11). 本番の Caddy は COOP/COEP を付けている
+(step3 Phase 2 D8) — 付いていないと保存領域 (OPFS) が開けない. 本番のアカウントが要る (§11.3).
+
+#### 手順 (macOS の Safari)
+
+> **⚠️ Safari の web app は Safari と保存領域を共有しない.** 「Dock に追加」した web app は, 追加の時点で
+> cookie だけを写し, それ以降は履歴・cookie・Web サイトのデータ (OPFS を含む) を Safari と共有しない
+> (Apple の仕様). **Safari の窓で作った File は web app には見えない** — 不具合ではない. Chrome の PWA は
+> ブラウザと同じ保存領域を見るので見える (2026-10-05 に利用者が実機で確かめた違い).
+> web app の中の File を Safari と揃えたければ, ログインして PDS 経由で同期させる (b)
+
+1. Safari で開く
+2. **インストール**: メニューの「ファイル」→「Dock に追加…」. Dock から開くと, アドレスバーの無い窓で開く
+3. **インストールした窓の中で** File を 1 つ作って node を 2〜3 置く (Safari の窓で作った File はここには出ない, 上の注意)
+4. **オフライン**: a なら preview を止める (`Ctrl+C`). b なら Wi-Fi を切る
+5. インストールした窓を**閉じて開き直す**. 起動し, 3 の File が開けることを見る (service worker が殻を返している)
+6. node を足す・本文を変える・シートを足す. **再読み込みしても残る**ことを見る (OPFS に書けている)
+7. b なら: オンラインに戻し, 左下の未送信の件数が 0 に戻ることを見る. 別の端末 (または Chrome) で
+   同じアカウントにログインし, 6 の編集が届くことを見る
+
+#### iPhone / iPad の Safari (できれば)
+
+**iOS からは a (手元の本番ビルド) には繋げない. b (本番) で行う.**
+
+- preview は `127.0.0.1` でだけ待ち受けている (`vite.config.mjs` の `DEV_HOST`)
+- 待ち受けを広げて Mac の IP (`http://192.168.x.x:5175`) で開いても**動かない**. http の IP は安全な文脈
+  (secure context) ではないので, service worker も, cross-origin isolation (SharedArrayBuffer) も, OPFS も使えず,
+  保存領域が開けない. 動くのは https か `127.0.0.1` / `localhost` だけである
+- 手元を https で見せる手 (トンネル・自前の証明書) はあるが, ログインはどのみちできず (開発用 PDS が http),
+  Vite の Host 検査 (`preview.allowedHosts`) も外す必要がある. 本番に出す方が手数が少ない
+
+本番で: Safari で `https://app.conversensus.site` を開き, 共有ボタン →「ホーム画面に追加」. 以降は macOS と同じ.
+**ホーム画面の web app も Safari と保存領域を共有しない** (macOS と同じ). **iOS では保存領域が消されることがある**
+(ITP. 7 日使わないと消える場合がある, step3 Phase 2 U1). 長く置いてから開き直して File が残っているかも見る価値がある.
+
+#### 見るもの
+
+- オフラインで開いたとき「起動中…」で止まらない. 止まったら Web インスペクタのコンソールを写す
+- 保存領域が開けないときは「この窓では保存できません」の画面になる (プライベートブラウズなど, §7). これが
+  通常の窓で出たら, COOP/COEP か OPFS の問題である
+
+### 10.2 基準 2: 2 アカウントで merger
+
+> 2 アカウントが同じ File を編み, branch の explicit merge で競合したとき, merger で解消して merge できる
+
+開発環境で行う (§5.1 と同じ構成: alice が `127.0.0.1:5173`, bob が `127.0.0.1:5174`, どちらも Chrome).
+開発用 PDS (`:3000`) を先に起動しておく (§1).
+
+#### 手順
+
+1. **共有**: alice が File「FPR merger」を作り, node を 1 つ置いて本文を「もと」にする. 参加者ダイアログで
+   bob を招待し, bob が参加コードで参加する (§5.1 の 1〜4). 双方の画面に「もと」が出るまで待つ
+2. **branch で編集**: bob が Sheet 1 で「+ branch」→ 名前「b1」. b1 を開いて本文を「bob 案」に変え, コミットする
+3. **trunk で並行に編集**: alice が trunk の同じ node の本文を「alice 案」に変える. bob の画面の trunk に
+   「alice 案」が届くまで待つ (30 秒以内. 急ぐなら「今すぐ同期」)
+4. **merge**: bob が b1 を開いて「merge ↑」を押す → **確認のダイアログではなく merger が新しいタブで開く**
+   (上に merge 元・merge 先, 下に merge 後と conflict list)
+5. **解消**: conflict list に競合が 1 件 (本文が「alice 案」と「bob 案」). 例えば
+   - merge 先の pane で node を右クリック →「merge 後に取り込む」で alice 案にする, または
+   - merge 後の pane で本文を「両案をまとめる」に書き換える
+6. conflict list のチェックを入れ, コメントを書いて「merge」を押す
+7. **結果**: bob の trunk に 5 の値が出る. alice の画面にも届く (30 秒以内). branch b1 は「(merged)」になる
+
+#### 見るもの
+
+- 4 で merger が開かず確認のダイアログが出たら, 競合が layout だけだった可能性がある (layout だけなら merger を
+  開かない仕様, step3 Phase 5 Q6). 本文 (content) で競合させること
+- 5 のチェックとコメントが揃うまで merge は押せない
+- 7 で alice 側に**「競合を LWW で確定した」の通知が出ない**こと (merger で決めた競合なので, Phase 5)
+- 余力があれば: merger を開いたまま alice がもう一度同じ node を変える → merge 先の pane が新しくなり,
+  チェックが外れて merge が押せなくなる (Phase 5 S5-2)
+
+## 11. 本番へ出す (step3 以降)
+
+本番は 2 つだけである (step3 Phase 2 で API サーバを撤去した).
+
+| | URL | 中身 |
+| --- | --- | --- |
+| クライアント | `https://app.conversensus.site` | ビルドした静的ファイル. Caddy が `/var/www/conversensus` から配る |
+| PDS | `https://pds.conversensus.site` | ATProto PDS (Docker, `infra/pds/docker-compose.prod.yml`). Caddy が `127.0.0.1:2583` へ渡す |
+
+サーバは Hetzner の VPS (`178.105.63.123`, Ubuntu). リポジトリの置き場は `/opt/conversensus`.
+
+### 11.1 出し方
+
+**`release` ブランチへ push すると GitHub Actions が出す** (`.github/workflows/deploy.yml`).
+
+```shell
+git push origin main:release        # main をそのまま出す
+```
+
+workflow がすること (サーバの上で):
+
+1. `release` を checkout して `bun install --frozen-lockfile`
+2. クライアントをビルドする. **失敗したらここで止まり, 配信も設定も触らない**.
+   PDS の URL は `src/client/.env.production` (`VITE_ATPROTO_PDS_URL`) から入る
+3. `infra/caddy/Caddyfile` を `caddy validate` に通してから `/etc/caddy/Caddyfile` に置き, reload する.
+   **配信の設定もリポジトリが正**である — COOP/COEP をここで付ける
+4. `rsync --delete` で `/var/www/conversensus` を入れ替える (古い版のファイルを残さない)
+
+手で出したいとき (Actions が使えないとき) は, 上の 1〜4 を SSH でそのまま実行すればよい
+(workflow の `script` が手順そのもの).
+
+### 11.2 出した後に確かめる
+
+```shell
+curl -sI https://app.conversensus.site/ | grep -i cross-origin     # COOP と COEP の 2 行が出る
+curl -s https://app.conversensus.site/client-metadata.json          # JSON (OAuth の client_id)
+curl -s https://pds.conversensus.site/xrpc/_health                  # {"version":"..."}
+```
+
+ブラウザでは `https://app.conversensus.site/` を開き, コンソールで `crossOriginIsolated` が `true`.
+本番のアカウントで OAuth でログインでき (Safari を含む), File を作ると左下が「クラウド同期済み」になる.
+
+**service worker が前の版を持っている**ので, 出した直後に開くと前の版の画面が出ることがある.
+再読み込みすれば新しい版になる (画面と `sw.js` は `no-cache` で配っている).
+
+### 11.3 PDS のアカウント
+
+**登録は閉じてある** (`PDS_INVITE_REQUIRED=true`, 2026-10-05). 開けていた間に, 誰のものでもない
+アカウントが 38 個作られ, Bluesky の like や follow に使われていた (同日に削除した). 開け直さないこと.
+
+アカウントを足すときは招待コードを発行して作る. サーバの上で:
+
+```shell
+cd /opt/conversensus/infra/pds
+PW=$(grep '^PDS_ADMIN_PASSWORD=' .env | cut -d= -f2-)
+curl -s -u "admin:$PW" -H 'Content-Type: application/json' \
+  -d '{"useCount":1}' http://127.0.0.1:2583/xrpc/com.atproto.server.createInviteCode
+# → {"code":"pds-conversensus-site-xxxxx-xxxxx"}
+
+curl -s -H 'Content-Type: application/json' -d '{
+  "handle": "<名前>.pds.conversensus.site", "email": "<メール>",
+  "password": "<パスワード>", "inviteCode": "<上のコード>"
+}' http://127.0.0.1:2583/xrpc/com.atproto.server.createAccount
+```
+
+handle は `*.pds.conversensus.site` に限られる (`availableUserDomains`). いるアカウントの一覧は
+ログイン無しで見られる:
+
+```shell
+curl -s 'https://pds.conversensus.site/xrpc/com.atproto.sync.listRepos?limit=100'
+```
+
+PDS の設定は `/opt/conversensus/infra/pds/.env` (git の外. 秘密を含む). 変えたら
+`docker compose -f docker-compose.prod.yml up -d` で作り直す (データは volume `pds-data` に残る).
+
+### 11.4 一度だけの作業 (済んだもの)
+
+- **旧 API サーバを止める** (step3 Phase 2 S2-7): `systemctl disable --now conversensus`.
+  2026-10-05 の最初の deploy の後に行った. 旧 API のデータは移さない (v2 で読めない, step3 Phase 2 Q2)
+
 ## 関連
 
 - [`operation-manual-for-dev.md`](./operation-manual-for-dev.md) — アプリ GUI の操作手順 (product-owner 向け動作確認マニュアル)
