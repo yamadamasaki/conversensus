@@ -558,8 +558,8 @@ bun run --cwd src/client build
 bun run --cwd src/client preview --port 5175 --strictPort   # E2E の offline.spec.ts と同じ配信
 ```
 
-b は **いまの main を本番に出してから**使う (出す手順は Claude の記録にある. 出してほしければ頼む).
-本番の Caddy は COOP/COEP を付けている (step3 Phase 2 D8) — 付いていないと保存領域 (OPFS) が開けない.
+b は **いまの main を本番に出してから**使う (§11). 本番の Caddy は COOP/COEP を付けている
+(step3 Phase 2 D8) — 付いていないと保存領域 (OPFS) が開けない. 本番のアカウントが要る (§11.3).
 
 #### 手順 (macOS の Safari)
 
@@ -629,6 +629,86 @@ b は **いまの main を本番に出してから**使う (出す手順は Clau
 - 7 で alice 側に**「競合を LWW で確定した」の通知が出ない**こと (merger で決めた競合なので, Phase 5)
 - 余力があれば: merger を開いたまま alice がもう一度同じ node を変える → merge 先の pane が新しくなり,
   チェックが外れて merge が押せなくなる (Phase 5 S5-2)
+
+## 11. 本番へ出す (step3 以降)
+
+本番は 2 つだけである (step3 Phase 2 で API サーバを撤去した).
+
+| | URL | 中身 |
+| --- | --- | --- |
+| クライアント | `https://app.conversensus.site` | ビルドした静的ファイル. Caddy が `/var/www/conversensus` から配る |
+| PDS | `https://pds.conversensus.site` | ATProto PDS (Docker, `infra/pds/docker-compose.prod.yml`). Caddy が `127.0.0.1:2583` へ渡す |
+
+サーバは Hetzner の VPS (`178.105.63.123`, Ubuntu). リポジトリの置き場は `/opt/conversensus`.
+
+### 11.1 出し方
+
+**`release` ブランチへ push すると GitHub Actions が出す** (`.github/workflows/deploy.yml`).
+
+```shell
+git push origin main:release        # main をそのまま出す
+```
+
+workflow がすること (サーバの上で):
+
+1. `release` を checkout して `bun install --frozen-lockfile`
+2. クライアントをビルドする. **失敗したらここで止まり, 配信も設定も触らない**.
+   PDS の URL は `src/client/.env.production` (`VITE_ATPROTO_PDS_URL`) から入る
+3. `infra/caddy/Caddyfile` を `caddy validate` に通してから `/etc/caddy/Caddyfile` に置き, reload する.
+   **配信の設定もリポジトリが正**である — COOP/COEP をここで付ける
+4. `rsync --delete` で `/var/www/conversensus` を入れ替える (古い版のファイルを残さない)
+
+手で出したいとき (Actions が使えないとき) は, 上の 1〜4 を SSH でそのまま実行すればよい
+(workflow の `script` が手順そのもの).
+
+### 11.2 出した後に確かめる
+
+```shell
+curl -sI https://app.conversensus.site/ | grep -i cross-origin     # COOP と COEP の 2 行が出る
+curl -s https://app.conversensus.site/client-metadata.json          # JSON (OAuth の client_id)
+curl -s https://pds.conversensus.site/xrpc/_health                  # {"version":"..."}
+```
+
+ブラウザでは `https://app.conversensus.site/` を開き, コンソールで `crossOriginIsolated` が `true`.
+本番のアカウントで OAuth でログインでき (Safari を含む), File を作ると左下が「クラウド同期済み」になる.
+
+**service worker が前の版を持っている**ので, 出した直後に開くと前の版の画面が出ることがある.
+再読み込みすれば新しい版になる (画面と `sw.js` は `no-cache` で配っている).
+
+### 11.3 PDS のアカウント
+
+**登録は閉じてある** (`PDS_INVITE_REQUIRED=true`, 2026-10-05). 開けていた間に, 誰のものでもない
+アカウントが 38 個作られ, Bluesky の like や follow に使われていた (同日に削除した). 開け直さないこと.
+
+アカウントを足すときは招待コードを発行して作る. サーバの上で:
+
+```shell
+cd /opt/conversensus/infra/pds
+PW=$(grep '^PDS_ADMIN_PASSWORD=' .env | cut -d= -f2-)
+curl -s -u "admin:$PW" -H 'Content-Type: application/json' \
+  -d '{"useCount":1}' http://127.0.0.1:2583/xrpc/com.atproto.server.createInviteCode
+# → {"code":"pds-conversensus-site-xxxxx-xxxxx"}
+
+curl -s -H 'Content-Type: application/json' -d '{
+  "handle": "<名前>.pds.conversensus.site", "email": "<メール>",
+  "password": "<パスワード>", "inviteCode": "<上のコード>"
+}' http://127.0.0.1:2583/xrpc/com.atproto.server.createAccount
+```
+
+handle は `*.pds.conversensus.site` に限られる (`availableUserDomains`). いるアカウントの一覧は
+ログイン無しで見られる:
+
+```shell
+curl -s 'https://pds.conversensus.site/xrpc/com.atproto.sync.listRepos?limit=100'
+```
+
+PDS の設定は `/opt/conversensus/infra/pds/.env` (git の外. 秘密を含む). 変えたら
+`docker compose -f docker-compose.prod.yml up -d` で作り直す (データは volume `pds-data` に残る).
+
+### 11.4 一度だけの作業 (済んだもの)
+
+- **旧 API サーバを止める** (step3 Phase 2 S2-7): `systemctl disable --now conversensus`.
+  2026-10-05 の最初の deploy の後に行った. 旧 API のデータは移さない (v2 で読めない, step3 Phase 2 Q2)
 
 ## 関連
 

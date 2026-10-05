@@ -1,5 +1,13 @@
 name: Deploy to Production
 
+# 本番 (app.conversensus.site) へ出す。`release` へ push すると走る (main を release へ進める)。
+# 手順と前提は deepse/requirements/user-test-environment.md の §11。
+#
+# step3 Phase 2 (PWA) 以降、本番はクライアントの静的配信と PDS だけである。API サーバ
+# (`conversensus.service`) は撤去した。配信の設定 (Caddy) もリポジトリの
+# infra/caddy/Caddyfile に揃える — COOP/COEP が付いていないと、全員が「この窓では保存
+# できません」になる (保存領域の SQLite-WASM が SharedArrayBuffer を要る)。
+
 on:
   push:
     branches:
@@ -26,7 +34,15 @@ jobs:
             git fetch origin
             git checkout -B release origin/release
             bun install --frozen-lockfile
+            # ビルドに失敗したら、配信も設定も触らずに止まる (set -e)
             bun run --cwd src/client build
-            cp -r src/client/dist/* /var/www/conversensus/
-            systemctl restart conversensus
-            echo "Deploy complete: $(date)"
+
+            # 配信の設定をリポジトリのものにする。検査に通ったものだけを置く
+            cp infra/caddy/Caddyfile /etc/caddy/Caddyfile.next
+            caddy validate --config /etc/caddy/Caddyfile.next --adapter caddyfile
+            mv /etc/caddy/Caddyfile.next /etc/caddy/Caddyfile
+            systemctl reload caddy
+
+            # 成果物を入れ替える。古い版のファイルを残さない (--delete)
+            rsync -a --delete src/client/dist/ /var/www/conversensus/
+            echo "Deploy complete: $(git log --oneline -1) at $(date)"
