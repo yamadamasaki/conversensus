@@ -563,19 +563,35 @@ b は **いまの main を本番に出してから**使う (出す手順は Clau
 
 #### 手順 (macOS の Safari)
 
-1. Safari で開き, File を 1 つ作って node を 2〜3 置く
+> **⚠️ Safari の web app は Safari と保存領域を共有しない.** 「Dock に追加」した web app は, 追加の時点で
+> cookie だけを写し, それ以降は履歴・cookie・Web サイトのデータ (OPFS を含む) を Safari と共有しない
+> (Apple の仕様). **Safari の窓で作った File は web app には見えない** — 不具合ではない. Chrome の PWA は
+> ブラウザと同じ保存領域を見るので見える (2026-10-05 に利用者が実機で確かめた違い).
+> web app の中の File を Safari と揃えたければ, ログインして PDS 経由で同期させる (b)
+
+1. Safari で開く
 2. **インストール**: メニューの「ファイル」→「Dock に追加…」. Dock から開くと, アドレスバーの無い窓で開く
-3. インストールした窓で 1 の File が見えることを確かめる (同じ origin なので同じ保存領域を見る)
+3. **インストールした窓の中で** File を 1 つ作って node を 2〜3 置く (Safari の窓で作った File はここには出ない, 上の注意)
 4. **オフライン**: a なら preview を止める (`Ctrl+C`). b なら Wi-Fi を切る
-5. インストールした窓を**閉じて開き直す**. 起動し, 1 の File が開けることを見る (service worker が殻を返している)
+5. インストールした窓を**閉じて開き直す**. 起動し, 3 の File が開けることを見る (service worker が殻を返している)
 6. node を足す・本文を変える・シートを足す. **再読み込みしても残る**ことを見る (OPFS に書けている)
 7. b なら: オンラインに戻し, 左下の未送信の件数が 0 に戻ることを見る. 別の端末 (または Chrome) で
    同じアカウントにログインし, 6 の編集が届くことを見る
 
 #### iPhone / iPad の Safari (できれば)
 
-共有ボタン →「ホーム画面に追加」. 以降は同じ. **iOS では保存領域が消されることがある** (ITP. 7 日使わないと
-消える場合がある, step3 Phase 2 U1). 長く置いてから開き直して File が残っているかも見る価値がある.
+**iOS からは a (手元の本番ビルド) には繋げない. b (本番) で行う.**
+
+- preview は `127.0.0.1` でだけ待ち受けている (`vite.config.mjs` の `DEV_HOST`)
+- 待ち受けを広げて Mac の IP (`http://192.168.x.x:5175`) で開いても**動かない**. http の IP は安全な文脈
+  (secure context) ではないので, service worker も, cross-origin isolation (SharedArrayBuffer) も, OPFS も使えず,
+  保存領域が開けない. 動くのは https か `127.0.0.1` / `localhost` だけである
+- 手元を https で見せる手 (トンネル・自前の証明書) はあるが, ログインはどのみちできず (開発用 PDS が http),
+  Vite の Host 検査 (`preview.allowedHosts`) も外す必要がある. 本番に出す方が手数が少ない
+
+本番で: Safari で `https://app.conversensus.site` を開き, 共有ボタン →「ホーム画面に追加」. 以降は macOS と同じ.
+**ホーム画面の web app も Safari と保存領域を共有しない** (macOS と同じ). **iOS では保存領域が消されることがある**
+(ITP. 7 日使わないと消える場合がある, step3 Phase 2 U1). 長く置いてから開き直して File が残っているかも見る価値がある.
 
 #### 見るもの
 
