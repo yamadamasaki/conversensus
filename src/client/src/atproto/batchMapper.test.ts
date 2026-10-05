@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'bun:test';
+import { jsonToLex } from '@atproto/api';
 import type { Batch, FileId, NodeId, SheetId } from '@conversensus/shared';
+import { IMAGE_PROPERTY_KEY, readImageBlobLocation } from '../images/imageBlob';
 import {
   batchToRecord,
   isBatchRecordValue,
   recordToBatch,
   recordToRemoteBatch,
 } from './batchMapper';
+import type { BatchRecord } from './types';
 
 const FILE = '22222222-2222-4222-8222-222222222222' as FileId;
 
@@ -294,6 +297,50 @@ describe('batchMapper', () => {
           sheetId: 42,
         }),
       ).toBe(false);
+    });
+  });
+});
+
+describe('PDS から入る blob (step3 FPR の確認で発覚)', () => {
+  const CID = 'bafkreihsx3nvipuczytg5qamiaibgbthipoujvli7jmog7ebi4agglpn7a';
+  const NODE = '33333333-3333-4333-8333-333333333333';
+  /** PDS が返す JSON の形のレコード (画像 node を 1 つ足す) */
+  const json = {
+    id: '22222222-2222-4222-8222-222222222222',
+    fileId: '11111111-1111-4111-8111-111111111111',
+    actor: 'did:plc:alice#dev',
+    clock: 3,
+    seq: 3,
+    deps: {},
+    timestamp: 3,
+    createdAt: '2026-10-05T00:00:00.000Z',
+    ops: [
+      {
+        kind: 'node.add',
+        target: NODE,
+        content: '',
+        nodeType: 'image',
+        properties: {
+          [IMAGE_PROPERTY_KEY]: {
+            $type: 'blob',
+            ref: { $link: CID },
+            mimeType: 'image/png',
+            size: 10,
+          },
+        },
+      },
+    ],
+  };
+
+  it('@atproto/api が BlobRef に変えたレコードでも、Worker へ渡した後に画像の参照が読める', () => {
+    // `agent.com.atproto.repo.listRecords` が返すのと同じ変換 (blob → BlobRef のインスタンス)
+    const fromAgent = jsonToLex(json) as BatchRecord;
+    // Worker への postMessage は structured clone で、`toJSON` を通らない
+    const crossed = structuredClone(recordToBatch(fromAgent));
+    const [op] = crossed.ops as { properties?: Record<string, unknown> }[];
+    expect(readImageBlobLocation(op?.properties)).toEqual({
+      cid: CID,
+      mimeType: 'image/png',
     });
   });
 });

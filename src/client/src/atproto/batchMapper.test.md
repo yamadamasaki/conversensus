@@ -66,3 +66,19 @@ optional なので、無いレコードは通し (後方互換)、有るなら s
 - **写しでない batch には印を付けない**: `sheetId` と同じく、無 → 無を保つ
 - **印の形が違うレコードは弾く**: `copyOf` は `{ actor, seq }` (seq は正の整数)
 
+
+## PDS から入る blob (step3 FPR の確認で発覚)
+
+### 何を・なぜ
+
+`@atproto/api` は読んだレコードの中の blob を `BlobRef` のインスタンスに変える (`$type` を持たず、`ref` は CID の
+オブジェクト)。元の JSON の形に戻るのは `toJSON` を通ったときだけである。step3 Phase 2 から受信した batch は
+Worker へ `postMessage` (structured clone) で渡り、`toJSON` が呼ばれないので、**他の人が貼った画像の参照が壊れて
+「画像 URL を入力」になった** (実機で発覚。App 結合は Worker を通さないので出なかった)。`recordToBatch` で
+素の JSON に戻す (`plainJson`)。
+
+### どのように
+
+PDS の JSON の形のレコードを `jsonToLex` (agent が読むときと同じ変換) に通し、`recordToBatch` の結果を
+`structuredClone` (Worker へ渡すのと同じ) した後で、`readImageBlobLocation` が cid と mimeType を読めることを見る。
+`plainJson` を外すと落ちる。

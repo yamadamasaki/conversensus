@@ -99,6 +99,19 @@ export function isBatchRecordValue(value: unknown): value is BatchRecord {
 }
 
 /**
+ * レコードの値を素の JSON に戻す (step3 FPR の確認で発覚)。
+ *
+ * `@atproto/api` は読んだレコードの中の blob (`{"$type":"blob","ref":{"$link":…}}`) を
+ * **`BlobRef` のインスタンス**に変える (`ref` は CID のオブジェクトで、`$type` も持たない)。
+ * 元の形に戻るのは `toJSON` を通ったときだけである。step3 Phase 2 から受信した batch は
+ * Worker へ `postMessage` (structured clone) で渡るので `toJSON` が呼ばれず、画像の参照が
+ * 壊れて「画像 URL を入力」になった。**PDS から入る所で JSON に戻しておく**
+ */
+export function plainJson<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+/**
  * レコード (batchId + value) → Batch。
  * value は事前に `isBatchRecordValue` で検証済みであること。
  * `batchId` は rkey から復元した値 (`batchIdFromRkey`) を渡す。
@@ -111,7 +124,7 @@ export function recordToBatch(value: BatchRecord): Batch {
     seq: value.seq,
     deps: value.deps,
     timestamp: value.timestamp,
-    ops: value.ops as Batch['ops'],
+    ops: plainJson(value.ops) as Batch['ops'],
     // sheetId 無しレコードは Batch にも sheetId を付けない (undefined を保つ)。
     ...(value.sheetId !== undefined && {
       sheetId: value.sheetId as Batch['sheetId'],

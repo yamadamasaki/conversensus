@@ -19,7 +19,7 @@ import {
   type JudgmentBatch,
   JudgmentOpSchema,
 } from '@conversensus/shared';
-import { isVersionVector } from './batchMapper';
+import { isVersionVector, plainJson } from './batchMapper';
 import type { JudgmentRecord, RemoteJudgment } from './types';
 
 /** JudgmentBatch + fileId → レコードボディ ($type を除く。rkey は `batchRkey` が組む) */
@@ -74,7 +74,8 @@ export function recordToJudgmentBatch(
   value: JudgmentRecord,
 ): JudgmentBatch | null {
   const ops: JudgmentBatch['ops'] = [];
-  for (const raw of value.ops) {
+  // 判断の op は blob を持たないが、PDS から入る所の約束を batch と揃える (`plainJson`)
+  for (const raw of plainJson(value.ops)) {
     const parsed = JudgmentOpSchema.safeParse(raw);
     if (!parsed.success) return null;
     ops.push(parsed.data);

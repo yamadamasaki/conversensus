@@ -36,6 +36,34 @@ user-test-environment §11.3) に確かめた。
    **ログイン済みの端末がオフラインで起動したとき、セッションを復元できずに未ログイン (`local` の actor) として
    書いていないか**は確かめていない — そうなら 1 と同じく、オンラインに戻っても届かない
 
+## 2. 基準 2 の確認で見つかったこと (2026-10-05, 利用者が手元の Chrome で)
+
+merger そのものは動いた (利用者確認)。そのほかに 2 件見つかり、直した。
+
+### 2.1 他の人が貼った画像が「画像 URL を入力」になる (step3 Phase 2 で入った退行)
+
+`@atproto/api` は読んだレコードの blob (`{"$type":"blob","ref":{"$link":…}}`) を `BlobRef` のインスタンスに変える
+(`$type` を持たず `ref` は CID のオブジェクト)。元の形に戻るのは `toJSON` を通ったときだけである。step3 Phase 2 から
+受信した batch は保存の Worker へ `postMessage` (structured clone) で渡り、`toJSON` を通らないので、**受け手の
+保存では画像の参照が壊れていた**。Phase 2 より前は daemon へ HTTP (JSON) で渡していたので起きなかった。
+App 結合は Worker を通さないので出なかった。
+
+直し方: PDS から入る所 (`recordToBatch`, 判断ログも揃える) で素の JSON に戻す (`plainJson`)。
+**既に壊れて保存されたものは直らない** — 受信は手元に無い batch だけを引くので、壊れた行は引き直されない。
+開発環境では受け手 (bob) の保存領域を消して受け直す (§4.2)。
+
+### 2.2 消えた node を merger で取り込み直しても、edge が戻らない
+
+trunk が node を消すと、繋がる edge もカスケードで消える。branch がその node を編集していると merger が開くが、
+merge 元から node を取り込むと **node だけが戻り、edge は消えたまま**だった。「取り込む」(Phase 5 Q9) は
+「edge を取り込むなら端の node も」は持っていたが、逆向き (node を戻すなら繋がっていた edge も) が無かった。
+
+直し方: merge 後に無い node を取り込むとき、pane でその node に繋がる edge (もう一方の端が merge 後に在るもの) も
+戻す (`alignToPane`)。merge 後に無い node に繋がる edge は merge 後に在りえないので、戻るのはカスケードで消えたもの。
+
+**残すもの**: conflict list には消えた edge が出ない。競合は「node を消した」と「node を編集した」の組で、edge は
+誰も直接は触っていないので競合ではない。取り込めば戻るので、表示に足すかは使ってから決める。
+
 ## 3. 基準 3: Toulmin を当てた sheet (2026-10-04, Chrome・未ログイン)
 
 テスト用の File「FPR確認」を作り、最後に削除した (既存の File には触れていない)。
