@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it } from 'bun:test';
-import type { Batch, FileId, NodeId, SheetId } from '../index';
+import fc from 'fast-check';
+import {
+  type Batch,
+  type FileId,
+  type NodeId,
+  projectBatches,
+  type SheetId,
+} from '../index';
 import { BunSqliteDriver, IN_MEMORY } from './bunSqliteDriver';
 import { EventStore } from './eventStore';
 
@@ -408,6 +415,170 @@ describe('EventStore: 知らない種類の op (step3 FPR の確認 §5.3)', () 
       [2, 0],
       [3, 1],
     ]);
+  });
+});
+
+describe('EventStore: 未ログインの actor の付け替え (FPR 前 L-1)', () => {
+  const LOCAL = 'local#dev-1';
+  const ME = 'did:plc:alice#adopted-1';
+  const OTHER = 'did:plc:bob#dev-2';
+  const FILE_2 = 'file-2' as FileId;
+  const batch = (
+    id: string,
+    actor: string,
+    seq: number,
+    clock: number,
+    deps: Record<string, number>,
+    ops: unknown[],
+    extra: Partial<Batch> = {},
+  ): Batch =>
+    ({
+      id,
+      actor,
+      clock,
+      seq,
+      deps,
+      timestamp: clock,
+      ops,
+      ...extra,
+    }) as unknown as Batch;
+
+  it('actor 列・deps の鍵・写しの元・op の中の actor をすべて付け替え、clock と seq は変えない', () => {
+    store.appendBatch(
+      FILE,
+      batch('b1', LOCAL, 1, 1, {}, [
+        { kind: 'node.add', target: 'n1', content: 'A' },
+      ]),
+    );
+    store.appendBatch(
+      FILE,
+      batch('b2', OTHER, 1, 2, { [LOCAL]: 1 }, [
+        { kind: 'node.setContent', target: 'n1', content: 'B' },
+      ]),
+    );
+    store.appendBatch(
+      FILE_2,
+      batch(
+        'b3',
+        LOCAL,
+        2,
+        3,
+        {},
+        [
+          {
+            kind: 'node.add',
+            target: 'n2',
+            content: 'C',
+            properties: { by: LOCAL },
+          },
+        ],
+        { copyOf: { actor: LOCAL, seq: 1 } },
+      ),
+    );
+    expect(store.renameActor(LOCAL, ME)).toBe(2);
+    const [b1, b2] = store.getBatches(FILE);
+    expect([b1?.actor, b1?.seq, b1?.clock]).toEqual([ME, 1, 1]);
+    expect(b2?.actor).toBe(OTHER);
+    expect(b2?.deps).toEqual({ [ME]: 1 });
+    const [b3] = store.getBatches(FILE_2);
+    expect(b3?.copyOf).toEqual({ actor: ME, seq: 1 });
+    expect(JSON.stringify(b3?.ops)).toContain(ME);
+    expect(JSON.stringify(store.getBatches(FILE))).not.toContain(LOCAL);
+  });
+
+  it('付け替え先の actor が既に batch を持っていれば断り、何も変えない', () => {
+    store.appendBatch(
+      FILE,
+      batch('b1', LOCAL, 1, 1, {}, [
+        { kind: 'node.add', target: 'n1', content: 'A' },
+      ]),
+    );
+    store.appendBatch(
+      FILE,
+      batch('b2', ME, 1, 2, {}, [
+        { kind: 'node.add', target: 'n2', content: 'B' },
+      ]),
+    );
+    expect(() => store.renameActor(LOCAL, ME)).toThrow();
+    expect(store.getBatches(FILE).map((b) => b.actor)).toEqual([LOCAL, ME]);
+  });
+
+  it('未ログインの actor の batch を File と actor ごとに数える', () => {
+    store.appendBatch(
+      FILE,
+      batch('b1', LOCAL, 1, 1, {}, [
+        { kind: 'node.add', target: 'n1', content: 'A' },
+      ]),
+    );
+    store.appendBatch(
+      FILE,
+      batch('b2', LOCAL, 2, 2, {}, [
+        { kind: 'node.add', target: 'n2', content: 'B' },
+      ]),
+    );
+    store.appendBatch(
+      FILE,
+      batch('b3', OTHER, 1, 3, {}, [
+        { kind: 'node.add', target: 'n3', content: 'C' },
+      ]),
+    );
+    expect(store.listLocalActorBatches()).toEqual([
+      { fileId: FILE, actor: LOCAL, count: 2 },
+    ]);
+  });
+
+  it('∀ 手元の log. 付け替えの前後で projection は同じで、元の actor はどこにも残らない', () => {
+    const ACTORS = [LOCAL, OTHER, 'local#dev-3'];
+    const arbBatch = fc.record({
+      actor: fc.constantFrom(...ACTORS),
+      content: fc.constantFrom('a', 'b'),
+      node: fc.constantFrom('n1', 'n2'),
+      dep: fc.option(fc.constantFrom(...ACTORS), { nil: undefined }),
+    });
+    fc.assert(
+      fc.property(
+        fc.array(arbBatch, { minLength: 1, maxLength: 8 }),
+        (specs) => {
+          const local = new EventStore(new BunSqliteDriver(IN_MEMORY));
+          const seqOf = new Map<string, number>();
+          specs.forEach((spec, i) => {
+            const seq = (seqOf.get(spec.actor) ?? 0) + 1;
+            seqOf.set(spec.actor, seq);
+            local.appendBatch(
+              FILE,
+              batch(
+                `b${i}`,
+                spec.actor,
+                seq,
+                i + 1,
+                spec.dep && spec.dep !== spec.actor ? { [spec.dep]: 1 } : {},
+                [
+                  i === 0 || spec.node === 'n2'
+                    ? {
+                        kind: 'node.add',
+                        target: spec.node,
+                        content: spec.content,
+                      }
+                    : {
+                        kind: 'node.setContent',
+                        target: spec.node,
+                        content: spec.content,
+                      },
+                ],
+              ),
+            );
+          });
+          const before = projectBatches(local.getBatches(FILE));
+          local.renameActor(LOCAL, ME);
+          const after = local.getBatches(FILE);
+          expect(projectBatches(after)).toEqual(before);
+          expect(JSON.stringify(after)).not.toContain(LOCAL);
+          // 付け替えた actor の連番は元のまま 1 から歯抜けなく並ぶ
+          const seqs = after.filter((b) => b.actor === ME).map((b) => b.seq);
+          expect(seqs).toEqual(seqs.map((_, i) => i + 1));
+        },
+      ),
+    );
   });
 });
 

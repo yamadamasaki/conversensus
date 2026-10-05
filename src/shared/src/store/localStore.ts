@@ -18,7 +18,7 @@
 import { computeBlobCid, MAX_BLOB_SIZE } from '../blob';
 import { graphFileToBatches } from '../events/genesis';
 import { METAGRAPH_SHEET_KIND, SHEET_KIND_PROPERTY } from '../events/sheetKind';
-import type { Batch } from '../events/unified';
+import type { Actor, Batch } from '../events/unified';
 import { parseConversensusFile } from '../migrations';
 import type {
   EdgeId,
@@ -74,6 +74,16 @@ export class LocalStore {
   /** op-log を持つ file_id の全集合 (削除済みも含む。remote からの発見の既知集合, ANA-127) */
   listAllFileIds(): FileId[] {
     return this.events.listAllFileIds();
+  }
+
+  /** 未ログインの actor の batch の件数 (File と actor ごと, FPR 前 L-1) */
+  listLocalActorBatches(): { fileId: FileId; actor: Actor; count: number }[] {
+    return this.events.listLocalActorBatches();
+  }
+
+  /** actor を付け替える (FPR 前 L-1)。@returns 付け替えた batch の数 */
+  renameActor(from: Actor, to: Actor): number {
+    return this.events.renameActor(from, to);
   }
 
   /** 新しい File を作り、genesis の op-log を書く (step1 Phase 6 p6-1) */

@@ -36,6 +36,10 @@ export const fetchFiles: LocalBackend['fetchFiles'] = () =>
   backend.fetchFiles();
 export const fetchLocalFileIds: LocalBackend['fetchLocalFileIds'] = () =>
   backend.fetchLocalFileIds();
+export const listLocalActorBatches: LocalBackend['listLocalActorBatches'] =
+  () => backend.listLocalActorBatches();
+export const renameActor: LocalBackend['renameActor'] = (from, to) =>
+  backend.renameActor(from, to);
 export const createFile: LocalBackend['createFile'] = (name) =>
   backend.createFile(name);
 export const postImportFile: LocalBackend['postImportFile'] = (data) =>

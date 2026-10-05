@@ -89,6 +89,16 @@ export function broadcastingBackend(
       if (appended > 0) notify(fileId);
       return appended;
     },
+    // actor の付け替えは log を書き換えるので、関わった File を知らせる (別のタブは因果の知識を
+    // 読み直す)。付け替える前に File を数えておく
+    renameActor: async (from, to) => {
+      const files = (await backend.listLocalActorBatches())
+        .filter((row) => row.actor === from)
+        .map((row) => row.fileId);
+      const renamed = await backend.renameActor(from, to);
+      for (const fileId of new Set(files)) notify(fileId);
+      return renamed;
+    },
   };
 }
 

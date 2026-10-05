@@ -55,6 +55,8 @@ export function storeBackend(store: LocalStore): LocalBackend {
         throw new Error(`Failed to store blob: ${result.message}`);
       return result.blob;
     },
+    listLocalActorBatches: async () => store.listLocalActorBatches(),
+    renameActor: async (from, to) => store.renameActor(from, to),
     fetchBlob: async (cid) => {
       const blob = store.getBlob(cid);
       if (!blob) return undefined;
