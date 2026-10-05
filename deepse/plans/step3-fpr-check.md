@@ -8,7 +8,7 @@
 | | 基準 | 結果 | 確かめた人・方法 |
 | --- | --- | --- | --- |
 | 1 | Safari を含むブラウザで PWA として開き、インストールでき、オフラインで編集できる | **満たす** (2026-10-05) | 利用者が実機で (macOS Safari・iOS Safari・Chrome、本番) — §1 |
-| 2 | 2 アカウントが同じ File を編み、explicit merge の競合を merger で解いて merge できる | **未** (App 結合では通っている) | 利用者が実機で ([手順](../requirements/user-test-environment.md#102-基準-2-2-アカウントで-merger)) |
+| 2 | 2 アカウントが同じ File を編み、explicit merge の競合を merger で解いて merge できる | **未** (App 結合では通っている。実機はまだ, 2026-10-05) | 利用者が実機で ([手順](../requirements/user-test-environment.md#102-基準-2-2-アカウントで-merger)) |
 | 3 | template graph で定義した Toulmin を当てた sheet を作れる | **満たす** | Claude が Chrome で (§3) |
 | 4 | metagraph で sheet の関係を描き、そこから sheet を追加・削除・改名できる | **満たす** | Claude が Chrome で (§4) |
 | 5 | op-log の形式が確定している (FPR 以降の形式変更には移行を伴う) | **満たす** (§5.3 を案 A に決めて実装した) | Claude が机上で (§5) + 実装 (§5.4) |
