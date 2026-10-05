@@ -7,13 +7,34 @@
 
 | | 基準 | 結果 | 確かめた人・方法 |
 | --- | --- | --- | --- |
-| 1 | Safari を含むブラウザで PWA として開き、インストールでき、オフラインで編集できる | **未** | 利用者が実機で ([手順](../requirements/user-test-environment.md#101-基準-1-pwa-safari)) |
+| 1 | Safari を含むブラウザで PWA として開き、インストールでき、オフラインで編集できる | **満たす** (2026-10-05) | 利用者が実機で (macOS Safari・iOS Safari・Chrome、本番) — §1 |
 | 2 | 2 アカウントが同じ File を編み、explicit merge の競合を merger で解いて merge できる | **未** (App 結合では通っている) | 利用者が実機で ([手順](../requirements/user-test-environment.md#102-基準-2-2-アカウントで-merger)) |
 | 3 | template graph で定義した Toulmin を当てた sheet を作れる | **満たす** | Claude が Chrome で (§3) |
 | 4 | metagraph で sheet の関係を描き、そこから sheet を追加・削除・改名できる | **満たす** | Claude が Chrome で (§4) |
 | 5 | op-log の形式が確定している (FPR 以降の形式変更には移行を伴う) | **満たす** (§5.3 を案 A に決めて実装した) | Claude が机上で (§5) + 実装 (§5.4) |
 
 ---
+
+## 1. 基準 1: PWA (2026-10-05, 利用者が本番で)
+
+本番 (`app.conversensus.site`) を出し、PDS を 0.5 系に上げた後 (同じ site の OAuth のため,
+user-test-environment §11.3) に確かめた。
+
+- Safari (macOS・iOS) と Chrome でインストールでき、ログイン後は web app とブラウザの間で双方向に反映される
+- Wi-Fi を切って web app を再読み込みしても表示される (service worker と OPFS)
+- iOS の WebKit では、node にスクロールバーを出しても文字がぼやけない (macOS の Safari ではぼやける, ANA-104)
+
+### 見つかったこと (FPR の基準ではないが、考える必要がある)
+
+1. **未ログインで描いたものは、ログインしても他へ届かない。**Safari の web app と Safari が保存領域を
+   共有しない (§10.1 の注意) のに加え、未ログインの batch は actor が `local#<端末>` で、送信は自分の DID の
+   batch だけを送る (`remoteFilter`) ので、ログインした後も PDS に載らない。Folder (S6-2) はログイン前の写しを
+   引き継ぐが、File は引き継いでいない
+2. **オフラインで描いたものが他に届いていないことに、描いた人が気づきにくい。**オフラインではログインできず、
+   その間の編集は PDS に載らない。描いた側の画面には出ているので、届いていないことが分からない。
+   未ログインなら左下に「この端末にだけ保存」、ログイン中なら未送信の件数が出るが、目立たない。
+   **ログイン済みの端末がオフラインで起動したとき、セッションを復元できずに未ログイン (`local` の actor) として
+   書いていないか**は確かめていない — そうなら 1 と同じく、オンラインに戻っても届かない
 
 ## 3. 基準 3: Toulmin を当てた sheet (2026-10-04, Chrome・未ログイン)
 
