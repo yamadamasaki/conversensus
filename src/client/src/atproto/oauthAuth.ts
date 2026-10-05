@@ -105,8 +105,18 @@ export function oauthAuth(pdsUrl: string): AuthBackend {
       initialized ??= getClient()
         .then((c) => c.init())
         .then((result) => result?.session ?? null);
-      current = await initialized;
-      return current ? signedIn(current) : null;
+      try {
+        current = await initialized;
+        return current ? signedIn(current) : null;
+      } catch (error) {
+        // **失敗を覚えない** (FPR 前 L-2)。オフラインで起動すると client の読み込みや token の
+        // 更新が失敗する。覚えたままだと、オンラインに戻ってやり直しても同じ失敗が返る。
+        // `init` は client ごとに 1 回なので、client ごと作り直す
+        client = null;
+        initialized = null;
+        current = null;
+        throw error;
+      }
     },
     signIn: async (handle) => {
       if (onLocalhostName()) {

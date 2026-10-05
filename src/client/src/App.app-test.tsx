@@ -1954,6 +1954,13 @@ describe('App 結合: 未ログインの編集を出し直す (FPR 前 L-1)', ()
       () => expect(trunkContent()).toBe('ログイン前'),
       WIRING_TIMEOUT,
     );
+    // ログインしていない間は、この端末にだけある編集があることを知らせる (L-3)
+    const banner = await screen.findByRole(
+      'button',
+      { name: '未ログインの編集' },
+      WIRING_TIMEOUT,
+    );
+    expect(banner.textContent).toMatch(/この端末にだけ \d+ 件の編集があります/);
     await login(user, ALICE);
     signedInDevices.add('alice');
     return { user };

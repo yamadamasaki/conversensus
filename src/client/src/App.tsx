@@ -58,6 +58,7 @@ import type { UndoState } from './hooks/useEventStore';
 import { useFileSheetOperations } from './hooks/useFileSheetOperations';
 import { useFolders } from './hooks/useFolders';
 import { useGraphPanels } from './hooks/useGraphPanels';
+import { useLocalOnlyCount } from './hooks/useLocalOnlyCount';
 import { useMergerSnapshot } from './hooks/useMergerSnapshot';
 import { useNoticeInbox } from './hooks/useNoticeInbox';
 import { useParticipation } from './hooks/useParticipation';
@@ -130,6 +131,7 @@ export default function App() {
   // ATProto セッション
   const {
     session: atprotoSession,
+    resuming: atprotoResuming,
     login: atprotoLogin,
     logout: atprotoLogout,
   } = useAtprotoSession();
@@ -165,6 +167,11 @@ export default function App() {
   );
 
   const [loginDialogOpen, setLoginDialogOpen] = useState(false);
+  /** 未ログインの間に、この端末にだけある編集の数 (FPR 前 L-3) */
+  // 起動時の復元が済むまでは数えない (ログイン済みの人に一瞬だけ出さない)
+  const localOnlyCount = useLocalOnlyCount(
+    atprotoSession === null && !atprotoResuming,
+  );
 
   // remote (ATProto) 送信キュー。未ログイン時は null → tap は local-only (W3d5-5)
   const remoteQueue = useRemoteSyncQueue(atprotoSession);
@@ -1130,6 +1137,7 @@ export default function App() {
           onCloseBranch={branchOps.handleCloseBranch}
           onDeleteBranch={branchOps.handleDeleteBranch}
           atprotoSession={atprotoSession}
+          localOnlyCount={localOnlyCount}
           onAtprotoLogin={() => setLoginDialogOpen(true)}
           onAtprotoLogout={atprotoLogout}
           remoteQueue={remoteQueue}

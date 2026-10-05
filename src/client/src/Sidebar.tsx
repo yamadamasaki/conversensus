@@ -25,6 +25,7 @@ import {
   folderPaths,
   isEmptyFolder,
 } from './folders/folderTree';
+import { LocalOnlyBanner } from './LocalOnlyBanner';
 import type { PopupTarget } from './SettingsPopup';
 import { SettingsPopup } from './SettingsPopup';
 import { ShareStatusIcon } from './ShareStatusIcon';
@@ -120,6 +121,8 @@ type Props = {
   atprotoSession: { handle: string } | null;
   onAtprotoLogin: () => void;
   onAtprotoLogout: () => void;
+  /** 未ログインの間に、この端末にだけある編集の数 (FPR 前 L-3)。0 なら知らせない */
+  localOnlyCount?: number;
   /** remote 送信キュー (W3d5-6)。null なら同期ステータスは表示しない */
   remoteQueue: RemoteSyncQueue | null;
   /** 「今すぐ同期」で走らせる送受信 (#202)。送信だけでは他所の変更が取れない */
@@ -197,6 +200,7 @@ export function Sidebar({
   atprotoSession,
   onAtprotoLogin,
   onAtprotoLogout,
+  localOnlyCount = 0,
   remoteQueue,
   onSyncNow,
   onOpenInvitation,
@@ -1033,22 +1037,26 @@ export function Sidebar({
             />
           </>
         ) : (
-          <button
-            type="button"
-            onClick={onAtprotoLogin}
-            style={{
-              width: '100%',
-              textAlign: 'left',
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              color: '#4f6ef7',
-              fontSize: 12,
-              padding: '2px 0',
-            }}
-          >
-            ATProto ログイン
-          </button>
+          <>
+            {/* この端末にだけある編集を知らせる (FPR 前 L-3)。押すとログイン */}
+            <LocalOnlyBanner count={localOnlyCount} onLogin={onAtprotoLogin} />
+            <button
+              type="button"
+              onClick={onAtprotoLogin}
+              style={{
+                width: '100%',
+                textAlign: 'left',
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                color: '#4f6ef7',
+                fontSize: 12,
+                padding: '2px 0',
+              }}
+            >
+              ATProto ログイン
+            </button>
+          </>
         )}
       </div>
       {alertState && (
