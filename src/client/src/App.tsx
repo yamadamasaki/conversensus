@@ -207,6 +207,8 @@ export default function App() {
     // 多アクタ同期は名簿を先に読む (step2 Phase 2 S2)。ダイアログと同じ供給元である
     roster,
     isEditingActive,
+    // 未ログインの編集を出し直すか訊くときに見せる (FPR 前 L-1)
+    accountLabel: atprotoSession?.handle,
   });
 
   /**
