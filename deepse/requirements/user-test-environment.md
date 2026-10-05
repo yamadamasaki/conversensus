@@ -725,6 +725,34 @@ curl -s https://pds.conversensus.site/xrpc/_health
 
 控えは `/root/pds-backups/` にある (2026-10-05: 0.4.219 の時点のもの).
 
+### 11.5 版と tag (v1.0.0 から)
+
+**SemVer に `v` を付けた注釈付きの tag** (`vMAJOR.MINOR.PATCH`) を、本番に出した commit に打ち、GitHub Release に
+説明を付ける。数の意味は conversensus では次のとおり (2026-10-05 に決めた):
+
+| | 上げるとき |
+| --- | --- |
+| MAJOR | **op-log や lexicon の形式を壊す変更** (移行を伴う)。FPR でこの約束を始めた |
+| MINOR | 機能を足す。**op の種類を足すのはここ** — 古い版は知らない op を保存して読み飛ばすので壊れない (FPR の確認 §5.3 案 A) |
+| PATCH | 直す |
+
+出すときの手順 (§11.1 の後):
+
+```shell
+git push origin main:release                     # 出す (Actions が走る)
+gh run watch <run id> --exit-status              # 成功を待つ。§11.2 で確かめる
+git tag -a vX.Y.Z <出した commit> -m "vX.Y.Z — 一言"
+git push origin vX.Y.Z
+gh release create vX.Y.Z --title "..." --notes-file <説明> --verify-tag
+```
+
+**tag は本番に出して確かめた commit に打つ** (出す前に打たない)。`src/client/package.json` と
+`src/shared/package.json` の `version` も同じ数にそろえておく (次の版の PR の中で上げる)。
+
+| 版 | 日付 | commit | 内容 |
+| --- | --- | --- | --- |
+| v1.0.0 | 2026-10-05 | `6858976` | 最初の公開版 (FPR) |
+
 ### 11.4 一度だけの作業 (済んだもの)
 
 - **旧 API サーバを止める** (step3 Phase 2 S2-7): `systemctl disable --now conversensus`.
