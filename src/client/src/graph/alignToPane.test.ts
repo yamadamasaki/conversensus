@@ -190,6 +190,64 @@ describe('alignToPane: 性質', () => {
   });
 });
 
+describe('alignToPane: 消えた node を取り込み直すと、カスケードで消えた edge も戻る (FPR の確認)', () => {
+  test('∀ 姿・node. merge 後に無い node を取り込むと、pane でその node に繋がる edge のうち、もう一方の端が merge 後に在るものは戻る', () => {
+    fc.assert(
+      fc.property(
+        arbSide,
+        arbSide,
+        fc.nat({ max: 2 }),
+        (resultSide, paneSide, i) => {
+          const resultBatches = batchesOf(resultSide);
+          const result = sheetOf(resultBatches);
+          const pane = sheetOf(batchesOf(paneSide));
+          const picked = NODES[i] as string;
+          const aligned = apply(
+            resultBatches,
+            alignToPane(result, pane, [picked]),
+          );
+          const wasMissing = !result.nodes.some((n) => n.id === picked);
+          const inPane = pane.nodes.some((n) => n.id === picked);
+          if (!wasMissing || !inPane) return;
+          for (const edge of pane.edges) {
+            if (edge.source !== picked && edge.target !== picked) continue;
+            const other = edge.source === picked ? edge.target : edge.source;
+            const otherThere = aligned.nodes.some((n) => n.id === other);
+            if (otherThere)
+              expect(edgeShape(aligned, edge.id)).toEqual(
+                edgeShape(pane, edge.id),
+              );
+          }
+        },
+      ),
+    );
+  });
+
+  test('例: trunk が node を消して edge も消え、branch がその node を編集した。元から node を取り込むと edge も戻る', () => {
+    const kept: NodeSpec = { content: 'a', label: '', prop: false, x: 0 };
+    const edited: NodeSpec = { content: 'b', label: '', prop: false, x: 0 };
+    // 元 (branch): node 1・2 と、その間の edge 1
+    const pane = sheetOf(
+      batchesOf({ nodes: [kept, edited, null], edges: [{ label: '' }, null] }),
+    );
+    // 後 (trunk + branch): trunk が node 2 を消したので edge 1 も無い
+    const resultBatches = batchesOf({
+      nodes: [kept, null, null],
+      edges: [null, null],
+    });
+    const aligned = apply(
+      resultBatches,
+      alignToPane(sheetOf(resultBatches), pane, [NODES[1] as string]),
+    );
+    expect(nodeShape(aligned, NODES[1] as string)).toEqual(
+      nodeShape(pane, NODES[1] as string),
+    );
+    expect(edgeShape(aligned, EDGES[0] as string)).toEqual(
+      edgeShape(pane, EDGES[0] as string),
+    );
+  });
+});
+
 describe('alignToPane: 例', () => {
   test('同じなら何も出さない', () => {
     const side: Side = {

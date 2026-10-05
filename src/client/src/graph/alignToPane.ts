@@ -6,7 +6,12 @@
  *
  * 揃えるのは要素ごとに: 在否・本文・名前 (label)・プロパティ・位置。edge を取り込むとき、端の node が
  * merge 後に無ければ一緒に取り込む (端の無い edge は描けない)。node を消すときは、merge 後でその node に
- * 繋がっている edge を先に消す
+ * 繋がっている edge を先に消す。
+ *
+ * **node を取り込み直すときは、その pane でその node に繋がっている edge も戻す** (もう一方の端が
+ * merge 後にあるもの)。node の削除は端点を失う edge をカスケードして消す (spec/merging.md の削除依存) ので、
+ * node だけを戻すと edge が消えたまま残る (FPR の確認で利用者が実機で見つけた)。merge 後に無い node に
+ * 繋がる edge は merge 後に在りえないので、戻すのはそのカスケードで消えたもの (pane に見えている範囲) である
  */
 
 import type {
@@ -60,10 +65,29 @@ export function alignToPane(
     edgesNow.delete(edge.id);
   };
 
+  const addEdge = (edge: GraphEdge) => {
+    const edgeLayout = pane.edgeLayouts?.find((l) => l.edgeId === edge.id);
+    events.push({
+      ...makeEventBase('structure'),
+      type: 'EDGE_ADDED',
+      edgeId: edge.id as EdgeId,
+      data: edge,
+      ...(edgeLayout && { edgeLayout }),
+    });
+    edgesNow.set(edge.id, edge);
+  };
+
   const alignNode = (id: string, want: GraphNode | undefined) => {
     const have = nodesNow.get(id);
     if (want && !have) {
       addNode(want);
+      // カスケードで消えていた edge を戻す (もう一方の端が merge 後にあるものだけ)
+      for (const edge of pane.edges) {
+        const other = edge.source === id ? edge.target : edge.source;
+        const incident = edge.source === id || edge.target === id;
+        if (incident && nodesNow.has(other) && !edgesNow.has(edge.id))
+          addEdge(edge);
+      }
       return;
     }
     if (!want && have) {
@@ -133,15 +157,8 @@ export function alignToPane(
         if (!nodesNow.has(end) && node) addNode(node);
       }
       if (!nodesNow.has(want.source) || !nodesNow.has(want.target)) return;
-      const edgeLayout = pane.edgeLayouts?.find((l) => l.edgeId === id);
-      events.push({
-        ...makeEventBase('structure'),
-        type: 'EDGE_ADDED',
-        edgeId: id as EdgeId,
-        data: want,
-        ...(edgeLayout && { edgeLayout }),
-      });
-      edgesNow.set(id, want);
+      // 端の node を取り込んだときに一緒に戻っていることがある
+      if (!edgesNow.has(id)) addEdge(want);
       return;
     }
     if (!want && have) {
