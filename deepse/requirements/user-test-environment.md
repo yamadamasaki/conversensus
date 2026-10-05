@@ -705,6 +705,26 @@ curl -s 'https://pds.conversensus.site/xrpc/com.atproto.sync.listRepos?limit=100
 PDS の設定は `/opt/conversensus/infra/pds/.env` (git の外. 秘密を含む). 変えたら
 `docker compose -f docker-compose.prod.yml up -d` で作り直す (データは volume `pds-data` に残る).
 
+#### PDS を上げる
+
+**app と PDS が同じ site (`*.conversensus.site`) にあるので, PDS の OAuth は `same-site` を受け付ける版でなければ
+ならない.** 0.4.219 (oauth-provider 0.16.0) は `/oauth/authorize` で `Sec-Fetch-Site: same-site` を断り,
+パスワードを入れた後に「何らかのエラーが発生しました」(コンソールに
+`Forbidden sec-fetch-site header "same-site"`) で止まった. 2026-10-05 に pds 0.5.37 (oauth-provider 0.23.1) へ
+上げて直した. 上げるときは先に控えを取る (DB の移行は戻せない):
+
+```shell
+cd /opt/conversensus/infra/pds
+docker compose -f docker-compose.prod.yml stop
+tar -czf /root/pds-backups/pds-data-$(date +%Y%m%d).tgz -C /var/lib/docker/volumes/pds_pds-data _data
+cp -p .env /root/pds-backups/env-$(date +%Y%m%d)
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d --force-recreate
+curl -s https://pds.conversensus.site/xrpc/_health
+```
+
+控えは `/root/pds-backups/` にある (2026-10-05: 0.4.219 の時点のもの).
+
 ### 11.4 一度だけの作業 (済んだもの)
 
 - **旧 API サーバを止める** (step3 Phase 2 S2-7): `systemctl disable --now conversensus`.
