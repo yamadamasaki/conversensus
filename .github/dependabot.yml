@@ -1,0 +1,7 @@
+# workflow が使う Action を commit で固定しているので (#285)、新しい版は Dependabot の PR で上げる
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

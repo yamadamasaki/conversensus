@@ -34,3 +34,9 @@ service worker のキャッシュに入る)。
 
 - **Safari 実機のオフライン起動と、ホーム画面に入れた PWA** — 自動化では見えない。実機で見る (設計 U1)
 - **新しい版が来たときの切り替え** — 設計 U2
+
+## CSP (#284)
+
+preview は本番と同じセキュリティのヘッダ (CSP を含む, `src/client/src/securityHeaders.ts`) を付けるので、
+ここは **CSP の下で本番ビルドが起動すること**の検査も兼ねる。違反はコンソールのエラーとして `pageProblems` が拾う。
+確かめた変異: `script-src` から `'wasm-unsafe-eval'` を外すと chromium の 2 件が落ちる (SQLite-WASM が compile できない)。

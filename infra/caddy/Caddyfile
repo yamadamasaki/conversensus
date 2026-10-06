@@ -11,6 +11,15 @@ app.conversensus.site {
         Cross-Origin-Embedder-Policy require-corp
     }
 
+    # セキュリティのヘッダ (#284)。**値は src/client/src/securityHeaders.ts と同じにする**
+    # (vite preview にも付け、securityHeaders.test.ts が一致を見る)。各項の理由もそちら
+    header {
+        Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' https: data: blob:; font-src 'self' data:; connect-src 'self' https: blob: data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+        X-Content-Type-Options nosniff
+        Referrer-Policy no-referrer
+        Strict-Transport-Security "max-age=31536000"
+    }
+
     # service worker と画面は毎回取りに来させる (新しい版が届くように)。
     # ビルドの成果物 (/assets/) は名前に hash が入るので、長く持たせてよい
     @fresh path /sw.js /index.html /
@@ -25,5 +34,6 @@ app.conversensus.site {
 # api.conversensus.site (bun のローカルサーバ) は step3 Phase 2 S2-7 で撤去した。
 
 pds.conversensus.site {
+    header Strict-Transport-Security "max-age=31536000"
     reverse_proxy 127.0.0.1:2583
 }
