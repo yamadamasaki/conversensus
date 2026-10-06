@@ -48,6 +48,11 @@ import { GraphHeader, type HeaderBranch } from './GraphHeader';
 import type { PreviewMarks } from './GraphPreview';
 import { alignToPane } from './graph/alignToPane';
 import { splitMetagraphEvent } from './graph/metagraphEvents';
+import {
+  ERASE_CONFIRM_LABEL,
+  KEEP_CANCEL_LABEL,
+  logoutFlow,
+} from './hooks/logoutFlow';
 import { useActor } from './hooks/useActor';
 import { useAtprotoSession } from './hooks/useAtprotoSession';
 import {
@@ -72,6 +77,7 @@ import { useTabs } from './hooks/useTabs';
 import { InputDialog } from './InputDialog';
 import { InvitationDialog } from './InvitationDialog';
 import { BlobOriginProvider } from './images/blobOriginContext';
+import { otherTabsOpen, requestErase } from './local/eraseDevice';
 import { OverwriteNotice } from './OverwriteNotice';
 import { PaneFrame } from './PaneFrame';
 import { ParticipateDialog } from './ParticipateDialog';
@@ -118,6 +124,8 @@ export default function App() {
   const [confirmState, setConfirmState] = useState<{
     message: string;
     resolve: (ok: boolean) => void;
+    confirmLabel?: string;
+    cancelLabel?: string;
   } | null>(null);
   const [inputState, setInputState] = useState<{
     message: string;
@@ -176,6 +184,39 @@ export default function App() {
 
   // remote (ATProto) 送信キュー。未ログイン時は null → tap は local-only (W3d5-5)
   const remoteQueue = useRemoteSyncQueue(atprotoSession);
+
+  /** ログアウト — この端末のデータも消すかを訊く (#288) */
+  const handleLogout = useCallback(
+    () =>
+      logoutFlow({
+        unsent: remoteQueue
+          ? {
+              count: remoteQueue.pendingCount,
+              overflowed: remoteQueue.overflowed,
+            }
+          : null,
+        askErase: (message) =>
+          new Promise((resolve) =>
+            setConfirmState({
+              message,
+              resolve,
+              confirmLabel: ERASE_CONFIRM_LABEL,
+              cancelLabel: KEEP_CANCEL_LABEL,
+            }),
+          ),
+        otherTabsOpen: () =>
+          otherTabsOpen(
+            navigator.locks ? () => navigator.locks.query() : undefined,
+            true,
+          ),
+        alert: (message) =>
+          new Promise((resolve) => setAlertState({ message, resolve })),
+        logout: atprotoLogout,
+        requestErase: () => requestErase(sessionStorage),
+        reload: () => location.reload(),
+      }),
+    [remoteQueue, atprotoLogout],
+  );
   /** 共同作業者ダイアログの対象 File (step2 Phase 1)。null なら閉じている */
   const [invitationFileId, setInvitationFileId] = useState<FileId | null>(null);
   const [participateOpen, setParticipateOpen] = useState(false);
@@ -1147,7 +1188,7 @@ export default function App() {
             atprotoSession={atprotoSession}
             localOnlyCount={localOnlyCount}
             onAtprotoLogin={() => setLoginDialogOpen(true)}
-            onAtprotoLogout={atprotoLogout}
+            onAtprotoLogout={() => void handleLogout()}
             remoteQueue={remoteQueue}
             onSyncNow={syncNow}
             // 名簿は DID 単位なので、ログイン中でなければ何も出せない
@@ -1429,6 +1470,8 @@ export default function App() {
       {confirmState && (
         <ConfirmDialog
           message={confirmState.message}
+          confirmLabel={confirmState.confirmLabel}
+          cancelLabel={confirmState.cancelLabel}
           onConfirm={() => {
             confirmState.resolve(true);
             setConfirmState(null);

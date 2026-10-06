@@ -5,6 +5,7 @@ import App from './App.tsx';
 import { setLocalBackend } from './api';
 import { BOUNDARY_LABELS, ErrorBoundary } from './ErrorBoundary';
 import { claimDeviceId } from './local/deviceClaim';
+import { browserEraseDeps, eraseIfRequested } from './local/eraseDevice';
 import { broadcastingBackend } from './local/localChanges';
 import { startWorkerBackend } from './local/workerBackend';
 import { Starting, StorageUnavailable } from './StorageUnavailable';
@@ -35,6 +36,19 @@ const root = createRoot(rootElement);
 
 // 保存領域を開くまでの間に出す。開けない窓では判定に数秒かかる (S2-3 の記録)
 root.render(<Starting />);
+
+// ログアウトで「この端末のデータも消す」を選んだ後の起動なら、**何も開く前に**消す (#288)
+const erased = await eraseIfRequested(browserEraseDeps()).catch(
+  (error: unknown) => {
+    console.error('[erase] この端末のデータを消せなかった', error);
+    return 'failed' as const;
+  },
+);
+if (erased === 'otherTabs') {
+  console.warn(
+    '[erase] 別のタブが開いていたので、この端末のデータを消さなかった',
+  );
+}
 
 // **保存領域が開けたかを確かめてから描く** (step3 Phase 2 D5)。開けなければ編集させない
 const started = await startWorkerBackend();
