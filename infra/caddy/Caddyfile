@@ -35,5 +35,11 @@ app.conversensus.site {
 
 pds.conversensus.site {
     header Strict-Transport-Security "max-age=31536000"
+
+    # 管理の口 (admin の password で動くもの) は外に出さない。管理はサーバの上から
+    # 127.0.0.1:2583 へ直接 (user-test-environment.md §11.3)
+    @admin path /xrpc/com.atproto.admin.* /xrpc/com.atproto.server.createInviteCode /xrpc/com.atproto.server.createInviteCodes
+    respond @admin 404
+
     reverse_proxy 127.0.0.1:2583
 }

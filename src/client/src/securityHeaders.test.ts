@@ -46,6 +46,13 @@ describe('セキュリティのヘッダ (#284)', () => {
     expect(headersIn(siteBlock(caddyfile, PDS_SITE)).get(HSTS)).toBeDefined();
   });
 
+  test('PDS の管理の口を外に出さない', () => {
+    const pds = siteBlock(caddyfile, PDS_SITE);
+    expect(pds).toContain('/xrpc/com.atproto.admin.*');
+    expect(pds).toContain('/xrpc/com.atproto.server.createInviteCode ');
+    expect(pds).toMatch(/respond @admin 404/);
+  });
+
   test('CSP は文字列の eval と枠への埋め込みを許さない', () => {
     expect(CONTENT_SECURITY_POLICY).not.toContain("'unsafe-eval'");
     expect(CONTENT_SECURITY_POLICY).toContain("frame-ancestors 'none'");
