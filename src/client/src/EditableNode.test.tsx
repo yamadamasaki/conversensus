@@ -40,6 +40,7 @@ const { render, screen, fireEvent, cleanup } = await import(
   '@testing-library/react'
 );
 const { EditableNode } = await import('./EditableNode');
+const { MARKDOWN_COMPONENTS } = await import('./markdownComponents');
 const { ReadOnlyProvider } = await import('./readOnlyContext');
 
 // NodeProps の最小スタブ
@@ -78,6 +79,14 @@ describe('EditableNode', () => {
     render(<EditableNode {...makeProps('**太字**')} />);
     expect(mockReactMarkdown).toHaveBeenCalled();
     expect(screen.getByTestId('markdown')).toBeDefined();
+  });
+
+  it('Markdown は画像をリンクにし、リンクを新しいタブで開く描き方で描く (#287)', () => {
+    render(<EditableNode {...makeProps('![](https://example.com/x.png)')} />);
+    const props = mockReactMarkdown.mock.calls.at(-1)?.[0] as {
+      components?: unknown;
+    };
+    expect(props.components).toBe(MARKDOWN_COMPONENTS);
   });
 
   it('内容が空なら編集促進テキストを表示する', () => {
