@@ -82,3 +82,18 @@ Worker へ `postMessage` (structured clone) で渡り、`toJSON` が呼ばれな
 PDS の JSON の形のレコードを `jsonToLex` (agent が読むときと同じ変換) に通し、`recordToBatch` の結果を
 `structuredClone` (Worker へ渡すのと同じ) した後で、`readImageBlobLocation` が cid と mimeType を読めることを見る。
 `plainJson` を外すと落ちる。
+
+## isAcceptableRemoteBatch (security review M1・M2)
+
+### 何を・なぜ
+
+- **M1**: 保存の Worker は受信した batch の配列を一括で検証するので、壊れた batch (既知の op の項目が欠けている) が
+  1 件混ざると配列ごと例外になり、その File の受信が全員分止まり続けた。PDS から入る所で 1 件ずつ見て落とす
+- **M2**: Lamport の受信規則は受け取った最大の clock まで自分の clock を引き上げる。上限が無いと、他人が巨大な clock を
+  書いたときに全員の clock がそこへ飛び、`+1` が正確でなくなる。上限は 2^48
+
+### どのように
+
+- 正しい batch・知らない種類の op (案 A) は受け取る
+- 既知の op の項目が欠けた batch は受け取らない
+- clock が上限ちょうどなら受け取り、超えたら・`MAX_SAFE_INTEGER` なら受け取らない

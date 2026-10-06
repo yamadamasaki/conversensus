@@ -22,14 +22,25 @@ import { NSID } from './types';
 const FILE_LOWER = '11111111-1111-4111-8111-111111111111' as FileId;
 const FILE_UPPER = '33333333-3333-4333-8333-333333333333' as FileId;
 
+/**
+ * 読める名前 (`a`, `mine` …) から UUID を作る。受信は batch を本物と同じ形で検証する
+ * (security review M1) ので、id と node は UUID でなければ落とされる。名前は `labelOf` で戻す
+ */
+const uuidOf = (label: string, prefix = '00000000') =>
+  `${prefix}-0000-4000-8000-${Buffer.from(label).toString('hex').padStart(12, '0')}`;
+const labelOf = (id: string) =>
+  Buffer.from(id.slice(-12).replace(/^0+/, ''), 'hex').toString();
+
 const batch = (id: string, clock: number, actor = 'did:plc:alice'): Batch => ({
-  id: id as Batch['id'],
+  id: uuidOf(id) as Batch['id'],
   actor,
   clock,
   seq: clock,
   deps: {},
   timestamp: clock,
-  ops: [{ kind: 'node.add', target: `n${id}` as NodeId, content: id }],
+  ops: [
+    { kind: 'node.add', target: uuidOf(id, '11111111') as NodeId, content: id },
+  ],
 });
 
 /** ファイル削除の tombstone batch (ANA-127) */
@@ -197,7 +208,7 @@ describe('AtprotoSyncProvider', () => {
       const provider = makeProvider(batches);
 
       const entries = await provider.pullRemoteForFile(FILE);
-      expect(entries.map((e) => e.batch.id as string)).toEqual(['a', 'b']);
+      expect(entries.map((e) => labelOf(e.batch.id))).toEqual(['a', 'b']);
       expect(entries.map((e) => e.fileId)).toEqual([FILE, FILE]);
     });
 
@@ -213,7 +224,7 @@ describe('AtprotoSyncProvider', () => {
       const provider = makeProvider(batches);
 
       const entries = await provider.pullRemoteForFile(FILE);
-      expect(entries.map((e) => e.batch.id as string)).toEqual(['mine']);
+      expect(entries.map((e) => labelOf(e.batch.id))).toEqual(['mine']);
       // 自分の 1 件 + 境界の 1 件。全 11 件を舐めていない
       expect(batches._scanned()).toBe(2);
     });
@@ -244,7 +255,7 @@ describe('AtprotoSyncProvider', () => {
       const provider = makeProvider(batches);
 
       const entries = await provider.pullRemoteForFile(FILE);
-      expect(entries.map((e) => e.batch.id as string)).toEqual(['z', 'y', 'x']);
+      expect(entries.map((e) => labelOf(e.batch.id))).toEqual(['z', 'y', 'x']);
     });
 
     it('適用先 fileId をエンベロープで返す', async () => {
@@ -271,7 +282,7 @@ describe('AtprotoSyncProvider', () => {
       } as never);
       const provider = makeProvider(batches);
       const entries = await provider.pullRemoteForFile(FILE);
-      expect(entries.map((e) => e.batch.id as string)).toEqual(['a']);
+      expect(entries.map((e) => labelOf(e.batch.id))).toEqual(['a']);
     });
 
     it('合成 cursor は prefix の直前を指す (先頭レコードを落とさない)', async () => {
@@ -384,7 +395,7 @@ describe('AtprotoSyncProvider', () => {
         .pushRemote([{ fileId: FILE, batch: batch('1', 1) }])
         .catch((e: unknown) => e);
       expect(error).toBeInstanceOf(PartialPushError);
-      expect((error as PartialPushError).sentIds).toEqual([]);
+      expect((error as PartialPushError).sentIds.map(labelOf)).toEqual([]);
       expect((error as PartialPushError).cause).toMatchObject({
         message: 'upload failed',
       });
@@ -406,7 +417,9 @@ describe('AtprotoSyncProvider', () => {
         batches,
         uploadBlobs: (ops) =>
           Promise.resolve({
-            unavailable: ops.some((op) => 'target' in op && op.target === 'n2')
+            unavailable: ops.some(
+              (op) => 'target' in op && op.target === uuidOf('2', '11111111'),
+            )
               ? ['bafkreimissing']
               : [],
           }),
@@ -423,7 +436,10 @@ describe('AtprotoSyncProvider', () => {
 
       // 送れた 2 件は Outbox から消える。送れない 1 件だけが保留に残る
       expect(error).toBeInstanceOf(PartialPushError);
-      expect((error as PartialPushError).sentIds).toEqual(['1', '3']);
+      expect((error as PartialPushError).sentIds.map(labelOf)).toEqual([
+        '1',
+        '3',
+      ]);
       expect(batches._rkeys()).toEqual([
         batchRkey(FILE, 'did:plc:alice', 1),
         batchRkey(FILE, 'did:plc:alice', 3),
@@ -471,7 +487,7 @@ describe('AtprotoSyncProvider', () => {
 
       expect(attempts).toBe(1);
       expect(error).toBeInstanceOf(PartialPushError);
-      expect((error as PartialPushError).sentIds).toEqual([]);
+      expect((error as PartialPushError).sentIds.map(labelOf)).toEqual([]);
     });
 
     it('途中まで送れていれば、その分だけを送信済みとして返す', async () => {
@@ -492,7 +508,7 @@ describe('AtprotoSyncProvider', () => {
         )
         .catch((e: unknown) => e);
 
-      expect((error as PartialPushError).sentIds).toEqual(['1']);
+      expect((error as PartialPushError).sentIds.map(labelOf)).toEqual(['1']);
     });
   });
 });

@@ -32,6 +32,7 @@ import {
 import { PartialPushError } from '../sync/outbox';
 import {
   batchToRecord,
+  isAcceptableRemoteBatch,
   isBatchRecordValue,
   recordToRemoteBatch,
 } from './batchMapper';
@@ -256,7 +257,14 @@ function toRemoteBatches(records: readonly RecordSummary[]): RemoteBatch[] {
       skipped += 1;
       continue;
     }
-    entries.push(recordToRemoteBatch(r.value));
+    const entry = recordToRemoteBatch(r.value);
+    // 形は合っても中身が壊れている (既知の op の項目が欠けている・clock が大きすぎる) ものは
+    // ここで 1 件ずつ落とす。保存の一括検証まで持ち込むと、受信がまるごと止まる (M1・M2)
+    if (!isAcceptableRemoteBatch(entry.batch)) {
+      skipped += 1;
+      continue;
+    }
+    entries.push(entry);
   }
 
   // 決定論的な順序で返す: clock → actor → id (`orderBatches` と同じ規則, 4d-3)。
@@ -272,7 +280,7 @@ function toRemoteBatches(records: readonly RecordSummary[]): RemoteBatch[] {
   if (skipped > 0) {
     console.warn(
       `[atproto] skipped ${skipped} batch record(s): not a valid BatchRecord ` +
-        '(missing fileId, or a foreign/corrupt record)',
+        '(missing fileId, a foreign/corrupt record, or an invalid op / clock)',
     );
   }
 

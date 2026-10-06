@@ -2,6 +2,27 @@ import type { Did } from '@conversensus/shared';
 import { currentDid, getAgent, pdsUrl } from './client';
 
 /**
+ * 表示してよい画像の形式 (security review M3)。**他人が書いた property が MIME を決める**ので、
+ * そのまま Blob の type にすると、同じ origin の `blob:` URL に text/html や SVG (script を
+ * 持てる) を作れる。`<img>` の中では動かないが、「画像を新しいタブで開く」で app の origin の
+ * 文書として開かれうる。ラスタ形式だけを表示し、それ以外は中身を解釈させない型にする
+ */
+const DISPLAYABLE_IMAGE_TYPES: ReadonlySet<string> = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/gif',
+  'image/webp',
+]);
+const OPAQUE_TYPE = 'application/octet-stream';
+
+/** 表示に使う型。ラスタ形式でなければ中身を解釈させない型にする */
+export function displayableImageType(mimeType: string): string {
+  return DISPLAYABLE_IMAGE_TYPES.has(mimeType.toLowerCase())
+    ? mimeType.toLowerCase()
+    : OPAQUE_TYPE;
+}
+
+/**
  * `uploadBlob` の戻り値を畳んだ形。**op に載せる blob ref とは別物である** —
  * あちらは `{$type:'blob', ref:{$link}, …}` で, 名前を揃えると取り違える。
  *
@@ -53,7 +74,10 @@ export function cacheBlobUrl(cid: string, bytes: Uint8Array, mimeType: string) {
   if (imageCache.has(cid)) return;
   // bytes のコピーを作成（元の ArrayBuffer が uploadBlob で消費される可能性があるため）
   const copy = bytes.slice();
-  const url = URL.createObjectURL(new Blob([copy], { type: mimeType }));
+  // 表示用の型に絞る (security review M3, `displayableImageType`)
+  const url = URL.createObjectURL(
+    new Blob([copy], { type: displayableImageType(mimeType) }),
+  );
   imageCache.set(cid, url);
 }
 

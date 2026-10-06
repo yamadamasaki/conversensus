@@ -22,6 +22,7 @@ import { fetchBlob, putBlob, type StoredBlob } from '../api';
 import type { BlobUploader } from '../atproto/atprotoSyncProvider';
 import {
   cacheBlobUrl,
+  displayableImageType,
   fetchRemoteBlob,
   getCachedBlobUrl,
   loggedInDid,
@@ -320,6 +321,13 @@ const defaultResolveDeps: ResolveImageDeps = {
   did: loggedInDid,
 };
 
+/** 表示用の Blob URL。**型は `displayableImageType` を通す** */
+function displayUrl(blob: Blob, mimeType: string): string {
+  return URL.createObjectURL(
+    new Blob([blob], { type: displayableImageType(mimeType) }),
+  );
+}
+
 /**
  * 画像の実体を表示できる URL に解決する (設計 D4 の 1〜3)。
  *
@@ -337,7 +345,8 @@ export async function resolveImageUrl(
 
   // 2. ローカル blob ストア (daemon)。ここで取れれば PDS もログインも要らない
   const local = await deps.local(location.cid);
-  if (local) return { url: URL.createObjectURL(local), fromCache: false };
+  if (local)
+    return { url: displayUrl(local, location.mimeType), fromCache: false };
 
   // 3. PDS。**ログインしている時だけ**触る。未ログインで `currentDid()` を呼ぶと
   //    throw して表示が止まってしまう (旧 ImageNode の不具合)
@@ -358,7 +367,7 @@ export async function resolveImageUrl(
     .arrayBuffer()
     .then((buf) => deps.put(new Uint8Array(buf), location.mimeType))
     .catch(() => {});
-  return { url: URL.createObjectURL(remote), fromCache: false };
+  return { url: displayUrl(remote, location.mimeType), fromCache: false };
 }
 
 // --- PDS への送り出し (ANA-116 S5) ---

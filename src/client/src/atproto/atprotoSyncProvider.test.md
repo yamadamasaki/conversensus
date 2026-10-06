@@ -196,3 +196,9 @@ blob を上げる前に blob ref を含むレコードを書こうとすると, 
 
 remote に隙間ができることは受け入れる。projection は対象を欠く op を落とす
 (`project.ts` の `if (node)`) ので壊れず, catch-up が後で埋める。
+
+## 部品の id は UUID にする (security review M1 の後)
+
+受信は PDS から入る batch を 1 件ずつ本物と同じ形 (`ReceivedBatchSchema`) で検証し、合わないものを落とす
+(`isAcceptableRemoteBatch`)。そのため部品の batch の id と node は UUID でなければならない。読める名前 (`a`, `mine` …) から
+UUID を作り (`uuidOf`)、確かめるときに名前へ戻す (`labelOf`) ので、各件の読み方は変わらない。
