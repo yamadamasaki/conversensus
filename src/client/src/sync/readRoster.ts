@@ -30,7 +30,9 @@
 import {
   collectInviteTargets,
   type Did,
+  didFromActor,
   type FileId,
+  findFounder,
   foldParticipation,
   type JudgmentBatch,
   type Participation,
@@ -137,7 +139,13 @@ export async function readRoster(
     const results = await Promise.all(
       targets.map(async (did) => {
         try {
-          return { did, batches: await deps.fetchJudgments(fileId, did) };
+          // **その repo の持ち主が書いた判断だけを採る** (security review H2)。ATProto が
+          // 保証するのは「repo の中身はその DID が書いた」ことだけで、batch の actor は
+          // 書き手が自由に名乗れる。照合しないと、他人の名前で取り消しや招待を書ける
+          const own = (await deps.fetchJudgments(fileId, did)).filter(
+            (b) => didFromActor(b.actor) === did,
+          );
+          return { did, batches: own };
         } catch (error) {
           return { did, error };
         }
@@ -155,11 +163,14 @@ export async function readRoster(
     }
   };
 
+  // 創設者は起点から招待の鎖を辿って決める (H2)。鎖の先がまだ読めていなければ null で、
+  // どの起点も採らない — 起点が見えていないときと同じ扱いになる
   const fold = async (): Promise<Participation> =>
     foldParticipation(batches, {
       isLocalDid: await deps.buildLocalDidPredicate(
         collectInviteTargets(batches),
       ),
+      founder: findFounder(batches, seed),
     });
 
   await readAll([seed]);

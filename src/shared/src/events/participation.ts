@@ -112,7 +112,9 @@ export type RejectReason =
   /** 引き取ろうとしたが, まだ誰かが参加している */
   | 'rosterNotEmpty'
   /** 引き取ろうとしたが, 起点がまだ見えていない (引き取る名簿が無い) */
-  | 'noGenesis';
+  | 'noGenesis'
+  /** 起点 (genesis) を書いたのが File の創設者ではない (招待の鎖で決めた founder と違う) */
+  | 'notFounder';
 
 export type RejectedJudgment = {
   batchId: BatchId;
@@ -159,6 +161,12 @@ export type Participation = {
   history: ReadonlyMap<Did, readonly ParticipationEvent[]>;
   /** 捨てた op と理由。**`invalid` の表示元** */
   rejected: readonly RejectedJudgment[];
+  /**
+   * 起点 (genesis) を採った創設者。起点を採れていなければ無い。
+   * **名義が `genesis` の batch (File の起源) を受け取ってよい repo** はこの DID のものだけ
+   * (`collectParticipantBatches`)
+   */
+  founder?: Did;
 };
 
 export type FoldParticipationDeps = {
@@ -170,6 +178,16 @@ export type FoldParticipationDeps = {
    * なく pre 条件の一部である。既定値を持たせると、配線を忘れた瞬間に検証が消える。
    */
   isLocalDid: (did: Did) => boolean;
+  /**
+   * File の創設者 (`findFounder`)。**渡したら、創設者の起点 (genesis) だけを採る**。
+   * `null` は「まだ分からない」で、どの起点も採らない (起点が見えていないのと同じ扱い)。
+   * 省略すると従来どおり最初の起点を採る (調査のスクリプト用)。
+   *
+   * 起点は「この File を作った」という主張で、誰でも自分の repo に書ける。順序 (clock・actor) は
+   * 書き手が選べるので、順序で決めると、招待されただけの人が偽の起点を先に並べて名簿を
+   * 乗っ取れる。創設者は招待の鎖から決める
+   */
+  founder?: Did | null;
 };
 
 /**
@@ -179,7 +197,7 @@ export type FoldParticipationDeps = {
  */
 export function foldParticipation(
   batches: readonly JudgmentBatch[],
-  { isLocalDid }: FoldParticipationDeps,
+  { isLocalDid, founder }: FoldParticipationDeps,
 ): Participation {
   const participating = new Set<Did>();
   const invited = new Map<Did, Did>();
@@ -187,6 +205,8 @@ export function foldParticipation(
   const history = new Map<Did, ParticipationEvent[]>();
   const rejected: RejectedJudgment[] = [];
   let genesisSeen = false;
+  /** 起点を採った創設者 */
+  let genesisBy: Did | undefined;
 
   for (const batch of [...batches].sort(compareByClockActorId)) {
     // 名簿は **DID 単位**、actor は **端末単位** である。同じ人の 2 台目を
@@ -221,11 +241,16 @@ export function foldParticipation(
         case 'participation.genesis':
           // genesis より前は名簿が空なので、他のあらゆる op が pre 条件で落ちる。
           // これが「最初の 1 人」が genesis でしか決まらないことの担保である
+          if (founder !== undefined && issuer !== founder) {
+            reject('notFounder');
+            break;
+          }
           if (genesisSeen) {
             reject('duplicateGenesis');
             break;
           }
           genesisSeen = true;
+          genesisBy = issuer;
           participating.add(issuer);
           departed.delete(issuer);
           record(issuer, 'genesis');
@@ -310,7 +335,14 @@ export function foldParticipation(
     }
   }
 
-  return { participating, invited, departed, history, rejected };
+  return {
+    participating,
+    invited,
+    departed,
+    history,
+    rejected,
+    ...(genesisBy !== undefined && { founder: genesisBy }),
+  };
 }
 
 /**
@@ -414,4 +446,51 @@ export function collectInviteTargets(
     for (const op of batch.ops)
       if (op.kind === 'participation.invite') targets.add(op.target);
   return targets;
+}
+
+/**
+ * File の創設者を、起点 (seed) から**招待の鎖**を辿って決める (security review H2)。
+ *
+ * 各 DID について、その人が書いた判断だけを見る (読んだ repo と書き手の照合を済ませた
+ * 入力であること — `readRoster` が行う):
+ *
+ * - その人が承認 (`participation.accept`) を持っていれば、**招待した人へ進む** (最も早い承認)。
+ *   招待を受けて入った人は創設者ではない。承認を持つ人が偽の起点を書いても、ここで先へ進むので
+ *   採られない
+ * - 承認を持たず起点 (`participation.genesis`) を持てば、その人が創設者
+ * - どちらも無ければ分からない (`null`)。鎖の先の repo がまだ読めていない、など
+ * - **鎖が輪になったら** (創設者が抜けて招待し直された)、輪の中で起点を書いた人
+ *
+ * 招待される側の承認は招待した人を指すので、創設者は鎖の根にしか居られない。
+ * 誠実な参加者は皆同じ根に着くので、名簿は一致する
+ */
+export function findFounder(
+  batches: readonly JudgmentBatch[],
+  seed: Did,
+): Did | null {
+  const byIssuer = new Map<Did, JudgmentBatch[]>();
+  for (const batch of [...batches].sort(compareByClockActorId)) {
+    const issuer = didFromActor(batch.actor);
+    byIssuer.set(issuer, [...(byIssuer.get(issuer) ?? []), batch]);
+  }
+  const hasGenesis = (did: Did) =>
+    (byIssuer.get(did) ?? []).some((b) =>
+      b.ops.some((op) => op.kind === 'participation.genesis'),
+    );
+  const path: Did[] = [];
+  let current: Did = seed;
+  while (!path.includes(current)) {
+    path.push(current);
+    const accept = (byIssuer.get(current) ?? [])
+      .flatMap((b) => b.ops)
+      .find((op) => op.kind === 'participation.accept');
+    if (accept?.kind === 'participation.accept') {
+      current = accept.inviter;
+      continue;
+    }
+    return hasGenesis(current) ? current : null;
+  }
+  // **輪になった**: 創設者が一度抜けて、招待し直されて戻った (承認を持つ) とき。
+  // 輪の中で起点を書いた人が創設者である (輪の外から来た偽の起点は輪に入らない)
+  return path.slice(path.indexOf(current)).find(hasGenesis) ?? null;
 }

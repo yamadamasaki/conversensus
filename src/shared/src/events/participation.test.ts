@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import fc from 'fast-check';
 import type { JudgmentBatch, JudgmentOp } from './judgment';
 import {
+  findFounder,
   foldParticipation,
   hasEverParticipated,
   periodsOf,
@@ -585,5 +586,72 @@ describe('性質', () => {
         expect(second.rejected).toEqual([]);
       }),
     );
+  });
+});
+
+describe('創設者 (security review H2)', () => {
+  // A が File を作り B を招待、B が C を招待。M は A に招待された参加者で、偽の起点も書いた
+  // 攻撃者は名前を選べる: 本物より前に並ぶ DID にする
+  const M = 'did:plc:aaamallory';
+  const log = [
+    jb(A, 0, [genesis()]),
+    jb(A, 1, [invite(B)]),
+    jb(B, 2, [accept(A)]),
+    jb(B, 3, [invite(C)]),
+    jb(C, 4, [accept(B)]),
+  ];
+
+  test('起点から招待の鎖を辿って、承認を持たず起点を書いた人に着く', () => {
+    expect(findFounder(log, C)).toBe(A);
+    expect(findFounder(log, B)).toBe(A);
+    expect(findFounder(log, A)).toBe(A);
+  });
+
+  test('承認を持つ人が偽の起点を書いても、鎖は招待した人へ進むので創設者にならない', () => {
+    const withM = [
+      ...log,
+      jb(A, 5, [invite(M)]),
+      jb(M, 6, [accept(A)]),
+      // 偽の起点: 本物と同じ clock、actor の文字列も前に来るよう選べる
+      jb(M, 0, [genesis()], '0'),
+    ];
+    expect(findFounder(withM, M)).toBe(A);
+  });
+
+  test('鎖の先が読めていなければ分からない (null)', () => {
+    expect(findFounder([jb(C, 4, [accept(B)])], C)).toBeNull();
+  });
+
+  test('創設者が抜けて招待し直されて戻ると鎖は輪になるが、輪の中で起点を書いた人が創設者', () => {
+    const rejoined = [
+      ...log,
+      jb(A, 5, [resign()]),
+      jb(B, 6, [invite(A)]),
+      jb(A, 7, [accept(B)]),
+    ];
+    expect(findFounder(rejoined, C)).toBe(A);
+    expect(findFounder(rejoined, A)).toBe(A);
+  });
+
+  test('創設者を渡すと、それ以外の起点は notFounder で捨てられ、名簿を乗っ取れない', () => {
+    const forged = [
+      // 偽の起点が本物より先に並ぶ (同じ clock、actor が前)
+      jb(M, 0, [genesis()], '0'),
+      ...log,
+    ];
+    const without = foldParticipation(forged, deps);
+    // 創設者を渡さない (従来) と、先に並んだ偽の起点が採られて A は名簿から落ちる
+    expect(without.participating.has(A)).toBe(false);
+
+    const r = foldParticipation(forged, { ...deps, founder: A });
+    expect(r.founder).toBe(A);
+    expect([...r.participating].sort()).toEqual([A, B, C].sort());
+    expect(reasons(r)).toContain('notFounder');
+  });
+
+  test('創設者が分からない (null) ときは、どの起点も採らない', () => {
+    const r = foldParticipation(log, { ...deps, founder: null });
+    expect(r.participating.size).toBe(0);
+    expect(r.founder).toBeUndefined();
   });
 });
