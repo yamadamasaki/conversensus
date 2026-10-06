@@ -711,10 +711,16 @@ PDS の設定は `/opt/conversensus/infra/pds/.env` (git の外. 秘密を含む
 ならない.** 0.4.219 (oauth-provider 0.16.0) は `/oauth/authorize` で `Sec-Fetch-Site: same-site` を断り,
 パスワードを入れた後に「何らかのエラーが発生しました」(コンソールに
 `Forbidden sec-fetch-site header "same-site"`) で止まった. 2026-10-05 に pds 0.5.37 (oauth-provider 0.23.1) へ
-上げて直した. 上げるときは先に控えを取る (DB の移行は戻せない):
+上げて直した.
+
+**image は版の tag で固定してある** (#286, `0.4.5037` — `_health` が返す版と同じ綴り. `latest` だと, いつ上がるかが
+決まらない). 上げるときは, 先に **リポジトリの 2 つの compose ファイルの tag を PR で上げて** main:release で出し
+(サーバの compose ファイルはリポジトリの写し), それから控えを取って上げる (DB の移行は戻せない).
+tag の一覧は `https://github.com/bluesky-social/pds/pkgs/container/pds`:
 
 ```shell
 cd /opt/conversensus/infra/pds
+grep image: docker-compose.prod.yml          # 上げた版になっていること
 docker compose -f docker-compose.prod.yml stop
 tar -czf /root/pds-backups/pds-data-$(date +%Y%m%d).tgz -C /var/lib/docker/volumes/pds_pds-data _data
 cp -p .env /root/pds-backups/env-$(date +%Y%m%d)
