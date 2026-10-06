@@ -4,7 +4,9 @@ import type { Batch, FileId, NodeId, SheetId } from '@conversensus/shared';
 import { IMAGE_PROPERTY_KEY, readImageBlobLocation } from '../images/imageBlob';
 import {
   batchToRecord,
+  isAcceptableRemoteBatch,
   isBatchRecordValue,
+  MAX_REMOTE_CLOCK,
   recordToBatch,
   recordToRemoteBatch,
 } from './batchMapper';
@@ -342,5 +344,50 @@ describe('PDS から入る blob (step3 FPR の確認で発覚)', () => {
       cid: CID,
       mimeType: 'image/png',
     });
+  });
+});
+
+describe('isAcceptableRemoteBatch (security review M1・M2)', () => {
+  const NODE = '33333333-3333-4333-8333-333333333333';
+  const ok = (over: Partial<Batch> = {}): Batch =>
+    ({
+      id: '22222222-2222-4222-8222-222222222222',
+      actor: 'did:plc:alice#dev',
+      clock: 3,
+      seq: 3,
+      deps: {},
+      timestamp: 3,
+      ops: [{ kind: 'node.add', target: NODE, content: 'A' }],
+      ...over,
+    }) as Batch;
+
+  it('正しい batch は受け取る', () => {
+    expect(isAcceptableRemoteBatch(ok())).toBe(true);
+  });
+
+  it('知っている種類の op の項目が欠けた batch は受け取らない (受信をまるごと止めない)', () => {
+    expect(
+      isAcceptableRemoteBatch(
+        ok({ ops: [{ kind: 'node.add' }] as Batch['ops'] }),
+      ),
+    ).toBe(false);
+  });
+
+  it('知らない種類の op は受け取る (案 A)', () => {
+    expect(
+      isAcceptableRemoteBatch(
+        ok({ ops: [{ kind: 'node.futureThing' }] as unknown as Batch['ops'] }),
+      ),
+    ).toBe(true);
+  });
+
+  it('clock が上限を超える batch は受け取らない (全員の clock を飛ばさない)', () => {
+    expect(isAcceptableRemoteBatch(ok({ clock: MAX_REMOTE_CLOCK }))).toBe(true);
+    expect(isAcceptableRemoteBatch(ok({ clock: MAX_REMOTE_CLOCK + 1 }))).toBe(
+      false,
+    );
+    expect(
+      isAcceptableRemoteBatch(ok({ clock: Number.MAX_SAFE_INTEGER })),
+    ).toBe(false);
   });
 });

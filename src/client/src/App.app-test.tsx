@@ -2029,3 +2029,49 @@ describe('App 結合: 未ログインの編集を出し直す (FPR 前 L-1)', ()
     MERGER_TEST_MS * 2,
   );
 });
+
+describe('App 結合: 壊れた batch (security review M1)', () => {
+  test(
+    '参加者の repo に壊れた batch が 1 件あっても、受信は止まらず、その後の編集は届く',
+    async () => {
+      const { code } = await aliceSharesFileWithBob();
+      let user = await startOn('bob', BOB);
+      await participate(user, code, FILE_NAME);
+      await syncNow(user);
+
+      // alice: node を置いて書いた record を、既知の op の項目が欠けた形に壊す
+      user = await startOn('alice', ALICE);
+      await openFileNamed(user, FILE_NAME);
+      const before = new Set(
+        world.pds.records(ALICE.did, NSID.batch).map((r) => r.rkey),
+      );
+      world.pds.withhold(ALICE.did);
+      await addNode(user);
+      await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+      world.pds.release(ALICE.did);
+      await syncNow(user);
+      for (const record of world.pds
+        .records(ALICE.did, NSID.batch)
+        .filter((r) => !before.has(r.rkey))) {
+        (record.value as { ops: unknown[] }).ops.push({ kind: 'node.add' });
+      }
+      // その後の正しい編集
+      await editOnlyNode(user, '壊れた後の編集');
+      await waitFor(
+        () => expect(trunkContent()).toBe('壊れた後の編集'),
+        WIRING_TIMEOUT,
+      );
+      await syncNow(user);
+
+      // bob: 壊れた batch は落とし、その後の編集は受け取る
+      user = await startOn('bob', BOB);
+      await openFileNamed(user, FILE_NAME);
+      await syncNow(user);
+      await waitFor(
+        () => expect(trunkContent()).toBe('壊れた後の編集'),
+        WIRING_TIMEOUT,
+      );
+    },
+    MERGER_TEST_MS * 2,
+  );
+});

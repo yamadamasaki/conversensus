@@ -10,11 +10,12 @@
  * レコードには埋め込む必要がある。この非対称は `RemoteBatch` エンベロープで表現する。
  */
 
-import type {
-  Batch,
-  BatchId,
-  FileId,
-  ISODateString,
+import {
+  type Batch,
+  type BatchId,
+  type FileId,
+  type ISODateString,
+  ReceivedBatchSchema,
 } from '@conversensus/shared';
 import type { BatchRecord, RemoteBatch } from './types';
 
@@ -147,4 +148,26 @@ export function recordToRemoteBatch(value: BatchRecord): RemoteBatch {
     fileId: value.fileId as FileId,
     batch: recordToBatch(value),
   };
+}
+
+/**
+ * 受け取る clock の上限 (security review M2)。Lamport の受信規則は、受け取った最大の clock まで
+ * 自分の clock を引き上げる。上限が無いと、他人が `Number.MAX_SAFE_INTEGER` 付近の clock を
+ * 書いたときに全員の clock がそこへ飛び、`+1` しても値が変わらなくなって全順序が崩れる。
+ * 2^48 は実際の編集では届かず (1 秒に 1000 回書いても 8 千年以上)、`+1` が正確な範囲に収まる
+ */
+export const MAX_REMOTE_CLOCK = 2 ** 48;
+
+/**
+ * PDS から読んだ batch を受け取ってよいか (security review M1・M2)。
+ *
+ * **1 件ずつ見る。**保存の Worker は受信した batch の配列を一括で検証するので、壊れた batch が
+ * 1 件混ざると配列ごと例外になり、その File の受信が全員分止まり続けた。ここで弾けば、
+ * 他の batch は受け取れる。知らない種類の op は通す (`ReceivedBatchSchema`, 案 A)
+ */
+export function isAcceptableRemoteBatch(batch: Batch): boolean {
+  return (
+    ReceivedBatchSchema.safeParse(batch).success &&
+    batch.clock <= MAX_REMOTE_CLOCK
+  );
 }
