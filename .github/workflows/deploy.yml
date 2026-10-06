@@ -23,7 +23,7 @@ jobs:
       - name: Deploy via SSH
         # tag は差し替えられるので commit で固定する (#285)。上げるのは Dependabot の PR で。
         # 上げたら ECDSA のホスト鍵 (VPS_FINGERPRINT) で通ることを確かめる (drone-ssh の版で変わりうる)
-        uses: appleboy/ssh-action@7eaf76671a0d7eec5d98ee897acda4f968735a17 # v1.2.0
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
