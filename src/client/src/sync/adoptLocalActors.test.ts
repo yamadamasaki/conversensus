@@ -32,11 +32,11 @@ describe('adoptLocalActors', () => {
     expect(confirm).not.toHaveBeenCalled();
   });
 
-  test('件数と File を見せて訊き、断られたら何も書き換えない', async () => {
+  test('件数と File と最後の編集の時刻を見せて訊き、断られたら何も書き換えない', async () => {
     const { deps, confirm, renameActor, catchUp } = depsOf(
       [
-        { fileId: F1, actor: 'local#a', count: 2 },
-        { fileId: F2, actor: 'local#a', count: 1 },
+        { fileId: F1, actor: 'local#a', count: 2, lastTimestamp: 200 },
+        { fileId: F2, actor: 'local#a', count: 1, lastTimestamp: 300 },
       ],
       false,
     );
@@ -44,16 +44,20 @@ describe('adoptLocalActors', () => {
       status: 'declined',
       batches: 3,
     });
-    expect(confirm).toHaveBeenCalledWith({ batches: 3, fileIds: [F1, F2] });
+    expect(confirm).toHaveBeenCalledWith({
+      batches: 3,
+      fileIds: [F1, F2],
+      lastEditedAt: 300, // File をまたいだ最後 (#288)
+    });
     expect(renameActor).not.toHaveBeenCalled();
     expect(catchUp).not.toHaveBeenCalled();
   });
 
   test('承けたら local の actor ごとに新しい自分の actor へ付け替え、関わった File ごとに送る', async () => {
     const { deps, renameActor, catchUp } = depsOf([
-      { fileId: F1, actor: 'local#a', count: 2 },
-      { fileId: F1, actor: 'local#b', count: 1 },
-      { fileId: F2, actor: 'local#a', count: 1 },
+      { fileId: F1, actor: 'local#a', count: 2, lastTimestamp: 0 },
+      { fileId: F1, actor: 'local#b', count: 1, lastTimestamp: 0 },
+      { fileId: F2, actor: 'local#a', count: 1, lastTimestamp: 0 },
     ]);
     expect(await adoptLocalActors(DID, deps)).toEqual({
       status: 'adopted',
@@ -69,7 +73,7 @@ describe('adoptLocalActors', () => {
 
   test('送れなくても付け替えは済ませ、例外にしない (次の同期が送る)', async () => {
     const { deps, catchUp } = depsOf([
-      { fileId: F1, actor: 'local#a', count: 1 },
+      { fileId: F1, actor: 'local#a', count: 1, lastTimestamp: 0 },
     ]);
     catchUp.mockImplementation(async () => {
       throw new Error('offline');

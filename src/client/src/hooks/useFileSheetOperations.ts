@@ -1021,7 +1021,7 @@ export function useFileSheetOperations({
         listLocalActorBatches: list,
         renameActor: rename,
         newDeviceId: () => crypto.randomUUID(),
-        confirm: async ({ batches, fileIds }) => {
+        confirm: async ({ batches, fileIds, lastEditedAt }) => {
           const names = new Map(
             (await deps.fetchFiles()).map((f) => [f.id as string, f.name]),
           );
@@ -1030,7 +1030,12 @@ export function useFileSheetOperations({
             .filter((name) => name !== undefined);
           return new Promise<boolean>((resolve) =>
             setConfirmState({
-              message: localAdoptionMessage(batches, shown, accountLabel),
+              message: localAdoptionMessage(
+                batches,
+                shown,
+                accountLabel,
+                lastEditedAt,
+              ),
               resolve,
             }),
           );
@@ -1133,18 +1138,34 @@ export function useFileSheetOperations({
 }
 
 /** 未ログインの編集を出し直すか訊く文面 (FPR 前 L-1, 設計 Q1) */
+/** 手元の時刻で `YYYY/MM/DD HH:mm` */
+function formatDateTime(at: number): string {
+  const d = new Date(at);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return (
+    `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())} ` +
+    `${pad(d.getHours())}:${pad(d.getMinutes())}`
+  );
+}
+
 export function localAdoptionMessage(
   batches: number,
   fileNames: readonly string[],
   accountLabel?: string,
+  lastEditedAt?: number,
 ): string {
   const files =
     fileNames.length === 0 ? '' : `\n(File: ${fileNames.join('、')})`;
+  // 共有の端末で、前の人の編集かどうかを見分ける手がかり (#288)
+  const last =
+    lastEditedAt === undefined
+      ? ''
+      : `\n(最後の編集: ${formatDateTime(lastEditedAt)})`;
   const who = accountLabel
     ? `@${accountLabel} の編集として`
     : 'あなたの編集として';
   return (
-    `ログインしていない間にこの端末で描いた編集が ${batches} 件あります。${files}\n` +
+    `ログインしていない間にこの端末で描いた編集が ${batches} 件あります。${files}${last}\n` +
     `${who}送って、他の端末や共有相手に届くようにしますか?\n` +
     '送らない場合は、この端末にだけ残ります (次にログインしたときにまた訊きます)。'
   );

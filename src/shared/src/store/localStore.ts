@@ -28,7 +28,7 @@ import type {
   NodeId,
   SheetId,
 } from '../schemas';
-import type { EventStore } from './eventStore';
+import type { EventStore, LocalActorBatchCount } from './eventStore';
 
 const DEFAULT_FILE_NAME = '無題';
 const DEFAULT_SHEET_NAME = 'Sheet 1';
@@ -77,7 +77,7 @@ export class LocalStore {
   }
 
   /** 未ログインの actor の batch の件数 (File と actor ごと, FPR 前 L-1) */
-  listLocalActorBatches(): { fileId: FileId; actor: Actor; count: number }[] {
+  listLocalActorBatches(): LocalActorBatchCount[] {
     return this.events.listLocalActorBatches();
   }
 

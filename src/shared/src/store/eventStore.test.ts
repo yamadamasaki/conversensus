@@ -503,7 +503,7 @@ describe('EventStore: 未ログインの actor の付け替え (FPR 前 L-1)', (
     expect(store.getBatches(FILE).map((b) => b.actor)).toEqual([LOCAL, ME]);
   });
 
-  it('未ログインの actor の batch を File と actor ごとに数える', () => {
+  it('未ログインの actor の batch を File と actor ごとに数え、最後の編集の時刻を添える', () => {
     store.appendBatch(
       FILE,
       batch('b1', LOCAL, 1, 1, {}, [
@@ -523,7 +523,8 @@ describe('EventStore: 未ログインの actor の付け替え (FPR 前 L-1)', (
       ]),
     );
     expect(store.listLocalActorBatches()).toEqual([
-      { fileId: FILE, actor: LOCAL, count: 2 },
+      // timestamp は clock と同じに作ってある (b1 = 1, b2 = 2)。最後は 2 (#288)
+      { fileId: FILE, actor: LOCAL, count: 2, lastTimestamp: 2 },
     ]);
   });
 

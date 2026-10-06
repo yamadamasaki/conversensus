@@ -88,6 +88,15 @@ CREATE TABLE IF NOT EXISTS blobs (
  * 操作ログの永続ストア。1 インスタンス = 1 データベース。
  * ファイル (グラフ) ごとに file_id で batches を仕切る。
  */
+/** 未ログインの actor の batch の数え (File と actor ごと, FPR 前 L-1) */
+export type LocalActorBatchCount = {
+  fileId: FileId;
+  actor: Actor;
+  count: number;
+  /** その actor のその File での最後の編集の時刻 (ms, #288) */
+  lastTimestamp: number;
+};
+
 export class EventStore {
   private readonly db: SqlDriver;
 
@@ -167,14 +176,15 @@ export class EventStore {
   }
 
   /**
-   * 未ログインの actor (`local#<deviceId>`) を数える (FPR 前 L-1)。ログインしたときに
+   * 未ログインの actor (`local#<deviceId>`) を数える (FPR 前 L-1)。最後の編集の時刻も返す —
+   * 共有の端末で、前の人の編集かどうかを見分ける手がかり (#288)。ログインしたときに
    * 「この端末に未ログインで描いたものが N 件 (File: …) あります」と訊くために使う。
    * File ごと・actor ごとの件数を返す (branch 専用の file_id も含む)
    */
-  listLocalActorBatches(): { fileId: FileId; actor: Actor; count: number }[] {
+  listLocalActorBatches(): LocalActorBatchCount[] {
     return this.db
-      .all<{ file_id: string; actor: string; n: number }>(
-        `SELECT file_id, actor, COUNT(*) AS n FROM batches
+      .all<{ file_id: string; actor: string; n: number; last: number }>(
+        `SELECT file_id, actor, COUNT(*) AS n, MAX(timestamp) AS last FROM batches
           WHERE actor LIKE ? GROUP BY file_id, actor ORDER BY file_id, actor`,
         [`${LOCAL_DID}${ACTOR_SEPARATOR}%`],
       )
@@ -182,6 +192,7 @@ export class EventStore {
         fileId: row.file_id as FileId,
         actor: row.actor,
         count: row.n,
+        lastTimestamp: row.last,
       }));
   }
 
