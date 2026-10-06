@@ -1,5 +1,6 @@
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
+import { SECURITY_HEADERS } from './src/securityHeaders.ts';
 
 /**
  * **cross-origin isolation を有効にする** (step3 Phase 2 D8)。ローカル正典の SQLite-WASM は
@@ -23,7 +24,11 @@ const DEV_HOST = '127.0.0.1';
 export default defineConfig({
   plugins: [react()],
   server: { host: DEV_HOST, headers: CROSS_ORIGIN_ISOLATION_HEADERS },
-  preview: { host: DEV_HOST, headers: CROSS_ORIGIN_ISOLATION_HEADERS },
+  // 開発サーバは HMR と React Refresh が inline の script を使うので、CSP は本番ビルドの配信にだけ付ける
+  preview: {
+    host: DEV_HOST,
+    headers: { ...CROSS_ORIGIN_ISOLATION_HEADERS, ...SECURITY_HEADERS },
+  },
   // sqlite-wasm は自分の .wasm を相対で引くので、事前バンドルに入れない (公式の注意)
   optimizeDeps: { exclude: ['@sqlite.org/sqlite-wasm'] },
   worker: { format: 'es' },
