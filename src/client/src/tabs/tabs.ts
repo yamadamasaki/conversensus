@@ -137,7 +137,7 @@ export function closePane(
   index: number,
 ): TabsState {
   const tab = state.tabs.find((t) => t.id === tabId);
-  if (!tab || !tab.panes[index]) return state;
+  if (!tab?.panes[index]) return state;
   if (tab.panes.length === 1) return closeTab(state, tabId);
   const panes = tab.panes.filter((_, i) => i !== index);
   const active =
@@ -189,7 +189,7 @@ export function addPane(
 /** アクティブなタブの pane を前に出す */
 export function activatePane(state: TabsState, index: number): TabsState {
   const active = activeTab(state);
-  if (!active || !active.panes[index] || active.active === index) return state;
+  if (!active?.panes[index] || active.active === index) return state;
   return {
     ...state,
     tabs: state.tabs.map((t) =>

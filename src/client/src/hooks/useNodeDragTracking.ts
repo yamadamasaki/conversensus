@@ -11,7 +11,7 @@
  * 移動先は**同じ関数 (`resolveDropTargets`) で解決する**ので、見えたとおりに動く。
  */
 
-import type { Node } from '@xyflow/react';
+import type { Node, OnNodeDrag } from '@xyflow/react';
 import { useCallback, useRef } from 'react';
 import type { GraphEvent } from '../events/GraphEvent';
 import {
@@ -47,17 +47,15 @@ export function useNodeDragTracking(
 ) {
   const preDragPositionsRef = useRef<Map<string, Position>>(new Map());
 
-  const onNodeDragStart = useCallback(
-    (_: React.MouseEvent, _node: Node) => {
-      preDragPositionsRef.current = new Map(
-        getNodes().map((n) => [n.id, { x: n.position.x, y: n.position.y }]),
-      );
-    },
-    [getNodes],
-  );
+  // 型は React Flow の `OnNodeDrag` に合わせる (12.12 で event が DOM の MouseEvent | TouchEvent になった)
+  const onNodeDragStart = useCallback<OnNodeDrag>(() => {
+    preDragPositionsRef.current = new Map(
+      getNodes().map((n) => [n.id, { x: n.position.x, y: n.position.y }]),
+    );
+  }, [getNodes]);
 
-  const onNodeDrag = useCallback(
-    (_: React.MouseEvent, node: Node, nodes: Node[]) => {
+  const onNodeDrag = useCallback<OnNodeDrag>(
+    (_, node, nodes) => {
       const dragged = draggedNodesOf(node, nodes);
       clearDragHighlights();
 
@@ -73,8 +71,8 @@ export function useNodeDragTracking(
     [getNodes],
   );
 
-  const onNodeDragStop = useCallback(
-    (_: React.MouseEvent, node: Node, nodes: Node[]) => {
+  const onNodeDragStop = useCallback<OnNodeDrag>(
+    (_, node, nodes) => {
       clearDragHighlights();
       const events = buildDragStopEvents(
         draggedNodesOf(node, nodes),

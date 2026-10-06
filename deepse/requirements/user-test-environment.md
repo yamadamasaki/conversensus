@@ -524,6 +524,8 @@ bun run test:e2e:webkit   # webkit だけ
   (`tests/fixtures.ts`). 保存領域もそのプロファイルの中にある
 - テストは `tests/*.spec.ts`, 仕様書は同じ場所に `tests/*.spec.md` を置く.
   `bunfig.toml` が `tests/` を bun のランナーから外しているので `bun test` とは衝突しない
+- **Playwright の版が上がったら、ブラウザを入れ直す** (`bunx playwright install webkit chromium`).
+  入れ直さないと、どのテストも数 ms で `Executable doesn't exist` で落ちる (依存の更新 #291 で 1.63 に上がった)
 - **合成イベントで再現しないものは書かない** — トラックパッド由来の挙動・クリップボード・
   ファイル選択ダイアログ・描画品質は §8.3 のチェックリスト (人間) の領分である
 
