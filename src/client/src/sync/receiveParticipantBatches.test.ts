@@ -81,7 +81,9 @@ const event = (
  */
 const roster = (
   history: Record<string, Omit<ParticipationEvent, 'point'>[]>,
+  founder?: Did,
 ): Participation => ({
+  ...(founder !== undefined && { founder }),
   participating: new Set(Object.keys(history) as Did[]),
   invited: new Map(),
   departed: new Map(),
@@ -623,15 +625,46 @@ describe('receiveParticipantBatches', () => {
       expect(remote.observed).toEqual([]);
     });
 
-    it('相手の repo にある genesis は期間によらず取り込む', async () => {
+    it('創設者の repo にある genesis は期間によらず取り込む', async () => {
       // 承認した側が起源を持たない op-log を畳むとシートが 1 枚も立ち上がらない
       const remote = fakeRemote({
         [BOB]: [envelope(FILE, batch(GENESIS_ACTOR, 0))],
       });
-      const p = roster({ [BOB]: [event('accept', 5)] });
+      const p = roster({ [BOB]: [event('accept', 5)] }, BOB);
       const result = await receiveParticipantBatches(FILE, p, ME, remote.deps);
       expect(result.received).toBe(1);
       expect(result.outsidePeriod).toBe(0);
+    });
+  });
+
+  describe('書き手と repo の照合 (security review H1)', () => {
+    it('創設者でない人の repo にある genesis 名義の batch は取り込まない', async () => {
+      // genesis の id は ops の hash で、誰でも合わせられる。名義が genesis なら参加期間の
+      // 検査も素通りするので、創設者の repo のものだけを起源として信じる
+      const remote = fakeRemote({
+        [BOB]: [envelope(FILE, batch(GENESIS_ACTOR, 0))],
+      });
+      const p = roster(
+        { [BOB]: [event('accept', 5)], [CAROL]: [event('genesis', 0)] },
+        CAROL,
+      );
+      const result = await receiveParticipantBatches(FILE, p, ME, remote.deps);
+      expect(result.received).toBe(0);
+      expect(result.notAuthored).toBe(1);
+    });
+
+    it('repo の持ち主ではない人の名前で書かれた batch は取り込まない', async () => {
+      // BOB の repo に「CAROL の編集」を置いても、CAROL の編集にはならない
+      const remote = fakeRemote({
+        [BOB]: [envelope(FILE, batch(CAROL, 7)), envelope(FILE, batch(BOB, 8))],
+      });
+      const p = roster({
+        [BOB]: [event('accept', 5)],
+        [CAROL]: [event('accept', 5)],
+      });
+      const result = await receiveParticipantBatches(FILE, p, ME, remote.deps);
+      expect(result.received).toBe(1);
+      expect(result.notAuthored).toBe(1);
     });
   });
 

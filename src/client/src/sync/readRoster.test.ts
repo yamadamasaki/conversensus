@@ -405,3 +405,48 @@ describe('性質', () => {
     );
   });
 });
+
+describe('書き手と repo の照合 (security review H2)', () => {
+  test('repo の持ち主ではない人の名前で書かれた判断は採らない', async () => {
+    // B の repo に「A が C を取り消した」を置いても、A の判断にはならない
+    const forgedRevoke = jb(A, 9, [revoke(C)]);
+    const deps = makeDeps({
+      [A]: [
+        jb(A, 0, [genesis()]),
+        jb(A, 1, [invite(B)]),
+        jb(A, 2, [invite(C)]),
+      ],
+      [B]: [jb(B, 3, [accept(A)]), forgedRevoke],
+      [C]: [jb(C, 4, [accept(A)])],
+    });
+    const r = await readRoster(deps, {
+      fileId: FILE,
+      seed: A,
+      passes: 'converge',
+    });
+    expect(r.participation.participating.has(C)).toBe(true);
+    expect(r.batches).not.toContain(forgedRevoke);
+  });
+
+  test('招待されただけの人が偽の起点を書いても、名簿は創設者のまま', async () => {
+    // 攻撃者は名前を選べる: 本物より前に並ぶ DID にする
+    const M = 'did:plc:aaamallory';
+    const deps = makeDeps({
+      [A]: [
+        jb(A, 0, [genesis()]),
+        jb(A, 1, [invite(M)]),
+        jb(A, 2, [invite(B)]),
+      ],
+      [B]: [jb(B, 3, [accept(A)])],
+      // M は承認せずに、本物と同じ clock の起点を書く
+      [M]: [{ ...jb(M, 0, [genesis()]), actor: `${M}#0` }],
+    });
+    const r = await readRoster(deps, {
+      fileId: FILE,
+      seed: B,
+      passes: 'converge',
+    });
+    expect(r.participation.founder).toBe(A);
+    expect([...r.participation.participating].sort()).toEqual([A, B].sort());
+  });
+});

@@ -40,12 +40,14 @@
  * しているのと揃えている。
  */
 
-import type {
-  Batch,
-  Did,
-  FileId,
-  ForkMeta,
-  Participation,
+import {
+  type Batch,
+  type Did,
+  didFromActor,
+  type FileId,
+  type ForkMeta,
+  GENESIS_ACTOR,
+  type Participation,
 } from '@conversensus/shared';
 import type { RemoteBatch } from '../atproto/types';
 import { type DetectedConflicts, detectIncomingConflicts } from './conflicts';
@@ -92,6 +94,12 @@ export type CollectParticipantResult = {
   outsidePeriod: number;
   /** 他ファイル宛だったため落とした batch 数 (rkey とボディの食い違いの検知器) */
   skippedOtherFile: number;
+  /**
+   * 読んだ repo の持ち主が書いたものではないので落とした batch 数 (security review H1)。
+   * 名義が `genesis` の batch は創設者の repo のもの以外を数える — 参加者の repo にある
+   * 起源の写しは正常なので、**0 でないことは異常の印とは限らない**
+   */
+  notAuthored: number;
   /** 読めなかった repo と理由。**失敗で全体を落とさない** */
   unreadable: { did: Did; error: unknown }[];
 };
@@ -157,6 +165,7 @@ export async function collectParticipantBatches(
     readRepos: [],
     outsidePeriod: 0,
     skippedOtherFile: 0,
+    notAuthored: 0,
     unreadable: [],
   };
 
@@ -175,7 +184,18 @@ export async function collectParticipantBatches(
     const addressed = entries.filter((e) => e.fileId === fileId);
     result.skippedOtherFile += entries.length - addressed.length;
 
-    const all = addressed.map((e) => e.batch);
+    // **その repo の持ち主が書いた batch だけを採る** (security review H1)。batch の actor は
+    // 書き手が自由に名乗れるので、照合しないと他人の名前で編集を書ける。名義が `genesis`
+    // (File の起源) の batch は書き手を持たないので、**創設者の repo からだけ**採る
+    // (id は ops の hash で、誰でも合わせられるので認証にならない)
+    const all = addressed
+      .map((e) => e.batch)
+      .filter((batch) =>
+        batch.actor === GENESIS_ACTOR
+          ? did === participation.founder
+          : didFromActor(batch.actor) === did,
+      );
+    result.notAuthored += addressed.length - all.length;
     const within = filterByParticipation(participation, all);
     result.outsidePeriod += all.length - within.length;
     result.batches.push(...within);

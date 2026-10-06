@@ -276,6 +276,7 @@ const REJECT_REASON_LABEL: Record<RejectReason, string> = {
   duplicateGenesis: '起点が二重',
   rosterNotEmpty: 'まだ参加している人がいる',
   noGenesis: '起点がまだ見えていない',
+  notFounder: '起点を書いたのが創設者ではない',
 };
 
 /**
