@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import './index.css';
 import App from './App.tsx';
 import { setLocalBackend } from './api';
+import { BOUNDARY_LABELS, ErrorBoundary } from './ErrorBoundary';
 import { claimDeviceId } from './local/deviceClaim';
 import { broadcastingBackend } from './local/localChanges';
 import { startWorkerBackend } from './local/workerBackend';
@@ -62,7 +63,10 @@ if (started.ok) {
   }
   root.render(
     <StrictMode>
-      <App />
+      {/* 部分の境界 (グラフ・サイドバー) をすり抜けたものの最後の受け (#290) */}
+      <ErrorBoundary label={BOUNDARY_LABELS.app}>
+        <App />
+      </ErrorBoundary>
     </StrictMode>,
   );
 } else {
