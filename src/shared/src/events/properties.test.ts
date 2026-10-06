@@ -16,6 +16,10 @@ const IMAGE_URL = `${SYSTEM_PROPERTY_PREFIX}imageUrl`;
 /**
  * 名前は旧名・新名・custom を混ぜる。#137 の正規化が往復の意味そのものに絡むので、
  * 旧名を引かない生成器では往復の性質を確かめたことにならない。
+ *
+ * **prototype にある名前も混ぜる** (#289)。名前は他人が書ける文字列なので、`constructor`
+ * (prototype の値に化ける) と `__proto__` (代入すると prototype を差し替えてキーが消える) を
+ * 引かない生成器では、どんな名前でも往復するとは言えない。
  */
 const propertyName = fc.constantFrom(
   'image',
@@ -24,6 +28,8 @@ const propertyName = fc.constantFrom(
   IMAGE_URL,
   '期限',
   'a',
+  'constructor',
+  '__proto__',
 );
 
 /**
@@ -83,6 +89,39 @@ describe('applyPropertyChange', () => {
     const before = { a: 1 };
     applyPropertyChange(before, { name: 'a', value: 2 });
     expect(before).toEqual({ a: 1 });
+  });
+});
+
+describe('prototype にある名前 (#289)', () => {
+  /** JSON から来た properties (`__proto__` も自分のキーとして持つ) */
+  const parsed = (json: string) => JSON.parse(json) as Record<string, unknown>;
+
+  test('`constructor` は旧名の対応表の prototype に化けない', () => {
+    expect(canonicalPropertyName('constructor')).toBe('constructor');
+    expect(canonicalPropertyName('toString')).toBe('toString');
+  });
+
+  test('`constructor` を足す差分は、無いところから足す 1 件になる', () => {
+    expect(diffProperties({}, { constructor: 'x' })).toEqual([
+      { name: 'constructor', value: 'x' },
+    ]);
+  });
+
+  test('`__proto__` を当てると自分のキーになり、prototype は変わらない', () => {
+    const next = applyPropertyChange(
+      {},
+      { name: '__proto__', value: { a: 1 } },
+    );
+    expect(Object.hasOwn(next, '__proto__')).toBe(true);
+    expect(Object.getPrototypeOf(next)).toBe(Object.prototype);
+    expect(Object.keys(next)).toEqual(['__proto__']);
+  });
+
+  test('`__proto__` を持つ properties の往復でキーが消えない', () => {
+    const to = parsed('{"__proto__": "x", "image": "y"}');
+    const back = applyPropertyChanges({}, diffProperties({}, to));
+    expect(Object.keys(back).sort()).toEqual(['__proto__', IMAGE].sort());
+    expect(Object.getPrototypeOf(back)).toBe(Object.prototype);
   });
 });
 

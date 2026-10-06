@@ -37,14 +37,42 @@ export const SYSTEM_PROPERTY_PREFIX = 'app.conversensus.';
  * `app.conversensus.image` は 2 キーから 1 構造体への変換であって名前の付け替えでは
  * ない。その互換読みは `imageBlob.ts` の `readImageBlobLocation` が持つ。
  */
-const LEGACY_PROPERTY_NAMES: Readonly<Record<string, PropertyName>> = {
-  image: `${SYSTEM_PROPERTY_PREFIX}image`,
-  imageUrl: `${SYSTEM_PROPERTY_PREFIX}imageUrl`,
-};
+const LEGACY_PROPERTY_NAMES: ReadonlyMap<PropertyName, PropertyName> = new Map([
+  ['image', `${SYSTEM_PROPERTY_PREFIX}image`],
+  ['imageUrl', `${SYSTEM_PROPERTY_PREFIX}imageUrl`],
+]);
 
 /** 旧名なら新名を、そうでなければそのままを返す */
 export function canonicalPropertyName(name: PropertyName): PropertyName {
-  return LEGACY_PROPERTY_NAMES[name] ?? name;
+  return LEGACY_PROPERTY_NAMES.get(name) ?? name;
+}
+
+/*
+ * **property の名前は他人が書ける文字列**なので、通常の object の `in` / `[]` / 代入で扱うと
+ * `constructor` や `toString` が prototype の値に化け、`__proto__` への代入は prototype を
+ * 差し替えてキーが消える (#289)。読むときは自分のキーだけを、書くときは自分のキーとして置く
+ */
+
+/** 自分のキーとして持つ値だけを読む (prototype から拾わない) */
+export function ownProperty(
+  properties: Properties,
+  name: PropertyName,
+): unknown {
+  return Object.hasOwn(properties, name) ? properties[name] : undefined;
+}
+
+/** キーを自分のものとして置く (`__proto__` でも prototype を差し替えない) */
+export function setOwnProperty(
+  properties: Properties,
+  name: PropertyName,
+  value: unknown,
+): void {
+  Object.defineProperty(properties, name, {
+    value,
+    enumerable: true,
+    writable: true,
+    configurable: true,
+  });
 }
 
 /**
@@ -58,18 +86,19 @@ export function canonicalProperties(
   properties: Properties | undefined,
 ): Properties | undefined {
   if (!properties) return properties;
-  const legacyNames = Object.keys(properties).filter(
-    (name) => name in LEGACY_PROPERTY_NAMES,
+  const legacyNames = Object.keys(properties).filter((name) =>
+    LEGACY_PROPERTY_NAMES.has(name),
   );
   if (legacyNames.length === 0) return properties;
 
   const next: Properties = {};
   // 新名を先に置き、旧名は行き先が空いているときだけ入れる (新名が勝つ)
   for (const [name, value] of Object.entries(properties))
-    if (!(name in LEGACY_PROPERTY_NAMES)) next[name] = value;
+    if (!LEGACY_PROPERTY_NAMES.has(name)) setOwnProperty(next, name, value);
   for (const name of legacyNames) {
-    const canonical = LEGACY_PROPERTY_NAMES[name];
-    if (!(canonical in next)) next[canonical] = properties[name];
+    const canonical = canonicalPropertyName(name);
+    if (!Object.hasOwn(next, canonical))
+      setOwnProperty(next, canonical, properties[name]);
   }
   return next;
 }
@@ -163,11 +192,11 @@ export function diffProperties(
   const changes: PropertyChange[] = [];
 
   for (const name of Object.keys(after))
-    if (!sameValue(before[name], after[name]))
+    if (!sameValue(ownProperty(before, name), after[name]))
       changes.push({ name, value: after[name] });
 
   for (const name of Object.keys(before))
-    if (!(name in after)) changes.push({ name });
+    if (!Object.hasOwn(after, name)) changes.push({ name });
 
   return changes;
 }
@@ -185,7 +214,7 @@ export function applyPropertyChange(
   const next = { ...canonicalProperties(properties) };
   const name = canonicalPropertyName(change.name);
   if (change.value === undefined) delete next[name];
-  else next[name] = change.value;
+  else setOwnProperty(next, name, change.value);
   return next;
 }
 
