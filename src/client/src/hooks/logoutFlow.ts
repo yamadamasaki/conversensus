@@ -26,7 +26,7 @@ export const ERASE_CONFIRM_LABEL = '消してログアウト';
 export const KEEP_CANCEL_LABEL = '残してログアウト';
 export const OTHER_TABS_MESSAGE =
   '別の conversensus のタブが開いているので、この端末のデータを消せません。\n' +
-  '他のタブを閉じてから、もう一度ログアウトしてください。';
+  '他のタブ (インストールしたアプリの窓も含む) を閉じてから、もう一度ログアウトしてください。';
 
 export function logoutQuestion(unsent: UnsentEdits | null): string {
   const warning =

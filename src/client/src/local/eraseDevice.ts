@@ -9,6 +9,7 @@
  * 1. ログアウトの後、印 (`sessionStorage`) を付けて再読み込みする (`requestErase`)
  * 2. 起動の最初、保存領域 (Worker の SQLite) も OAuth の client も開く前に、印があれば消す
  *    (`eraseIfRequested`)
+ * 3. 消したら保存領域を開き直さず、「消しました」の画面だけを出す (`main.tsx`)。次に開けば空から始まる
  *
  * 動いている画面の中では消せない — 正典の DB は Worker が OPFS の同期ハンドルで開いたままで、
  * OAuth の client は IndexedDB の接続を持ったままだから。起動の最初なら、このタブは何も開いていない。
@@ -26,6 +27,8 @@ const ERASE_REQUESTED = '1';
 /** OPFS の消去が、閉じたばかりのハンドルに阻まれたときに待ち直す回数と間隔 */
 const REMOVE_RETRIES = 5;
 const REMOVE_RETRY_MS = 100;
+/** IndexedDB の削除の返事を待つ上限 */
+const DELETE_DATABASE_WAIT_MS = 2_000;
 
 export type EraseOutcome = 'none' | 'erased' | 'otherTabs';
 
@@ -128,6 +131,8 @@ export function browserEraseDeps(): EraseDeps {
         // blocked は他の接続が閉じるのを待っている状態。起動の最初なので、別のタブが無ければ
         // そのうち通る。止まらずに次へ進む (消し終わるのはブラウザの側)
         request.onblocked = () => resolve();
+        // どちらも来ないまま待ち続けると「消した」の画面に進めない。少し待って先へ進む
+        setTimeout(resolve, DELETE_DATABASE_WAIT_MS);
       }),
   };
 }
