@@ -30,8 +30,8 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           # サーバのホスト鍵を固定する (成りすましたサーバへ鍵を渡さない)
           fingerprint: ${{ secrets.VPS_FINGERPRINT }}
-          script_stop: true
           script: |
+            # 失敗したらそこで止まる (ssh-action 1.2.5 は script_stop を受け付けない)
             set -e
             # root ではなく deploy ユーザーで動く。bun は /usr/local/bin に置いてある
             export PATH="/usr/local/bin:$PATH"
