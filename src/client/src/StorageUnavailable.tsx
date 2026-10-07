@@ -6,6 +6,7 @@
  */
 
 const STORAGE_UNAVAILABLE_TITLE = 'この窓では保存できません';
+export const ERASED_TITLE = 'この端末の conversensus のデータを消しました';
 
 export function StorageUnavailable({ reason }: { reason: string }) {
   return (
@@ -36,6 +37,27 @@ export function Starting() {
       style={{ maxWidth: 560, margin: '80px auto', padding: 16, color: '#999' }}
     >
       起動中…
+    </main>
+  );
+}
+
+/**
+ * ログアウトで「この端末のデータも消す」を選び、消し終えたときの画面 (#288)。
+ * 窓はスクリプトからは閉じられない (スクリプトが開いた窓でないため) ので、閉じてもらう
+ */
+export function Erased() {
+  return (
+    <main
+      role="status"
+      style={{
+        maxWidth: 560,
+        margin: '80px auto',
+        padding: 16,
+        lineHeight: 1.7,
+      }}
+    >
+      <h1 style={{ fontSize: 20 }}>{ERASED_TITLE}</h1>
+      <p>このタブを閉じてください。</p>
     </main>
   );
 }

@@ -14,6 +14,8 @@ import { collectPageProblems } from './pageProblems';
 const START_TIMEOUT_MS = 15_000;
 /** `ERASE_REQUEST_KEY` と同じ (E2E は src から import しない) */
 const ERASE_REQUEST_KEY = 'conversensus_erase_requested';
+/** `ERASED_TITLE` と同じ */
+const ERASED_TITLE = 'この端末の conversensus のデータを消しました';
 
 async function createFile(page: Page, name: string) {
   await page.getByPlaceholder('ファイル名').fill(name);
@@ -31,7 +33,7 @@ async function requestEraseAndReload(page: Page) {
   await page.reload();
 }
 
-test('🔴 印を付けて再読み込みすると、この端末の File が消え、空から使える', async ({
+test('🔴 印を付けて再読み込みすると、この端末の File を消して「消した」とだけ出す。次に開けば空から使える', async ({
   page,
 }) => {
   const problems = collectPageProblems(page);
@@ -41,14 +43,20 @@ test('🔴 印を付けて再読み込みすると、この端末の File が消
 
   await requestEraseAndReload(page);
 
-  // 起動が済んで (入力欄が出て) から、File が無いことを見る
+  // 消した後は保存領域を開き直さず、閉じてもらう画面だけを出す
+  await expect(page.getByText(ERASED_TITLE)).toBeVisible({
+    timeout: START_TIMEOUT_MS,
+  });
+  await expect(page.getByPlaceholder('ファイル名')).toHaveCount(0);
+
+  // 次に開けば (印はもう無い) 空から始まり、新しい File を作れる
+  await page.reload();
   await expect(page.getByPlaceholder('ファイル名')).toBeVisible({
     timeout: START_TIMEOUT_MS,
   });
   await expect(
     page.getByRole('button', { name: fileName, exact: true }),
   ).toHaveCount(0);
-  // 消した後も保存領域は使える (新しい DB が開ける)
   await createFile(page, `後-${Date.now()}`);
   expect(problems.list()).toEqual([]);
 });

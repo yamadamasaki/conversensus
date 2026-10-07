@@ -8,7 +8,7 @@ import { claimDeviceId } from './local/deviceClaim';
 import { browserEraseDeps, eraseIfRequested } from './local/eraseDevice';
 import { broadcastingBackend } from './local/localChanges';
 import { startWorkerBackend } from './local/workerBackend';
-import { Starting, StorageUnavailable } from './StorageUnavailable';
+import { Erased, Starting, StorageUnavailable } from './StorageUnavailable';
 import { setClaimedDeviceId } from './sync/actor';
 
 /** Web Locks で deviceId を借りる。使えない環境では null (従来の端末に 1 つの id を使う) */
@@ -50,39 +50,46 @@ if (erased === 'otherTabs') {
   );
 }
 
-// **保存領域が開けたかを確かめてから描く** (step3 Phase 2 D5)。開けなければ編集させない
-const started = await startWorkerBackend();
-if (started.ok) {
-  // ブラウザが保存領域を消さないよう求める (Safari の ITP、S0-4 の注意 3)。断られても動く —
-  // そのときに頼れるのは PDS への同期と、未同期の表示 (D6) である
-  void navigator.storage?.persist?.().then((granted) => {
-    if (!granted) console.info('[storage] persist() は認められなかった');
-  });
-  // オフラインで起動するため (本番ビルドだけ。開発中は Vite の更新と噛み合わない)
-  if (import.meta.env.PROD) {
-    void navigator.serviceWorker?.register('/sw.js');
+/** 保存領域を開いて画面を描く */
+async function startApp(): Promise<void> {
+  // **保存領域が開けたかを確かめてから描く** (step3 Phase 2 D5)。開けなければ編集させない
+  const started = await startWorkerBackend();
+  if (started.ok) {
+    // ブラウザが保存領域を消さないよう求める (Safari の ITP、S0-4 の注意 3)。断られても動く —
+    // そのときに頼れるのは PDS への同期と、未同期の表示 (D6) である
+    void navigator.storage?.persist?.().then((granted) => {
+      if (!granted) console.info('[storage] persist() は認められなかった');
+    });
+    // オフラインで起動するため (本番ビルドだけ。開発中は Vite の更新と噛み合わない)
+    if (import.meta.env.PROD) {
+      void navigator.serviceWorker?.register('/sw.js');
+    }
+    // **タブごとの deviceId を描画の前に決める** (D4)。同じ端末のタブが同じ点を発番しないため。
+    // Web Locks が無ければ (古いブラウザ) 従来どおり端末に 1 つ
+    const deviceId = await claimTabDeviceId();
+    if (deviceId) setClaimedDeviceId(deviceId);
+    // 書いたら他のタブへ知らせる (D3)
+    setLocalBackend(broadcastingBackend(started.backend));
+    if (import.meta.env.DEV) {
+      // E2E がブラウザの中を覗く口: SQL ドライバの契約 (sqlDriverContract.ts) と、このタブの deviceId
+      (window as unknown as { __conversensus: unknown }).__conversensus = {
+        runDriverContract: started.runDriverContract,
+        deviceId,
+      };
+    }
+    root.render(
+      <StrictMode>
+        {/* 部分の境界 (グラフ・サイドバー) をすり抜けたものの最後の受け (#290) */}
+        <ErrorBoundary label={BOUNDARY_LABELS.app}>
+          <App />
+        </ErrorBoundary>
+      </StrictMode>,
+    );
+  } else {
+    root.render(<StorageUnavailable reason={started.reason} />);
   }
-  // **タブごとの deviceId を描画の前に決める** (D4)。同じ端末のタブが同じ点を発番しないため。
-  // Web Locks が無ければ (古いブラウザ) 従来どおり端末に 1 つ
-  const deviceId = await claimTabDeviceId();
-  if (deviceId) setClaimedDeviceId(deviceId);
-  // 書いたら他のタブへ知らせる (D3)
-  setLocalBackend(broadcastingBackend(started.backend));
-  if (import.meta.env.DEV) {
-    // E2E がブラウザの中を覗く口: SQL ドライバの契約 (sqlDriverContract.ts) と、このタブの deviceId
-    (window as unknown as { __conversensus: unknown }).__conversensus = {
-      runDriverContract: started.runDriverContract,
-      deviceId,
-    };
-  }
-  root.render(
-    <StrictMode>
-      {/* 部分の境界 (グラフ・サイドバー) をすり抜けたものの最後の受け (#290) */}
-      <ErrorBoundary label={BOUNDARY_LABELS.app}>
-        <App />
-      </ErrorBoundary>
-    </StrictMode>,
-  );
-} else {
-  root.render(<StorageUnavailable reason={started.reason} />);
 }
+
+// 消したら、保存領域を開き直さずに「消した」とだけ出す (#288)。次に開けば空から始まる
+if (erased === 'erased') root.render(<Erased />);
+else await startApp();

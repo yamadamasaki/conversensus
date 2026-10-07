@@ -30,6 +30,9 @@ bun run dev:client   # web クライアント (vite) を 127.0.0.1:5173 で起�
   使う CSRF の cookie に `Secure` が付いている。Chrome は http の `localhost` でもそれを受け取るが、
   **Safari は捨てる**ので「Missing CSRF header」(画面には「送信されたデータが無効です」) で止まる。
   Safari のログインは本番の PDS (https) で確かめる。ログインの要らない確認は Safari でもできる
+- **Safari の「Dock に追加」した web app は開発環境では試せない。**`127.0.0.1` が `localhost` に変わり
+  (変えられない)、`localhost` では OAuth を始めないので、パスワードのログインの口が出て失敗する
+  (2026-10-07 利用者の実機)。web app は本番で確かめる
 - **同じブラウザのタブは同じ保存領域を共有する** (タブごとに別の actor になる)。別の人として
   動かすには、別の origin (別のポート) か、別のブラウザ・プロファイルで開く (§5.1)
 
