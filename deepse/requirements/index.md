@@ -13,3 +13,4 @@
   - [searching](spec/searching.md)
 - [開発者向け操作マニュアル](operation-manual-for-dev.md)
 - [テスト環境](user-test-environment.md)
+- [上限の一覧](limits.md)

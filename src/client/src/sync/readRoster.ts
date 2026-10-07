@@ -92,6 +92,7 @@ export type ReadRosterResult = {
 /**
  * 名簿で読みに行く repo の総数の上限 (security review, 受信の量)。名簿は数十人の前提
  * (下の `reposToExpand`) で、離脱者が溜まっても十分に収まる
+ * (値を変えたら `deepse/requirements/limits.md` も直す)
  */
 export const MAX_ROSTER_REPOS = 500;
 

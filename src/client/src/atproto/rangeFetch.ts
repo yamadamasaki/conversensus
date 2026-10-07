@@ -66,6 +66,7 @@ export const MAX_FILE_ENUMERATION_REQUESTS = 200;
 /**
  * 1 File 分の prefix 範囲取得のページ数の上限 (security review, 受信の量)。1 ページ 100 件なので
  * 10 万件。1 人の 1 File の batch としては十分に大きく、超えるのは異常か悪意である
+ * (値を変えたら `deepse/requirements/limits.md` も直す)
  */
 export const MAX_PREFIX_PAGES = 1_000;
 
