@@ -8,6 +8,7 @@ import {
   listByRkeyPrefix,
   type RecordPage,
   type RecordSummary,
+  TooManyRecordsError,
 } from './rangeFetch';
 
 const COLLECTION = 'app.conversensus.v2.batch';
@@ -99,6 +100,29 @@ describe('listByRkeyPrefix (Phase 7 p7-2)', () => {
     // 3 + 3 + (1 + 境界 1) = 3 リクエスト。cursor は前ページ末尾の rkey
     expect(pager.requests).toBe(3);
     expect(pager.cursors).toEqual(['v1~B', 'v1~B~003~q', 'v1~B~006~q']);
+  });
+
+  it('上限のページ数を超えたら、読みかけを返さず失敗にする (受信の量)', async () => {
+    // 他人の repo は書き手の思うままの量を置ける。途中までの op-log は歯抜けで、
+    // 正しい畳み込みにならないので返さない
+    const rkeys = ['v1~A~000~x'];
+    for (let i = 1; i <= 10; i += 1)
+      rkeys.push(`v1~B~${String(i).padStart(3, '0')}~q`);
+    const pager = fakePager(rkeys, 3);
+
+    await expect(
+      listByRkeyPrefix(pager.listPage, 'v1~B~', 'v1~B', 2),
+    ).rejects.toBeInstanceOf(TooManyRecordsError);
+    expect(pager.requests).toBe(2);
+  });
+
+  it('ちょうど上限のページ数で読み終われば返す', async () => {
+    const rkeys = ['v1~A~000~x', 'v1~B~001~q', 'v1~B~002~q', 'v1~C~000~z'];
+    const pager = fakePager(rkeys, 3);
+    // 1 ページ目で境界まで届く
+    expect(
+      await listByRkeyPrefix(pager.listPage, 'v1~B~', 'v1~B', 1),
+    ).toHaveLength(2);
   });
 
   it('旧 rkey (v1~ より小さい) を 1 件も読まない', async () => {

@@ -63,14 +63,33 @@ export const MAX_FILE_ENUMERATION_REQUESTS = 200;
  * - したがって **prefix を外れた 1 件を見た時点で走査を終えられる**。この 1 件の読み過ぎは
  *   正常動作なので異常として数えない (§3.6)。
  */
+/**
+ * 1 File 分の prefix 範囲取得のページ数の上限 (security review, 受信の量)。1 ページ 100 件なので
+ * 10 万件。1 人の 1 File の batch としては十分に大きく、超えるのは異常か悪意である
+ * (値を変えたら `deepse/requirements/limits.md` も直す)
+ */
+export const MAX_PREFIX_PAGES = 1_000;
+
+/** prefix 範囲取得が上限のページ数を超えた */
+export class TooManyRecordsError extends Error {
+  constructor(prefix: string, read: number) {
+    super(`records under ${prefix} exceed the limit (read ${read})`);
+    this.name = 'TooManyRecordsError';
+  }
+}
+
 export async function listByRkeyPrefix(
   listPage: ListRecordsPage,
   prefix: string,
   seekCursor: string,
+  maxPages: number = MAX_PREFIX_PAGES,
 ): Promise<RecordSummary[]> {
   const found: RecordSummary[] = [];
   let cursor = seekCursor;
-  for (;;) {
+  for (let pages = 0; ; pages += 1) {
+    // 他人の repo は書き手の思うままの量を置ける。上限を超えたら読みかけで返さず失敗にする —
+    // 途中までの op-log は歯抜けで、正しい畳み込みにならない (呼び出し側は読めない repo として扱う)
+    if (pages >= maxPages) throw new TooManyRecordsError(prefix, found.length);
     const page = await listPage({ cursor, reverse: true });
     // 空ページで cursor だけ返ると cursor が前進せず無限ループになる。前進する材料が
     // 無い時点で打ち切る — 静かに回り続ける経路を作らない (§3.6)。

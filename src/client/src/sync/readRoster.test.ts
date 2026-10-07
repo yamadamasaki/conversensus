@@ -7,7 +7,12 @@ import type {
   JudgmentOp,
 } from '@conversensus/shared';
 import fc from 'fast-check';
-import { type ReadRosterDeps, readRoster } from './readRoster';
+import {
+  MAX_INVITERS_PER_ACTOR,
+  MAX_ROSTER_REPOS,
+  type ReadRosterDeps,
+  readRoster,
+} from './readRoster';
 
 const FILE = '11111111-1111-4111-8111-111111111111' as FileId;
 const A = 'did:plc:alice';
@@ -448,5 +453,62 @@ describe('書き手と repo の照合 (security review H2)', () => {
     });
     expect(r.participation.founder).toBe(A);
     expect([...r.participation.participating].sort()).toEqual([A, B].sort());
+  });
+});
+
+describe('読む量の上限 (security review, 受信の量)', () => {
+  test('1 人の承認から辿る招待者は上限まで — 偽の inviter を並べても読みに行く先は増えない', async () => {
+    // B は自分の repo に、存在しない招待者を並べた承認を書ける
+    const fakes = Array.from(
+      { length: MAX_INVITERS_PER_ACTOR + 20 },
+      (_, i) => `did:plc:fake${String(i).padStart(3, '0')}`,
+    );
+    const deps = makeDeps({
+      [A]: [jb(A, 1, [genesis()]), jb(A, 2, [invite(B)])],
+      [B]: [jb(B, 3, [accept(A), ...fakes.map((f) => accept(f))])],
+    });
+    const r = await readRoster(deps, {
+      fileId: FILE,
+      seed: A,
+      passes: 'converge',
+    });
+    const fakeReads = deps.reads.filter((did) =>
+      did.startsWith('did:plc:fake'),
+    );
+    // A も B の承認の招待者の 1 つとして数えるので、偽は上限 - 1 まで
+    expect(fakeReads.length).toBe(MAX_INVITERS_PER_ACTOR - 1);
+    // 本物の参加は崩れない
+    expect([...r.participation.participating].sort()).toEqual([A, B].sort());
+  });
+
+  test('読む repo の総数は上限まで。超えた分は読まずに skipped で返す', async () => {
+    // A が上限を超える数を招待する。招待は A 自身の正当な判断なので、招待者の上限は効かない
+    const targets = Array.from(
+      { length: MAX_ROSTER_REPOS + 5 },
+      (_, i) => `did:plc:t${String(i).padStart(4, '0')}`,
+    );
+    const deps = makeDeps({
+      [A]: [
+        jb(A, 1, [genesis()]),
+        jb(
+          A,
+          2,
+          targets.map((t) => invite(t)),
+        ),
+      ],
+    });
+    const r = await readRoster(deps, { fileId: FILE, seed: A, passes: 1 });
+    expect(new Set(deps.reads).size).toBe(MAX_ROSTER_REPOS);
+    // 起点の A を含めて上限なので、招待先から 6 件が読まれない (DID の順で後ろのもの)
+    expect(r.skipped).toEqual(targets.slice(-6));
+  });
+
+  test('上限に届かなければ skipped は空', async () => {
+    const deps = makeDeps({
+      [A]: [jb(A, 1, [genesis()]), jb(A, 2, [invite(B)])],
+      [B]: [jb(B, 3, [accept()])],
+    });
+    const r = await readRoster(deps, { fileId: FILE, seed: A, passes: 1 });
+    expect(r.skipped).toEqual([]);
   });
 });
