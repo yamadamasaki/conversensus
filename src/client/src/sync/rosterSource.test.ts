@@ -19,6 +19,7 @@ const result = (tag: string): ReadRosterResult => ({
   batches: [{ id: tag } as unknown as JudgmentBatch],
   readRepos: [],
   unreadable: [],
+  skipped: [],
 });
 
 /** 呼び出しを数え、解決のタイミングを外から握れる `loadRoster` */

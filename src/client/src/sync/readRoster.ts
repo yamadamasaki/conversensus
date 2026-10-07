@@ -82,7 +82,24 @@ export type ReadRosterResult = {
    * 「招待したのに相手が参加者にならない」が理由不明のまま残るので、返して見せる。
    */
   unreadable: { did: Did; error: unknown }[];
+  /**
+   * 上限 (`MAX_ROSTER_REPOS`) を超えたので読まなかった repo。名簿は数十人の前提なので、
+   * 超えるのは異常か悪意である。黙って落とさず返す (security review, 受信の量)
+   */
+  skipped: Did[];
 };
+
+/**
+ * 名簿で読みに行く repo の総数の上限 (security review, 受信の量)。名簿は数十人の前提
+ * (下の `reposToExpand`) で、離脱者が溜まっても十分に収まる
+ */
+export const MAX_ROSTER_REPOS = 500;
+
+/**
+ * 1 人の承認から辿る招待者の数の上限。承認は自分の repo に自分で書くので、書き手は任意の
+ * 数の `inviter` を並べられる (読みに行く先を水増しできる)。本物は抜けて戻るたびに 1 つ
+ */
+export const MAX_INVITERS_PER_ACTOR = 10;
 
 /**
  * 次に読むべき repo の集合。
@@ -118,9 +135,20 @@ function reposToExpand(
     ...participation.invited.keys(),
     ...participation.departed.keys(),
   ]);
-  for (const batch of batches)
-    for (const op of batch.ops)
-      if (op.kind === 'participation.accept') next.add(op.inviter);
+  // 承認の招待者は書き手ごとに数を限る。並びは読んだ順 (repo ごとに clock 順) で決まる
+  const invitersOf = new Map<string, Set<Did>>();
+  for (const batch of batches) {
+    const author = didFromActor(batch.actor);
+    const seen = invitersOf.get(author) ?? new Set<Did>();
+    invitersOf.set(author, seen);
+    for (const op of batch.ops) {
+      if (op.kind !== 'participation.accept') continue;
+      if (!seen.has(op.inviter) && seen.size >= MAX_INVITERS_PER_ACTOR)
+        continue;
+      seen.add(op.inviter);
+      next.add(op.inviter);
+    }
+  }
   return next;
 }
 
@@ -133,8 +161,15 @@ export async function readRoster(
   const unreadable: { did: Did; error: unknown }[] = [];
   const visited = new Set<Did>();
 
+  const skipped: Did[] = [];
+
   const readAll = async (dids: Iterable<Did>) => {
-    const targets = [...dids].filter((did) => !visited.has(did));
+    // 上限まで読む。並びは DID の順 (読む順序で名簿が変わらないため)
+    const fresh = [...dids].filter((did) => !visited.has(did)).sort();
+    const room = Math.max(0, MAX_ROSTER_REPOS - visited.size);
+    const targets = fresh.slice(0, room);
+    for (const did of fresh.slice(room))
+      if (!skipped.includes(did)) skipped.push(did);
     for (const did of targets) visited.add(did);
     const results = await Promise.all(
       targets.map(async (did) => {
@@ -181,10 +216,16 @@ export async function readRoster(
   const limit = passes === 'converge' ? Number.POSITIVE_INFINITY : passes;
   for (let pass = 0; pass < limit; pass += 1) {
     const next = reposToExpand(participation, batches);
-    if ([...next].every((did) => visited.has(did))) break; // 広がりが止まった
+    // 広がりが止まった (上限で読まなかった repo は、もう読まない)
+    if ([...next].every((did) => visited.has(did) || skipped.includes(did)))
+      break;
     await readAll(next);
     participation = await fold();
   }
 
-  return { participation, batches, readRepos, unreadable };
+  if (skipped.length > 0)
+    console.warn(
+      `[roster] ${fileId}: 読む repo が上限 (${MAX_ROSTER_REPOS}) を超えたので ${skipped.length} 件を読まなかった`,
+    );
+  return { participation, batches, readRepos, unreadable, skipped };
 }

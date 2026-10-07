@@ -59,6 +59,7 @@ const rosterOf = (participants: Did[]): ReadRosterResult => ({
   batches: [],
   readRepos: [],
   unreadable: [],
+  skipped: [],
 });
 
 type Options = {
