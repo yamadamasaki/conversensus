@@ -24,8 +24,9 @@ export const DEVICE_POOL_STORAGE_KEY = 'conversensus_device_pool';
 export const LEGACY_DEVICE_ID_STORAGE_KEY = 'conversensus_device_id';
 
 /** Web Locks の名前。origin の中で deviceId ごとに 1 つ */
+export const DEVICE_LOCK_PREFIX = 'conversensus-device:';
 export const deviceLockName = (deviceId: string) =>
-  `conversensus-device:${deviceId}`;
+  `${DEVICE_LOCK_PREFIX}${deviceId}`;
 
 /** `navigator.locks` のうち使う部分 */
 export type LockManagerLike = {

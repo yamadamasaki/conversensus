@@ -31,6 +31,16 @@
 - **合成キーは最後の `/` で割る。**DID には `:` はあるが `/` は無い。`did:plc:x:y` の
   ような形でも repo 側が壊れないことを見る
 
+### fileNameFromRecords (#290)
+
+依頼者の repo は他人の repo なので、受信と同じく **record を 1 件ずつ検証する** (`isAcceptableRemoteBatch`, M1 と同じ)。
+名前は承認のダイアログにそのまま描くので、文字列でない名前が通ると React が描画の例外で止まる。
+
+- **検証を通る record から名前を取る**
+- **文字列でない名前の record は読み飛ばし、残りから決める**: 壊れた record の方が clock が後でも、名前は前の
+  正しい record のもの。検証を外すとこの件が落ちる
+- **record の形をしていないものは読み飛ばす**: `null`・文字列・欠けた object
+
 ## 引かなかったもの
 
 - **`readRemoteFileName` そのもの** (ネットワークを叩く部分)。`batches.listByFile` を

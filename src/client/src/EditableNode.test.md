@@ -18,7 +18,9 @@
 
 `@testing-library/react` + `happy-dom` で DOM 環境を構築。
 `@xyflow/react` を `mock.module()` でスタブ化し、`useReactFlow().setNodes` の呼び出しを検証。
-`react-markdown` と `remark-gfm` もスタブ化して DOM テストを簡略化。
+`react-markdown` と `remark-gfm` もスタブ化して DOM テストを簡略化。スタブは受け取った props を記録するので、
+本文の描き方 (`MARKDOWN_COMPONENTS` — 画像をリンクに、リンクを新しいタブで, #287) が渡ることはそこで見る。
+部品そのものは `markdownComponents.test.tsx`。
 
 `Handle` は **描画せず props を記録するスタブ**にしてある。接続可否は DOM のクラス名では
 なく「`Handle` へ渡した `isConnectable`」で判定する — React Flow の内部実装 (クラス名) に

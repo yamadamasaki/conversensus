@@ -18,6 +18,7 @@ import { useEventDispatch } from './EventDispatchContext';
 import { makeEventBase } from './events/GraphEvent';
 import { useGraphNodeHandlers } from './graph/graphNodeContext';
 import { useInlineEdit } from './hooks/useInlineEdit';
+import { MARKDOWN_COMPONENTS } from './markdownComponents';
 import { useReadOnly } from './readOnlyContext';
 
 /** ラベルの見た目。空のとき (ラベルを付ける口) は破線の枠だけにする */
@@ -174,7 +175,10 @@ export function EditableNode({ id, data, selected }: NodeProps) {
             className="markdown-body"
           >
             {content ? (
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={MARKDOWN_COMPONENTS}
+              >
                 {content}
               </ReactMarkdown>
             ) : (
@@ -339,7 +343,10 @@ export function EditableNode({ id, data, selected }: NodeProps) {
             className="markdown-body"
           >
             {content ? (
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={MARKDOWN_COMPONENTS}
+              >
                 {content}
               </ReactMarkdown>
             ) : (

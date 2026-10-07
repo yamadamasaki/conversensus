@@ -26,7 +26,11 @@ import {
   derivedNodesFor,
   isDerivedNodeId,
 } from './derivedNode';
-import { applyPropertyChange, canonicalProperties } from './properties';
+import {
+  applyPropertyChange,
+  canonicalProperties,
+  setOwnProperty,
+} from './properties';
 import { METAGRAPH_SHEET_KIND, sheetKindOf } from './sheetKind';
 import {
   type Batch,
@@ -500,7 +504,7 @@ function applyFileOp(s: FileStructure, op: FileOp, clock: number): void {
       if (!meta) break;
       const properties = { ...meta.properties };
       if (op.value === undefined) delete properties[op.name];
-      else properties[op.name] = op.value;
+      else setOwnProperty(properties, op.name, op.value); // #289
       if (Object.keys(properties).length === 0) delete meta.properties;
       else meta.properties = properties;
       break;

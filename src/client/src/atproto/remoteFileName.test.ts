@@ -1,6 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 import type { Batch, BatchId, Did, FileId, NodeId } from '@conversensus/shared';
-import { fileNameFromBatches, remoteFileRef, splitRef } from './remoteFileName';
+import { batchToRecord } from './batchMapper';
+import {
+  fileNameFromBatches,
+  fileNameFromRecords,
+  remoteFileRef,
+  splitRef,
+} from './remoteFileName';
 
 const A = 'did:plc:alice' as Did;
 const F = '11111111-1111-4111-8111-111111111111' as FileId;
@@ -60,6 +66,29 @@ describe('fileNameFromBatches', () => {
     const clocks = batches.map((x) => x.clock);
     fileNameFromBatches(batches);
     expect(batches.map((x) => x.clock)).toEqual(clocks);
+  });
+});
+
+describe('fileNameFromRecords (他人の repo の record から, #290)', () => {
+  const record = (batch: Batch) => batchToRecord(batch, F);
+
+  test('検証を通る record から名前を取る', () => {
+    expect(fileNameFromRecords([record(b(1, setName('議題')))])).toBe('議題');
+  });
+
+  test('文字列でない名前の record は読み飛ばし、残りから名前を決める', () => {
+    // 名前は画面にそのまま描く。object が通ると React が描画の例外で止まる
+    const broken = {
+      ...record(b(2, setName('x'))),
+      ops: [{ kind: 'file.setName', name: { not: 'a string' } }],
+    };
+    expect(fileNameFromRecords([record(b(1, setName('議題'))), broken])).toBe(
+      '議題',
+    );
+  });
+
+  test('record の形をしていないものは読み飛ばす', () => {
+    expect(fileNameFromRecords([null, 'x', { id: 1 }])).toBeNull();
   });
 });
 

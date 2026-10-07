@@ -14,7 +14,8 @@ services:
       - pds
 
   pds:
-    image: ghcr.io/bluesky-social/pds:latest
+    # 本番 (docker-compose.prod.yml) と同じ版にそろえる (#286)
+    image: ghcr.io/bluesky-social/pds:0.4.5037
     restart: unless-stopped
     ports:
       # **ホストの :3000 で公開する** (step3 Phase 2 S2-6)。dev mode の PDS は自分の公開 URL を

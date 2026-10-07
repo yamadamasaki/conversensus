@@ -19,9 +19,10 @@ import {
   composeActor,
   type Did,
   type FileId,
+  type LocalActorBatchCount,
 } from '@conversensus/shared';
 
-export type LocalActorBatches = { fileId: FileId; actor: Actor; count: number };
+export type LocalActorBatches = LocalActorBatchCount;
 
 export type AdoptLocalActorsDeps = {
   listLocalActorBatches: () => Promise<LocalActorBatches[]>;
@@ -32,6 +33,8 @@ export type AdoptLocalActorsDeps = {
   confirm: (summary: {
     batches: number;
     fileIds: FileId[];
+    /** 最後の編集の時刻 (ms)。前の人の編集かどうかの手がかり (#288) */
+    lastEditedAt: number;
   }) => Promise<boolean>;
   /** その File の手元の batch を、PDS に無いものだけ送る */
   catchUp: (fileId: FileId) => Promise<void>;
@@ -51,7 +54,8 @@ export async function adoptLocalActors(
 
   const batches = rows.reduce((sum, row) => sum + row.count, 0);
   const fileIds = [...new Set(rows.map((row) => row.fileId))];
-  if (!(await deps.confirm({ batches, fileIds }))) {
+  const lastEditedAt = Math.max(...rows.map((row) => row.lastTimestamp));
+  if (!(await deps.confirm({ batches, fileIds, lastEditedAt }))) {
     return { status: 'declined', batches };
   }
 

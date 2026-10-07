@@ -1,6 +1,7 @@
 services:
   pds:
-    image: ghcr.io/bluesky-social/pds:latest
+    # 版で固定する (#286)。上げるのは user-test-environment.md §11.3「PDS を上げる」の手順で
+    image: ghcr.io/bluesky-social/pds:0.4.5037
     restart: unless-stopped
     ports:
       - "127.0.0.1:2583:3000"

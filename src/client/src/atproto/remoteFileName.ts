@@ -33,7 +33,11 @@
 import type { Batch, Did, FileId } from '@conversensus/shared';
 import { compareByClockActorId } from '@conversensus/shared';
 import { createLabelCache } from '../display/labelCache';
-import { isBatchRecordValue, recordToBatch } from './batchMapper';
+import {
+  isAcceptableRemoteBatch,
+  isBatchRecordValue,
+  recordToBatch,
+} from './batchMapper';
 import { batches } from './collections';
 
 /** どの repo の File か。**同じ File でも repo によって名前が違いうる** */
@@ -62,11 +66,22 @@ export async function readRemoteFileName(
   fileId: FileId,
 ): Promise<string | null> {
   const records = await batches.listByFile(fileId, { repo });
-  const parsed = records.flatMap((record) => {
-    if (!isBatchRecordValue(record.value)) return [];
-    return [recordToBatch(record.value)];
-  });
+  return fileNameFromRecords(records.map((record) => record.value));
+}
 
+/**
+ * PDS の record の値の列から File の名前を取り出す。
+ *
+ * **他人の repo の値なので、受信と同じく 1 件ずつ検証する** (#290)。名前は画面に
+ * そのまま描くので、文字列でない名前が通ると描画が例外で止まる。通らない record は
+ * 読み飛ばし、残りから名前を決める
+ */
+export function fileNameFromRecords(values: readonly unknown[]): string | null {
+  const parsed = values.flatMap((value) => {
+    if (!isBatchRecordValue(value)) return [];
+    const batch = recordToBatch(value);
+    return isAcceptableRemoteBatch(batch) ? [batch] : [];
+  });
   return fileNameFromBatches(parsed);
 }
 

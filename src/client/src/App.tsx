@@ -40,6 +40,7 @@ import { ConfirmDialog } from './ConfirmDialog';
 import { ConflictList } from './ConflictList';
 import { ConflictNotice, NOTICE_Z_INDEX } from './ConflictNotice';
 import { devPanesEnabled } from './config';
+import { BOUNDARY_LABELS, ErrorBoundary } from './ErrorBoundary';
 import { type GraphEvent, makeEventBase } from './events/GraphEvent';
 import { type FolderNode, siblingNameTaken } from './folders/folderTree';
 import { GraphEditor } from './GraphEditor';
@@ -47,6 +48,11 @@ import { GraphHeader, type HeaderBranch } from './GraphHeader';
 import type { PreviewMarks } from './GraphPreview';
 import { alignToPane } from './graph/alignToPane';
 import { splitMetagraphEvent } from './graph/metagraphEvents';
+import {
+  ERASE_CONFIRM_LABEL,
+  KEEP_CANCEL_LABEL,
+  logoutFlow,
+} from './hooks/logoutFlow';
 import { useActor } from './hooks/useActor';
 import { useAtprotoSession } from './hooks/useAtprotoSession';
 import {
@@ -71,6 +77,7 @@ import { useTabs } from './hooks/useTabs';
 import { InputDialog } from './InputDialog';
 import { InvitationDialog } from './InvitationDialog';
 import { BlobOriginProvider } from './images/blobOriginContext';
+import { otherTabsOpen, requestErase } from './local/eraseDevice';
 import { OverwriteNotice } from './OverwriteNotice';
 import { PaneFrame } from './PaneFrame';
 import { ParticipateDialog } from './ParticipateDialog';
@@ -117,6 +124,8 @@ export default function App() {
   const [confirmState, setConfirmState] = useState<{
     message: string;
     resolve: (ok: boolean) => void;
+    confirmLabel?: string;
+    cancelLabel?: string;
   } | null>(null);
   const [inputState, setInputState] = useState<{
     message: string;
@@ -175,6 +184,39 @@ export default function App() {
 
   // remote (ATProto) 送信キュー。未ログイン時は null → tap は local-only (W3d5-5)
   const remoteQueue = useRemoteSyncQueue(atprotoSession);
+
+  /** ログアウト — この端末のデータも消すかを訊く (#288) */
+  const handleLogout = useCallback(
+    () =>
+      logoutFlow({
+        unsent: remoteQueue
+          ? {
+              count: remoteQueue.pendingCount,
+              overflowed: remoteQueue.overflowed,
+            }
+          : null,
+        askErase: (message) =>
+          new Promise((resolve) =>
+            setConfirmState({
+              message,
+              resolve,
+              confirmLabel: ERASE_CONFIRM_LABEL,
+              cancelLabel: KEEP_CANCEL_LABEL,
+            }),
+          ),
+        otherTabsOpen: () =>
+          otherTabsOpen(
+            navigator.locks ? () => navigator.locks.query() : undefined,
+            true,
+          ),
+        alert: (message) =>
+          new Promise((resolve) => setAlertState({ message, resolve })),
+        logout: atprotoLogout,
+        requestErase: () => requestErase(sessionStorage),
+        reload: () => location.reload(),
+      }),
+    [remoteQueue, atprotoLogout],
+  );
   /** 共同作業者ダイアログの対象 File (step2 Phase 1)。null なら閉じている */
   const [invitationFileId, setInvitationFileId] = useState<FileId | null>(null);
   const [participateOpen, setParticipateOpen] = useState(false);
@@ -995,63 +1037,69 @@ export default function App() {
         // 途中の層はこの値に用が無い (`blobOriginContext`)
         // 再参加した後は, 同期が済むまで読み取り専用にする (step2 Phase 2 S6)。
         // 頼んで守られなかった場合に壊れるのは相手なので, 頼まずに止める
-        <ReadOnlyProvider value={readOnly}>
-          <BlobOriginProvider value={fileOps.originOf}>
-            <GraphEditor
-              key={addressKey(viewAddress)}
-              graphKey={addressKey(viewAddress)}
-              undoStateMap={undoStateMapRef}
-              sheet={editorSheet ?? viewSheet}
-              fileId={fileOps.activeFile.id}
-              fileName={fileOps.activeFile.name}
-              onSheetChange={
-                isMergerResult
-                  ? // merger の後の姿は「trunk + branch」なので branch 自身の表示に戻さない。
-                    // 編集そのものは branch の tap が op-log に積む
-                    ignoreSheetChange
-                  : viewingBranch
-                    ? branchOps.onBranchSheetChange
-                    : handleSheetChange
-              }
-              // branch 表示中の編集は branch 専用 op-log へ (p5-4)。trunk 用の tap に
-              // 流すと branch の編集が trunk のログに混ざる。
-              syncRecord={branchOps.branchSyncRecord ?? fileOps.syncRecord}
-              addedNodeIds={
-                mergerResultMarks?.addedNodes ?? branchOps.addedNodeIds
-              }
-              updatedNodeIds={
-                mergerResultMarks?.updatedNodes ?? branchOps.updatedNodeIds
-              }
-              addedEdgeIds={
-                mergerResultMarks?.addedEdges ?? branchOps.addedEdgeIds
-              }
-              updatedEdgeIds={
-                mergerResultMarks?.updatedEdges ?? branchOps.updatedEdgeIds
-              }
-              deletedNodes={branchOps.deletedNodes}
-              deletedEdges={branchOps.deletedEdges}
-              deletedNodeLayouts={branchOps.deletedNodeLayouts}
-              deletedEdgeLayouts={branchOps.deletedEdgeLayouts}
-              // 受信による差し替えの契機。描いている方 (trunk / branch) の受信だけを見る —
-              // branch を開いている間の trunk の受信は branch の画面を変えない
-              receiveEpoch={
-                (viewingBranch
-                  ? branchOps.branchReceiveEpoch
-                  : fileOps.receiveEpoch) +
-                metagraphEpoch +
-                // merge 先が進んだら merge 後を seed し直す (O3)。自分の解決の編集では変わらない
-                (isMergerResult ? (merger?.trunkVersion ?? 0) : 0)
-              }
-              {...(isMetagraphView && {
-                transformEvent: metagraphTransform,
-                graphNodes: metagraphGraphNodes,
-              })}
-              templates={viewTemplates}
-              onControls={panels.setControls}
-              onSelectionChange={panels.setSelection}
-            />
-          </BlobOriginProvider>
-        </ReadOnlyProvider>
+        // 描画の例外はグラフの中に留める (#290)。グラフを替えたら知らせも消える (key)
+        <ErrorBoundary
+          key={addressKey(viewAddress)}
+          label={BOUNDARY_LABELS.graph}
+        >
+          <ReadOnlyProvider value={readOnly}>
+            <BlobOriginProvider value={fileOps.originOf}>
+              <GraphEditor
+                key={addressKey(viewAddress)}
+                graphKey={addressKey(viewAddress)}
+                undoStateMap={undoStateMapRef}
+                sheet={editorSheet ?? viewSheet}
+                fileId={fileOps.activeFile.id}
+                fileName={fileOps.activeFile.name}
+                onSheetChange={
+                  isMergerResult
+                    ? // merger の後の姿は「trunk + branch」なので branch 自身の表示に戻さない。
+                      // 編集そのものは branch の tap が op-log に積む
+                      ignoreSheetChange
+                    : viewingBranch
+                      ? branchOps.onBranchSheetChange
+                      : handleSheetChange
+                }
+                // branch 表示中の編集は branch 専用 op-log へ (p5-4)。trunk 用の tap に
+                // 流すと branch の編集が trunk のログに混ざる。
+                syncRecord={branchOps.branchSyncRecord ?? fileOps.syncRecord}
+                addedNodeIds={
+                  mergerResultMarks?.addedNodes ?? branchOps.addedNodeIds
+                }
+                updatedNodeIds={
+                  mergerResultMarks?.updatedNodes ?? branchOps.updatedNodeIds
+                }
+                addedEdgeIds={
+                  mergerResultMarks?.addedEdges ?? branchOps.addedEdgeIds
+                }
+                updatedEdgeIds={
+                  mergerResultMarks?.updatedEdges ?? branchOps.updatedEdgeIds
+                }
+                deletedNodes={branchOps.deletedNodes}
+                deletedEdges={branchOps.deletedEdges}
+                deletedNodeLayouts={branchOps.deletedNodeLayouts}
+                deletedEdgeLayouts={branchOps.deletedEdgeLayouts}
+                // 受信による差し替えの契機。描いている方 (trunk / branch) の受信だけを見る —
+                // branch を開いている間の trunk の受信は branch の画面を変えない
+                receiveEpoch={
+                  (viewingBranch
+                    ? branchOps.branchReceiveEpoch
+                    : fileOps.receiveEpoch) +
+                  metagraphEpoch +
+                  // merge 先が進んだら merge 後を seed し直す (O3)。自分の解決の編集では変わらない
+                  (isMergerResult ? (merger?.trunkVersion ?? 0) : 0)
+                }
+                {...(isMetagraphView && {
+                  transformEvent: metagraphTransform,
+                  graphNodes: metagraphGraphNodes,
+                })}
+                templates={viewTemplates}
+                onControls={panels.setControls}
+                onSelectionChange={panels.setSelection}
+              />
+            </BlobOriginProvider>
+          </ReadOnlyProvider>
+        </ErrorBoundary>
       ) : (
         <div
           style={{
@@ -1096,65 +1144,67 @@ export default function App() {
     <div style={{ display: 'flex', height: '100vh', fontFamily: 'sans-serif' }}>
       <SidePanel
         side="left"
-        label="左サイドバー"
+        label={BOUNDARY_LABELS.leftSidebar}
         state={sidePanels.state.left}
         onResize={(width) => sidePanels.setWidth('left', width)}
         onToggle={() => sidePanels.toggle('left')}
       >
-        <Sidebar
-          files={fileOps.files}
-          folders={folderProps}
-          activeFile={fileOps.activeFile}
-          activeSheetId={fileOps.activeSheetId}
-          expandedFileIds={fileOps.expandedFileIds}
-          newFileName={fileOps.newFileName}
-          popupTarget={fileOps.popupTarget}
-          sharing={fileOps.sharing}
-          onNewFileNameChange={fileOps.setNewFileName}
-          onCreateFile={fileOps.handleCreate}
-          onImportFile={fileOps.handleImportFile}
-          onToggleExpand={fileOps.toggleExpand}
-          onOpenFile={fileOps.openFile}
-          onSelectSheet={(sheetId, options) =>
-            openSheetTab(sheetId, null, options)
-          }
-          onAddSheet={handleAddSheet}
-          onAddKindSheet={handleAddKindSheet}
-          onAddSeedTemplate={handleAddSeedTemplate}
-          onSetPopupTarget={fileOps.setPopupTarget}
-          onSaveFileSettings={fileOps.handleSaveFileSettings}
-          onDeleteFile={fileOps.handleDeleteFile}
-          onExportFile={fileOps.handleExportFile}
-          onSaveSheetSettings={fileOps.handleSaveSheetSettings}
-          onDeleteSheet={fileOps.handleDeleteSheet}
-          sheetBranches={branchOps.sheetBranches}
-          activeBranchId={branchOps.activeBranch?.id ?? null}
-          onSelectBranch={(sheetId, selected, options) =>
-            openSheetTab(sheetId, selected?.id ?? null, options)
-          }
-          onCreateBranch={branchOps.handleCreateBranch}
-          onMergeBranch={branchOps.handleMergeBranch}
-          onCloseBranch={branchOps.handleCloseBranch}
-          onDeleteBranch={branchOps.handleDeleteBranch}
-          atprotoSession={atprotoSession}
-          localOnlyCount={localOnlyCount}
-          onAtprotoLogin={() => setLoginDialogOpen(true)}
-          onAtprotoLogout={atprotoLogout}
-          remoteQueue={remoteQueue}
-          onSyncNow={syncNow}
-          // 名簿は DID 単位なので、ログイン中でなければ何も出せない
-          onOpenInvitation={
-            atprotoSession
-              ? (fileId) => {
-                  setInvitationFileId(fileId as FileId);
-                  participation.refresh(fileId as FileId);
-                }
-              : undefined
-          }
-          onOpenParticipate={
-            atprotoSession ? () => setParticipateOpen(true) : undefined
-          }
-        />
+        <ErrorBoundary label={BOUNDARY_LABELS.leftSidebar}>
+          <Sidebar
+            files={fileOps.files}
+            folders={folderProps}
+            activeFile={fileOps.activeFile}
+            activeSheetId={fileOps.activeSheetId}
+            expandedFileIds={fileOps.expandedFileIds}
+            newFileName={fileOps.newFileName}
+            popupTarget={fileOps.popupTarget}
+            sharing={fileOps.sharing}
+            onNewFileNameChange={fileOps.setNewFileName}
+            onCreateFile={fileOps.handleCreate}
+            onImportFile={fileOps.handleImportFile}
+            onToggleExpand={fileOps.toggleExpand}
+            onOpenFile={fileOps.openFile}
+            onSelectSheet={(sheetId, options) =>
+              openSheetTab(sheetId, null, options)
+            }
+            onAddSheet={handleAddSheet}
+            onAddKindSheet={handleAddKindSheet}
+            onAddSeedTemplate={handleAddSeedTemplate}
+            onSetPopupTarget={fileOps.setPopupTarget}
+            onSaveFileSettings={fileOps.handleSaveFileSettings}
+            onDeleteFile={fileOps.handleDeleteFile}
+            onExportFile={fileOps.handleExportFile}
+            onSaveSheetSettings={fileOps.handleSaveSheetSettings}
+            onDeleteSheet={fileOps.handleDeleteSheet}
+            sheetBranches={branchOps.sheetBranches}
+            activeBranchId={branchOps.activeBranch?.id ?? null}
+            onSelectBranch={(sheetId, selected, options) =>
+              openSheetTab(sheetId, selected?.id ?? null, options)
+            }
+            onCreateBranch={branchOps.handleCreateBranch}
+            onMergeBranch={branchOps.handleMergeBranch}
+            onCloseBranch={branchOps.handleCloseBranch}
+            onDeleteBranch={branchOps.handleDeleteBranch}
+            atprotoSession={atprotoSession}
+            localOnlyCount={localOnlyCount}
+            onAtprotoLogin={() => setLoginDialogOpen(true)}
+            onAtprotoLogout={() => void handleLogout()}
+            remoteQueue={remoteQueue}
+            onSyncNow={syncNow}
+            // 名簿は DID 単位なので、ログイン中でなければ何も出せない
+            onOpenInvitation={
+              atprotoSession
+                ? (fileId) => {
+                    setInvitationFileId(fileId as FileId);
+                    participation.refresh(fileId as FileId);
+                  }
+                : undefined
+            }
+            onOpenParticipate={
+              atprotoSession ? () => setParticipateOpen(true) : undefined
+            }
+          />
+        </ErrorBoundary>
       </SidePanel>
       {invitationFileId && (
         <InvitationDialog
@@ -1388,18 +1438,20 @@ export default function App() {
       </main>
       <SidePanel
         side="right"
-        label="右サイドバー"
+        label={BOUNDARY_LABELS.rightSidebar}
         state={sidePanels.state.right}
         onResize={(width) => sidePanels.setWidth('right', width)}
         onToggle={() => sidePanels.toggle('right')}
       >
-        <RightSidebar
-          selection={viewAddress ? panels.selection : undefined}
-          onSetProperty={(name, value) =>
-            panels.controls?.setProperty(name, value)
-          }
-          readOnly={readOnly}
-        />
+        <ErrorBoundary label={BOUNDARY_LABELS.rightSidebar}>
+          <RightSidebar
+            selection={viewAddress ? panels.selection : undefined}
+            onSetProperty={(name, value) =>
+              panels.controls?.setProperty(name, value)
+            }
+            readOnly={readOnly}
+          />
+        </ErrorBoundary>
       </SidePanel>
       {templateDialogOpen && (
         <TemplateApplyDialog
@@ -1418,6 +1470,8 @@ export default function App() {
       {confirmState && (
         <ConfirmDialog
           message={confirmState.message}
+          confirmLabel={confirmState.confirmLabel}
+          cancelLabel={confirmState.cancelLabel}
           onConfirm={() => {
             confirmState.resolve(true);
             setConfirmState(null);

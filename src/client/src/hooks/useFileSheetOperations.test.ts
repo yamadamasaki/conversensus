@@ -6,7 +6,9 @@ import type { ConflictNoticeState } from './useBranchOperations';
 import type { AlertState, ConfirmState } from './useFileSheetOperations';
 
 const { renderHook, act, cleanup } = await import('@testing-library/react');
-const { useFileSheetOperations } = await import('./useFileSheetOperations');
+const { useFileSheetOperations, localAdoptionMessage } = await import(
+  './useFileSheetOperations'
+);
 const { createInMemoryFileSheetOpsDeps } = await import(
   './testing/inMemoryDeps'
 );
@@ -841,4 +843,25 @@ describe('useFileSheetOperations', () => {
   // 書込先 (`saveFile` / `syncFileToAtproto`) が `FileSheetOpsDeps` から無くなったので、
   // 漏れようがない (設計 §3.6)。ガードのテストも一緒に退役させた。
   // Phase 5 critic の「呼び出し側ごとのガードは必ず漏れる」への最終的な答えがこれ。
+});
+
+describe('localAdoptionMessage (未ログインの編集を出し直す問い)', () => {
+  it('件数・File・送り先の名前を見せる', () => {
+    const message = localAdoptionMessage(3, ['議題', 'メモ'], 'alice.test');
+    expect(message).toContain('3 件');
+    expect(message).toContain('(File: 議題、メモ)');
+    expect(message).toContain('@alice.test の編集として');
+  });
+
+  it('最後の編集の時刻を、手元の時刻で分まで見せる (#288)', () => {
+    // 共有の端末で、前の人の編集かどうかを見分ける手がかり
+    const at = new Date(2026, 9, 7, 9, 5).getTime();
+    expect(localAdoptionMessage(1, [], undefined, at)).toContain(
+      '(最後の編集: 2026/10/07 09:05)',
+    );
+  });
+
+  it('時刻が無ければその行を出さない', () => {
+    expect(localAdoptionMessage(1, [])).not.toContain('最後の編集');
+  });
 });

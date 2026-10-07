@@ -119,6 +119,13 @@ trunk の姿に化けたからである。S3-2 で branch の中身を `useBranc
 `activeFile` は常に trunk の姿であり、見送る理由が無くなった (テストも撤去した)。
 branch 表示中の画面は、App が描く方の `receiveEpoch` だけを GraphEditor に渡すので再 seed されない。
 
+## 未ログインの編集を出し直す問いの文 (`localAdoptionMessage`)
+
+- **件数・File・送り先の名前を見せる**
+- **最後の編集の時刻を、手元の時刻で分まで見せる** (#288): 共有の端末で、前の人の編集かどうかを見分ける手がかり。
+  期待値は手元の時刻で組む (`new Date(年, 月, …)`) — 実行する機械の時間帯に左右されない
+- **時刻が無ければその行を出さない**
+
 ## 【退役】persistFile の branch ガード (step1 Phase 5 p5-4)
 
 op-log branch を表示している間、`activeFile` の該当シートは **branch の内容** に

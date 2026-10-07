@@ -1026,6 +1026,28 @@ describe('sheet.setProperty (step3 Phase 1 D7)', () => {
     });
   });
 
+  test('名前が `__proto__` でも自分のキーとして置き、prototype を差し替えない (#289)', () => {
+    const f = fid();
+    const s = sid();
+    const file = projectFile(
+      [
+        batch(1, [{ kind: 'sheet.create', target: s, name: 'S' }]),
+        batch(2, [
+          {
+            kind: 'sheet.setProperty',
+            target: s,
+            name: '__proto__',
+            value: { polluted: true },
+          },
+        ]),
+      ],
+      f,
+    );
+    const properties = file.sheets[0]?.properties ?? {};
+    expect(Object.keys(properties)).toEqual(['__proto__']);
+    expect(Object.getPrototypeOf(properties)).toBe(Object.prototype);
+  });
+
   test('値を省けばそのプロパティを消す。全部消えれば properties 自体を持たない', () => {
     const f = fid();
     const s = sid();
