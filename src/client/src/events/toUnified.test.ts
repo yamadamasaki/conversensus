@@ -559,8 +559,7 @@ describe('layout 値の整数化 (W3d5-7)', () => {
   // 丸めはローカル正典に載る値そのものに掛ける (local と remote を一致させる)。
   const layoutOf = (event: GraphEvent) => {
     const op = graphEventToOps(event).find((o) => o.kind === 'node.setLayout');
-    if (!op || op.kind !== 'node.setLayout')
-      throw new Error('layout op が無い');
+    if (op?.kind !== 'node.setLayout') throw new Error('layout op が無い');
     return op;
   };
 
