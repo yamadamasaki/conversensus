@@ -53,6 +53,7 @@ graph merge は人間にとって (も) 本質的に難しい問題である. �
     広く使われているツールに倣う
   - conversensus の基本的な概念を UI/UX のレベルで明確に言語化する
   - 👉 [design language](./step3/design-language.md)
+  - 👉 [visual language](./step3/visual-language.md) (見た目の体系)
 - 無限キャンバス (端に要素を置いたところまで動的に拡大する)
 - timeline view
   - 👉 [timeline view](./step3/timeline-view.md)
