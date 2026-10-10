@@ -1,3 +1,4 @@
+import { color, font } from './theme';
 /**
  * サイドバーの外枠 (step3 Phase 3 S3-4b)。幅を変える取っ手と、折り畳む・広げるボタンを持つ。
  * 中身 (左はグラフの入れ物、右はグラフの詳細) は呼び出し側が渡す。
@@ -49,8 +50,8 @@ export function SidePanel({
         style={{
           width: COLLAPSED_PANEL_WIDTH,
           flexShrink: 0,
-          [border]: '1px solid #ddd',
-          background: '#fafafa',
+          [border]: `1px solid ${color.border}`,
+          background: color.bgSubtle,
           display: 'flex',
           justifyContent: 'center',
           // ボタンを帯の高さいっぱいに伸ばさない (上に置く)
@@ -126,7 +127,7 @@ export function SidePanel({
         position: 'relative',
         width: state.width,
         flexShrink: 0,
-        [border]: '1px solid #ddd',
+        [border]: `1px solid ${color.border}`,
         display: 'flex',
         flexDirection: 'column',
         minHeight: 0,
@@ -158,7 +159,7 @@ const collapseButtonStyle = {
   background: 'none',
   border: 'none',
   cursor: 'pointer',
-  color: '#888',
-  fontSize: 11,
+  color: color.textMuted,
+  fontSize: font.caption,
   padding: '2px 4px',
 } as const;

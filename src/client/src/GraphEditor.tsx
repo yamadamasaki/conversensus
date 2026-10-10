@@ -34,6 +34,7 @@ import {
   useReactFlow,
 } from '@xyflow/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { color, font, radius } from './theme';
 import '@xyflow/react/dist/style.css';
 import type { FileId, Sheet } from '@conversensus/shared';
 import { AlertDialog } from './AlertDialog';
@@ -366,7 +367,7 @@ function GraphEditorInner({
           ...e,
           style: dt
             ? {
-                stroke: dt === 'add' ? '#16a34a' : '#f97316',
+                stroke: dt === 'add' ? color.diffAdd : color.diffUpdate,
                 strokeWidth: 3,
               }
             : undefined,
@@ -927,12 +928,12 @@ function GraphEditorInner({
                     <div
                       role="status"
                       style={{
-                        background: '#fdf3d0',
-                        border: '1px solid #e6d28a',
-                        color: '#8a6d1f',
-                        borderRadius: 4,
+                        background: color.warningBg,
+                        border: `1px solid ${color.warning}`,
+                        color: color.warningText,
+                        borderRadius: radius.sm,
                         padding: '4px 10px',
-                        fontSize: 12,
+                        fontSize: font.body,
                       }}
                     >
                       参加していなかった間の編集を取り込んでいます。終わるまで読み取り専用です

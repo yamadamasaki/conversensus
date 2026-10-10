@@ -31,6 +31,7 @@ import { SettingsPopup } from './SettingsPopup';
 import { ShareStatusIcon } from './ShareStatusIcon';
 import { SyncStatusIndicator } from './SyncStatusIndicator';
 import type { FileSharing } from './sync/rosterView';
+import { color, font, radius } from './theme';
 
 /** 特殊なグラフのシートの印 (step3 Phase 4)。名前の後ろに出す */
 const SHEET_KIND_MARK: Record<SheetKind, { mark: string; title: string }> = {
@@ -50,8 +51,8 @@ const MENU_ITEM = {
   width: '100%',
   textAlign: 'left',
   padding: '3px 4px 3px 36px',
-  fontSize: 11,
-  color: '#4f6ef7',
+  fontSize: font.caption,
+  color: color.primary,
   background: 'none',
   border: 'none',
   cursor: 'pointer',
@@ -160,8 +161,8 @@ const gearBtnStyle: React.CSSProperties = {
   background: 'none',
   border: 'none',
   cursor: 'pointer',
-  color: '#aaa',
-  fontSize: 13,
+  color: color.textMuted,
+  fontSize: font.body,
   padding: '0 2px',
   lineHeight: 1,
   flexShrink: 0,
@@ -272,8 +273,8 @@ export function Sidebar({
             alignItems: 'center',
             gap: 2,
             padding: '4px 4px',
-            borderRadius: 4,
-            background: isActiveFile ? '#e8f0fe' : 'transparent',
+            borderRadius: radius.sm,
+            background: isActiveFile ? color.selectionBg : 'transparent',
             position: 'relative',
           }}
         >
@@ -288,8 +289,8 @@ export function Sidebar({
               background: 'none',
               border: 'none',
               cursor: 'pointer',
-              color: '#555',
-              fontSize: 10,
+              color: color.textMuted,
+              fontSize: font.caption,
               padding: '0 2px',
               flexShrink: 0,
             }}
@@ -306,7 +307,7 @@ export function Sidebar({
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
-              fontSize: 13,
+              fontSize: font.body,
               fontWeight: 600,
               background: 'none',
               border: 'none',
@@ -348,7 +349,7 @@ export function Sidebar({
               {/* 切れていても人数は出す — 「自分以外の N 人はまだ
                         共有している」ことが、離脱の意味そのものである */}
               {fileShare && fileShare.participants > 1 && (
-                <span style={{ fontSize: 9, marginLeft: 1 }}>
+                <span style={{ fontSize: font.caption, marginLeft: 1 }}>
                   {fileShare.participants}
                 </span>
               )}
@@ -447,8 +448,10 @@ export function Sidebar({
                       alignItems: 'center',
                       gap: 2,
                       padding: '3px 4px 3px 20px',
-                      borderRadius: 4,
-                      background: isActiveSheet ? '#c8dcfe' : 'transparent',
+                      borderRadius: radius.sm,
+                      background: isActiveSheet
+                        ? color.selectionBg
+                        : 'transparent',
                       position: 'relative',
                     }}
                   >
@@ -461,7 +464,7 @@ export function Sidebar({
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
                         whiteSpace: 'nowrap',
-                        fontSize: 12,
+                        fontSize: font.body,
                         background: 'none',
                         border: 'none',
                         cursor: 'pointer',
@@ -474,7 +477,7 @@ export function Sidebar({
                       {kind && SHEET_KIND_MARK[kind] && (
                         <span
                           title={SHEET_KIND_MARK[kind].title}
-                          style={{ marginLeft: 4, color: '#888' }}
+                          style={{ marginLeft: 4, color: color.textMuted }}
                         >
                           {SHEET_KIND_MARK[kind].mark}
                         </span>
@@ -485,7 +488,7 @@ export function Sidebar({
                     <button
                       type="button"
                       title="設定"
-                      style={{ ...gearBtnStyle, fontSize: 12 }}
+                      style={{ ...gearBtnStyle, fontSize: font.body }}
                       onClick={(e) => {
                         e.stopPropagation();
                         onSetPopupTarget(
@@ -538,15 +541,15 @@ export function Sidebar({
                             const isClosed =
                               branch.status === BRANCH_STATUS.CLOSED;
                             const bgColor = isActiveBranch
-                              ? '#dde8ff'
+                              ? color.selectionBg
                               : isMerged
-                                ? '#fff7ed'
+                                ? color.diffUpdateBg
                                 : 'transparent';
                             const textColor = isMerged
-                              ? '#9a3412'
+                              ? color.diffUpdateText
                               : isClosed
-                                ? '#999'
-                                : '#333';
+                                ? color.textMuted
+                                : color.text;
                             return (
                               <li key={branch.id}>
                                 <div
@@ -555,7 +558,7 @@ export function Sidebar({
                                     alignItems: 'center',
                                     gap: 2,
                                     padding: '2px 4px 2px 36px',
-                                    borderRadius: 4,
+                                    borderRadius: radius.sm,
                                     background: bgColor,
                                   }}
                                 >
@@ -566,8 +569,7 @@ export function Sidebar({
                                       overflow: 'hidden',
                                       textOverflow: 'ellipsis',
                                       whiteSpace: 'nowrap',
-                                      fontSize: 11,
-                                      fontFamily: 'monospace',
+                                      fontSize: font.caption,
                                       background: 'none',
                                       border: 'none',
                                       cursor: 'pointer',
@@ -601,7 +603,7 @@ export function Sidebar({
                                         title="trunk に merge"
                                         style={{
                                           ...gearBtnStyle,
-                                          fontSize: 10,
+                                          fontSize: font.caption,
                                         }}
                                         onClick={(e) => {
                                           e.stopPropagation();
@@ -615,7 +617,7 @@ export function Sidebar({
                                         title="close"
                                         style={{
                                           ...gearBtnStyle,
-                                          fontSize: 10,
+                                          fontSize: font.caption,
                                         }}
                                         onClick={(e) => {
                                           e.stopPropagation();
@@ -635,7 +637,7 @@ export function Sidebar({
                                         title="削除"
                                         style={{
                                           ...gearBtnStyle,
-                                          fontSize: 10,
+                                          fontSize: font.caption,
                                         }}
                                         onClick={(e) => {
                                           e.stopPropagation();
@@ -652,7 +654,7 @@ export function Sidebar({
                                       title="close"
                                       style={{
                                         ...gearBtnStyle,
-                                        fontSize: 10,
+                                        fontSize: font.caption,
                                       }}
                                       onClick={(e) => {
                                         e.stopPropagation();
@@ -669,7 +671,7 @@ export function Sidebar({
                                       title="削除"
                                       style={{
                                         ...gearBtnStyle,
-                                        fontSize: 10,
+                                        fontSize: font.caption,
                                       }}
                                       onClick={(e) => {
                                         e.stopPropagation();
@@ -694,8 +696,8 @@ export function Sidebar({
                                   width: '100%',
                                   textAlign: 'left',
                                   padding: '2px 4px 2px 36px',
-                                  fontSize: 11,
-                                  color: '#4f6ef7',
+                                  fontSize: font.caption,
+                                  color: color.primary,
                                   background: 'none',
                                   border: 'none',
                                   cursor: 'pointer',
@@ -721,8 +723,8 @@ export function Sidebar({
                   flex: 1,
                   textAlign: 'left',
                   padding: '3px 4px 3px 20px',
-                  fontSize: 12,
-                  color: '#4f6ef7',
+                  fontSize: font.body,
+                  color: color.primary,
                   background: 'none',
                   border: 'none',
                   cursor: 'pointer',
@@ -741,8 +743,8 @@ export function Sidebar({
                 }
                 style={{
                   padding: '3px 8px',
-                  fontSize: 12,
-                  color: '#4f6ef7',
+                  fontSize: font.body,
+                  color: color.primary,
                   background: 'none',
                   border: 'none',
                   cursor: 'pointer',
@@ -813,7 +815,11 @@ export function Sidebar({
             aria-label={`${node.name} を${open ? '畳む' : '開く'}`}
             aria-expanded={open}
             onClick={() => ops.onToggle(id)}
-            style={{ ...gearBtnStyle, color: '#555', fontSize: 10 }}
+            style={{
+              ...gearBtnStyle,
+              color: color.textMuted,
+              fontSize: font.caption,
+            }}
           >
             {open ? '▼' : '▶'}
           </button>
@@ -823,7 +829,7 @@ export function Sidebar({
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
-              fontSize: 13,
+              fontSize: font.body,
             }}
           >
             📁 {node.name}
@@ -885,7 +891,7 @@ export function Sidebar({
         gap: 8,
       }}
     >
-      <h2 style={{ margin: 0, fontSize: 16 }}>conversensus</h2>
+      <h2 style={{ margin: 0, fontSize: font.heading }}>conversensus</h2>
 
       {/* 新規ファイル作成 */}
       <div style={{ display: 'flex', gap: 4 }}>
@@ -909,12 +915,17 @@ export function Sidebar({
           // 押し出され, 見えているのに押せなくなっていた。
           // 同じ行の他のボタンは `overflow: hidden` を持つため既に縮む (自動最小サイズが
           // 効かない) — 縮まないのはこの入力欄だけである
-          style={{ flex: 1, minWidth: 0, padding: '4px 6px', fontSize: 13 }}
+          style={{
+            flex: 1,
+            minWidth: 0,
+            padding: '4px 6px',
+            fontSize: font.body,
+          }}
         />
         <button
           type="button"
           onClick={onCreateFile}
-          style={{ padding: '4px 8px', fontSize: 13 }}
+          style={{ padding: '4px 8px', fontSize: font.body }}
         >
           +
         </button>
@@ -929,7 +940,7 @@ export function Sidebar({
           type="button"
           title="インポート (.conversensus)"
           onClick={() => importInputRef.current?.click()}
-          style={{ padding: '4px 8px', fontSize: 13 }}
+          style={{ padding: '4px 8px', fontSize: font.body }}
         >
           ↑
         </button>
@@ -939,7 +950,7 @@ export function Sidebar({
             type="button"
             title="参加コードで参加する"
             onClick={onOpenParticipate}
-            style={{ padding: '4px 8px', fontSize: 13 }}
+            style={{ padding: '4px 8px', fontSize: font.body }}
           >
             ⇥
           </button>
@@ -950,7 +961,7 @@ export function Sidebar({
             title="Folder を作る"
             aria-label="Folder を作る"
             onClick={() => folders.onCreate(undefined)}
-            style={{ padding: '4px 8px', fontSize: 13 }}
+            style={{ padding: '4px 8px', fontSize: font.body }}
           >
             📁
           </button>
@@ -977,7 +988,7 @@ export function Sidebar({
                   <hr
                     style={{
                       border: 'none',
-                      borderTop: '1px solid #eee',
+                      borderTop: `1px solid ${color.borderSubtle}`,
                       margin: '4px 0',
                     }}
                   />
@@ -993,7 +1004,13 @@ export function Sidebar({
         )}
       </ul>
       {/* ATProto セッション */}
-      <div style={{ borderTop: '1px solid #eee', paddingTop: 8, fontSize: 12 }}>
+      <div
+        style={{
+          borderTop: `1px solid ${color.borderSubtle}`,
+          paddingTop: 8,
+          fontSize: font.body,
+        }}
+      >
         {atprotoSession ? (
           <>
             <div
@@ -1006,7 +1023,7 @@ export function Sidebar({
             >
               <span
                 style={{
-                  color: '#555',
+                  color: color.textMuted,
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                   whiteSpace: 'nowrap',
@@ -1022,8 +1039,8 @@ export function Sidebar({
                   background: 'none',
                   border: 'none',
                   cursor: 'pointer',
-                  color: '#999',
-                  fontSize: 11,
+                  color: color.textMuted,
+                  fontSize: font.caption,
                   padding: '2px 4px',
                 }}
               >
@@ -1049,8 +1066,8 @@ export function Sidebar({
                 background: 'none',
                 border: 'none',
                 cursor: 'pointer',
-                color: '#4f6ef7',
-                fontSize: 12,
+                color: color.primary,
+                fontSize: font.body,
                 padding: '2px 0',
               }}
             >

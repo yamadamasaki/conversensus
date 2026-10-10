@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { DIALOG_WIDTH, DIALOG_Z_INDEX } from './ConfirmDialog';
+import { color, font, overlay, radius, shadow } from './theme';
 
 /** OAuth のときの案内。パスワードはこのアプリではなく PDS のページで入れる */
 const OAUTH_NOTE =
@@ -60,7 +61,7 @@ export function AtprotoLoginDialog({
       style={{
         position: 'fixed',
         inset: 0,
-        background: 'rgba(0,0,0,0.4)',
+        background: overlay,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -76,24 +77,26 @@ export function AtprotoLoginDialog({
         aria-modal="true"
         aria-label="ATProto ログイン"
         style={{
-          background: '#fff',
-          borderRadius: 8,
+          background: color.bg,
+          borderRadius: radius.md,
           padding: 24,
           width: DIALOG_WIDTH,
           maxWidth: '90vw',
-          boxShadow: '0 4px 24px rgba(0,0,0,0.2)',
+          boxShadow: shadow.dialog,
         }}
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => {
           if (e.key === 'Escape') onCancel();
         }}
       >
-        <h3 style={{ margin: '0 0 16px', fontSize: 16 }}>ATProto ログイン</h3>
+        <h3 style={{ margin: '0 0 16px', fontSize: font.heading }}>
+          ATProto ログイン
+        </h3>
         <form onSubmit={handleSubmit}>
           <div style={{ marginBottom: 12 }}>
             <label
               htmlFor="atproto-handle"
-              style={{ display: 'block', fontSize: 13, marginBottom: 4 }}
+              style={{ display: 'block', fontSize: font.body, marginBottom: 4 }}
             >
               ハンドル
             </label>
@@ -107,10 +110,10 @@ export function AtprotoLoginDialog({
               style={{
                 width: '100%',
                 padding: '6px 8px',
-                fontSize: 13,
+                fontSize: font.body,
                 boxSizing: 'border-box',
-                border: '1px solid #ccc',
-                borderRadius: 4,
+                border: `1px solid ${color.border}`,
+                borderRadius: radius.sm,
               }}
             />
           </div>
@@ -118,7 +121,11 @@ export function AtprotoLoginDialog({
             <div style={{ marginBottom: error ? 12 : 16 }}>
               <label
                 htmlFor="atproto-password"
-                style={{ display: 'block', fontSize: 13, marginBottom: 4 }}
+                style={{
+                  display: 'block',
+                  fontSize: font.body,
+                  marginBottom: 4,
+                }}
               >
                 パスワード
               </label>
@@ -130,23 +137,29 @@ export function AtprotoLoginDialog({
                 style={{
                   width: '100%',
                   padding: '6px 8px',
-                  fontSize: 13,
+                  fontSize: font.body,
                   boxSizing: 'border-box',
-                  border: '1px solid #ccc',
-                  borderRadius: 4,
+                  border: `1px solid ${color.border}`,
+                  borderRadius: radius.sm,
                 }}
               />
             </div>
           ) : (
-            <p style={{ fontSize: 12, color: '#777', margin: '0 0 16px' }}>
+            <p
+              style={{
+                fontSize: font.body,
+                color: color.textMuted,
+                margin: '0 0 16px',
+              }}
+            >
               {OAUTH_NOTE}
             </p>
           )}
           {error && (
             <p
               style={{
-                color: '#e55',
-                fontSize: 12,
+                color: color.dangerText,
+                fontSize: font.body,
                 margin: '0 0 12px',
                 lineHeight: 1.4,
               }}
@@ -158,7 +171,11 @@ export function AtprotoLoginDialog({
             <button
               type="button"
               onClick={onCancel}
-              style={{ padding: '6px 16px', fontSize: 13, cursor: 'pointer' }}
+              style={{
+                padding: '6px 16px',
+                fontSize: font.body,
+                cursor: 'pointer',
+              }}
             >
               キャンセル
             </button>
@@ -167,11 +184,11 @@ export function AtprotoLoginDialog({
               disabled={submitting || !ready}
               style={{
                 padding: '6px 16px',
-                fontSize: 13,
-                background: !submitting && ready ? '#4f6ef7' : '#ccc',
-                color: '#fff',
+                fontSize: font.body,
+                background: !submitting && ready ? color.primary : color.border,
+                color: color.textOnPrimary,
                 border: 'none',
-                borderRadius: 4,
+                borderRadius: radius.sm,
                 cursor: !submitting && ready ? 'pointer' : 'not-allowed',
               }}
             >

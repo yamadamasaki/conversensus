@@ -20,15 +20,16 @@ import { useGraphNodeHandlers } from './graph/graphNodeContext';
 import { useInlineEdit } from './hooks/useInlineEdit';
 import { MARKDOWN_COMPONENTS } from './markdownComponents';
 import { useReadOnly } from './readOnlyContext';
+import { color, font, monospace, radius } from './theme';
 
 /** ラベルの見た目。空のとき (ラベルを付ける口) は破線の枠だけにする */
 function chipStyle(label: string, editable: boolean): React.CSSProperties {
   return {
-    fontSize: 10,
-    color: label ? '#4f6ef7' : '#aaa',
-    background: label ? '#eef2ff' : 'transparent',
-    border: label ? 'none' : '1px dashed #ddd',
-    borderRadius: 3,
+    fontSize: font.caption,
+    color: label ? color.primary : color.textMuted,
+    background: label ? color.selectionBg : 'transparent',
+    border: label ? 'none' : `1px dashed ${color.border}`,
+    borderRadius: radius.sm,
     padding: '1px 5px',
     marginBottom: 4,
     display: 'inline-block',
@@ -155,9 +156,9 @@ export function EditableNode({ id, data, selected }: NodeProps) {
         <div
           style={{
             padding: '8px 12px',
-            borderRadius: 6,
-            border: '1px dashed #aaa',
-            background: 'rgba(0,0,0,0.02)',
+            borderRadius: radius.md,
+            border: `1px dashed ${color.borderStrong}`,
+            background: color.bgSubtle,
             width: '100%',
             height: '100%',
             boxSizing: 'border-box',
@@ -167,10 +168,10 @@ export function EditableNode({ id, data, selected }: NodeProps) {
         >
           <div
             style={{
-              fontSize: 12,
+              fontSize: font.body,
               lineHeight: 1.6,
               textDecoration: 'line-through',
-              color: '#999',
+              color: color.textMuted,
             }}
             className="markdown-body"
           >
@@ -182,7 +183,7 @@ export function EditableNode({ id, data, selected }: NodeProps) {
                 {content}
               </ReactMarkdown>
             ) : (
-              <span style={{ color: '#aaa' }}>(空)</span>
+              <span style={{ color: color.textMuted }}>(空)</span>
             )}
           </div>
         </div>
@@ -223,17 +224,17 @@ export function EditableNode({ id, data, selected }: NodeProps) {
         data-node-body
         style={{
           padding: '8px 12px',
-          borderRadius: 6,
+          borderRadius: radius.md,
           border: diffType
             ? diffType === 'add'
-              ? '2px solid #16a34a'
-              : '2px solid #f97316'
-            : '1px solid #ccc',
+              ? `2px solid ${color.diffAdd}`
+              : `2px solid ${color.diffUpdate}`
+            : `1px solid ${color.border}`,
           background: diffType
             ? diffType === 'add'
-              ? '#f0fdf4'
-              : '#fff7ed'
-            : '#fff',
+              ? color.diffAddBg
+              : color.diffUpdateBg
+            : color.bg,
           width: '100%',
           height: '100%',
           boxSizing: 'border-box',
@@ -273,11 +274,11 @@ export function EditableNode({ id, data, selected }: NodeProps) {
               if (e.key === 'Escape') labelEdit.cancel();
             }}
             style={{
-              fontSize: 10,
+              fontSize: font.caption,
               padding: '1px 4px',
               marginBottom: 4,
-              borderRadius: 3,
-              border: '1px solid #4f6ef7',
+              borderRadius: radius.sm,
+              border: `1px solid ${color.primary}`,
               outline: 'none',
               width: '60%',
             }}
@@ -322,22 +323,22 @@ export function EditableNode({ id, data, selected }: NodeProps) {
               if (e.key === 'Escape') cancel();
             }}
             style={{
-              fontSize: 12,
+              fontSize: font.body,
               padding: '2px 4px',
-              borderRadius: 3,
-              border: '1px solid #4f6ef7',
+              borderRadius: radius.sm,
+              border: `1px solid ${color.primary}`,
               outline: 'none',
               width: '100%',
               height: '100%',
               boxSizing: 'border-box',
               resize: 'none',
-              fontFamily: 'monospace',
+              fontFamily: monospace,
             }}
           />
         ) : (
           <div
             style={{
-              fontSize: 12,
+              fontSize: font.body,
               lineHeight: 1.6,
             }}
             className="markdown-body"
@@ -350,7 +351,9 @@ export function EditableNode({ id, data, selected }: NodeProps) {
                 {content}
               </ReactMarkdown>
             ) : (
-              <span style={{ color: '#aaa' }}>ダブルクリックで編集</span>
+              <span style={{ color: color.textMuted }}>
+                ダブルクリックで編集
+              </span>
             )}
           </div>
         )}

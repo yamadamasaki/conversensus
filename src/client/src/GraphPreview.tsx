@@ -1,3 +1,4 @@
+import { color } from './theme';
 /**
  * 見るだけの pane (step3 Phase 3 S3-5, multiple モード)
  *
@@ -39,8 +40,17 @@ export type PreviewMarks = DiffMarks & {
   selected: Set<string>;
 };
 
-/** 競合の印。差分の色 (枠の色) とは別の描き方にする (仕様: 差分表示とは異なる方法で競合表示する) */
-const CONFLICT_OUTLINE = '2px dashed #dc2626';
+/**
+ * 競合の印。差分の色 (枠の色) とは別の描き方にする (仕様: 差分表示とは異なる方法で競合表示する)。
+ * 一括指定 (`outline`) ではなく個別に書く — 値に CSS 変数を含む一括指定は, happy-dom が
+ * 正しく分解できず App 結合のテストから見えなくなる
+ */
+const CONFLICT_OUTLINE = {
+  outlineWidth: 2,
+  outlineStyle: 'dashed',
+  outlineColor: color.conflict,
+  outlineOffset: 4,
+} as const;
 
 type Props = {
   sheet: Sheet;
@@ -71,7 +81,7 @@ export function GraphPreview({
         ...n,
         selected: marks?.selected.has(n.id) ?? false,
         ...(marks?.conflicts.has(n.id) && {
-          style: { ...n.style, outline: CONFLICT_OUTLINE, outlineOffset: 4 },
+          style: { ...n.style, ...CONFLICT_OUTLINE },
         }),
       })),
     [sheet, marks],
@@ -87,7 +97,7 @@ export function GraphPreview({
         ...e,
         selected: marks?.selected.has(e.id) ?? false,
         ...(marks?.conflicts.has(e.id) && {
-          style: { ...e.style, strokeDasharray: '6 4', stroke: '#dc2626' },
+          style: { ...e.style, strokeDasharray: '6 4', stroke: color.conflict },
         }),
       })),
     [sheet, marks],

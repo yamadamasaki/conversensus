@@ -1,3 +1,4 @@
+import { color, font, radius, shadow } from './theme';
 /**
  * 競合の通知 (step2 Phase 3 T4)
  *
@@ -172,12 +173,12 @@ export function ConflictNotice({
         maxWidth: 'calc(100vw - 32px)',
         maxHeight: '60vh',
         overflowY: 'auto',
-        background: '#fff',
-        border: '1px solid #e0a800',
-        borderRadius: 8,
-        boxShadow: '0 4px 24px rgba(0,0,0,0.2)',
+        background: color.bg,
+        border: `1px solid ${color.warning}`,
+        borderRadius: radius.md,
+        boxShadow: shadow.dialog,
         padding: 16,
-        fontSize: 13,
+        fontSize: font.body,
         lineHeight: 1.6,
       }}
     >
@@ -200,11 +201,11 @@ export function ConflictNotice({
           aria-label="競合の通知を閉じる"
           style={{
             padding: '2px 8px',
-            fontSize: 13,
+            fontSize: font.body,
             cursor: 'pointer',
             background: 'none',
-            border: '1px solid #ccc',
-            borderRadius: 4,
+            border: `1px solid ${color.border}`,
+            borderRadius: radius.sm,
           }}
         >
           閉じる
@@ -214,7 +215,7 @@ export function ConflictNotice({
       {forkCount > 0 && (
         // **通知だけでは消えてしまう。**保留したことを記録に残したと伝える —
         // 後から「何でこれが生じたんだ?」に答えられるのはこの記録である
-        <p style={{ margin: '8px 0 0', color: '#555' }}>
+        <p style={{ margin: '8px 0 0', color: color.textMuted }}>
           {forkCount} 件を保留として記録しました。後から対話で決められます。
         </p>
       )}
@@ -224,7 +225,9 @@ export function ConflictNotice({
           <summary style={{ cursor: 'pointer', fontWeight: 600 }}>
             {tier.title} {items.length} 件
           </summary>
-          <p style={{ margin: '4px 0 8px', color: '#555' }}>{tier.handling}</p>
+          <p style={{ margin: '4px 0 8px', color: color.textMuted }}>
+            {tier.handling}
+          </p>
           <ul style={{ margin: 0, paddingLeft: 20 }}>
             {items.map((c) => (
               <li key={keyOf(c)} style={{ marginBottom: 2 }}>
@@ -242,7 +245,7 @@ export function ConflictNotice({
           <summary style={{ cursor: 'pointer', fontWeight: 600 }}>
             相手が保留した競合 {arrivedForks.length} 件
           </summary>
-          <p style={{ margin: '4px 0 8px', color: '#555' }}>
+          <p style={{ margin: '4px 0 8px', color: color.textMuted }}>
             相手の手元で検出され、保留として記録されています。後から対話で決められます。
           </p>
           <ul style={{ margin: 0, paddingLeft: 20 }}>
@@ -261,11 +264,11 @@ export function ConflictNotice({
                     style={{
                       marginLeft: 6,
                       padding: '0 6px',
-                      fontSize: 12,
+                      fontSize: font.body,
                       cursor: 'pointer',
                       background: 'none',
-                      border: '1px solid #ccc',
-                      borderRadius: 4,
+                      border: `1px solid ${color.border}`,
+                      borderRadius: radius.sm,
                     }}
                   >
                     merger で決める

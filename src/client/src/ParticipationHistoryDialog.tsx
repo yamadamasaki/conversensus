@@ -2,6 +2,7 @@ import type { Did } from '@conversensus/shared';
 import { DIALOG_Z_INDEX } from './ConfirmDialog';
 import type { ParticipationRound } from './sync/participationHistoryView';
 import { formatDay } from './sync/participationHistoryView';
+import { color, font, overlay, radius } from './theme';
 
 /**
  * 参加履歴ダイアログ (step2)
@@ -37,7 +38,7 @@ export function ParticipationHistoryDialog({
       <>
         {formatDay(mark.at)}
         <br />
-        <span style={{ color: '#666' }}>({labelOf(mark.by)})</span>
+        <span style={{ color: color.textMuted }}>({labelOf(mark.by)})</span>
       </>
     ) : (
       ''
@@ -49,7 +50,7 @@ export function ParticipationHistoryDialog({
       style={{
         position: 'fixed',
         inset: 0,
-        background: 'rgba(0,0,0,0.4)',
+        background: overlay,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -65,8 +66,8 @@ export function ParticipationHistoryDialog({
         aria-modal="true"
         aria-label={`参加履歴 - ${label}`}
         style={{
-          background: '#fff',
-          borderRadius: 8,
+          background: color.bg,
+          borderRadius: radius.md,
           padding: 24,
           width: 560,
           maxWidth: '90vw',
@@ -76,16 +77,24 @@ export function ParticipationHistoryDialog({
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => e.stopPropagation()}
       >
-        <h2 style={{ margin: '0 0 16px', fontSize: 16 }}>参加履歴 - {label}</h2>
+        <h2 style={{ margin: '0 0 16px', fontSize: font.heading }}>
+          参加履歴 - {label}
+        </h2>
 
         {rounds.length === 0 ? (
-          <p style={{ fontSize: 13, color: '#666' }}>まだ記録がない。</p>
+          <p style={{ fontSize: font.body, color: color.textMuted }}>
+            まだ記録がない。
+          </p>
         ) : (
           <table
-            style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}
+            style={{
+              width: '100%',
+              fontSize: font.body,
+              borderCollapse: 'collapse',
+            }}
           >
             <thead>
-              <tr style={{ textAlign: 'left', color: '#666' }}>
+              <tr style={{ textAlign: 'left', color: color.textMuted }}>
                 {COLUMNS.map((c) => (
                   <th key={c} style={{ padding: '4px 6px', fontWeight: 500 }}>
                     {c}
@@ -100,7 +109,10 @@ export function ParticipationHistoryDialog({
                   // 画面側で並べ替えないので、位置を key にしてよい
                   // biome-ignore lint/suspicious/noArrayIndexKey: 並べ替えない表である
                   key={i}
-                  style={{ borderTop: '1px solid #eee', verticalAlign: 'top' }}
+                  style={{
+                    borderTop: `1px solid ${color.borderSubtle}`,
+                    verticalAlign: 'top',
+                  }}
                 >
                   <td style={{ padding: '6px' }}>{cell(round.invited)}</td>
                   <td style={{ padding: '6px' }}>

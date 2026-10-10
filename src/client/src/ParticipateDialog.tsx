@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { DIALOG_WIDTH, DIALOG_Z_INDEX } from './ConfirmDialog';
+import { color, font, monospace, overlay, radius } from './theme';
 
 /**
  * 参加コードの入力ダイアログ (step2 Phase 1)
@@ -46,7 +47,7 @@ export function ParticipateDialog({
       style={{
         position: 'fixed',
         inset: 0,
-        background: 'rgba(0,0,0,0.4)',
+        background: overlay,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -62,8 +63,8 @@ export function ParticipateDialog({
         aria-modal="true"
         aria-label="共同作業に参加"
         style={{
-          background: '#fff',
-          borderRadius: 8,
+          background: color.bg,
+          borderRadius: radius.md,
           padding: 24,
           width: DIALOG_WIDTH,
           maxWidth: '90vw',
@@ -71,8 +72,16 @@ export function ParticipateDialog({
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => e.stopPropagation()}
       >
-        <h2 style={{ margin: '0 0 12px', fontSize: 16 }}>参加コードを入力</h2>
-        <p style={{ margin: '0 0 12px', fontSize: 12, color: '#666' }}>
+        <h2 style={{ margin: '0 0 12px', fontSize: font.heading }}>
+          参加コードを入力
+        </h2>
+        <p
+          style={{
+            margin: '0 0 12px',
+            fontSize: font.body,
+            color: color.textMuted,
+          }}
+        >
           受け取った参加コードを貼り付けてほしい。
         </p>
         <textarea
@@ -86,15 +95,19 @@ export function ParticipateDialog({
             width: '100%',
             boxSizing: 'border-box',
             padding: 6,
-            fontSize: 12,
-            fontFamily: 'monospace',
+            fontSize: font.body,
+            fontFamily: monospace,
             resize: 'vertical',
           }}
         />
         {error && (
           <p
             role="alert"
-            style={{ margin: '8px 0 0', fontSize: 12, color: '#c00' }}
+            style={{
+              margin: '8px 0 0',
+              fontSize: font.body,
+              color: color.dangerText,
+            }}
           >
             {error}
           </p>

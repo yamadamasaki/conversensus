@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { DIALOG_WIDTH, DIALOG_Z_INDEX } from './ConfirmDialog';
+import { color, font, overlay, radius, shadow } from './theme';
 
 type Props = {
   message: string;
@@ -38,7 +39,7 @@ export function InputDialog({
       style={{
         position: 'fixed',
         inset: 0,
-        background: 'rgba(0,0,0,0.4)',
+        background: overlay,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -54,12 +55,12 @@ export function InputDialog({
         aria-modal="true"
         aria-label="入力"
         style={{
-          background: '#fff',
-          borderRadius: 8,
+          background: color.bg,
+          borderRadius: radius.md,
           padding: 24,
           width: DIALOG_WIDTH,
           maxWidth: '90vw',
-          boxShadow: '0 4px 24px rgba(0,0,0,0.2)',
+          boxShadow: shadow.dialog,
         }}
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => {
@@ -71,7 +72,7 @@ export function InputDialog({
           style={{
             display: 'block',
             margin: '0 0 12px',
-            fontSize: 14,
+            fontSize: font.body,
             lineHeight: 1.6,
           }}
         >
@@ -101,9 +102,9 @@ export function InputDialog({
           style={{
             width: '100%',
             padding: '8px',
-            fontSize: 13,
-            borderRadius: 4,
-            border: '1px solid #ccc',
+            fontSize: font.body,
+            borderRadius: radius.sm,
+            border: `1px solid ${color.border}`,
             boxSizing: 'border-box',
           }}
         />
@@ -118,7 +119,11 @@ export function InputDialog({
           <button
             type="button"
             onClick={onCancel}
-            style={{ padding: '6px 16px', fontSize: 13, cursor: 'pointer' }}
+            style={{
+              padding: '6px 16px',
+              fontSize: font.body,
+              cursor: 'pointer',
+            }}
           >
             {cancelLabel}
           </button>
@@ -128,12 +133,12 @@ export function InputDialog({
             disabled={!value.trim()}
             style={{
               padding: '6px 16px',
-              fontSize: 13,
+              fontSize: font.body,
               cursor: value.trim() ? 'pointer' : 'not-allowed',
-              background: value.trim() ? '#4f6ef7' : '#ccc',
-              color: '#fff',
+              background: value.trim() ? color.primary : color.border,
+              color: color.textOnPrimary,
               border: 'none',
-              borderRadius: 4,
+              borderRadius: radius.sm,
             }}
           >
             {submitLabel}

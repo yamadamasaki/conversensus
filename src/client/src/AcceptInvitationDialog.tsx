@@ -1,5 +1,6 @@
 import { DIALOG_WIDTH, DIALOG_Z_INDEX } from './ConfirmDialog';
 import type { InvitationPreview } from './hooks/useParticipation';
+import { color, font, overlay, radius } from './theme';
 
 /**
  * 参加依頼の承認ダイアログ (step2)
@@ -36,7 +37,7 @@ export function AcceptInvitationDialog({
       style={{
         position: 'fixed',
         inset: 0,
-        background: 'rgba(0,0,0,0.4)',
+        background: overlay,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -52,8 +53,8 @@ export function AcceptInvitationDialog({
         aria-modal="true"
         aria-label="参加依頼の承認"
         style={{
-          background: '#fff',
-          borderRadius: 8,
+          background: color.bg,
+          borderRadius: radius.md,
           padding: 24,
           width: DIALOG_WIDTH,
           maxWidth: '90vw',
@@ -61,7 +62,7 @@ export function AcceptInvitationDialog({
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => e.stopPropagation()}
       >
-        <p style={{ margin: 0, fontSize: 14, lineHeight: 1.7 }}>
+        <p style={{ margin: 0, fontSize: font.body, lineHeight: 1.7 }}>
           {preview.inviterLabel} さんが、あなた {preview.inviteeLabel} さんを
           ファイル “{preview.fileName}” の対話への参加を依頼しています。
         </p>
@@ -69,7 +70,11 @@ export function AcceptInvitationDialog({
         {error && (
           <p
             role="alert"
-            style={{ margin: '12px 0 0', fontSize: 12, color: '#c00' }}
+            style={{
+              margin: '12px 0 0',
+              fontSize: font.body,
+              color: color.dangerText,
+            }}
           >
             {error}
           </p>

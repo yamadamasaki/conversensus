@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { DIALOG_Z_INDEX } from './ConfirmDialog';
 import { isLayoutOnly, type SheetChange } from './sync/computeOperations';
+import { color, font, overlay, radius, shadow } from './theme';
 
 type Props = {
   changes: SheetChange[];
@@ -45,7 +46,7 @@ export function CommitDialog({ changes, onCommit, onCancel }: Props) {
       style={{
         position: 'fixed',
         inset: 0,
-        background: 'rgba(0,0,0,0.4)',
+        background: overlay,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -58,27 +59,29 @@ export function CommitDialog({ changes, onCommit, onCancel }: Props) {
         aria-modal="true"
         aria-label="コミットを作成"
         style={{
-          background: '#fff',
-          borderRadius: 8,
+          background: color.bg,
+          borderRadius: radius.md,
           padding: 24,
           width: 400,
           maxWidth: '90vw',
-          boxShadow: '0 4px 24px rgba(0,0,0,0.2)',
+          boxShadow: shadow.dialog,
         }}
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => e.stopPropagation()}
       >
-        <h3 style={{ margin: '0 0 16px', fontSize: 16 }}>コミットを作成</h3>
+        <h3 style={{ margin: '0 0 16px', fontSize: font.heading }}>
+          コミットを作成
+        </h3>
 
         {/* 変更サマリー */}
         <div
           style={{
-            background: '#f5f5f5',
-            borderRadius: 4,
+            background: color.bgSubtle,
+            borderRadius: radius.sm,
             padding: '8px 12px',
             marginBottom: 16,
-            fontSize: 12,
-            color: '#555',
+            fontSize: font.body,
+            color: color.textMuted,
           }}
         >
           {!hasChanges && <span>変更なし</span>}
@@ -128,14 +131,20 @@ export function CommitDialog({ changes, onCommit, onCancel }: Props) {
           style={{
             width: '100%',
             padding: '8px',
-            fontSize: 13,
-            borderRadius: 4,
-            border: '1px solid #ccc',
+            fontSize: font.body,
+            borderRadius: radius.sm,
+            border: `1px solid ${color.border}`,
             resize: 'vertical',
             boxSizing: 'border-box',
           }}
         />
-        <div style={{ fontSize: 11, color: '#999', marginTop: 4 }}>
+        <div
+          style={{
+            fontSize: font.caption,
+            color: color.textMuted,
+            marginTop: 4,
+          }}
+        >
           Cmd+Enter でコミット
         </div>
 
@@ -151,7 +160,11 @@ export function CommitDialog({ changes, onCommit, onCancel }: Props) {
           <button
             type="button"
             onClick={onCancel}
-            style={{ padding: '6px 16px', fontSize: 13, cursor: 'pointer' }}
+            style={{
+              padding: '6px 16px',
+              fontSize: font.body,
+              cursor: 'pointer',
+            }}
           >
             キャンセル
           </button>
@@ -163,12 +176,13 @@ export function CommitDialog({ changes, onCommit, onCancel }: Props) {
             disabled={!message.trim() || !hasChanges}
             style={{
               padding: '6px 16px',
-              fontSize: 13,
+              fontSize: font.body,
               cursor: hasChanges && message.trim() ? 'pointer' : 'not-allowed',
-              background: hasChanges && message.trim() ? '#4f6ef7' : '#ccc',
-              color: '#fff',
+              background:
+                hasChanges && message.trim() ? color.primary : color.border,
+              color: color.textOnPrimary,
               border: 'none',
-              borderRadius: 4,
+              borderRadius: radius.sm,
             }}
           >
             コミット

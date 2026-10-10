@@ -17,6 +17,7 @@ import { useEventDispatch } from './EventDispatchContext';
 import { makeEventBase } from './events/GraphEvent';
 import { DEFAULT_EDGE_PATH_TYPE } from './graphTransform';
 import { useInlineEdit } from './hooks/useInlineEdit';
+import { color, font, radius } from './theme';
 
 function getEdgePath(
   pathType: EdgePathType,
@@ -251,10 +252,10 @@ export function EditableLabelEdge({
                 if (e.key === 'Escape') cancel();
               }}
               style={{
-                fontSize: 12,
+                fontSize: font.body,
                 padding: '2px 4px',
-                borderRadius: 3,
-                border: '1px solid #4f6ef7',
+                borderRadius: radius.sm,
+                border: `1px solid ${color.primary}`,
                 outline: 'none',
                 minWidth: 60,
               }}
@@ -264,11 +265,11 @@ export function EditableLabelEdge({
             label !== '' && (
               <span
                 style={{
-                  fontSize: 12,
+                  fontSize: font.body,
                   background: 'white',
                   padding: '2px 6px',
-                  borderRadius: 3,
-                  border: '1px solid #ddd',
+                  borderRadius: radius.sm,
+                  border: `1px solid ${color.border}`,
                   cursor: 'grab',
                 }}
               >

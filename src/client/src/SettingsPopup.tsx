@@ -1,5 +1,6 @@
 import type { FileId, SheetId } from '@conversensus/shared';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { color, font, radius, shadow } from './theme';
 
 export const FLOATING_UI_Z_INDEX = 100;
 
@@ -85,10 +86,10 @@ export function SettingsPopup({
         right: 8,
         top: 0,
         zIndex: FLOATING_UI_Z_INDEX,
-        background: '#fff',
-        border: '1px solid #ccc',
-        borderRadius: 6,
-        boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+        background: color.bg,
+        border: `1px solid ${color.border}`,
+        borderRadius: radius.md,
+        boxShadow: shadow.pop,
         padding: 12,
         width: 220,
         display: 'flex',
@@ -97,7 +98,10 @@ export function SettingsPopup({
       }}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <label htmlFor="popup-name" style={{ fontSize: 11, color: '#666' }}>
+        <label
+          htmlFor="popup-name"
+          style={{ fontSize: font.caption, color: color.textMuted }}
+        >
           名前
         </label>
         <input
@@ -117,15 +121,18 @@ export function SettingsPopup({
             if (e.key === 'Enter') handleSave();
           }}
           style={{
-            fontSize: 13,
+            fontSize: font.body,
             padding: '4px 6px',
-            borderRadius: 4,
-            border: '1px solid #ccc',
+            borderRadius: radius.sm,
+            border: `1px solid ${color.border}`,
           }}
         />
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <label htmlFor="popup-desc" style={{ fontSize: 11, color: '#666' }}>
+        <label
+          htmlFor="popup-desc"
+          style={{ fontSize: font.caption, color: color.textMuted }}
+        >
           概要
         </label>
         <textarea
@@ -141,10 +148,10 @@ export function SettingsPopup({
           placeholder="概要を入力…"
           rows={3}
           style={{
-            fontSize: 12,
+            fontSize: font.body,
             padding: '4px 6px',
-            borderRadius: 4,
-            border: '1px solid #ccc',
+            borderRadius: radius.sm,
+            border: `1px solid ${color.border}`,
             resize: 'vertical',
             fontFamily: 'inherit',
           }}
@@ -155,12 +162,12 @@ export function SettingsPopup({
           type="button"
           onClick={onExport}
           style={{
-            fontSize: 12,
+            fontSize: font.body,
             padding: '4px 8px',
-            borderRadius: 4,
-            border: '1px solid #888',
+            borderRadius: radius.sm,
+            border: `1px solid ${color.borderStrong}`,
             background: 'none',
-            color: '#555',
+            color: color.textMuted,
             cursor: 'pointer',
             width: '100%',
           }}
@@ -173,12 +180,12 @@ export function SettingsPopup({
           type="button"
           onClick={onDelete}
           style={{
-            fontSize: 12,
+            fontSize: font.body,
             padding: '4px 8px',
-            borderRadius: 4,
-            border: '1px solid #f44',
+            borderRadius: radius.sm,
+            border: `1px solid ${color.danger}`,
             background: 'none',
-            color: '#f44',
+            color: color.dangerText,
             cursor: 'pointer',
           }}
         >
@@ -188,12 +195,12 @@ export function SettingsPopup({
           type="button"
           onClick={handleSave}
           style={{
-            fontSize: 12,
+            fontSize: font.body,
             padding: '4px 12px',
-            borderRadius: 4,
+            borderRadius: radius.sm,
             border: 'none',
-            background: '#4f6ef7',
-            color: '#fff',
+            background: color.primary,
+            color: color.textOnPrimary,
             cursor: 'pointer',
           }}
         >

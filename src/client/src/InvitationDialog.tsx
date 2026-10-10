@@ -3,6 +3,7 @@ import { useRef, useState } from 'react';
 import { DIALOG_Z_INDEX } from './ConfirmDialog';
 import type { RosterAction, RosterRow, RosterStatus } from './sync/rosterView';
 import { actionLabel } from './sync/rosterView';
+import { color, font, overlay, radius } from './theme';
 
 /**
  * 参加者一覧ダイアログ (step2 Phase 1)
@@ -34,7 +35,7 @@ const STATUS_LABEL: Record<RosterStatus, string> = {
 /** 表示名が引けなかった DID はそのまま出る。長いので折り返せるようにする */
 const ID_CELL = {
   padding: '6px',
-  fontSize: 12,
+  fontSize: font.body,
   wordBreak: 'break-all',
 } as const;
 
@@ -136,7 +137,7 @@ export function InvitationDialog({
       style={{
         position: 'fixed',
         inset: 0,
-        background: 'rgba(0,0,0,0.4)',
+        background: overlay,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -152,8 +153,8 @@ export function InvitationDialog({
         aria-modal="true"
         aria-label="参加者一覧"
         style={{
-          background: '#fff',
-          borderRadius: 8,
+          background: color.bg,
+          borderRadius: radius.md,
           padding: 24,
           width: 620,
           maxWidth: '90vw',
@@ -163,15 +164,27 @@ export function InvitationDialog({
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => e.stopPropagation()}
       >
-        <h2 style={{ margin: '0 0 4px', fontSize: 16 }}>参加者一覧</h2>
-        <p style={{ margin: '0 0 16px', fontSize: 12, color: '#666' }}>
+        <h2 style={{ margin: '0 0 4px', fontSize: font.heading }}>
+          参加者一覧
+        </h2>
+        <p
+          style={{
+            margin: '0 0 16px',
+            fontSize: font.body,
+            color: color.textMuted,
+          }}
+        >
           {fileName}
         </p>
 
         {unreadable.length > 0 && (
           <p
             role="status"
-            style={{ margin: '0 0 12px', fontSize: 12, color: '#a60' }}
+            style={{
+              margin: '0 0 12px',
+              fontSize: font.body,
+              color: color.warningText,
+            }}
           >
             {unreadable.length}{' '}
             人分の記録が読めなかった。名簿が欠けている可能性がある。
@@ -181,17 +194,25 @@ export function InvitationDialog({
         {rejectedNote && (
           <p
             role="status"
-            style={{ margin: '0 0 12px', fontSize: 12, color: '#a60' }}
+            style={{
+              margin: '0 0 12px',
+              fontSize: font.body,
+              color: color.warningText,
+            }}
           >
             {rejectedNote}
           </p>
         )}
 
         <table
-          style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}
+          style={{
+            width: '100%',
+            fontSize: font.body,
+            borderCollapse: 'collapse',
+          }}
         >
           <thead>
-            <tr style={{ textAlign: 'left', color: '#666' }}>
+            <tr style={{ textAlign: 'left', color: color.textMuted }}>
               <th style={{ padding: '4px 6px' }}>参加者</th>
               <th style={{ padding: '4px 6px' }}>依頼者</th>
               <th style={{ padding: '4px 6px' }}>状態</th>
@@ -201,7 +222,10 @@ export function InvitationDialog({
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr key={row.did} style={{ borderTop: '1px solid #eee' }}>
+              <tr
+                key={row.did}
+                style={{ borderTop: `1px solid ${color.borderSubtle}` }}
+              >
                 <td style={ID_CELL}>{labelOf(row.did)}</td>
                 <td style={ID_CELL}>
                   {row.inviter ? labelOf(row.inviter) : '—'}
@@ -212,7 +236,7 @@ export function InvitationDialog({
                     type="button"
                     aria-label={`${labelOf(row.did)} の参加履歴`}
                     onClick={() => onOpenHistory(row.did)}
-                    style={{ fontSize: 12 }}
+                    style={{ fontSize: font.body }}
                   >
                     …
                   </button>
@@ -226,7 +250,7 @@ export function InvitationDialog({
                         type="button"
                         disabled={busy}
                         onClick={() => onAction(action, row.did)}
-                        style={{ marginRight: 4, fontSize: 12 }}
+                        style={{ marginRight: 4, fontSize: font.body }}
                       >
                         {actionLabel(action, row.status)}
                       </button>
@@ -235,7 +259,7 @@ export function InvitationDialog({
                     <button
                       type="button"
                       onClick={() => copy(row.did)}
-                      style={{ fontSize: 12 }}
+                      style={{ fontSize: font.body }}
                     >
                       {copied === row.did ? 'コピーした' : 'コードをコピー'}
                     </button>
@@ -270,7 +294,12 @@ export function InvitationDialog({
               if (composingRef.current) return;
               if (e.key === 'Enter') submit();
             }}
-            style={{ flex: 1, minWidth: 0, padding: '4px 6px', fontSize: 13 }}
+            style={{
+              flex: 1,
+              minWidth: 0,
+              padding: '4px 6px',
+              fontSize: font.body,
+            }}
           />
           <button type="button" disabled={busy} onClick={submit}>
             参加依頼する
@@ -280,7 +309,11 @@ export function InvitationDialog({
         {error && (
           <p
             role="alert"
-            style={{ margin: '8px 0 0', fontSize: 12, color: '#c00' }}
+            style={{
+              margin: '8px 0 0',
+              fontSize: font.body,
+              color: color.dangerText,
+            }}
           >
             {error}
           </p>

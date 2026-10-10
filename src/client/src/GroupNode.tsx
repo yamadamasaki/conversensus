@@ -5,6 +5,7 @@ import { useEventDispatch } from './EventDispatchContext';
 import { makeEventBase } from './events/GraphEvent';
 import { useInlineEdit } from './hooks/useInlineEdit';
 import { useNodeCreation } from './NodeCreationContext';
+import { color, font, radius } from './theme';
 
 export function GroupNode({ id, data, selected }: NodeProps) {
   const { getNode } = useReactFlow();
@@ -83,9 +84,9 @@ export function GroupNode({ id, data, selected }: NodeProps) {
         style={{
           width: '100%',
           height: '100%',
-          borderRadius: 8,
-          border: '2px dashed #aaa',
-          background: 'rgba(0,0,0,0.02)',
+          borderRadius: radius.md,
+          border: `2px dashed ${color.borderStrong}`,
+          background: color.bgSubtle,
           boxSizing: 'border-box',
           display: 'flex',
           flexDirection: 'column',
@@ -94,12 +95,12 @@ export function GroupNode({ id, data, selected }: NodeProps) {
         <div
           style={{
             padding: '4px 10px',
-            borderBottom: '1px solid #ddd',
-            background: 'rgba(0,0,0,0.04)',
-            borderRadius: '6px 6px 0 0',
-            fontSize: 12,
+            borderBottom: `1px solid ${color.border}`,
+            background: color.bgSubtle,
+            borderRadius: `${radius.md}px ${radius.md}px 0 0`,
+            fontSize: font.body,
             fontWeight: 600,
-            color: '#999',
+            color: color.textMuted,
             minHeight: 26,
             display: 'flex',
             alignItems: 'center',
@@ -128,17 +129,17 @@ export function GroupNode({ id, data, selected }: NodeProps) {
         style={{
           width: '100%',
           height: '100%',
-          borderRadius: 8,
+          borderRadius: radius.md,
           border: diffType
             ? diffType === 'add'
-              ? '2px solid #16a34a'
-              : '2px solid #f97316'
-            : '2px solid #7c9ef8',
+              ? `2px solid ${color.diffAdd}`
+              : `2px solid ${color.diffUpdate}`
+            : `2px solid ${color.selection}`,
           background: diffType
             ? diffType === 'add'
-              ? 'rgba(22, 163, 74, 0.06)'
-              : 'rgba(249, 115, 22, 0.06)'
-            : 'rgba(79, 110, 247, 0.06)',
+              ? color.diffAddBg
+              : color.diffUpdateBg
+            : color.selectionBg,
           boxSizing: 'border-box',
           display: 'flex',
           flexDirection: 'column',
@@ -148,13 +149,13 @@ export function GroupNode({ id, data, selected }: NodeProps) {
         <div
           style={{
             padding: '4px 10px',
-            borderBottom: '1px solid #c0cffc',
-            background: 'rgba(79, 110, 247, 0.12)',
-            borderRadius: '6px 6px 0 0',
+            borderBottom: `1px solid ${color.selection}`,
+            background: color.selectionBg,
+            borderRadius: `${radius.md}px ${radius.md}px 0 0`,
             cursor: 'default',
-            fontSize: 12,
+            fontSize: font.body,
             fontWeight: 600,
-            color: '#3a5bd9',
+            color: color.primary,
             minHeight: 26,
             display: 'flex',
             alignItems: 'center',
@@ -184,15 +185,15 @@ export function GroupNode({ id, data, selected }: NodeProps) {
                 if (e.key === 'Escape') cancel();
               }}
               style={{
-                fontSize: 12,
+                fontSize: font.body,
                 fontWeight: 600,
                 padding: '0 2px',
-                border: '1px solid #4f6ef7',
-                borderRadius: 3,
+                border: `1px solid ${color.primary}`,
+                borderRadius: radius.sm,
                 outline: 'none',
                 width: '100%',
                 background: 'transparent',
-                color: '#3a5bd9',
+                color: color.primary,
               }}
             />
           ) : (

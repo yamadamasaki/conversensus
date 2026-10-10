@@ -108,6 +108,7 @@ import {
   type Tab,
   tabAddress,
 } from './tabs/tabs';
+import { color, font, radius, shadow } from './theme';
 import { generateId } from './uuid';
 
 /** 特殊なグラフのシートの既定の名前 (step3 Phase 4)。n は同じ種類の何枚目か */
@@ -1107,7 +1108,7 @@ export default function App() {
             alignItems: 'center',
             justifyContent: 'center',
             height: '100%',
-            color: '#999',
+            color: color.textMuted,
           }}
         >
           ファイルを選択するか, 新規作成してください
@@ -1141,7 +1142,7 @@ export default function App() {
   );
 
   return (
-    <div style={{ display: 'flex', height: '100vh', fontFamily: 'sans-serif' }}>
+    <div style={{ display: 'flex', height: '100vh' }}>
       <SidePanel
         side="left"
         label={BOUNDARY_LABELS.leftSidebar}
@@ -1359,12 +1360,12 @@ export default function App() {
                       position: 'fixed',
                       left: takeMenu.at.x,
                       top: takeMenu.at.y,
-                      background: '#fff',
-                      border: '1px solid #ccc',
-                      borderRadius: 6,
-                      boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
+                      background: color.bg,
+                      border: `1px solid ${color.border}`,
+                      borderRadius: radius.md,
+                      boxShadow: shadow.dialog,
                       padding: 4,
-                      fontSize: 12,
+                      fontSize: font.body,
                     }}
                   >
                     <button

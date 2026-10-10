@@ -2,6 +2,7 @@ import type { EdgePathType } from '@conversensus/shared';
 import { DIALOG_Z_INDEX } from './ConfirmDialog';
 import { DEFAULT_EDGE_PATH_TYPE } from './graphTransform';
 import type { EdgeContextMenuState } from './hooks/useEdgeContextMenu';
+import { color, font, radius, shadow } from './theme';
 
 type Props = {
   contextMenu: NonNullable<EdgeContextMenuState>;
@@ -16,10 +17,10 @@ export function EdgeContextMenu({ contextMenu, onSelect }: Props) {
         position: 'fixed',
         top: contextMenu.y,
         left: contextMenu.x,
-        background: '#fff',
-        border: '1px solid #ddd',
-        borderRadius: 6,
-        boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+        background: color.bg,
+        border: `1px solid ${color.border}`,
+        borderRadius: radius.md,
+        boxShadow: shadow.pop,
         zIndex: DIALOG_Z_INDEX,
         minWidth: 160,
         padding: '4px 0',
@@ -29,9 +30,9 @@ export function EdgeContextMenu({ contextMenu, onSelect }: Props) {
       <div
         style={{
           padding: '4px 14px 6px',
-          fontSize: 11,
-          color: '#888',
-          borderBottom: '1px solid #eee',
+          fontSize: font.caption,
+          color: color.textMuted,
+          borderBottom: `1px solid ${color.borderSubtle}`,
           marginBottom: 4,
         }}
       >
@@ -62,7 +63,7 @@ export function EdgeContextMenu({ contextMenu, onSelect }: Props) {
               textAlign: 'left',
               background: 'none',
               border: 'none',
-              fontSize: 13,
+              fontSize: font.body,
               fontWeight: isCurrent ? 'bold' : 'normal',
               cursor: 'pointer',
             }}

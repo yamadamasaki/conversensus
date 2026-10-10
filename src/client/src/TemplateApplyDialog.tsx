@@ -1,3 +1,4 @@
+import { color, font, overlay, radius } from './theme';
 /**
  * template graph を当ててシートを足すダイアログ (step3 Phase 4 Q7)
  *
@@ -34,7 +35,7 @@ export function TemplateApplyDialog({
       style={{
         position: 'fixed',
         inset: 0,
-        background: 'rgba(0,0,0,0.3)',
+        background: overlay,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -43,11 +44,11 @@ export function TemplateApplyDialog({
     >
       <div
         style={{
-          background: '#fff',
-          borderRadius: 8,
+          background: color.bg,
+          borderRadius: radius.md,
           padding: 16,
           minWidth: 280,
-          fontSize: 13,
+          fontSize: font.body,
         }}
       >
         <p style={{ margin: '0 0 8px' }}>

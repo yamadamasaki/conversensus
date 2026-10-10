@@ -1,3 +1,4 @@
+import { color, font, radius, shadow } from './theme';
 /**
  * 上書きの報告 (step2 Phase 3 T8)
  *
@@ -81,13 +82,13 @@ export function OverwriteNotice({
         maxWidth: 'calc(100vw - 32px)',
         maxHeight: '50vh',
         overflowY: 'auto',
-        background: '#fff',
+        background: color.bg,
         // **警告色を使わない。**判断を求めていないことを見た目で言う
-        border: '1px solid #ccc',
-        borderRadius: 8,
-        boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
+        border: `1px solid ${color.border}`,
+        borderRadius: radius.md,
+        boxShadow: shadow.pop,
         padding: '8px 12px',
-        fontSize: 13,
+        fontSize: font.body,
         lineHeight: 1.6,
       }}
     >
@@ -99,7 +100,7 @@ export function OverwriteNotice({
             alignItems: 'baseline',
             justifyContent: 'space-between',
             gap: 8,
-            color: '#555',
+            color: color.textMuted,
           }}
         >
           <span>
@@ -121,11 +122,11 @@ export function OverwriteNotice({
             aria-label="上書きの報告を消す"
             style={{
               padding: '2px 8px',
-              fontSize: 13,
+              fontSize: font.body,
               cursor: 'pointer',
               background: 'none',
-              border: '1px solid #ccc',
-              borderRadius: 4,
+              border: `1px solid ${color.border}`,
+              borderRadius: radius.sm,
             }}
           >
             消す

@@ -1,3 +1,5 @@
+import { color } from './theme';
+
 /**
  * 共有の印 (step2 Phase 2)
  *
@@ -20,7 +22,7 @@
 /** 絵文字の描画幅はエンジンごとに違うので、箱の大きさをこちらで決める */
 const ICON_BOX = 15;
 /** ✕ の色。警告 (黄) ではなく「届いていない」(赤) を意味する */
-const CROSS_COLOR = '#c0392b';
+const CROSS_COLOR = color.dangerText;
 
 export function ShareStatusIcon({ detached }: { detached: boolean }) {
   return (
@@ -51,9 +53,9 @@ export function ShareStatusIcon({ detached }: { detached: boolean }) {
           }}
         >
           {/* 白い縁。下地の絵の上でも印の輪郭が立つようにする */}
-          <circle cx="11.3" cy="11.3" r="4.7" fill="#fff" />
+          <circle cx="11.3" cy="11.3" r="4.7" fill={color.bg} />
           <circle cx="11.3" cy="11.3" r="3.7" fill={CROSS_COLOR} />
-          <g stroke="#fff" strokeWidth={1.3} strokeLinecap="round">
+          <g stroke={color.bg} strokeWidth={1.3} strokeLinecap="round">
             <line x1="9.9" y1="9.9" x2="12.7" y2="12.7" />
             <line x1="12.7" y1="9.9" x2="9.9" y2="12.7" />
           </g>

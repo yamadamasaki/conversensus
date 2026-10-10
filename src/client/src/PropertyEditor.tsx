@@ -1,3 +1,4 @@
+import { color, font, radius, shadow } from './theme';
 /**
  * property editor の画面 (step2 Phase 4 Q2)
  *
@@ -118,7 +119,7 @@ export function PropertyEditor({
       aria-label={label}
       style={
         placement === 'docked'
-          ? { fontSize: 13, overflowY: 'auto', minHeight: 0 }
+          ? { fontSize: font.body, overflowY: 'auto', minHeight: 0 }
           : {
               position: 'absolute',
               top: 12,
@@ -127,12 +128,12 @@ export function PropertyEditor({
               maxWidth: 'calc(100vw - 24px)',
               maxHeight: PANEL_MAX_HEIGHT,
               overflowY: 'auto',
-              background: '#fff',
-              border: '1px solid #ccc',
-              borderRadius: 8,
-              boxShadow: '0 4px 24px rgba(0,0,0,0.2)',
+              background: color.bg,
+              border: `1px solid ${color.border}`,
+              borderRadius: radius.md,
+              boxShadow: shadow.dialog,
               zIndex: PROPERTY_EDITOR_Z_INDEX,
-              fontSize: 13,
+              fontSize: font.body,
             }
       }
     >
@@ -143,7 +144,7 @@ export function PropertyEditor({
           justifyContent: 'space-between',
           gap: 8,
           padding: '10px 12px',
-          borderBottom: '1px solid #eee',
+          borderBottom: `1px solid ${color.borderSubtle}`,
         }}
       >
         <strong
@@ -164,8 +165,8 @@ export function PropertyEditor({
               padding: '2px 8px',
               cursor: 'pointer',
               background: 'none',
-              border: '1px solid #ccc',
-              borderRadius: 4,
+              border: `1px solid ${color.border}`,
+              borderRadius: radius.sm,
               flexShrink: 0,
             }}
           >
@@ -175,7 +176,7 @@ export function PropertyEditor({
       </div>
 
       {rows.length === 0 ? (
-        <p style={{ margin: 0, padding: 12, color: '#777' }}>
+        <p style={{ margin: 0, padding: 12, color: color.textMuted }}>
           プロパティはありません
         </p>
       ) : (
@@ -194,7 +195,9 @@ export function PropertyEditor({
 
       {/* 追加の口。**custom は自由に足せる** (仕様の表) */}
       {!readOnly && (
-        <div style={{ padding: 12, borderTop: '1px solid #eee' }}>
+        <div
+          style={{ padding: 12, borderTop: `1px solid ${color.borderSubtle}` }}
+        >
           <div style={{ display: 'flex', gap: 6 }}>
             <input
               aria-label="追加するプロパティの名前"
@@ -202,14 +205,24 @@ export function PropertyEditor({
               placeholder="名前"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
-              style={{ flex: 1, minWidth: 0, padding: '4px 6px', fontSize: 12 }}
+              style={{
+                flex: 1,
+                minWidth: 0,
+                padding: '4px 6px',
+                fontSize: font.body,
+              }}
             />
             <input
               aria-label="追加するプロパティの値"
               placeholder="値"
               value={newValue}
               onChange={(e) => setNewValue(e.target.value)}
-              style={{ flex: 1, minWidth: 0, padding: '4px 6px', fontSize: 12 }}
+              style={{
+                flex: 1,
+                minWidth: 0,
+                padding: '4px 6px',
+                fontSize: font.body,
+              }}
             />
             <button
               type="button"
@@ -221,7 +234,7 @@ export function PropertyEditor({
               }}
               style={{
                 padding: '4px 10px',
-                fontSize: 12,
+                fontSize: font.body,
                 cursor: canAdd ? 'pointer' : 'not-allowed',
               }}
             >
@@ -285,7 +298,7 @@ function PropertyField({
     <li
       style={{
         padding: '8px 12px',
-        borderBottom: '1px solid #f0f0f0',
+        borderBottom: `1px solid ${color.borderSubtle}`,
         lineHeight: 1.6,
       }}
     >
@@ -300,13 +313,21 @@ function PropertyField({
         <span style={{ fontWeight: 600, wordBreak: 'break-all' }}>
           {row.name}
         </span>
-        <span style={{ color: '#777', fontSize: 11, flexShrink: 0 }}>
+        <span
+          style={{
+            color: color.textMuted,
+            fontSize: font.caption,
+            flexShrink: 0,
+          }}
+        >
           {TYPE_LABEL[row.type] ?? row.type}
         </span>
       </div>
 
       {locked ? (
-        <div style={{ color: '#555', wordBreak: 'break-all' }}>{shown}</div>
+        <div style={{ color: color.textMuted, wordBreak: 'break-all' }}>
+          {shown}
+        </div>
       ) : (
         <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
           <input
@@ -325,13 +346,22 @@ function PropertyField({
               if (e.key === 'Enter') commit();
               if (e.key === 'Escape') setDraft(shown);
             }}
-            style={{ flex: 1, minWidth: 0, padding: '4px 6px', fontSize: 12 }}
+            style={{
+              flex: 1,
+              minWidth: 0,
+              padding: '4px 6px',
+              fontSize: font.body,
+            }}
           />
           <button
             type="button"
             onClick={() => onRemove(row.name)}
             aria-label={`${row.name} を削除`}
-            style={{ padding: '4px 8px', fontSize: 12, cursor: 'pointer' }}
+            style={{
+              padding: '4px 8px',
+              fontSize: font.body,
+              cursor: 'pointer',
+            }}
           >
             🗑
           </button>
@@ -340,7 +370,7 @@ function PropertyField({
 
       {/* **なぜ編集できないかを言う。**言わないと「壊れている」に見える */}
       {row.readOnly !== undefined && (
-        <div style={{ color: '#999', fontSize: 11 }}>
+        <div style={{ color: color.textMuted, fontSize: font.caption }}>
           {READ_ONLY_NOTE[row.readOnly]}
         </div>
       )}

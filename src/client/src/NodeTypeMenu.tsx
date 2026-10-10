@@ -1,5 +1,6 @@
 import type { NodeKindRef } from '@conversensus/shared';
 import { DIALOG_Z_INDEX } from './ConfirmDialog';
+import { color, font, radius, shadow } from './theme';
 
 /**
  * 作る node の見た目。`graph` は metagraph の graph node (step3 Phase 4) で、作るとシートが増える
@@ -25,9 +26,9 @@ type Props = {
 
 const HEADING: React.CSSProperties = {
   padding: '4px 14px 6px',
-  fontSize: 11,
-  color: '#888',
-  borderBottom: '1px solid #eee',
+  fontSize: font.caption,
+  color: color.textMuted,
+  borderBottom: `1px solid ${color.borderSubtle}`,
   marginBottom: 4,
 };
 
@@ -40,7 +41,7 @@ const ITEM: React.CSSProperties = {
   textAlign: 'left',
   background: 'none',
   border: 'none',
-  fontSize: 13,
+  fontSize: font.body,
   cursor: 'pointer',
 };
 
@@ -77,10 +78,10 @@ export function NodeTypeMenu({
         position: 'fixed',
         top: position.y,
         left: position.x,
-        background: '#fff',
-        border: '1px solid #ddd',
-        borderRadius: 6,
-        boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+        background: color.bg,
+        border: `1px solid ${color.border}`,
+        borderRadius: radius.md,
+        boxShadow: shadow.pop,
         zIndex: DIALOG_Z_INDEX,
         minWidth: 160,
         padding: '4px 0',

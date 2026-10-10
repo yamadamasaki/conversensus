@@ -1,3 +1,4 @@
+import { color, font } from './theme';
 /**
  * タブ帯 (step3 Phase 3 S3-3)。ボディの上に、開いているグラフのアドレスを並べる。
  *
@@ -35,8 +36,8 @@ export function TabBar({
         display: 'flex',
         height: TAB_BAR_HEIGHT,
         flexShrink: 0,
-        borderBottom: '1px solid #ddd',
-        background: '#f5f5f5',
+        borderBottom: `1px solid ${color.border}`,
+        background: color.bgSubtle,
         overflowX: 'auto',
       }}
     >
@@ -50,8 +51,8 @@ export function TabBar({
               display: 'flex',
               alignItems: 'center',
               maxWidth: TAB_MAX_WIDTH,
-              borderRight: '1px solid #ddd',
-              background: active ? '#fff' : 'transparent',
+              borderRight: `1px solid ${color.border}`,
+              background: active ? color.bg : 'transparent',
             }}
           >
             <button
@@ -66,7 +67,7 @@ export function TabBar({
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap',
-                fontSize: 12,
+                fontSize: font.body,
                 padding: '0 8px',
                 height: '100%',
                 background: 'none',
@@ -85,8 +86,8 @@ export function TabBar({
                 background: 'none',
                 border: 'none',
                 cursor: 'pointer',
-                color: '#888',
-                fontSize: 12,
+                color: color.textMuted,
+                fontSize: font.body,
                 padding: '0 6px',
               }}
             >

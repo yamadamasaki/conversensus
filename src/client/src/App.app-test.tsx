@@ -43,6 +43,7 @@ import {
 } from './testing/appDriver';
 import { type AppWorld, createAppWorld } from './testing/appWorld';
 import type { FakeAccount } from './testing/fakePds';
+import { color } from './theme';
 
 const ALICE: FakeAccount = {
   did: 'did:plc:alice000000000000000000' as Did,
@@ -1316,10 +1317,10 @@ describe('App 結合: merger (step3 Phase 5 S5-1a)', () => {
     async () => {
       await conflictingMerge();
       await waitFor(() => {
-        expect(nodeIn('merge 元', 'branch 案').style.outline).toContain(
+        expect(nodeIn('merge 元', 'branch 案').style.outlineStyle).toBe(
           'dashed',
         );
-        expect(nodeIn('merge 先', 'trunk 案').style.outline).toContain(
+        expect(nodeIn('merge 先', 'trunk 案').style.outlineStyle).toBe(
           'dashed',
         );
       }, WIRING_TIMEOUT);
@@ -1329,7 +1330,7 @@ describe('App 結合: merger (step3 Phase 5 S5-1a)', () => {
         ...target.querySelectorAll('.react-flow__node [data-node-body]'),
       ]
         .map((b) => (b as HTMLElement).style.background)
-        .filter((bg) => bg.includes('240, 253, 244') || bg.includes('f0fdf4'));
+        .filter((bg) => bg === color.diffAddBg);
       expect(added).toHaveLength(1);
     },
     MERGER_TEST_MS,

@@ -1,3 +1,4 @@
+import { color, font, radius } from './theme';
 /**
  * multiple モードの pane 1 つの枠 (step3 Phase 3 S3-5)。名前・前に出す・閉じるを持つ帯と、中身。
  *
@@ -6,8 +7,8 @@
 
 import type { ReactNode } from 'react';
 
-const ACTIVE_BORDER = '#7c9ef8';
-const PASSIVE_BORDER = '#ddd';
+const ACTIVE_BORDER = color.selection;
+const PASSIVE_BORDER = color.border;
 
 type Props = {
   label: string;
@@ -44,8 +45,8 @@ export function PaneFrame({
           alignItems: 'center',
           gap: 4,
           padding: '2px 6px',
-          fontSize: 12,
-          background: active ? '#eef2fe' : '#f5f5f5',
+          fontSize: font.body,
+          background: active ? color.selectionBg : color.bgSubtle,
         }}
       >
         <span
@@ -85,9 +86,9 @@ export function PaneFrame({
 
 const BUTTON = {
   background: 'none',
-  border: '1px solid #ccc',
-  borderRadius: 4,
+  border: `1px solid ${color.border}`,
+  borderRadius: radius.sm,
   cursor: 'pointer',
-  fontSize: 11,
+  fontSize: font.caption,
   padding: '0 6px',
 } as const;

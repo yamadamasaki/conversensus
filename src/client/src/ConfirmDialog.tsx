@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { color, font, overlay, radius, shadow } from './theme';
 
 export const DIALOG_Z_INDEX = 1000;
 export const DIALOG_WIDTH = 380;
@@ -30,7 +31,7 @@ export function ConfirmDialog({
       style={{
         position: 'fixed',
         inset: 0,
-        background: 'rgba(0,0,0,0.4)',
+        background: overlay,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -46,12 +47,12 @@ export function ConfirmDialog({
         aria-modal="true"
         aria-label="確認"
         style={{
-          background: '#fff',
-          borderRadius: 8,
+          background: color.bg,
+          borderRadius: radius.md,
           padding: 24,
           width: DIALOG_WIDTH,
           maxWidth: '90vw',
-          boxShadow: '0 4px 24px rgba(0,0,0,0.2)',
+          boxShadow: shadow.dialog,
         }}
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => {
@@ -61,7 +62,7 @@ export function ConfirmDialog({
         <p
           style={{
             margin: '0 0 20px',
-            fontSize: 14,
+            fontSize: font.body,
             lineHeight: 1.6,
             whiteSpace: 'pre-wrap',
           }}
@@ -79,7 +80,11 @@ export function ConfirmDialog({
             type="button"
             ref={cancelRef}
             onClick={onCancel}
-            style={{ padding: '6px 16px', fontSize: 13, cursor: 'pointer' }}
+            style={{
+              padding: '6px 16px',
+              fontSize: font.body,
+              cursor: 'pointer',
+            }}
           >
             {cancelLabel}
           </button>
@@ -88,12 +93,12 @@ export function ConfirmDialog({
             onClick={onConfirm}
             style={{
               padding: '6px 16px',
-              fontSize: 13,
+              fontSize: font.body,
               cursor: 'pointer',
-              background: '#4f6ef7',
-              color: '#fff',
+              background: color.primary,
+              color: color.textOnPrimary,
               border: 'none',
-              borderRadius: 4,
+              borderRadius: radius.sm,
             }}
           >
             {confirmLabel}

@@ -1,3 +1,4 @@
+import { color, font, radius, shadow } from './theme';
 /**
  * ヘッダ (step3 Phase 3 S3-4a, 仕様 design-language「ヘッダ」)
  *
@@ -40,27 +41,29 @@ type Props = {
 
 const BUTTON: CSSProperties = {
   padding: '4px 10px',
-  fontSize: 13,
+  fontSize: font.body,
   cursor: 'pointer',
-  background: '#e0e0e0',
-  color: '#333',
+  background: color.bgActive,
+  color: color.text,
   border: 'none',
-  borderRadius: 6,
+  borderRadius: radius.md,
 };
-const ACCENT = '#7c9ef8';
-const COMMIT_COLOR = '#4f6ef7';
-const MERGE_COLOR = '#f97316';
-const DISABLED_COLOR = '#ccc';
+const ACCENT = color.selection;
+const COMMIT_COLOR = color.primary;
+const MERGE_COLOR = color.primary;
+const DISABLED_COLOR = color.textDisabled;
 
 function toggleStyle(on: boolean): CSSProperties {
-  return on ? { ...BUTTON, background: ACCENT, color: '#fff' } : BUTTON;
+  return on
+    ? { ...BUTTON, background: ACCENT, color: color.textOnPrimary }
+    : BUTTON;
 }
 
-function actionStyle(enabled: boolean, color: string): CSSProperties {
+function actionStyle(enabled: boolean, bg: string): CSSProperties {
   return {
     ...BUTTON,
-    background: enabled ? color : DISABLED_COLOR,
-    color: '#fff',
+    background: enabled ? bg : DISABLED_COLOR,
+    color: color.textOnPrimary,
     cursor: enabled ? 'pointer' : 'not-allowed',
   };
 }
@@ -87,8 +90,8 @@ export function GraphHeader({
         height: GRAPH_HEADER_HEIGHT,
         flexShrink: 0,
         padding: '0 8px',
-        borderBottom: '1px solid #ddd',
-        background: '#fafafa',
+        borderBottom: `1px solid ${color.border}`,
+        background: color.bgSubtle,
       }}
     >
       {/* 検索の口 (step2 Phase 7)。仕様「検索ボタンで検索窓がポップアップ」 */}
@@ -131,7 +134,7 @@ export function GraphHeader({
         type="button"
         onClick={() => controls?.groupSelected()}
         disabled={!ready}
-        style={{ ...BUTTON, background: ACCENT, color: '#fff' }}
+        style={{ ...BUTTON, background: ACCENT, color: color.textOnPrimary }}
       >
         グループ化
       </button>
@@ -142,7 +145,7 @@ export function GraphHeader({
         style={{
           ...BUTTON,
           background: ACCENT,
-          color: '#fff',
+          color: color.textOnPrimary,
           marginRight: 8,
         }}
       >
@@ -176,16 +179,22 @@ export function GraphHeader({
                 top: '100%',
                 left: 0,
                 zIndex: 10,
-                background: '#fff',
-                border: '1px solid #ccc',
-                borderRadius: 6,
-                boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
+                background: color.bg,
+                border: `1px solid ${color.border}`,
+                borderRadius: radius.md,
+                boxShadow: shadow.dialog,
                 minWidth: 200,
                 padding: 4,
               }}
             >
               {paneCandidates.length === 0 ? (
-                <div style={{ fontSize: 12, color: '#888', padding: 6 }}>
+                <div
+                  style={{
+                    fontSize: font.body,
+                    color: color.textMuted,
+                    padding: 6,
+                  }}
+                >
                   並べられるタブがありません
                 </div>
               ) : (
@@ -205,7 +214,7 @@ export function GraphHeader({
                       background: 'none',
                       border: 'none',
                       cursor: 'pointer',
-                      fontSize: 12,
+                      fontSize: font.body,
                       padding: '4px 6px',
                     }}
                   >
@@ -226,7 +235,7 @@ export function GraphHeader({
             gap: 8,
           }}
         >
-          <span style={{ fontSize: 12, color: '#555' }}>
+          <span style={{ fontSize: font.body, color: color.textMuted }}>
             ⎇ {branch.name}
             {branch.merged && ' (merged)'}
             {branch.pendingCount > 0 ? ` (${branch.pendingCount} 変更)` : ''}

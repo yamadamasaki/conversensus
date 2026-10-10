@@ -1,3 +1,4 @@
+import { color, font, radius, shadow } from './theme';
 /**
  * edge の種類を選ぶメニュー (step3 Phase 4 Q8)。繋いだ両端から決まる種類の候補が複数あるとき、
  * 繋いだ直後に出す。**選ばずに閉じたら種類無しの edge のまま繋ぐ** (仕様: 一意に決まらない場合は
@@ -51,18 +52,18 @@ export function EdgeKindMenu({
         left: position.x,
         top: position.y,
         zIndex: FLOATING_UI_Z_INDEX,
-        background: '#fff',
-        border: '1px solid #ccc',
-        borderRadius: 6,
-        boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
+        background: color.bg,
+        border: `1px solid ${color.border}`,
+        borderRadius: radius.md,
+        boxShadow: shadow.dialog,
         padding: 4,
         minWidth: 160,
-        fontSize: 12,
+        fontSize: font.body,
       }}
     >
       {groups.map(({ template, refs }) => (
         <div key={template.id}>
-          <div style={{ color: '#888', padding: '2px 6px' }}>
+          <div style={{ color: color.textMuted, padding: '2px 6px' }}>
             {template.name}
           </div>
           {refs.map((ref) => (
@@ -82,7 +83,11 @@ export function EdgeKindMenu({
         type="button"
         role="menuitem"
         onClick={() => onSelect(undefined)}
-        style={{ ...ITEM, color: '#888', borderTop: '1px solid #eee' }}
+        style={{
+          ...ITEM,
+          color: color.textMuted,
+          borderTop: `1px solid ${color.borderSubtle}`,
+        }}
       >
         種類なしで繋ぐ
       </button>
@@ -98,5 +103,5 @@ const ITEM = {
   border: 'none',
   cursor: 'pointer',
   padding: '4px 6px',
-  fontSize: 12,
+  fontSize: font.body,
 } as const;

@@ -1,3 +1,4 @@
+import { color, font } from './theme';
 /**
  * 見るだけの pane の中身 (step3 Phase 3 S3-5)。アドレスから求めた姿を `GraphPreview` で描く
  */
@@ -11,8 +12,8 @@ const MESSAGE = {
   alignItems: 'center',
   justifyContent: 'center',
   height: '100%',
-  color: '#999',
-  fontSize: 12,
+  color: color.textMuted,
+  fontSize: font.body,
 } as const;
 
 type Props = {
