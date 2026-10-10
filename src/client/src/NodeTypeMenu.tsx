@@ -1,6 +1,6 @@
 import type { NodeKindRef } from '@conversensus/shared';
-import { DIALOG_Z_INDEX } from './ConfirmDialog';
 import { color, font, radius, shadow } from './theme';
+import { DIALOG_Z_INDEX } from './ui/Dialog';
 
 /**
  * 作る node の見た目。`graph` は metagraph の graph node (step3 Phase 4) で、作るとシートが増える

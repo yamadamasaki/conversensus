@@ -1,6 +1,7 @@
-import { DIALOG_WIDTH, DIALOG_Z_INDEX } from './ConfirmDialog';
 import type { InvitationPreview } from './hooks/useParticipation';
-import { color, font, overlay, radius } from './theme';
+import { color, space } from './theme';
+import { Button } from './ui/Button';
+import { Dialog, DialogActions } from './ui/Dialog';
 
 /**
  * 参加依頼の承認ダイアログ (step2)
@@ -32,70 +33,27 @@ export function AcceptInvitationDialog({
   error = null,
 }: Props) {
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: モーダル背景のクリック閉じ
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: overlay,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: DIALOG_Z_INDEX,
-      }}
-      onClick={onClose}
-      onKeyDown={(e) => {
-        if (e.key === 'Escape') onClose();
-      }}
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="参加依頼の承認"
-        style={{
-          background: color.bg,
-          borderRadius: radius.md,
-          padding: 24,
-          width: DIALOG_WIDTH,
-          maxWidth: '90vw',
-        }}
-        onClick={(e) => e.stopPropagation()}
-        onKeyDown={(e) => e.stopPropagation()}
-      >
-        <p style={{ margin: 0, fontSize: font.body, lineHeight: 1.7 }}>
-          {preview.inviterLabel} さんが、あなた {preview.inviteeLabel} さんを
-          ファイル “{preview.fileName}” の対話への参加を依頼しています。
-        </p>
+    <Dialog kind="input" label="参加依頼の承認" onDismiss={onClose}>
+      <p style={{ margin: 0 }}>
+        {preview.inviterLabel} さんが、あなた {preview.inviteeLabel} さんを File
+        “{preview.fileName}” の対話への参加を依頼しています。
+      </p>
 
-        {error && (
-          <p
-            role="alert"
-            style={{
-              margin: '12px 0 0',
-              fontSize: font.body,
-              color: color.dangerText,
-            }}
-          >
-            {error}
-          </p>
-        )}
-
-        <div
-          style={{
-            marginTop: 20,
-            display: 'flex',
-            gap: 8,
-            justifyContent: 'space-between',
-          }}
+      {error && (
+        <p
+          role="alert"
+          style={{ margin: `${space[3]}px 0 0`, color: color.dangerText }}
         >
-          <button type="button" disabled={busy} onClick={onAccept}>
-            参加する
-          </button>
-          <button type="button" onClick={onClose}>
-            閉じる
-          </button>
-        </div>
-      </div>
-    </div>
+          {error}
+        </p>
+      )}
+
+      <DialogActions>
+        <Button onClick={onClose}>閉じる</Button>
+        <Button variant="primary" disabled={busy} onClick={onAccept}>
+          参加する
+        </Button>
+      </DialogActions>
+    </Dialog>
   );
 }

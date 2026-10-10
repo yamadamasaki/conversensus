@@ -1,10 +1,10 @@
 import type { EdgePathType } from '@conversensus/shared';
 import { Check } from 'lucide-react';
-import { DIALOG_Z_INDEX } from './ConfirmDialog';
 import { DEFAULT_EDGE_PATH_TYPE } from './graphTransform';
 import type { EdgeContextMenuState } from './hooks/useEdgeContextMenu';
 import { color, font, radius, shadow } from './theme';
 import { ICON_SIZE_SM } from './ui/Button';
+import { DIALOG_Z_INDEX } from './ui/Dialog';
 
 type Props = {
   contextMenu: NonNullable<EdgeContextMenuState>;

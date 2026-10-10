@@ -1,4 +1,6 @@
-import { color, font, radius, shadow } from './theme';
+import { X } from 'lucide-react';
+import { color, font, radius, shadow, space } from './theme';
+import { Button, IconButton } from './ui/Button';
 /**
  * 競合の通知 (step2 Phase 3 T4)
  *
@@ -174,7 +176,9 @@ export function ConflictNotice({
         maxHeight: '60vh',
         overflowY: 'auto',
         background: color.bg,
-        border: `1px solid ${color.warning}`,
+        // 判断が要る通知 (visual language §6.3): 競合の色の左の帯で、ほかの通知と分ける
+        border: `1px solid ${color.border}`,
+        borderLeft: `4px solid ${color.conflict}`,
         borderRadius: radius.md,
         boxShadow: shadow.dialog,
         padding: 16,
@@ -195,21 +199,12 @@ export function ConflictNotice({
             ? `merge で ${conflicts.length} 件の競合を検出しました`
             : `相手が保留した競合が ${arrivedForks.length} 件届きました`}
         </strong>
-        <button
-          type="button"
+        <IconButton
+          icon={X}
+          small
+          label="競合の通知を閉じる"
           onClick={onClose}
-          aria-label="競合の通知を閉じる"
-          style={{
-            padding: '2px 8px',
-            fontSize: font.body,
-            cursor: 'pointer',
-            background: 'none',
-            border: `1px solid ${color.border}`,
-            borderRadius: radius.sm,
-          }}
-        >
-          閉じる
-        </button>
+        />
       </div>
 
       {forkCount > 0 && (
@@ -258,21 +253,14 @@ export function ConflictNotice({
                 </span>
                 : {describe(fork.origin)}
                 {onOpenMerger && (
-                  <button
-                    type="button"
+                  <Button
+                    variant="primary"
+                    className="cs-btn--sm"
                     onClick={() => onOpenMerger(fork)}
-                    style={{
-                      marginLeft: 6,
-                      padding: '0 6px',
-                      fontSize: font.body,
-                      cursor: 'pointer',
-                      background: 'none',
-                      border: `1px solid ${color.border}`,
-                      borderRadius: radius.sm,
-                    }}
+                    style={{ marginLeft: space[2] }}
                   >
                     merger で決める
-                  </button>
+                  </Button>
                 )}
               </li>
             ))}

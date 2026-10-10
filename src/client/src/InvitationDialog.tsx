@@ -1,9 +1,13 @@
 import type { Did } from '@conversensus/shared';
+import { Check, Copy, History } from 'lucide-react';
 import { useRef, useState } from 'react';
-import { DIALOG_Z_INDEX } from './ConfirmDialog';
 import type { RosterAction, RosterRow, RosterStatus } from './sync/rosterView';
 import { actionLabel } from './sync/rosterView';
-import { color, font, overlay, radius } from './theme';
+import { color, font, radius, space } from './theme';
+import { Button, IconButton } from './ui/Button';
+import { Dialog, DialogActions } from './ui/Dialog';
+
+const ROSTER_DIALOG_WIDTH = 620;
 
 /**
  * 参加者一覧ダイアログ (step2 Phase 1)
@@ -132,199 +136,169 @@ export function InvitationDialog({
   };
 
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: モーダル背景のクリック閉じ
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: overlay,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: DIALOG_Z_INDEX,
-      }}
-      onClick={onClose}
-      onKeyDown={(e) => {
-        if (e.key === 'Escape') onClose();
-      }}
+    <Dialog
+      kind="input"
+      label="参加者一覧"
+      title="参加者一覧"
+      onDismiss={onClose}
+      width={ROSTER_DIALOG_WIDTH}
+      scroll
     >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="参加者一覧"
+      <p
         style={{
-          background: color.bg,
-          borderRadius: radius.md,
-          padding: 24,
-          width: 620,
-          maxWidth: '90vw',
-          maxHeight: '80vh',
-          overflowY: 'auto',
+          margin: '0 0 16px',
+          fontSize: font.body,
+          color: color.textMuted,
         }}
-        onClick={(e) => e.stopPropagation()}
-        onKeyDown={(e) => e.stopPropagation()}
       >
-        <h2 style={{ margin: '0 0 4px', fontSize: font.heading }}>
-          参加者一覧
-        </h2>
+        {fileName}
+      </p>
+
+      {unreadable.length > 0 && (
         <p
+          role="status"
           style={{
-            margin: '0 0 16px',
+            margin: '0 0 12px',
             fontSize: font.body,
-            color: color.textMuted,
+            color: color.warningText,
           }}
         >
-          {fileName}
+          {unreadable.length}{' '}
+          人分の記録が読めなかった。名簿が欠けている可能性がある。
         </p>
+      )}
 
-        {unreadable.length > 0 && (
-          <p
-            role="status"
-            style={{
-              margin: '0 0 12px',
-              fontSize: font.body,
-              color: color.warningText,
-            }}
-          >
-            {unreadable.length}{' '}
-            人分の記録が読めなかった。名簿が欠けている可能性がある。
-          </p>
-        )}
-
-        {rejectedNote && (
-          <p
-            role="status"
-            style={{
-              margin: '0 0 12px',
-              fontSize: font.body,
-              color: color.warningText,
-            }}
-          >
-            {rejectedNote}
-          </p>
-        )}
-
-        <table
+      {rejectedNote && (
+        <p
+          role="status"
           style={{
-            width: '100%',
+            margin: '0 0 12px',
             fontSize: font.body,
-            borderCollapse: 'collapse',
+            color: color.warningText,
           }}
         >
-          <thead>
-            <tr style={{ textAlign: 'left', color: color.textMuted }}>
-              <th style={{ padding: '4px 6px' }}>参加者</th>
-              <th style={{ padding: '4px 6px' }}>依頼者</th>
-              <th style={{ padding: '4px 6px' }}>状態</th>
-              <th style={{ padding: '4px 6px' }}>参加履歴</th>
-              <th style={{ padding: '4px 6px' }}>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <tr
-                key={row.did}
-                style={{ borderTop: `1px solid ${color.borderSubtle}` }}
-              >
-                <td style={ID_CELL}>{labelOf(row.did)}</td>
-                <td style={ID_CELL}>
-                  {row.inviter ? labelOf(row.inviter) : '—'}
-                </td>
-                <td style={{ padding: '6px' }}>{STATUS_LABEL[row.status]}</td>
-                <td style={{ padding: '6px' }}>
-                  <button
-                    type="button"
-                    aria-label={`${labelOf(row.did)} の参加履歴`}
-                    onClick={() => onOpenHistory(row.did)}
-                    style={{ fontSize: font.body }}
-                  >
-                    …
-                  </button>
-                </td>
-                <td style={{ padding: '6px', whiteSpace: 'nowrap' }}>
-                  {[...row.available]
-                    .sort((a, b) => ACTION_ORDER[a] - ACTION_ORDER[b])
-                    .map((action) => (
-                      <button
-                        key={action}
-                        type="button"
-                        disabled={busy}
-                        onClick={() => onAction(action, row.did)}
-                        style={{ marginRight: 4, fontSize: font.body }}
-                      >
-                        {actionLabel(action, row.status)}
-                      </button>
-                    ))}
-                  {row.status === 'sent' && codeFor(row.did) && (
-                    <button
-                      type="button"
-                      onClick={() => copy(row.did)}
-                      style={{ fontSize: font.body }}
+          {rejectedNote}
+        </p>
+      )}
+
+      <table
+        style={{
+          width: '100%',
+          fontSize: font.body,
+          borderCollapse: 'collapse',
+        }}
+      >
+        <thead>
+          <tr style={{ textAlign: 'left', color: color.textMuted }}>
+            <th style={{ padding: '4px 6px' }}>参加者</th>
+            <th style={{ padding: '4px 6px' }}>依頼者</th>
+            <th style={{ padding: '4px 6px' }}>状態</th>
+            <th style={{ padding: '4px 6px' }}>参加履歴</th>
+            <th style={{ padding: '4px 6px' }}>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr
+              key={row.did}
+              style={{ borderTop: `1px solid ${color.borderSubtle}` }}
+            >
+              <td style={ID_CELL}>{labelOf(row.did)}</td>
+              <td style={ID_CELL}>
+                {row.inviter ? labelOf(row.inviter) : '—'}
+              </td>
+              <td style={{ padding: '6px' }}>{STATUS_LABEL[row.status]}</td>
+              <td style={{ padding: '6px' }}>
+                <IconButton
+                  icon={History}
+                  small
+                  label={`${labelOf(row.did)} の参加履歴`}
+                  onClick={() => onOpenHistory(row.did)}
+                />
+              </td>
+              <td style={{ padding: '6px', whiteSpace: 'nowrap' }}>
+                {[...row.available]
+                  .sort((a, b) => ACTION_ORDER[a] - ACTION_ORDER[b])
+                  .map((action) => (
+                    <Button
+                      key={action}
+                      className="cs-btn--sm"
+                      disabled={busy}
+                      onClick={() => onAction(action, row.did)}
+                      style={{ marginRight: space[1] }}
                     >
-                      {copied === row.did ? 'コピーした' : 'コードをコピー'}
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                      {actionLabel(action, row.status)}
+                    </Button>
+                  ))}
+                {row.status === 'sent' && codeFor(row.did) && (
+                  <Button
+                    className="cs-btn--sm"
+                    icon={copied === row.did ? Check : Copy}
+                    onClick={() => copy(row.did)}
+                  >
+                    {copied === row.did ? 'コピーした' : 'コードをコピー'}
+                  </Button>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
 
-        <div
+      <div
+        style={{
+          marginTop: 20,
+          display: 'flex',
+          gap: 8,
+          alignItems: 'center',
+        }}
+      >
+        <input
+          value={handle}
+          aria-label="ハンドル名"
+          placeholder="ハンドル・ネーム, ハンドル・ネーム"
+          disabled={busy}
+          onChange={(e) => setHandle(e.target.value)}
+          onCompositionStart={() => {
+            composingRef.current = true;
+          }}
+          onCompositionEnd={() => {
+            composingRef.current = false;
+          }}
+          onKeyDown={(e) => {
+            if (composingRef.current) return;
+            if (e.key === 'Enter') submit();
+          }}
           style={{
-            marginTop: 20,
-            display: 'flex',
-            gap: 8,
-            alignItems: 'center',
+            flex: 1,
+            minWidth: 0,
+            padding: `${space[1]}px ${space[2]}px`,
+            fontSize: font.body,
+            borderRadius: radius.sm,
+            border: `1px solid ${color.border}`,
+          }}
+        />
+        <Button variant="primary" disabled={busy} onClick={submit}>
+          参加依頼する
+        </Button>
+      </div>
+
+      {error && (
+        <p
+          role="alert"
+          style={{
+            margin: '8px 0 0',
+            fontSize: font.body,
+            color: color.dangerText,
           }}
         >
-          <input
-            value={handle}
-            aria-label="ハンドル名"
-            placeholder="ハンドル・ネーム, ハンドル・ネーム"
-            disabled={busy}
-            onChange={(e) => setHandle(e.target.value)}
-            onCompositionStart={() => {
-              composingRef.current = true;
-            }}
-            onCompositionEnd={() => {
-              composingRef.current = false;
-            }}
-            onKeyDown={(e) => {
-              if (composingRef.current) return;
-              if (e.key === 'Enter') submit();
-            }}
-            style={{
-              flex: 1,
-              minWidth: 0,
-              padding: '4px 6px',
-              fontSize: font.body,
-            }}
-          />
-          <button type="button" disabled={busy} onClick={submit}>
-            参加依頼する
-          </button>
-        </div>
+          {error}
+        </p>
+      )}
 
-        {error && (
-          <p
-            role="alert"
-            style={{
-              margin: '8px 0 0',
-              fontSize: font.body,
-              color: color.dangerText,
-            }}
-          >
-            {error}
-          </p>
-        )}
-
-        <div style={{ marginTop: 20, textAlign: 'right' }}>
-          <button type="button" onClick={onClose}>
-            閉じる
-          </button>
-        </div>
-      </div>
-    </div>
+      <DialogActions>
+        <Button onClick={onClose}>閉じる</Button>
+      </DialogActions>
+    </Dialog>
   );
 }

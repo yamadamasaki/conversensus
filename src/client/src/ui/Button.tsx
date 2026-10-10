@@ -8,7 +8,7 @@
  */
 
 import type { LucideIcon } from 'lucide-react';
-import type { ButtonHTMLAttributes, ReactNode } from 'react';
+import type { ButtonHTMLAttributes, ReactNode, Ref } from 'react';
 
 export const ICON_SIZE = 16;
 export const ICON_SIZE_SM = 14;
@@ -17,6 +17,10 @@ const ICON_STROKE = 1.75;
 type Variant = 'primary' | 'secondary' | 'plain' | 'danger' | 'danger-solid';
 
 type ButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'type'> & {
+  /** form の中で送信に使うときだけ `submit` */
+  type?: 'button' | 'submit';
+  /** 開いたときにフォーカスを置くため (ダイアログ) */
+  ref?: Ref<HTMLButtonElement>;
   variant?: Variant;
   icon?: LucideIcon;
   children: ReactNode;
@@ -30,6 +34,7 @@ function classOf(variant: Variant, extra?: string): string {
 
 /** 文字のあるボタン。アイコンを添えるときは `icon` */
 export function Button({
+  type = 'button',
   variant = 'secondary',
   icon: Icon,
   children,
@@ -37,7 +42,7 @@ export function Button({
   ...rest
 }: ButtonProps) {
   return (
-    <button type="button" className={classOf(variant, className)} {...rest}>
+    <button type={type} className={classOf(variant, className)} {...rest}>
       {Icon && <Icon size={ICON_SIZE} strokeWidth={ICON_STROKE} aria-hidden />}
       {children}
     </button>

@@ -1084,7 +1084,7 @@ describe('App 結合: metagraph (step3 Phase 4 S4-2b)', () => {
 
     fireEvent.click(graphNode('Sheet 2'));
     fireEvent.keyDown(window, { key: 'Delete' });
-    await user.click(await screen.findByRole('button', { name: 'OK' }));
+    await user.click(await screen.findByRole('button', { name: '削除' }));
     await waitFor(
       () => expect(sheetNames()).not.toContain('Sheet 2'),
       WIRING_TIMEOUT,

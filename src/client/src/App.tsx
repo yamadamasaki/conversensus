@@ -127,6 +127,7 @@ export default function App() {
     resolve: (ok: boolean) => void;
     confirmLabel?: string;
     cancelLabel?: string;
+    danger?: boolean;
   } | null>(null);
   const [inputState, setInputState] = useState<{
     message: string;
@@ -203,6 +204,7 @@ export default function App() {
               resolve,
               confirmLabel: ERASE_CONFIRM_LABEL,
               cancelLabel: KEEP_CANCEL_LABEL,
+              danger: true,
             }),
           ),
         otherTabsOpen: () =>
@@ -769,8 +771,10 @@ export default function App() {
         }
         void new Promise<boolean>((resolve) =>
           setConfirmState({
-            message: `シート「${target.name}」を削除しますか？\n中身も全て削除されます。`,
+            message: `Sheet「${target.name}」を削除しますか？\n中身もすべて削除されます。`,
             resolve,
+            confirmLabel: '削除',
+            danger: true,
           }),
         ).then((ok) => {
           if (ok) void handleDeleteSheet(target.id);
@@ -1475,6 +1479,7 @@ export default function App() {
           message={confirmState.message}
           confirmLabel={confirmState.confirmLabel}
           cancelLabel={confirmState.cancelLabel}
+          danger={confirmState.danger}
           onConfirm={() => {
             confirmState.resolve(true);
             setConfirmState(null);

@@ -1,6 +1,8 @@
 import type { FileId, SheetId } from '@conversensus/shared';
+import { FileDown, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { color, font, radius, shadow } from './theme';
+import { color, font, radius, shadow, space } from './theme';
+import { Button } from './ui/Button';
 
 export const FLOATING_UI_Z_INDEX = 100;
 
@@ -45,6 +47,9 @@ export function SettingsPopup({
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
+  // ポップオーバーの型 (visual language §6.1)。確定は「OK」(design language「保存 → OK」, #271) —
+  // local first なので、利用者から見て「保存」という別の手順は無い。
+  //
   // 外クリック / Escape はどちらも**破棄して閉じる** (ANA-126, マウント時に1回だけ登録)。
   //
   // 以前は外クリックが「保存して閉じる」だった。保存の口が 3 つ (ボタン・Enter・外クリック)
@@ -158,54 +163,27 @@ export function SettingsPopup({
         />
       </div>
       {onExport && (
-        <button
-          type="button"
-          onClick={onExport}
-          style={{
-            fontSize: font.body,
-            padding: '4px 8px',
-            borderRadius: radius.sm,
-            border: `1px solid ${color.borderStrong}`,
-            background: 'none',
-            color: color.textMuted,
-            cursor: 'pointer',
-            width: '100%',
-          }}
-        >
+        <Button icon={FileDown} onClick={onExport}>
           エクスポート (.conversensus)
-        </button>
+        </Button>
       )}
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 4 }}>
-        <button
-          type="button"
-          onClick={onDelete}
-          style={{
-            fontSize: font.body,
-            padding: '4px 8px',
-            borderRadius: radius.sm,
-            border: `1px solid ${color.danger}`,
-            background: 'none',
-            color: color.dangerText,
-            cursor: 'pointer',
-          }}
-        >
+      {/* 破壊的な操作は「OK」から最も離す (visual language §6.2, #271)。
+          間に区切りを置き、左端と右端に分ける */}
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          gap: space[2],
+          paddingTop: space[2],
+          borderTop: `1px solid ${color.borderSubtle}`,
+        }}
+      >
+        <Button variant="danger" icon={Trash2} onClick={onDelete}>
           {deleteLabel}
-        </button>
-        <button
-          type="button"
-          onClick={handleSave}
-          style={{
-            fontSize: font.body,
-            padding: '4px 12px',
-            borderRadius: radius.sm,
-            border: 'none',
-            background: color.primary,
-            color: color.textOnPrimary,
-            cursor: 'pointer',
-          }}
-        >
-          保存
-        </button>
+        </Button>
+        <Button variant="primary" onClick={handleSave}>
+          OK
+        </Button>
       </div>
     </div>
   );

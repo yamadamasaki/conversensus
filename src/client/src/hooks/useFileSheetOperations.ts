@@ -64,6 +64,10 @@ import {
 export type ConfirmState = {
   message: string;
   resolve: (ok: boolean) => void;
+  /** 主のボタンの言葉。動詞で、何が起きるかを書く (visual language §6.2)。省くと「OK」 */
+  confirmLabel?: string;
+  /** 取り消せない破壊的な操作 */
+  danger?: boolean;
 };
 
 export type AlertState = {
@@ -707,8 +711,10 @@ export function useFileSheetOperations({
       if (target) {
         const ok = await new Promise<boolean>((resolve) => {
           setConfirmState({
-            message: `「${target.name}」を削除しますか？\nシートも全て削除されます。`,
+            message: `File「${target.name}」を削除しますか？\nSheet もすべて削除され、取り消せません。`,
             resolve,
+            confirmLabel: '削除',
+            danger: true,
           });
         });
         if (!ok) return;

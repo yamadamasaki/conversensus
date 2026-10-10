@@ -1,6 +1,6 @@
 import { X } from 'lucide-react';
-import { color, font, radius } from './theme';
-import { ICON_SIZE_SM } from './ui/Button';
+import { color, font } from './theme';
+import { Button, IconButton } from './ui/Button';
 /**
  * multiple モードの pane 1 つの枠 (step3 Phase 3 S3-5)。名前・前に出す・閉じるを持つ帯と、中身。
  *
@@ -64,19 +64,17 @@ export function PaneFrame({
         </span>
         {/* 見るだけの pane を編集するには前に出す。押すと画面の仕組みがこの pane のアドレスへ移る */}
         {!active && onActivate && (
-          <button type="button" onClick={onActivate} style={BUTTON}>
+          <Button className="cs-btn--sm" onClick={onActivate}>
             前に出す
-          </button>
+          </Button>
         )}
         {onClose && (
-          <button
-            type="button"
-            aria-label={`${label} の pane を閉じる`}
+          <IconButton
+            icon={X}
+            small
+            label={`${label} の pane を閉じる`}
             onClick={onClose}
-            style={BUTTON}
-          >
-            <X size={ICON_SIZE_SM} aria-hidden />
-          </button>
+          />
         )}
       </div>
       <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
@@ -85,12 +83,3 @@ export function PaneFrame({
     </section>
   );
 }
-
-const BUTTON = {
-  background: 'none',
-  border: `1px solid ${color.border}`,
-  borderRadius: radius.sm,
-  cursor: 'pointer',
-  fontSize: font.caption,
-  padding: '0 6px',
-} as const;

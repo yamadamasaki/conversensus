@@ -1,4 +1,5 @@
 import { color, font, radius, shadow } from './theme';
+import { Button } from './ui/Button';
 /**
  * 上書きの報告 (step2 Phase 3 T8)
  *
@@ -116,21 +117,13 @@ export function OverwriteNotice({
           ))}
         </ul>
         <div style={{ marginTop: 8, textAlign: 'right' }}>
-          <button
-            type="button"
+          <Button
+            className="cs-btn--sm"
             onClick={onDismiss}
             aria-label="上書きの報告を消す"
-            style={{
-              padding: '2px 8px',
-              fontSize: font.body,
-              cursor: 'pointer',
-              background: 'none',
-              border: `1px solid ${color.border}`,
-              borderRadius: radius.sm,
-            }}
           >
             消す
-          </button>
+          </Button>
         </div>
       </details>
     </section>

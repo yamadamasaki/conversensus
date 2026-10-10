@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { DIALOG_Z_INDEX } from './ConfirmDialog';
 import { isLayoutOnly, type SheetChange } from './sync/computeOperations';
-import { color, font, overlay, radius, shadow } from './theme';
+import { color, font, radius } from './theme';
+import { Button } from './ui/Button';
+import { Dialog, DialogActions } from './ui/Dialog';
+
+const COMMIT_DIALOG_WIDTH = 400;
 
 type Props = {
   changes: SheetChange[];
@@ -37,158 +40,101 @@ export function CommitDialog({ changes, onCommit, onCancel }: Props) {
   };
   const hasChanges = changes.length > 0;
 
-  const handleBackdropClick = () => onCancel();
-
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: モーダル背景のクリック閉じ
-    // biome-ignore lint/a11y/useKeyWithClickEvents: モーダル背景のクリック閉じ
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: overlay,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: DIALOG_Z_INDEX,
-      }}
-      onClick={handleBackdropClick}
+    <Dialog
+      kind="input"
+      label="コミットを作成"
+      title="コミットを作成"
+      onDismiss={onCancel}
+      width={COMMIT_DIALOG_WIDTH}
     >
+      {/* 変更サマリー */}
       <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="コミットを作成"
         style={{
-          background: color.bg,
-          borderRadius: radius.md,
-          padding: 24,
-          width: 400,
-          maxWidth: '90vw',
-          boxShadow: shadow.dialog,
+          background: color.bgSubtle,
+          borderRadius: radius.sm,
+          padding: '8px 12px',
+          marginBottom: 16,
+          fontSize: font.body,
+          color: color.textMuted,
         }}
-        onClick={(e) => e.stopPropagation()}
-        onKeyDown={(e) => e.stopPropagation()}
       >
-        <h3 style={{ margin: '0 0 16px', fontSize: font.heading }}>
-          コミットを作成
-        </h3>
-
-        {/* 変更サマリー */}
-        <div
-          style={{
-            background: color.bgSubtle,
-            borderRadius: radius.sm,
-            padding: '8px 12px',
-            marginBottom: 16,
-            fontSize: font.body,
-            color: color.textMuted,
-          }}
-        >
-          {!hasChanges && <span>変更なし</span>}
-          {opSummary.nodeAdd > 0 && <div>ノード追加: {opSummary.nodeAdd}</div>}
-          {opSummary.nodeUpdate > 0 && (
-            <div>
-              ノード変更: {opSummary.nodeUpdate}
-              {opSummary.nodeMoved > 0 &&
-                ` (うち移動のみ: ${opSummary.nodeMoved})`}
-            </div>
-          )}
-          {opSummary.nodeRemove > 0 && (
-            <div>ノード削除: {opSummary.nodeRemove}</div>
-          )}
-          {opSummary.edgeAdd > 0 && <div>エッジ追加: {opSummary.edgeAdd}</div>}
-          {opSummary.edgeUpdate > 0 && (
-            <div>
-              エッジ変更: {opSummary.edgeUpdate}
-              {opSummary.edgeMoved > 0 &&
-                ` (うち経路のみ: ${opSummary.edgeMoved})`}
-            </div>
-          )}
-          {opSummary.edgeRemove > 0 && (
-            <div>エッジ削除: {opSummary.edgeRemove}</div>
-          )}
-        </div>
-
-        {/* コミットメッセージ */}
-        <textarea
-          ref={textareaRef}
-          placeholder="コミットメッセージを入力..."
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-          onCompositionStart={() => {
-            composingRef.current = true;
-          }}
-          onCompositionEnd={() => {
-            composingRef.current = false;
-          }}
-          onKeyDown={(e) => {
-            if (composingRef.current) return;
-            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-              if (message.trim() && hasChanges) onCommit(message.trim());
-            }
-          }}
-          rows={3}
-          style={{
-            width: '100%',
-            padding: '8px',
-            fontSize: font.body,
-            borderRadius: radius.sm,
-            border: `1px solid ${color.border}`,
-            resize: 'vertical',
-            boxSizing: 'border-box',
-          }}
-        />
-        <div
-          style={{
-            fontSize: font.caption,
-            color: color.textMuted,
-            marginTop: 4,
-          }}
-        >
-          Cmd+Enter でコミット
-        </div>
-
-        {/* ボタン */}
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'flex-end',
-            gap: 8,
-            marginTop: 16,
-          }}
-        >
-          <button
-            type="button"
-            onClick={onCancel}
-            style={{
-              padding: '6px 16px',
-              fontSize: font.body,
-              cursor: 'pointer',
-            }}
-          >
-            キャンセル
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              if (message.trim() && hasChanges) onCommit(message.trim());
-            }}
-            disabled={!message.trim() || !hasChanges}
-            style={{
-              padding: '6px 16px',
-              fontSize: font.body,
-              cursor: hasChanges && message.trim() ? 'pointer' : 'not-allowed',
-              background:
-                hasChanges && message.trim() ? color.primary : color.border,
-              color: color.textOnPrimary,
-              border: 'none',
-              borderRadius: radius.sm,
-            }}
-          >
-            コミット
-          </button>
-        </div>
+        {!hasChanges && <span>変更なし</span>}
+        {opSummary.nodeAdd > 0 && <div>ノード追加: {opSummary.nodeAdd}</div>}
+        {opSummary.nodeUpdate > 0 && (
+          <div>
+            ノード変更: {opSummary.nodeUpdate}
+            {opSummary.nodeMoved > 0 &&
+              ` (うち移動のみ: ${opSummary.nodeMoved})`}
+          </div>
+        )}
+        {opSummary.nodeRemove > 0 && (
+          <div>ノード削除: {opSummary.nodeRemove}</div>
+        )}
+        {opSummary.edgeAdd > 0 && <div>エッジ追加: {opSummary.edgeAdd}</div>}
+        {opSummary.edgeUpdate > 0 && (
+          <div>
+            エッジ変更: {opSummary.edgeUpdate}
+            {opSummary.edgeMoved > 0 &&
+              ` (うち経路のみ: ${opSummary.edgeMoved})`}
+          </div>
+        )}
+        {opSummary.edgeRemove > 0 && (
+          <div>エッジ削除: {opSummary.edgeRemove}</div>
+        )}
       </div>
-    </div>
+
+      {/* コミットメッセージ */}
+      <textarea
+        ref={textareaRef}
+        placeholder="コミットメッセージを入力..."
+        value={message}
+        onChange={(e) => setMessage(e.target.value)}
+        onCompositionStart={() => {
+          composingRef.current = true;
+        }}
+        onCompositionEnd={() => {
+          composingRef.current = false;
+        }}
+        onKeyDown={(e) => {
+          if (composingRef.current) return;
+          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+            if (message.trim() && hasChanges) onCommit(message.trim());
+          }
+        }}
+        rows={3}
+        style={{
+          width: '100%',
+          padding: '8px',
+          fontSize: font.body,
+          borderRadius: radius.sm,
+          border: `1px solid ${color.border}`,
+          resize: 'vertical',
+          boxSizing: 'border-box',
+        }}
+      />
+      <div
+        style={{
+          fontSize: font.caption,
+          color: color.textMuted,
+          marginTop: 4,
+        }}
+      >
+        Cmd+Enter でコミット
+      </div>
+
+      <DialogActions>
+        <Button onClick={onCancel}>キャンセル</Button>
+        <Button
+          variant="primary"
+          onClick={() => {
+            if (message.trim() && hasChanges) onCommit(message.trim());
+          }}
+          disabled={!message.trim() || !hasChanges}
+        >
+          コミット
+        </Button>
+      </DialogActions>
+    </Dialog>
   );
 }
