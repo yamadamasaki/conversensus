@@ -1,8 +1,10 @@
 import type { EdgePathType } from '@conversensus/shared';
+import { Check } from 'lucide-react';
 import { DIALOG_Z_INDEX } from './ConfirmDialog';
 import { DEFAULT_EDGE_PATH_TYPE } from './graphTransform';
 import type { EdgeContextMenuState } from './hooks/useEdgeContextMenu';
 import { color, font, radius, shadow } from './theme';
+import { ICON_SIZE_SM } from './ui/Button';
 
 type Props = {
   contextMenu: NonNullable<EdgeContextMenuState>;
@@ -69,7 +71,7 @@ export function EdgeContextMenu({ contextMenu, onSelect }: Props) {
             }}
           >
             <span style={{ width: 12, flexShrink: 0 }}>
-              {isCurrent ? '✓' : ''}
+              {isCurrent ? <Check size={ICON_SIZE_SM} aria-hidden /> : null}
             </span>
             {label}
           </button>

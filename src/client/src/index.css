@@ -88,3 +88,98 @@ body {
   outline: 2px solid var(--cs-focus);
   outline-offset: 2px;
 }
+
+/*
+ * ボタンは主・副・記号の 3 種類だけ (visual language §5)。
+ * hover・押下・無効は inline style で書けないのでここに置く。部品は `ui/Button.tsx` から使う
+ */
+.cs-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 28px;
+  padding: 0 10px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  background: none;
+  color: var(--cs-text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cs-btn:hover:not(:disabled) {
+  background: var(--cs-bg-hover);
+}
+.cs-btn:active:not(:disabled) {
+  background: var(--cs-bg-active);
+}
+.cs-btn:disabled {
+  color: var(--cs-text-disabled);
+  cursor: not-allowed;
+}
+.cs-btn[aria-pressed="true"],
+.cs-btn[aria-expanded="true"] {
+  background: var(--cs-selection-bg);
+  color: var(--cs-primary);
+}
+
+.cs-btn--primary {
+  background: var(--cs-primary);
+  color: var(--cs-text-on-primary);
+}
+.cs-btn--primary:hover:not(:disabled),
+.cs-btn--primary:active:not(:disabled) {
+  background: var(--cs-primary-hover);
+}
+.cs-btn--primary:disabled {
+  background: var(--cs-bg-hover);
+}
+
+.cs-btn--secondary {
+  border-color: var(--cs-border);
+  background: var(--cs-bg);
+}
+.cs-btn--secondary:disabled {
+  border-color: var(--cs-border-subtle);
+  background: none;
+}
+
+/* 破壊的: 枠と文字だけ。確かめのダイアログの中でだけ地を塗る (§5) */
+.cs-btn--danger {
+  border-color: var(--cs-danger);
+  color: var(--cs-danger-text);
+}
+.cs-btn--danger:hover:not(:disabled) {
+  background: var(--cs-danger-bg);
+}
+.cs-btn--danger-solid {
+  background: var(--cs-danger);
+  color: var(--cs-text-on-primary);
+}
+.cs-btn--danger-solid:hover:not(:disabled) {
+  background: var(--cs-danger-text);
+}
+
+/* 記号: アイコンだけ。押せる範囲は 28px 四方 (§9.2 の下限はタッチの端末で別に広げる) */
+.cs-btn--icon {
+  padding: 0;
+  width: 28px;
+  color: var(--cs-text-muted);
+}
+.cs-btn--icon.cs-btn--sm {
+  width: 22px;
+  min-height: 22px;
+}
+@media (pointer: coarse) {
+  .cs-btn {
+    min-height: 44px;
+  }
+  .cs-btn--icon,
+  .cs-btn--icon.cs-btn--sm {
+    width: 44px;
+    min-height: 44px;
+  }
+}

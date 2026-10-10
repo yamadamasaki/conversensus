@@ -1,4 +1,6 @@
+import { X } from 'lucide-react';
 import { color, font } from './theme';
+import { ICON_SIZE_SM } from './ui/Button';
 /**
  * タブ帯 (step3 Phase 3 S3-3)。ボディの上に、開いているグラフのアドレスを並べる。
  *
@@ -82,16 +84,9 @@ export function TabBar({
               type="button"
               aria-label={`${label} を閉じる`}
               onClick={() => onClose(tab.id)}
-              style={{
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                color: color.textMuted,
-                fontSize: font.body,
-                padding: '0 6px',
-              }}
+              className="cs-btn cs-btn--icon cs-btn--sm"
             >
-              ×
+              <X size={ICON_SIZE_SM} aria-hidden />
             </button>
           </div>
         );

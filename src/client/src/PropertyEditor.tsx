@@ -1,4 +1,6 @@
+import { Trash2, X } from 'lucide-react';
 import { color, font, radius, shadow } from './theme';
+import { ICON_SIZE_SM } from './ui/Button';
 /**
  * property editor の画面 (step2 Phase 4 Q2)
  *
@@ -161,16 +163,9 @@ export function PropertyEditor({
             type="button"
             onClick={onClose}
             aria-label="プロパティを閉じる"
-            style={{
-              padding: '2px 8px',
-              cursor: 'pointer',
-              background: 'none',
-              border: `1px solid ${color.border}`,
-              borderRadius: radius.sm,
-              flexShrink: 0,
-            }}
+            className="cs-btn cs-btn--icon cs-btn--sm"
           >
-            ✕
+            <X size={ICON_SIZE_SM} aria-hidden />
           </button>
         )}
       </div>
@@ -357,13 +352,9 @@ function PropertyField({
             type="button"
             onClick={() => onRemove(row.name)}
             aria-label={`${row.name} を削除`}
-            style={{
-              padding: '4px 8px',
-              fontSize: font.body,
-              cursor: 'pointer',
-            }}
+            className="cs-btn cs-btn--icon cs-btn--sm"
           >
-            🗑
+            <Trash2 size={ICON_SIZE_SM} aria-hidden />
           </button>
         </div>
       )}

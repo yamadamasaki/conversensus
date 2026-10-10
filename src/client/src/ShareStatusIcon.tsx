@@ -1,4 +1,6 @@
+import { Users } from 'lucide-react';
 import { color } from './theme';
+import { ICON_SIZE_SM } from './ui/Button';
 
 /**
  * 共有の印 (step2 Phase 2)
@@ -16,10 +18,11 @@ import { color } from './theme';
  *
  * **✕ は SVG で描く。**絵文字の合成 (`👥` に `❌` を重ねる、異体字セレクタ、合字) は
  * エンジンごとに位置も大きさも変わる。WebKit を本命に据えている以上 (ANA-125)、
- * ここは決定論的に描けるものを使う。
+ * ここは決定論的に描けるものを使う。下地の共有の絵も Lucide の `Users` (SVG) にした
+ * (visual language §4 — 絵文字をアイコンに使わない)。
  */
 
-/** 絵文字の描画幅はエンジンごとに違うので、箱の大きさをこちらで決める */
+/** ✕ を隅に置く基準の箱 */
 const ICON_BOX = 15;
 /** ✕ の色。警告 (黄) ではなく「届いていない」(赤) を意味する */
 const CROSS_COLOR = color.dangerText;
@@ -37,7 +40,7 @@ export function ShareStatusIcon({ detached }: { detached: boolean }) {
         verticalAlign: 'middle',
       }}
     >
-      <span style={{ lineHeight: 1 }}>👥</span>
+      <Users size={ICON_SIZE_SM} aria-hidden />
       {detached && (
         <svg
           role="img"

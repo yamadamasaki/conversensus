@@ -1097,6 +1097,7 @@ export default function App() {
                 templates={viewTemplates}
                 onControls={panels.setControls}
                 onSelectionChange={panels.setSelection}
+                onGroupAbilityChange={panels.setGroupAbility}
               />
             </BlobOriginProvider>
           </ReadOnlyProvider>
@@ -1296,6 +1297,7 @@ export default function App() {
         {viewAddress && (
           <GraphHeader
             controls={panels.controls}
+            groupAbility={panels.groupAbility}
             searchOpen={panels.searchOpen}
             onToggleSearch={panels.toggleSearch}
             propertyOpen={panels.propertyOpen}

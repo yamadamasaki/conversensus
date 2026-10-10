@@ -1,4 +1,6 @@
+import { X } from 'lucide-react';
 import { color, font, radius } from './theme';
+import { ICON_SIZE_SM } from './ui/Button';
 /**
  * multiple モードの pane 1 つの枠 (step3 Phase 3 S3-5)。名前・前に出す・閉じるを持つ帯と、中身。
  *
@@ -73,7 +75,7 @@ export function PaneFrame({
             onClick={onClose}
             style={BUTTON}
           >
-            ×
+            <X size={ICON_SIZE_SM} aria-hidden />
           </button>
         )}
       </div>

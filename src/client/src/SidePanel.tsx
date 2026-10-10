@@ -1,4 +1,11 @@
-import { color, font } from './theme';
+import {
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
+} from 'lucide-react';
+import { color } from './theme';
+import { ICON_SIZE } from './ui/Button';
 /**
  * サイドバーの外枠 (step3 Phase 3 S3-4b)。幅を変える取っ手と、折り畳む・広げるボタンを持つ。
  * 中身 (左はグラフの入れ物、右はグラフの詳細) は呼び出し側が渡す。
@@ -40,9 +47,9 @@ export function SidePanel({
 }: Props) {
   const drag = useRef<{ startX: number; startWidth: number } | null>(null);
   const border = side === 'left' ? 'borderRight' : 'borderLeft';
-  // 広げる向き。左は右へ (▶)、右は左へ (◀)
-  const expandMark = side === 'left' ? '▶' : '◀';
-  const collapseMark = side === 'left' ? '◀' : '▶';
+  // 広げる・畳むの印。サイドバーの側に合わせる
+  const ExpandIcon = side === 'left' ? PanelLeftOpen : PanelRightOpen;
+  const CollapseIcon = side === 'left' ? PanelLeftClose : PanelRightClose;
 
   if (state.collapsed) {
     return (
@@ -63,9 +70,9 @@ export function SidePanel({
           type="button"
           aria-label={`${label}を広げる`}
           onClick={onToggle}
-          style={collapseButtonStyle}
+          className="cs-btn cs-btn--icon"
         >
-          {expandMark}
+          <ExpandIcon size={ICON_SIZE} aria-hidden />
         </button>
       </div>
     );
@@ -137,8 +144,8 @@ export function SidePanel({
         type="button"
         aria-label={`${label}を畳む`}
         onClick={onToggle}
+        className="cs-btn cs-btn--icon cs-btn--sm"
         style={{
-          ...collapseButtonStyle,
           position: 'absolute',
           top: 8,
           // 左右とも右上に置く。左は見出し (conversensus) の後ろ、右は見出し (詳細) の反対側。
@@ -147,19 +154,10 @@ export function SidePanel({
           zIndex: 1,
         }}
       >
-        {collapseMark}
+        <CollapseIcon size={ICON_SIZE} aria-hidden />
       </button>
       {children}
       {handle}
     </div>
   );
 }
-
-const collapseButtonStyle = {
-  background: 'none',
-  border: 'none',
-  cursor: 'pointer',
-  color: color.textMuted,
-  fontSize: font.caption,
-  padding: '2px 4px',
-} as const;

@@ -1,4 +1,6 @@
+import { X } from 'lucide-react';
 import { color, font, radius, shadow } from './theme';
+import { ICON_SIZE_SM } from './ui/Button';
 /**
  * シート内検索の画面 (step2 Phase 7 S2)
  *
@@ -176,15 +178,9 @@ export function SearchPanel({
           type="button"
           onClick={onClose}
           aria-label="検索を閉じる"
-          style={{
-            padding: '2px 8px',
-            cursor: 'pointer',
-            background: 'none',
-            border: `1px solid ${color.border}`,
-            borderRadius: radius.sm,
-          }}
+          className="cs-btn cs-btn--icon cs-btn--sm"
         >
-          ✕
+          <X size={ICON_SIZE_SM} aria-hidden />
         </button>
       </div>
 

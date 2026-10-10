@@ -9,14 +9,31 @@ import { RF_GROUP_NODE_TYPE } from '../graphTransform';
 
 const GROUP_KEY = 'g';
 
+/** ヘッダの「group にまとめる / 解く」を押せるか (#269)。下の 2 つの操作と同じ条件で決める */
+export type GroupAbility = { canGroup: boolean; canUngroup: boolean };
+
+export const NO_GROUP_ABILITY: GroupAbility = {
+  canGroup: false,
+  canUngroup: false,
+};
+
+/** まとめられるのは node を 1 つ以上選んだとき、解けるのは group を選んだとき */
+export function groupAbilityOf(nodes: readonly Node[]): GroupAbility {
+  const selected = nodes.filter((n) => n.selected);
+  return {
+    canGroup: selected.length >= 1,
+    canUngroup: selected.some((n) => n.type === RF_GROUP_NODE_TYPE),
+  };
+}
+
 export function useGroupNodes(
   getNodes: () => Node[],
   dispatch: (event: GraphEvent) => void,
 ): { groupSelectedNodes: () => void; ungroupSelectedNodes: () => void } {
   const groupSelectedNodes = useCallback(() => {
     const ns = getNodes();
+    if (!groupAbilityOf(ns).canGroup) return;
     const selected = ns.filter((n) => n.selected);
-    if (selected.length < 1) return;
 
     const event = buildNodesGroupedEvent(selected, ns);
     if (event) dispatch(event);

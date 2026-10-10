@@ -10,8 +10,23 @@ import { color, font, radius, shadow } from './theme';
  * それらのボタンを押せなくする。
  */
 
-import { type CSSProperties, useState } from 'react';
+import {
+  Columns2,
+  GitBranch,
+  GitCommitHorizontal,
+  GitMerge,
+  Group,
+  ImageDown,
+  PanelRight,
+  Redo2,
+  Search,
+  Undo2,
+  Ungroup,
+} from 'lucide-react';
+import { useState } from 'react';
 import type { GraphEditorControls } from './graph/editorControls';
+import type { GroupAbility } from './hooks/useGroupNodes';
+import { Button, ICON_SIZE, IconButton } from './ui/Button';
 
 export const GRAPH_HEADER_HEIGHT = 40;
 
@@ -27,6 +42,8 @@ export type HeaderBranch = {
 
 type Props = {
   controls: GraphEditorControls | null;
+  /** 「group にまとめる / 解く」を押せるか (#269)。押せないときは隠さず無効にする */
+  groupAbility: GroupAbility;
   searchOpen: boolean;
   onToggleSearch: () => void;
   propertyOpen: boolean;
@@ -39,37 +56,12 @@ type Props = {
   paneCandidates?: readonly { label: string; onAdd: () => void }[];
 };
 
-const BUTTON: CSSProperties = {
-  padding: '4px 10px',
-  fontSize: font.body,
-  cursor: 'pointer',
-  background: color.bgActive,
-  color: color.text,
-  border: 'none',
-  borderRadius: radius.md,
-};
-const ACCENT = color.selection;
-const COMMIT_COLOR = color.primary;
-const MERGE_COLOR = color.primary;
-const DISABLED_COLOR = color.textDisabled;
-
-function toggleStyle(on: boolean): CSSProperties {
-  return on
-    ? { ...BUTTON, background: ACCENT, color: color.textOnPrimary }
-    : BUTTON;
-}
-
-function actionStyle(enabled: boolean, bg: string): CSSProperties {
-  return {
-    ...BUTTON,
-    background: enabled ? bg : DISABLED_COLOR,
-    color: color.textOnPrimary,
-    cursor: enabled ? 'pointer' : 'not-allowed',
-  };
-}
+/** 操作のまとまりの間を空ける (visual language §3 の余白の段) */
+const GROUP_GAP = 12;
 
 export function GraphHeader({
   controls,
+  groupAbility,
   searchOpen,
   onToggleSearch,
   propertyOpen,
@@ -95,81 +87,65 @@ export function GraphHeader({
       }}
     >
       {/* 検索の口 (step2 Phase 7)。仕様「検索ボタンで検索窓がポップアップ」 */}
-      <button
-        type="button"
+      <IconButton
+        icon={Search}
+        label="このシートを検索"
         onClick={onToggleSearch}
-        title="このシートを検索"
         aria-pressed={searchOpen}
-        style={toggleStyle(searchOpen)}
-      >
-        🔍
-      </button>
+      />
       {/* property editor 表示の on/off。**選んだ要素に対して出す** (step2 Phase 4 Q2) */}
-      <button
-        type="button"
+      <IconButton
+        icon={PanelRight}
+        label="プロパティ"
         onClick={onToggleProperty}
-        title="プロパティ"
         aria-pressed={propertyOpen}
-        style={{ ...toggleStyle(propertyOpen), marginRight: 8 }}
-      >
-        🏷
-      </button>
-      <button
-        type="button"
+        style={{ marginRight: GROUP_GAP }}
+      />
+      <IconButton
+        icon={Undo2}
+        label="Undo"
         onClick={() => controls?.undo()}
         disabled={!ready}
-        style={BUTTON}
-      >
-        Undo
-      </button>
-      <button
-        type="button"
+      />
+      <IconButton
+        icon={Redo2}
+        label="Redo"
         onClick={() => controls?.redo()}
         disabled={!ready}
-        style={{ ...BUTTON, marginRight: 8 }}
-      >
-        Redo
-      </button>
-      <button
-        type="button"
+        style={{ marginRight: GROUP_GAP }}
+      />
+      {/* **使えないときは無効にして見せる** (#269)。隠すと置き場所が変わる */}
+      <Button
+        variant="plain"
+        icon={Group}
         onClick={() => controls?.groupSelected()}
-        disabled={!ready}
-        style={{ ...BUTTON, background: ACCENT, color: color.textOnPrimary }}
+        disabled={!ready || !groupAbility.canGroup}
       >
         グループ化
-      </button>
-      <button
-        type="button"
+      </Button>
+      <Button
+        variant="plain"
+        icon={Ungroup}
         onClick={() => controls?.ungroupSelected()}
-        disabled={!ready}
-        style={{
-          ...BUTTON,
-          background: ACCENT,
-          color: color.textOnPrimary,
-          marginRight: 8,
-        }}
+        disabled={!ready || !groupAbility.canUngroup}
+        style={{ marginRight: GROUP_GAP }}
       >
         グループ解除
-      </button>
-      <button
-        type="button"
+      </Button>
+      <IconButton
+        icon={ImageDown}
+        label="PNG で書き出す"
         onClick={() => controls?.exportPng()}
         disabled={!ready}
-        style={BUTTON}
-      >
-        PNG
-      </button>
+      />
       {paneCandidates && (
         <div style={{ position: 'relative', marginLeft: 8 }}>
-          <button
-            type="button"
-            title="並べる (開発用)"
+          <IconButton
+            icon={Columns2}
+            label="並べる (開発用)"
             aria-expanded={paneMenuOpen}
             onClick={() => setPaneMenuOpen((open) => !open)}
-            style={toggleStyle(paneMenuOpen)}
-          >
-            ⧉
-          </button>
+          />
           {paneMenuOpen && (
             <div
               role="menu"
@@ -235,29 +211,38 @@ export function GraphHeader({
             gap: 8,
           }}
         >
-          <span style={{ fontSize: font.body, color: color.textMuted }}>
-            ⎇ {branch.name}
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              fontSize: font.body,
+              color: color.textMuted,
+            }}
+          >
+            <GitBranch size={ICON_SIZE} aria-hidden />
+            {branch.name}
             {branch.merged && ' (merged)'}
             {branch.pendingCount > 0 ? ` (${branch.pendingCount} 変更)` : ''}
           </span>
-          <button
-            type="button"
+          <Button
+            variant="secondary"
+            icon={GitCommitHorizontal}
             onClick={branch.onCommit}
             disabled={branch.pendingCount === 0}
-            style={actionStyle(branch.pendingCount > 0, COMMIT_COLOR)}
           >
             コミット
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant="secondary"
+            icon={GitMerge}
             onClick={branch.onMerge}
             // merge できるのは「commit 済み」= 未コミットの編集が無く commit が
             // 1 件以上ある状態だけ。画面に出ている差分がそのまま merge の対象になる
             disabled={!branch.canMerge}
-            style={actionStyle(branch.canMerge, MERGE_COLOR)}
           >
             merge ↑
-          </button>
+          </Button>
         </div>
       )}
     </div>

@@ -15,6 +15,25 @@ import {
   TEMPLATE_SHEET_KIND,
   type Template,
 } from '@conversensus/shared';
+import {
+  ChevronDown,
+  ChevronRight,
+  Ellipsis,
+  FilePlus,
+  FileUp,
+  Folder,
+  FolderInput,
+  FolderPlus,
+  GitBranch,
+  GitMerge,
+  type LucideIcon,
+  Network,
+  Pencil,
+  Shapes,
+  Trash2,
+  UserPlus,
+  X,
+} from 'lucide-react';
 import { useRef, useState } from 'react';
 import { AlertDialog } from './AlertDialog';
 import { TRUNK_PREFIX } from './atproto';
@@ -32,12 +51,15 @@ import { ShareStatusIcon } from './ShareStatusIcon';
 import { SyncStatusIndicator } from './SyncStatusIndicator';
 import type { FileSharing } from './sync/rosterView';
 import { color, font, radius } from './theme';
+import { Button, ICON_SIZE_SM, IconButton } from './ui/Button';
 
 /** 特殊なグラフのシートの印 (step3 Phase 4)。名前の後ろに出す */
-const SHEET_KIND_MARK: Record<SheetKind, { mark: string; title: string }> = {
-  [TEMPLATE_SHEET_KIND]: { mark: '◇', title: 'template graph' },
-  [METAGRAPH_SHEET_KIND]: { mark: '⌘', title: 'metagraph' },
-};
+const SHEET_KIND_MARK: Record<SheetKind, { icon: LucideIcon; title: string }> =
+  {
+    [TEMPLATE_SHEET_KIND]: { icon: Shapes, title: 'template graph' },
+    // ⌘ は Command キーに読めるので使わない (#270)
+    [METAGRAPH_SHEET_KIND]: { icon: Network, title: 'metagraph' },
+  };
 
 /** 「シートを追加 ▾」から作れる特殊なグラフ */
 const SPECIAL_SHEETS: readonly { kind: SheetKind; label: string }[] = [
@@ -156,17 +178,6 @@ function shareTitle(share: FileSharing | null): string {
     return `参加者一覧 (共有中: ${share.participants} 人)`;
   return '参加者一覧';
 }
-
-const gearBtnStyle: React.CSSProperties = {
-  background: 'none',
-  border: 'none',
-  cursor: 'pointer',
-  color: color.textMuted,
-  fontSize: font.body,
-  padding: '0 2px',
-  lineHeight: 1,
-  flexShrink: 0,
-};
 
 export function Sidebar({
   files,
@@ -295,7 +306,11 @@ export function Sidebar({
               flexShrink: 0,
             }}
           >
-            {isExpanded ? '▼' : '▶'}
+            {isExpanded ? (
+              <ChevronDown size={ICON_SIZE_SM} aria-hidden />
+            ) : (
+              <ChevronRight size={ICON_SIZE_SM} aria-hidden />
+            )}
           </button>
 
           {/* ファイル名 (hover で description を表示) */}
@@ -338,7 +353,7 @@ export function Sidebar({
             <button
               type="button"
               title={shareTitle(fileShare)}
-              style={gearBtnStyle}
+              className="cs-btn cs-btn--icon cs-btn--sm"
               onClick={(e) => {
                 e.stopPropagation();
                 if (!isActiveFile) onOpenFile(f.id);
@@ -363,21 +378,22 @@ export function Sidebar({
               title="Folder へ移す"
               aria-label={`${f.name} を Folder へ移す`}
               aria-expanded={moveMenuFileId === f.id}
-              style={gearBtnStyle}
+              className="cs-btn cs-btn--icon cs-btn--sm"
               onClick={(e) => {
                 e.stopPropagation();
                 setMoveMenuFileId(moveMenuFileId === f.id ? null : f.id);
               }}
             >
-              📁
+              <FolderInput size={ICON_SIZE_SM} aria-hidden />
             </button>
           )}
 
           {/* ギアボタン */}
           <button
             type="button"
-            title="設定"
-            style={gearBtnStyle}
+            title="詳細"
+            aria-label="詳細"
+            className="cs-btn cs-btn--icon cs-btn--sm"
             onClick={(e) => {
               e.stopPropagation();
               onSetPopupTarget(
@@ -386,7 +402,7 @@ export function Sidebar({
               if (!isActiveFile) onOpenFile(f.id);
             }}
           >
-            ⚙
+            <Ellipsis size={ICON_SIZE_SM} aria-hidden />
           </button>
 
           {/* ファイル設定ポップアップ */}
@@ -474,21 +490,31 @@ export function Sidebar({
                       onClick={(e) => onSelectSheet(s.id, openOptionsOf(e))}
                     >
                       {s.name}
-                      {kind && SHEET_KIND_MARK[kind] && (
-                        <span
-                          title={SHEET_KIND_MARK[kind].title}
-                          style={{ marginLeft: 4, color: color.textMuted }}
-                        >
-                          {SHEET_KIND_MARK[kind].mark}
-                        </span>
-                      )}
+                      {kind &&
+                        SHEET_KIND_MARK[kind] &&
+                        (() => {
+                          const { icon: Icon, title } = SHEET_KIND_MARK[kind];
+                          return (
+                            <span
+                              title={title}
+                              style={{ marginLeft: 4, color: color.textMuted }}
+                            >
+                              <Icon
+                                size={ICON_SIZE_SM}
+                                aria-label={title}
+                                style={{ verticalAlign: 'middle' }}
+                              />
+                            </span>
+                          );
+                        })()}
                     </button>
 
                     {/* ギアボタン */}
                     <button
                       type="button"
-                      title="設定"
-                      style={{ ...gearBtnStyle, fontSize: font.body }}
+                      title="詳細"
+                      aria-label="詳細"
+                      className="cs-btn cs-btn--icon cs-btn--sm"
                       onClick={(e) => {
                         e.stopPropagation();
                         onSetPopupTarget(
@@ -502,7 +528,7 @@ export function Sidebar({
                         );
                       }}
                     >
-                      ⚙
+                      <Ellipsis size={ICON_SIZE_SM} aria-hidden />
                     </button>
 
                     {/* シート設定ポップアップ */}
@@ -590,7 +616,11 @@ export function Sidebar({
                                       );
                                     }}
                                   >
-                                    {'⎇ '}
+                                    <GitBranch
+                                      size={ICON_SIZE_SM}
+                                      aria-hidden
+                                      style={{ flexShrink: 0 }}
+                                    />
                                     {branch.name}
                                     {isMerged ? ' (merged)' : ''}
                                     {isClosed ? ' (closed)' : ''}
@@ -601,30 +631,29 @@ export function Sidebar({
                                       <button
                                         type="button"
                                         title="trunk に merge"
-                                        style={{
-                                          ...gearBtnStyle,
-                                          fontSize: font.caption,
-                                        }}
+                                        aria-label="trunk に merge"
+                                        className="cs-btn cs-btn--icon cs-btn--sm"
                                         onClick={(e) => {
                                           e.stopPropagation();
                                           onMergeBranch(branch);
                                         }}
                                       >
-                                        ↑
+                                        <GitMerge
+                                          size={ICON_SIZE_SM}
+                                          aria-hidden
+                                        />
                                       </button>
                                       <button
                                         type="button"
-                                        title="close"
-                                        style={{
-                                          ...gearBtnStyle,
-                                          fontSize: font.caption,
-                                        }}
+                                        title="branch を閉じる"
+                                        aria-label="branch を閉じる"
+                                        className="cs-btn cs-btn--icon cs-btn--sm"
                                         onClick={(e) => {
                                           e.stopPropagation();
                                           onCloseBranch(branch);
                                         }}
                                       >
-                                        ✕
+                                        <X size={ICON_SIZE_SM} aria-hidden />
                                       </button>
                                     </>
                                   )}
@@ -634,51 +663,48 @@ export function Sidebar({
                                     !isClosed && (
                                       <button
                                         type="button"
-                                        title="削除"
-                                        style={{
-                                          ...gearBtnStyle,
-                                          fontSize: font.caption,
-                                        }}
+                                        title="branch を削除"
+                                        aria-label="branch を削除"
+                                        className="cs-btn cs-btn--icon cs-btn--sm"
                                         onClick={(e) => {
                                           e.stopPropagation();
                                           onDeleteBranch(branch);
                                         }}
                                       >
-                                        🗑
+                                        <Trash2
+                                          size={ICON_SIZE_SM}
+                                          aria-hidden
+                                        />
                                       </button>
                                     )}
                                   {/* merged: close ✕ */}
                                   {isMerged && (
                                     <button
                                       type="button"
-                                      title="close"
-                                      style={{
-                                        ...gearBtnStyle,
-                                        fontSize: font.caption,
-                                      }}
+                                      title="branch を閉じる"
+                                      aria-label="branch を閉じる"
+                                      className="cs-btn cs-btn--icon cs-btn--sm"
                                       onClick={(e) => {
                                         e.stopPropagation();
                                         onCloseBranch(branch);
                                       }}
                                     >
-                                      ✕
+                                      <X size={ICON_SIZE_SM} aria-hidden />
                                     </button>
                                   )}
                                   {/* closed: delete 🗑 */}
                                   {isClosed && (
                                     <button
                                       type="button"
-                                      title="削除"
-                                      style={{
-                                        ...gearBtnStyle,
-                                        fontSize: font.caption,
-                                      }}
+                                      title="branch を削除"
+                                      aria-label="branch を削除"
+                                      className="cs-btn cs-btn--icon cs-btn--sm"
                                       onClick={(e) => {
                                         e.stopPropagation();
                                         onDeleteBranch(branch);
                                       }}
                                     >
-                                      🗑
+                                      <Trash2 size={ICON_SIZE_SM} aria-hidden />
                                     </button>
                                   )}
                                 </div>
@@ -750,7 +776,7 @@ export function Sidebar({
                   cursor: 'pointer',
                 }}
               >
-                ▾
+                <ChevronDown size={ICON_SIZE_SM} aria-hidden />
               </button>
             </li>
             {templateMenuFileId === f.id &&
@@ -815,13 +841,13 @@ export function Sidebar({
             aria-label={`${node.name} を${open ? '畳む' : '開く'}`}
             aria-expanded={open}
             onClick={() => ops.onToggle(id)}
-            style={{
-              ...gearBtnStyle,
-              color: color.textMuted,
-              fontSize: font.caption,
-            }}
+            className="cs-btn cs-btn--icon cs-btn--sm"
           >
-            {open ? '▼' : '▶'}
+            {open ? (
+              <ChevronDown size={ICON_SIZE_SM} aria-hidden />
+            ) : (
+              <ChevronRight size={ICON_SIZE_SM} aria-hidden />
+            )}
           </button>
           <span
             style={{
@@ -832,25 +858,30 @@ export function Sidebar({
               fontSize: font.body,
             }}
           >
-            📁 {node.name}
+            <Folder
+              size={ICON_SIZE_SM}
+              aria-hidden
+              style={{ verticalAlign: 'middle', marginRight: 4 }}
+            />
+            {node.name}
           </span>
           <button
             type="button"
             title="この中に Folder を作る"
             aria-label={`${node.name} の中に Folder を作る`}
-            style={gearBtnStyle}
+            className="cs-btn cs-btn--icon cs-btn--sm"
             onClick={() => ops.onCreate(id)}
           >
-            ＋
+            <FolderPlus size={ICON_SIZE_SM} aria-hidden />
           </button>
           <button
             type="button"
             title="名前を変える"
             aria-label={`${node.name} の名前を変える`}
-            style={gearBtnStyle}
+            className="cs-btn cs-btn--icon cs-btn--sm"
             onClick={() => ops.onRename(node)}
           >
-            ✎
+            <Pencil size={ICON_SIZE_SM} aria-hidden />
           </button>
           <button
             type="button"
@@ -858,10 +889,10 @@ export function Sidebar({
             title={empty ? '削除' : '空でない Folder は削除できません'}
             aria-label={`${node.name} を削除`}
             disabled={!empty}
-            style={{ ...gearBtnStyle, opacity: empty ? 1 : 0.3 }}
+            className="cs-btn cs-btn--icon cs-btn--sm"
             onClick={() => ops.onDelete(id)}
           >
-            🗑
+            <Trash2 size={ICON_SIZE_SM} aria-hidden />
           </button>
         </div>
         {open && (node.folders.length > 0 || node.files.length > 0) && (
@@ -922,49 +953,50 @@ export function Sidebar({
             fontSize: font.body,
           }}
         />
-        <button
-          type="button"
+        <IconButton
+          icon={FilePlus}
+          label="File を作る"
           onClick={onCreateFile}
-          style={{ padding: '4px 8px', fontSize: font.body }}
-        >
-          +
-        </button>
-        <input
-          ref={importInputRef}
-          type="file"
-          accept=".conversensus"
-          style={{ display: 'none' }}
-          onChange={handleImportChange}
         />
-        <button
-          type="button"
+      </div>
+      <input
+        ref={importInputRef}
+        type="file"
+        accept=".conversensus"
+        style={{ display: 'none' }}
+        onChange={handleImportChange}
+      />
+      {/* 記号だけでは意味が伝わらないので文字を添える (visual language §4)。iOS では tooltip が出ない */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
+        <Button
+          variant="plain"
+          icon={FileUp}
           title="インポート (.conversensus)"
           onClick={() => importInputRef.current?.click()}
-          style={{ padding: '4px 8px', fontSize: font.body }}
         >
-          ↑
-        </button>
+          import
+        </Button>
         {/* 参加コードを貼って共同作業に加わる (step2 Phase 1) */}
         {onOpenParticipate && (
-          <button
-            type="button"
+          <Button
+            variant="plain"
+            icon={UserPlus}
             title="参加コードで参加する"
             onClick={onOpenParticipate}
-            style={{ padding: '4px 8px', fontSize: font.body }}
           >
-            ⇥
-          </button>
+            参加
+          </Button>
         )}
         {folders && (
-          <button
-            type="button"
-            title="Folder を作る"
+          <Button
+            variant="plain"
+            icon={FolderPlus}
             aria-label="Folder を作る"
+            title="Folder を作る"
             onClick={() => folders.onCreate(undefined)}
-            style={{ padding: '4px 8px', fontSize: font.body }}
           >
-            📁
-          </button>
+            Folder
+          </Button>
         )}
       </div>
 

@@ -70,7 +70,11 @@ import {
 import { useClipboard } from './hooks/useClipboard';
 import { useEdgeContextMenu } from './hooks/useEdgeContextMenu';
 import { type UndoState, useEventStore } from './hooks/useEventStore';
-import { useGroupNodes } from './hooks/useGroupNodes';
+import {
+  type GroupAbility,
+  groupAbilityOf,
+  useGroupNodes,
+} from './hooks/useGroupNodes';
 import { useImageIntake } from './hooks/useImageIntake';
 import { useNodeDragTracking } from './hooks/useNodeDragTracking';
 import { useNodeTypeMenu } from './hooks/useNodeTypeMenu';
@@ -143,6 +147,8 @@ type Props = {
    * 呼ぶ。選択の正は React Flow にあり、これは写しである (設計 S3-4 の U1)
    */
   onSelectionChange?: (target: PropertyTarget | undefined) => void;
+  /** ヘッダの「group にまとめる / 解く」を押せるか (#269)。変わったときだけ知らせる */
+  onGroupAbilityChange?: (ability: GroupAbility) => void;
 };
 
 function GraphEditorInner({
@@ -167,6 +173,7 @@ function GraphEditorInner({
   graphNodes,
   onControls,
   onSelectionChange,
+  onGroupAbilityChange,
 }: Props) {
   const { screenToFlowPosition, getNodes, getEdges, setCenter } =
     useReactFlow();
@@ -273,6 +280,12 @@ function GraphEditorInner({
     selectionKeyRef.current = key;
     onSelectionChange?.(propertyTarget);
   }, [propertyTarget, onSelectionChange]);
+
+  const groupAbility = useMemo(() => groupAbilityOf(nodes), [nodes]);
+  const { canGroup, canUngroup } = groupAbility;
+  useEffect(() => {
+    onGroupAbilityChange?.({ canGroup, canUngroup });
+  }, [canGroup, canUngroup, onGroupAbilityChange]);
 
   // 結果の 1 件をグラフで示す (仕様「ダブル・クリックにより, グラフ内で対象を
   // ハイライト表示」)。**React Flow の選択に寄せる** — 差分の色 (diffType の緑/橙) と
