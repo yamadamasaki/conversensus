@@ -7,7 +7,6 @@ import {
   type GraphFile,
   type GraphFileListItem,
   METAGRAPH_SHEET_KIND,
-  parseConversensusFile,
   SEED_TEMPLATES,
   type SheetId,
   type SheetKind,
@@ -38,6 +37,7 @@ import { useRef, useState } from 'react';
 import { AlertDialog } from './AlertDialog';
 import { TRUNK_PREFIX } from './atproto';
 import type { RemoteSyncQueue } from './atproto/remoteSyncQueue';
+import { readImportFile } from './files/readImportFile';
 import {
   type FolderNode,
   type FolderTree,
@@ -238,31 +238,12 @@ export function Sidebar({
 
   const handleImportChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      try {
-        const json = JSON.parse(ev.target?.result as string);
-        // 旧版の移行を含めた解釈は shared に 1 本化してある (server も同じ関数を使う)
-        const parsed = parseConversensusFile(json);
-        if (parsed.success) {
-          onImportFile(parsed.data);
-          return;
-        }
-        const messages = parsed.error.errors
-          .map((err) => `${err.path.join('.')}: ${err.message}`)
-          .join('\n');
-        showAlert(`ファイル形式が不正です:\n${messages}`);
-      } catch {
-        showAlert('ファイルの読み込みに失敗しました');
-      }
-    };
-    reader.onerror = () => {
-      showAlert('ファイルの読み込みに失敗しました');
-    };
-    reader.readAsText(file);
     // 同じファイルを再選択できるようリセット
     e.target.value = '';
+    if (!file) return;
+    const result = await readImportFile(file);
+    if (result.ok) onImportFile(result.data);
+    else void showAlert(result.message);
   };
 
   const renderFile = (f: GraphFileListItem) => {

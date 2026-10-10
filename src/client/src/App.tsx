@@ -29,6 +29,7 @@ import {
   type TemplateRef,
   templateGraphOf,
 } from '@conversensus/shared';
+import { FilePlus, Files, FileUp, PanelLeft, UserPlus } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AcceptInvitationDialog } from './AcceptInvitationDialog';
 import { AlertDialog } from './AlertDialog';
@@ -42,6 +43,7 @@ import { ConflictNotice, NOTICE_Z_INDEX } from './ConflictNotice';
 import { devPanesEnabled } from './config';
 import { BOUNDARY_LABELS, ErrorBoundary } from './ErrorBoundary';
 import { type GraphEvent, makeEventBase } from './events/GraphEvent';
+import { readImportFile } from './files/readImportFile';
 import { type FolderNode, siblingNameTaken } from './folders/folderTree';
 import { GraphEditor } from './GraphEditor';
 import { GraphHeader, type HeaderBranch } from './GraphHeader';
@@ -109,6 +111,8 @@ import {
   tabAddress,
 } from './tabs/tabs';
 import { color, font, radius, shadow } from './theme';
+import { Button } from './ui/Button';
+import { EmptyState } from './ui/EmptyState';
 import { generateId } from './uuid';
 
 /** 特殊なグラフのシートの既定の名前 (step3 Phase 4)。n は同じ種類の何枚目か */
@@ -223,6 +227,8 @@ export default function App() {
   /** 共同作業者ダイアログの対象 File (step2 Phase 1)。null なら閉じている */
   const [invitationFileId, setInvitationFileId] = useState<FileId | null>(null);
   const [participateOpen, setParticipateOpen] = useState(false);
+  /** 空の状態の「import」が開くファイル選択 */
+  const emptyImportRef = useRef<HTMLInputElement>(null);
   /** 参加履歴を開いている DID (step2)。参加者一覧の上に重ねて出す */
   const [historyDid, setHistoryDid] = useState<Did | null>(null);
 
@@ -1106,18 +1112,61 @@ export default function App() {
             </BlobOriginProvider>
           </ReadOnlyProvider>
         </ErrorBoundary>
-      ) : (
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            height: '100%',
-            color: color.textMuted,
-          }}
+      ) : fileOps.filesLoaded && fileOps.files.length === 0 ? (
+        // 空の状態 (visual language §9.1, #279): 何が無いかと、次に何をすればよいか
+        <EmptyState
+          icon={Files}
+          title="File がありません"
+          actions={
+            <>
+              <Button
+                variant="primary"
+                icon={FilePlus}
+                onClick={() => void fileOps.handleCreate()}
+              >
+                File を作る
+              </Button>
+              <Button
+                icon={FileUp}
+                onClick={() => emptyImportRef.current?.click()}
+              >
+                import
+              </Button>
+              {atprotoSession && (
+                <Button
+                  icon={UserPlus}
+                  onClick={() => setParticipateOpen(true)}
+                >
+                  参加コードで参加する
+                </Button>
+              )}
+              <input
+                ref={emptyImportRef}
+                type="file"
+                accept=".conversensus"
+                style={{ display: 'none' }}
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = '';
+                  if (!file) return;
+                  const result = await readImportFile(file);
+                  if (result.ok) fileOps.handleImportFile(result.data);
+                  else
+                    await new Promise<void>((resolve) =>
+                      setAlertState({ message: result.message, resolve }),
+                    );
+                }}
+              />
+            </>
+          }
         >
-          ファイルを選択するか, 新規作成してください
-        </div>
+          File は Sheet (グラフ) を束ねる単位です。新しく作るか、.conversensus
+          を import するか、 受け取った参加コードで共同作業に加わってください。
+        </EmptyState>
+      ) : (
+        <EmptyState icon={PanelLeft} title="File を開いてください">
+          左のサイドバーで File を選ぶと、その Sheet が開きます。
+        </EmptyState>
       )}
       {/* ボディ内の property editor (仕様: ヘッダで on にしていれば、選択している要素に
               対して出す)。右サイドバーのものと併用する */}

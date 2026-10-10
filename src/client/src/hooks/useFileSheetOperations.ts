@@ -182,6 +182,11 @@ export function useFileSheetOperations({
   accountLabel,
 }: UseFileSheetOperationsParams) {
   const [files, setFiles] = useState<GraphFileListItem[]>([]);
+  /**
+   * 一覧を 1 度読み終えたか。読む前の空と「File が 1 つも無い」を分ける —
+   * 分けないと、起動の一瞬に「File がありません」が出る (空の状態, visual language §9.1)
+   */
+  const [filesLoaded, setFilesLoaded] = useState(false);
   const [activeFile, setActiveFile] = useState<GraphFile | null>(null);
   const [activeSheetId, setActiveSheetId] = useState<SheetId | null>(null);
   const [expandedFileIds, setExpandedFileIds] = useState<Set<string>>(
@@ -863,7 +868,11 @@ export function useFileSheetOperations({
 
   // 初期ファイル読み込み
   useEffect(() => {
-    deps.fetchFiles().then(setFiles).catch(console.error);
+    deps
+      .fetchFiles()
+      .then(setFiles)
+      .catch(console.error)
+      .finally(() => setFilesLoaded(true));
   }, [deps]);
 
   // 別のタブが File を作った・書いたら一覧を読み直す (step3 Phase 2 D3)。開いている File の
@@ -1083,6 +1092,7 @@ export function useFileSheetOperations({
 
   return {
     files,
+    filesLoaded,
     /**
      * 画像 blob の由来を引く (step2 Phase 2 S5)。`BlobOriginProvider` に渡す。
      * **他 actor が貼った画像は自分の repo に無い**ので、これが無いと出ない

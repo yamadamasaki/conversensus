@@ -2080,3 +2080,42 @@ describe('App 結合: 壊れた batch (security review M1)', () => {
     MERGER_TEST_MS * 2,
   );
 });
+
+describe('App 結合: 空の状態 (visual language §9.1, #279)', () => {
+  test('File が 1 つも無ければそう言い、「File を作る」から空の Sheet の案内まで進める', async () => {
+    const user = await startOn('alice', ALICE);
+    const empty = await screen.findByRole(
+      'region',
+      { name: 'File がありません' },
+      WIRING_TIMEOUT,
+    );
+    // ログインしていれば参加の口も出る
+    expect(
+      within(empty).getByRole('button', { name: '参加コードで参加する' }),
+    ).toBeTruthy();
+
+    await user.click(
+      within(empty).getByRole('button', { name: 'File を作る' }),
+    );
+    // 名前を入れずに作れば「無題」になる (サイドバーの「+」と同じ)
+    await screen.findByText('無題', {}, WIRING_TIMEOUT);
+    expect(
+      await screen.findByText(
+        'ダブルクリックで node を作る',
+        {},
+        WIRING_TIMEOUT,
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole('region', { name: 'File がありません' }),
+    ).toBeNull();
+
+    // node が 1 つでもできれば案内は消える
+    await addNode(user);
+    await waitFor(
+      () =>
+        expect(screen.queryByText('ダブルクリックで node を作る')).toBeNull(),
+      WIRING_TIMEOUT,
+    );
+  });
+});

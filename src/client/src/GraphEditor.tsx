@@ -34,7 +34,7 @@ import {
   useReactFlow,
 } from '@xyflow/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { color, font, radius } from './theme';
+import { color, font, radius, space } from './theme';
 import '@xyflow/react/dist/style.css';
 import type { FileId, Sheet } from '@conversensus/shared';
 import { AlertDialog } from './AlertDialog';
@@ -953,6 +953,16 @@ function GraphEditorInner({
                     </div>
                   </Panel>
                 )}
+                {nodes.length === 0 && !readOnly && (
+                  // 空の Sheet (visual language §9.1, #279): 何をすれば node ができるかを言う。
+                  // 押す操作を邪魔しないよう、ポインタは下の pane へ通す
+                  <div aria-live="polite" style={EMPTY_SHEET_HINT}>
+                    <p style={{ margin: 0 }}>ダブルクリックで node を作る</p>
+                    <p style={{ margin: 0, fontSize: font.caption }}>
+                      画像をドロップしても置けます
+                    </p>
+                  </div>
+                )}
                 <Background />
                 <Controls />
                 <MiniMap />
@@ -1006,6 +1016,21 @@ function GraphEditorInner({
     </EventDispatchContext.Provider>
   );
 }
+
+/** 空の Sheet の案内。グラフの中央に置き、ポインタは下の pane へ通す */
+const EMPTY_SHEET_HINT = {
+  position: 'absolute',
+  inset: 0,
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: space[1],
+  color: color.textMuted,
+  fontSize: font.body,
+  pointerEvents: 'none',
+  zIndex: 1,
+} as const;
 
 export function GraphEditor(props: Props) {
   return (
