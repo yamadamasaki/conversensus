@@ -3,6 +3,7 @@ import { type NodeProps, NodeResizer, useReactFlow } from '@xyflow/react';
 import { useCallback, useRef } from 'react';
 import { useEventDispatch } from './EventDispatchContext';
 import { makeEventBase } from './events/GraphEvent';
+import { DiffMark } from './graph/DiffMark';
 import { useInlineEdit } from './hooks/useInlineEdit';
 import { useNodeCreation } from './NodeCreationContext';
 import { color, font, radius } from './theme';
@@ -125,7 +126,9 @@ export function GroupNode({ id, data, selected }: NodeProps) {
         onResizeStart={onResizeStart}
         onResizeEnd={onResizeEnd}
       />
+      {diffType && <DiffMark diffType={diffType} />}
       <div
+        data-node-frame
         style={{
           width: '100%',
           height: '100%',
@@ -134,12 +137,12 @@ export function GroupNode({ id, data, selected }: NodeProps) {
             ? diffType === 'add'
               ? `2px solid ${color.diffAdd}`
               : `2px solid ${color.diffUpdate}`
-            : `2px solid ${color.selection}`,
+            : `1px solid ${color.border}`,
           background: diffType
             ? diffType === 'add'
               ? color.diffAddBg
               : color.diffUpdateBg
-            : color.selectionBg,
+            : color.bgSubtle,
           boxSizing: 'border-box',
           display: 'flex',
           flexDirection: 'column',
@@ -149,13 +152,12 @@ export function GroupNode({ id, data, selected }: NodeProps) {
         <div
           style={{
             padding: '4px 10px',
-            borderBottom: `1px solid ${color.selection}`,
-            background: color.selectionBg,
+            borderBottom: `1px solid ${color.border}`,
             borderRadius: `${radius.md}px ${radius.md}px 0 0`,
             cursor: 'default',
             fontSize: font.body,
             fontWeight: 600,
-            color: color.primary,
+            color: color.text,
             minHeight: 26,
             display: 'flex',
             alignItems: 'center',
@@ -193,7 +195,7 @@ export function GroupNode({ id, data, selected }: NodeProps) {
                 outline: 'none',
                 width: '100%',
                 background: 'transparent',
-                color: color.primary,
+                color: color.text,
               }}
             />
           ) : (

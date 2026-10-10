@@ -9,6 +9,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useEventDispatch } from './EventDispatchContext';
 import { makeEventBase } from './events/GraphEvent';
+import { DiffMark } from './graph/DiffMark';
 import { useInlineEdit } from './hooks/useInlineEdit';
 import { useBlobOrigin } from './images/blobOriginContext';
 import {
@@ -343,8 +344,10 @@ export function ImageNode({ id, data, selected }: NodeProps) {
         onResizeEnd={onResizeEnd}
       />
       <Handle type="source" position={Position.Top} id="source-top" />
+      {diffType && <DiffMark diffType={diffType} />}
       {/* biome-ignore lint/a11y/noStaticElementInteractions: drop to replace the image (ANA-117) */}
       <div
+        data-node-frame
         onDragOver={handleDragOver}
         onDrop={handleDrop}
         style={{

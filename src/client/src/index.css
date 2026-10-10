@@ -183,3 +183,56 @@ body {
     min-height: 44px;
   }
 }
+
+/*
+ * グラフの描き方 (visual language §8)
+ */
+
+/* §8.1 接続点は hover か選択のときだけ出す (#272)。ghost の接続点も座標のために残るが見せない */
+.react-flow__node .react-flow__handle {
+  width: 8px;
+  height: 8px;
+  background: var(--cs-bg);
+  border: 1px solid var(--cs-selection);
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+.react-flow__node:hover .react-flow__handle,
+.react-flow__node.selected .react-flow__handle,
+/* 接続をドラッグしている間は、すべての node の接続点を出す */
+.react-flow:has(.react-flow__connectionline) .react-flow__handle {
+  opacity: 1;
+}
+/* タッチの端末には hover が無い。選んだ node にだけ出す (上の .selected が受ける) */
+@media (hover: none) {
+  .react-flow__node:hover:not(.selected) .react-flow__handle {
+    opacity: 0;
+  }
+}
+.react-flow__node[data-id^="ghost-"] .react-flow__handle {
+  opacity: 0 !important;
+}
+
+/*
+ * §8.1 選択は外側の輪で示す。枠の太さを変えると中身がずれるので outline を使う。
+ * 差分の枠 (2px) と重なっても、差分の色を残したまま外側に出る
+ */
+.react-flow__node.selected [data-node-frame] {
+  outline: 2px solid var(--cs-selection);
+  outline-offset: 2px;
+}
+
+/* §8.2 edge: 線は補足の色、選択で選択の色 */
+.react-flow__edge-path {
+  stroke: var(--cs-text-muted);
+  stroke-width: 1.5;
+}
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: var(--cs-selection);
+  stroke-width: 2;
+}
+
+/* §8.5 キャンバスの格子 */
+.react-flow__background pattern circle {
+  fill: var(--cs-border);
+}
