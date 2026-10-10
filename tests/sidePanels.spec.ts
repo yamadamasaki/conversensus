@@ -25,7 +25,7 @@ async function leftWidth(page: import('@playwright/test').Page) {
 test.describe('サイドバーの幅と開閉', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
-    await expect(page.getByPlaceholder('ファイル名')).toBeVisible();
+    await expect(page.getByPlaceholder('新しい File の名前')).toBeVisible();
   });
 
   test('取っ手を右へ引くと左サイドバーが広がり、再読み込みしても残る', async ({
@@ -43,7 +43,7 @@ test.describe('サイドバーの幅と開閉', () => {
 
     await expect.poll(() => leftWidth(page)).toBe(before + 80);
     await page.reload();
-    await expect(page.getByPlaceholder('ファイル名')).toBeVisible();
+    await expect(page.getByPlaceholder('新しい File の名前')).toBeVisible();
     expect(await leftWidth(page)).toBe(before + 80);
     expect(problems.list()).toEqual([]);
   });
@@ -51,9 +51,9 @@ test.describe('サイドバーの幅と開閉', () => {
   test('畳むと帯だけが残り、広げると元の幅に戻る', async ({ page }) => {
     const before = await leftWidth(page);
     await page.getByRole('button', { name: '左サイドバーを畳む' }).click();
-    await expect(page.getByPlaceholder('ファイル名')).toBeHidden();
+    await expect(page.getByPlaceholder('新しい File の名前')).toBeHidden();
     await page.getByRole('button', { name: '左サイドバーを広げる' }).click();
-    await expect(page.getByPlaceholder('ファイル名')).toBeVisible();
+    await expect(page.getByPlaceholder('新しい File の名前')).toBeVisible();
     expect(await leftWidth(page)).toBe(before);
   });
 
@@ -68,7 +68,7 @@ test.describe('サイドバーの幅と開閉', () => {
 
     const overflow = await page.evaluate(() => {
       const row = document.querySelector<HTMLInputElement>(
-        'input[placeholder="ファイル名"]',
+        'input[placeholder="新しい File の名前"]',
       )?.parentElement;
       if (!row) throw new Error('新規作成の行が見付からない');
       return row.scrollWidth - row.clientWidth;

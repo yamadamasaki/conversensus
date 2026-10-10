@@ -187,7 +187,7 @@ describe('EditableNode', () => {
       );
       const chip = container.querySelector('[data-node-label]');
 
-      expect(chip?.textContent).toBe('ラベル');
+      expect(chip?.textContent).toBe('label');
       expect(chip?.tagName.toLowerCase()).toBe('button');
     });
 

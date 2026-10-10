@@ -49,8 +49,8 @@ export function describeSide(op: Op): string {
     case 'node.setProperty':
     case 'edge.setProperty':
       return op.value === undefined
-        ? `プロパティ ${op.name} を消す`
-        : `プロパティ ${op.name} = ${JSON.stringify(op.value)}`;
+        ? `property ${op.name} を消す`
+        : `property ${op.name} = ${JSON.stringify(op.value)}`;
     case 'node.remove':
     case 'edge.remove':
       return '削除';
@@ -105,7 +105,7 @@ export function ConflictList({
           const key = mergerCheckKey(c);
           const what = labelOf(c.target) || '(名前のない要素)';
           const about = c.propertyName
-            ? ` のプロパティ「${c.propertyName}」`
+            ? ` の property「${c.propertyName}」`
             : '';
           return (
             <li

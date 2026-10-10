@@ -413,7 +413,7 @@ export function Sidebar({
               onSave={(name, desc) => onSaveFileSettings(f.id, name, desc)}
               onDelete={() => onDeleteFile(f.id)}
               onClose={() => onSetPopupTarget(null)}
-              deleteLabel="ファイルを削除"
+              deleteLabel="File を削除"
               onExport={() => onExportFile(f.id)}
             />
           )}
@@ -541,7 +541,7 @@ export function Sidebar({
                         }
                         onDelete={() => onDeleteSheet(s.id)}
                         onClose={() => onSetPopupTarget(null)}
-                        deleteLabel="シートを削除"
+                        deleteLabel="Sheet を削除"
                       />
                     )}
                   </div>
@@ -756,11 +756,11 @@ export function Sidebar({
                   cursor: 'pointer',
                 }}
               >
-                + シートを追加
+                + Sheet を追加
               </button>
               <button
                 type="button"
-                aria-label="template 付きでシートを追加"
+                aria-label="template 付きで Sheet を追加"
                 aria-expanded={templateMenuFileId === f.id}
                 onClick={() =>
                   setTemplateMenuFileId(
@@ -939,7 +939,7 @@ export function Sidebar({
             if (newFileComposingRef.current) return;
             if (e.key === 'Enter') onCreateFile();
           }}
-          placeholder="ファイル名"
+          placeholder="新しい File の名前"
           // **`minWidth: 0` が要る** (GitHub #51)。flex アイテムの `min-width` は既定が
           // `auto` で, `<input>` は `size` 属性由来の固有幅より細くならない。その固有幅は
           // エンジンごとに違うので, WebKit では行が溢れて import ボタンがサイドバーの外へ

@@ -248,7 +248,7 @@ function GraphEditorInner({
         kind: 'node',
         id: node.id,
         // **id をそのまま出さない** — UUID は人に読めない。本文か種別で呼ぶ
-        title: String(node.data?.content || node.data?.label || 'ノード'),
+        title: String(node.data?.content || node.data?.label || 'node'),
         properties: node.data?.properties as
           | Record<string, unknown>
           | undefined,

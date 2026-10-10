@@ -89,27 +89,27 @@ export function GraphHeader({
       {/* 検索の口 (step2 Phase 7)。仕様「検索ボタンで検索窓がポップアップ」 */}
       <IconButton
         icon={Search}
-        label="このシートを検索"
+        label="この Sheet を検索"
         onClick={onToggleSearch}
         aria-pressed={searchOpen}
       />
       {/* property editor 表示の on/off。**選んだ要素に対して出す** (step2 Phase 4 Q2) */}
       <IconButton
         icon={PanelRight}
-        label="プロパティ"
+        label="property"
         onClick={onToggleProperty}
         aria-pressed={propertyOpen}
         style={{ marginRight: GROUP_GAP }}
       />
       <IconButton
         icon={Undo2}
-        label="Undo"
+        label="元に戻す"
         onClick={() => controls?.undo()}
         disabled={!ready}
       />
       <IconButton
         icon={Redo2}
-        label="Redo"
+        label="やり直す"
         onClick={() => controls?.redo()}
         disabled={!ready}
         style={{ marginRight: GROUP_GAP }}
@@ -121,7 +121,7 @@ export function GraphHeader({
         onClick={() => controls?.groupSelected()}
         disabled={!ready || !groupAbility.canGroup}
       >
-        グループ化
+        group にまとめる
       </Button>
       <Button
         variant="plain"
@@ -130,7 +130,7 @@ export function GraphHeader({
         disabled={!ready || !groupAbility.canUngroup}
         style={{ marginRight: GROUP_GAP }}
       >
-        グループ解除
+        group を解く
       </Button>
       <IconButton
         icon={ImageDown}
@@ -231,7 +231,7 @@ export function GraphHeader({
             onClick={branch.onCommit}
             disabled={branch.pendingCount === 0}
           >
-            コミット
+            commit
           </Button>
           <Button
             variant="secondary"
@@ -241,7 +241,7 @@ export function GraphHeader({
             // 1 件以上ある状態だけ。画面に出ている差分がそのまま merge の対象になる
             disabled={!branch.canMerge}
           >
-            merge ↑
+            merge
           </Button>
         </div>
       )}

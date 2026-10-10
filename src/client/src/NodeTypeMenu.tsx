@@ -47,7 +47,7 @@ const ITEM: React.CSSProperties = {
 
 const APPEARANCES: [NodeTypeOption, string][] = [
   ['markdown', 'Markdown'],
-  ['group', 'グループ'],
+  ['group', 'group'],
   ['image', '画像'],
 ];
 
@@ -90,14 +90,14 @@ export function NodeTypeMenu({
       {graphNodeOption && (
         <button
           type="button"
-          title="この File にシートを足し、その graph node を置く"
+          title="この File に Sheet を足し、その graph node を置く"
           onClick={() => onSelect('graph')}
           style={ITEM}
         >
           グラフ
         </button>
       )}
-      <div style={HEADING}>ノードの見た目</div>
+      <div style={HEADING}>node の見た目</div>
       {APPEARANCES.map(([type, label]) => (
         <button
           key={type}
@@ -112,7 +112,7 @@ export function NodeTypeMenu({
       {/* template が当たっていないシートでは段そのものが無い (設計 D3) */}
       {nodeKinds.length > 0 && (
         <>
-          <div style={{ ...HEADING, marginTop: 4 }}>ノードの種別</div>
+          <div style={{ ...HEADING, marginTop: 4 }}>node の種別</div>
           {nodeKinds.map((ref) => (
             <button
               key={`${ref.templateId}/${ref.kind.id}`}

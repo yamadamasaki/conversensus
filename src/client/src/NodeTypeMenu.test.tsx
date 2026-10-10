@@ -15,8 +15,8 @@ describe('NodeTypeMenu', () => {
   it('template が当たっていなければ「種別」の段そのものが無い', () => {
     render(<NodeTypeMenu position={POS} nodeKinds={[]} onSelect={() => {}} />);
 
-    expect(screen.getByText('ノードの見た目')).toBeDefined();
-    expect(screen.queryByText('ノードの種別')).toBeNull();
+    expect(screen.getByText('node の見た目')).toBeDefined();
+    expect(screen.queryByText('node の種別')).toBeNull();
     expect(screen.queryByText('主張')).toBeNull();
   });
 
@@ -25,8 +25,8 @@ describe('NodeTypeMenu', () => {
       <NodeTypeMenu position={POS} nodeKinds={KINDS} onSelect={() => {}} />,
     );
 
-    expect(screen.getByText('ノードの見た目')).toBeDefined();
-    expect(screen.getByText('ノードの種別')).toBeDefined();
+    expect(screen.getByText('node の見た目')).toBeDefined();
+    expect(screen.getByText('node の種別')).toBeDefined();
     for (const label of ['主張', 'データ', '論拠', '反論', '裏付け']) {
       expect(screen.getByText(label)).toBeDefined();
     }
@@ -38,7 +38,7 @@ describe('NodeTypeMenu', () => {
       <NodeTypeMenu position={POS} nodeKinds={KINDS} onSelect={onSelect} />,
     );
 
-    fireEvent.click(screen.getByText('グループ'));
+    fireEvent.click(screen.getByText('group'));
 
     expect(onSelect).toHaveBeenCalledWith('group');
   });

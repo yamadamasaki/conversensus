@@ -90,7 +90,7 @@ describe('OverwriteNotice', () => {
     ]);
     expect(document.body.textContent).toContain('内容が書き換えられました');
     expect(document.body.textContent).toContain(
-      'プロパティ「締切」が別の値になりました',
+      'property「締切」が別の値になりました',
     );
     expect(document.body.textContent).toContain('つなぎ方が変えられました');
     expect(document.body.textContent).toContain('大きさが変えられました');

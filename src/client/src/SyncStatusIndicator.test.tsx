@@ -87,7 +87,7 @@ describe('SyncStatusIndicator', () => {
     render(
       <SyncStatusIndicator remoteQueue={queue} onSyncNow={fakeSyncNow().fn} />,
     );
-    expect(screen.getByText('クラウド同期済み')).toBeTruthy();
+    expect(screen.getByText('アカウントに保存済み')).toBeTruthy();
     expect(screen.getByRole('button', { name: '今すぐ同期' })).toBeTruthy();
   });
 
@@ -136,7 +136,7 @@ describe('SyncStatusIndicator', () => {
     await act(async () => {
       queue.enqueue([batch('1'), batch('2')], FILE);
     });
-    expect(screen.getByText('クラウド未同期: 2 件')).toBeTruthy();
+    expect(screen.getByText('未保存の変更 2 件')).toBeTruthy();
   });
 
   it('上限超過時は「N 件以上」と頭打ちで見せる (D1)', async () => {
@@ -151,7 +151,7 @@ describe('SyncStatusIndicator', () => {
     await act(async () => {
       queue.enqueue([batch('1'), batch('2'), batch('3')], FILE);
     });
-    expect(screen.getByText('クラウド未同期: 2 件以上')).toBeTruthy();
+    expect(screen.getByText('未保存の変更 2 件以上')).toBeTruthy();
   });
 
   it('「今すぐ同期」で flush され、成功すると同期済みに戻る', async () => {
@@ -169,7 +169,7 @@ describe('SyncStatusIndicator', () => {
 
     expect(provider.pushed.map((b) => b.id as string)).toEqual(['1']);
     expect(sync.calls.count).toBe(1); // 送信と受信の両方を行う
-    expect(screen.getByText('クラウド同期済み')).toBeTruthy();
+    expect(screen.getByText('アカウントに保存済み')).toBeTruthy();
   });
 
   it('flush が失敗しても件数は残り、再送できる', async () => {
@@ -186,12 +186,12 @@ describe('SyncStatusIndicator', () => {
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: '今すぐ同期' }));
     });
-    expect(screen.getByText('クラウド未同期: 1 件')).toBeTruthy(); // 破棄しない
+    expect(screen.getByText('未保存の変更 1 件')).toBeTruthy(); // 破棄しない
 
     provider.online = true; // 復帰
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: '今すぐ同期' }));
     });
-    expect(screen.getByText('クラウド同期済み')).toBeTruthy();
+    expect(screen.getByText('アカウントに保存済み')).toBeTruthy();
   });
 });

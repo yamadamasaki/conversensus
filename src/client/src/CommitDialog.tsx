@@ -43,8 +43,8 @@ export function CommitDialog({ changes, onCommit, onCancel }: Props) {
   return (
     <Dialog
       kind="input"
-      label="コミットを作成"
-      title="コミットを作成"
+      label="commit を作成"
+      title="commit を作成"
       onDismiss={onCancel}
       width={COMMIT_DIALOG_WIDTH}
     >
@@ -60,34 +60,34 @@ export function CommitDialog({ changes, onCommit, onCancel }: Props) {
         }}
       >
         {!hasChanges && <span>変更なし</span>}
-        {opSummary.nodeAdd > 0 && <div>ノード追加: {opSummary.nodeAdd}</div>}
+        {opSummary.nodeAdd > 0 && <div>node 追加: {opSummary.nodeAdd}</div>}
         {opSummary.nodeUpdate > 0 && (
           <div>
-            ノード変更: {opSummary.nodeUpdate}
+            node 変更: {opSummary.nodeUpdate}
             {opSummary.nodeMoved > 0 &&
               ` (うち移動のみ: ${opSummary.nodeMoved})`}
           </div>
         )}
         {opSummary.nodeRemove > 0 && (
-          <div>ノード削除: {opSummary.nodeRemove}</div>
+          <div>node 削除: {opSummary.nodeRemove}</div>
         )}
-        {opSummary.edgeAdd > 0 && <div>エッジ追加: {opSummary.edgeAdd}</div>}
+        {opSummary.edgeAdd > 0 && <div>edge 追加: {opSummary.edgeAdd}</div>}
         {opSummary.edgeUpdate > 0 && (
           <div>
-            エッジ変更: {opSummary.edgeUpdate}
+            edge 変更: {opSummary.edgeUpdate}
             {opSummary.edgeMoved > 0 &&
               ` (うち経路のみ: ${opSummary.edgeMoved})`}
           </div>
         )}
         {opSummary.edgeRemove > 0 && (
-          <div>エッジ削除: {opSummary.edgeRemove}</div>
+          <div>edge 削除: {opSummary.edgeRemove}</div>
         )}
       </div>
 
       {/* コミットメッセージ */}
       <textarea
         ref={textareaRef}
-        placeholder="コミットメッセージを入力..."
+        placeholder="commit メッセージを入力…"
         value={message}
         onChange={(e) => setMessage(e.target.value)}
         onCompositionStart={() => {
@@ -120,7 +120,7 @@ export function CommitDialog({ changes, onCommit, onCancel }: Props) {
           marginTop: 4,
         }}
       >
-        Cmd+Enter でコミット
+        Cmd+Enter で commit
       </div>
 
       <DialogActions>
@@ -132,7 +132,7 @@ export function CommitDialog({ changes, onCommit, onCancel }: Props) {
           }}
           disabled={!message.trim() || !hasChanges}
         >
-          コミット
+          commit
         </Button>
       </DialogActions>
     </Dialog>

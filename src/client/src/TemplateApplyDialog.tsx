@@ -31,7 +31,7 @@ export function TemplateApplyDialog({
     });
 
   return (
-    <Dialog kind="input" label="シートを追加" onDismiss={onCancel}>
+    <Dialog kind="input" label="Sheet を追加" onDismiss={onCancel}>
       <p style={{ margin: `0 0 ${space[2]}px` }}>
         当てる template graph を選んでください
       </p>
@@ -66,7 +66,7 @@ export function TemplateApplyDialog({
             )
           }
         >
-          シートを追加
+          Sheet を追加
         </Button>
       </DialogActions>
     </Dialog>

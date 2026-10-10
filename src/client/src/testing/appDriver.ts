@@ -36,7 +36,7 @@ export async function waitForResumedSession(account: FakeAccount) {
 }
 
 export async function createFile(user: UserEvent, name: string) {
-  await user.type(screen.getByPlaceholderText('ファイル名'), name);
+  await user.type(screen.getByPlaceholderText('新しい File の名前'), name);
   await user.keyboard('{Enter}');
   await waitFor(
     () => expect(document.querySelector('.react-flow')).not.toBeNull(),
@@ -145,7 +145,7 @@ export async function openBranch(user: UserEvent, name: string) {
       await screen.findByText(branchLabel(name), {}, WIRING_TIMEOUT),
     );
   }
-  await screen.findByRole('button', { name: 'コミット' }, WIRING_TIMEOUT);
+  await screen.findByRole('button', { name: 'commit' }, WIRING_TIMEOUT);
 }
 
 /** branch のタブの名前に付く印 (App の `tabLabelOf`) */
@@ -189,24 +189,24 @@ export async function syncNow(user: UserEvent) {
   await screen.findByRole('button', { name: '今すぐ同期' }, WIRING_TIMEOUT);
 }
 
-/** 開いている branch の変更をコミットする (下部バーの「コミット」→ ダイアログ) */
+/** 開いている branch の変更をコミットする (ヘッダの「commit」→ ダイアログ) */
 export async function commitBranch(user: UserEvent, message: string) {
-  await user.click(screen.getByRole('button', { name: 'コミット' }));
-  const dialog = await screen.findByLabelText('コミットを作成');
+  await user.click(screen.getByRole('button', { name: 'commit' }));
+  const dialog = await screen.findByLabelText('commit を作成');
   await user.type(within(dialog).getByRole('textbox'), message);
-  await user.click(within(dialog).getByRole('button', { name: 'コミット' }));
+  await user.click(within(dialog).getByRole('button', { name: 'commit' }));
   await waitFor(
-    () => expect(screen.queryByLabelText('コミットを作成')).toBeNull(),
+    () => expect(screen.queryByLabelText('commit を作成')).toBeNull(),
     WIRING_TIMEOUT,
   );
 }
 
 /**
- * 開いている branch を trunk へ merge する (下部バーの「merge ↑」→ 理由の入力)。
+ * 開いている branch を trunk へ merge する (ヘッダの「merge」→ 理由の入力)。
  * 対立があれば確認が挟まるので、出たら進める
  */
 export async function mergeOpenBranch(user: UserEvent, reason: string) {
-  const mergeButton = screen.getByRole('button', { name: 'merge ↑' });
+  const mergeButton = screen.getByRole('button', { name: 'merge' });
   await waitFor(
     () => expect(mergeButton).toHaveProperty('disabled', false),
     WIRING_TIMEOUT,

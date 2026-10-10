@@ -167,7 +167,7 @@ describe('ConflictNotice', () => {
 
   it('content はプロパティ名があればそれを出す (#208 の粒度)', () => {
     renderNotice([content(NODE, '期限')]);
-    expect(screen.getByText(/プロパティ「期限」/)).toBeTruthy();
+    expect(screen.getByText(/property「期限」/)).toBeTruthy();
   });
 
   it('structure は削除依存と並行変更を書き分ける', () => {

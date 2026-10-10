@@ -106,7 +106,7 @@ function describe(unit: ConflictUnit): string {
   switch (unit.category) {
     case 'content':
       return unit.propertyName
-        ? `プロパティ「${unit.propertyName}」を二人が別々の値にしました`
+        ? `property「${unit.propertyName}」を二人が別々の値にしました`
         : '内容を二人が別々に書き換えました';
     case 'structure':
       return unit.kind === 'removeDependency'

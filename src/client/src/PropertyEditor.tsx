@@ -107,7 +107,7 @@ export function PropertyEditor({
   readOnly = false,
   onClose,
   placement = 'floating',
-  label = 'プロパティ',
+  label = 'property',
 }: Props) {
   const [newName, setNewName] = useState('');
   const [newValue, setNewValue] = useState('');
@@ -162,7 +162,7 @@ export function PropertyEditor({
           <button
             type="button"
             onClick={onClose}
-            aria-label="プロパティを閉じる"
+            aria-label="property を閉じる"
             className="cs-btn cs-btn--icon cs-btn--sm"
           >
             <X size={ICON_SIZE_SM} aria-hidden />
@@ -172,7 +172,7 @@ export function PropertyEditor({
 
       {rows.length === 0 ? (
         <p style={{ margin: 0, padding: 12, color: color.textMuted }}>
-          プロパティはありません
+          property はありません
         </p>
       ) : (
         <ul style={{ margin: 0, padding: 0, listStyle: 'none' }}>
@@ -195,7 +195,7 @@ export function PropertyEditor({
         >
           <div style={{ display: 'flex', gap: 6 }}>
             <input
-              aria-label="追加するプロパティの名前"
+              aria-label="追加する property の名前"
               list="property-addable"
               placeholder="名前"
               value={newName}
@@ -208,7 +208,7 @@ export function PropertyEditor({
               }}
             />
             <input
-              aria-label="追加するプロパティの値"
+              aria-label="追加する property の値"
               placeholder="値"
               value={newValue}
               onChange={(e) => setNewValue(e.target.value)}

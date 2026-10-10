@@ -38,8 +38,8 @@ test('🔴 作った File が再読み込みの後も残る (OPFS に保存さ�
   const problems = collectPageProblems(page);
   const fileName = `残る-${Date.now()}`;
   await page.goto('/');
-  await page.getByPlaceholder('ファイル名').fill(fileName);
-  await page.getByPlaceholder('ファイル名').press('Enter');
+  await page.getByPlaceholder('新しい File の名前').fill(fileName);
+  await page.getByPlaceholder('新しい File の名前').press('Enter');
   await expect(
     page.getByRole('button', { name: fileName, exact: true }),
   ).toBeVisible({
@@ -75,6 +75,6 @@ ephemeralTest(
         timeout: START_TIMEOUT_MS,
       },
     );
-    await expect(page.getByPlaceholder('ファイル名')).toHaveCount(0);
+    await expect(page.getByPlaceholder('新しい File の名前')).toHaveCount(0);
   },
 );

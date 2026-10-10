@@ -103,8 +103,8 @@ export function SyncStatusIndicator({ remoteQueue, onSyncNow }: Props) {
   // 上限に達していると実際の未送信はこれ以上ある (溢れた分は catch-up で回収, D1)
   const status =
     pending === 0
-      ? 'クラウド同期済み'
-      : `クラウド未同期: ${remoteQueue.overflowed ? `${pending} 件以上` : `${pending} 件`}`;
+      ? 'アカウントに保存済み'
+      : `未保存の変更 ${remoteQueue.overflowed ? `${pending} 件以上` : `${pending} 件`}`;
 
   return (
     <div

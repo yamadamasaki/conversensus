@@ -39,8 +39,8 @@ export function EdgeContextMenu({ contextMenu, onSelect }: Props) {
         }}
       >
         {contextMenu.targetEdgeIds.length === 1
-          ? 'エッジの種類'
-          : `${contextMenu.targetEdgeIds.length} 本のエッジを変更`}
+          ? 'edge の種類'
+          : `${contextMenu.targetEdgeIds.length} 本の edge を変更`}
       </div>
       {(
         [

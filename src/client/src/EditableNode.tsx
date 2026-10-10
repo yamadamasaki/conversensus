@@ -277,7 +277,7 @@ export function EditableNode({ id, data, selected }: NodeProps) {
         }}
         style={chipStyle(label, true)}
       >
-        {label || 'ラベル'}
+        {label || 'label'}
       </button>
     ))
   );

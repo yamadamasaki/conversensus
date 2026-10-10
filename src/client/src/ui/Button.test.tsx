@@ -5,9 +5,9 @@ import { Button, IconButton } from './Button';
 
 describe('IconButton', () => {
   test('label が名前 (aria-label) と tooltip (title) の両方になる', () => {
-    render(<IconButton icon={Search} label="このシートを検索" />);
-    const button = screen.getByRole('button', { name: 'このシートを検索' });
-    expect(button.getAttribute('title')).toBe('このシートを検索');
+    render(<IconButton icon={Search} label="この Sheet を検索" />);
+    const button = screen.getByRole('button', { name: 'この Sheet を検索' });
+    expect(button.getAttribute('title')).toBe('この Sheet を検索');
     // アイコンは読み上げない (名前は label が持つ)
     expect(button.querySelector('svg')?.getAttribute('aria-hidden')).toBe(
       'true',
@@ -28,7 +28,7 @@ describe('Button', () => {
       <>
         <Button variant="primary">OK</Button>
         <Button>キャンセル</Button>
-        <Button variant="plain">グループ化</Button>
+        <Button variant="plain">group にまとめる</Button>
       </>,
     );
     expect(screen.getByRole('button', { name: 'OK' }).className).toBe(
@@ -37,9 +37,9 @@ describe('Button', () => {
     expect(screen.getByRole('button', { name: 'キャンセル' }).className).toBe(
       'cs-btn cs-btn--secondary',
     );
-    expect(screen.getByRole('button', { name: 'グループ化' }).className).toBe(
-      'cs-btn',
-    );
+    expect(
+      screen.getByRole('button', { name: 'group にまとめる' }).className,
+    ).toBe('cs-btn');
   });
 
   test('type は button に固定する (form の中で submit にしない)', () => {

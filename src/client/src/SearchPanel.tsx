@@ -35,14 +35,14 @@ const RESULTS_MAX_HEIGHT = '50vh';
 
 /** 欄の名前。仕様の結果一覧が出す「要素の種類 (node/edge, label/content/property)」 */
 const FIELD_LABEL = {
-  label: '種別',
+  label: 'label',
   content: '本文',
-  property: 'プロパティ',
+  property: 'property',
 } as const;
 
 const KIND_LABEL = {
-  node: 'ノード',
-  edge: '辺',
+  node: 'node',
+  edge: 'edge',
 } as const;
 
 /** ヒットの同一性。**同じ要素が複数の欄で当たる**ので、id だけでは足りない */
@@ -127,7 +127,7 @@ export function SearchPanel({
           ref={inputRef}
           type="text"
           aria-label="検索語"
-          placeholder="このシートを検索"
+          placeholder="この Sheet を検索"
           value={query}
           onChange={(e) => {
             setQuery(e.target.value);
@@ -188,7 +188,7 @@ export function SearchPanel({
         <div style={{ maxHeight: RESULTS_MAX_HEIGHT, overflowY: 'auto' }}>
           {hits.length === 0 ? (
             <p style={{ margin: 0, padding: 12, color: color.textMuted }}>
-              見つかりませんでした
+              「{query}」に当たるものはありません
             </p>
           ) : (
             <ul style={{ margin: 0, padding: 0, listStyle: 'none' }}>

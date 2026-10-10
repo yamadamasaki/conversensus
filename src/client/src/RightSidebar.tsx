@@ -19,7 +19,7 @@ type Props = {
   readOnly: boolean;
 };
 
-export const RIGHT_SIDEBAR_PROPERTY_LABEL = '詳細のプロパティ';
+export const RIGHT_SIDEBAR_PROPERTY_LABEL = '詳細の property';
 
 export function RightSidebar({ selection, onSetProperty, readOnly }: Props) {
   return (
@@ -58,7 +58,7 @@ export function RightSidebar({ selection, onSetProperty, readOnly }: Props) {
             color: color.textMuted,
           }}
         >
-          要素を選ぶと、そのプロパティが出ます
+          要素を選ぶと、その property が出ます
         </p>
       )}
     </aside>

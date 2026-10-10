@@ -91,8 +91,8 @@ async function moveWithoutButton(
 
 async function setUpNode(page: Page) {
   await page.goto('/');
-  await page.getByPlaceholder('ファイル名').fill(`tap-${Date.now()}`);
-  await page.getByPlaceholder('ファイル名').press('Enter');
+  await page.getByPlaceholder('新しい File の名前').fill(`tap-${Date.now()}`);
+  await page.getByPlaceholder('新しい File の名前').press('Enter');
   await expect(page.locator(PANE)).toBeVisible();
   await page.locator(PANE).dblclick({ position: { x: 200, y: 200 } });
   await page.getByRole('button', { name: 'Markdown' }).click();

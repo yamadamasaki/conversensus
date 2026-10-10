@@ -45,7 +45,7 @@ function describe(report: OverwriteReport): string {
   switch (report.category) {
     case 'content':
       return report.propertyName
-        ? `プロパティ「${report.propertyName}」が別の値になりました`
+        ? `property「${report.propertyName}」が別の値になりました`
         : '内容が書き換えられました';
     case 'structure':
       return 'つなぎ方が変えられました';

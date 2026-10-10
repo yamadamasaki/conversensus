@@ -65,8 +65,8 @@ test.describe('通しスモーク (ANA-125 S2)', () => {
     await page.goto('/');
 
     // --- ファイル作成 ---
-    await page.getByPlaceholder('ファイル名').fill(fileName);
-    await page.getByPlaceholder('ファイル名').press('Enter');
+    await page.getByPlaceholder('新しい File の名前').fill(fileName);
+    await page.getByPlaceholder('新しい File の名前').press('Enter');
     // 作成した直後は最初のシートが開く = キャンバスが出る
     await expect(page.locator(PANE)).toBeVisible({
       timeout: SETTLE_TIMEOUT_MS,
@@ -86,7 +86,7 @@ test.describe('通しスモーク (ANA-125 S2)', () => {
     await expect(page.locator(NODE)).toContainText(nodeText);
 
     // --- シート追加 → 往復 ---
-    await page.getByRole('button', { name: '+ シートを追加' }).click();
+    await page.getByRole('button', { name: '+ Sheet を追加' }).click();
     // 追加したシートは空である。**ここが 0 でなければシートの切り替えが効いていない**
     await expect(page.locator(NODE)).toHaveCount(0);
     const item = fileItem(page, fileName);

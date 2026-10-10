@@ -573,7 +573,7 @@ export function useFileSheetOperations({
         if (!quiet) {
           await new Promise<void>((resolve) => {
             setAlertState({
-              message: 'ファイルを開けませんでした。',
+              message: 'File を開けませんでした。',
               resolve,
             });
           });
@@ -783,7 +783,7 @@ export function useFileSheetOperations({
       if (activeFile.sheets.length <= 1) {
         await new Promise<void>((resolve) => {
           setAlertState({
-            message: '最後のシートは削除できません',
+            message: '最後の Sheet は削除できません',
             resolve,
           });
         });

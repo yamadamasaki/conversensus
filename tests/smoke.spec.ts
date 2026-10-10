@@ -11,7 +11,7 @@ test.describe('起動', () => {
     await page.goto('/');
 
     await expect(page.getByText('conversensus')).toBeVisible();
-    await expect(page.getByPlaceholder('ファイル名')).toBeVisible();
+    await expect(page.getByPlaceholder('新しい File の名前')).toBeVisible();
     // ファイル未選択の初期画面
     await expect(
       page.getByText('ファイルを選択するか, 新規作成してください'),
@@ -24,7 +24,7 @@ test.describe('起動', () => {
     const problems = collectPageProblems(page);
 
     await page.goto('/');
-    await expect(page.getByPlaceholder('ファイル名')).toBeVisible();
+    await expect(page.getByPlaceholder('新しい File の名前')).toBeVisible();
 
     expect(problems.list()).toEqual([]);
   });

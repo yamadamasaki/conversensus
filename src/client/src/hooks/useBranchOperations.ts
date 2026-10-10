@@ -558,7 +558,7 @@ export function useBranchOperations({
       });
       if (!name?.trim()) return;
       try {
-        if (!activeFile) throw new Error('アクティブなファイルがありません');
+        if (!activeFile) throw new Error('開いている File がありません');
         // 複製は行わず、分岐点 (現在のログ先端) を指す base コミットだけを記録する
         const branch = await createBranchOnOplog(
           {
@@ -895,7 +895,7 @@ export function useBranchOperations({
       } catch (err) {
         console.warn('[commit] create failed:', err);
         await new Promise<void>((resolve) => {
-          setAlertState({ message: 'コミットに失敗しました。', resolve });
+          setAlertState({ message: 'commit に失敗しました。', resolve });
         });
       }
     },

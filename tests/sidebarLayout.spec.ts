@@ -14,7 +14,7 @@ const IMPORT_BUTTON = 'button[title="インポート (.conversensus)"]';
 async function measureHeaderRow(page: import('@playwright/test').Page) {
   return await page.evaluate((importSelector) => {
     const nameInput = document.querySelector<HTMLInputElement>(
-      'input[placeholder="ファイル名"]',
+      'input[placeholder="新しい File の名前"]',
     );
     if (!nameInput?.parentElement)
       throw new Error('新規作成の行が見付からない');
@@ -42,7 +42,7 @@ async function measureHeaderRow(page: import('@playwright/test').Page) {
 test.describe('サイドバーの新規作成の行 (#51)', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
-    await expect(page.getByPlaceholder('ファイル名')).toBeVisible();
+    await expect(page.getByPlaceholder('新しい File の名前')).toBeVisible();
   });
 
   test('行が溢れない', async ({ page }) => {
@@ -82,7 +82,7 @@ test.describe('サイドバーのファイル一覧', () => {
     // そちらは `overflow: hidden` を持つので自動最小サイズが効かず縮む**はず**である。
     // 理屈で済ませずここで固定する — 縮まなければ詳細ボタンが押せなくなる
     await page.goto('/');
-    const nameInput = page.getByPlaceholder('ファイル名');
+    const nameInput = page.getByPlaceholder('新しい File の名前');
     await expect(nameInput).toBeVisible();
 
     await nameInput.fill('あ'.repeat(60));

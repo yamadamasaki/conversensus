@@ -59,8 +59,8 @@ test('🔴 別のタブで作った File と、置いたノードが、再読み
   await deviceIdOf(other);
 
   // 1 つ目のタブで作る → 2 つ目のタブの一覧に出る
-  await page.getByPlaceholder('ファイル名').fill(fileName);
-  await page.getByPlaceholder('ファイル名').press('Enter');
+  await page.getByPlaceholder('新しい File の名前').fill(fileName);
+  await page.getByPlaceholder('新しい File の名前').press('Enter');
   const fileButton = (p: Page) =>
     p.getByRole('button', { name: fileName, exact: true });
   await expect(fileButton(other)).toBeVisible({ timeout: SETTLE_TIMEOUT_MS });

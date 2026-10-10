@@ -18,8 +18,8 @@ const ERASE_REQUEST_KEY = 'conversensus_erase_requested';
 const ERASED_TITLE = 'この端末の conversensus のデータを消しました';
 
 async function createFile(page: Page, name: string) {
-  await page.getByPlaceholder('ファイル名').fill(name);
-  await page.getByPlaceholder('ファイル名').press('Enter');
+  await page.getByPlaceholder('新しい File の名前').fill(name);
+  await page.getByPlaceholder('新しい File の名前').press('Enter');
   await expect(page.getByRole('button', { name, exact: true })).toBeVisible({
     timeout: START_TIMEOUT_MS,
   });
@@ -47,11 +47,11 @@ test('🔴 印を付けて再読み込みすると、この端末の File を消
   await expect(page.getByText(ERASED_TITLE)).toBeVisible({
     timeout: START_TIMEOUT_MS,
   });
-  await expect(page.getByPlaceholder('ファイル名')).toHaveCount(0);
+  await expect(page.getByPlaceholder('新しい File の名前')).toHaveCount(0);
 
   // 次に開けば (印はもう無い) 空から始まり、新しい File を作れる
   await page.reload();
-  await expect(page.getByPlaceholder('ファイル名')).toBeVisible({
+  await expect(page.getByPlaceholder('新しい File の名前')).toBeVisible({
     timeout: START_TIMEOUT_MS,
   });
   await expect(
