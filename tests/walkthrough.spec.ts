@@ -95,7 +95,7 @@ test.describe('通しスモーク (ANA-125 S2)', () => {
     await expect(page.locator(NODE)).toContainText(nodeText);
 
     // --- export ---
-    await item.locator('button[title="設定"]').first().click();
+    await item.locator('button[title="詳細"]').first().click();
     const [download] = await Promise.all([
       page.waitForEvent('download'),
       page
