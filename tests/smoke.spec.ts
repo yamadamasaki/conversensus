@@ -10,11 +10,16 @@ test.describe('起動', () => {
   test('サイドバーとキャンバスが出る', async ({ page }) => {
     await page.goto('/');
 
-    await expect(page.getByText('conversensus')).toBeVisible();
-    await expect(page.getByPlaceholder('新しい File の名前')).toBeVisible();
-    // ファイル未選択の初期画面
     await expect(
-      page.getByText('ファイルを選択するか, 新規作成してください'),
+      page.getByRole('heading', { name: 'conversensus' }),
+    ).toBeVisible();
+    await expect(page.getByPlaceholder('新しい File の名前')).toBeVisible();
+    // File を開いていない初期画面には空の状態 (visual language §9.1) が出る。
+    // WebKit は他の spec の File が残ることがあるので、どちらの空の状態でもよい
+    await expect(
+      page.getByRole('region', {
+        name: /^(File がありません|File を開いてください)$/,
+      }),
     ).toBeVisible();
   });
 

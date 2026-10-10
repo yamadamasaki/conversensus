@@ -1,4 +1,5 @@
 import { color, font, radius, shadow } from './theme';
+
 /**
  * ヘッダ (step3 Phase 3 S3-4a, 仕様 design-language「ヘッダ」)
  *
@@ -10,8 +11,10 @@ import { color, font, radius, shadow } from './theme';
  * それらのボタンを押せなくする。
  */
 
+import type { LucideIcon } from 'lucide-react';
 import {
   Columns2,
+  Ellipsis,
   GitBranch,
   GitCommitHorizontal,
   GitMerge,
@@ -23,7 +26,7 @@ import {
   Undo2,
   Ungroup,
 } from 'lucide-react';
-import { useState } from 'react';
+import { type ReactNode, useState } from 'react';
 import type { GraphEditorControls } from './graph/editorControls';
 import type { GroupAbility } from './hooks/useGroupNodes';
 import { Button, ICON_SIZE, IconButton } from './ui/Button';
@@ -54,7 +57,80 @@ type Props = {
    * 選ぶとこのタブの pane として並ぶ。渡さなければ「⧉」は出さない (本番の既定)
    */
   paneCandidates?: readonly { label: string; onAdd: () => void }[];
+  /**
+   * 狭い画面 (visual language §9.2)。文字のボタンを記号だけにし、たまにしか使わないもの
+   * (PNG・並べる) を `Ellipsis` のメニューへ入れる
+   */
+  compact?: boolean;
 };
+
+/** 文字のボタン。狭い画面では記号だけにする (名前は aria-label と tooltip に残す) */
+function LabeledButton({
+  compact,
+  icon,
+  label,
+  variant = 'plain',
+  ...rest
+}: {
+  compact: boolean;
+  icon: LucideIcon;
+  label: string;
+  variant?: 'plain' | 'secondary';
+  onClick: () => void;
+  disabled?: boolean;
+  style?: React.CSSProperties;
+}) {
+  return compact ? (
+    <IconButton icon={icon} label={label} {...rest} />
+  ) : (
+    <Button variant={variant} icon={icon} {...rest}>
+      {label}
+    </Button>
+  );
+}
+
+/** ヘッダから開くメニュー (並べる・その他の操作) */
+function HeaderMenu({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      role="menu"
+      aria-label={label}
+      style={{
+        position: 'absolute',
+        top: '100%',
+        left: 0,
+        zIndex: 10,
+        background: color.bg,
+        border: `1px solid ${color.border}`,
+        borderRadius: radius.md,
+        boxShadow: shadow.dialog,
+        minWidth: 200,
+        padding: 4,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+const MENU_ITEM = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 6,
+  width: '100%',
+  textAlign: 'left',
+  background: 'none',
+  border: 'none',
+  cursor: 'pointer',
+  fontSize: font.body,
+  padding: '4px 6px',
+} as const;
 
 /** 操作のまとまりの間を空ける (visual language §3 の余白の段) */
 const GROUP_GAP = 12;
@@ -68,9 +144,11 @@ export function GraphHeader({
   onToggleProperty,
   branch,
   paneCandidates,
+  compact = false,
 }: Props) {
   const ready = controls !== null;
   const [paneMenuOpen, setPaneMenuOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   return (
     <div
       role="toolbar"
@@ -115,30 +193,57 @@ export function GraphHeader({
         style={{ marginRight: GROUP_GAP }}
       />
       {/* **使えないときは無効にして見せる** (#269)。隠すと置き場所が変わる */}
-      <Button
-        variant="plain"
+      <LabeledButton
+        compact={compact}
         icon={Group}
+        label="group にまとめる"
         onClick={() => controls?.groupSelected()}
         disabled={!ready || !groupAbility.canGroup}
-      >
-        group にまとめる
-      </Button>
-      <Button
-        variant="plain"
+      />
+      <LabeledButton
+        compact={compact}
         icon={Ungroup}
+        label="group を解く"
         onClick={() => controls?.ungroupSelected()}
         disabled={!ready || !groupAbility.canUngroup}
         style={{ marginRight: GROUP_GAP }}
-      >
-        group を解く
-      </Button>
-      <IconButton
-        icon={ImageDown}
-        label="PNG で書き出す"
-        onClick={() => controls?.exportPng()}
-        disabled={!ready}
       />
-      {paneCandidates && (
+      {compact ? (
+        // 溢れたものを入れるメニュー (§9.2)。たまにしか使わないものだけを入れる
+        <div style={{ position: 'relative' }}>
+          <IconButton
+            icon={Ellipsis}
+            label="その他の操作"
+            aria-expanded={moreOpen}
+            onClick={() => setMoreOpen((open) => !open)}
+          />
+          {moreOpen && (
+            <HeaderMenu label="その他の操作">
+              <button
+                type="button"
+                role="menuitem"
+                disabled={!ready}
+                onClick={() => {
+                  controls?.exportPng();
+                  setMoreOpen(false);
+                }}
+                style={MENU_ITEM}
+              >
+                <ImageDown size={ICON_SIZE} aria-hidden />
+                PNG で書き出す
+              </button>
+            </HeaderMenu>
+          )}
+        </div>
+      ) : (
+        <IconButton
+          icon={ImageDown}
+          label="PNG で書き出す"
+          onClick={() => controls?.exportPng()}
+          disabled={!ready}
+        />
+      )}
+      {paneCandidates && !compact && (
         <div style={{ position: 'relative', marginLeft: 8 }}>
           <IconButton
             icon={Columns2}
@@ -147,22 +252,7 @@ export function GraphHeader({
             onClick={() => setPaneMenuOpen((open) => !open)}
           />
           {paneMenuOpen && (
-            <div
-              role="menu"
-              aria-label="並べるグラフ"
-              style={{
-                position: 'absolute',
-                top: '100%',
-                left: 0,
-                zIndex: 10,
-                background: color.bg,
-                border: `1px solid ${color.border}`,
-                borderRadius: radius.md,
-                boxShadow: shadow.dialog,
-                minWidth: 200,
-                padding: 4,
-              }}
-            >
+            <HeaderMenu label="並べるグラフ">
               {paneCandidates.length === 0 ? (
                 <div
                   style={{
@@ -183,22 +273,13 @@ export function GraphHeader({
                       c.onAdd();
                       setPaneMenuOpen(false);
                     }}
-                    style={{
-                      display: 'block',
-                      width: '100%',
-                      textAlign: 'left',
-                      background: 'none',
-                      border: 'none',
-                      cursor: 'pointer',
-                      fontSize: font.body,
-                      padding: '4px 6px',
-                    }}
+                    style={MENU_ITEM}
                   >
                     {c.label}
                   </button>
                 ))
               )}
-            </div>
+            </HeaderMenu>
           )}
         </div>
       )}
@@ -212,6 +293,8 @@ export function GraphHeader({
           }}
         >
           <span
+            // 狭い画面では branch の名前を tooltip に退け、変更の数だけを残す
+            title={compact ? branch.name : undefined}
             style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -221,28 +304,28 @@ export function GraphHeader({
             }}
           >
             <GitBranch size={ICON_SIZE} aria-hidden />
-            {branch.name}
-            {branch.merged && ' (merged)'}
+            {!compact && branch.name}
+            {!compact && branch.merged && ' (merged)'}
             {branch.pendingCount > 0 ? ` (${branch.pendingCount} 変更)` : ''}
           </span>
-          <Button
+          <LabeledButton
+            compact={compact}
             variant="secondary"
             icon={GitCommitHorizontal}
+            label="commit"
             onClick={branch.onCommit}
             disabled={branch.pendingCount === 0}
-          >
-            commit
-          </Button>
-          <Button
+          />
+          <LabeledButton
+            compact={compact}
             variant="secondary"
             icon={GitMerge}
+            label="merge"
             onClick={branch.onMerge}
             // merge できるのは「commit 済み」= 未コミットの編集が無く commit が
             // 1 件以上ある状態だけ。画面に出ている差分がそのまま merge の対象になる
             disabled={!branch.canMerge}
-          >
-            merge
-          </Button>
+          />
         </div>
       )}
     </div>

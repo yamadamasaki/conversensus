@@ -76,9 +76,11 @@ import { useRosterSource } from './hooks/useRosterSource';
 import { useSidePanels } from './hooks/useSidePanels';
 import { useTabNavigation } from './hooks/useTabNavigation';
 import { useTabs } from './hooks/useTabs';
+import { useViewportTier } from './hooks/useViewportTier';
 import { InputDialog } from './InputDialog';
 import { InvitationDialog } from './InvitationDialog';
 import { BlobOriginProvider } from './images/blobOriginContext';
+import { compactHeader } from './layout/viewportTier';
 import { otherTabsOpen, requestErase } from './local/eraseDevice';
 import { OverwriteNotice } from './OverwriteNotice';
 import { PaneFrame } from './PaneFrame';
@@ -123,6 +125,10 @@ const SPECIAL_SHEET_NAMES: Record<SheetKind, (n: number) => string> = {
 
 /** merger の後の pane で、画面の state へ返さない (`onSheetChange` の受け手) */
 const ignoreSheetChange = () => {};
+
+/** File が 1 つも無いときの案内 (§9.1)。JSX の折り返しで「、」の後に空白が入らないよう 1 つの文字列にする */
+const EMPTY_FILES_NOTE =
+  'File は Sheet (グラフ) を束ねる単位です。新しく作るか、.conversensus を import するか、受け取った参加コードで共同作業に加わってください。';
 
 export default function App() {
   // Dialog state (UI only)
@@ -856,7 +862,17 @@ export default function App() {
     viewSheet?.templateIds,
   );
   // 左右のサイドバーの幅と開閉 (S3-4b)。端末ごとの好みなので localStorage に置く
-  const sidePanels = useSidePanels();
+  // 画面の幅の段 (visual language §9.2)。狭い段ではサイドバーを重ね、ヘッダを記号だけにする
+  const viewportTier = useViewportTier();
+  const sidePanels = useSidePanels(viewportTier);
+  // 狭い画面で左サイドバーからグラフを選んだら、重ねていた左サイドバーを退ける。
+  // 選んだものを見るために開いたのだから、覆ったままにしない
+  const closeLeftOnPick = sidePanels.left.presentation.dismissOnOutside;
+  const { close: closeSidePanel } = sidePanels;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 開いたグラフが変わったときだけ退ける
+  useEffect(() => {
+    if (closeLeftOnPick) closeSidePanel('left');
+  }, [viewKey]);
   // ヘッダが開閉する窓と、canvas の口・選択の写し (step3 Phase 3 S3-4a)
   const panels = useGraphPanels(viewKey);
   /**
@@ -1160,8 +1176,7 @@ export default function App() {
             </>
           }
         >
-          File は Sheet (グラフ) を束ねる単位です。新しく作るか、.conversensus
-          を import するか、 受け取った参加コードで共同作業に加わってください。
+          {EMPTY_FILES_NOTE}
         </EmptyState>
       ) : (
         <EmptyState icon={PanelLeft} title="File を開いてください">
@@ -1196,11 +1211,18 @@ export default function App() {
   );
 
   return (
-    <div style={{ display: 'flex', height: '100vh' }}>
+    // 重ねて出すサイドバー (狭い画面) の基準にするので position を持たせる
+    <div style={{ display: 'flex', height: '100vh', position: 'relative' }}>
       <SidePanel
         side="left"
         label={BOUNDARY_LABELS.leftSidebar}
-        state={sidePanels.state.left}
+        state={sidePanels.left.state}
+        mode={sidePanels.left.presentation.mode}
+        onDismiss={
+          sidePanels.left.presentation.dismissOnOutside
+            ? () => sidePanels.close('left')
+            : undefined
+        }
         onResize={(width) => sidePanels.setWidth('left', width)}
         onToggle={() => sidePanels.toggle('left')}
       >
@@ -1357,6 +1379,7 @@ export default function App() {
             onToggleProperty={panels.toggleProperty}
             branch={headerBranch}
             paneCandidates={paneCandidates}
+            compact={compactHeader(viewportTier)}
           />
         )}
         <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
@@ -1495,7 +1518,13 @@ export default function App() {
       <SidePanel
         side="right"
         label={BOUNDARY_LABELS.rightSidebar}
-        state={sidePanels.state.right}
+        state={sidePanels.right.state}
+        mode={sidePanels.right.presentation.mode}
+        onDismiss={
+          sidePanels.right.presentation.dismissOnOutside
+            ? () => sidePanels.close('right')
+            : undefined
+        }
         onResize={(width) => sidePanels.setWidth('right', width)}
         onToggle={() => sidePanels.toggle('right')}
       >

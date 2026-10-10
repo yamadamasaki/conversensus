@@ -4,7 +4,7 @@ import {
   PanelRightClose,
   PanelRightOpen,
 } from 'lucide-react';
-import { color } from './theme';
+import { color, overlay, shadow } from './theme';
 import { ICON_SIZE } from './ui/Button';
 /**
  * サイドバーの外枠 (step3 Phase 3 S3-4b)。幅を変える取っ手と、折り畳む・広げるボタンを持つ。
@@ -26,6 +26,11 @@ export const COLLAPSED_PANEL_WIDTH = 24;
 const HANDLE_WIDTH = 6;
 /** ← / → 1 回で変える幅 */
 const KEYBOARD_STEP = 16;
+/**
+ * 重ねて出すサイドバーの重なり順 (visual language §9.2)。ボディ (検索窓 800 を除く) より上、
+ * ダイアログ (1000) より下
+ */
+const OVERLAY_PANEL_Z_INDEX = 500;
 
 type Props = {
   side: PanelSide;
@@ -34,6 +39,13 @@ type Props = {
   state: SidePanelState;
   onResize: (width: number) => void;
   onToggle: () => void;
+  /**
+   * `docked` はボディと並べる、`overlay` はボディに重ねる (狭い画面, §9.2)。重ねるときも畳んだ帯は
+   * 並べて残す — 広げるボタンの置き場所を変えないため
+   */
+  mode?: 'docked' | 'overlay';
+  /** 重ねたときに外側を押すと呼ぶ。渡したときだけ外側に幕を敷く */
+  onDismiss?: () => void;
   children: ReactNode;
 };
 
@@ -43,6 +55,8 @@ export function SidePanel({
   state,
   onResize,
   onToggle,
+  mode = 'docked',
+  onDismiss,
   children,
 }: Props) {
   const drag = useRef<{ startX: number; startWidth: number } | null>(null);
@@ -51,21 +65,22 @@ export function SidePanel({
   const ExpandIcon = side === 'left' ? PanelLeftOpen : PanelRightOpen;
   const CollapseIcon = side === 'left' ? PanelLeftClose : PanelRightClose;
 
-  if (state.collapsed) {
-    return (
-      <div
-        style={{
-          width: COLLAPSED_PANEL_WIDTH,
-          flexShrink: 0,
-          [border]: `1px solid ${color.border}`,
-          background: color.bgSubtle,
-          display: 'flex',
-          justifyContent: 'center',
-          // ボタンを帯の高さいっぱいに伸ばさない (上に置く)
-          alignItems: 'flex-start',
-          paddingTop: 8,
-        }}
-      >
+  // 畳んだ帯。重ねて開いている間も並べて残すが、そのときボタンは panel の側にある
+  const strip = (withButton: boolean) => (
+    <div
+      style={{
+        width: COLLAPSED_PANEL_WIDTH,
+        flexShrink: 0,
+        [border]: `1px solid ${color.border}`,
+        background: color.bgSubtle,
+        display: 'flex',
+        justifyContent: 'center',
+        // ボタンを帯の高さいっぱいに伸ばさない (上に置く)
+        alignItems: 'flex-start',
+        paddingTop: 8,
+      }}
+    >
+      {withButton && (
         <button
           type="button"
           aria-label={`${label}を広げる`}
@@ -74,9 +89,10 @@ export function SidePanel({
         >
           <ExpandIcon size={ICON_SIZE} aria-hidden />
         </button>
-      </div>
-    );
-  }
+      )}
+    </div>
+  );
+  if (state.collapsed) return strip(true);
 
   const handle = (
     // biome-ignore lint/a11y/useSemanticElements: 幅を変える取っ手。hr では引けない
@@ -128,16 +144,27 @@ export function SidePanel({
     />
   );
 
-  return (
+  const overlaid = mode === 'overlay';
+  const panel = (
     <div
       style={{
-        position: 'relative',
+        position: overlaid ? 'absolute' : 'relative',
         width: state.width,
+        // 重ねるときは画面の幅を超えない (iPhone の縦で端が切れない)
+        maxWidth: overlaid ? '100%' : undefined,
         flexShrink: 0,
         [border]: `1px solid ${color.border}`,
         display: 'flex',
         flexDirection: 'column',
         minHeight: 0,
+        ...(overlaid && {
+          top: 0,
+          bottom: 0,
+          [side]: 0,
+          zIndex: OVERLAY_PANEL_Z_INDEX,
+          background: color.bg,
+          boxShadow: shadow.dialog,
+        }),
       }}
     >
       <button
@@ -159,5 +186,25 @@ export function SidePanel({
       {children}
       {handle}
     </div>
+  );
+  if (!overlaid) return panel;
+  return (
+    <>
+      {strip(false)}
+      {onDismiss && (
+        // 外側の幕。押すと閉じる (狭い画面の左サイドバー)
+        <div
+          aria-hidden
+          onClick={onDismiss}
+          style={{
+            position: 'absolute',
+            inset: 0,
+            background: overlay,
+            zIndex: OVERLAY_PANEL_Z_INDEX,
+          }}
+        />
+      )}
+      {panel}
+    </>
   );
 }
