@@ -2195,6 +2195,101 @@ describe('App 結合: 左サイドバーの名前の検索 (#249)', () => {
   });
 });
 
+describe('App 結合: 背後のタブの File の通知 (#260)', () => {
+  test(
+    '背後のタブの File で検出した競合は、そのタブに印を付け、前に出すと通知に出る',
+    async () => {
+      const { code } = await aliceSharesFileWithBob();
+      let user = await startOn('alice', ALICE);
+      await openFileNamed(user, FILE_NAME);
+      await addNode(user);
+      await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+      await editOnlyNode(user, 'もと');
+      await waitFor(() => expect(trunkContent()).toBe('もと'), WIRING_TIMEOUT);
+      await syncNow(user);
+
+      // bob: 参加して同じ node を書き換える。alice に届かないよう保留する
+      user = await startOn('bob', BOB);
+      await participate(user, code, FILE_NAME);
+      await syncNow(user);
+      await waitFor(() => expect(trunkContent()).toBe('もと'), WIRING_TIMEOUT);
+      world.pds.withhold(BOB.did);
+      await editOnlyNode(user, 'bob 案');
+      await waitFor(
+        () => expect(trunkContent()).toBe('bob 案'),
+        WIRING_TIMEOUT,
+      );
+
+      // alice: 並行に書き換えて送る。bob が別の File へ移るまで届かないよう保留する
+      user = await startOn('alice', ALICE);
+      world.pds.release(BOB.did);
+      world.pds.withhold(ALICE.did);
+      await openFileNamed(user, FILE_NAME);
+      await editOnlyNode(user, 'alice 案');
+      await waitFor(
+        () => expect(trunkContent()).toBe('alice 案'),
+        WIRING_TIMEOUT,
+      );
+      await syncNow(user);
+
+      // bob: 別の File を作る (新しいタブで開く)。共有の File は背後のタブになる
+      user = await startOn('bob', BOB);
+      await openFileNamed(user, FILE_NAME);
+      await createFile(user, '別の File');
+      const tabNamed = (name: string) =>
+        screen
+          .getAllByRole('tab')
+          .find((t) => (t.textContent ?? '').startsWith(name));
+      await waitFor(
+        () =>
+          expect(tabNamed('別の File')?.getAttribute('aria-selected')).toBe(
+            'true',
+          ),
+        WIRING_TIMEOUT,
+      );
+
+      // alice の編集が届く。背後のタブの File の受信が競合を検出する
+      world.pds.release(ALICE.did);
+      await syncNow(user);
+      const mark = await screen.findByRole(
+        'img',
+        { name: '確かめていない競合があります' },
+        WIRING_TIMEOUT,
+      );
+      // 印は共有の File のタブに付き、前の File には通知を出さない
+      expect(mark.parentElement?.textContent).toContain(FILE_NAME);
+      expect(
+        screen.queryByRole('status', { name: '競合の通知' })?.textContent ??
+          null,
+      ).toBeNull();
+
+      // そのタブを前に出すと、通知に出て印が消える
+      const sharedTab = tabNamed(FILE_NAME);
+      if (!sharedTab) throw new Error('共有の File のタブが無い');
+      await user.click(sharedTab);
+      await screen.findByText(/件を保留として記録しました/, {}, WIRING_TIMEOUT);
+      expect(
+        screen.queryByRole('img', { name: '確かめていない競合があります' }),
+      ).toBeNull();
+
+      // 別の File へ戻ると、出ていた通知は控えに戻り、また印になる
+      const otherTab = tabNamed('別の File');
+      if (!otherTab) throw new Error('別の File のタブが無い');
+      await user.click(otherTab);
+      await screen.findByRole(
+        'img',
+        { name: '確かめていない競合があります' },
+        WIRING_TIMEOUT,
+      );
+      expect(
+        screen.queryByRole('status', { name: '競合の通知' })?.textContent ??
+          null,
+      ).toBeNull();
+    },
+    MERGER_TEST_MS * 2,
+  );
+});
+
 describe('App 結合: 参加者の PDS の流れの合図 (#252)', () => {
   test(
     '相手の書き込みの合図が来たら、定期同期を待たずに取りに行き、画面に描く',

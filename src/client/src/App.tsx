@@ -172,6 +172,10 @@ export default function App() {
   /** 画面右下の通知と、閉じた通知の既読 (step3 Phase 6 S6-1a) */
   const {
     forgetFile,
+    noteBackgroundConflicts,
+    noteBackgroundForks,
+    bringToFront,
+    markedFiles,
     conflictNotice,
     showConflicts,
     closeConflictNotice,
@@ -289,6 +293,8 @@ export default function App() {
     onOverwrites: handleOverwrites,
     onForksArrived: handleForksArrived,
     onFileDeleted: forgetFile,
+    onBackgroundConflicts: noteBackgroundConflicts,
+    onBackgroundForks: noteBackgroundForks,
     remoteQueue,
     live,
     actor,
@@ -1028,6 +1034,14 @@ export default function App() {
    * サイドバーに並ぶシートは開いている File のものだけである
    */
   const activeFileId = fileOps.activeFile?.id ?? null;
+  // 前に出る File が替わったら、右下の競合の通知をその File の分に入れ替える (#260)。その File の
+  // 控えが後から戻った (再読み込みの後の控えなど) ときも出す
+  const activeFileMarked =
+    activeFileId !== null && markedFiles.has(activeFileId as FileId);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 印が付いたときにも入れ替え直す
+  useEffect(() => {
+    bringToFront(activeFileId as FileId | null);
+  }, [bringToFront, activeFileId, activeFileMarked]);
   const openSheetTab = useCallback(
     (sheetId: SheetId, branchId: BranchId | null, { newTab }: OpenOptions) => {
       if (!activeFileId) return;
@@ -1470,6 +1484,11 @@ export default function App() {
           labelOf={tabLabelOf}
           onActivate={tabs.activate}
           onClose={tabs.close}
+          // 前に出ていない File に判断の要る通知があれば印を付ける (#260)
+          hasNotice={(tab) =>
+            tab.id !== tabs.state.activeId &&
+            tab.panes.some((pane) => markedFiles.has(pane.fileId))
+          }
         />
         {viewAddress && (
           <GraphHeader

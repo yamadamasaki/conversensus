@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { TabBar } from './TabBar';
+import { TAB_NOTICE_LABEL, TabBar } from './TabBar';
 import type { Tab, TabId } from './tabs/tabs';
 
 afterEach(() => {
@@ -79,5 +79,32 @@ describe('TabBar (#277)', () => {
     } finally {
       HTMLElement.prototype.scrollIntoView = original;
     }
+  });
+});
+
+describe('TabBar: 通知の印 (#260)', () => {
+  test('印を求められたタブにだけ付け、タブの名前 (押す口の名前) は変えない', () => {
+    render(
+      <TabBar
+        tabs={TABS}
+        activeId={'b' as TabId}
+        labelOf={(t) => LABELS[t.id] ?? ''}
+        onActivate={noop}
+        onClose={noop}
+        hasNotice={(t) => t.id === 'a'}
+      />,
+    );
+    const marks = screen.getAllByRole('img', { name: TAB_NOTICE_LABEL });
+    expect(marks).toHaveLength(1);
+    expect(marks[0]?.parentElement?.textContent).toContain('研究 / Sheet 1');
+    // タブの名前で引く口はそのまま
+    expect(
+      screen.getByRole('tab', { name: '研究 / Sheet 1' }).textContent,
+    ).toBe('研究 / Sheet 1');
+  });
+
+  test('求めなければ印を付けない', () => {
+    renderBar();
+    expect(screen.queryByRole('img', { name: TAB_NOTICE_LABEL })).toBeNull();
   });
 });

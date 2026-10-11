@@ -18,14 +18,22 @@ const CACHE_KEY_PREFIX = 'conversensus.notices';
 /** ログインしていない端末の控え */
 const LOCAL_ACTOR = 'local';
 
-/** 控えの形。Map は JSON にならないので組の配列で持つ */
+/** 競合の通知 1 つの控え。Map は JSON にならないので組の配列で持つ */
+export type CachedConflicts = {
+  fileId?: FileId;
+  conflicts: MergeConflict[];
+  labels: [string, string][];
+  forkCount?: number;
+};
+
+/** 控えの形 */
 export type CachedNotices = {
-  conflicts: {
-    fileId?: FileId;
-    conflicts: MergeConflict[];
-    labels: [string, string][];
-    forkCount?: number;
-  };
+  /** 前に出ている File の競合の通知 */
+  conflicts: CachedConflicts;
+  /**
+   * 前に出ていない File の競合の通知 (#260)。File ごとに 1 つ。古い控えには無い
+   */
+  pending?: CachedConflicts[];
   overwrites: {
     reports: OverwriteReport[];
     labels: [string, string][];
@@ -46,6 +54,7 @@ export function saveNotices(
   if (storage === null) return;
   const empty =
     notices.conflicts.conflicts.length === 0 &&
+    (notices.pending ?? []).length === 0 &&
     notices.overwrites.reports.length === 0;
   try {
     if (empty) storage.removeItem(noticeCacheKey(did));
@@ -86,7 +95,12 @@ export function loadNotices(
       isPairs(value.conflicts.labels) &&
       Array.isArray(value?.overwrites?.reports) &&
       isPairs(value.overwrites.labels) &&
-      isPairs(value.overwrites.files);
+      isPairs(value.overwrites.files) &&
+      (value.pending === undefined ||
+        (Array.isArray(value.pending) &&
+          value.pending.every(
+            (p) => Array.isArray(p?.conflicts) && isPairs(p.labels),
+          )));
     return ok ? value : null;
   } catch {
     return null;
