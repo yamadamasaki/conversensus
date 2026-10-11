@@ -116,6 +116,9 @@ import {
 import { color, font, radius, shadow } from './theme';
 import { Button } from './ui/Button';
 import { EmptyState } from './ui/EmptyState';
+import { CURRENT_BUILD_ID } from './update/appUpdate';
+import { UpdateNotice } from './update/UpdateNotice';
+import { useAppUpdate } from './update/useAppUpdate';
 import { generateId } from './uuid';
 
 /** 特殊なグラフのシートの既定の名前 (step3 Phase 4)。n は同じ種類の何枚目か */
@@ -187,6 +190,12 @@ export default function App() {
     },
     [conflictNotice.labels],
   );
+
+  // 新しい版が配られたか (#262)。印は本番ビルドにだけある
+  const appUpdate = useAppUpdate({
+    current: CURRENT_BUILD_ID,
+    enabled: import.meta.env.PROD,
+  });
 
   const [loginDialogOpen, setLoginDialogOpen] = useState(false);
   /** 未ログインの間に、この端末にだけある編集の数 (FPR 前 L-3) */
@@ -1601,7 +1610,7 @@ export default function App() {
         />
       )}
       {/*
-        通知は 2 系列ある (競合 / 上書きの報告, Phase 3 T8)。**同じ隅に出るので
+        通知は 3 系列ある (競合 / 上書きの報告, Phase 3 T8 / 新しい版, #262)。**同じ隅に出るので
         積む** — どちらも自分では位置を持たず、重ならないことはここで保証する。
         中身が無ければ両方 null なので、この箱は 0 の大きさになる
       */}
@@ -1630,6 +1639,11 @@ export default function App() {
           labelOf={overwriteLabelOf}
           actorLabelOf={participation.state.labelOf}
           onDismiss={dismissOverwrites}
+        />
+        <UpdateNotice
+          available={appUpdate.available !== null}
+          onReload={() => window.location.reload()}
+          onDismiss={appUpdate.dismiss}
         />
       </div>
       {loginDialogOpen && (

@@ -47,9 +47,11 @@ import {
 } from './folders/folderTree';
 import { useLocalOnlyFiles } from './hooks/useLocalOnlyFiles';
 import { LocalOnlyBanner } from './LocalOnlyBanner';
+import { usePersistenceState } from './local/storagePersistence';
 import type { PopupTarget } from './SettingsPopup';
 import { SettingsPopup } from './SettingsPopup';
 import { ShareStatusIcon } from './ShareStatusIcon';
+import { StorageAtRiskBanner } from './StorageAtRiskBanner';
 import { SyncStatusIndicator } from './SyncStatusIndicator';
 import type { FileSharing } from './sync/rosterView';
 import { color, font, radius } from './theme';
@@ -245,6 +247,8 @@ export function Sidebar({
   } | null>(null);
 
   const localOnlyFiles = useLocalOnlyFiles();
+  /** 保存領域が守られていないなら、端末だけの File が消されうる (#263) */
+  const storageAtRisk = usePersistenceState() === 'notPersisted';
   const showAlert = (message: string) =>
     new Promise<void>((resolve) => setAlertState({ message, resolve }));
 
@@ -1062,6 +1066,14 @@ export function Sidebar({
           fontSize: font.body,
         }}
       >
+        {storageAtRisk && (
+          <StorageAtRiskBanner
+            count={
+              files.filter((f) => localOnlyFiles.has(f.id as FileId)).length
+            }
+            signedIn={atprotoSession !== null}
+          />
+        )}
         {atprotoSession ? (
           <>
             <div
