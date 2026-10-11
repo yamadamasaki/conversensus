@@ -392,7 +392,8 @@ PDS_URL=http://localhost:3000 REPO=alice.test \
   bun run scripts/inspect-remote-batches.ts                    # 宛先を明示する場合
 ```
 
-検査項目は genesis push・id 収束 (4e-0) / presentation 非搭載 (D7) / sheetId 往復 / clock 衝突なし の 4 つ.
+検査項目は genesis が載っている (4e-0) / presentation 非搭載 (D7) / sheetId 往復 / clock 衝突なし の 4 つ.
+rkey が v2 の形でないレコード・本文が rkey と食い違うレコードは検査から外して件数を出し, 読めないレコードがあれば FAIL にする (#254).
 genesis の検査は Phase 4e-0 で反転した — 旧 C1 (genesis 非 push) は削除され, いまは
 「genesis が remote に載っており, かつ同一 fileId に複数の genesis id が分岐していない」
 ことを見る (Phase 4e 設計 §1.2 MED1 の実機確認).

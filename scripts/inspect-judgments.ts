@@ -47,14 +47,16 @@
  */
 
 import {
+  parseBatchRkey,
+  rkeyFromUri,
+} from '../src/client/src/atproto/batchRkey';
+import {
   isJudgmentRecordValue,
-  recordToJudgmentBatch,
+  recordToRemoteJudgment,
 } from '../src/client/src/atproto/judgmentMapper';
-import { batchIdFromRkey } from '../src/client/src/atproto/batchRkey';
 import { NSID } from '../src/client/src/atproto/types';
 import { readRoster } from '../src/client/src/sync/readRoster';
 import {
-  type BatchId,
   compareByClockActorId,
   type Did,
   didFromActor,
@@ -103,17 +105,10 @@ async function listAll(repo: string): Promise<Record[]> {
   return all;
 }
 
-/** rkey は `v1~<fileId>~<clock>~<batchId>`。fileId は第 2 セグメント */
-function fileIdOf(uri: string): string | null {
-  const rkey = uri.split('/').pop() ?? '';
-  const parts = rkey.split('~');
-  return parts.length === 4 && parts[0] === 'v1' ? (parts[1] ?? null) : null;
-}
-
 /**
  * repo の判断ログを、どの File のものかを添えて読む。
  *
- * **fileId は batch には載っていない** — rkey が運ぶ属性なので、レコードを batch に
+ * **fileId は batch には載っていない** — レコードの本文 (と rkey) が運ぶ属性なので、batch に
  * 直した時点で失われる。平ら読みも起点読みも File で絞るので、ここで組にして持つ。
  */
 async function batchesOf(
@@ -121,12 +116,14 @@ async function batchesOf(
 ): Promise<{ fileId: string; batch: JudgmentBatch }[]> {
   const out: { fileId: string; batch: JudgmentBatch }[] = [];
   for (const record of await listAll(repo)) {
-    const fileId = fileIdOf(record.uri);
-    const batchId = batchIdFromRkey(record.uri.split('/').pop() ?? '');
-    if (!fileId || !batchId || !isJudgmentRecordValue(record.value)) continue;
-    const batch = recordToJudgmentBatch(batchId as BatchId, record.value);
-    if (!batch) continue;
-    out.push({ fileId, batch });
+    // rkey は `<fileId>~<actor>~<seq>` (op-log v2, batch と同じスキーム)。形を満たさないものは
+    // 判断ログではない。適用先の権威は本文の fileId で、rkey とずれていれば読まない
+    // (受信経路 `pullRemoteForFile` と同じ扱い)
+    const point = parseBatchRkey(rkeyFromUri(record.uri));
+    if (!point || !isJudgmentRecordValue(record.value)) continue;
+    const judgment = recordToRemoteJudgment(record.value);
+    if (!judgment || judgment.fileId !== point.fileId) continue;
+    out.push(judgment);
   }
   return out;
 }

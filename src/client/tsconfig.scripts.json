@@ -1,0 +1,10 @@
+{
+  /* リポジトリ直下の scripts/ (PDS を調べる道具) 用。bun で直に走らせるので型検査されず,
+     op-log v2 で rkey の API が変わったときに 2 本とも壊れたまま気付かなかった (#254)。
+     テストと同じく bun のランタイムで動く */
+  "extends": "./tsconfig.test.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.scripts.tsbuildinfo"
+  },
+  "include": ["../../scripts/**/*.ts"]
+}
