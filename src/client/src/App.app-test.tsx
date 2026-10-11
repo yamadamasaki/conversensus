@@ -22,6 +22,10 @@ import userEvent from '@testing-library/user-event';
 import App from './App';
 import { NSID } from './atproto/types';
 import { LOCAL_CHANGES_CHANNEL } from './local/localChanges';
+import {
+  requestPersistence,
+  resetPersistenceStateForTest,
+} from './local/storagePersistence';
 import { noticeCacheKey } from './notices/noticeCache';
 import {
   addNode,
@@ -2105,6 +2109,51 @@ describe('App 結合: 壊れた batch (security review M1)', () => {
         () => expect(trunkContent()).toBe('壊れた後の編集'),
         WIRING_TIMEOUT,
       );
+    },
+    MERGER_TEST_MS * 2,
+  );
+});
+
+describe('App 結合: 端末だけの File が消えるおそれ (#263)', () => {
+  afterEach(resetPersistenceStateForTest);
+
+  test(
+    '保存領域が守られていない端末では、端末だけの File がある間だけ注意を出し、保存すれば消える',
+    async () => {
+      // ブラウザが persist() を断った (Safari の ITP)
+      await requestPersistence({
+        persisted: async () => false,
+        persist: async () => false,
+      });
+      cleanup();
+      await world.activate('alice');
+      render(<App />);
+      const user = userEvent.setup();
+      const atRisk = () =>
+        screen.queryByRole('note', { name: '端末だけの File が消えるおそれ' });
+      // File が無いうちは出さない
+      await screen.findByPlaceholderText(
+        '新しい File の名前',
+        {},
+        WIRING_TIMEOUT,
+      );
+      expect(atRisk()).toBeNull();
+
+      await createFile(user, FILE_NAME);
+      await waitFor(() => expect(atRisk()).not.toBeNull(), WIRING_TIMEOUT);
+      expect(atRisk()?.textContent).toContain('1 件');
+      expect(atRisk()?.textContent).toContain('ログインして');
+
+      await login(user, ALICE);
+      signedInDevices.add('alice');
+      await user.click(
+        await screen.findByRole(
+          'button',
+          { name: 'アカウントに保存する' },
+          WIRING_TIMEOUT,
+        ),
+      );
+      await waitFor(() => expect(atRisk()).toBeNull(), WIRING_TIMEOUT);
     },
     MERGER_TEST_MS * 2,
   );

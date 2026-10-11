@@ -7,6 +7,7 @@ import { BOUNDARY_LABELS, ErrorBoundary } from './ErrorBoundary';
 import { claimDeviceId } from './local/deviceClaim';
 import { browserEraseDeps, eraseIfRequested } from './local/eraseDevice';
 import { broadcastingBackend } from './local/localChanges';
+import { requestPersistence } from './local/storagePersistence';
 import { startWorkerBackend } from './local/workerBackend';
 import { Erased, Starting, StorageUnavailable } from './StorageUnavailable';
 import { setClaimedDeviceId } from './sync/actor';
@@ -57,8 +58,11 @@ async function startApp(): Promise<void> {
   if (started.ok) {
     // ブラウザが保存領域を消さないよう求める (Safari の ITP、S0-4 の注意 3)。断られても動く —
     // そのときに頼れるのは PDS への同期と、未同期の表示 (D6) である
-    void navigator.storage?.persist?.().then((granted) => {
-      if (!granted) console.info('[storage] persist() は認められなかった');
+    // 断られたことは覚えておき、この端末だけの File があるときに知らせる (#263)
+    void requestPersistence(navigator.storage).then((result) => {
+      if (result !== 'persisted') {
+        console.info('[storage] persist() は認められなかった');
+      }
     });
     // オフラインで起動するため (本番ビルドだけ。開発中は Vite の更新と噛み合わない)
     if (import.meta.env.PROD) {
