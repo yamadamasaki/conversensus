@@ -12,7 +12,7 @@
  * 非破壊: 本 Phase では EventStore を追加するのみで、HTTP API の載せ替えは Phase 4 以降。
  */
 
-import type { BlobCid, MimeType } from '../blob';
+import { type BlobCid, type MimeType, repairBrokenBlobRefs } from '../blob';
 import {
   isFileDeleted,
   projectBatches,
@@ -254,6 +254,38 @@ export class EventStore {
         if (actor !== row.actor) renamed += 1;
       }
       return renamed;
+    });
+  }
+
+  /**
+   * 壊れて保存された画像の参照を直す (#264, `repairBrokenBlobRefs`)。**1 トランザクション**で、
+   * op の中の壊れた blob の参照だけを元の形に書き直す。何度呼んでもよい (直すものが無ければ何もしない)。
+   *
+   * 壊れた行は `"multihash"` を含むことで絞る — 正しい参照は CID を文字列 (`$link`) で持つので、
+   * この鍵は現れない。全行を JSON として読まずに済む。
+   *
+   * 受け直さないのは、受信が手元に無い batch だけを引くからである (壊れた行は引き直されない)。
+   * CID のバイト列は壊れた形にも残っているので、手元で戻せる。
+   *
+   * @returns 書き直した batch の数
+   */
+  repairBlobRefs(): number {
+    return this.db.transaction(() => {
+      const rows = this.db.all<{ seq: number; ops_json: string }>(
+        `SELECT seq, ops_json FROM batches WHERE ops_json LIKE '%"multihash"%'`,
+      );
+      let repaired = 0;
+      for (const row of rows) {
+        const ops: unknown = JSON.parse(row.ops_json);
+        const fixed = repairBrokenBlobRefs(ops);
+        if (fixed === ops) continue;
+        this.db.run('UPDATE batches SET ops_json = $ops WHERE seq = $seq', {
+          $ops: JSON.stringify(fixed),
+          $seq: row.seq,
+        });
+        repaired += 1;
+      }
+      return repaired;
     });
   }
 

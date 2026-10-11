@@ -848,9 +848,17 @@ describe('useFileSheetOperations', () => {
 describe('localAdoptionMessage (未ログインの編集を出し直す問い)', () => {
   it('件数・File・送り先の名前を見せる', () => {
     const message = localAdoptionMessage(3, ['議題', 'メモ'], 'alice.test');
-    expect(message).toContain('3 件');
+    expect(message).toContain('編集 3 件');
     expect(message).toContain('(File: 議題、メモ)');
-    expect(message).toContain('@alice.test の編集として');
+    expect(message).toContain('@alice.test のアカウントに保存');
+  });
+
+  it('残すときの範囲を言う: File ごと (名前も) この端末にだけ残り、後から保存できる (#253)', () => {
+    const message = localAdoptionMessage(0, ['議題']);
+    expect(message).toContain('File ごと (名前も) この端末にだけ残ります');
+    expect(message).toContain('「アカウントに保存する」');
+    // 編集が無い (作っただけ) なら件数を言わない
+    expect(message).not.toContain('編集 0 件');
   });
 
   it('最後の編集の時刻を、手元の時刻で分まで見せる (#288)', () => {

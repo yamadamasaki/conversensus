@@ -13,41 +13,44 @@
  * 衝突すると順序は `(actor, id)` の tiebreak で決まり、「より前」が意図どおりに
  * ならない。したがって**書く前に判断ログの最大値でも seed する**。
  *
- * ## ⚠️ tap があるのは「その File を開いているとき」だけである (2026-09-05 実機で発覚)
+ * ## 発番器は File ごとに 1 つで、開いていなくても使う (#261)
  *
- * clock 空間は **File ごと**である。tap も File ごとに作られるので、**判断を書く File を
- * 開いていなければ tap は無い**。
+ * clock 空間は **File ごと**である。以前は「判断を書く File を前に開いていれば tap の発番器、
+ * そうでなければ判断ログだけから復元した使い捨ての発番器」としていた (2026-09-05 実機で、
+ * 開いていない File の承認で tap が無く落ちたため)。使い捨ては「その File のグラフ op-log は
+ * 手元に 1 件も無い」を前提にしていたが、**背後のタブで開いている File や、前に開いた File**
+ * では成り立たない。同じ点 `(actor, seq)` をグラフと判断で 2 度振りうる (S5-3 で残った窓 2)。
  *
- * 承認 (`participation.accept`) がまさにその場合である。承認する時点でその File は
- * 手元に無い (グラフの batch が 1 件も来ていない) ので、開きようがない。**開いている
- * 別の File の tap を使ってはならない** — 別の clock 空間の採番器であり、しかもその
- * File の clock を無関係に進めてしまう。
+ * 今は**セッションの置き場の発番器** (`FileSessionPool.causalOf`) を File ごとに借りる。セッションが
+ * 無くても返り、セッションより長く生きる。借りる側 (`clockFor`) が**その File のローカルの
+ * op-log から復元してから**返すので、開いていない File でもグラフの点を知った上で振る。
+ * 承認のように File がまだ手元に無ければ、復元するものが無いので判断ログの最大値 + 1 になる
+ * (以前と同じ)。
  *
- * tap が無いときは**判断ログの最大値 + 1** で発番する。グラフ側と衝突しないのは、
- * その File のグラフ op-log が手元に 1 件も無いからである。依頼者の tap は
- * グラフの最大値から seed されているので、依頼の clock は既にグラフを追い越しており、
- * その + 1 は「依頼より後」を正しく表す。
+ * 振った点は `rememberPoint` で手元に覚える。判断ログはローカル正典に載らないので、覚えないと
+ * 再読み込みの後に File を開いた直後 (最初の受信サイクルまで) の編集が同じ点を振る (窓 1)
  */
 
-import {
-  type Actor,
-  type BatchId,
+import type {
+  Actor,
+  BatchId,
   CausalClock,
-  type FileId,
-  type JudgmentBatch,
-  type JudgmentOp,
-  type Lamport,
+  FileId,
+  JudgmentBatch,
+  JudgmentOp,
+  Lamport,
 } from '@conversensus/shared';
+import type { OwnJudgmentPoint } from './ownJudgmentPoint';
 
 export type AppendJudgmentDeps = {
   /**
-   * **その File のグラフと同じ発番器** (clock・seq・因果の知識)。ここに独立した発番器を
-   * 渡してはならない。
-   *
-   * **その File を開いていなければ `null`** — 発番器は File ごとなので、別の File の
-   * ものを渡すと別の因果の範囲で振ることになる。承認はこの場合にあたる。
+   * **その File のグラフと同じ発番器** (clock・seq・因果の知識) を、その File のローカルの op-log
+   * から復元して返す。ここに独立した発番器を渡してはならない。別の File のものも渡してはならない
+   * (別の因果の範囲で振ることになる)
    */
-  clock: CausalClock | null;
+  clockFor: (fileId: FileId) => Promise<CausalClock>;
+  /** 振った点を手元に覚える (`ownJudgmentPoint`)。省くと覚えない (テスト) */
+  rememberPoint?: (fileId: FileId, point: OwnJudgmentPoint) => void;
   /** この端末の actor (`<did>#<deviceId>`) */
   actor: Actor;
   putJudgment: (fileId: FileId, batch: JudgmentBatch) => Promise<void>;
@@ -76,12 +79,15 @@ export async function appendJudgment(
   if (ops.length === 0)
     throw new Error('appendJudgment: op が空の batch は書けない');
 
-  // 発番器があれば: グラフ側の復元は tap が済ませているので、判断ログの分を足す。
-  // 無ければ (その File を開いていない): 判断ログだけから復元した使い捨ての発番器で振る。
-  // その File のグラフ op-log は手元に 1 件も無いので、衝突する相手がいない
-  const clock = deps.clock ?? new CausalClock(deps.actor);
+  // グラフ側の復元は `clockFor` が済ませているので、判断ログの分を足す
+  const clock = await deps.clockFor(fileId);
   clock.restore(known);
   const stamp = clock.issue();
+  deps.rememberPoint?.(fileId, {
+    actor: deps.actor,
+    seq: stamp.seq,
+    clock: stamp.clock,
+  });
 
   const batch: JudgmentBatch = {
     id: deps.newBatchId(),

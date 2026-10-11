@@ -45,10 +45,13 @@ export class FileSessionPool<S extends PooledSession> {
   private factory: SessionFactory<S> | null = null;
   private sweepTimer: ReturnType<typeof setTimeout> | undefined;
 
-  private readonly newClock: () => CausalClock;
+  private readonly newClock: (fileId: FileId) => CausalClock;
 
-  /** @param newClock File の発番器を作る (actor はこの中に閉じる) */
-  constructor(newClock: () => CausalClock) {
+  /**
+   * @param newClock File の発番器を作る (actor はこの中に閉じる)。File を受け取るのは、手元に
+   *   覚えた判断の点から下限を入れるためである (`ownJudgmentPoint`, #261)
+   */
+  constructor(newClock: (fileId: FileId) => CausalClock) {
     this.newClock = newClock;
   }
 
@@ -69,7 +72,7 @@ export class FileSessionPool<S extends PooledSession> {
   causalOf(fileId: FileId): CausalClock {
     let clock = this.clocks.get(fileId);
     if (!clock) {
-      clock = this.newClock();
+      clock = this.newClock(fileId);
       this.clocks.set(fileId, clock);
     }
     return clock;

@@ -80,17 +80,25 @@ export type RemoteSyncQueueDeps = {
   did: Did;
   /** 保持上限 (直近 N 件)。既定 REMOTE_QUEUE_MAX */
   capacity?: number;
+  /**
+   * この端末から出してはならない File か (#253, `sync/localOnlyFiles.ts`)。**送る口はここ 1 つ**
+   * (push・catch-up・出し直し) なので、ここで止めれば genesis もログインした後の編集も出ない。
+   * 省くと止めない
+   */
+  isLocalOnly?: (fileId: FileId) => boolean;
 };
 
 export class RemoteSyncQueue {
   private readonly outbox: Outbox<RemoteBatch>;
   private readonly provider: RemoteBatchTarget;
   private readonly did: Did;
+  private readonly isLocalOnly: (fileId: FileId) => boolean;
   private readonly listeners = new Set<PendingListener>();
 
   constructor(deps: RemoteSyncQueueDeps) {
     this.provider = deps.provider;
     this.did = deps.did;
+    this.isLocalOnly = deps.isLocalOnly ?? (() => false);
     // 重複排除は (fileId, batch id) の組で行う (step2 Phase 3 T7-2)。
     //
     // step2 では merge の写しが branch の batch と**同じ id** を持ったので、id だけを鍵にすると
@@ -112,6 +120,8 @@ export class RemoteSyncQueue {
    * ことはない (Phase 2 設計 事実 A)。
    */
   enqueue(batches: readonly Batch[], fileId: FileId): void {
+    // この端末だけの File は何も積まない (#253)
+    if (this.isLocalOnly(fileId)) return;
     const filtered = filterBatchesForRemote(batches, this.did);
     if (filtered.length === 0) return;
     // fileId は remote レコードに埋め込む必要があるのでここで添える (§3.1)
@@ -124,8 +134,12 @@ export class RemoteSyncQueue {
    * 失敗は呼び出し側 (§3.7 の手動再送・catch-up) に FlushResult で通知される。
    */
   async flush(): Promise<FlushResult> {
+    // 積んだ後に印が付いた File (問いに「送らない」と答える前に catch-up が積んだ分) は送らない。
+    // 送ったものとして保留から外す — 後で「アカウントに保存する」とき catch-up が積み直す (#253)
     const result = await this.outbox.flush((entries) =>
-      this.provider.pushRemote(entries),
+      this.provider.pushRemote(
+        entries.filter((e) => !this.isLocalOnly(e.fileId)),
+      ),
     );
     this.notify();
     return result;
@@ -153,6 +167,8 @@ export class RemoteSyncQueue {
     localBatches: readonly Batch[],
     fileId: FileId,
   ): Promise<FlushResult> {
+    // この端末だけの File は積まないので、remote を読む必要も無い (#253)
+    if (this.isLocalOnly(fileId)) return this.flush();
     const remote = await this.provider.pullRemoteForFile(fileId);
     const remoteIds = new Set(
       remote.filter((e) => e.fileId === fileId).map((e) => e.batch.id),

@@ -1971,28 +1971,32 @@ describe('App 結合: 未ログインの編集を出し直す (FPR 前 L-1)', ()
     return { user };
   }
 
-  /** alice の PDS にある、この File の編集 (File の起源 genesis を除く) の batch の数 */
-  const remoteEditCount = () => {
+  /** alice の PDS にある、この File の batch (File の起源 genesis を含む) */
+  const remoteFileRecords = () => {
     const fileId = world.localStore().listFiles()[0]?.id as string;
     return world.pds
       .records(ALICE.did, NSID.batch)
-      .filter((r) => r.rkey.startsWith(fileId))
-      .filter((r) => (r.value as { actor: string }).actor !== 'genesis').length;
+      .filter((r) => r.rkey.startsWith(fileId));
   };
+  /** そのうち編集 (genesis を除く) の数 */
+  const remoteEditCount = () =>
+    remoteFileRecords().filter(
+      (r) => (r.value as { actor: string }).actor !== 'genesis',
+    ).length;
+  const QUESTION =
+    /ログインしていない間にこの端末で作った・編集した File があります/;
 
   test(
     '未ログインで描いたものは、ログインして送ると答えると、同じ人の別の端末に届く',
     async () => {
       const { user } = await drawSignedOutThenLogin();
-      await screen.findByText(
-        /ログインしていない間にこの端末で描いた編集が/,
-        {},
-        WIRING_TIMEOUT,
-      );
+      await screen.findByText(QUESTION, {}, WIRING_TIMEOUT);
       expect(
-        screen.getByText(new RegExp(`@${ALICE.handle} の編集として`)),
+        screen.getByText(new RegExp(`@${ALICE.handle} のアカウントに保存`)),
       ).toBeTruthy();
-      await user.click(screen.getByRole('button', { name: 'OK' }));
+      await user.click(
+        screen.getByRole('button', { name: 'アカウントに保存する' }),
+      );
       // 付け替えた batch が自分の repo に載る
       await waitFor(
         () => expect(remoteEditCount()).toBeGreaterThan(0),
@@ -2014,22 +2018,47 @@ describe('App 結合: 未ログインの編集を出し直す (FPR 前 L-1)', ()
   );
 
   test(
-    '送らないと答えたら、手元に未ログインのまま残り、編集は PDS に載らない',
+    '「この端末に残す」と答えたら、File ごと (起源の名前も) PDS に載らず、後から詳細で保存できる (#253)',
     async () => {
       const { user } = await drawSignedOutThenLogin();
-      await screen.findByText(
-        /ログインしていない間にこの端末で描いた編集が/,
-        {},
-        WIRING_TIMEOUT,
-      );
-      await user.click(screen.getByRole('button', { name: 'キャンセル' }));
+      await screen.findByText(QUESTION, {}, WIRING_TIMEOUT);
+      await user.click(screen.getByRole('button', { name: 'この端末に残す' }));
+      // ログインした後の編集も送らない
+      await editOnlyNode(user, 'ログイン後');
+      await syncNow(user);
       await new Promise((r) => setTimeout(r, SETTLE_MS));
-      // 編集は送られない。File の起源 (genesis: 名前・最初のシート) は今までどおりログインで送られる
-      // (他の端末の発見がそれに乗っている) ので、genesis 以外が無いことを見る
-      expect(remoteEditCount()).toBe(0);
+      // 以前は File の起源 (genesis: 名前・最初の Sheet) がログインで送られた (#253)
+      expect(remoteFileRecords()).toEqual([]);
       expect(world.localStore().listLocalActorBatches().length).toBeGreaterThan(
         0,
       );
+      // 印が出て、共有の口 (参加者一覧) は出ない
+      expect(
+        screen.getByRole('img', { name: /この端末だけの File/ }),
+      ).toBeTruthy();
+      expect(screen.queryByTitle(/参加者一覧/)).toBeNull();
+
+      // 後から File の詳細で「アカウントに保存する」と、起源と編集が載る
+      // 最初の「詳細」は File の行のもの (その下に Sheet の行が並ぶ)
+      const [fileDetails] = screen.getAllByRole('button', { name: '詳細' });
+      if (!fileDetails) throw new Error('File の詳細が無い');
+      await user.click(fileDetails);
+      await user.click(
+        screen.getByRole('button', { name: 'アカウントに保存する' }),
+      );
+      await waitFor(
+        () => expect(remoteEditCount()).toBeGreaterThan(0),
+        WIRING_TIMEOUT,
+      );
+      expect(
+        remoteFileRecords().some(
+          (r) => (r.value as { actor: string }).actor === 'genesis',
+        ),
+      ).toBe(true);
+      expect(world.localStore().listLocalActorBatches()).toEqual([]);
+      expect(
+        screen.queryByRole('img', { name: /この端末だけの File/ }),
+      ).toBeNull();
     },
     MERGER_TEST_MS * 2,
   );

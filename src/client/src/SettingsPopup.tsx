@@ -1,5 +1,5 @@
 import type { FileId, SheetId } from '@conversensus/shared';
-import { FileDown, Trash2 } from 'lucide-react';
+import { FileDown, Trash2, Upload } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { color, font, radius, shadow, space } from './theme';
 import { Button } from './ui/Button';
@@ -18,6 +18,8 @@ type Props = {
   onClose: () => void;
   deleteLabel: string;
   onExport?: () => void;
+  /** この端末だけの File をアカウントに保存する (#253)。渡したときだけ出す */
+  onSaveToAccount?: () => void;
 };
 
 export function SettingsPopup({
@@ -28,6 +30,7 @@ export function SettingsPopup({
   onClose,
   deleteLabel,
   onExport,
+  onSaveToAccount,
 }: Props) {
   const [draftName, setDraftName] = useState(name);
   const [draftDesc, setDraftDesc] = useState(description);
@@ -162,6 +165,12 @@ export function SettingsPopup({
           }}
         />
       </div>
+      {onSaveToAccount && (
+        // この端末だけの File を後から送る口 (#253)。ログインのときに「この端末に残す」と答えた File
+        <Button icon={Upload} onClick={onSaveToAccount}>
+          アカウントに保存する
+        </Button>
+      )}
       {onExport && (
         <Button icon={FileDown} onClick={onExport}>
           エクスポート (.conversensus)

@@ -178,3 +178,18 @@ describe('FileSessionPool: 例', () => {
     pool.dispose();
   });
 });
+
+describe('FileSessionPool: 発番器の作り方 (#261)', () => {
+  test('発番器を作るときに File を渡す (手元に覚えた判断の点から下限を入れるため)', () => {
+    const asked: FileId[] = [];
+    const pool = new FileSessionPool<FakeSession>((fileId) => {
+      asked.push(fileId);
+      return new CausalClock(ACTOR);
+    });
+    pool.causalOf(FILE_A);
+    pool.causalOf(FILE_A);
+    pool.causalOf(FILE_B);
+    // File ごとに 1 度だけ作る
+    expect(asked).toEqual([FILE_A, FILE_B]);
+  });
+});

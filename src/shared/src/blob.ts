@@ -34,7 +34,7 @@ const BASE32_MASK = 0b11111;
 /** CID の文字数: multibase 1 文字 + ceil((4 + 32) * 8 / 5) 文字 */
 export const BLOB_CID_LENGTH = 59;
 
-function base32lower(bytes: Uint8Array): string {
+export function base32lower(bytes: Uint8Array): string {
   let bits = 0;
   let value = 0;
   let out = '';
@@ -82,4 +82,76 @@ const BLOB_CID_PATTERN = new RegExp(
  */
 export function isBlobCid(value: string): boolean {
   return BLOB_CID_PATTERN.test(value);
+}
+
+/**
+ * 壊れて保存された blob の参照を直す (#264)。
+ *
+ * step3 Phase 2 から v1.0.0 の直前まで、他の人が貼った画像の参照は受け手の保存で壊れていた。
+ * `@atproto/api` が読んだ blob を `BlobRef` のインスタンス (`ref` は CID のオブジェクト) に変え、
+ * それが Worker へ structured clone で渡り、JSON として保存されたためである (PR #244 で止めた)。
+ * 保存された形は `{ ref: { code, version, multihash, bytes }, mimeType, size, original }` で、
+ * `bytes` は数字の鍵を持つ object になっている。
+ *
+ * **CID のバイト列はそのまま残っている**ので、受け直さなくても手元で元の形
+ * (`{ $type: 'blob', ref: { $link }, mimeType, size }`) に戻せる。CID の文字列は multibase の
+ * 'b' + base32 (小文字) である。
+ *
+ * 値を辿り、壊れた参照だけを置き換えた値を返す。直すものが無ければ**同じ値をそのまま返す**
+ * (呼び出し側は `===` で書き直しの要否を判定できる)
+ */
+export function repairBrokenBlobRefs(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    let changed = false;
+    const out = value.map((v) => {
+      const r = repairBrokenBlobRefs(v);
+      if (r !== v) changed = true;
+      return r;
+    });
+    return changed ? out : value;
+  }
+  if (typeof value !== 'object' || value === null) return value;
+  const repaired = repairOne(value as Record<string, unknown>);
+  if (repaired) return repaired;
+  let changed = false;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value)) {
+    const r = repairBrokenBlobRefs(v);
+    if (r !== v) changed = true;
+    out[k] = r;
+  }
+  return changed ? out : value;
+}
+
+/** 数字の鍵を持つ object (JSON に書かれた Uint8Array) をバイト列に戻す */
+function bytesOf(value: unknown): Uint8Array | null {
+  if (value instanceof Uint8Array) return value;
+  if (typeof value !== 'object' || value === null) return null;
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (entries.length === 0) return null;
+  const bytes = new Uint8Array(entries.length);
+  for (const [k, v] of entries) {
+    const i = Number(k);
+    if (!Number.isInteger(i) || i < 0 || i >= entries.length) return null;
+    if (typeof v !== 'number' || v < 0 || v > 255) return null;
+    bytes[i] = v;
+  }
+  return bytes;
+}
+
+/** 壊れた参照 1 つを直す。壊れた参照でなければ null */
+function repairOne(v: Record<string, unknown>): Record<string, unknown> | null {
+  if (v.$type === 'blob' || typeof v.mimeType !== 'string') return null;
+  const ref = v.ref;
+  if (typeof ref !== 'object' || ref === null) return null;
+  const cid = ref as Record<string, unknown>;
+  if (cid.version !== 1 || typeof cid.multihash !== 'object') return null;
+  const bytes = bytesOf(cid.bytes);
+  if (!bytes) return null;
+  return {
+    $type: 'blob',
+    ref: { $link: `${MULTIBASE_BASE32}${base32lower(bytes)}` },
+    mimeType: v.mimeType,
+    ...(typeof v.size === 'number' && { size: v.size }),
+  };
 }

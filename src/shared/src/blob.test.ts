@@ -1,9 +1,11 @@
 import { describe, expect, test } from 'bun:test';
+import fc from 'fast-check';
 import {
   BLOB_CID_LENGTH,
   computeBlobCid,
   isBlobCid,
   MAX_BLOB_SIZE,
+  repairBrokenBlobRefs,
 } from './blob';
 
 // 実機 PDS (infra/pds) の uploadBlob が実際に返した値。
@@ -89,5 +91,98 @@ describe('isBlobCid', () => {
 describe('MAX_BLOB_SIZE', () => {
   test('PDS の実測値 5 MiB と一致する', () => {
     expect(MAX_BLOB_SIZE).toBe(5_242_880);
+  });
+});
+
+/** CIDv1 / raw / sha-256 のバイト列 (computeBlobCid と同じ組み立て) */
+async function cidBytesOf(data: Uint8Array): Promise<Uint8Array> {
+  const digest = new Uint8Array(
+    await crypto.subtle.digest('SHA-256', data as unknown as ArrayBuffer),
+  );
+  return new Uint8Array([0x01, 0x55, 0x12, 0x20, ...digest]);
+}
+
+/** JSON に書かれた Uint8Array の形 (数字の鍵を持つ object) */
+const asStoredBytes = (bytes: Uint8Array) =>
+  Object.fromEntries([...bytes].map((b, i) => [String(i), b]));
+
+/**
+ * 壊れて保存された参照 (#264): BlobRef のインスタンスを structured clone して JSON にしたもの。
+ * 実物の形は client の `blobRefRepair.test.ts` が @atproto/api から作って確かめている
+ */
+function brokenRef(cidBytes: Uint8Array, mimeType = 'image/png', size = 3) {
+  const ref = {
+    code: 0x55,
+    version: 1,
+    multihash: {
+      code: 0x12,
+      size: 32,
+      digest: asStoredBytes(cidBytes.slice(4)),
+      bytes: asStoredBytes(cidBytes.slice(2)),
+    },
+    bytes: asStoredBytes(cidBytes),
+  };
+  return {
+    ref,
+    mimeType,
+    size,
+    original: { $type: 'blob', ref, mimeType, size },
+  };
+}
+
+describe('repairBrokenBlobRefs (#264)', () => {
+  test('壊れた参照を、保存されている CID のバイト列から元の形に戻す', async () => {
+    const data = new Uint8Array([1, 2, 3]);
+    const repaired = repairBrokenBlobRefs({
+      image: brokenRef(await cidBytesOf(data)),
+    });
+    expect(repaired).toEqual({
+      image: {
+        $type: 'blob',
+        ref: { $link: await computeBlobCid(data) },
+        mimeType: 'image/png',
+        size: 3,
+      },
+    });
+  });
+
+  test('op の配列の奥にあっても直し、ほかの値は変えない', async () => {
+    const cid = await cidBytesOf(new Uint8Array([9]));
+    const ops = [
+      { kind: 'node.add', target: 'n1', content: 'x' },
+      {
+        kind: 'node.setProperty',
+        target: 'n2',
+        name: 'image',
+        value: brokenRef(cid),
+      },
+    ];
+    const repaired = repairBrokenBlobRefs(ops) as typeof ops;
+    expect(repaired[0]).toBe(ops[0]);
+    const second = repaired[1] as unknown as { value: { $type: string } };
+    expect(second.value.$type).toBe('blob');
+  });
+
+  test('∀ 壊れていない値. 何もせず同じ値を返す (書き直しの要否を === で判定できる)', () => {
+    const healthy = {
+      $type: 'blob',
+      ref: { $link: 'bafkreiabc' },
+      mimeType: 'image/png',
+      size: 1,
+    };
+    fc.assert(
+      fc.property(fc.jsonValue(), (v) => {
+        const value = { v, healthy };
+        return repairBrokenBlobRefs(value) === value;
+      }),
+    );
+  });
+
+  test('バイト列が読めない形なら直さない (別のものを壊さない)', () => {
+    const odd = {
+      ref: { version: 1, multihash: {}, bytes: { a: 1 } },
+      mimeType: 'image/png',
+    };
+    expect(repairBrokenBlobRefs(odd)).toBe(odd);
   });
 });

@@ -4,6 +4,7 @@ import {
   type BlobCid,
   CausalClock,
   type ConversensusFile,
+  composeActor,
   type Did,
   type FileId,
   type ForkMeta,
@@ -48,7 +49,15 @@ import { discoverRemoteFiles } from '../sync/discoverRemoteFiles';
 import { deleteFileByTombstone } from '../sync/fileDeletion';
 import { FileSession, providerFor } from '../sync/fileSession';
 import { FileSessionPool, type SessionFactory } from '../sync/fileSessionPool';
+import {
+  declineLocalOnly,
+  isLocalOnlyFile,
+  markLocalOnly,
+  readLocalOnlyFiles,
+  releaseLocalOnly,
+} from '../sync/localOnlyFiles';
 import type { DetectedOverwrites } from '../sync/overwrites';
+import { recallOwnJudgmentPoint } from '../sync/ownJudgmentPoint';
 import { collectParticipantBatches } from '../sync/receiveParticipantBatches';
 import { reprojectAfterReceive } from '../sync/reprojectAfterReceive';
 import type { RosterSource } from '../sync/rosterSource';
@@ -66,6 +75,8 @@ export type ConfirmState = {
   resolve: (ok: boolean) => void;
   /** 主のボタンの言葉。動詞で、何が起きるかを書く (visual language §6.2)。省くと「OK」 */
   confirmLabel?: string;
+  /** 「キャンセル」の側の言葉。キャンセルにも働きがあるとき (この端末に残す, #253) */
+  cancelLabel?: string;
   /** 取り消せない破壊的な操作 */
   danger?: boolean;
 };
@@ -454,8 +465,28 @@ export function useFileSheetOperations({
    * 変わるので置き場ごと作り直す
    */
   const sessionPool = useMemo(
-    () => new FileSessionPool<FileSession>(() => new CausalClock(actor)),
+    () =>
+      new FileSessionPool<FileSession>((fileId) => {
+        const clock = new CausalClock(actor);
+        // この端末が前に書いた判断の点を下限にする (#261 の窓 1)。判断ログはローカル正典に
+        // 載らないので、入れないと開いてから最初の受信サイクルまでの編集が同じ点を振る
+        const own = recallOwnJudgmentPoint(fileId, actor);
+        if (own) clock.restore([{ ...own, deps: {} }]);
+        return clock;
+      }),
     [actor],
+  );
+  /**
+   * 判断を書く File の発番器 (#261 の窓 2)。**開いていなくても**置き場の発番器を借り、その File の
+   * ローカルの op-log から復元してから返す。`restore` は何度呼んでもよい (各値の最大を取るだけ)
+   */
+  const judgmentClockFor = useCallback(
+    async (fileId: FileId) => {
+      const clock = sessionPool.causalOf(fileId);
+      clock.restore(await deps.fetchBatches(fileId));
+      return clock;
+    },
+    [sessionPool, deps],
   );
   useEffect(() => () => sessionPool.dispose(), [sessionPool]);
   const sessionFactory = useMemo<SessionFactory<FileSession>>(
@@ -603,10 +634,24 @@ export function useFileSheetOperations({
     });
   }, []);
 
+  /**
+   * 未ログインで作った File に「この端末だけ」の印を付ける (#253)。ログインした直後は、問いに
+   * 答えるより先に開いている File の catch-up が走るので、作ったときに付けておく
+   */
+  const markIfSignedOut = useCallback(
+    (fileId: FileId) => {
+      if (didFromActor(actor) === LOCAL_DID)
+        markLocalOnly(fileId, { state: 'pending' });
+    },
+    [actor],
+  );
+
   const handleCreate = useCallback(async () => {
     try {
       const name = newFileName.trim() || '無題';
       const created = await deps.createFile(name);
+      // 未ログインで作った File は、ログインして「送る」と答えるまでこの端末から出さない (#253)
+      markIfSignedOut(created.id as FileId);
       setFiles((fs) => [
         ...fs,
         {
@@ -643,7 +688,7 @@ export function useFileSheetOperations({
     } catch (err) {
       console.error('Failed to create file:', err);
     }
-  }, [newFileName, deps, loadFile, actor]);
+  }, [newFileName, deps, loadFile, actor, markIfSignedOut]);
 
   /**
    * 画面 state を進める (Phase 6 p6-3, 設計 §3.6)。**永続化はしない**。
@@ -708,6 +753,41 @@ export function useFileSheetOperations({
       await providerFor(fileId, remoteQueue).push(batches);
     },
     [remoteQueue],
+  );
+
+  /**
+   * この端末だけの File をアカウントに保存する (#253)。ログインのときに「この端末に残す」と答えた
+   * File を、後から送る口である。
+   *
+   * 1. 未ログインの batch が残っていれば、自分の新しい actor へ付け替える (出し直しと同じ。付け替えは
+   *    保存全体に効くが、ほかのこの端末だけの File は印があるので送られない)
+   * 2. 印を外す (branch ごと)
+   * 3. File と branch ごとに catch-up で送る。名簿の起点は名簿を開いたとき `ensureOwnGenesis` が置く
+   */
+  const handleSaveToAccount = useCallback(
+    async (fileId: FileId) => {
+      if (!remoteQueue) return;
+      const did = didFromActor(actor);
+      const rows = (await deps.listLocalActorBatches?.()) ?? [];
+      for (const from of new Set(rows.map((row) => row.actor))) {
+        await deps.renameActor?.(
+          from,
+          composeActor(did as Did, crypto.randomUUID()),
+        );
+      }
+      const targets = new Set<FileId>([fileId, ...releaseLocalOnly(fileId)]);
+      for (const id of targets) {
+        await remoteQueue
+          .catchUp(await deps.fetchBatches(id), id)
+          .catch((error: unknown) =>
+            console.warn(
+              '[local-only] 保存に失敗した (次の同期で送り直す):',
+              error,
+            ),
+          );
+      }
+    },
+    [remoteQueue, actor, deps],
   );
 
   const handleDeleteFile = useCallback(
@@ -817,6 +897,7 @@ export function useFileSheetOperations({
     async (data: ConversensusFile) => {
       try {
         const file = await deps.importFile(data);
+        markIfSignedOut(file.id as FileId);
         setFiles((fs) => [
           ...fs,
           { id: file.id, name: file.name, description: file.description },
@@ -835,7 +916,7 @@ export function useFileSheetOperations({
         });
       }
     },
-    [deps, setAlertState],
+    [deps, setAlertState, markIfSignedOut],
   );
 
   // 未オープンのファイルの書き出し元も op-log の projection にする (Phase 6 p6-3)。
@@ -1000,7 +1081,12 @@ export function useFileSheetOperations({
     // 失敗しても marker が立たず次の契機で再試行される。
     const bootstrap = () =>
       bootstrapParticipation({
-        listLocalFileIds: deps.fetchLocalFileIds,
+        // この端末だけの File には名簿の起点も書かない (#253)。後で「アカウントに保存する」と、
+        // 名簿を開いたときに `ensureOwnGenesis` が置く
+        listLocalFileIds: async () =>
+          (await deps.fetchLocalFileIds()).filter(
+            (id) => !isLocalOnlyFile(id as FileId),
+          ),
         fetchBatches: deps.fetchBatches,
         listJudgmentFileIds: () => listJudgmentFileIds(),
         putJudgment,
@@ -1052,12 +1138,17 @@ export function useFileSheetOperations({
                 lastEditedAt,
               ),
               resolve,
+              confirmLabel: ADOPT_CONFIRM_LABEL,
+              cancelLabel: ADOPT_CANCEL_LABEL,
             }),
           );
         },
         catchUp: async (fileId) => {
           await remoteQueue.catchUp(await deps.fetchBatches(fileId), fileId);
         },
+        localOnly: () => readLocalOnlyFiles(),
+        release: (fileId) => releaseLocalOnly(fileId),
+        decline: (fileIds) => declineLocalOnly(fileIds),
       });
       if (result.status === 'adopted') {
         adoptionAskedRef.current = null;
@@ -1140,6 +1231,8 @@ export function useFileSheetOperations({
      * (File を開いていなければ null)
      */
     trunkCausal,
+    judgmentClockFor,
+    handleSaveToAccount,
     /**
      * trunk に record した event が op-log に落ち切るのを待つ (step3 Phase 4)。op-log を読み直して
      * 切断面を作る前 (template graph を当てるときなど) に待つ — 直前の編集が切断面から漏れないように
@@ -1164,6 +1257,11 @@ function formatDateTime(at: number): string {
   );
 }
 
+/** ログインのときの問いの主のボタン (#253) */
+export const ADOPT_CONFIRM_LABEL = 'アカウントに保存する';
+/** 同じく「キャンセル」の側。File ごとこの端末に残す */
+export const ADOPT_CANCEL_LABEL = 'この端末に残す';
+
 export function localAdoptionMessage(
   batches: number,
   fileNames: readonly string[],
@@ -1177,12 +1275,12 @@ export function localAdoptionMessage(
     lastEditedAt === undefined
       ? ''
       : `\n(最後の編集: ${formatDateTime(lastEditedAt)})`;
-  const who = accountLabel
-    ? `@${accountLabel} の編集として`
-    : 'あなたの編集として';
+  const who = accountLabel ? `@${accountLabel} の` : 'あなたの';
+  const edits = batches > 0 ? `(編集 ${batches} 件) ` : '';
   return (
-    `ログインしていない間にこの端末で描いた編集が ${batches} 件あります。${files}${last}\n` +
-    `${who}送って、他の端末や共有相手に届くようにしますか?\n` +
-    '送らない場合は、この端末にだけ残ります (次にログインしたときにまた訊きます)。'
+    `ログインしていない間にこの端末で作った・編集した File があります ${edits}${files}${last}\n` +
+    `${who}アカウントに保存して、他の端末や共有相手に届くようにしますか?\n` +
+    // 「送らない」の範囲を言う (#253): 名前も含めて何も送らない。後から保存する口も言う
+    '残す場合は、File ごと (名前も) この端末にだけ残ります。あとで File の詳細の「アカウントに保存する」から保存できます。'
   );
 }

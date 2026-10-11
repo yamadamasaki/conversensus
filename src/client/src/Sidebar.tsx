@@ -25,6 +25,7 @@ import {
   FolderPlus,
   GitBranch,
   GitMerge,
+  HardDrive,
   type LucideIcon,
   Network,
   Pencil,
@@ -44,6 +45,7 @@ import {
   folderPaths,
   isEmptyFolder,
 } from './folders/folderTree';
+import { useLocalOnlyFiles } from './hooks/useLocalOnlyFiles';
 import { LocalOnlyBanner } from './LocalOnlyBanner';
 import type { PopupTarget } from './SettingsPopup';
 import { SettingsPopup } from './SettingsPopup';
@@ -54,6 +56,9 @@ import { color, font, radius } from './theme';
 import { Button, ICON_SIZE_SM, IconButton } from './ui/Button';
 
 /** 特殊なグラフのシートの印 (step3 Phase 4)。名前の後ろに出す */
+/** この端末だけの File の印の名前 (#253) */
+const LOCAL_ONLY_LABEL = 'この端末だけの File (アカウントに保存していない)';
+
 const SHEET_KIND_MARK: Record<SheetKind, { icon: LucideIcon; title: string }> =
   {
     [TEMPLATE_SHEET_KIND]: { icon: Shapes, title: 'template graph' },
@@ -130,6 +135,11 @@ type Props = {
   onSaveFileSettings: (fileId: string, name: string, desc: string) => void;
   onDeleteFile: (id: string) => void;
   onExportFile: (fileId: string) => void;
+  /**
+   * この端末だけの File をアカウントに保存する (#253)。ログインしていなければ渡さない
+   * (送り先が無い)
+   */
+  onSaveToAccount?: (fileId: FileId) => void;
   onSaveSheetSettings: (sheetId: string, name: string, desc: string) => void;
   onDeleteSheet: (sheetId: string) => void;
   onSelectBranch: (
@@ -202,6 +212,7 @@ export function Sidebar({
   onSaveFileSettings,
   onDeleteFile,
   onExportFile,
+  onSaveToAccount,
   onSaveSheetSettings,
   onDeleteSheet,
   onSelectBranch,
@@ -233,6 +244,7 @@ export function Sidebar({
     resolve: () => void;
   } | null>(null);
 
+  const localOnlyFiles = useLocalOnlyFiles();
   const showAlert = (message: string) =>
     new Promise<void>((resolve) => setAlertState({ message, resolve }));
 
@@ -255,6 +267,8 @@ export function Sidebar({
     const fileDesc = fileData?.description ?? f.description;
     const isFilePopupOpen =
       popupTarget?.type === 'file' && popupTarget.id === f.id;
+    // この端末だけの File (#253)。何も送らないので、共有の口も出さない
+    const localOnly = localOnlyFiles.has(f.id as FileId);
 
     return (
       <li key={f.id}>
@@ -319,6 +333,21 @@ export function Sidebar({
             {f.name}
           </button>
 
+          {localOnly && (
+            <span
+              role="img"
+              aria-label={LOCAL_ONLY_LABEL}
+              title={LOCAL_ONLY_LABEL}
+              style={{
+                display: 'inline-flex',
+                color: color.textMuted,
+                flexShrink: 0,
+              }}
+            >
+              <HardDrive size={ICON_SIZE_SM} aria-hidden />
+            </span>
+          )}
+
           {/* 参加者一覧 (step2 Phase 1)。ログイン中のファイル行にだけ出す。
                     共有中なら人数を添える — 「誰かと共有している」ことが
                     ダイアログを開かずに分かるようにする。
@@ -330,7 +359,7 @@ export function Sidebar({
                     **幅を食って File 名が読めなくなった** ので絵に畳んだ。
                     押したときの働きは変わらない (名簿を見せる)。
                     **開いている File の分しか分からない** (同期するのはそれだけ) */}
-          {onOpenInvitation && (
+          {onOpenInvitation && !localOnly && (
             <button
               type="button"
               title={shareTitle(fileShare)}
@@ -396,6 +425,15 @@ export function Sidebar({
               onClose={() => onSetPopupTarget(null)}
               deleteLabel="File を削除"
               onExport={() => onExportFile(f.id)}
+              // この端末だけの File を後から送る口 (#253)。ログインしているときだけ
+              onSaveToAccount={
+                localOnly && onSaveToAccount
+                  ? () => {
+                      onSetPopupTarget(null);
+                      onSaveToAccount(f.id as FileId);
+                    }
+                  : undefined
+              }
             />
           )}
         </div>

@@ -36,6 +36,16 @@ async function open() {
   const store = new LocalStore(
     new EventStore(new WasmSqliteDriver(new sqlite3.oo1.OpfsDb(DB_PATH))),
   );
+  // 壊れて保存された画像の参照を直す (#264)。v1.0.0 の直前まで、他の人が貼った画像の参照が
+  // 受け手の保存で壊れていた。直すものが無ければ何もしないので、開くたびに呼んでよい。
+  // 失敗しても開くことは止めない (画像が「画像 URL を入力」のままになるだけ)
+  try {
+    const repaired = store.repairBlobRefs();
+    if (repaired > 0)
+      console.info(`[local] 壊れていた画像の参照を ${repaired} 件直した`);
+  } catch (error) {
+    console.warn('[local] 画像の参照を直せなかった:', error);
+  }
   return { sqlite3, backend: storeBackend(store) };
 }
 
