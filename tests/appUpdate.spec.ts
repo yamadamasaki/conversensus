@@ -1,6 +1,7 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
 import { collectPageProblems } from './pageProblems';
+import { E2E_PREVIEW_URL } from './ports';
 
 /**
  * 新しい版の知らせ (#262)
@@ -10,13 +11,12 @@ import { collectPageProblems } from './pageProblems';
  * 差し替えて作る。
  */
 
-const PREVIEW_URL = 'http://127.0.0.1:5175/';
 const SETTLE_TIMEOUT_MS = 15_000;
 const NOTICE_NAME = '新しい版の知らせ';
 const NEWER_BUILD = '99.0.0+e2e.newer';
 
 async function openApp(page: Page) {
-  await page.goto(PREVIEW_URL);
+  await page.goto(E2E_PREVIEW_URL);
   await page
     .getByPlaceholder('新しい File の名前')
     .waitFor({ timeout: SETTLE_TIMEOUT_MS });

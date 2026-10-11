@@ -9,7 +9,7 @@
 ## なぜ
 
 版の印は build でだけ出し、service worker も本番ビルドでだけ登録するので、開発サーバで走る他の E2E は
-どちらも通らない。ここは本番ビルド (`vite preview`, :5175) で開く。
+どちらも通らない。ここは本番ビルド (`vite preview`, :5185 — `tests/ports.ts`) で開く。
 
 service worker は同じ origin の GET を**キャッシュを先に**返す。`version.json` までそうすると、
 最初に取った印を返し続け、**新しい版に永遠に気付けない**。これは単体では見えない (service worker は

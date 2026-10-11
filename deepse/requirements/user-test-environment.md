@@ -540,7 +540,7 @@ bun run test:e2e:webkit   # webkit だけ
 ```
 
 - **サーバの起動は要らない**. Playwright が**専用ポートで自前のクライアントを起動する**
-  (開発サーバ `:5174`, 本番ビルドの配信 `:5175`). §1 で立てた `:5173` は触らない
+  (開発サーバ `:5184`, 本番ビルドの配信 `:5185`, `tests/ports.ts`). 手で立てる `:5173`〜`:5176` (alice, bob, 手元の本番ビルド) とは重ならないので, それらを立てたまま走らせてよい
 - **利用者のデータは汚れない**. E2E はテストごとに新しいブラウザのプロファイルで開く
   (`tests/fixtures.ts`). 保存領域もそのプロファイルの中にある
 - テストは `tests/*.spec.ts`, 仕様書は同じ場所に `tests/*.spec.md` を置く.
@@ -578,7 +578,7 @@ a の起動:
 
 ```shell
 bun run --cwd src/client build
-bun run --cwd src/client preview --port 5175 --strictPort   # E2E の offline.spec.ts と同じ配信
+bun run --cwd src/client preview --port 5175 --strictPort   # E2E の offline.spec.ts と同じ配信 (ポートは別。E2E は :5185)
 ```
 
 b は **いまの main を本番に出してから**使う (§11). 本番の Caddy は COOP/COEP を付けている
