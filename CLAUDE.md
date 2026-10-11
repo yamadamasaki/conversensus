@@ -31,6 +31,9 @@ bun run setup   # pre-commit hook をインストール (lint + typecheck が co
   - 単体: client は `src/client/tsconfig.test.json` (本番ビルド用の `tsconfig.app.json` と分ける),
     server と shared は本体用の設定にテストを含める (どちらも tsc でビルドしないため)
   - E2E: `tsconfig.e2e.json`
+  - PDS を調べるスクリプト (`scripts/*.ts`): `src/client/tsconfig.scripts.json`。lint も
+    `scripts/` を見る。どれの対象でもなかった間に, op-log v2 で 2 本とも壊れていた (#254)。
+    読み解きの中身は src に置いてテストする (`atproto/remoteBatchChecks.ts`)
 
 ### 全称命題は性質として書く (property-based testing)
 
