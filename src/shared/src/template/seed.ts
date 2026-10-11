@@ -8,7 +8,8 @@
  * - edge の種類 → 端の種類の node どうしを繋ぐ edge (label = 種類名、property = 既定値)。端が複数なら
  *   組ごとに 1 本。端が「任意」なら、label の無い node (「任意の node」) を 1 つ置いてそこへ繋ぐ
  *
- * 置き場所は格子にする (種類の並びの順)。利用者が後で動かす
+ * 置き場所は格子にする (種類の並びの順)。利用者が後で動かす。種が並べ方を持つ (`KindPlacement`)
+ * ときはそれに従う — 格子では edge が node を横切り、label が重なることがある (#256)
  */
 
 import type {
@@ -35,15 +36,24 @@ const GRID_COLUMNS = 3;
 /** 「任意の node」の本文 (label を持たないので種類にはならない。使い方の説明を兼ねる) */
 const ANY_NODE_CONTENT = '(この template に無い、任意の種類の node)';
 
+/**
+ * 種類ごとの置き場所 (node の左上)。種が自分の並べ方を持つときに渡す (#256)。
+ * 無い種類は格子に置く
+ */
+export type KindPlacement = Readonly<Record<string, { x: number; y: number }>>;
+
 export function templateGraphOf(
   template: Template,
   newId: () => string,
+  placement: KindPlacement = {},
 ): TemplateGraphContent {
+  const kindOfNode = new Map<string, string>();
   const nodes: GraphNode[] = [];
   const idOfKind = new Map<string, NodeId>();
   for (const kind of template.nodeKinds) {
     const id = newId() as NodeId;
     idOfKind.set(kind.id, id);
+    kindOfNode.set(id, kind.id);
     nodes.push({
       id,
       content: kind.description ?? '',
@@ -82,11 +92,14 @@ export function templateGraphOf(
     }
   }
 
-  const layouts: NodeLayout[] = nodes.map((n, i) => ({
-    nodeId: n.id,
-    x: (i % GRID_COLUMNS) * GRID_X,
-    y: Math.floor(i / GRID_COLUMNS) * GRID_Y,
-  }));
+  const layouts: NodeLayout[] = nodes.map((n, i) => {
+    const placed = placement[kindOfNode.get(n.id) ?? ''];
+    return {
+      nodeId: n.id,
+      x: placed?.x ?? (i % GRID_COLUMNS) * GRID_X,
+      y: placed?.y ?? Math.floor(i / GRID_COLUMNS) * GRID_Y,
+    };
+  });
   const edgeLayouts: EdgeLayout[] = edges.map((e) => ({ edgeId: e.id }));
   return { nodes, edges, layouts, edgeLayouts };
 }

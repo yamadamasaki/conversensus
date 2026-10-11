@@ -13,6 +13,10 @@ mock.module('@xyflow/react', () => ({
   getSmoothStepPath: () => ['M0,0 L100,100', 50, 50],
   getStraightPath: () => ['M0,0 L100,100', 50, 50],
   useReactFlow: () => ({ setEdges: mockSetEdges }),
+  // 測られた node が無い = 向かい合う辺の計算 (#256) を通らず、渡された端をそのまま使う
+  useInternalNode: () => undefined,
+  // mock.module はプロセス全体に効くので、ほかのテスト (facingSides) が使う値も本物と同じにする
+  Position: { Left: 'left', Top: 'top', Right: 'right', Bottom: 'bottom' },
 }));
 
 const mockDispatch = mock((_event: unknown) => {});

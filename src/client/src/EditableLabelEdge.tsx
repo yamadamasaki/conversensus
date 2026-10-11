@@ -10,11 +10,14 @@ import {
   getBezierPath,
   getSmoothStepPath,
   getStraightPath,
+  type InternalNode,
+  useInternalNode,
   useReactFlow,
 } from '@xyflow/react';
 import { useCallback, useRef } from 'react';
 import { useEventDispatch } from './EventDispatchContext';
 import { makeEventBase } from './events/GraphEvent';
+import { facingAnchors, type Rect } from './graph/facingSides';
 import { DEFAULT_EDGE_PATH_TYPE } from './graphTransform';
 import { useInlineEdit } from './hooks/useInlineEdit';
 import { color, font, radius } from './theme';
@@ -44,14 +47,27 @@ function getEdgePath(
 
 const DRAG_THRESHOLD_PX = 3;
 
+/** 描かれた node の矩形。まだ測られていなければ null */
+function rectOf(node: InternalNode | undefined): Rect | null {
+  const width = node?.measured.width;
+  const height = node?.measured.height;
+  if (!node || !width || !height) return null;
+  const { x, y } = node.internals.positionAbsolute;
+  return { x, y, width, height };
+}
+
 export function EditableLabelEdge({
   id,
-  sourceX,
-  sourceY,
-  targetX,
-  targetY,
-  sourcePosition,
-  targetPosition,
+  source,
+  target,
+  sourceHandleId,
+  targetHandleId,
+  sourceX: givenSourceX,
+  sourceY: givenSourceY,
+  targetX: givenTargetX,
+  targetY: givenTargetY,
+  sourcePosition: givenSourcePosition,
+  targetPosition: givenTargetPosition,
   label,
   markerEnd,
   style,
@@ -59,6 +75,21 @@ export function EditableLabelEdge({
 }: EdgeProps) {
   const { setEdges } = useReactFlow();
   const { dispatch, setDragging } = useEventDispatch();
+
+  // 端の接続点を持たない edge は、向かい合う辺を端にする (#256)。持たないと React Flow が
+  // 両端に上辺を使い、横に並んだ node の edge が上を回って label が重なる
+  const sourceRect = rectOf(useInternalNode(source));
+  const targetRect = rectOf(useInternalNode(target));
+  const floating =
+    sourceHandleId == null && targetHandleId == null && sourceRect && targetRect
+      ? facingAnchors(sourceRect, targetRect)
+      : null;
+  const sourceX = floating?.source.x ?? givenSourceX;
+  const sourceY = floating?.source.y ?? givenSourceY;
+  const sourcePosition = floating?.source.position ?? givenSourcePosition;
+  const targetX = floating?.target.x ?? givenTargetX;
+  const targetY = floating?.target.y ?? givenTargetY;
+  const targetPosition = floating?.target.position ?? givenTargetPosition;
 
   const pathType =
     (data?.pathType as EdgePathType | undefined) ?? DEFAULT_EDGE_PATH_TYPE;

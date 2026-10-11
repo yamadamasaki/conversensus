@@ -1,3 +1,4 @@
+import type { KindPlacement } from './seed';
 import { type Template, TemplateSchema } from './types';
 
 /**
@@ -52,3 +53,26 @@ export const TOULMIN_TEMPLATE: Template = TemplateSchema.parse({
     },
   ],
 });
+
+/**
+ * Toulmin model の並べ方 (#256)。node の左上の座標で、node の既定の大きさは 160 × 80。
+ *
+ * ```
+ * データ ──支える──▶ 主張
+ *            ↗正当化する ↖切り崩す
+ *        論拠 ◀─疑問を呈する─ 反論
+ *         ↑強化する
+ *        裏付け
+ * ```
+ *
+ * Toulmin の図の慣例 (データ → 主張を横に、論拠をその下に) に沿い、**edge の label どうしが
+ * 120px 以上離れ、どの edge も node を横切らない**ように置く。種類を 3 列の格子に並べると、
+ * 上の段で「正当化する」がデータの node を横切り、label が重なった
+ */
+export const TOULMIN_PLACEMENT: KindPlacement = {
+  data: { x: 0, y: 0 },
+  claim: { x: 480, y: 0 },
+  warrant: { x: 240, y: 200 },
+  rebuttal: { x: 720, y: 200 },
+  backing: { x: 240, y: 400 },
+};

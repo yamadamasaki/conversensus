@@ -18,6 +18,7 @@ import {
   type PropertyName,
   placeDerivedNodes,
   refreshDerivedNodes,
+  SEED_PLACEMENTS,
   SHEET_KIND_PROPERTY,
   type Sheet,
   type SheetId,
@@ -503,7 +504,7 @@ export default function App() {
       addSheet({
         name: seed.name,
         properties: { [SHEET_KIND_PROPERTY]: TEMPLATE_SHEET_KIND },
-        content: templateGraphOf(seed, generateId),
+        content: templateGraphOf(seed, generateId, SEED_PLACEMENTS[seed.id]),
       }),
     [addSheet],
   );

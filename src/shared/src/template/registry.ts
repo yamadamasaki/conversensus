@@ -1,4 +1,5 @@
-import { TOULMIN_TEMPLATE } from './toulmin';
+import type { KindPlacement } from './seed';
+import { TOULMIN_PLACEMENT, TOULMIN_TEMPLATE } from './toulmin';
 import type { Template } from './types';
 
 /**
@@ -11,3 +12,8 @@ import type { Template } from './types';
  * 複製された File の中の template graph とその切断面だけである (`resolveTemplates`)
  */
 export const SEED_TEMPLATES: readonly Template[] = [TOULMIN_TEMPLATE];
+
+/** 種ごとの並べ方 (#256)。無い種は格子に並べる (`templateGraphOf`) */
+export const SEED_PLACEMENTS: Readonly<Record<string, KindPlacement>> = {
+  [TOULMIN_TEMPLATE.id]: TOULMIN_PLACEMENT,
+};
