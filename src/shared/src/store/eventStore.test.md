@@ -76,6 +76,9 @@ Phase 3 の永続モデルは「append-only な操作ログ + projection」。�
   - file 構造 op (`file.setName` / `file.setDescription` / `sheet.create`) を `projectFile` で
     畳んで `{id, name, description, sheets}` を得る (fold の第 2 実装を作らない)。`sheets` は
     Sheet の id と名前で、開いていない File の Sheet も名前で引くために載せる (#249)。
+  - `listProjectedFiles` (#248 File をまたぐ検索) は一覧と**同じ File を**、Sheet の中身まで畳んで
+    返す。除外の規則を 2 つ書かないよう、一覧はこれから作る。構造を持たない op-log (branch の
+    op-log もこの形) は出さないので、検索は trunk だけを見る。
   - **projection が 0 シートの file_id は出さない** — 有効な GraphFile は必ず 1 シート以上
     (W3d-2 の読取失敗判定と同じ基準)。genesis の無い孤児 batch だけの file_id (D-4) を
     一覧に出すと、開いても描画できない項目が並ぶ。

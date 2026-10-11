@@ -15,6 +15,7 @@ import {
   StoredBatchSchema,
 } from '@conversensus/shared';
 import { z } from 'zod';
+import { searchFiles } from '../search/searchFiles';
 import type { LocalBackend } from './backend';
 
 /** 自分が書く batch。知らない op はありえない */
@@ -57,6 +58,8 @@ export function storeBackend(store: LocalStore): LocalBackend {
     },
     listLocalActorBatches: async () => store.listLocalActorBatches(),
     renameActor: async (from, to) => store.renameActor(from, to),
+    searchFiles: async (query, options) =>
+      searchFiles(store.listProjectedFiles(), query, options),
     fetchBlob: async (cid) => {
       const blob = store.getBlob(cid);
       if (!blob) return undefined;

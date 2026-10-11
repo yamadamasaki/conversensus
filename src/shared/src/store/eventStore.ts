@@ -28,6 +28,7 @@ import {
 } from '../events/unified';
 import {
   type FileId,
+  type GraphFile,
   type GraphFileListItem,
   listItemOf,
   type Sheet,
@@ -339,19 +340,28 @@ export class EventStore {
    *   「未知ファイル」と誤判定して PDS から materialize し直してしまう (設計 D1 の層 1)。
    */
   listOplogFiles(): GraphFileListItem[] {
+    return this.listProjectedFiles().map(listItemOf);
+  }
+
+  /**
+   * 一覧に出る File を畳み込んだもの (#248 File をまたぐ検索)。除外の規則は `listOplogFiles` と
+   * 同じ (削除済み・0 シートを出さない)。branch の op-log は File の構造を持たない (0 シート) ので、
+   * **trunk だけになる**
+   */
+  listProjectedFiles(): GraphFile[] {
     const rows = this.db.all<{ file_id: string }>(
       'SELECT file_id FROM batches GROUP BY file_id ORDER BY MIN(seq)',
     );
-    const items: GraphFileListItem[] = [];
+    const files: GraphFile[] = [];
     for (const row of rows) {
       const fileId = row.file_id as FileId;
       const batches = this.getBatches(fileId);
       if (isFileDeleted(batches)) continue;
       const projected = projectFile(batches, fileId);
       if (projected.sheets.length === 0) continue;
-      items.push(listItemOf(projected));
+      files.push(projected);
     }
-    return items;
+    return files;
   }
 
   /**

@@ -16,8 +16,11 @@ export type GraphEditorControls = {
   groupSelected: () => void;
   ungroupSelected: () => void;
   exportPng: () => void;
-  /** 検索の結果 1 件をグラフで示す (選んで、そこへ寄せる) */
-  reveal: (hit: SearchHit) => void;
+  /**
+   * 検索の結果 1 件をグラフで示す (選んで、そこへ寄せる)。**その要素がまだ描かれていなければ
+   * false** — 開いた直後の Sheet では、React Flow が要素を受け取る前でありうる (#248)
+   */
+  reveal: (hit: SearchHit) => boolean;
   /** 選ばれている要素のプロパティを 1 つ設定する。値の省略 (undefined) は削除 */
   setProperty: (name: string, value: unknown) => void;
   /**

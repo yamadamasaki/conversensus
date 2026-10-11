@@ -30,6 +30,7 @@ import {
   Network,
   Pencil,
   Shapes,
+  TextSearch,
   Trash2,
   UserPlus,
   X,
@@ -137,6 +138,8 @@ type Props = {
     sheetId: SheetId,
     options: OpenOptions,
   ) => void;
+  /** File をまたいで名前と中身を探すダイアログを開く (#248) */
+  onOpenGlobalSearch?: () => void;
   /** template を当てずに作るなら省略する (Phase 5 D1: 紐づけは作成時のみ) */
   /** シートを足す。File に template graph があれば、当てるものを選ばせるのは App */
   onAddSheet: () => void;
@@ -219,6 +222,7 @@ export function Sidebar({
   onOpenFile,
   onSelectSheet,
   onOpenSheetOf,
+  onOpenGlobalSearch,
   onAddSheet,
   onAddKindSheet,
   onAddSeedTemplate,
@@ -1091,22 +1095,39 @@ export function Sidebar({
       </div>
 
       {/* 名前の検索 (#249)。打つたびにツリーを絞る。Esc で空にする */}
-      <input
-        type="search"
-        value={nameQuery}
-        onChange={(e) => setNameQuery(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Escape') setNameQuery('');
-        }}
-        placeholder="名前で探す (File・Sheet・Folder)"
-        aria-label="File・Sheet・Folder を名前で探す"
+      <div
         style={{
-          minWidth: 0,
-          padding: '4px 6px',
-          fontSize: font.body,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 2,
           margin: '4px 0',
         }}
-      />
+      >
+        <input
+          type="search"
+          value={nameQuery}
+          onChange={(e) => setNameQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setNameQuery('');
+          }}
+          placeholder="名前で探す (File・Sheet・Folder)"
+          aria-label="File・Sheet・Folder を名前で探す"
+          style={{
+            flex: 1,
+            minWidth: 0,
+            padding: '4px 6px',
+            fontSize: font.body,
+          }}
+        />
+        {/* 中身まで探す口は別のダイアログ (#248)。⌘⇧F でも開く */}
+        {onOpenGlobalSearch && (
+          <IconButton
+            icon={TextSearch}
+            label="File をまたいで中身も探す (⌘⇧F)"
+            onClick={onOpenGlobalSearch}
+          />
+        )}
+      </div>
 
       {/* ファイル一覧 */}
       <ul

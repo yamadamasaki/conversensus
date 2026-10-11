@@ -2166,6 +2166,65 @@ describe('App 結合: 左サイドバーの名前の検索 (#249)', () => {
   });
 });
 
+describe('App 結合: File をまたいで探す (#248)', () => {
+  const selectedTab = () =>
+    screen
+      .queryAllByRole('tab')
+      .find((t) => t.getAttribute('aria-selected') === 'true')?.textContent ??
+    '';
+
+  test(
+    '⌘⇧F で開き、開いていない File の node の本文を引いて、押すとその Sheet を開いて選ぶ',
+    async () => {
+      cleanup();
+      await world.activate('alice');
+      render(<App />);
+      const user = userEvent.setup();
+      await createFile(user, '議事録');
+      await addNode(user);
+      await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+      await editOnlyNode(user, '合意した');
+      await createFile(user, '設計');
+      await waitFor(
+        () => expect(selectedTab()).toContain('設計'),
+        WIRING_TIMEOUT,
+      );
+
+      fireEvent.keyDown(window, { key: 'F', metaKey: true, shiftKey: true });
+      const dialog = await screen.findByRole(
+        'dialog',
+        { name: 'File をまたいで探す' },
+        WIRING_TIMEOUT,
+      );
+      await user.type(within(dialog).getByRole('searchbox'), '合意');
+      const content = await within(dialog).findByRole(
+        'region',
+        { name: '中身の当たり' },
+        WIRING_TIMEOUT,
+      );
+      expect(content.textContent).toContain('議事録 / Sheet 1');
+      await user.click(within(content).getByRole('button'));
+
+      // ダイアログが閉じ、議事録の Sheet が開いて、当たった node が選ばれる
+      expect(
+        screen.queryByRole('dialog', { name: 'File をまたいで探す' }),
+      ).toBeNull();
+      await waitFor(
+        () => expect(selectedTab()).toBe('議事録 / Sheet 1'),
+        WIRING_TIMEOUT,
+      );
+      await waitFor(
+        () =>
+          expect(
+            document.querySelector('.react-flow__node.selected')?.textContent,
+          ).toContain('合意した'),
+        WIRING_TIMEOUT,
+      );
+    },
+    MERGER_TEST_MS,
+  );
+});
+
 describe('App 結合: 端末だけの File が消えるおそれ (#263)', () => {
   afterEach(resetPersistenceStateForTest);
 

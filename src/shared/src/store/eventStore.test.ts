@@ -279,6 +279,24 @@ describe('EventStore', () => {
       ]);
     });
 
+    it('listProjectedFiles は一覧と同じ File を、Sheet の中身まで畳んで返す (#248)', () => {
+      const orphan = 'file-orphan' as FileId;
+      store.appendBatch(FILE, structure('b1', 'ファイルA', 1));
+      store.appendBatch(FILE, {
+        ...addNode('b2', 'n1', '本文', 2),
+        sheetId: 'sheet-1' as SheetId,
+      });
+      // 構造を持たない op-log (branch の op-log もこの形) は一覧と同じく出さない
+      store.appendBatch(orphan, addNode('b3', 'n2', '孤児', 1));
+      const projected = store.listProjectedFiles();
+      expect(projected.map((f) => f.id)).toEqual(
+        store.listOplogFiles().map((f) => f.id),
+      );
+      expect(projected[0]?.sheets[0]?.nodes.map((n) => n.content)).toEqual([
+        '本文',
+      ]);
+    });
+
     it('構造を持たない (0 シート) file_id は一覧に出さない', () => {
       // genesis の無い孤児 content batch だけの file_id (D-4)。
       // 有効な GraphFile は必ず 1 シート以上 (W3d-2 の読取失敗判定と同じ基準)。

@@ -590,3 +590,16 @@ App 結合で見るのは、**空の状態から出した操作が本物の経�
 
 一覧が Sheet の名前を持つこと (`listItemOf`)・絞り方 (`filterByName`)・サイドバーの描き分け・
 タブを開く配線の 4 つをまたぐので、この層で見る。
+
+## File をまたいで探す (#248)
+
+⌘⇧F でダイアログが開き、**開いていない File** の node の本文が「中身の当たり」に「File / Sheet」付きで
+出ること。押すとダイアログが閉じ、その File と Sheet がタブで開き、当たった node が選ばれること。
+
+中身はローカル正典 (`storeBackend.searchFiles` → `listProjectedFiles`) で引き、開くのはタブの移動、
+選ぶのは開いた後の canvas の口 (`reveal`) なので、この層で見る。実際に壊れていた所が 2 つある。
+
+- 着いた瞬間の canvas の口は**前の Sheet の** GraphEditor のもので、新しい Sheet の要素を探して
+  見つからなかった (GraphEditor は view ごとに作り直される)。試すたびに最新の口を読む
+- 新しい GraphEditor でも、React Flow が要素を受け取るのは描いた後。`reveal` が「寄せられたか」を
+  返し、寄せられるまで間を置いて試す

@@ -26,6 +26,8 @@ import type {
   MimeType,
   StoredBlob,
 } from '@conversensus/shared';
+import type { FileSearchResult } from '../search/searchFiles';
+import type { SearchOptions } from '../search/searchSheet';
 
 export interface LocalBackend {
   /** 一覧 (削除済み・0 シートを除く) */
@@ -50,4 +52,9 @@ export interface LocalBackend {
   listLocalActorBatches(): Promise<LocalActorBatchCount[]>;
   /** actor を付け替える (FPR 前 L-1)。@returns 付け替えた batch の数 */
   renameActor(from: Actor, to: Actor): Promise<number>;
+  /**
+   * 全 File の trunk の Sheet の中身を探す (#248)。畳み込みは向こう側でする — 全 File の
+   * グラフを main へ運ばない
+   */
+  searchFiles(query: string, options: SearchOptions): Promise<FileSearchResult>;
 }
