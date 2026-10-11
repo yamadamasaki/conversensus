@@ -1,4 +1,4 @@
-import { color, font, radius, shadow } from './theme';
+import { color, font, fontWeight, radius, shadow } from './theme';
 
 /**
  * ヘッダ (step3 Phase 3 S3-4a, 仕様 design-language「ヘッダ」)
@@ -29,7 +29,7 @@ import {
 import { type ReactNode, useState } from 'react';
 import type { GraphEditorControls } from './graph/editorControls';
 import type { GroupAbility } from './hooks/useGroupNodes';
-import { Button, ICON_SIZE, IconButton } from './ui/Button';
+import { Button, ICON_SIZE, ICON_SIZE_SM, IconButton } from './ui/Button';
 
 export const GRAPH_HEADER_HEIGHT = 40;
 
@@ -43,8 +43,21 @@ export type HeaderBranch = {
   onMerge: () => void;
 };
 
+/** 開いているグラフの名前と、どの流れか (#276) */
+export type HeaderTitle = {
+  fileName: string;
+  sheetName: string;
+  /** merger のタブ。merge 後の姿を見ている */
+  merger: boolean;
+};
+
 type Props = {
   controls: GraphEditorControls | null;
+  /**
+   * 開いているグラフの名前と状態 (#276)。design language の「ヘッダ = 個々のグラフを管理する」
+   * なので、タブだけでなくここにも出す。状態は trunk / branch (merged・未 commit の変更) / merge
+   */
+  title: HeaderTitle;
   /** 「group にまとめる / 解く」を押せるか (#269)。押せないときは隠さず無効にする */
   groupAbility: GroupAbility;
   searchOpen: boolean;
@@ -134,9 +147,123 @@ const MENU_ITEM = {
 
 /** 操作のまとまりの間を空ける (visual language §3 の余白の段) */
 const GROUP_GAP = 12;
+/** 名前が長くても道具のボタンを押し出さないよう、名前の幅に上限を置く */
+const TITLE_MAX_WIDTH = 240;
+const COMPACT_TITLE_MAX_WIDTH = 72;
+
+/** 状態の印。流れ (trunk / branch / merge) と、未 commit の変更 */
+function Chip({
+  tone,
+  children,
+  title,
+}: {
+  tone: 'neutral' | 'branch' | 'pending';
+  children: ReactNode;
+  title?: string;
+}) {
+  const tones = {
+    neutral: { bg: color.bg, fg: color.textMuted, border: color.border },
+    branch: {
+      bg: color.selectionBg,
+      fg: color.text,
+      border: color.selection,
+    },
+    pending: {
+      bg: color.warningBg,
+      fg: color.warningText,
+      border: color.warning,
+    },
+  } as const;
+  const t = tones[tone];
+  return (
+    <span
+      title={title}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 4,
+        flexShrink: 0,
+        padding: '0 6px',
+        lineHeight: '20px',
+        fontSize: font.caption,
+        whiteSpace: 'nowrap',
+        borderRadius: radius.sm,
+        border: `1px solid ${t.border}`,
+        background: t.bg,
+        color: t.fg,
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
+/** 開いているグラフの名前と状態 (#276) */
+function GraphTitle({
+  title,
+  branch,
+  compact,
+}: {
+  title: HeaderTitle;
+  branch: HeaderBranch | null;
+  compact: boolean;
+}) {
+  const full = `${title.fileName} / ${title.sheetName}`;
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 6,
+        minWidth: 0,
+        marginRight: GROUP_GAP,
+        fontSize: font.body,
+      }}
+    >
+      <span
+        title={full}
+        style={{
+          minWidth: 0,
+          maxWidth: compact ? COMPACT_TITLE_MAX_WIDTH : TITLE_MAX_WIDTH,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {/* 狭い画面では File の名前を tooltip に退け、Sheet の名前だけを残す */}
+        {!compact && (
+          <span style={{ color: color.textMuted }}>{title.fileName} / </span>
+        )}
+        <strong style={{ fontWeight: fontWeight.strong }}>
+          {title.sheetName}
+        </strong>
+      </span>
+      {title.merger ? (
+        <Chip tone="branch">
+          <GitMerge size={ICON_SIZE_SM} aria-hidden />
+          merge
+        </Chip>
+      ) : branch ? (
+        <Chip tone="branch" title={compact ? branch.name : undefined}>
+          <GitBranch size={ICON_SIZE_SM} aria-hidden />
+          {!compact && <span>{branch.name}</span>}
+          {branch.merged && <span>(merged)</span>}
+        </Chip>
+      ) : (
+        <Chip tone="neutral">trunk</Chip>
+      )}
+      {branch && branch.pendingCount > 0 && (
+        <Chip tone="pending" title="まだ commit していない変更">
+          {branch.pendingCount} 変更
+        </Chip>
+      )}
+    </div>
+  );
+}
 
 export function GraphHeader({
   controls,
+  title,
   groupAbility,
   searchOpen,
   onToggleSearch,
@@ -164,6 +291,7 @@ export function GraphHeader({
         background: color.bgSubtle,
       }}
     >
+      <GraphTitle title={title} branch={branch} compact={compact} />
       {/* 検索の口 (step2 Phase 7)。仕様「検索ボタンで検索窓がポップアップ」 */}
       <IconButton
         icon={Search}
@@ -292,22 +420,6 @@ export function GraphHeader({
             gap: 8,
           }}
         >
-          <span
-            // 狭い画面では branch の名前を tooltip に退け、変更の数だけを残す
-            title={compact ? branch.name : undefined}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 4,
-              fontSize: font.body,
-              color: color.textMuted,
-            }}
-          >
-            <GitBranch size={ICON_SIZE} aria-hidden />
-            {!compact && branch.name}
-            {!compact && branch.merged && ' (merged)'}
-            {branch.pendingCount > 0 ? ` (${branch.pendingCount} 変更)` : ''}
-          </span>
           <LabeledButton
             compact={compact}
             variant="secondary"

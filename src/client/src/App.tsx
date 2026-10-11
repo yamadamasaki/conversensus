@@ -1372,6 +1372,11 @@ export default function App() {
         {viewAddress && (
           <GraphHeader
             controls={panels.controls}
+            title={{
+              fileName: fileOps.activeFile?.name ?? '',
+              sheetName: viewSheet?.name ?? '',
+              merger: Boolean(currentTab?.merger),
+            }}
             groupAbility={panels.groupAbility}
             searchOpen={panels.searchOpen}
             onToggleSearch={panels.toggleSearch}

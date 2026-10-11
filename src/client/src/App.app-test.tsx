@@ -85,9 +85,9 @@ afterEach(async () => {
   await world.dispose();
 });
 
-/** 下部バーの「(N 変更)」 */
+/** ヘッダの未 commit の変更の数「N 変更」 (#276) */
 function pendingLabel(count: number): RegExp {
-  return new RegExp(`\\(${count} 変更\\)`);
+  return new RegExp(`^${count} 変更$`);
 }
 
 /** 端末を切り替えて App を描き、ログインした状態にする */
@@ -173,7 +173,7 @@ describe('App 結合: 受信した変更が画面まで届く (step2 T7-3 の実
   });
 });
 
-describe('App 結合: canvas の編集が「(N 変更)」に数えられる (step2 T7-7 の実機の失敗)', () => {
+describe('App 結合: canvas の編集が「N 変更」に数えられる (step2 T7-7 の実機の失敗)', () => {
   /** 1 端末・未ログインで File と branch を作り、その branch を開く */
   async function openFreshBranch() {
     await world.activate('solo');
