@@ -299,7 +299,14 @@ export function useNoticeInbox(did: Did | null) {
     setOverwriteNotice(NO_OVERWRITE_NOTICE);
   }, [overwriteNotice, dismissals]);
 
+  /** File を削除したら、その File の既読を消す (#259) */
+  const forgetFile = useCallback(
+    (fileId: FileId) => dismissalsRef.current.forgetFile(fileId),
+    [],
+  );
+
   return {
+    forgetFile,
     conflictNotice,
     showConflicts,
     closeConflictNotice,

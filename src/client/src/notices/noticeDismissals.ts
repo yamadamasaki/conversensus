@@ -17,6 +17,8 @@ import type { NoticeDismissal, NoticeKey } from './types';
 export type NoticeDismissalStore = {
   listByFile: (fileId: FileId) => Promise<NoticeDismissal[]>;
   put: (dismissal: NoticeDismissal) => Promise<void>;
+  /** その File の既読をすべて消す (#259)。@returns 消した数 */
+  removeFile: (fileId: FileId) => Promise<number>;
 };
 
 export class NoticeDismissals {
@@ -58,6 +60,24 @@ export class NoticeDismissals {
         }),
       ),
     );
+  }
+
+  /**
+   * File を削除したら、その File の既読も消す (#259、設計 §2.1 の片付け)。既読は通知を閉じる
+   * たびに 1 件増え、File が無くなれば誰も読まない。
+   *
+   * **消し損ねても例外にしない** (警告だけ)。残っても害は無い — 読まれないだけである
+   */
+  async forgetFile(fileId: FileId): Promise<void> {
+    this.loaded.delete(fileId);
+    if (this.store === null) return;
+    try {
+      const removed = await this.store.removeFile(fileId);
+      if (removed > 0)
+        console.info(`[notices] removed ${removed} dismissal(s) of ${fileId}`);
+    } catch (err) {
+      console.warn('[notices] failed to remove dismissals', err);
+    }
   }
 
   private setOf(fileId: FileId): Promise<Set<NoticeKey>> {

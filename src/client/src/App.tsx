@@ -171,6 +171,7 @@ export default function App() {
   } = useAtprotoSession();
   /** 画面右下の通知と、閉じた通知の既読 (step3 Phase 6 S6-1a) */
   const {
+    forgetFile,
     conflictNotice,
     showConflicts,
     closeConflictNotice,
@@ -287,6 +288,7 @@ export default function App() {
     setConflictNotice: showConflicts,
     onOverwrites: handleOverwrites,
     onForksArrived: handleForksArrived,
+    onFileDeleted: forgetFile,
     remoteQueue,
     live,
     actor,

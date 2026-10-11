@@ -152,6 +152,8 @@ interface UseFileSheetOperationsParams {
    * 上書きの報告と同じく**受け手が溜める**。省略すると通知しない
    */
   onForksArrived?: (forks: readonly ForkMeta[]) => void;
+  /** File を削除した後に呼ぶ。その File の既読を消す (#259) */
+  onFileDeleted?: (fileId: FileId) => void;
   deps?: FileSheetOpsDeps;
   /** ログインしている人の名前 (handle)。未ログインの編集を出し直すか訊くときに見せる (FPR 前 L-1) */
   accountLabel?: string;
@@ -188,6 +190,7 @@ export function useFileSheetOperations({
   setConflictNotice,
   onOverwrites,
   onForksArrived,
+  onFileDeleted,
   deps = defaultFileSheetOpsDeps,
   syncRecord: syncRecordOverride,
   remoteQueue = null,
@@ -814,11 +817,20 @@ export function useFileSheetOperations({
           return next;
         });
         setPopupTarget(null);
+        onFileDeleted?.(id as FileId);
       } catch (err) {
         console.error('Failed to delete file:', err);
       }
     },
-    [activeFile, files, setConfirmState, deps, actor, pushToFile],
+    [
+      activeFile,
+      files,
+      setConfirmState,
+      deps,
+      actor,
+      pushToFile,
+      onFileDeleted,
+    ],
   );
 
   const handleSaveSheetSettings = useCallback(

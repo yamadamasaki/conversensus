@@ -1664,6 +1664,35 @@ describe('App 結合: 閉じていない通知の控え (step3 Phase 6 S6-1b)', 
     screen.queryByRole('status', { name: '競合の通知' })?.textContent ?? null;
 
   test(
+    'File を削除すると、その File の既読の record も PDS から消える (#259)',
+    async () => {
+      const user = await bobDetectsConflict();
+      await user.click(
+        screen.getByRole('button', { name: '競合の通知を閉じる' }),
+      );
+      const dismissals = () =>
+        world.pds.records(BOB.did, NSID.noticeDismissal).length;
+      await waitFor(
+        () => expect(dismissals()).toBeGreaterThan(0),
+        WIRING_TIMEOUT,
+      );
+
+      // 最初の「詳細」は File の行のもの
+      const [fileDetails] = screen.getAllByRole('button', { name: '詳細' });
+      if (!fileDetails) throw new Error('File の詳細が無い');
+      await user.click(fileDetails);
+      await user.click(
+        await screen.findByRole('button', { name: 'File を削除' }),
+      );
+      const confirm = await screen.findByRole('dialog', {}, WIRING_TIMEOUT);
+      await user.click(within(confirm).getByRole('button', { name: '削除' }));
+
+      await waitFor(() => expect(dismissals()).toBe(0), WIRING_TIMEOUT);
+    },
+    MERGER_TEST_MS,
+  );
+
+  test(
     '閉じる前に再読み込みしても競合の通知が残り、同じ競合の fork は重ねない。閉じた後は出ない',
     async () => {
       await bobDetectsConflict();
