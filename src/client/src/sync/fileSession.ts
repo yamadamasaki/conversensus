@@ -29,11 +29,13 @@ import type {
 import { didFromActor } from '@conversensus/shared';
 import { FanoutSyncProvider } from '../atproto/fanoutSyncProvider';
 import type { RemoteSyncQueue } from '../atproto/remoteSyncQueue';
+import { LIVE_SYNC_POLL_INTERVAL_MS } from '../config';
 import type { GraphEvent } from '../events/GraphEvent';
 import { subscribeLocalChanges } from '../local/localChanges';
 import { branchMetaRecorder, readBranchMeta } from './branchMetaLog';
 import type { DetectedConflicts } from './conflicts';
 import { EventSyncTap } from './eventSyncTap';
+import type { LiveSignal } from './liveChannel';
 import { LocalServerSyncProvider } from './localServerSyncProvider';
 import type { DetectedOverwrites } from './overwrites';
 import {
@@ -128,6 +130,13 @@ export type FileSessionDeps = {
   forkDeps?: ForkWriterDeps;
   /** 定期同期の間隔 (ミリ秒) */
   pollIntervalMs: number;
+  /**
+   * 参加者の PDS の流れ (#252)。合図が来たら取りに行き、繋がっている間は定期同期の間隔を
+   * `livePollIntervalMs` に延ばす。省略すると合図は無く、間隔も変えない
+   */
+  live?: LiveSignal;
+  /** 流れに繋がっている間の定期同期の間隔 (ミリ秒)。既定 `LIVE_SYNC_POLL_INTERVAL_MS` */
+  livePollIntervalMs?: number;
 };
 
 export class FileSession {
@@ -138,6 +147,8 @@ export class FileSession {
   private readonly forkDeps: ForkWriterDeps;
   private listeners: FileSessionListeners = {};
   private runningSync: Promise<void> | null = null;
+  /** 走っているサイクルの後にもう 1 度回す約束がある (#252 の合図) */
+  private syncAgainQueued = false;
 
   constructor(deps: FileSessionDeps) {
     this.deps = deps;
@@ -393,6 +404,25 @@ export class FileSession {
   }
 
   /**
+   * 合図を受けて取りに行く (#252)。**走っているサイクルがあれば、その後にもう 1 度回す** —
+   * 相乗りする (`syncNow`) と、走っているサイクルが読み終えた後に書かれた分を取りこぼす。
+   * 合図が続けて来ても、後に回すのは 1 度だけ
+   */
+  private syncAfterRunning(): void {
+    const running = this.runningSync;
+    if (running === null) {
+      void this.syncNow();
+      return;
+    }
+    if (this.syncAgainQueued) return;
+    this.syncAgainQueued = true;
+    void running.finally(() => {
+      this.syncAgainQueued = false;
+      void this.syncNow();
+    });
+  }
+
+  /**
    * 同期の契機を張る (§3.4 + step2 Phase 2 S4)。返す関数で外す。
    *
    * **定期ポーリングは「前回の完了から N ミリ秒」で回す。**`setInterval` にすると
@@ -415,14 +445,24 @@ export class FileSession {
   start(): () => void {
     let stopped = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    const { live } = this.deps;
 
+    // 流れに繋がっている間は間隔を延ばす (#252)。**tick のたびに決める** — 繋がり方が変わっても
+    // セッションを作り直さない
+    const interval = () =>
+      live?.isConnected()
+        ? (this.deps.livePollIntervalMs ?? LIVE_SYNC_POLL_INTERVAL_MS)
+        : this.deps.pollIntervalMs;
+    const schedule = () => {
+      clearTimeout(timer);
+      if (!stopped) timer = setTimeout(tick, interval());
+    };
     const tick = async () => {
       if (stopped) return;
       // 画面を見ていて回線があるときだけ取りに行く。条件を満たさなくても
       // **タイマーは回し続ける** — 復帰したときに次の tick が拾う
       if (!document.hidden && navigator.onLine) await this.syncNow();
-      if (stopped) return;
-      timer = setTimeout(tick, this.deps.pollIntervalMs);
+      schedule();
     };
     void tick(); // 契機 1: ファイルを開いたとき
 
@@ -434,6 +474,14 @@ export class FileSession {
     document.addEventListener('visibilitychange', onVisible);
 
     const { fileId } = this;
+    // 契機 5: 流れの合図 (#252)。この File への書き込みか、取りこぼしたかもしれない (繋がった・
+    // 切れた) とき。後者では間隔も変わるので、次の tick を決め直す
+    const unsubscribeLive = live?.onHint((hint) => {
+      if (hint.fileId !== null && hint.fileId !== fileId) return;
+      if (hint.fileId === null) schedule();
+      if (!document.hidden && navigator.onLine) this.syncAfterRunning();
+    });
+
     const unsubscribeLocal = subscribeLocalChanges((change) => {
       if (change.fileId !== fileId) return;
       this.deps
@@ -452,6 +500,7 @@ export class FileSession {
       clearTimeout(timer);
       window.removeEventListener('online', onOnline);
       document.removeEventListener('visibilitychange', onVisible);
+      unsubscribeLive?.();
       unsubscribeLocal();
     };
   }

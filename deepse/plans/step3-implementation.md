@@ -247,7 +247,8 @@ S0-4 の結果で形が決まる。既定案は次のとおりである。
 
 i18n (en の追加) / 無限キャンバス / timeline view (version tree・operation inspector・
 change inspector) / global search / デザイン言語の細部の適用 / Deep Link の URI スキーム /
-Jetstream による近リアルタイム化 (O6) / 左サイドバーの File・Sheet 名検索 /
+Jetstream による近リアルタイム化 (O6。#252 で**Jetstream ではなく参加者の PDS の firehose を直接読む**形にした —
+小さなサーバがたくさん連合する前提に、全ネットワークを集める中継は合わない。2026-10-11) / 左サイドバーの File・Sheet 名検索 /
 map 表示。
 
 **timeline view と global search は Phase 3 のアドレスの上に乗る**ので、FPR 後に UI だけで

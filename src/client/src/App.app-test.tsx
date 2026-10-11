@@ -2166,6 +2166,41 @@ describe('App 結合: 左サイドバーの名前の検索 (#249)', () => {
   });
 });
 
+describe('App 結合: 参加者の PDS の流れの合図 (#252)', () => {
+  test(
+    '相手の書き込みの合図が来たら、定期同期を待たずに取りに行き、画面に描く',
+    async () => {
+      const { code } = await aliceSharesFileWithBob();
+
+      // bob: 参加して node を置き、送る。まだ届かないよう保留する
+      let user = await startOn('bob', BOB);
+      await participate(user, code, FILE_NAME);
+      await syncNow(user);
+      world.pds.withhold(BOB.did);
+      await addNode(user);
+      await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+      await syncNow(user);
+
+      // alice: 開いた時点では bob の node は届いていない (開いたときの受信は済んでいる)
+      user = await startOn('alice', ALICE);
+      await openFileNamed(user, FILE_NAME);
+      await new Promise((r) => setTimeout(r, SETTLE_MS));
+      expect(renderedNodeCount()).toBe(0);
+
+      // bob の書き込みが PDS に出る。定期同期 (30 秒) を待たなければ、まだ見えない
+      world.pds.release(BOB.did);
+      await new Promise((r) => setTimeout(r, SETTLE_MS));
+      expect(renderedNodeCount()).toBe(0);
+
+      // 流れの合図が来ると、その File を取りに行って描く
+      const fileId = world.localStore().listFiles()[0]?.id as FileId;
+      world.live.hint(fileId);
+      await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+    },
+    MERGER_TEST_MS,
+  );
+});
+
 describe('App 結合: File をまたいで探す (#248)', () => {
   const selectedTab = () =>
     screen

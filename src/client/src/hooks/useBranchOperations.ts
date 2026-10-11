@@ -33,6 +33,7 @@ import {
   readBranchSheets,
 } from '../sync/branchProjection';
 import { computeSheetChanges } from '../sync/computeOperations';
+import type { LiveSignal } from '../sync/liveChannel';
 import { inheritLocalOnly } from '../sync/localOnlyFiles';
 import {
   countCommitsAfter,
@@ -222,6 +223,8 @@ interface UseBranchOperationsParams {
    * null なら local-only (未ログイン時)。trunk の tap に渡すものと同じキューであること
    */
   remoteQueue?: RemoteSyncQueue | null;
+  /** 参加者の PDS の流れ (#252)。合図で取りに行き、繋がっている間はポーリングを延ばす */
+  live?: LiveSignal | null;
   /**
    * 名簿の供給元 (step2 Phase 3 T7-3)。渡すと参加者の branch の編集を引く。
    * branch は名簿を持たないので、trunk の名簿で読む相手と期間を決める
@@ -254,6 +257,7 @@ export function useBranchOperations({
   trunkCausal = null,
   trunkRecord,
   remoteQueue = null,
+  live = null,
   roster = null,
   receiveEpoch = 0,
   deps = defaultBranchOpsDeps,
@@ -328,6 +332,7 @@ export function useBranchOperations({
     syncNow: syncBranchNow,
   } = useEventSyncTap(activeBranch?.branchFileId ?? null, {
     actor,
+    live,
     // 分岐点の後から発番する。空の branch op-log は clock 1 から始まってしまい、
     // それでは base 時点の trunk batch に LWW で負ける (§p5-4)。
     ...(activeBranch && { clockFloor: activeBranch.base.at }),

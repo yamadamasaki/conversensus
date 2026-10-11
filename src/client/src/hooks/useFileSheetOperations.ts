@@ -50,6 +50,7 @@ import { discoverRemoteFiles } from '../sync/discoverRemoteFiles';
 import { deleteFileByTombstone } from '../sync/fileDeletion';
 import { FileSession, providerFor } from '../sync/fileSession';
 import { FileSessionPool, type SessionFactory } from '../sync/fileSessionPool';
+import type { LiveSignal } from '../sync/liveChannel';
 import {
   declineLocalOnly,
   isLocalOnlyFile,
@@ -164,6 +165,8 @@ interface UseFileSheetOperationsParams {
    * null なら tap は local-only = W3d と完全に同じ挙動 (退行なし)。
    */
   remoteQueue?: RemoteSyncQueue | null;
+  /** 参加者の PDS の流れ (#252)。合図で取りに行き、繋がっている間はポーリングを延ばす */
+  live?: LiveSignal | null;
   /** この端末の操作主体 `<did>#<deviceId>` (Phase 4d-2)。tap が batch の actor に使う */
   actor: Actor;
   /**
@@ -188,6 +191,7 @@ export function useFileSheetOperations({
   deps = defaultFileSheetOpsDeps,
   syncRecord: syncRecordOverride,
   remoteQueue = null,
+  live = null,
   actor,
   roster = null,
   isEditingActive,
@@ -505,8 +509,9 @@ export function useFileSheetOperations({
         appendReceived: deps.pushReceivedBatches,
         fetchLocal: deps.fetchBatches,
         pollIntervalMs: SYNC_POLL_INTERVAL_MS,
+        ...(live && { live }),
       }),
-    [remoteQueue, roster, actor, deps],
+    [remoteQueue, live, roster, actor, deps],
   );
   // 描画の中で渡す — 下の tap がこの描画で借りるので、作り方が先に要る。同じ作り方なら何もしない
   sessionPool.setFactory(sessionFactory);
