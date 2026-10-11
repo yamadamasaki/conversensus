@@ -33,6 +33,7 @@ import {
   readBranchSheets,
 } from '../sync/branchProjection';
 import { computeSheetChanges } from '../sync/computeOperations';
+import { inheritLocalOnly } from '../sync/localOnlyFiles';
 import {
   countCommitsAfter,
   lastMergeSourceAt,
@@ -569,6 +570,9 @@ export function useBranchOperations({
           },
           projectionDeps,
         );
+        // この端末だけの File の branch も、この端末から出さない (#253)。branch の op-log は
+        // 別の file id を持つので、元の File の印を写しておく
+        inheritLocalOnly(branch.branchFileId, activeFile.id as FileId);
         setSheetBranches((prev) => {
           const next = new Map(prev);
           const existing = next.get(sheetId) ?? [];

@@ -20,6 +20,7 @@ import { AtprotoSyncProvider } from '../atproto/atprotoSyncProvider';
 import { RemoteSyncQueue } from '../atproto/remoteSyncQueue';
 import { SYNC_TO_REMOTE } from '../config';
 import { createPdsBlobUploader } from '../images/imageBlob';
+import { isLocalOnlyFile } from '../sync/localOnlyFiles';
 
 export function useRemoteSyncQueue(
   session: AtprotoSession | null,
@@ -40,6 +41,9 @@ export function useRemoteSyncQueue(
             // 他 actor の batch をローカル正典へ入れるので、catch-up がそれを
             // 送り返さないための柵である
             did: session.did,
+            // この端末だけの File は送らない (#253)。印は送る瞬間に読む — 問いに答えて
+            // 印が外れたら、次の catch-up から送られる
+            isLocalOnly: (fileId) => isLocalOnlyFile(fileId),
           })
         : null,
     // session が変われば別 repo への送信になるのでキューごと作り直す

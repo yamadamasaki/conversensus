@@ -364,3 +364,63 @@ describe('RemoteSyncQueue', () => {
     });
   });
 });
+
+describe('この端末だけの File は送らない (#253)', () => {
+  const LOCAL_FILE = '55555555-5555-4555-8555-555555555555' as FileId;
+
+  it('印のある File の batch は積まない。ほかの File は今までどおり', async () => {
+    const provider = new FakeProvider();
+    const q = new RemoteSyncQueue({
+      provider,
+      did: MY_DID,
+      isLocalOnly: (fileId) => fileId === LOCAL_FILE,
+    });
+    q.enqueue([batch('1')], LOCAL_FILE);
+    q.enqueue([batch('2')], FILE);
+    await q.flush();
+    expect(provider.flatEntries.map((e) => e.fileId)).toEqual([FILE]);
+  });
+
+  it('catch-up でも積まず、remote も読まない (genesis が出ていった経路)', async () => {
+    const provider = new FakeProvider();
+    const q = new RemoteSyncQueue({
+      provider,
+      did: MY_DID,
+      isLocalOnly: () => true,
+    });
+    await q.catchUp([batch('1', { actor: 'genesis' })], LOCAL_FILE);
+    expect(provider.pulledFor).toEqual([]);
+    expect(provider.flatEntries).toEqual([]);
+  });
+
+  it('積んだ後に印が付いた File は、送るときに外す (問いに答える前に catch-up が積んだ分)', async () => {
+    const provider = new FakeProvider();
+    let marked = false;
+    const q = new RemoteSyncQueue({
+      provider,
+      did: MY_DID,
+      isLocalOnly: (fileId) => marked && fileId === LOCAL_FILE,
+    });
+    q.enqueue([batch('1')], LOCAL_FILE);
+    q.enqueue([batch('2')], FILE);
+    marked = true; // 「この端末に残す」と答えた
+    await q.flush();
+    expect(provider.flatEntries.map((e) => e.fileId)).toEqual([FILE]);
+    // 保留にも残さない。後で「アカウントに保存する」とき catch-up が積み直す
+    expect(q.pendingCount).toBe(0);
+  });
+
+  it('印が外れたら、次の catch-up から送る', async () => {
+    const provider = new FakeProvider();
+    let marked = true;
+    const q = new RemoteSyncQueue({
+      provider,
+      did: MY_DID,
+      isLocalOnly: (fileId) => marked && fileId === LOCAL_FILE,
+    });
+    await q.catchUp([batch('1')], LOCAL_FILE);
+    marked = false;
+    await q.catchUp([batch('1')], LOCAL_FILE);
+    expect(provider.flatEntries.map((e) => e.fileId)).toEqual([LOCAL_FILE]);
+  });
+});

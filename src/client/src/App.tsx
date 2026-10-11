@@ -1251,6 +1251,11 @@ export default function App() {
             onSaveFileSettings={fileOps.handleSaveFileSettings}
             onDeleteFile={fileOps.handleDeleteFile}
             onExportFile={fileOps.handleExportFile}
+            onSaveToAccount={
+              atprotoSession
+                ? (fileId) => void fileOps.handleSaveToAccount(fileId)
+                : undefined
+            }
             onSaveSheetSettings={fileOps.handleSaveSheetSettings}
             onDeleteSheet={fileOps.handleDeleteSheet}
             sheetBranches={branchOps.sheetBranches}
