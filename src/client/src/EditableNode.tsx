@@ -16,25 +16,36 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useEventDispatch } from './EventDispatchContext';
 import { makeEventBase } from './events/GraphEvent';
+import { DiffMark } from './graph/DiffMark';
 import { useGraphNodeHandlers } from './graph/graphNodeContext';
 import { useInlineEdit } from './hooks/useInlineEdit';
 import { MARKDOWN_COMPONENTS } from './markdownComponents';
 import { useReadOnly } from './readOnlyContext';
+import { color, font, monospace, radius } from './theme';
 
 /** ラベルの見た目。空のとき (ラベルを付ける口) は破線の枠だけにする */
 function chipStyle(label: string, editable: boolean): React.CSSProperties {
   return {
-    fontSize: 10,
-    color: label ? '#4f6ef7' : '#aaa',
-    background: label ? '#eef2ff' : 'transparent',
-    border: label ? 'none' : '1px dashed #ddd',
-    borderRadius: 3,
+    fontSize: font.caption,
+    color: label ? color.primary : color.textMuted,
+    background: label ? color.selectionBg : 'transparent',
+    border: label ? 'none' : `1px dashed ${color.border}`,
+    borderRadius: radius.sm,
     padding: '1px 5px',
     marginBottom: 4,
     display: 'inline-block',
     cursor: editable ? 'text' : 'default',
   };
 }
+
+/** label の口を node の上辺の上に浮かせる (本文を押し下げない) */
+const FLOATING_LABEL = {
+  position: 'absolute',
+  bottom: '100%',
+  left: 0,
+  marginBottom: 2,
+  zIndex: 1,
+} as const;
 
 export function EditableNode({ id, data, selected }: NodeProps) {
   const { getNode } = useReactFlow();
@@ -155,9 +166,9 @@ export function EditableNode({ id, data, selected }: NodeProps) {
         <div
           style={{
             padding: '8px 12px',
-            borderRadius: 6,
-            border: '1px dashed #aaa',
-            background: 'rgba(0,0,0,0.02)',
+            borderRadius: radius.md,
+            border: `1px dashed ${color.borderStrong}`,
+            background: color.bgSubtle,
             width: '100%',
             height: '100%',
             boxSizing: 'border-box',
@@ -167,10 +178,10 @@ export function EditableNode({ id, data, selected }: NodeProps) {
         >
           <div
             style={{
-              fontSize: 12,
+              fontSize: font.body,
               lineHeight: 1.6,
               textDecoration: 'line-through',
-              color: '#999',
+              color: color.textMuted,
             }}
             className="markdown-body"
           >
@@ -182,7 +193,7 @@ export function EditableNode({ id, data, selected }: NodeProps) {
                 {content}
               </ReactMarkdown>
             ) : (
-              <span style={{ color: '#aaa' }}>(空)</span>
+              <span style={{ color: color.textMuted }}>(空)</span>
             )}
           </div>
         </div>
@@ -208,6 +219,74 @@ export function EditableNode({ id, data, selected }: NodeProps) {
     );
   }
 
+  /*
+   * ラベル。**template の種別なら変更できない** (仕様 OnMutation) ので編集の口を
+   * 出さない。その他の node のラベルは自由なので、ダブルクリックで編集に入る。
+   * ラベルを持たない node では**選択中だけ**付ける口を出す — 常に出すと、
+   * ラベルを使わない普通のグラフが賑やかになる
+   */
+  // metagraph の graph node (= Sheet) には label を付けない — 仕様に意味が無い (#258)
+  const showLabel = label || (selected && !labelLocked && !graphNodeSheet);
+  const labelSlot = labelEdit.editing ? (
+    <input
+      // biome-ignore lint/a11y/noAutofocus: 編集開始時に即座に入力できるよう必要
+      autoFocus
+      className="nodrag nopan"
+      data-node-label-input
+      value={labelEdit.inputValue}
+      onChange={(e) => labelEdit.setInputValue(e.target.value)}
+      onBlur={labelEdit.confirm}
+      onCompositionStart={() => labelEdit.setComposing(true)}
+      onCompositionEnd={() => labelEdit.setComposing(false)}
+      onKeyDown={(e) => {
+        if (labelEdit.composingRef.current) return; // IME 変換中は無視
+        if (e.key === 'Enter') labelEdit.confirm();
+        if (e.key === 'Escape') labelEdit.cancel();
+      }}
+      style={{
+        fontSize: font.caption,
+        padding: '1px 4px',
+        marginBottom: 4,
+        borderRadius: radius.sm,
+        border: `1px solid ${color.primary}`,
+        outline: 'none',
+        width: '60%',
+      }}
+    />
+  ) : (
+    showLabel &&
+    // **編集できるかで要素そのものを変える。**変更できないラベルを button に
+    // すると、押せそうに見えて押せない要素になる (仕様 OnMutation)
+    (labelLocked ? (
+      <div data-node-label style={chipStyle(label, false)}>
+        {label}
+      </div>
+    ) : (
+      <button
+        type="button"
+        data-node-label
+        data-editable="true"
+        className="nodrag nopan"
+        // **クリック 1 回で編集に入る。**本文のダブルクリックと違い、これは
+        // 「ラベルを付ける」と書かれた明示的な口である。しかもラベルの無い node
+        // では**選択中しか出ない**ので、ダブルクリックの途中で選択が外れると
+        // 口ごと消えてしまう (実機で踏んだ)
+        onClick={(e) => {
+          e.stopPropagation();
+          labelEdit.startEdit();
+        }}
+        style={chipStyle(label, true)}
+      >
+        {label || 'label'}
+      </button>
+    ))
+  );
+  /**
+   * **label の無い node では、口を本文の外 (上辺の上) に浮かせる** (#272, visual language §8.1)。
+   * 本文の中に置くと、選んだだけで本文が下へずれる。label があれば本文の一部として中に置く
+   */
+  const floatingLabel = !label && labelSlot;
+
   return (
     <>
       <NodeResizer
@@ -218,22 +297,25 @@ export function EditableNode({ id, data, selected }: NodeProps) {
         onResizeEnd={onResizeEnd}
       />
       <Handle type="source" position={Position.Top} id="source-top" />
+      {floatingLabel && <div style={FLOATING_LABEL}>{floatingLabel}</div>}
+      {diffType && <DiffMark diffType={diffType} />}
       {/* biome-ignore lint/a11y/noStaticElementInteractions: ノードコンテナはダブルクリックで編集を開始する */}
       <div
         data-node-body
+        data-node-frame
         style={{
           padding: '8px 12px',
-          borderRadius: 6,
+          borderRadius: radius.md,
           border: diffType
             ? diffType === 'add'
-              ? '2px solid #16a34a'
-              : '2px solid #f97316'
-            : '1px solid #ccc',
+              ? `2px solid ${color.diffAdd}`
+              : `2px solid ${color.diffUpdate}`
+            : `1px solid ${color.border}`,
           background: diffType
             ? diffType === 'add'
-              ? '#f0fdf4'
-              : '#fff7ed'
-            : '#fff',
+              ? color.diffAddBg
+              : color.diffUpdateBg
+            : color.bg,
           width: '100%',
           height: '100%',
           boxSizing: 'border-box',
@@ -250,66 +332,7 @@ export function EditableNode({ id, data, selected }: NodeProps) {
                 : startEdit
         }
       >
-        {/*
-          ラベル。**template の種別なら変更できない** (仕様 OnMutation) ので編集の口を
-          出さない。その他の node のラベルは自由なので、ダブルクリックで編集に入る。
-          ラベルを持たない node では**選択中だけ**付ける口を出す — 常に出すと、
-          ラベルを使わない普通のグラフが賑やかになる
-        */}
-        {labelEdit.editing ? (
-          <input
-            // biome-ignore lint/a11y/noAutofocus: 編集開始時に即座に入力できるよう必要
-            autoFocus
-            className="nodrag nopan"
-            data-node-label-input
-            value={labelEdit.inputValue}
-            onChange={(e) => labelEdit.setInputValue(e.target.value)}
-            onBlur={labelEdit.confirm}
-            onCompositionStart={() => labelEdit.setComposing(true)}
-            onCompositionEnd={() => labelEdit.setComposing(false)}
-            onKeyDown={(e) => {
-              if (labelEdit.composingRef.current) return; // IME 変換中は無視
-              if (e.key === 'Enter') labelEdit.confirm();
-              if (e.key === 'Escape') labelEdit.cancel();
-            }}
-            style={{
-              fontSize: 10,
-              padding: '1px 4px',
-              marginBottom: 4,
-              borderRadius: 3,
-              border: '1px solid #4f6ef7',
-              outline: 'none',
-              width: '60%',
-            }}
-          />
-        ) : (
-          (label || (selected && !labelLocked)) &&
-          // **編集できるかで要素そのものを変える。**変更できないラベルを button に
-          // すると、押せそうに見えて押せない要素になる (仕様 OnMutation)
-          (labelLocked ? (
-            <div data-node-label style={chipStyle(label, false)}>
-              {label}
-            </div>
-          ) : (
-            <button
-              type="button"
-              data-node-label
-              data-editable="true"
-              className="nodrag nopan"
-              // **クリック 1 回で編集に入る。**本文のダブルクリックと違い、これは
-              // 「ラベルを付ける」と書かれた明示的な口である。しかもラベルの無い node
-              // では**選択中しか出ない**ので、ダブルクリックの途中で選択が外れると
-              // 口ごと消えてしまう (実機で踏んだ)
-              onClick={(e) => {
-                e.stopPropagation();
-                labelEdit.startEdit();
-              }}
-              style={chipStyle(label, true)}
-            >
-              {label || 'ラベル'}
-            </button>
-          ))
-        )}
+        {label && labelSlot}
         {editing ? (
           <textarea
             // biome-ignore lint/a11y/noAutofocus: ノード編集開始時に即座に入力できるよう autoFocus が必要
@@ -322,22 +345,22 @@ export function EditableNode({ id, data, selected }: NodeProps) {
               if (e.key === 'Escape') cancel();
             }}
             style={{
-              fontSize: 12,
+              fontSize: font.body,
               padding: '2px 4px',
-              borderRadius: 3,
-              border: '1px solid #4f6ef7',
+              borderRadius: radius.sm,
+              border: `1px solid ${color.primary}`,
               outline: 'none',
               width: '100%',
               height: '100%',
               boxSizing: 'border-box',
               resize: 'none',
-              fontFamily: 'monospace',
+              fontFamily: monospace,
             }}
           />
         ) : (
           <div
             style={{
-              fontSize: 12,
+              fontSize: font.body,
               lineHeight: 1.6,
             }}
             className="markdown-body"
@@ -350,7 +373,9 @@ export function EditableNode({ id, data, selected }: NodeProps) {
                 {content}
               </ReactMarkdown>
             ) : (
-              <span style={{ color: '#aaa' }}>ダブルクリックで編集</span>
+              <span style={{ color: color.textMuted }}>
+                ダブルクリックで編集
+              </span>
             )}
           </div>
         )}

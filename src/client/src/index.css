@@ -1,8 +1,61 @@
+/*
+ * 見た目の体系の値 (deepse/architecture/step3/visual-language.md)。
+ * 部品は値ではなく役割 (この変数) を参照する — `theme.ts` から使う。
+ * ダークモードは同じ名前に値を足せばよい (今はライトだけ, 利用者 2026-10-09)
+ */
 :root {
-  font-family: system-ui, Helvetica, Arial, sans-serif;
+  /* §1.1 地と線と文字 */
+  --cs-bg: #ffffff;
+  --cs-bg-subtle: #f5f5f5;
+  --cs-bg-hover: #ebebeb;
+  --cs-bg-active: #e0e0e0;
+  --cs-border: #d4d4d4;
+  --cs-border-subtle: #ebebeb;
+  --cs-border-strong: #a3a3a3;
+  --cs-text: #213547;
+  --cs-text-muted: #666666;
+  --cs-text-disabled: #a3a3a3;
+  --cs-text-on-primary: #ffffff;
+
+  /* §1.2 アクセント */
+  --cs-primary: #3a5bd9;
+  --cs-primary-hover: #2f4bb8;
+  --cs-selection: #3a5bd9;
+  --cs-selection-bg: #eef2ff;
+  --cs-focus: #3a5bd9;
+
+  /* §1.3 差分と競合 (グラフの言語。ほかの用途に使わない) */
+  --cs-diff-add: #16a34a;
+  --cs-diff-add-bg: #f0fdf4;
+  --cs-diff-add-text: #15803d;
+  --cs-diff-update: #ea580c;
+  --cs-diff-update-bg: #fff7ed;
+  --cs-diff-update-text: #c2410c;
+  --cs-diff-delete: #a3a3a3;
+  --cs-conflict: #dc2626;
+  --cs-conflict-bg: #fef2f2;
+  --cs-conflict-text: #b91c1c;
+
+  /* §1.4 状態の知らせ */
+  --cs-danger: #dc2626;
+  --cs-danger-bg: #fef2f2;
+  --cs-danger-text: #b91c1c;
+  --cs-warning: #d97706;
+  --cs-warning-bg: #fffbeb;
+  --cs-warning-text: #b45309;
+  --cs-success-text: #15803d;
+
+  /* §3 影と幕 */
+  --cs-shadow-pop: 0 2px 8px rgba(0, 0, 0, 0.15);
+  --cs-shadow-dialog: 0 8px 24px rgba(0, 0, 0, 0.2);
+  --cs-overlay: rgba(0, 0, 0, 0.4);
+
+  /* §2 文字 */
+  font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+  font-size: 13px;
   line-height: 1.5;
-  color: #213547;
-  background-color: #ffffff;
+  color: var(--cs-text);
+  background-color: var(--cs-bg);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -17,22 +70,192 @@ body {
   min-height: 100vh;
 }
 
-/* グループへ追加しようとしているとき: 枠をオレンジに */
+/* group へ入れようとしているとき: 選択の色 (visual language §8.3) */
 .react-flow__node[data-drop-target="true"] > div {
-  border-color: #f97316 !important;
-  background: rgba(249, 115, 22, 0.08) !important;
-}
-.react-flow__node[data-drop-target="true"] > div > div:first-child {
-  background: rgba(249, 115, 22, 0.2) !important;
-  border-bottom-color: rgba(249, 115, 22, 0.6) !important;
+  border-color: var(--cs-selection) !important;
+  border-width: 2px !important;
+  background: var(--cs-selection-bg) !important;
 }
 
-/* グループから出そうとしているとき: 枠を赤に */
+/* group から出そうとしているとき: 灰の破線 (赤は破壊的と競合の色なので使わない, §8.3) */
 .react-flow__node[data-leaving-group="true"] > div {
-  border-color: #ef4444 !important;
-  background: rgba(239, 68, 68, 0.08) !important;
+  border-color: var(--cs-text-muted) !important;
+  border-style: dashed !important;
 }
-.react-flow__node[data-leaving-group="true"] > div > div:first-child {
-  background: rgba(239, 68, 68, 0.2) !important;
-  border-bottom-color: rgba(239, 68, 68, 0.6) !important;
+
+/* キーボードのフォーカスを見せる (visual language §5) */
+:focus-visible {
+  outline: 2px solid var(--cs-focus);
+  outline-offset: 2px;
+}
+
+/*
+ * ボタンは主・副・記号の 3 種類だけ (visual language §5)。
+ * hover・押下・無効は inline style で書けないのでここに置く。部品は `ui/Button.tsx` から使う
+ */
+.cs-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 28px;
+  padding: 0 10px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  background: none;
+  color: var(--cs-text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cs-btn:hover:not(:disabled) {
+  background: var(--cs-bg-hover);
+}
+.cs-btn:active:not(:disabled) {
+  background: var(--cs-bg-active);
+}
+.cs-btn:disabled {
+  color: var(--cs-text-disabled);
+  cursor: not-allowed;
+}
+.cs-btn[aria-pressed="true"],
+.cs-btn[aria-expanded="true"] {
+  background: var(--cs-selection-bg);
+  color: var(--cs-primary);
+}
+
+.cs-btn--primary {
+  background: var(--cs-primary);
+  color: var(--cs-text-on-primary);
+}
+.cs-btn--primary:hover:not(:disabled),
+.cs-btn--primary:active:not(:disabled) {
+  background: var(--cs-primary-hover);
+}
+.cs-btn--primary:disabled {
+  background: var(--cs-bg-hover);
+}
+
+.cs-btn--secondary {
+  border-color: var(--cs-border);
+  background: var(--cs-bg);
+}
+.cs-btn--secondary:disabled {
+  border-color: var(--cs-border-subtle);
+  background: none;
+}
+
+/* 破壊的: 枠と文字だけ。確かめのダイアログの中でだけ地を塗る (§5) */
+.cs-btn--danger {
+  border-color: var(--cs-danger);
+  color: var(--cs-danger-text);
+}
+.cs-btn--danger:hover:not(:disabled) {
+  background: var(--cs-danger-bg);
+}
+.cs-btn--danger-solid {
+  background: var(--cs-danger);
+  color: var(--cs-text-on-primary);
+}
+.cs-btn--danger-solid:hover:not(:disabled) {
+  background: var(--cs-danger-text);
+}
+
+/* 記号: アイコンだけ。押せる範囲は 28px 四方 (§9.2 の下限はタッチの端末で別に広げる) */
+.cs-btn--icon {
+  padding: 0;
+  width: 28px;
+  color: var(--cs-text-muted);
+}
+.cs-btn--icon.cs-btn--sm {
+  width: 22px;
+  min-height: 22px;
+}
+@media (pointer: coarse) {
+  .cs-btn {
+    min-height: 44px;
+  }
+  .cs-btn--icon,
+  .cs-btn--icon.cs-btn--sm {
+    width: 44px;
+    min-height: 44px;
+  }
+}
+
+/*
+ * タブ帯 (#277)。溢れても横のスクロールバーは出さない — 帯の高さを食い、名前の上に重なる。
+ * 横へは trackpad・Shift+ホイール・縦のホイール (TabBar が横へ読み替える) で送る
+ */
+.cs-tabbar {
+  scrollbar-width: none;
+}
+.cs-tabbar::-webkit-scrollbar {
+  display: none;
+}
+.cs-tab {
+  color: var(--cs-text-muted);
+}
+.cs-tab:hover {
+  background: var(--cs-bg-hover);
+}
+/* アクティブなタブ: 地をボディと同じ白にし、上に選択の色の帯を引く。文字も濃くする */
+.cs-tab[data-active="true"] {
+  background: var(--cs-bg);
+  color: var(--cs-text);
+  box-shadow: inset 0 2px 0 var(--cs-selection);
+}
+
+/*
+ * グラフの描き方 (visual language §8)
+ */
+
+/* §8.1 接続点は hover か選択のときだけ出す (#272)。ghost の接続点も座標のために残るが見せない */
+.react-flow__node .react-flow__handle {
+  width: 8px;
+  height: 8px;
+  background: var(--cs-bg);
+  border: 1px solid var(--cs-selection);
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+.react-flow__node:hover .react-flow__handle,
+.react-flow__node.selected .react-flow__handle,
+/* 接続をドラッグしている間は、すべての node の接続点を出す */
+.react-flow:has(.react-flow__connectionline) .react-flow__handle {
+  opacity: 1;
+}
+/* タッチの端末には hover が無い。選んだ node にだけ出す (上の .selected が受ける) */
+@media (hover: none) {
+  .react-flow__node:hover:not(.selected) .react-flow__handle {
+    opacity: 0;
+  }
+}
+.react-flow__node[data-id^="ghost-"] .react-flow__handle {
+  opacity: 0 !important;
+}
+
+/*
+ * §8.1 選択は外側の輪で示す。枠の太さを変えると中身がずれるので outline を使う。
+ * 差分の枠 (2px) と重なっても、差分の色を残したまま外側に出る
+ */
+.react-flow__node.selected [data-node-frame] {
+  outline: 2px solid var(--cs-selection);
+  outline-offset: 2px;
+}
+
+/* §8.2 edge: 線は補足の色、選択で選択の色 */
+.react-flow__edge-path {
+  stroke: var(--cs-text-muted);
+  stroke-width: 1.5;
+}
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: var(--cs-selection);
+  stroke-width: 2;
+}
+
+/* §8.5 キャンバスの格子 */
+.react-flow__background pattern circle {
+  fill: var(--cs-border);
 }

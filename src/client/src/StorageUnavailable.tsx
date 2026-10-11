@@ -1,3 +1,5 @@
+import { color, font } from './theme';
+
 /**
  * 保存領域が開けなかったときの画面 (step3 Phase 2 D5)
  *
@@ -19,12 +21,14 @@ export function StorageUnavailable({ reason }: { reason: string }) {
         lineHeight: 1.7,
       }}
     >
-      <h1 style={{ fontSize: 20 }}>{STORAGE_UNAVAILABLE_TITLE}</h1>
+      <h1 style={{ fontSize: font.title }}>{STORAGE_UNAVAILABLE_TITLE}</h1>
       <p>
         編集を保存する場所 (ブラウザの保存領域) を開けませんでした。
         プライベートブラウズの窓では保存できないことがあります。通常の窓で開き直してください。
       </p>
-      <p style={{ color: '#666', fontSize: 13 }}>理由: {reason}</p>
+      <p style={{ color: color.textMuted, fontSize: font.body }}>
+        理由: {reason}
+      </p>
     </main>
   );
 }
@@ -34,7 +38,12 @@ export function Starting() {
   return (
     <main
       role="status"
-      style={{ maxWidth: 560, margin: '80px auto', padding: 16, color: '#999' }}
+      style={{
+        maxWidth: 560,
+        margin: '80px auto',
+        padding: 16,
+        color: color.textMuted,
+      }}
     >
       起動中…
     </main>
@@ -56,7 +65,7 @@ export function Erased() {
         lineHeight: 1.7,
       }}
     >
-      <h1 style={{ fontSize: 20 }}>{ERASED_TITLE}</h1>
+      <h1 style={{ fontSize: font.title }}>{ERASED_TITLE}</h1>
       <p>このタブを閉じてください。</p>
     </main>
   );

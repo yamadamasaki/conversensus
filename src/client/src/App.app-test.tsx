@@ -43,6 +43,7 @@ import {
 } from './testing/appDriver';
 import { type AppWorld, createAppWorld } from './testing/appWorld';
 import type { FakeAccount } from './testing/fakePds';
+import { color } from './theme';
 
 const ALICE: FakeAccount = {
   did: 'did:plc:alice000000000000000000' as Did,
@@ -84,9 +85,9 @@ afterEach(async () => {
   await world.dispose();
 });
 
-/** 下部バーの「(N 変更)」 */
+/** ヘッダの未 commit の変更の数「N 変更」 (#276) */
 function pendingLabel(count: number): RegExp {
-  return new RegExp(`\\(${count} 変更\\)`);
+  return new RegExp(`^${count} 変更$`);
 }
 
 /** 端末を切り替えて App を描き、ログインした状態にする */
@@ -172,7 +173,7 @@ describe('App 結合: 受信した変更が画面まで届く (step2 T7-3 の実
   });
 });
 
-describe('App 結合: canvas の編集が「(N 変更)」に数えられる (step2 T7-7 の実機の失敗)', () => {
+describe('App 結合: canvas の編集が「N 変更」に数えられる (step2 T7-7 の実機の失敗)', () => {
   /** 1 端末・未ログインで File と branch を作り、その branch を開く */
   async function openFreshBranch() {
     await world.activate('solo');
@@ -206,7 +207,7 @@ describe('App 結合: canvas の編集が「(N 変更)」に数えられる (ste
     );
     await new Promise((resolve) => setTimeout(resolve, SETTLE_MS));
     expect(screen.queryByText(/変更\)/)).toBeNull();
-    expect(screen.getByRole('button', { name: 'コミット' })).toHaveProperty(
+    expect(screen.getByRole('button', { name: 'commit' })).toHaveProperty(
       'disabled',
       true,
     );
@@ -434,7 +435,7 @@ describe('App 結合: branch の出入りで trunk と branch が混ざらない
   test('branch を開いたままシートを足しても、branch の中身は trunk に移らない', async () => {
     const user = await branchWithOneNode();
 
-    await user.click(screen.getByText('+ シートを追加'));
+    await user.click(screen.getByText('+ Sheet を追加'));
     await screen.findByRole('button', { name: 'Sheet 2' }, WIRING_TIMEOUT);
     await waitFor(() => expect(renderedNodeCount()).toBe(0), WIRING_TIMEOUT);
 
@@ -557,7 +558,7 @@ describe('App 結合: タブ (step3 Phase 3 S3-3)', () => {
     await world.activate('solo');
     render(<App />);
     await waitFor(() => expect(renderedNodeCount()).toBe(2), WIRING_TIMEOUT);
-    await screen.findByRole('button', { name: 'コミット' }, WIRING_TIMEOUT);
+    await screen.findByRole('button', { name: 'commit' }, WIRING_TIMEOUT);
     expect(tabLabels()).toHaveLength(2);
   });
 
@@ -635,27 +636,31 @@ describe('App 結合: ヘッダ (step3 Phase 3 S3-4a)', () => {
 
   test('ヘッダの Undo で置いたノードが消え、Redo で戻る', async () => {
     const user = await soloFileWithOneNode();
-    await user.click(within(header()).getByRole('button', { name: 'Undo' }));
+    await user.click(
+      within(header()).getByRole('button', { name: '元に戻す' }),
+    );
     await waitFor(() => expect(renderedNodeCount()).toBe(0), WIRING_TIMEOUT);
-    await user.click(within(header()).getByRole('button', { name: 'Redo' }));
+    await user.click(
+      within(header()).getByRole('button', { name: 'やり直す' }),
+    );
     await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
   });
 
   test('🏷 を on にしてノードを選ぶと property editor が出て、足したプロパティが op-log に載る', async () => {
     const user = await soloFileWithOneNode();
-    await user.click(within(header()).getByTitle('プロパティ'));
+    await user.click(within(header()).getByTitle('property'));
     selectFirstNode();
     const editor = await screen.findByRole(
       'region',
-      { name: 'プロパティ' },
+      { name: 'property' },
       WIRING_TIMEOUT,
     );
     await user.type(
-      within(editor).getByLabelText('追加するプロパティの名前'),
+      within(editor).getByLabelText('追加する property の名前'),
       'owner',
     );
     await user.type(
-      within(editor).getByLabelText('追加するプロパティの値'),
+      within(editor).getByLabelText('追加する property の値'),
       'alice',
     );
     await user.click(within(editor).getByRole('button', { name: '追加' }));
@@ -669,9 +674,9 @@ describe('App 結合: ヘッダ (step3 Phase 3 S3-4a)', () => {
 
   test('検索の窓は、別の view (タブ) へ移ると閉じる', async () => {
     const user = await soloFileWithOneNode();
-    await user.click(screen.getByText('+ シートを追加'));
+    await user.click(screen.getByText('+ Sheet を追加'));
     await screen.findByRole('button', { name: 'Sheet 2' }, WIRING_TIMEOUT);
-    await user.click(within(header()).getByTitle('このシートを検索'));
+    await user.click(within(header()).getByTitle('この Sheet を検索'));
     await screen.findByRole('region', { name: '検索' });
 
     await user.click(
@@ -698,15 +703,15 @@ describe('App 結合: 右サイドバー (step3 Phase 3 S3-4b)', () => {
     selectFirstNode();
     const docked = await screen.findByRole(
       'region',
-      { name: '詳細のプロパティ' },
+      { name: '詳細の property' },
       WIRING_TIMEOUT,
     );
     await user.type(
-      within(docked).getByLabelText('追加するプロパティの名前'),
+      within(docked).getByLabelText('追加する property の名前'),
       'owner',
     );
     await user.type(
-      within(docked).getByLabelText('追加するプロパティの値'),
+      within(docked).getByLabelText('追加する property の値'),
       'alice',
     );
     await user.click(within(docked).getByRole('button', { name: '追加' }));
@@ -720,10 +725,10 @@ describe('App 結合: 右サイドバー (step3 Phase 3 S3-4b)', () => {
     // 併用: ボディ内の property editor も同じ選択の同じ値を出す
     await user.click(
       within(screen.getByRole('toolbar', { name: 'グラフの操作' })).getByTitle(
-        'プロパティ',
+        'property',
       ),
     );
-    const floating = await screen.findByRole('region', { name: 'プロパティ' });
+    const floating = await screen.findByRole('region', { name: 'property' });
     await waitFor(
       () =>
         expect(within(floating).getByLabelText('owner の値')).toHaveProperty(
@@ -790,7 +795,7 @@ describe('App 結合: 別のタブで開く明示の操作 (step3 Phase 3 S3-4c)
         ).toHaveLength(2),
       WIRING_TIMEOUT,
     );
-    await screen.findByRole('button', { name: 'コミット' }, WIRING_TIMEOUT);
+    await screen.findByRole('button', { name: 'commit' }, WIRING_TIMEOUT);
   });
 });
 
@@ -838,7 +843,7 @@ describe('App 結合: multiple モード (step3 Phase 3 S3-5)', () => {
       expect(nodesInPane(TRUNK_LABEL)).toBe(1);
     }, WIRING_TIMEOUT);
     // ヘッダの branch の操作は、アクティブな pane (b1) を対象にしている
-    expect(screen.getByRole('button', { name: 'コミット' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'commit' })).toBeTruthy();
   });
 
   test('アクティブな pane で merge すると、並べた trunk の pane が読み直して merge 後の姿になる', async () => {
@@ -866,9 +871,9 @@ describe('App 結合: multiple モード (step3 Phase 3 S3-5)', () => {
     // 画面の仕組みが trunk へ移る: branch の操作がヘッダから消え、b1 は見るだけになる
     await waitFor(
       () =>
-        expect(
-          screen.queryByRole('button', { name: 'コミット' }) === null,
-        ).toBe(true),
+        expect(screen.queryByRole('button', { name: 'commit' }) === null).toBe(
+          true,
+        ),
       WIRING_TIMEOUT,
     );
     await waitFor(() => {
@@ -915,7 +920,7 @@ describe('App 結合: template graph (step3 Phase 4 S4-1b)', () => {
 
     // template graph を作る。branch は切れない (「+ branch」が出ない)
     await user.click(
-      screen.getByRole('button', { name: 'template 付きでシートを追加' }),
+      screen.getByRole('button', { name: 'template 付きで Sheet を追加' }),
     );
     await user.click(screen.getByRole('button', { name: '+ template graph' }));
     await screen.findByTitle('template graph', {}, WIRING_TIMEOUT);
@@ -952,11 +957,11 @@ describe('App 結合: template graph (step3 Phase 4 S4-1b)', () => {
     await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
 
     // 当ててシートを足す (Q7: チェックボックスのダイアログ)
-    await user.click(screen.getByText('+ シートを追加'));
-    const dialog = await screen.findByRole('dialog', { name: 'シートを追加' });
+    await user.click(screen.getByText('+ Sheet を追加'));
+    const dialog = await screen.findByRole('dialog', { name: 'Sheet を追加' });
     await user.click(within(dialog).getByRole('checkbox'));
     await user.click(
-      within(dialog).getByRole('button', { name: 'シートを追加' }),
+      within(dialog).getByRole('button', { name: 'Sheet を追加' }),
     );
     await waitFor(() => expect(renderedNodeCount()).toBe(0), WIRING_TIMEOUT);
 
@@ -982,7 +987,7 @@ describe('App 結合: template graph (step3 Phase 4 S4-1b)', () => {
     await createFile(user, FILE_NAME);
 
     await user.click(
-      screen.getByRole('button', { name: 'template 付きでシートを追加' }),
+      screen.getByRole('button', { name: 'template 付きで Sheet を追加' }),
     );
     await user.click(
       screen.getByRole('button', { name: '+ Toulmin model を追加' }),
@@ -991,13 +996,13 @@ describe('App 結合: template graph (step3 Phase 4 S4-1b)', () => {
     await waitFor(() => expect(renderedNodeCount()).toBe(5), WIRING_TIMEOUT);
     await screen.findByTitle('template graph', {}, WIRING_TIMEOUT);
 
-    await user.click(screen.getByText('+ シートを追加'));
-    const dialog = await screen.findByRole('dialog', { name: 'シートを追加' });
+    await user.click(screen.getByText('+ Sheet を追加'));
+    const dialog = await screen.findByRole('dialog', { name: 'Sheet を追加' });
     await user.click(
       within(dialog).getByRole('checkbox', { name: 'Toulmin model' }),
     );
     await user.click(
-      within(dialog).getByRole('button', { name: 'シートを追加' }),
+      within(dialog).getByRole('button', { name: 'Sheet を追加' }),
     );
     await waitFor(() => expect(renderedNodeCount()).toBe(0), WIRING_TIMEOUT);
 
@@ -1083,7 +1088,7 @@ describe('App 結合: metagraph (step3 Phase 4 S4-2b)', () => {
 
     fireEvent.click(graphNode('Sheet 2'));
     fireEvent.keyDown(window, { key: 'Delete' });
-    await user.click(await screen.findByRole('button', { name: 'OK' }));
+    await user.click(await screen.findByRole('button', { name: '削除' }));
     await waitFor(
       () => expect(sheetNames()).not.toContain('Sheet 2'),
       WIRING_TIMEOUT,
@@ -1165,7 +1170,7 @@ describe('App 結合: merger (step3 Phase 5 S5-1a)', () => {
   const TRUNK_TAB = `${FILE_NAME} / Sheet 1`;
   const BRANCH_TAB = `${TRUNK_TAB} (⎇ ${BRANCH_NAME})`;
 
-  /** 同じ node の本文を branch (コミット済み) と trunk で書き換え、branch から merge ↑ を押す */
+  /** 同じ node の本文を branch (コミット済み) と trunk で書き換え、branch から merge を押す */
   async function conflictingMerge() {
     await world.activate('solo');
     render(<App />);
@@ -1193,8 +1198,8 @@ describe('App 結合: merger (step3 Phase 5 S5-1a)', () => {
     await waitFor(() => expect(renderedNodeCount()).toBe(2), WIRING_TIMEOUT);
 
     await user.click(screen.getByRole('tab', { name: BRANCH_TAB }));
-    await screen.findByRole('button', { name: 'コミット' }, WIRING_TIMEOUT);
-    const mergeButton = screen.getByRole('button', { name: 'merge ↑' });
+    await screen.findByRole('button', { name: 'commit' }, WIRING_TIMEOUT);
+    const mergeButton = screen.getByRole('button', { name: 'merge' });
     await waitFor(
       () => expect(mergeButton).toHaveProperty('disabled', false),
       WIRING_TIMEOUT,
@@ -1316,10 +1321,10 @@ describe('App 結合: merger (step3 Phase 5 S5-1a)', () => {
     async () => {
       await conflictingMerge();
       await waitFor(() => {
-        expect(nodeIn('merge 元', 'branch 案').style.outline).toContain(
+        expect(nodeIn('merge 元', 'branch 案').style.outlineStyle).toBe(
           'dashed',
         );
-        expect(nodeIn('merge 先', 'trunk 案').style.outline).toContain(
+        expect(nodeIn('merge 先', 'trunk 案').style.outlineStyle).toBe(
           'dashed',
         );
       }, WIRING_TIMEOUT);
@@ -1329,7 +1334,7 @@ describe('App 結合: merger (step3 Phase 5 S5-1a)', () => {
         ...target.querySelectorAll('.react-flow__node [data-node-body]'),
       ]
         .map((b) => (b as HTMLElement).style.background)
-        .filter((bg) => bg.includes('240, 253, 244') || bg.includes('f0fdf4'));
+        .filter((bg) => bg === color.diffAddBg);
       expect(added).toHaveLength(1);
     },
     MERGER_TEST_MS,
@@ -1377,7 +1382,7 @@ describe('App 結合: merger (step3 Phase 5 S5-1a)', () => {
       await user.click(
         within(screen.getByRole('toolbar', { name: 'グラフの操作' })).getByRole(
           'button',
-          { name: 'Undo' },
+          { name: '元に戻す' },
         ),
       );
       await waitFor(
@@ -1455,7 +1460,7 @@ describe('App 結合: merger (step3 Phase 5 S5-1a)', () => {
   );
 
   test(
-    'implicit merge が保留した競合 (fork) を merge ↑ すると merger が開き、凍結した競合を決めて trunk に載せる (S5-3)',
+    'implicit merge が保留した競合 (fork) を merge すると merger が開き、凍結した競合を決めて trunk に載せる (S5-3)',
     async () => {
       const { code } = await aliceSharesFileWithBob();
       let user = await startOn('alice', ALICE);
@@ -1497,7 +1502,7 @@ describe('App 結合: merger (step3 Phase 5 S5-1a)', () => {
       await screen.findByText(/件を保留として記録しました/, {}, WIRING_TIMEOUT);
       // fork の名前は対象の分岐点 (検出時点の手元) での本文から付く
       await openBranch(user, '競合: .+ の内容');
-      await user.click(screen.getByRole('button', { name: 'merge ↑' }));
+      await user.click(screen.getByRole('button', { name: 'merge' }));
 
       // 確認のダイアログではなく merger が開き、fork に凍結した競合が conflict list に出る
       const list = await screen.findByRole(
@@ -2074,4 +2079,43 @@ describe('App 結合: 壊れた batch (security review M1)', () => {
     },
     MERGER_TEST_MS * 2,
   );
+});
+
+describe('App 結合: 空の状態 (visual language §9.1, #279)', () => {
+  test('File が 1 つも無ければそう言い、「File を作る」から空の Sheet の案内まで進める', async () => {
+    const user = await startOn('alice', ALICE);
+    const empty = await screen.findByRole(
+      'region',
+      { name: 'File がありません' },
+      WIRING_TIMEOUT,
+    );
+    // ログインしていれば参加の口も出る
+    expect(
+      within(empty).getByRole('button', { name: '参加コードで参加する' }),
+    ).toBeTruthy();
+
+    await user.click(
+      within(empty).getByRole('button', { name: 'File を作る' }),
+    );
+    // 名前を入れずに作れば「無題」になる (サイドバーの「+」と同じ)
+    await screen.findByText('無題', {}, WIRING_TIMEOUT);
+    expect(
+      await screen.findByText(
+        'ダブルクリックで node を作る',
+        {},
+        WIRING_TIMEOUT,
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole('region', { name: 'File がありません' }),
+    ).toBeNull();
+
+    // node が 1 つでもできれば案内は消える
+    await addNode(user);
+    await waitFor(
+      () =>
+        expect(screen.queryByText('ダブルクリックで node を作る')).toBeNull(),
+      WIRING_TIMEOUT,
+    );
+  });
 });

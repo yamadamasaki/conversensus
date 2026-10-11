@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { DIALOG_WIDTH, DIALOG_Z_INDEX } from './ConfirmDialog';
+import { color, font, monospace, radius, space } from './theme';
+import { Button } from './ui/Button';
+import { Dialog, DialogActions } from './ui/Dialog';
 
 /**
  * 参加コードの入力ダイアログ (step2 Phase 1)
@@ -41,80 +43,47 @@ export function ParticipateDialog({
   };
 
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: モーダル背景のクリック閉じ
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(0,0,0,0.4)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: DIALOG_Z_INDEX,
-      }}
-      onClick={onCancel}
-      onKeyDown={(e) => {
-        if (e.key === 'Escape') onCancel();
-      }}
+    <Dialog
+      kind="input"
+      label="共同作業に参加"
+      title="参加コードを入力"
+      onDismiss={onCancel}
     >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="共同作業に参加"
+      <p style={{ margin: `0 0 ${space[3]}px`, color: color.textMuted }}>
+        受け取った参加コードを貼り付けてください。
+      </p>
+      <textarea
+        ref={inputRef}
+        value={code}
+        aria-label="参加コード"
+        disabled={busy}
+        rows={4}
+        onChange={(e) => setCode(e.target.value)}
         style={{
-          background: '#fff',
-          borderRadius: 8,
-          padding: 24,
-          width: DIALOG_WIDTH,
-          maxWidth: '90vw',
+          width: '100%',
+          boxSizing: 'border-box',
+          padding: space[2],
+          fontSize: font.body,
+          fontFamily: monospace,
+          borderRadius: radius.sm,
+          border: `1px solid ${color.border}`,
+          resize: 'vertical',
         }}
-        onClick={(e) => e.stopPropagation()}
-        onKeyDown={(e) => e.stopPropagation()}
-      >
-        <h2 style={{ margin: '0 0 12px', fontSize: 16 }}>参加コードを入力</h2>
-        <p style={{ margin: '0 0 12px', fontSize: 12, color: '#666' }}>
-          受け取った参加コードを貼り付けてほしい。
-        </p>
-        <textarea
-          ref={inputRef}
-          value={code}
-          aria-label="参加コード"
-          disabled={busy}
-          rows={4}
-          onChange={(e) => setCode(e.target.value)}
-          style={{
-            width: '100%',
-            boxSizing: 'border-box',
-            padding: 6,
-            fontSize: 12,
-            fontFamily: 'monospace',
-            resize: 'vertical',
-          }}
-        />
-        {error && (
-          <p
-            role="alert"
-            style={{ margin: '8px 0 0', fontSize: 12, color: '#c00' }}
-          >
-            {error}
-          </p>
-        )}
-        <div
-          style={{
-            marginTop: 16,
-            display: 'flex',
-            gap: 8,
-            justifyContent: 'flex-end',
-          }}
+      />
+      {error && (
+        <p
+          role="alert"
+          style={{ margin: `${space[2]}px 0 0`, color: color.dangerText }}
         >
-          <button type="button" onClick={onCancel}>
-            キャンセル
-          </button>
-          <button type="button" disabled={busy} onClick={submit}>
-            OK
-          </button>
-        </div>
-      </div>
-    </div>
+          {error}
+        </p>
+      )}
+      <DialogActions>
+        <Button onClick={onCancel}>キャンセル</Button>
+        <Button variant="primary" disabled={busy} onClick={submit}>
+          OK
+        </Button>
+      </DialogActions>
+    </Dialog>
   );
 }

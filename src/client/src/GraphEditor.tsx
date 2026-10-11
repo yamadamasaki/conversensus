@@ -34,6 +34,7 @@ import {
   useReactFlow,
 } from '@xyflow/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { color, font, radius, space } from './theme';
 import '@xyflow/react/dist/style.css';
 import type { FileId, Sheet } from '@conversensus/shared';
 import { AlertDialog } from './AlertDialog';
@@ -69,7 +70,12 @@ import {
 import { useClipboard } from './hooks/useClipboard';
 import { useEdgeContextMenu } from './hooks/useEdgeContextMenu';
 import { type UndoState, useEventStore } from './hooks/useEventStore';
-import { useGroupNodes } from './hooks/useGroupNodes';
+import { useFitOnResize } from './hooks/useFitOnResize';
+import {
+  type GroupAbility,
+  groupAbilityOf,
+  useGroupNodes,
+} from './hooks/useGroupNodes';
 import { useImageIntake } from './hooks/useImageIntake';
 import { useNodeDragTracking } from './hooks/useNodeDragTracking';
 import { useNodeTypeMenu } from './hooks/useNodeTypeMenu';
@@ -142,6 +148,8 @@ type Props = {
    * 呼ぶ。選択の正は React Flow にあり、これは写しである (設計 S3-4 の U1)
    */
   onSelectionChange?: (target: PropertyTarget | undefined) => void;
+  /** ヘッダの「group にまとめる / 解く」を押せるか (#269)。変わったときだけ知らせる */
+  onGroupAbilityChange?: (ability: GroupAbility) => void;
 };
 
 function GraphEditorInner({
@@ -166,9 +174,12 @@ function GraphEditorInner({
   graphNodes,
   onControls,
   onSelectionChange,
+  onGroupAbilityChange,
 }: Props) {
-  const { screenToFlowPosition, getNodes, getEdges, setCenter } =
+  const { screenToFlowPosition, getNodes, getEdges, setCenter, fitView } =
     useReactFlow();
+  // キャンバスの大きさが変わったら表示を合わせ直す。自分で動かした後は動かさない (#257)
+  const fitOnResize = useFitOnResize(fitView);
   // 再参加した後、同期が済むまでは編集させない (step2 Phase 2 S6)。
   // **props ではなく context で受ける** — 途中の層はこの値に用が無い
   const readOnly = useReadOnly();
@@ -240,7 +251,7 @@ function GraphEditorInner({
         kind: 'node',
         id: node.id,
         // **id をそのまま出さない** — UUID は人に読めない。本文か種別で呼ぶ
-        title: String(node.data?.content || node.data?.label || 'ノード'),
+        title: String(node.data?.content || node.data?.label || 'node'),
         properties: node.data?.properties as
           | Record<string, unknown>
           | undefined,
@@ -272,6 +283,12 @@ function GraphEditorInner({
     selectionKeyRef.current = key;
     onSelectionChange?.(propertyTarget);
   }, [propertyTarget, onSelectionChange]);
+
+  const groupAbility = useMemo(() => groupAbilityOf(nodes), [nodes]);
+  const { canGroup, canUngroup } = groupAbility;
+  useEffect(() => {
+    onGroupAbilityChange?.({ canGroup, canUngroup });
+  }, [canGroup, canUngroup, onGroupAbilityChange]);
 
   // 結果の 1 件をグラフで示す (仕様「ダブル・クリックにより, グラフ内で対象を
   // ハイライト表示」)。**React Flow の選択に寄せる** — 差分の色 (diffType の緑/橙) と
@@ -366,7 +383,7 @@ function GraphEditorInner({
           ...e,
           style: dt
             ? {
-                stroke: dt === 'add' ? '#16a34a' : '#f97316',
+                stroke: dt === 'add' ? color.diffAdd : color.diffUpdate,
                 strokeWidth: 3,
               }
             : undefined,
@@ -889,6 +906,7 @@ function GraphEditorInner({
           <GraphNodeProvider value={graphNodeHandlers}>
             {/* biome-ignore lint/a11y/noStaticElementInteractions: drop target wrapper */}
             <div
+              ref={fitOnResize.containerRef}
               style={{ width: '100%', height: '100%' }}
               onDragOver={handleDragOver}
               onDrop={handleDrop}
@@ -916,6 +934,7 @@ function GraphEditorInner({
                 nodesConnectable={!readOnly}
                 edgesReconnectable={!readOnly}
                 onPaneClick={onPaneClick}
+                onMoveStart={fitOnResize.onMoveStart}
                 onEdgeContextMenu={onEdgeContextMenu}
                 zoomOnDoubleClick={false}
                 deleteKeyCode={null}
@@ -927,17 +946,27 @@ function GraphEditorInner({
                     <div
                       role="status"
                       style={{
-                        background: '#fdf3d0',
-                        border: '1px solid #e6d28a',
-                        color: '#8a6d1f',
-                        borderRadius: 4,
+                        background: color.warningBg,
+                        border: `1px solid ${color.warning}`,
+                        color: color.warningText,
+                        borderRadius: radius.sm,
                         padding: '4px 10px',
-                        fontSize: 12,
+                        fontSize: font.body,
                       }}
                     >
                       参加していなかった間の編集を取り込んでいます。終わるまで読み取り専用です
                     </div>
                   </Panel>
+                )}
+                {nodes.length === 0 && !readOnly && (
+                  // 空の Sheet (visual language §9.1, #279): 何をすれば node ができるかを言う。
+                  // 押す操作を邪魔しないよう、ポインタは下の pane へ通す
+                  <div aria-live="polite" style={EMPTY_SHEET_HINT}>
+                    <p style={{ margin: 0 }}>ダブルクリックで node を作る</p>
+                    <p style={{ margin: 0, fontSize: font.caption }}>
+                      画像をドロップしても置けます
+                    </p>
+                  </div>
                 )}
                 <Background />
                 <Controls />
@@ -992,6 +1021,21 @@ function GraphEditorInner({
     </EventDispatchContext.Provider>
   );
 }
+
+/** 空の Sheet の案内。グラフの中央に置き、ポインタは下の pane へ通す */
+const EMPTY_SHEET_HINT = {
+  position: 'absolute',
+  inset: 0,
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: space[1],
+  color: color.textMuted,
+  fontSize: font.body,
+  pointerEvents: 'none',
+  zIndex: 1,
+} as const;
 
 export function GraphEditor(props: Props) {
   return (

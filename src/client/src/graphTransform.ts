@@ -8,6 +8,7 @@ import type {
   NodeLayout,
 } from '@conversensus/shared';
 import { type Edge, MarkerType, type Node } from '@xyflow/react';
+import { color } from './theme';
 
 export const DEFAULT_NODE_STYLE = { width: 160, height: 80 };
 export const GROUP_PADDING = 20;
@@ -129,7 +130,7 @@ export function toFlowEdges(
       markerEnd: { type: MarkerType.ArrowClosed },
       style: diffType
         ? {
-            stroke: diffType === 'add' ? '#16a34a' : '#f97316',
+            stroke: diffType === 'add' ? color.diffAdd : color.diffUpdate,
             strokeWidth: 3,
           }
         : undefined,
@@ -443,7 +444,7 @@ export function toFlowAndGhostEdges(
     data: { ...e.data, ghost: true },
     style: {
       ...e.style,
-      stroke: '#aaa',
+      stroke: color.borderStrong,
       strokeDasharray: '5 5',
       opacity: GHOST_OPACITY,
     },

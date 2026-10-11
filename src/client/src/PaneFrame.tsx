@@ -1,3 +1,6 @@
+import { X } from 'lucide-react';
+import { color, font } from './theme';
+import { Button, IconButton } from './ui/Button';
 /**
  * multiple モードの pane 1 つの枠 (step3 Phase 3 S3-5)。名前・前に出す・閉じるを持つ帯と、中身。
  *
@@ -6,8 +9,8 @@
 
 import type { ReactNode } from 'react';
 
-const ACTIVE_BORDER = '#7c9ef8';
-const PASSIVE_BORDER = '#ddd';
+const ACTIVE_BORDER = color.selection;
+const PASSIVE_BORDER = color.border;
 
 type Props = {
   label: string;
@@ -44,8 +47,8 @@ export function PaneFrame({
           alignItems: 'center',
           gap: 4,
           padding: '2px 6px',
-          fontSize: 12,
-          background: active ? '#eef2fe' : '#f5f5f5',
+          fontSize: font.body,
+          background: active ? color.selectionBg : color.bgSubtle,
         }}
       >
         <span
@@ -61,19 +64,17 @@ export function PaneFrame({
         </span>
         {/* 見るだけの pane を編集するには前に出す。押すと画面の仕組みがこの pane のアドレスへ移る */}
         {!active && onActivate && (
-          <button type="button" onClick={onActivate} style={BUTTON}>
+          <Button className="cs-btn--sm" onClick={onActivate}>
             前に出す
-          </button>
+          </Button>
         )}
         {onClose && (
-          <button
-            type="button"
-            aria-label={`${label} の pane を閉じる`}
+          <IconButton
+            icon={X}
+            small
+            label={`${label} の pane を閉じる`}
             onClick={onClose}
-            style={BUTTON}
-          >
-            ×
-          </button>
+          />
         )}
       </div>
       <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
@@ -82,12 +83,3 @@ export function PaneFrame({
     </section>
   );
 }
-
-const BUTTON = {
-  background: 'none',
-  border: '1px solid #ccc',
-  borderRadius: 4,
-  cursor: 'pointer',
-  fontSize: 11,
-  padding: '0 6px',
-} as const;

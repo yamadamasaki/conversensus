@@ -16,7 +16,7 @@ const SETTLE_TIMEOUT_MS = 15_000;
 async function openUnderServiceWorker(page: Page) {
   await page.goto(PREVIEW_URL);
   await page
-    .getByPlaceholder('ファイル名')
+    .getByPlaceholder('新しい File の名前')
     .waitFor({ timeout: SETTLE_TIMEOUT_MS });
   await page.evaluate(async () => {
     await navigator.serviceWorker.ready;
@@ -25,8 +25,8 @@ async function openUnderServiceWorker(page: Page) {
 }
 
 async function createFile(page: Page, fileName: string) {
-  await page.getByPlaceholder('ファイル名').fill(fileName);
-  await page.getByPlaceholder('ファイル名').press('Enter');
+  await page.getByPlaceholder('新しい File の名前').fill(fileName);
+  await page.getByPlaceholder('新しい File の名前').press('Enter');
   await expect(
     page.getByRole('button', { name: fileName, exact: true }),
   ).toBeVisible({ timeout: SETTLE_TIMEOUT_MS });

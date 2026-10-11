@@ -2,9 +2,9 @@ import { describe, expect, test } from 'bun:test';
 import fc from 'fast-check';
 import type { Sheet, SheetId } from '../schemas';
 import { templateFromSheet, templateIdOf } from './fromSheet';
-import { SEED_TEMPLATES } from './registry';
+import { SEED_PLACEMENTS, SEED_TEMPLATES } from './registry';
 import { templateGraphOf } from './seed';
-import { TOULMIN_TEMPLATE } from './toulmin';
+import { TOULMIN_PLACEMENT, TOULMIN_TEMPLATE } from './toulmin';
 import { ANY_NODE_KIND, type Template, TemplateSchema } from './types';
 
 const SHEET = '00000000-0000-4000-8000-0000000000a1' as SheetId;
@@ -127,9 +127,65 @@ describe('templateGraphOf: 例', () => {
 
   test('すべての種は schema を通る template graph になる (置き場所は重ならない)', () => {
     for (const seed of SEED_TEMPLATES) {
-      const { layouts } = templateGraphOf(seed, idSource());
+      const { layouts } = templateGraphOf(
+        seed,
+        idSource(),
+        SEED_PLACEMENTS[seed.id],
+      );
       const spots = new Set(layouts.map((l) => `${l.x},${l.y}`));
       expect(spots.size).toBe(layouts.length);
+    }
+  });
+});
+
+/** node の既定の大きさ (`seed.ts` の格子と同じ前提) */
+const NODE_W = 160;
+const NODE_H = 80;
+/** edge の label どうしが離れているべき距離 (#256) */
+const LABEL_MIN_DISTANCE = 120;
+
+describe('templateGraphOf: 並べ方 (#256)', () => {
+  test('並べ方を渡すと、その種類の node はそこに置かれる', () => {
+    const { nodes, layouts } = templateGraphOf(
+      TOULMIN_TEMPLATE,
+      idSource(),
+      TOULMIN_PLACEMENT,
+    );
+    const claim = nodes.find((n) => n.label === '主張');
+    expect(layouts.find((l) => l.nodeId === claim?.id)).toMatchObject(
+      TOULMIN_PLACEMENT.claim ?? {},
+    );
+  });
+
+  test('Toulmin の edge の中点どうしは離れていて、node の中に入らない', () => {
+    const { edges, layouts } = templateGraphOf(
+      TOULMIN_TEMPLATE,
+      idSource(),
+      TOULMIN_PLACEMENT,
+    );
+    const at = new Map(layouts.map((l) => [l.nodeId as string, l]));
+    const center = (id: string) => {
+      const l = at.get(id);
+      if (!l) throw new Error(`layout が無い: ${id}`);
+      return { x: (l.x ?? 0) + NODE_W / 2, y: (l.y ?? 0) + NODE_H / 2 };
+    };
+    // label は edge のおよそ中点に出る。中心どうしの中点で近似する
+    const mids = edges.map((e) => {
+      const s = center(e.source);
+      const t = center(e.target);
+      return { x: (s.x + t.x) / 2, y: (s.y + t.y) / 2 };
+    });
+    for (const [i, a] of mids.entries()) {
+      for (const b of mids.slice(i + 1)) {
+        expect(Math.hypot(a.x - b.x, a.y - b.y)).toBeGreaterThanOrEqual(
+          LABEL_MIN_DISTANCE,
+        );
+      }
+      for (const { x = 0, y = 0 } of layouts) {
+        const inside =
+          a.x > x && a.x < x + NODE_W && a.y > y && a.y < y + NODE_H;
+        expect(inside).toBe(false);
+      }
     }
   });
 });

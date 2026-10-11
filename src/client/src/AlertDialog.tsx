@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
-import { DIALOG_WIDTH, DIALOG_Z_INDEX } from './ConfirmDialog';
+import { Button } from './ui/Button';
+import { Dialog, DialogActions } from './ui/Dialog';
 
 type Props = {
   message: string;
@@ -7,81 +8,23 @@ type Props = {
   closeLabel?: string;
 };
 
+/** 知らせの型 (visual language §6.1)。Esc・Enter・「OK」・外側のクリックで閉じる */
 export function AlertDialog({ message, onClose, closeLabel = 'OK' }: Props) {
   const closeRef = useRef<HTMLButtonElement>(null);
 
+  // 「OK」にフォーカスを置くので、Enter で閉じる
   useEffect(() => {
     closeRef.current?.focus();
   }, []);
 
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: モーダル背景のクリック閉じ
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(0,0,0,0.4)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: DIALOG_Z_INDEX,
-      }}
-      onClick={onClose}
-      onKeyDown={(e) => {
-        if (e.key === 'Escape') onClose();
-      }}
-    >
-      <div
-        role="alertdialog"
-        aria-modal="true"
-        aria-label="通知"
-        style={{
-          background: '#fff',
-          borderRadius: 8,
-          padding: 24,
-          width: DIALOG_WIDTH,
-          maxWidth: '90vw',
-          boxShadow: '0 4px 24px rgba(0,0,0,0.2)',
-        }}
-        onClick={(e) => e.stopPropagation()}
-        onKeyDown={(e) => {
-          if (e.key === 'Escape') onClose();
-        }}
-      >
-        <p
-          style={{
-            margin: '0 0 20px',
-            fontSize: 14,
-            lineHeight: 1.6,
-            whiteSpace: 'pre-wrap',
-          }}
-        >
-          {message}
-        </p>
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'flex-end',
-          }}
-        >
-          <button
-            type="button"
-            ref={closeRef}
-            onClick={onClose}
-            style={{
-              padding: '6px 16px',
-              fontSize: 13,
-              cursor: 'pointer',
-              background: '#4f6ef7',
-              color: '#fff',
-              border: 'none',
-              borderRadius: 4,
-            }}
-          >
-            {closeLabel}
-          </button>
-        </div>
-      </div>
-    </div>
+    <Dialog kind="alert" label="通知" onDismiss={onClose}>
+      <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{message}</p>
+      <DialogActions>
+        <Button ref={closeRef} variant="primary" onClick={onClose}>
+          {closeLabel}
+        </Button>
+      </DialogActions>
+    </Dialog>
   );
 }

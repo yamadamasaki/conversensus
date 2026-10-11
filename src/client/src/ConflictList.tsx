@@ -1,3 +1,4 @@
+import { color, font, radius } from './theme';
 /**
  * conflict list (step3 Phase 5, 仕様 merger)
  *
@@ -48,8 +49,8 @@ export function describeSide(op: Op): string {
     case 'node.setProperty':
     case 'edge.setProperty':
       return op.value === undefined
-        ? `プロパティ ${op.name} を消す`
-        : `プロパティ ${op.name} = ${JSON.stringify(op.value)}`;
+        ? `property ${op.name} を消す`
+        : `property ${op.name} = ${JSON.stringify(op.value)}`;
     case 'node.remove':
     case 'edge.remove':
       return '削除';
@@ -83,12 +84,12 @@ export function ConflictList({
         display: 'flex',
         flexDirection: 'column',
         height: '100%',
-        fontSize: 12,
+        fontSize: font.body,
         padding: 8,
         boxSizing: 'border-box',
       }}
     >
-      <h3 style={{ margin: '0 0 6px', fontSize: 13 }}>
+      <h3 style={{ margin: '0 0 6px', fontSize: font.body }}>
         conflict list ({resolved} / {conflicts.length})
       </h3>
       <ul
@@ -104,12 +105,15 @@ export function ConflictList({
           const key = mergerCheckKey(c);
           const what = labelOf(c.target) || '(名前のない要素)';
           const about = c.propertyName
-            ? ` のプロパティ「${c.propertyName}」`
+            ? ` の property「${c.propertyName}」`
             : '';
           return (
             <li
               key={key}
-              style={{ borderBottom: '1px solid #eee', padding: '4px 0' }}
+              style={{
+                borderBottom: `1px solid ${color.borderSubtle}`,
+                padding: '4px 0',
+              }}
             >
               <label
                 style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}
@@ -139,7 +143,7 @@ export function ConflictList({
         value={comment}
         onChange={(e) => setComment(e.target.value)}
         rows={3}
-        style={{ marginTop: 6, fontSize: 12, resize: 'vertical' }}
+        style={{ marginTop: 6, fontSize: font.body, resize: 'vertical' }}
       />
       <button
         type="button"
@@ -149,10 +153,10 @@ export function ConflictList({
           marginTop: 6,
           alignSelf: 'flex-end',
           padding: '4px 16px',
-          background: canMerge ? '#f97316' : '#ccc',
-          color: '#fff',
+          background: canMerge ? color.primary : color.border,
+          color: color.textOnPrimary,
           border: 'none',
-          borderRadius: 12,
+          borderRadius: radius.md,
           cursor: canMerge ? 'pointer' : 'not-allowed',
         }}
       >

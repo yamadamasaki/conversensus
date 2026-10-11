@@ -64,6 +64,10 @@ import {
 export type ConfirmState = {
   message: string;
   resolve: (ok: boolean) => void;
+  /** 主のボタンの言葉。動詞で、何が起きるかを書く (visual language §6.2)。省くと「OK」 */
+  confirmLabel?: string;
+  /** 取り消せない破壊的な操作 */
+  danger?: boolean;
 };
 
 export type AlertState = {
@@ -178,6 +182,11 @@ export function useFileSheetOperations({
   accountLabel,
 }: UseFileSheetOperationsParams) {
   const [files, setFiles] = useState<GraphFileListItem[]>([]);
+  /**
+   * 一覧を 1 度読み終えたか。読む前の空と「File が 1 つも無い」を分ける —
+   * 分けないと、起動の一瞬に「File がありません」が出る (空の状態, visual language §9.1)
+   */
+  const [filesLoaded, setFilesLoaded] = useState(false);
   const [activeFile, setActiveFile] = useState<GraphFile | null>(null);
   const [activeSheetId, setActiveSheetId] = useState<SheetId | null>(null);
   const [expandedFileIds, setExpandedFileIds] = useState<Set<string>>(
@@ -569,7 +578,7 @@ export function useFileSheetOperations({
         if (!quiet) {
           await new Promise<void>((resolve) => {
             setAlertState({
-              message: 'ファイルを開けませんでした。',
+              message: 'File を開けませんでした。',
               resolve,
             });
           });
@@ -707,8 +716,10 @@ export function useFileSheetOperations({
       if (target) {
         const ok = await new Promise<boolean>((resolve) => {
           setConfirmState({
-            message: `「${target.name}」を削除しますか？\nシートも全て削除されます。`,
+            message: `File「${target.name}」を削除しますか？\nSheet もすべて削除され、取り消せません。`,
             resolve,
+            confirmLabel: '削除',
+            danger: true,
           });
         });
         if (!ok) return;
@@ -777,7 +788,7 @@ export function useFileSheetOperations({
       if (activeFile.sheets.length <= 1) {
         await new Promise<void>((resolve) => {
           setAlertState({
-            message: '最後のシートは削除できません',
+            message: '最後の Sheet は削除できません',
             resolve,
           });
         });
@@ -857,7 +868,11 @@ export function useFileSheetOperations({
 
   // 初期ファイル読み込み
   useEffect(() => {
-    deps.fetchFiles().then(setFiles).catch(console.error);
+    deps
+      .fetchFiles()
+      .then(setFiles)
+      .catch(console.error)
+      .finally(() => setFilesLoaded(true));
   }, [deps]);
 
   // 別のタブが File を作った・書いたら一覧を読み直す (step3 Phase 2 D3)。開いている File の
@@ -1077,6 +1092,7 @@ export function useFileSheetOperations({
 
   return {
     files,
+    filesLoaded,
     /**
      * 画像 blob の由来を引く (step2 Phase 2 S5)。`BlobOriginProvider` に渡す。
      * **他 actor が貼った画像は自分の repo に無い**ので、これが無いと出ない

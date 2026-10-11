@@ -1,7 +1,10 @@
 import type { EdgePathType } from '@conversensus/shared';
-import { DIALOG_Z_INDEX } from './ConfirmDialog';
+import { Check } from 'lucide-react';
 import { DEFAULT_EDGE_PATH_TYPE } from './graphTransform';
 import type { EdgeContextMenuState } from './hooks/useEdgeContextMenu';
+import { color, font, radius, shadow } from './theme';
+import { ICON_SIZE_SM } from './ui/Button';
+import { DIALOG_Z_INDEX } from './ui/Dialog';
 
 type Props = {
   contextMenu: NonNullable<EdgeContextMenuState>;
@@ -16,10 +19,10 @@ export function EdgeContextMenu({ contextMenu, onSelect }: Props) {
         position: 'fixed',
         top: contextMenu.y,
         left: contextMenu.x,
-        background: '#fff',
-        border: '1px solid #ddd',
-        borderRadius: 6,
-        boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+        background: color.bg,
+        border: `1px solid ${color.border}`,
+        borderRadius: radius.md,
+        boxShadow: shadow.pop,
         zIndex: DIALOG_Z_INDEX,
         minWidth: 160,
         padding: '4px 0',
@@ -29,15 +32,15 @@ export function EdgeContextMenu({ contextMenu, onSelect }: Props) {
       <div
         style={{
           padding: '4px 14px 6px',
-          fontSize: 11,
-          color: '#888',
-          borderBottom: '1px solid #eee',
+          fontSize: font.caption,
+          color: color.textMuted,
+          borderBottom: `1px solid ${color.borderSubtle}`,
           marginBottom: 4,
         }}
       >
         {contextMenu.targetEdgeIds.length === 1
-          ? 'エッジの種類'
-          : `${contextMenu.targetEdgeIds.length} 本のエッジを変更`}
+          ? 'edge の種類'
+          : `${contextMenu.targetEdgeIds.length} 本の edge を変更`}
       </div>
       {(
         [
@@ -62,13 +65,13 @@ export function EdgeContextMenu({ contextMenu, onSelect }: Props) {
               textAlign: 'left',
               background: 'none',
               border: 'none',
-              fontSize: 13,
+              fontSize: font.body,
               fontWeight: isCurrent ? 'bold' : 'normal',
               cursor: 'pointer',
             }}
           >
             <span style={{ width: 12, flexShrink: 0 }}>
-              {isCurrent ? '✓' : ''}
+              {isCurrent ? <Check size={ICON_SIZE_SM} aria-hidden /> : null}
             </span>
             {label}
           </button>

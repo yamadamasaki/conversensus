@@ -18,10 +18,13 @@ import type {
   PropertyTarget,
 } from '../graph/editorControls';
 import { type SearchHit, searchSheet } from '../search/searchSheet';
+import { type GroupAbility, NO_GROUP_ABILITY } from './useGroupNodes';
 
 export function useGraphPanels(viewKey: string | null) {
   const [controls, setControls] = useState<GraphEditorControls | null>(null);
   const [selection, setSelection] = useState<PropertyTarget | undefined>();
+  const [groupAbility, setGroupAbility] =
+    useState<GroupAbility>(NO_GROUP_ABILITY);
   const [propertyOpen, setPropertyOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchHits, setSearchHits] = useState<SearchHit[]>([]);
@@ -57,6 +60,8 @@ export function useGraphPanels(viewKey: string | null) {
     setControls,
     selection,
     setSelection,
+    groupAbility,
+    setGroupAbility,
     propertyOpen,
     toggleProperty: useCallback(() => setPropertyOpen((open) => !open), []),
     closeProperty: useCallback(() => setPropertyOpen(false), []),

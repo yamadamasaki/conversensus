@@ -1,3 +1,4 @@
+import { color, font } from './theme';
 /**
  * 右サイドバー (step3 Phase 3 S3-4b, 仕様 design-language「右サイドバー」)
  *
@@ -18,7 +19,7 @@ type Props = {
   readOnly: boolean;
 };
 
-export const RIGHT_SIDEBAR_PROPERTY_LABEL = '詳細のプロパティ';
+export const RIGHT_SIDEBAR_PROPERTY_LABEL = '詳細の property';
 
 export function RightSidebar({ selection, onSetProperty, readOnly }: Props) {
   return (
@@ -32,7 +33,9 @@ export function RightSidebar({ selection, onSetProperty, readOnly }: Props) {
         overflowY: 'auto',
       }}
     >
-      <h3 style={{ margin: 0, padding: '10px 12px', fontSize: 13 }}>詳細</h3>
+      <h3 style={{ margin: 0, padding: '10px 12px', fontSize: font.body }}>
+        詳細
+      </h3>
       {selection ? (
         <PropertyEditor
           placement="docked"
@@ -48,9 +51,14 @@ export function RightSidebar({ selection, onSetProperty, readOnly }: Props) {
         // 仕様は「選択されていないときにはグラフ全体」の詳細を出す。シートのプロパティを
         // 書く op がまだ無いので、いまは選んでいないことだけを言う
         <p
-          style={{ margin: 0, padding: '0 12px', fontSize: 12, color: '#888' }}
+          style={{
+            margin: 0,
+            padding: '0 12px',
+            fontSize: font.body,
+            color: color.textMuted,
+          }}
         >
-          要素を選ぶと、そのプロパティが出ます
+          要素を選ぶと、その property が出ます
         </p>
       )}
     </aside>

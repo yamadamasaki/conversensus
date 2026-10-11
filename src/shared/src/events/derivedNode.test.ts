@@ -510,6 +510,56 @@ describe('placeDerivedNodes', () => {
     expect(new Set(spots).size).toBe(spots.length);
   });
 
+  // #257: 以前は「置かれた要素のいちばん下のさらに下」から並べたので、graph node を 1 つ
+  // 置くと、置き場所の無い node が全部その下へ跳んだ
+  test('空いた所に graph node を置いても、ほかの node の並べた場所は動かない (#257)', () => {
+    const base = [
+      ...metagraph(),
+      fileBatch(3, [{ kind: 'sheet.create', target: S1, name: '一' }]),
+      fileBatch(4, [{ kind: 'sheet.create', target: S2, name: '二' }]),
+    ];
+    const before = placeDerivedNodes(metaSheetOf(base, true));
+    const after = placeDerivedNodes(
+      metaSheetOf(
+        [...base, inMeta(5, [nodeSetLayoutOp(D2, { x: 900, y: 600 })])],
+        true,
+      ),
+    );
+    const at = (sheet: Sheet, id: string) =>
+      sheet.layouts?.find((l) => l.nodeId === id);
+    for (const n of after.nodes.filter((n) => n.id !== D2)) {
+      expect(at(after, n.id)).toEqual(at(before, n.id));
+    }
+    expect(at(after, D2)).toMatchObject({ x: 900, y: 600 });
+  });
+
+  test('並べた場所は、置かれた node と重ならない (どこに置かれていても)', () => {
+    const base = [
+      ...metagraph(),
+      fileBatch(3, [{ kind: 'sheet.create', target: S1, name: '一' }]),
+      fileBatch(4, [{ kind: 'sheet.create', target: S2, name: '二' }]),
+    ];
+    fc.assert(
+      fc.property(
+        fc.integer({ min: -100, max: 700 }),
+        fc.integer({ min: -100, max: 400 }),
+        (x, y) => {
+          const sheet = placeDerivedNodes(
+            metaSheetOf(
+              [...base, inMeta(5, [nodeSetLayoutOp(D1, { x, y })])],
+              true,
+            ),
+          );
+          const auto = (sheet.layouts ?? []).filter((l) => l.nodeId !== D1);
+          return auto.every(
+            (l) =>
+              Math.abs((l.x ?? 0) - x) >= 160 || Math.abs((l.y ?? 0) - y) >= 80,
+          );
+        },
+      ),
+    );
+  });
+
   test('置き場所が全部あれば何もしない', () => {
     const sheet = metaSheetOf([...metagraph()], true);
     const once = placeDerivedNodes(sheet);

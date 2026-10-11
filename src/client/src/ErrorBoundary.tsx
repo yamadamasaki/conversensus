@@ -1,3 +1,4 @@
+import { color, font } from './theme';
 /**
  * 描画中の例外を、その部分だけの知らせに留める (#290)。
  *
@@ -47,12 +48,14 @@ export class ErrorBoundary extends Component<Props, State> {
     const { error } = this.state;
     if (!error) return this.props.children;
     return (
-      <div role="alert" style={{ padding: 16, fontSize: 13 }}>
+      <div role="alert" style={{ padding: 16, fontSize: font.body }}>
         <p style={{ margin: '0 0 8px' }}>
           {this.props.label}
           {FAILED_SUFFIX}
         </p>
-        <p style={{ margin: '0 0 12px', color: '#666' }}>{error.message}</p>
+        <p style={{ margin: '0 0 12px', color: color.textMuted }}>
+          {error.message}
+        </p>
         {/* 例外が一時的なもの (読み込みの途中など) なら描き直せば戻る */}
         <button type="button" onClick={() => this.setState({ error: null })}>
           {RETRY_LABEL}

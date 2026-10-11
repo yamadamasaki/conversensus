@@ -1,105 +1,48 @@
 import { useEffect, useRef } from 'react';
-
-export const DIALOG_Z_INDEX = 1000;
-export const DIALOG_WIDTH = 380;
+import { Button } from './ui/Button';
+import { Dialog, DialogActions } from './ui/Dialog';
 
 type Props = {
   message: string;
   onConfirm: () => void;
   onCancel: () => void;
+  /** 主のボタンの言葉。**動詞で、何が起きるかを書く** (§6.2) */
   confirmLabel?: string;
   cancelLabel?: string;
+  /** 取り消せない破壊的な操作。主のボタンを赤にする */
+  danger?: boolean;
 };
 
+/** 確認の型 (visual language §6.1)。外側のクリックでは閉じない */
 export function ConfirmDialog({
   message,
   onConfirm,
   onCancel,
   confirmLabel = 'OK',
   cancelLabel = 'キャンセル',
+  danger = false,
 }: Props) {
   const cancelRef = useRef<HTMLButtonElement>(null);
 
+  // 既定のフォーカスは「キャンセル」に置く。Enter の打ち癖で重い操作を通さない
   useEffect(() => {
     cancelRef.current?.focus();
   }, []);
 
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: モーダル背景のクリック閉じ
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(0,0,0,0.4)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: DIALOG_Z_INDEX,
-      }}
-      onClick={onCancel}
-      onKeyDown={(e) => {
-        if (e.key === 'Escape') onCancel();
-      }}
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="確認"
-        style={{
-          background: '#fff',
-          borderRadius: 8,
-          padding: 24,
-          width: DIALOG_WIDTH,
-          maxWidth: '90vw',
-          boxShadow: '0 4px 24px rgba(0,0,0,0.2)',
-        }}
-        onClick={(e) => e.stopPropagation()}
-        onKeyDown={(e) => {
-          if (e.key === 'Escape') onCancel();
-        }}
-      >
-        <p
-          style={{
-            margin: '0 0 20px',
-            fontSize: 14,
-            lineHeight: 1.6,
-            whiteSpace: 'pre-wrap',
-          }}
+    <Dialog kind="confirm" label="確認" onDismiss={onCancel}>
+      <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{message}</p>
+      <DialogActions>
+        <Button ref={cancelRef} onClick={onCancel}>
+          {cancelLabel}
+        </Button>
+        <Button
+          variant={danger ? 'danger-solid' : 'primary'}
+          onClick={onConfirm}
         >
-          {message}
-        </p>
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'flex-end',
-            gap: 8,
-          }}
-        >
-          <button
-            type="button"
-            ref={cancelRef}
-            onClick={onCancel}
-            style={{ padding: '6px 16px', fontSize: 13, cursor: 'pointer' }}
-          >
-            {cancelLabel}
-          </button>
-          <button
-            type="button"
-            onClick={onConfirm}
-            style={{
-              padding: '6px 16px',
-              fontSize: 13,
-              cursor: 'pointer',
-              background: '#4f6ef7',
-              color: '#fff',
-              border: 'none',
-              borderRadius: 4,
-            }}
-          >
-            {confirmLabel}
-          </button>
-        </div>
-      </div>
-    </div>
+          {confirmLabel}
+        </Button>
+      </DialogActions>
+    </Dialog>
   );
 }

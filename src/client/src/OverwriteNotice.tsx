@@ -1,3 +1,5 @@
+import { color, font, radius, shadow } from './theme';
+import { Button } from './ui/Button';
 /**
  * 上書きの報告 (step2 Phase 3 T8)
  *
@@ -43,7 +45,7 @@ function describe(report: OverwriteReport): string {
   switch (report.category) {
     case 'content':
       return report.propertyName
-        ? `プロパティ「${report.propertyName}」が別の値になりました`
+        ? `property「${report.propertyName}」が別の値になりました`
         : '内容が書き換えられました';
     case 'structure':
       return 'つなぎ方が変えられました';
@@ -81,13 +83,13 @@ export function OverwriteNotice({
         maxWidth: 'calc(100vw - 32px)',
         maxHeight: '50vh',
         overflowY: 'auto',
-        background: '#fff',
+        background: color.bg,
         // **警告色を使わない。**判断を求めていないことを見た目で言う
-        border: '1px solid #ccc',
-        borderRadius: 8,
-        boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
+        border: `1px solid ${color.border}`,
+        borderRadius: radius.md,
+        boxShadow: shadow.pop,
         padding: '8px 12px',
-        fontSize: 13,
+        fontSize: font.body,
         lineHeight: 1.6,
       }}
     >
@@ -99,7 +101,7 @@ export function OverwriteNotice({
             alignItems: 'baseline',
             justifyContent: 'space-between',
             gap: 8,
-            color: '#555',
+            color: color.textMuted,
           }}
         >
           <span>
@@ -115,21 +117,13 @@ export function OverwriteNotice({
           ))}
         </ul>
         <div style={{ marginTop: 8, textAlign: 'right' }}>
-          <button
-            type="button"
+          <Button
+            className="cs-btn--sm"
             onClick={onDismiss}
             aria-label="上書きの報告を消す"
-            style={{
-              padding: '2px 8px',
-              fontSize: 13,
-              cursor: 'pointer',
-              background: 'none',
-              border: '1px solid #ccc',
-              borderRadius: 4,
-            }}
           >
             消す
-          </button>
+          </Button>
         </div>
       </details>
     </section>

@@ -42,6 +42,7 @@ const { render, screen, fireEvent, cleanup } = await import(
 const { EditableNode } = await import('./EditableNode');
 const { MARKDOWN_COMPONENTS } = await import('./markdownComponents');
 const { ReadOnlyProvider } = await import('./readOnlyContext');
+const { DERIVED_FROM_SHEET_PROPERTY } = await import('@conversensus/shared');
 
 // NodeProps の最小スタブ
 // biome-ignore lint/suspicious/noExplicitAny: テスト用 NodeProps スタブ
@@ -186,7 +187,7 @@ describe('EditableNode', () => {
       );
       const chip = container.querySelector('[data-node-label]');
 
-      expect(chip?.textContent).toBe('ラベル');
+      expect(chip?.textContent).toBe('label');
       expect(chip?.tagName.toLowerCase()).toBe('button');
     });
 
@@ -259,6 +260,70 @@ describe('EditableNode', () => {
           (c) => (c[0] as { type: string }).type === 'NODE_LABEL_CHANGED',
         ),
       ).toHaveLength(0);
+    });
+  });
+
+  describe('label の口の置き場と差分の印 (visual language §8, #272 #258)', () => {
+    const plain = (
+      selected: boolean,
+      data: Record<string, unknown> = { content: '本文' },
+    ): TestNodeProps => ({ ...makeProps('本文'), selected, data });
+
+    it('label の無い node を選ぶと、口は本文の外に出る — 選んでも本文がずれない', () => {
+      const { container } = render(<EditableNode {...plain(true)} />);
+      const chip = container.querySelector('[data-node-label]');
+      const body = container.querySelector('[data-node-body]');
+
+      expect(chip).not.toBeNull();
+      expect(body?.contains(chip)).toBe(false);
+    });
+
+    it('label があれば本文の一部として中に置く (選択で出たり消えたりしない)', () => {
+      const { container } = render(
+        <EditableNode {...plain(false, { content: '本文', label: '私見' })} />,
+      );
+      const chip = container.querySelector('[data-node-label]');
+
+      expect(container.querySelector('[data-node-body]')?.contains(chip)).toBe(
+        true,
+      );
+    });
+
+    it('metagraph の graph node には、選んでも label の口を出さない (#258)', () => {
+      const sheetId = '00000000-0000-4000-8000-000000000001';
+      const { container } = render(
+        <EditableNode
+          {...plain(true, {
+            content: 'Sheet 1',
+            properties: { [DERIVED_FROM_SHEET_PROPERTY]: sheetId },
+          })}
+        />,
+      );
+
+      expect(container.querySelector('[data-node-label]')).toBeNull();
+    });
+
+    it('差分の node には、色だけでなく形の印を添える (追加 / 変更)', () => {
+      const { container, rerender } = render(
+        <EditableNode
+          {...plain(false, { content: '本文', diffType: 'add' })}
+        />,
+      );
+      expect(
+        container.querySelector('[data-diff-mark]')?.getAttribute('aria-label'),
+      ).toBe('追加');
+
+      rerender(
+        <EditableNode
+          {...plain(false, { content: '本文', diffType: 'update' })}
+        />,
+      );
+      expect(
+        container.querySelector('[data-diff-mark]')?.getAttribute('aria-label'),
+      ).toBe('変更');
+
+      rerender(<EditableNode {...plain(false)} />);
+      expect(container.querySelector('[data-diff-mark]')).toBeNull();
     });
   });
 

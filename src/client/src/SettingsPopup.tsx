@@ -1,5 +1,8 @@
 import type { FileId, SheetId } from '@conversensus/shared';
+import { FileDown, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { color, font, radius, shadow, space } from './theme';
+import { Button } from './ui/Button';
 
 export const FLOATING_UI_Z_INDEX = 100;
 
@@ -44,6 +47,9 @@ export function SettingsPopup({
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
+  // ポップオーバーの型 (visual language §6.1)。確定は「OK」(design language「保存 → OK」, #271) —
+  // local first なので、利用者から見て「保存」という別の手順は無い。
+  //
   // 外クリック / Escape はどちらも**破棄して閉じる** (ANA-126, マウント時に1回だけ登録)。
   //
   // 以前は外クリックが「保存して閉じる」だった。保存の口が 3 つ (ボタン・Enter・外クリック)
@@ -85,10 +91,10 @@ export function SettingsPopup({
         right: 8,
         top: 0,
         zIndex: FLOATING_UI_Z_INDEX,
-        background: '#fff',
-        border: '1px solid #ccc',
-        borderRadius: 6,
-        boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+        background: color.bg,
+        border: `1px solid ${color.border}`,
+        borderRadius: radius.md,
+        boxShadow: shadow.pop,
         padding: 12,
         width: 220,
         display: 'flex',
@@ -97,7 +103,10 @@ export function SettingsPopup({
       }}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <label htmlFor="popup-name" style={{ fontSize: 11, color: '#666' }}>
+        <label
+          htmlFor="popup-name"
+          style={{ fontSize: font.caption, color: color.textMuted }}
+        >
           名前
         </label>
         <input
@@ -117,15 +126,18 @@ export function SettingsPopup({
             if (e.key === 'Enter') handleSave();
           }}
           style={{
-            fontSize: 13,
+            fontSize: font.body,
             padding: '4px 6px',
-            borderRadius: 4,
-            border: '1px solid #ccc',
+            borderRadius: radius.sm,
+            border: `1px solid ${color.border}`,
           }}
         />
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <label htmlFor="popup-desc" style={{ fontSize: 11, color: '#666' }}>
+        <label
+          htmlFor="popup-desc"
+          style={{ fontSize: font.caption, color: color.textMuted }}
+        >
           概要
         </label>
         <textarea
@@ -141,64 +153,37 @@ export function SettingsPopup({
           placeholder="概要を入力…"
           rows={3}
           style={{
-            fontSize: 12,
+            fontSize: font.body,
             padding: '4px 6px',
-            borderRadius: 4,
-            border: '1px solid #ccc',
+            borderRadius: radius.sm,
+            border: `1px solid ${color.border}`,
             resize: 'vertical',
             fontFamily: 'inherit',
           }}
         />
       </div>
       {onExport && (
-        <button
-          type="button"
-          onClick={onExport}
-          style={{
-            fontSize: 12,
-            padding: '4px 8px',
-            borderRadius: 4,
-            border: '1px solid #888',
-            background: 'none',
-            color: '#555',
-            cursor: 'pointer',
-            width: '100%',
-          }}
-        >
+        <Button icon={FileDown} onClick={onExport}>
           エクスポート (.conversensus)
-        </button>
+        </Button>
       )}
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 4 }}>
-        <button
-          type="button"
-          onClick={onDelete}
-          style={{
-            fontSize: 12,
-            padding: '4px 8px',
-            borderRadius: 4,
-            border: '1px solid #f44',
-            background: 'none',
-            color: '#f44',
-            cursor: 'pointer',
-          }}
-        >
+      {/* 破壊的な操作は「OK」から最も離す (visual language §6.2, #271)。
+          間に区切りを置き、左端と右端に分ける */}
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          gap: space[2],
+          paddingTop: space[2],
+          borderTop: `1px solid ${color.borderSubtle}`,
+        }}
+      >
+        <Button variant="danger" icon={Trash2} onClick={onDelete}>
           {deleteLabel}
-        </button>
-        <button
-          type="button"
-          onClick={handleSave}
-          style={{
-            fontSize: 12,
-            padding: '4px 12px',
-            borderRadius: 4,
-            border: 'none',
-            background: '#4f6ef7',
-            color: '#fff',
-            cursor: 'pointer',
-          }}
-        >
-          保存
-        </button>
+        </Button>
+        <Button variant="primary" onClick={handleSave}>
+          OK
+        </Button>
       </div>
     </div>
   );

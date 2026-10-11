@@ -115,13 +115,13 @@ describe('0 件と「まだ引いていない」を分ける', () => {
   it('検索前は結果の領域ごと出さない', () => {
     // 0 件と同じ見た目にすると、開いた瞬間に「見つかりません」と出る
     show({ searched: false });
-    expect(screen.queryByText('見つかりませんでした')).toBeNull();
+    expect(screen.queryByText(/に当たるものはありません/)).toBeNull();
   });
 
   it('引いたうえでの 0 件はそう言う', () => {
     // 黙って空にすると、壊れているのか無いのかが分からない
     show({ searched: true, hits: [] });
-    expect(screen.getByText('見つかりませんでした')).toBeTruthy();
+    expect(screen.getByText(/に当たるものはありません/)).toBeTruthy();
   });
 });
 
@@ -159,7 +159,7 @@ describe('結果の出し方', () => {
       searched: true,
       hits: [hit({ elementKind: 'edge', snippet: '根拠づけ' })],
     });
-    expect(screen.getByText(/辺 \/ 種別/)).toBeTruthy();
+    expect(screen.getByText(/edge \/ label/)).toBeTruthy();
   });
 });
 

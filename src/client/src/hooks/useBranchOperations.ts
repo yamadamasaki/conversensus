@@ -102,6 +102,10 @@ function describeConflicts(conflicts: readonly MergeConflict[]): string {
 export type ConfirmState = {
   message: string;
   resolve: (ok: boolean) => void;
+  /** 主のボタンの言葉。動詞で、何が起きるかを書く (visual language §6.2)。省くと「OK」 */
+  confirmLabel?: string;
+  /** 取り消せない破壊的な操作 */
+  danger?: boolean;
 };
 
 export type InputState = {
@@ -554,7 +558,7 @@ export function useBranchOperations({
       });
       if (!name?.trim()) return;
       try {
-        if (!activeFile) throw new Error('アクティブなファイルがありません');
+        if (!activeFile) throw new Error('開いている File がありません');
         // 複製は行わず、分岐点 (現在のログ先端) を指す base コミットだけを記録する
         const branch = await createBranchOnOplog(
           {
@@ -744,6 +748,7 @@ export function useBranchOperations({
             setConfirmState({
               message: `branch "${branch.name}" の取り込みで ${describeConflicts(blocking)} を検出しました。取り込むと trunk に載り、取り消せません。続けますか?`,
               resolve,
+              confirmLabel: 'merge',
             });
           });
           if (!proceed) return;
@@ -795,6 +800,7 @@ export function useBranchOperations({
         setConfirmState({
           message: `branch "${branch.name}" を close しますか？`,
           resolve,
+          confirmLabel: 'close',
         });
       });
       if (!ok) return;
@@ -831,6 +837,8 @@ export function useBranchOperations({
         setConfirmState({
           message: `branch "${branch.name}" を削除しますか？\nこの操作は取り消せません。`,
           resolve,
+          confirmLabel: '削除',
+          danger: true,
         });
       });
       if (!ok) return;
@@ -887,7 +895,7 @@ export function useBranchOperations({
       } catch (err) {
         console.warn('[commit] create failed:', err);
         await new Promise<void>((resolve) => {
-          setAlertState({ message: 'コミットに失敗しました。', resolve });
+          setAlertState({ message: 'commit に失敗しました。', resolve });
         });
       }
     },

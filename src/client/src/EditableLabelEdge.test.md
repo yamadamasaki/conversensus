@@ -27,3 +27,11 @@
 | onBlur で確定し setEdges を呼び出す | blur 時に `setEdges` が呼ばれ, input が消える |
 | IME 変換中は Enter で確定しない | `compositionStart` 後の Enter は無視される |
 | compositionEnd 後は Enter で確定できる | `compositionEnd` 後の Enter で `setEdges` が呼ばれる |
+
+## 向かい合う辺 (#256) とモック
+
+端の接続点を持たない edge は、測られた node の矩形から向かい合う辺を端にする
+(`graph/facingSides.ts`、性質はそちらのテストが見る)。ここでは `useInternalNode` を
+「測られた node が無い」(`undefined`) に差し替えるので、その計算を通らず、渡された端を
+そのまま使う — ラベルの編集の振る舞いだけを見るためである。`mock.module` はプロセス全体に
+効くので、`Position` は本物と同じ値をモックに持たせてある。

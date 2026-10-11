@@ -80,10 +80,35 @@ describe('ConfirmDialog', () => {
     expect(mockOnCancel).toHaveBeenCalledTimes(1);
   });
 
-  it('背景クリックで onCancel が呼ばれる', () => {
+  // 確認の型は覆いを押しても閉じない (visual language §6.1)。重い操作の前の問いが、
+  // 覆いを押しただけで「キャンセル」に化けないようにする
+  it('背景クリックでは閉じない', () => {
     renderDialog();
     fireEvent.click(getBackdrop());
-    expect(mockOnCancel).toHaveBeenCalledTimes(1);
+    expect(mockOnCancel).not.toHaveBeenCalled();
+    expect(mockOnConfirm).not.toHaveBeenCalled();
+  });
+
+  it('既定のフォーカスはキャンセルに置く', () => {
+    renderDialog();
+    expect(document.activeElement).toBe(
+      screen.getByRole('button', { name: 'キャンセル' }),
+    );
+  });
+
+  it('danger のとき主のボタンが破壊的な見た目になり、キャンセルの右に並ぶ', () => {
+    render(
+      <ConfirmDialog
+        message="削除しますか？"
+        onConfirm={mockOnConfirm}
+        onCancel={mockOnCancel}
+        confirmLabel="削除"
+        danger
+      />,
+    );
+    const buttons = screen.getAllByRole('button');
+    expect(buttons.map((b) => b.textContent)).toEqual(['キャンセル', '削除']);
+    expect(buttons[1].className).toContain('cs-btn--danger-solid');
   });
 
   it('ダイアログ内部クリックでは onCancel が呼ばれない', () => {

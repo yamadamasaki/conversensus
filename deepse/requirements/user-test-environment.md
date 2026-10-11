@@ -340,7 +340,7 @@ DtR は step3 Phase 1 S1-1 で撤去した (競合の解消は merger に替わ�
 - **変えていない値で Enter を押しても op が積まれないこと** (下記の op-log で見る).
   変わらないものを積むと, 偽の上書きが相手の通知に出る
 - **template の種別 (`*.kind`) は編集できない.** 灰色の文字で出て「種別は作成時に
-  決まり、変更できません」と書かれる. toulmin を当てたシート (`+ シートを追加` の
+  決まり、変更できません」と書かれる. toulmin を当てたシート (`+ Sheet を追加` の
   `▾`) で種別つきのノードを作ると見られる
 - **配列・構造体は編集できない.** 「構造を持つ値はこの画面では編集できません」と
   出る. 消して入れ直す口は残るので行き止まりにはならない
@@ -618,7 +618,7 @@ b は **いまの main を本番に出してから**使う (§11). 本番の Cad
 2. **branch で編集**: bob が Sheet 1 で「+ branch」→ 名前「b1」. b1 を開いて本文を「bob 案」に変え, コミットする
 3. **trunk で並行に編集**: alice が trunk の同じ node の本文を「alice 案」に変える. bob の画面の trunk に
    「alice 案」が届くまで待つ (30 秒以内. 急ぐなら「今すぐ同期」)
-4. **merge**: bob が b1 を開いて「merge ↑」を押す → **確認のダイアログではなく merger が新しいタブで開く**
+4. **merge**: bob が b1 を開いて「merge」を押す → **確認のダイアログではなく merger が新しいタブで開く**
    (上に merge 元・merge 先, 下に merge 後と conflict list)
 5. **解消**: conflict list に競合が 1 件 (本文が「alice 案」と「bob 案」). 例えば
    - merge 先の pane で node を右クリック →「merge 後に取り込む」で alice 案にする, または
@@ -675,7 +675,7 @@ curl -s https://pds.conversensus.site/xrpc/_health                  # {"version"
 ```
 
 ブラウザでは `https://app.conversensus.site/` を開き, コンソールで `crossOriginIsolated` が `true`.
-本番のアカウントで OAuth でログインでき (Safari を含む), File を作ると左下が「クラウド同期済み」になる.
+本番のアカウントで OAuth でログインでき (Safari を含む), File を作ると左下が「アカウントに保存済み」になる.
 
 **service worker が前の版を持っている**ので, 出した直後に開くと前の版の画面が出ることがある.
 再読み込みすれば新しい版になる (画面と `sw.js` は `no-cache` で配っている).

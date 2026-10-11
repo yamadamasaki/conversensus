@@ -1,3 +1,6 @@
+import { X } from 'lucide-react';
+import { color, font, radius, shadow } from './theme';
+import { ICON_SIZE_SM } from './ui/Button';
 /**
  * シート内検索の画面 (step2 Phase 7 S2)
  *
@@ -32,14 +35,14 @@ const RESULTS_MAX_HEIGHT = '50vh';
 
 /** 欄の名前。仕様の結果一覧が出す「要素の種類 (node/edge, label/content/property)」 */
 const FIELD_LABEL = {
-  label: '種別',
+  label: 'label',
   content: '本文',
-  property: 'プロパティ',
+  property: 'property',
 } as const;
 
 const KIND_LABEL = {
-  node: 'ノード',
-  edge: '辺',
+  node: 'node',
+  edge: 'edge',
 } as const;
 
 /** ヒットの同一性。**同じ要素が複数の欄で当たる**ので、id だけでは足りない */
@@ -103,12 +106,12 @@ export function SearchPanel({
         right: 12,
         width: RESULTS_WIDTH,
         maxWidth: 'calc(100vw - 24px)',
-        background: '#fff',
-        border: '1px solid #ccc',
-        borderRadius: 8,
-        boxShadow: '0 4px 24px rgba(0,0,0,0.2)',
+        background: color.bg,
+        border: `1px solid ${color.border}`,
+        borderRadius: radius.md,
+        boxShadow: shadow.dialog,
         zIndex: SEARCH_Z_INDEX,
-        fontSize: 13,
+        fontSize: font.body,
       }}
     >
       <div
@@ -117,14 +120,14 @@ export function SearchPanel({
           alignItems: 'center',
           gap: 8,
           padding: 12,
-          borderBottom: '1px solid #eee',
+          borderBottom: `1px solid ${color.borderSubtle}`,
         }}
       >
         <input
           ref={inputRef}
           type="text"
           aria-label="検索語"
-          placeholder="このシートを検索"
+          placeholder="この Sheet を検索"
           value={query}
           onChange={(e) => {
             setQuery(e.target.value);
@@ -146,9 +149,9 @@ export function SearchPanel({
           style={{
             flex: 1,
             padding: '6px 8px',
-            fontSize: 13,
-            borderRadius: 4,
-            border: '1px solid #ccc',
+            fontSize: font.body,
+            borderRadius: radius.sm,
+            border: `1px solid ${color.border}`,
           }}
         />
         <label
@@ -175,23 +178,17 @@ export function SearchPanel({
           type="button"
           onClick={onClose}
           aria-label="検索を閉じる"
-          style={{
-            padding: '2px 8px',
-            cursor: 'pointer',
-            background: 'none',
-            border: '1px solid #ccc',
-            borderRadius: 4,
-          }}
+          className="cs-btn cs-btn--icon cs-btn--sm"
         >
-          ✕
+          <X size={ICON_SIZE_SM} aria-hidden />
         </button>
       </div>
 
       {searched && (
         <div style={{ maxHeight: RESULTS_MAX_HEIGHT, overflowY: 'auto' }}>
           {hits.length === 0 ? (
-            <p style={{ margin: 0, padding: 12, color: '#777' }}>
-              見つかりませんでした
+            <p style={{ margin: 0, padding: 12, color: color.textMuted }}>
+              「{query}」に当たるものはありません
             </p>
           ) : (
             <ul style={{ margin: 0, padding: 0, listStyle: 'none' }}>
@@ -212,14 +209,19 @@ export function SearchPanel({
                         textAlign: 'left',
                         padding: '8px 12px',
                         border: 'none',
-                        borderBottom: '1px solid #f0f0f0',
+                        borderBottom: `1px solid ${color.borderSubtle}`,
                         background: 'none',
                         cursor: 'pointer',
-                        fontSize: 13,
+                        fontSize: font.body,
                         lineHeight: 1.6,
                       }}
                     >
-                      <span style={{ color: '#777', fontSize: 11 }}>
+                      <span
+                        style={{
+                          color: color.textMuted,
+                          fontSize: font.caption,
+                        }}
+                      >
                         {KIND_LABEL[hit.elementKind]} / {FIELD_LABEL[hit.field]}
                         {/* property は名前と型も出す (仕様) */}
                         {hit.propertyName !== undefined &&
@@ -228,7 +230,9 @@ export function SearchPanel({
                       <br />
                       <span>
                         {before}
-                        <mark style={{ background: '#ffe58f' }}>{match}</mark>
+                        <mark style={{ background: color.warningBg }}>
+                          {match}
+                        </mark>
                         {after}
                       </span>
                     </button>

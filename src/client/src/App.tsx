@@ -18,6 +18,7 @@ import {
   type PropertyName,
   placeDerivedNodes,
   refreshDerivedNodes,
+  SEED_PLACEMENTS,
   SHEET_KIND_PROPERTY,
   type Sheet,
   type SheetId,
@@ -29,6 +30,7 @@ import {
   type TemplateRef,
   templateGraphOf,
 } from '@conversensus/shared';
+import { FilePlus, Files, FileUp, PanelLeft, UserPlus } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AcceptInvitationDialog } from './AcceptInvitationDialog';
 import { AlertDialog } from './AlertDialog';
@@ -42,6 +44,7 @@ import { ConflictNotice, NOTICE_Z_INDEX } from './ConflictNotice';
 import { devPanesEnabled } from './config';
 import { BOUNDARY_LABELS, ErrorBoundary } from './ErrorBoundary';
 import { type GraphEvent, makeEventBase } from './events/GraphEvent';
+import { readImportFile } from './files/readImportFile';
 import { type FolderNode, siblingNameTaken } from './folders/folderTree';
 import { GraphEditor } from './GraphEditor';
 import { GraphHeader, type HeaderBranch } from './GraphHeader';
@@ -74,9 +77,11 @@ import { useRosterSource } from './hooks/useRosterSource';
 import { useSidePanels } from './hooks/useSidePanels';
 import { useTabNavigation } from './hooks/useTabNavigation';
 import { useTabs } from './hooks/useTabs';
+import { useViewportTier } from './hooks/useViewportTier';
 import { InputDialog } from './InputDialog';
 import { InvitationDialog } from './InvitationDialog';
 import { BlobOriginProvider } from './images/blobOriginContext';
+import { compactHeader } from './layout/viewportTier';
 import { otherTabsOpen, requestErase } from './local/eraseDevice';
 import { OverwriteNotice } from './OverwriteNotice';
 import { PaneFrame } from './PaneFrame';
@@ -108,6 +113,9 @@ import {
   type Tab,
   tabAddress,
 } from './tabs/tabs';
+import { color, font, radius, shadow } from './theme';
+import { Button } from './ui/Button';
+import { EmptyState } from './ui/EmptyState';
 import { generateId } from './uuid';
 
 /** 特殊なグラフのシートの既定の名前 (step3 Phase 4)。n は同じ種類の何枚目か */
@@ -119,6 +127,10 @@ const SPECIAL_SHEET_NAMES: Record<SheetKind, (n: number) => string> = {
 /** merger の後の pane で、画面の state へ返さない (`onSheetChange` の受け手) */
 const ignoreSheetChange = () => {};
 
+/** File が 1 つも無いときの案内 (§9.1)。JSX の折り返しで「、」の後に空白が入らないよう 1 つの文字列にする */
+const EMPTY_FILES_NOTE =
+  'File は Sheet (グラフ) を束ねる単位です。新しく作るか、.conversensus を import するか、受け取った参加コードで共同作業に加わってください。';
+
 export default function App() {
   // Dialog state (UI only)
   const [confirmState, setConfirmState] = useState<{
@@ -126,6 +138,7 @@ export default function App() {
     resolve: (ok: boolean) => void;
     confirmLabel?: string;
     cancelLabel?: string;
+    danger?: boolean;
   } | null>(null);
   const [inputState, setInputState] = useState<{
     message: string;
@@ -202,6 +215,7 @@ export default function App() {
               resolve,
               confirmLabel: ERASE_CONFIRM_LABEL,
               cancelLabel: KEEP_CANCEL_LABEL,
+              danger: true,
             }),
           ),
         otherTabsOpen: () =>
@@ -220,6 +234,8 @@ export default function App() {
   /** 共同作業者ダイアログの対象 File (step2 Phase 1)。null なら閉じている */
   const [invitationFileId, setInvitationFileId] = useState<FileId | null>(null);
   const [participateOpen, setParticipateOpen] = useState(false);
+  /** 空の状態の「import」が開くファイル選択 */
+  const emptyImportRef = useRef<HTMLInputElement>(null);
   /** 参加履歴を開いている DID (step2)。参加者一覧の上に重ねて出す */
   const [historyDid, setHistoryDid] = useState<Did | null>(null);
 
@@ -488,7 +504,7 @@ export default function App() {
       addSheet({
         name: seed.name,
         properties: { [SHEET_KIND_PROPERTY]: TEMPLATE_SHEET_KIND },
-        content: templateGraphOf(seed, generateId),
+        content: templateGraphOf(seed, generateId, SEED_PLACEMENTS[seed.id]),
       }),
     [addSheet],
   );
@@ -768,8 +784,10 @@ export default function App() {
         }
         void new Promise<boolean>((resolve) =>
           setConfirmState({
-            message: `シート「${target.name}」を削除しますか？\n中身も全て削除されます。`,
+            message: `Sheet「${target.name}」を削除しますか？\n中身もすべて削除されます。`,
             resolve,
+            confirmLabel: '削除',
+            danger: true,
           }),
         ).then((ok) => {
           if (ok) void handleDeleteSheet(target.id);
@@ -845,7 +863,17 @@ export default function App() {
     viewSheet?.templateIds,
   );
   // 左右のサイドバーの幅と開閉 (S3-4b)。端末ごとの好みなので localStorage に置く
-  const sidePanels = useSidePanels();
+  // 画面の幅の段 (visual language §9.2)。狭い段ではサイドバーを重ね、ヘッダを記号だけにする
+  const viewportTier = useViewportTier();
+  const sidePanels = useSidePanels(viewportTier);
+  // 狭い画面で左サイドバーからグラフを選んだら、重ねていた左サイドバーを退ける。
+  // 選んだものを見るために開いたのだから、覆ったままにしない
+  const closeLeftOnPick = sidePanels.left.presentation.dismissOnOutside;
+  const { close: closeSidePanel } = sidePanels;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 開いたグラフが変わったときだけ退ける
+  useEffect(() => {
+    if (closeLeftOnPick) closeSidePanel('left');
+  }, [viewKey]);
   // ヘッダが開閉する窓と、canvas の口・選択の写し (step3 Phase 3 S3-4a)
   const panels = useGraphPanels(viewKey);
   /**
@@ -1096,22 +1124,65 @@ export default function App() {
                 templates={viewTemplates}
                 onControls={panels.setControls}
                 onSelectionChange={panels.setSelection}
+                onGroupAbilityChange={panels.setGroupAbility}
               />
             </BlobOriginProvider>
           </ReadOnlyProvider>
         </ErrorBoundary>
-      ) : (
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            height: '100%',
-            color: '#999',
-          }}
+      ) : fileOps.filesLoaded && fileOps.files.length === 0 ? (
+        // 空の状態 (visual language §9.1, #279): 何が無いかと、次に何をすればよいか
+        <EmptyState
+          icon={Files}
+          title="File がありません"
+          actions={
+            <>
+              <Button
+                variant="primary"
+                icon={FilePlus}
+                onClick={() => void fileOps.handleCreate()}
+              >
+                File を作る
+              </Button>
+              <Button
+                icon={FileUp}
+                onClick={() => emptyImportRef.current?.click()}
+              >
+                import
+              </Button>
+              {atprotoSession && (
+                <Button
+                  icon={UserPlus}
+                  onClick={() => setParticipateOpen(true)}
+                >
+                  参加コードで参加する
+                </Button>
+              )}
+              <input
+                ref={emptyImportRef}
+                type="file"
+                accept=".conversensus"
+                style={{ display: 'none' }}
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = '';
+                  if (!file) return;
+                  const result = await readImportFile(file);
+                  if (result.ok) fileOps.handleImportFile(result.data);
+                  else
+                    await new Promise<void>((resolve) =>
+                      setAlertState({ message: result.message, resolve }),
+                    );
+                }}
+              />
+            </>
+          }
         >
-          ファイルを選択するか, 新規作成してください
-        </div>
+          {EMPTY_FILES_NOTE}
+        </EmptyState>
+      ) : (
+        <EmptyState icon={PanelLeft} title="File を開いてください">
+          左のサイドバーで File を選ぶと、その Sheet が開きます。
+        </EmptyState>
       )}
       {/* ボディ内の property editor (仕様: ヘッダで on にしていれば、選択している要素に
               対して出す)。右サイドバーのものと併用する */}
@@ -1141,11 +1212,18 @@ export default function App() {
   );
 
   return (
-    <div style={{ display: 'flex', height: '100vh', fontFamily: 'sans-serif' }}>
+    // 重ねて出すサイドバー (狭い画面) の基準にするので position を持たせる
+    <div style={{ display: 'flex', height: '100vh', position: 'relative' }}>
       <SidePanel
         side="left"
         label={BOUNDARY_LABELS.leftSidebar}
-        state={sidePanels.state.left}
+        state={sidePanels.left.state}
+        mode={sidePanels.left.presentation.mode}
+        onDismiss={
+          sidePanels.left.presentation.dismissOnOutside
+            ? () => sidePanels.close('left')
+            : undefined
+        }
         onResize={(width) => sidePanels.setWidth('left', width)}
         onToggle={() => sidePanels.toggle('left')}
       >
@@ -1295,12 +1373,19 @@ export default function App() {
         {viewAddress && (
           <GraphHeader
             controls={panels.controls}
+            title={{
+              fileName: fileOps.activeFile?.name ?? '',
+              sheetName: viewSheet?.name ?? '',
+              merger: Boolean(currentTab?.merger),
+            }}
+            groupAbility={panels.groupAbility}
             searchOpen={panels.searchOpen}
             onToggleSearch={panels.toggleSearch}
             propertyOpen={panels.propertyOpen}
             onToggleProperty={panels.toggleProperty}
             branch={headerBranch}
             paneCandidates={paneCandidates}
+            compact={compactHeader(viewportTier)}
           />
         )}
         <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
@@ -1359,12 +1444,12 @@ export default function App() {
                       position: 'fixed',
                       left: takeMenu.at.x,
                       top: takeMenu.at.y,
-                      background: '#fff',
-                      border: '1px solid #ccc',
-                      borderRadius: 6,
-                      boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
+                      background: color.bg,
+                      border: `1px solid ${color.border}`,
+                      borderRadius: radius.md,
+                      boxShadow: shadow.dialog,
                       padding: 4,
-                      fontSize: 12,
+                      fontSize: font.body,
                     }}
                   >
                     <button
@@ -1439,7 +1524,13 @@ export default function App() {
       <SidePanel
         side="right"
         label={BOUNDARY_LABELS.rightSidebar}
-        state={sidePanels.state.right}
+        state={sidePanels.right.state}
+        mode={sidePanels.right.presentation.mode}
+        onDismiss={
+          sidePanels.right.presentation.dismissOnOutside
+            ? () => sidePanels.close('right')
+            : undefined
+        }
         onResize={(width) => sidePanels.setWidth('right', width)}
         onToggle={() => sidePanels.toggle('right')}
       >
@@ -1472,6 +1563,7 @@ export default function App() {
           message={confirmState.message}
           confirmLabel={confirmState.confirmLabel}
           cancelLabel={confirmState.cancelLabel}
+          danger={confirmState.danger}
           onConfirm={() => {
             confirmState.resolve(true);
             setConfirmState(null);

@@ -1,3 +1,6 @@
+import { X } from 'lucide-react';
+import { color, font, radius, shadow, space } from './theme';
+import { Button, IconButton } from './ui/Button';
 /**
  * 競合の通知 (step2 Phase 3 T4)
  *
@@ -103,7 +106,7 @@ function describe(unit: ConflictUnit): string {
   switch (unit.category) {
     case 'content':
       return unit.propertyName
-        ? `プロパティ「${unit.propertyName}」を二人が別々の値にしました`
+        ? `property「${unit.propertyName}」を二人が別々の値にしました`
         : '内容を二人が別々に書き換えました';
     case 'structure':
       return unit.kind === 'removeDependency'
@@ -172,12 +175,14 @@ export function ConflictNotice({
         maxWidth: 'calc(100vw - 32px)',
         maxHeight: '60vh',
         overflowY: 'auto',
-        background: '#fff',
-        border: '1px solid #e0a800',
-        borderRadius: 8,
-        boxShadow: '0 4px 24px rgba(0,0,0,0.2)',
+        background: color.bg,
+        // 判断が要る通知 (visual language §6.3): 競合の色の左の帯で、ほかの通知と分ける
+        border: `1px solid ${color.border}`,
+        borderLeft: `4px solid ${color.conflict}`,
+        borderRadius: radius.md,
+        boxShadow: shadow.dialog,
         padding: 16,
-        fontSize: 13,
+        fontSize: font.body,
         lineHeight: 1.6,
       }}
     >
@@ -194,27 +199,18 @@ export function ConflictNotice({
             ? `merge で ${conflicts.length} 件の競合を検出しました`
             : `相手が保留した競合が ${arrivedForks.length} 件届きました`}
         </strong>
-        <button
-          type="button"
+        <IconButton
+          icon={X}
+          small
+          label="競合の通知を閉じる"
           onClick={onClose}
-          aria-label="競合の通知を閉じる"
-          style={{
-            padding: '2px 8px',
-            fontSize: 13,
-            cursor: 'pointer',
-            background: 'none',
-            border: '1px solid #ccc',
-            borderRadius: 4,
-          }}
-        >
-          閉じる
-        </button>
+        />
       </div>
 
       {forkCount > 0 && (
         // **通知だけでは消えてしまう。**保留したことを記録に残したと伝える —
         // 後から「何でこれが生じたんだ?」に答えられるのはこの記録である
-        <p style={{ margin: '8px 0 0', color: '#555' }}>
+        <p style={{ margin: '8px 0 0', color: color.textMuted }}>
           {forkCount} 件を保留として記録しました。後から対話で決められます。
         </p>
       )}
@@ -224,7 +220,9 @@ export function ConflictNotice({
           <summary style={{ cursor: 'pointer', fontWeight: 600 }}>
             {tier.title} {items.length} 件
           </summary>
-          <p style={{ margin: '4px 0 8px', color: '#555' }}>{tier.handling}</p>
+          <p style={{ margin: '4px 0 8px', color: color.textMuted }}>
+            {tier.handling}
+          </p>
           <ul style={{ margin: 0, paddingLeft: 20 }}>
             {items.map((c) => (
               <li key={keyOf(c)} style={{ marginBottom: 2 }}>
@@ -242,7 +240,7 @@ export function ConflictNotice({
           <summary style={{ cursor: 'pointer', fontWeight: 600 }}>
             相手が保留した競合 {arrivedForks.length} 件
           </summary>
-          <p style={{ margin: '4px 0 8px', color: '#555' }}>
+          <p style={{ margin: '4px 0 8px', color: color.textMuted }}>
             相手の手元で検出され、保留として記録されています。後から対話で決められます。
           </p>
           <ul style={{ margin: 0, paddingLeft: 20 }}>
@@ -255,21 +253,14 @@ export function ConflictNotice({
                 </span>
                 : {describe(fork.origin)}
                 {onOpenMerger && (
-                  <button
-                    type="button"
+                  <Button
+                    variant="primary"
+                    className="cs-btn--sm"
                     onClick={() => onOpenMerger(fork)}
-                    style={{
-                      marginLeft: 6,
-                      padding: '0 6px',
-                      fontSize: 12,
-                      cursor: 'pointer',
-                      background: 'none',
-                      border: '1px solid #ccc',
-                      borderRadius: 4,
-                    }}
+                    style={{ marginLeft: space[2] }}
                   >
                     merger で決める
-                  </button>
+                  </Button>
                 )}
               </li>
             ))}

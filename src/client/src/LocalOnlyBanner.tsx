@@ -1,3 +1,5 @@
+import { color, font, radius } from './theme';
+
 /**
  * LocalOnlyBanner: 未ログインの間に、この端末にだけある編集を知らせる (FPR 前 L-3)
  *
@@ -26,12 +28,12 @@ export function LocalOnlyBanner({ count, onLogin }: Props) {
       style={{
         width: '100%',
         textAlign: 'left',
-        background: '#fff4d6',
-        border: '1px solid #e0a800',
-        borderRadius: 4,
-        color: '#6b4e00',
+        background: color.warningBg,
+        border: `1px solid ${color.warning}`,
+        borderRadius: radius.sm,
+        color: color.warningText,
         cursor: 'pointer',
-        fontSize: 11,
+        fontSize: font.caption,
         lineHeight: 1.5,
         padding: '4px 6px',
         marginBottom: 4,

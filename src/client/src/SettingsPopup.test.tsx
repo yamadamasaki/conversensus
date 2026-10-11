@@ -44,12 +44,23 @@ describe('SettingsPopup', () => {
     ).toBe('これは概要です');
   });
 
-  it('保存ボタンで onSave と onClose が呼ばれる', () => {
+  it('OK ボタンで onSave と onClose が呼ばれる', () => {
     renderPopup({ name: 'ファイル', description: '説明' });
-    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    fireEvent.click(screen.getByRole('button', { name: 'OK' }));
     expect(mockOnSave).toHaveBeenCalledTimes(1);
     expect(mockOnSave).toHaveBeenCalledWith('ファイル', '説明');
     expect(mockOnClose).toHaveBeenCalledTimes(1);
+  });
+
+  // #271: 破壊的な「削除」を主の「OK」の隣に置かない。最後の段の左端と右端に分ける
+  it('削除は最後の段の左端、OK は右端に並ぶ', () => {
+    renderPopup();
+    const ok: HTMLElement = screen.getByRole('button', { name: 'OK' });
+    const row = ok.parentElement;
+    if (!row) throw new Error('row not found');
+    const buttons: HTMLElement[] = [...row.querySelectorAll('button')];
+    expect(buttons.at(0)?.className).toContain('cs-btn--danger');
+    expect(buttons.at(-1)).toBe(ok);
   });
 
   it('名前を変更して保存すると新しい名前で onSave が呼ばれる', () => {
@@ -57,7 +68,7 @@ describe('SettingsPopup', () => {
     fireEvent.change(screen.getByRole('textbox', { name: '名前' }), {
       target: { value: '新しい名前' },
     });
-    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    fireEvent.click(screen.getByRole('button', { name: 'OK' }));
     expect(mockOnSave).toHaveBeenCalledWith('新しい名前', '');
   });
 
@@ -66,7 +77,7 @@ describe('SettingsPopup', () => {
     fireEvent.change(screen.getByRole('textbox', { name: '名前' }), {
       target: { value: '   ' },
     });
-    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    fireEvent.click(screen.getByRole('button', { name: 'OK' }));
     expect(mockOnSave).toHaveBeenCalledWith('元の名前', '');
   });
 

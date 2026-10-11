@@ -161,10 +161,10 @@ describe('削除', () => {
 describe('追加の口', () => {
   it('名前と値を入れて追加できる', () => {
     show({ rows: [] });
-    fireEvent.change(screen.getByLabelText('追加するプロパティの名前'), {
+    fireEvent.change(screen.getByLabelText('追加する property の名前'), {
       target: { value: '出典' },
     });
-    fireEvent.change(screen.getByLabelText('追加するプロパティの値'), {
+    fireEvent.change(screen.getByLabelText('追加する property の値'), {
       target: { value: '甲' },
     });
     fireEvent.click(screen.getByText('追加'));
@@ -174,7 +174,7 @@ describe('追加の口', () => {
   it('既にある名前は追加できない', () => {
     // 追加のつもりで既存の値を上書きするのを防ぐ
     show();
-    fireEvent.change(screen.getByLabelText('追加するプロパティの名前'), {
+    fireEvent.change(screen.getByLabelText('追加する property の名前'), {
       target: { value: '期限' },
     });
     fireEvent.click(screen.getByText('追加'));
@@ -183,7 +183,7 @@ describe('追加の口', () => {
 
   it('空の名前は追加できない', () => {
     show({ rows: [] });
-    fireEvent.change(screen.getByLabelText('追加するプロパティの名前'), {
+    fireEvent.change(screen.getByLabelText('追加する property の名前'), {
       target: { value: '   ' },
     });
     fireEvent.click(screen.getByText('追加'));
@@ -205,7 +205,7 @@ describe('読み取り専用のとき (Phase 2 S6)', () => {
   it('行が文字になり、追加の口も消える', () => {
     show({ readOnly: true });
     expect(screen.queryByLabelText('期限 の値')).toBeNull();
-    expect(screen.queryByLabelText('追加するプロパティの名前')).toBeNull();
+    expect(screen.queryByLabelText('追加する property の名前')).toBeNull();
   });
 
   it('見るのは止めない', () => {
@@ -218,12 +218,12 @@ describe('読み取り専用のとき (Phase 2 S6)', () => {
 describe('その他', () => {
   it('プロパティが無ければそう言う', () => {
     show({ rows: [] });
-    expect(screen.getByText('プロパティはありません')).toBeTruthy();
+    expect(screen.getByText('property はありません')).toBeTruthy();
   });
 
   it('閉じるボタンで onClose', () => {
     show();
-    fireEvent.click(screen.getByLabelText('プロパティを閉じる'));
+    fireEvent.click(screen.getByLabelText('property を閉じる'));
     expect(onClose).toHaveBeenCalled();
   });
 

@@ -9,6 +9,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useEventDispatch } from './EventDispatchContext';
 import { makeEventBase } from './events/GraphEvent';
+import { DiffMark } from './graph/DiffMark';
 import { useInlineEdit } from './hooks/useInlineEdit';
 import { useBlobOrigin } from './images/blobOriginContext';
 import {
@@ -24,6 +25,7 @@ import {
   useReportImageError,
 } from './images/imageErrorContext';
 import { replaceNodeImage } from './images/replaceNodeImage';
+import { color, font, monospace, radius } from './theme';
 
 /**
  * 利用者が URL で指した画像が読めなかったときの案内 (step3 Phase 2 Q4)。PWA は cross-origin
@@ -269,9 +271,9 @@ export function ImageNode({ id, data, selected }: NodeProps) {
           style={{
             width: '100%',
             height: '100%',
-            borderRadius: 6,
-            border: '1px dashed #aaa',
-            background: 'rgba(0,0,0,0.02)',
+            borderRadius: radius.md,
+            border: `1px dashed ${color.borderStrong}`,
+            background: color.bgSubtle,
             boxSizing: 'border-box',
             display: 'flex',
             flexDirection: 'column',
@@ -281,11 +283,11 @@ export function ImageNode({ id, data, selected }: NodeProps) {
           <div
             style={{
               padding: '3px 8px',
-              borderBottom: '1px solid #eee',
-              background: 'rgba(0,0,0,0.03)',
-              borderRadius: '5px 5px 0 0',
-              fontSize: 10,
-              color: '#999',
+              borderBottom: `1px solid ${color.borderSubtle}`,
+              background: color.bgSubtle,
+              borderRadius: `${radius.md}px ${radius.md}px 0 0`,
+              fontSize: font.caption,
+              color: color.textMuted,
               minHeight: 20,
               display: 'flex',
               alignItems: 'center',
@@ -299,13 +301,15 @@ export function ImageNode({ id, data, selected }: NodeProps) {
           <div
             style={{
               flex: 1,
-              background: '#f5f5f5',
+              background: color.bgSubtle,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
             }}
           >
-            <span style={{ fontSize: 11, color: '#aaa' }}>画像</span>
+            <span style={{ fontSize: font.caption, color: color.textMuted }}>
+              画像
+            </span>
           </div>
         </div>
         <Handle
@@ -340,24 +344,26 @@ export function ImageNode({ id, data, selected }: NodeProps) {
         onResizeEnd={onResizeEnd}
       />
       <Handle type="source" position={Position.Top} id="source-top" />
+      {diffType && <DiffMark diffType={diffType} />}
       {/* biome-ignore lint/a11y/noStaticElementInteractions: drop to replace the image (ANA-117) */}
       <div
+        data-node-frame
         onDragOver={handleDragOver}
         onDrop={handleDrop}
         style={{
           width: '100%',
           height: '100%',
-          borderRadius: 6,
+          borderRadius: radius.md,
           border: diffType
             ? diffType === 'add'
-              ? '2px solid #16a34a'
-              : '2px solid #f97316'
-            : '1px solid #ccc',
+              ? `2px solid ${color.diffAdd}`
+              : `2px solid ${color.diffUpdate}`
+            : `1px solid ${color.border}`,
           background: diffType
             ? diffType === 'add'
-              ? '#f0fdf4'
-              : '#fff7ed'
-            : '#fff',
+              ? color.diffAddBg
+              : color.diffUpdateBg
+            : color.bg,
           boxSizing: 'border-box',
           display: 'flex',
           flexDirection: 'column',
@@ -369,12 +375,12 @@ export function ImageNode({ id, data, selected }: NodeProps) {
         <div
           style={{
             padding: '3px 8px',
-            borderBottom: '1px solid #eee',
-            background: 'rgba(0,0,0,0.03)',
-            borderRadius: '5px 5px 0 0',
+            borderBottom: `1px solid ${color.borderSubtle}`,
+            background: color.bgSubtle,
+            borderRadius: `${radius.md}px ${radius.md}px 0 0`,
             cursor: 'default',
-            fontSize: 10,
-            color: '#888',
+            fontSize: font.caption,
+            color: color.textMuted,
             minHeight: 20,
             display: 'flex',
             alignItems: 'center',
@@ -404,14 +410,14 @@ export function ImageNode({ id, data, selected }: NodeProps) {
                 if (e.key === 'Escape') caption.cancel();
               }}
               style={{
-                fontSize: 10,
+                fontSize: font.caption,
                 padding: '1px 3px',
-                border: '1px solid #4f6ef7',
-                borderRadius: 3,
+                border: `1px solid ${color.primary}`,
+                borderRadius: radius.sm,
                 outline: 'none',
                 width: '100%',
                 boxSizing: 'border-box',
-                background: '#fff',
+                background: color.bg,
               }}
             />
           ) : (
@@ -423,7 +429,7 @@ export function ImageNode({ id, data, selected }: NodeProps) {
         <div
           style={{
             flex: 1,
-            background: '#f5f5f5',
+            background: color.bgSubtle,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -452,14 +458,14 @@ export function ImageNode({ id, data, selected }: NodeProps) {
                   }
                 }}
                 style={{
-                  fontSize: 11,
+                  fontSize: font.caption,
                   padding: '4px 6px',
-                  borderRadius: 3,
-                  border: '1px solid #4f6ef7',
+                  borderRadius: radius.sm,
+                  border: `1px solid ${color.primary}`,
                   outline: 'none',
                   width: '100%',
                   boxSizing: 'border-box',
-                  fontFamily: 'monospace',
+                  fontFamily: monospace,
                 }}
               />
             </div>
@@ -468,15 +474,15 @@ export function ImageNode({ id, data, selected }: NodeProps) {
           imgError && displayUrl === imageUrl && imageUrl ? (
             /* 利用者が URL で指した画像。cross-origin isolation (COEP, step3 Phase 2 D8) の下では、
                相手が CORS / CORP を返さないと読めない (Q4 で受け入れた)。取れる手を案内する */
-            <span style={{ fontSize: 11, color: '#999' }}>
+            <span style={{ fontSize: font.caption, color: color.textMuted }}>
               {EXTERNAL_IMAGE_BLOCKED}
             </span>
           ) : imgError || (!displayUrl && resolveFailed) ? (
-            <span style={{ fontSize: 11, color: '#999' }}>
+            <span style={{ fontSize: font.caption, color: color.textMuted }}>
               画像を読み込めません
             </span>
           ) : blobCid && !displayUrl ? (
-            <span style={{ fontSize: 11, color: '#999' }}>
+            <span style={{ fontSize: font.caption, color: color.textMuted }}>
               画像を読み込み中...
             </span>
           ) : displayUrl ? (

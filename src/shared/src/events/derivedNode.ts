@@ -111,34 +111,57 @@ export function refreshDerivedNodes(
 const PLACE_X = 220;
 const PLACE_Y = 140;
 const PLACE_COLUMNS = 4;
+/** 格子の升が置かれた node と重なるかを見るときの node の大きさ (既定の大きさ) */
+const NODE_W = 160;
+const NODE_H = 80;
 
 /**
- * 置き場所 (layout) の無い導出 node を、既にある要素の下に格子に並べる (step3 Phase 4, 仕様: 配置は
- * システムに任せる)。**op は積まない** — view の側で置くだけで、利用者が動かした時に初めて
- * `node.setLayout` が載る。並びは node の順 (sheet の並び)
+ * 置き場所 (layout) の無い導出 node を格子に並べる (step3 Phase 4, 仕様: 配置はシステムに任せる)。
+ * **op は積まない** — view の側で置くだけで、利用者が動かした時に初めて `node.setLayout` が載る。
+ * 並びは node の順 (sheet の並び)
+ *
+ * **並べた場所は、ほかの node を置いても動かない** (#257)。以前は「置かれた要素のいちばん下の
+ * さらに下」から並べていたので、metagraph に graph node を 1 つ置くと、置き場所の無い node が
+ * 全部その下へ跳んだ。今は:
+ *
+ * - 格子の起点は**ふつうの node** (導出でない) の下。graph node を置いても起点は変わらない
+ * - 升は先頭から順に使い、**置かれた node と重なる升だけを飛ばす**。空いた所に置けば何も動かない
  */
 export function placeDerivedNodes(sheet: Sheet): Sheet {
   const layouts = sheet.layouts ?? [];
   const placed = new Set<string>(layouts.map((l) => l.nodeId));
-  const unplaced = sheet.nodes.filter(
-    (n) =>
-      n.properties?.[DERIVED_FROM_SHEET_PROPERTY] !== undefined &&
-      !placed.has(n.id),
-  );
+  const isDerived = (n: (typeof sheet.nodes)[number]) =>
+    n.properties?.[DERIVED_FROM_SHEET_PROPERTY] !== undefined;
+  const unplaced = sheet.nodes.filter((n) => isDerived(n) && !placed.has(n.id));
   if (unplaced.length === 0) return sheet;
+
+  const derivedIds = new Set(sheet.nodes.filter(isDerived).map((n) => n.id));
+  const ordinary = layouts.filter((l) => !derivedIds.has(l.nodeId));
   const top =
-    layouts.length === 0
+    ordinary.length === 0
       ? 0
-      : Math.max(...layouts.map((l) => l.y ?? 0)) + PLACE_Y;
-  return {
-    ...sheet,
-    layouts: [
-      ...layouts,
-      ...unplaced.map((n, i) => ({
-        nodeId: n.id,
-        x: (i % PLACE_COLUMNS) * PLACE_X,
-        y: top + Math.floor(i / PLACE_COLUMNS) * PLACE_Y,
-      })),
-    ],
-  };
+      : Math.max(...ordinary.map((l) => l.y ?? 0)) + PLACE_Y;
+  const overlapsPlaced = (x: number, y: number) =>
+    layouts.some(
+      (l) =>
+        Math.abs((l.x ?? 0) - x) < NODE_W && Math.abs((l.y ?? 0) - y) < NODE_H,
+    );
+
+  const added: {
+    nodeId: (typeof layouts)[number]['nodeId'];
+    x: number;
+    y: number;
+  }[] = [];
+  let slot = 0;
+  for (const n of unplaced) {
+    let x: number;
+    let y: number;
+    do {
+      x = (slot % PLACE_COLUMNS) * PLACE_X;
+      y = top + Math.floor(slot / PLACE_COLUMNS) * PLACE_Y;
+      slot += 1;
+    } while (overlapsPlaced(x, y));
+    added.push({ nodeId: n.id, x, y });
+  }
+  return { ...sheet, layouts: [...layouts, ...added] };
 }

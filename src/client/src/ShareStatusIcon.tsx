@@ -1,3 +1,7 @@
+import { Users } from 'lucide-react';
+import { color } from './theme';
+import { ICON_SIZE_SM } from './ui/Button';
+
 /**
  * 共有の印 (step2 Phase 2)
  *
@@ -14,13 +18,14 @@
  *
  * **✕ は SVG で描く。**絵文字の合成 (`👥` に `❌` を重ねる、異体字セレクタ、合字) は
  * エンジンごとに位置も大きさも変わる。WebKit を本命に据えている以上 (ANA-125)、
- * ここは決定論的に描けるものを使う。
+ * ここは決定論的に描けるものを使う。下地の共有の絵も Lucide の `Users` (SVG) にした
+ * (visual language §4 — 絵文字をアイコンに使わない)。
  */
 
-/** 絵文字の描画幅はエンジンごとに違うので、箱の大きさをこちらで決める */
+/** ✕ を隅に置く基準の箱 */
 const ICON_BOX = 15;
 /** ✕ の色。警告 (黄) ではなく「届いていない」(赤) を意味する */
-const CROSS_COLOR = '#c0392b';
+const CROSS_COLOR = color.dangerText;
 
 export function ShareStatusIcon({ detached }: { detached: boolean }) {
   return (
@@ -35,7 +40,7 @@ export function ShareStatusIcon({ detached }: { detached: boolean }) {
         verticalAlign: 'middle',
       }}
     >
-      <span style={{ lineHeight: 1 }}>👥</span>
+      <Users size={ICON_SIZE_SM} aria-hidden />
       {detached && (
         <svg
           role="img"
@@ -51,9 +56,9 @@ export function ShareStatusIcon({ detached }: { detached: boolean }) {
           }}
         >
           {/* 白い縁。下地の絵の上でも印の輪郭が立つようにする */}
-          <circle cx="11.3" cy="11.3" r="4.7" fill="#fff" />
+          <circle cx="11.3" cy="11.3" r="4.7" fill={color.bg} />
           <circle cx="11.3" cy="11.3" r="3.7" fill={CROSS_COLOR} />
-          <g stroke="#fff" strokeWidth={1.3} strokeLinecap="round">
+          <g stroke={color.bg} strokeWidth={1.3} strokeLinecap="round">
             <line x1="9.9" y1="9.9" x2="12.7" y2="12.7" />
             <line x1="12.7" y1="9.9" x2="9.9" y2="12.7" />
           </g>

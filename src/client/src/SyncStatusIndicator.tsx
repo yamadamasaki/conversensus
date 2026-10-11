@@ -1,3 +1,4 @@
+import { color, font } from './theme';
 /**
  * SyncStatusIndicator: remote (ATProto) 同期ステータス表示 + 手動同期 (step1 W3d5-6)
  *
@@ -50,7 +51,7 @@ const containerStyle: React.CSSProperties = {
   justifyContent: 'space-between',
   gap: 4,
   marginTop: 4,
-  fontSize: 11,
+  fontSize: font.caption,
 };
 
 const syncNowBtnStyle: React.CSSProperties = {
@@ -58,8 +59,8 @@ const syncNowBtnStyle: React.CSSProperties = {
   background: 'none',
   border: 'none',
   cursor: 'pointer',
-  color: '#4f6ef7',
-  fontSize: 11,
+  color: color.primary,
+  fontSize: font.caption,
   padding: '2px 4px',
 };
 
@@ -93,7 +94,7 @@ export function SyncStatusIndicator({ remoteQueue, onSyncNow }: Props) {
 
   if (!remoteQueue) {
     return (
-      <div style={{ ...containerStyle, color: '#999' }} role="status">
+      <div style={{ ...containerStyle, color: color.textMuted }} role="status">
         <span>{LOCAL_ONLY_STATUS}</span>
       </div>
     );
@@ -102,14 +103,18 @@ export function SyncStatusIndicator({ remoteQueue, onSyncNow }: Props) {
   // 上限に達していると実際の未送信はこれ以上ある (溢れた分は catch-up で回収, D1)
   const status =
     pending === 0
-      ? 'クラウド同期済み'
-      : `クラウド未同期: ${remoteQueue.overflowed ? `${pending} 件以上` : `${pending} 件`}`;
+      ? 'アカウントに保存済み'
+      : `未保存の変更 ${remoteQueue.overflowed ? `${pending} 件以上` : `${pending} 件`}`;
 
   return (
     <div
       style={{
         ...containerStyle,
-        color: failed ? '#c47f00' : pending === 0 ? '#999' : '#777',
+        color: failed
+          ? color.warningText
+          : pending === 0
+            ? color.textMuted
+            : color.textMuted,
       }}
       role="status"
     >
@@ -119,7 +124,10 @@ export function SyncStatusIndicator({ remoteQueue, onSyncNow }: Props) {
         type="button"
         onClick={handleSyncNow}
         disabled={syncing}
-        style={{ ...syncNowBtnStyle, ...(syncing && { color: '#aaa' }) }}
+        style={{
+          ...syncNowBtnStyle,
+          ...(syncing && { color: color.textMuted }),
+        }}
       >
         {syncing ? '同期中…' : '今すぐ同期'}
       </button>

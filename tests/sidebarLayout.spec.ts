@@ -14,7 +14,7 @@ const IMPORT_BUTTON = 'button[title="インポート (.conversensus)"]';
 async function measureHeaderRow(page: import('@playwright/test').Page) {
   return await page.evaluate((importSelector) => {
     const nameInput = document.querySelector<HTMLInputElement>(
-      'input[placeholder="ファイル名"]',
+      'input[placeholder="新しい File の名前"]',
     );
     if (!nameInput?.parentElement)
       throw new Error('新規作成の行が見付からない');
@@ -42,7 +42,7 @@ async function measureHeaderRow(page: import('@playwright/test').Page) {
 test.describe('サイドバーの新規作成の行 (#51)', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
-    await expect(page.getByPlaceholder('ファイル名')).toBeVisible();
+    await expect(page.getByPlaceholder('新しい File の名前')).toBeVisible();
   });
 
   test('行が溢れない', async ({ page }) => {
@@ -80,19 +80,19 @@ test.describe('サイドバーのファイル一覧', () => {
   test('長いファイル名でも行が溢れない', async ({ page }) => {
     // #51 と**同じ形** (`flex: 1` の子 + 固定幅のボタン) がファイル行にもある。
     // そちらは `overflow: hidden` を持つので自動最小サイズが効かず縮む**はず**である。
-    // 理屈で済ませずここで固定する — 縮まなければ設定ボタンが押せなくなる
+    // 理屈で済ませずここで固定する — 縮まなければ詳細ボタンが押せなくなる
     await page.goto('/');
-    const nameInput = page.getByPlaceholder('ファイル名');
+    const nameInput = page.getByPlaceholder('新しい File の名前');
     await expect(nameInput).toBeVisible();
 
     await nameInput.fill('あ'.repeat(60));
     await nameInput.press('Enter');
-    // ギアボタンの表示は「⚙」なので, 名前ではなく title で引く
-    await expect(page.locator('button[title="設定"]').first()).toBeVisible();
+    // 詳細ボタンは記号 (Ellipsis) だけなので, title で引く
+    await expect(page.locator('button[title="詳細"]').first()).toBeVisible();
 
     const row = await page.evaluate(() => {
       const target = document.querySelector<HTMLButtonElement>(
-        'button[title="設定"]',
+        'button[title="詳細"]',
       );
       if (!target?.parentElement) throw new Error('ファイル行が見付からない');
       const fileRow = target.parentElement;
