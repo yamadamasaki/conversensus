@@ -103,6 +103,11 @@ undo/redo・グループ化・PNG・選択を **`GraphEditor` の外から呼べ
 ⚪ Deep Link は FPR の後 (計画 §6)。Phase 3 ではアドレスを **直列化できる形** にしておくだけで、
 URL には載せない (OAuth の callback との衝突を今は考えずに済む)。
 
+> **#251 で載せた (2026-10-12)。**`#/v/<fileId>/<sheetId>[/<branchId>]` を fragment に置き、見ている view に
+> 追随させる (`client/src/links/`)。OAuth の戻りも fragment (`#state=…`) だが、`#/` で始まるかで見分け、
+> 戻りを読み終えるまで (`resuming` の間) は書かない。切断面と highlight は、アクティブな view が最新の姿しか
+> 出せないので載せていない — timeline (#73) が出せるようになったら query に足す。
+
 ### F7: 左サイドバーは幅 240 の固定である
 
 🔵 `Sidebar.tsx` の `width: 240`。幅変更も折り畳みも無い。

@@ -128,3 +128,49 @@ describe('GraphHeader の名前と状態 (#276)', () => {
     expect(screen.queryByText('trunk')).toBeNull();
   });
 });
+
+describe('GraphHeader のリンクを写すボタン (#251)', () => {
+  function renderWithCopy(onCopyLink?: () => Promise<void>) {
+    render(
+      <GraphHeader
+        controls={controls()}
+        title={TITLE}
+        groupAbility={NO_GROUP_ABILITY}
+        searchOpen={false}
+        onToggleSearch={noop}
+        propertyOpen={false}
+        onToggleProperty={noop}
+        branch={null}
+        onCopyLink={onCopyLink}
+      />,
+    );
+  }
+
+  test('渡さなければ出さない', () => {
+    renderWithCopy();
+    expect(
+      screen.queryByRole('button', { name: 'この view のリンクを写す' }),
+    ).toBeNull();
+  });
+
+  test('写せたら、少しの間「写しました」と知らせる', async () => {
+    const onCopyLink = mock(() => Promise.resolve());
+    renderWithCopy(onCopyLink);
+    fireEvent.click(
+      screen.getByRole('button', { name: 'この view のリンクを写す' }),
+    );
+    expect(onCopyLink).toHaveBeenCalledTimes(1);
+    await screen.findByRole('button', { name: 'リンクを写しました' });
+  });
+
+  test('写せなければ「写しました」とは言わない', async () => {
+    renderWithCopy(() => Promise.reject(new Error('denied')));
+    fireEvent.click(
+      screen.getByRole('button', { name: 'この view のリンクを写す' }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(
+      screen.queryByRole('button', { name: 'リンクを写しました' }),
+    ).toBeNull();
+  });
+});

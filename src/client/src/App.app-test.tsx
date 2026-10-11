@@ -2467,3 +2467,79 @@ describe('App 結合: 空の状態 (visual language §9.1, #279)', () => {
     );
   });
 });
+
+describe('App 結合: Deep Link (#251)', () => {
+  /**
+   * happy-dom の既定の URL (`about:blank`) では fragment を書けない。この describe の間だけ
+   * http の URL で開く
+   */
+  const happyDOM = (
+    globalThis as unknown as { happyDOM: { setURL(url: string): void } }
+  ).happyDOM;
+  beforeEach(() => happyDOM.setURL('http://127.0.0.1:5173/'));
+  afterEach(() => happyDOM.setURL('about:blank'));
+
+  const MISSING_FILE_ID = '00000000-0000-4000-8000-0000000000ff';
+  const MISSING_SHEET_ID = '00000000-0000-4000-8000-0000000000fe';
+
+  test(
+    'URL は見ている view に追随し、その URL で開き直すと同じ view (branch) が出る',
+    async () => {
+      await world.activate('solo');
+      render(<App />);
+      const user = userEvent.setup();
+      await createFile(user, FILE_NAME);
+      await addNode(user);
+      await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+      await waitFor(() =>
+        expect(location.hash).toMatch(/^#\/v\/[^/]+\/[^/]+$/),
+      );
+      const trunkHash = location.hash;
+      await createBranch(user, BRANCH_NAME);
+      await openBranch(user, BRANCH_NAME);
+      await addNode(user);
+      await waitFor(() => expect(renderedNodeCount()).toBe(2), WIRING_TIMEOUT);
+      await waitFor(() => expect(location.hash).toMatch(/^#\/v\/.+\/.+\/.+$/));
+      const branchHash = location.hash;
+      expect(branchHash.startsWith(`${trunkHash}/`)).toBe(true);
+
+      // ヘッダから写すリンクも同じ view を指す
+      await user.click(
+        screen.getByRole('button', { name: 'この view のリンクを写す' }),
+      );
+      expect(await navigator.clipboard.readText()).toBe(
+        `http://127.0.0.1:5173/${branchHash}`,
+      );
+      await screen.findByRole('button', { name: 'リンクを写しました' });
+
+      // branch のタブを閉じて trunk だけにし、branch のリンクで開き直す
+      await user.click(
+        screen.getByRole('button', {
+          name: `${FILE_NAME} / Sheet 1 (⎇ ${BRANCH_NAME}) を閉じる`,
+        }),
+      );
+      await waitFor(() => expect(location.hash).toBe(trunkHash));
+      cleanup();
+      await world.activate('solo');
+      history.replaceState(null, '', `/${branchHash}`);
+      render(<App />);
+      await waitFor(() => expect(renderedNodeCount()).toBe(2), WIRING_TIMEOUT);
+      await screen.findByRole('button', { name: 'commit' }, WIRING_TIMEOUT);
+      expect(location.hash).toBe(branchHash);
+    },
+    MERGER_TEST_MS,
+  );
+
+  test('手元に無い File のリンクは開かずに知らせる', async () => {
+    // activate は端末の fragment を戻すので、リンクはその後に置く
+    await world.activate('solo');
+    history.replaceState(
+      null,
+      '',
+      `/#/v/${MISSING_FILE_ID}/${MISSING_SHEET_ID}`,
+    );
+    render(<App />);
+    await screen.findByText(/リンクの File はこの端末にありません/);
+    expect(screen.queryAllByRole('tab')).toHaveLength(0);
+  });
+});

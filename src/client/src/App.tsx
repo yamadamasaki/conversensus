@@ -83,6 +83,8 @@ import { InputDialog } from './InputDialog';
 import { InvitationDialog } from './InvitationDialog';
 import { BlobOriginProvider } from './images/blobOriginContext';
 import { compactHeader } from './layout/viewportTier';
+import { useViewLink } from './links/useViewLink';
+import { viewUrl } from './links/viewLink';
 import { otherTabsOpen, requestErase } from './local/eraseDevice';
 import { OverwriteNotice } from './OverwriteNotice';
 import { PaneFrame } from './PaneFrame';
@@ -1015,6 +1017,33 @@ export default function App() {
   });
 
   /**
+   * Deep Link (#251)。URL の fragment に今の view のアドレスを載せ、届いたリンクはタブで開く
+   * (同じアドレスのタブがあればそこへ移る, Phase 3 Q2)
+   */
+  const { files: fileList, filesLoaded } = fileOps;
+  useViewLink({
+    current: viewAddress,
+    // ログインの戻り (OAuth) は fragment で届く。読み終えるまで書かない
+    canWrite: !atprotoResuming,
+    filesLoaded,
+    hasFile: (fileId) => fileList.some((f) => f.id === fileId),
+    open: openTab,
+    onMissing: () =>
+      void showAlert(
+        'リンクの File はこの端末にありません。参加している File なら、同期が終わってからもう一度開いてください',
+      ),
+  });
+  const copyViewLink = useCallback(async () => {
+    if (!viewAddress) return;
+    try {
+      await navigator.clipboard.writeText(viewUrl(viewAddress, location.href));
+    } catch (error) {
+      void showAlert('リンクを写せませんでした');
+      throw error;
+    }
+  }, [viewAddress, showAlert]);
+
+  /**
    * 背後のタブの File も同期を続ける (Q4)。前に出ている File は tap が持つので除く。
    * 並びが変わるたびに丸ごと宣言し直す (置き場は宣言の差だけを動かす)
    */
@@ -1505,6 +1534,7 @@ export default function App() {
             onToggleProperty={panels.toggleProperty}
             branch={headerBranch}
             paneCandidates={paneCandidates}
+            onCopyLink={copyViewLink}
             compact={compactHeader(viewportTier)}
           />
         )}
