@@ -1025,6 +1025,17 @@ export default function App() {
     [activeFileId, openTab],
   );
 
+  /** 別の File の Sheet を開く (#249 名前の検索の結果から)。タブを開けば画面が付いてくる */
+  const openSheetOf = useCallback(
+    (fileId: FileId, sheetId: SheetId, { newTab }: OpenOptions) => {
+      openTab(
+        { fileId, sheetId, branchId: null, cut: HEAD_CUT },
+        { forceNew: newTab },
+      );
+    },
+    [openTab],
+  );
+
   /**
    * タブの名前。File の名前は一覧から、シートと branch の名前は**見たことのあるもの**から引く —
    * 背後のタブの File は開いていないので、シートの名前が手元に無い。見たことが無ければ出さない
@@ -1037,8 +1048,11 @@ export default function App() {
   const addressLabelOf = (address: GraphViewAddress) => {
     const { fileId, sheetId, branchId } = address;
     const names = seenNamesRef.current;
-    const fileName = fileOps.files.find((f) => f.id === fileId)?.name ?? '';
-    const sheetName = names.get(sheetId);
+    const listed = fileOps.files.find((f) => f.id === fileId);
+    const fileName = listed?.name ?? '';
+    // 開いていない File の Sheet の名前は一覧が持つ (#249)
+    const sheetName =
+      names.get(sheetId) ?? listed?.sheets.find((s) => s.id === sheetId)?.name;
     const base = sheetName ? `${fileName} / ${sheetName}` : fileName;
     return branchId ? `${base} (⎇ ${names.get(branchId) ?? ''})` : base;
   };
@@ -1253,6 +1267,7 @@ export default function App() {
             onSelectSheet={(sheetId, options) =>
               openSheetTab(sheetId, null, options)
             }
+            onOpenSheetOf={openSheetOf}
             onAddSheet={handleAddSheet}
             onAddKindSheet={handleAddKindSheet}
             onAddSeedTemplate={handleAddSeedTemplate}

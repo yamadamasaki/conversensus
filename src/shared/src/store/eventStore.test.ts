@@ -267,10 +267,15 @@ describe('EventStore', () => {
       expect(store.listOplogFiles()).toEqual([]);
     });
 
-    it('file 構造 op を畳んで name/description を得る', () => {
+    it('file 構造 op を畳んで name/description と Sheet の名前 (#249) を得る', () => {
       store.appendBatch(FILE, structure('b1', 'ファイルA', 1, 'せつめい'));
       expect(store.listOplogFiles()).toEqual([
-        { id: FILE, name: 'ファイルA', description: 'せつめい' },
+        {
+          id: FILE,
+          name: 'ファイルA',
+          description: 'せつめい',
+          sheets: [{ id: 'sheet-1' as SheetId, name: 'S1' }],
+        },
       ]);
     });
 
@@ -312,7 +317,13 @@ describe('EventStore', () => {
         store.appendBatch(FILE, structure('b1', '消す方', 1));
         store.appendBatch(FILE, removed('b2', 2));
         store.appendBatch(other, structure('b3', '残る方', 1));
-        expect(store.listOplogFiles()).toEqual([{ id: other, name: '残る方' }]);
+        expect(store.listOplogFiles()).toEqual([
+          {
+            id: other,
+            name: '残る方',
+            sheets: [{ id: 'sheet-1' as SheetId, name: 'S1' }],
+          },
+        ]);
       });
 
       it('file.remove の後に編集が来ても復活しない (remove-wins)', () => {

@@ -26,7 +26,13 @@ import {
   knownOpsOf,
   LOCAL_DID,
 } from '../events/unified';
-import type { FileId, GraphFileListItem, Sheet, SheetId } from '../schemas';
+import {
+  type FileId,
+  type GraphFileListItem,
+  listItemOf,
+  type Sheet,
+  type SheetId,
+} from '../schemas';
 import type { SqlDriver } from './sqlDriver';
 
 /** batches の 1 行 (ops は JSON 文字列で保持する) */
@@ -343,13 +349,7 @@ export class EventStore {
       if (isFileDeleted(batches)) continue;
       const projected = projectFile(batches, fileId);
       if (projected.sheets.length === 0) continue;
-      items.push({
-        id: fileId,
-        name: projected.name,
-        ...(projected.description !== undefined && {
-          description: projected.description,
-        }),
-      });
+      items.push(listItemOf(projected));
     }
     return items;
   }

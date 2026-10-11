@@ -183,6 +183,11 @@ export const GraphFileListItemSchema = z.object({
   id: FileIdSchema,
   name: z.string(),
   description: z.string().optional(),
+  /**
+   * Sheet の id と名前 (#249)。開いていない File の Sheet も名前で引けるように載せる。
+   * 一覧を作るときに File を畳み込んでいるので、追加の計算は要らない
+   */
+  sheets: z.array(z.object({ id: SheetIdSchema, name: z.string() })),
 });
 
 // --- Domain types (inferred from schemas) ---
@@ -191,6 +196,16 @@ export type GraphEdge = z.infer<typeof GraphEdgeSchema>;
 export type Sheet = z.infer<typeof SheetSchema>;
 export type GraphFile = z.infer<typeof GraphFileSchema>;
 export type GraphFileListItem = z.infer<typeof GraphFileListItemSchema>;
+
+/** File から一覧の 1 行を作る。一覧の形を作る所をここ 1 つにする */
+export function listItemOf(file: GraphFile): GraphFileListItem {
+  return {
+    id: file.id,
+    name: file.name,
+    ...(file.description !== undefined && { description: file.description }),
+    sheets: file.sheets.map((sheet) => ({ id: sheet.id, name: sheet.name })),
+  };
+}
 
 // --- Branch / Commit types (for ATProto version control) ---
 

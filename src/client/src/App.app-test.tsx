@@ -2114,6 +2114,58 @@ describe('App 結合: 壊れた batch (security review M1)', () => {
   );
 });
 
+describe('App 結合: 左サイドバーの名前の検索 (#249)', () => {
+  /** 選ばれているタブの名前 */
+  const selectedTab = () =>
+    screen
+      .queryAllByRole('tab')
+      .find((t) => t.getAttribute('aria-selected') === 'true')?.textContent ??
+    '';
+
+  test('打つたびにツリーを絞り、開いていない File の Sheet も名前で引いて開ける', async () => {
+    cleanup();
+    await world.activate('alice');
+    render(<App />);
+    const user = userEvent.setup();
+    await createFile(user, '議事録');
+    await createFile(user, '設計');
+    await waitFor(
+      () => expect(selectedTab()).toContain('設計'),
+      WIRING_TIMEOUT,
+    );
+
+    const box = screen.getByRole('searchbox', {
+      name: 'File・Sheet・Folder を名前で探す',
+    });
+    // File の名前で絞る
+    await user.type(box, '議事');
+    expect(screen.getByRole('button', { name: '議事録' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '設計' })).toBeNull();
+
+    // Sheet の名前で絞る。開いていない File (議事録) の Sheet も行に出る
+    await user.clear(box);
+    await user.type(box, 'sheet 1');
+    const matched = screen.getByRole('list', {
+      name: '議事録 の当たった Sheet',
+    });
+    await user.click(within(matched).getByRole('button', { name: 'Sheet 1' }));
+    await waitFor(
+      () => expect(selectedTab()).toBe('議事録 / Sheet 1'),
+      WIRING_TIMEOUT,
+    );
+
+    // 当たらなければそう言い、Esc で空にすれば元のツリーに戻る
+    await user.clear(box);
+    await user.type(box, '存在しない');
+    expect(
+      screen.getByText('「存在しない」に当たる名前はありません'),
+    ).toBeTruthy();
+    await user.type(box, '{Escape}');
+    expect(screen.getByRole('button', { name: '議事録' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '設計' })).toBeTruthy();
+  });
+});
+
 describe('App 結合: 端末だけの File が消えるおそれ (#263)', () => {
   afterEach(resetPersistenceStateForTest);
 

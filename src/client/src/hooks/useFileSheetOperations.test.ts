@@ -672,7 +672,7 @@ describe('useFileSheetOperations', () => {
       deps.pushReceivedBatches = async (fileId, batches) => {
         received.push(fileId);
         // materialize されると GET /files (op-log 和集合, 4e-2a) に現れることを模す
-        deps._fileList.push({ id: NEW_FILE, name: '受信ファイル' });
+        deps._fileList.push({ id: NEW_FILE, name: '受信ファイル', sheets: [] });
         return batches.length;
       };
       const remoteQueue = await makeRemoteQueue();
@@ -687,7 +687,7 @@ describe('useFileSheetOperations', () => {
     it('既知ファイルしか無ければ書き込みも再読込も起きない', async () => {
       const deps = createInMemoryFileSheetOpsDeps();
       // ローカルに既知として登録しておく
-      deps._fileList.push({ id: NEW_FILE, name: '既知' });
+      deps._fileList.push({ id: NEW_FILE, name: '既知', sheets: [] });
       const received: string[] = [];
       deps.pushReceivedBatches = async (fileId, batches) => {
         received.push(fileId);
