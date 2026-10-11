@@ -43,3 +43,17 @@
   base32 に無い文字・大文字・パストラバーサル (`../../etc/passwd`) を拒否する
 - **MAX_BLOB_SIZE**: PDS の実測値 5 MiB (5,242,880) と一致する。
   この数値は S1 で境界を実測したもの (+1 バイトで `request entity too large`)
+
+## repairBrokenBlobRefs (#264)
+
+壊れて保存された画像の参照 (BlobRef のインスタンスを structured clone して JSON にしたもの) を、
+保存されている CID のバイト列から元の形 (`{ $type: 'blob', ref: { $link }, mimeType, size }`) に戻す。
+
+- 壊れた参照を元の形に戻す。戻した CID は `computeBlobCid` が同じデータから作るものと一致する
+- op の配列の奥にあっても直し、ほかの値は (同じ参照のまま) 変えない
+- **壊れていない値は何もせず同じ値を返す** — 保存の書き直しは `===` で要否を決めるので、正しい行を
+  書き直さないことが要る。あらゆる JSON に対して成り立ってほしいので性質で書く (`fc.jsonValue`)
+- バイト列が読めない形なら直さない (似た別のものを壊さない)
+
+壊れた形はここでは手で組み立てる (shared は `@atproto/api` に依存しない)。実物の経路で作った形は
+client の `images/blobRefRepair.test.ts` が確かめる。

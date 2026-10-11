@@ -66,6 +66,11 @@ export class LocalStore {
     this.events = events;
   }
 
+  /** 壊れて保存された画像の参照を直す (#264)。開いたときに 1 度呼ぶ */
+  repairBlobRefs(): number {
+    return this.events.repairBlobRefs();
+  }
+
   /** 一覧 (削除済み・0 シートを除く) */
   listFiles(): GraphFileListItem[] {
     return this.events.listOplogFiles();

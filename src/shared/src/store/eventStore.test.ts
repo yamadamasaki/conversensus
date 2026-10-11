@@ -626,3 +626,58 @@ describe('EventStore の blob ストア (ANA-116)', () => {
     ]);
   });
 });
+
+describe('EventStore: 壊れて保存された画像の参照を直す (#264)', () => {
+  // 壊れた形 (BlobRef を structured clone して JSON にしたもの)。CID は 'b' + base32 の 4 バイト分
+  // だけ見ればよいので、短いバイト列で作る
+  const broken = {
+    ref: {
+      code: 85,
+      version: 1,
+      multihash: {
+        code: 18,
+        size: 1,
+        digest: { 0: 7 },
+        bytes: { 0: 18, 1: 1, 2: 7 },
+      },
+      bytes: { 0: 1, 1: 85, 2: 18, 3: 1, 4: 7 },
+    },
+    mimeType: 'image/png',
+    size: 3,
+  };
+  const batchWith = (id: string, value: unknown): Batch =>
+    ({
+      id,
+      actor: 'did:plc:bob#dev',
+      clock: 1,
+      seq: Number(id.slice(-1)),
+      deps: {},
+      timestamp: 0,
+      ops: [{ kind: 'node.setProperty', target: 'n1', name: 'image', value }],
+    }) as unknown as Batch;
+
+  it('壊れた参照を持つ batch だけを書き直し、2 度目は何もしない', () => {
+    const store = new EventStore(new BunSqliteDriver(IN_MEMORY));
+    const healthy = {
+      $type: 'blob',
+      ref: { $link: 'bafkrei' },
+      mimeType: 'image/png',
+      size: 3,
+    };
+    store.appendBatch(FILE, batchWith('b1', broken));
+    store.appendBatch(FILE, batchWith('b2', healthy));
+    expect(store.repairBlobRefs()).toBe(1);
+    const [b1, b2] = store.getBatches(FILE);
+    const imageOf = (b: Batch | undefined) => {
+      const op = b?.ops[0] as unknown as
+        | { value: { $type: string; ref: unknown } }
+        | undefined;
+      if (!op) throw new Error('op が無い');
+      return op.value;
+    };
+    expect(imageOf(b1).$type).toBe('blob');
+    expect(imageOf(b1).ref).toEqual({ $link: expect.stringMatching(/^b/) });
+    expect(imageOf(b2)).toEqual(healthy);
+    expect(store.repairBlobRefs()).toBe(0);
+  });
+});
