@@ -70,6 +70,7 @@ import {
 import { useClipboard } from './hooks/useClipboard';
 import { useEdgeContextMenu } from './hooks/useEdgeContextMenu';
 import { type UndoState, useEventStore } from './hooks/useEventStore';
+import { useFitOnResize } from './hooks/useFitOnResize';
 import {
   type GroupAbility,
   groupAbilityOf,
@@ -175,8 +176,10 @@ function GraphEditorInner({
   onSelectionChange,
   onGroupAbilityChange,
 }: Props) {
-  const { screenToFlowPosition, getNodes, getEdges, setCenter } =
+  const { screenToFlowPosition, getNodes, getEdges, setCenter, fitView } =
     useReactFlow();
+  // キャンバスの大きさが変わったら表示を合わせ直す。自分で動かした後は動かさない (#257)
+  const fitOnResize = useFitOnResize(fitView);
   // 再参加した後、同期が済むまでは編集させない (step2 Phase 2 S6)。
   // **props ではなく context で受ける** — 途中の層はこの値に用が無い
   const readOnly = useReadOnly();
@@ -903,6 +906,7 @@ function GraphEditorInner({
           <GraphNodeProvider value={graphNodeHandlers}>
             {/* biome-ignore lint/a11y/noStaticElementInteractions: drop target wrapper */}
             <div
+              ref={fitOnResize.containerRef}
               style={{ width: '100%', height: '100%' }}
               onDragOver={handleDragOver}
               onDrop={handleDrop}
@@ -930,6 +934,7 @@ function GraphEditorInner({
                 nodesConnectable={!readOnly}
                 edgesReconnectable={!readOnly}
                 onPaneClick={onPaneClick}
+                onMoveStart={fitOnResize.onMoveStart}
                 onEdgeContextMenu={onEdgeContextMenu}
                 zoomOnDoubleClick={false}
                 deleteKeyCode={null}
