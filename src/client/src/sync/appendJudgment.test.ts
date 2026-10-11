@@ -31,8 +31,8 @@ const jb = (clock: number): JudgmentBatch => ({
 function makeDeps(graphClock = new CausalClock(ACTOR)) {
   const written: JudgmentBatch[] = [];
   const deps: AppendJudgmentDeps = {
-    // tap の発番器 (グラフと共有)。本番では trunk の tap のものを渡す
-    clock: graphClock,
+    // File の発番器 (グラフと共有)。本番では置き場の発番器をローカルの op-log から復元して返す
+    clockFor: async () => graphClock,
     actor: ACTOR,
     putJudgment: async (_fileId, batch) => {
       written.push(batch);
@@ -121,16 +121,14 @@ describe('appendJudgment', () => {
     expect(written[0]?.clock).toBe(21);
   });
 
-  describe('⚠️ その File を開いていないとき (2026-09-05 実機で発覚)', () => {
-    // clock 空間は File ごとで、tap も File ごとに作られる。承認する時点でその File は
-    // 手元に無いので開きようがなく、**開いている別の File の tap を渡してはならない**
-    // (別の clock 空間の採番器であり、その File の clock を無関係に進めてしまう)。
-    // 無条件に渡す実装では、そもそも何も開いていない端末で `tick()` が落ち、
-    // **承認が 1 件も書かれないまま画面には何も出なかった**
+  describe('⚠️ その File がまだ手元に無いとき (2026-09-05 実機で発覚)', () => {
+    // 承認する時点でその File は手元に無い。**開いている別の File の発番器を使ってはならない**
+    // (別の clock 空間)。今は File ごとの発番器を借り、ローカルの op-log から復元する (#261) —
+    // 手元に何も無ければ復元するものが無く、判断ログの最大値 + 1 で振る
     const makeTaplessDeps = () => {
       const written: JudgmentBatch[] = [];
       const deps: AppendJudgmentDeps = {
-        clock: null,
+        clockFor: async () => new CausalClock(ACTOR),
         actor: ACTOR,
         putJudgment: async (_fileId, batch) => {
           written.push(batch);
@@ -212,5 +210,42 @@ describe('appendJudgment: 因果の点 (step3 Phase 1)', () => {
     await appendJudgment(deps, FILE, [{ kind: 'participation.resign' }], []);
 
     expect(written[0]?.deps).toEqual({ 'did:plc:bob#dev': 5 });
+  });
+});
+
+describe('appendJudgment: 同じ点を 2 度振らない (#261)', () => {
+  test('窓 2: 開いていない File でも、ローカルのグラフの点の後から振る', async () => {
+    // File の発番器を借りる側 (`judgmentClockFor`) がローカルの op-log から復元して返す。
+    // 以前は判断ログだけから復元した使い捨ての発番器で振ったので、seq 1 を振り直していた
+    const fileClock = new CausalClock(ACTOR);
+    fileClock.restore([
+      { actor: ACTOR, seq: 1, deps: {}, clock: 1 },
+      { actor: ACTOR, seq: 2, deps: {}, clock: 2 },
+    ]);
+    const { deps, written } = makeDeps(fileClock);
+    await appendJudgment(deps, FILE, [{ kind: 'participation.resign' }], []);
+    expect(written[0]?.seq).toBe(3);
+  });
+
+  test('窓 1: 振った点を覚える (再読み込みの後の発番器の下限になる)', async () => {
+    const remembered: { fileId: FileId; seq: number; clock: number }[] = [];
+    const { deps, written } = makeDeps();
+    await appendJudgment(
+      {
+        ...deps,
+        rememberPoint: (fileId, point) =>
+          remembered.push({ fileId, seq: point.seq, clock: point.clock }),
+      },
+      FILE,
+      [{ kind: 'participation.resign' }],
+      [],
+    );
+    expect(remembered).toEqual([
+      {
+        fileId: FILE,
+        seq: written[0]?.seq ?? -1,
+        clock: written[0]?.clock ?? -1,
+      },
+    ]);
   });
 });

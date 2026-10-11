@@ -35,6 +35,7 @@ import { loadRoster, putJudgment } from '../atproto/judgmentStore';
 import { fileNameLabels, remoteFileRef } from '../atproto/remoteFileName';
 import type { LabelResolver } from '../display/labelCache';
 import { appendJudgment } from '../sync/appendJudgment';
+import { rememberOwnJudgmentPoint } from '../sync/ownJudgmentPoint';
 import type { DecodeFailure } from '../sync/participationCode';
 import {
   decodeParticipationCode,
@@ -121,16 +122,12 @@ export type InvitationPreview = {
 export type UseParticipationDeps = {
   actor: Actor;
   /**
-   * **開いている File のグラフと同じ clock。**独立した採番器を渡してはならない。
-   *
-   * clock 空間は File ごとなので、**判断を書く File が開いているときにだけ使う**
-   * (`activeFileId` で判定する)。承認は「まだ手元に無い File」に対して行うので、
-   * ここを無条件に使うと**別の clock 空間の採番器で発番**することになり、しかも
-   * 開いていなければ `tick()` が落ちる (2026-09-05 実機で発覚)。
+   * **判断を書く File の、グラフと同じ発番器**をその File のローカルの op-log から復元して返す
+   * (#261)。独立した採番器を返してはならない。**開いていない File でも返す** — 承認は
+   * 「まだ手元に無い File」に対して行い、背後のタブの File にも書く
+   * (`useFileSheetOperations.judgmentClockFor`)
    */
-  clock: CausalClock | null;
-  /** いま開いている File。`clock` を使ってよいかの判定に使う */
-  activeFileId: FileId | null;
+  clockFor: (fileId: FileId) => Promise<CausalClock>;
   /**
    * 名簿の供給元 (step2 Phase 2 S1)。**同期サイクルと同じものを渡す** —
    * 別に作ると読みが畳まれず、起点の修復も二重に走る
@@ -141,8 +138,7 @@ export type UseParticipationDeps = {
 
 export function useParticipation({
   actor,
-  clock,
-  activeFileId,
+  clockFor,
   roster,
   newBatchId = () => crypto.randomUUID() as BatchId,
 }: UseParticipationDeps) {
@@ -202,9 +198,10 @@ export function useParticipation({
       try {
         const written = await appendJudgment(
           {
-            // **開いている File のときだけ tap の clock を使う。**clock 空間は File
-            // ごとなので、別の File の tap で発番してはならない (承認がこの場合)
-            clock: fileId === activeFileId ? clock : null,
+            clockFor,
+            // 振った点を手元に覚える。判断ログはローカル正典に載らないので、覚えないと
+            // 再読み込みの後に開いた直後の編集が同じ点を振る (#261 の窓 1)
+            rememberPoint: rememberOwnJudgmentPoint,
             actor,
             putJudgment,
             newBatchId,
@@ -224,7 +221,7 @@ export function useParticipation({
         return false;
       }
     },
-    [actor, clock, activeFileId, newBatchId, refresh],
+    [actor, clockFor, newBatchId, refresh],
   );
 
   /**

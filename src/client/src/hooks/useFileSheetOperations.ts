@@ -49,6 +49,7 @@ import { deleteFileByTombstone } from '../sync/fileDeletion';
 import { FileSession, providerFor } from '../sync/fileSession';
 import { FileSessionPool, type SessionFactory } from '../sync/fileSessionPool';
 import type { DetectedOverwrites } from '../sync/overwrites';
+import { recallOwnJudgmentPoint } from '../sync/ownJudgmentPoint';
 import { collectParticipantBatches } from '../sync/receiveParticipantBatches';
 import { reprojectAfterReceive } from '../sync/reprojectAfterReceive';
 import type { RosterSource } from '../sync/rosterSource';
@@ -454,8 +455,28 @@ export function useFileSheetOperations({
    * 変わるので置き場ごと作り直す
    */
   const sessionPool = useMemo(
-    () => new FileSessionPool<FileSession>(() => new CausalClock(actor)),
+    () =>
+      new FileSessionPool<FileSession>((fileId) => {
+        const clock = new CausalClock(actor);
+        // この端末が前に書いた判断の点を下限にする (#261 の窓 1)。判断ログはローカル正典に
+        // 載らないので、入れないと開いてから最初の受信サイクルまでの編集が同じ点を振る
+        const own = recallOwnJudgmentPoint(fileId, actor);
+        if (own) clock.restore([{ ...own, deps: {} }]);
+        return clock;
+      }),
     [actor],
+  );
+  /**
+   * 判断を書く File の発番器 (#261 の窓 2)。**開いていなくても**置き場の発番器を借り、その File の
+   * ローカルの op-log から復元してから返す。`restore` は何度呼んでもよい (各値の最大を取るだけ)
+   */
+  const judgmentClockFor = useCallback(
+    async (fileId: FileId) => {
+      const clock = sessionPool.causalOf(fileId);
+      clock.restore(await deps.fetchBatches(fileId));
+      return clock;
+    },
+    [sessionPool, deps],
   );
   useEffect(() => () => sessionPool.dispose(), [sessionPool]);
   const sessionFactory = useMemo<SessionFactory<FileSession>>(
@@ -1140,6 +1161,7 @@ export function useFileSheetOperations({
      * (File を開いていなければ null)
      */
     trunkCausal,
+    judgmentClockFor,
     /**
      * trunk に record した event が op-log に落ち切るのを待つ (step3 Phase 4)。op-log を読み直して
      * 切断面を作る前 (template graph を当てるときなど) に待つ — 直前の編集が切断面から漏れないように

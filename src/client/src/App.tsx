@@ -555,15 +555,14 @@ export default function App() {
   /**
    * 名簿の操作 (step2 Phase 1)。
    *
-   * **発番器は `fileOps.trunkCausal` を渡す。**判断ログとグラフの op-log は同じ clock 空間を
-   * 共有しなければならない — pre 条件が「この操作より前」を含むので、別空間にすると
-   * 承認が済んでいるのに正当な再 merge が落ちる (U6-P2 スパイク)。
+   * **発番器は File ごとのものを借りる** (`fileOps.judgmentClockFor`)。判断ログとグラフの op-log は
+   * 同じ clock 空間を共有しなければならない — pre 条件が「この操作より前」を含むので、別空間に
+   * すると承認が済んでいるのに正当な再 merge が落ちる (U6-P2 スパイク)。開いていない File でも
+   * 同じ発番器を使う (#261)
    */
   const participation = useParticipation({
     actor,
-    clock: fileOps.trunkCausal,
-    // clock 空間は File ごと。開いている File のときだけ tap の clock を使う
-    activeFileId: fileOps.activeFile?.id ?? null,
+    clockFor: fileOps.judgmentClockFor,
     // **同期サイクルと同じ供給元**を渡す (step2 Phase 2 S1)
     roster,
   });
