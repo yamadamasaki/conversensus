@@ -35,7 +35,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AcceptInvitationDialog } from './AcceptInvitationDialog';
 import { AlertDialog } from './AlertDialog';
 import { AtprotoLoginDialog } from './AtprotoLoginDialog';
-import { fetchBatches } from './api';
+import { fetchBatches, searchFiles } from './api';
 import { authNeedsPassword } from './atproto/client';
 import { CommitDialog } from './CommitDialog';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -95,6 +95,8 @@ import { ReadOnlyProvider } from './readOnlyContext';
 import { SearchPanel } from './SearchPanel';
 import { type OpenOptions, Sidebar } from './Sidebar';
 import { SidePanel } from './SidePanel';
+import { GlobalSearchDialog } from './search/GlobalSearchDialog';
+import type { FileSearchHit } from './search/searchFiles';
 import { openForksOf } from './sync/forkArrival';
 import {
   carryChecks,
@@ -120,6 +122,12 @@ import { CURRENT_BUILD_ID } from './update/appUpdate';
 import { UpdateNotice } from './update/UpdateNotice';
 import { useAppUpdate } from './update/useAppUpdate';
 import { generateId } from './uuid';
+
+/** File をまたいで探す (#248) のショートカット: ⌘⇧F / Ctrl+Shift+F */
+const GLOBAL_SEARCH_KEY = 'f';
+/** 開いた Sheet の要素に寄せる試みの回数と間隔 (#248)。合わせて 1 秒ほど待つ */
+const REVEAL_ATTEMPTS = 20;
+const REVEAL_RETRY_MS = 50;
 
 /** 特殊なグラフのシートの既定の名前 (step3 Phase 4)。n は同じ種類の何枚目か */
 const SPECIAL_SHEET_NAMES: Record<SheetKind, (n: number) => string> = {
@@ -1025,6 +1033,74 @@ export default function App() {
     [activeFileId, openTab],
   );
 
+  /** 別の File の Sheet を開く (#249 名前の検索の結果から)。タブを開けば画面が付いてくる */
+  const openSheetOf = useCallback(
+    (fileId: FileId, sheetId: SheetId, { newTab }: OpenOptions) => {
+      openTab(
+        { fileId, sheetId, branchId: null, cut: HEAD_CUT },
+        { forceNew: newTab },
+      );
+    },
+    [openTab],
+  );
+
+  /** File をまたいで探すダイアログ (#248)。⌘⇧F でも開く */
+  const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || !e.shiftKey) return;
+      // Shift を伴うと e.key は 'F' になるため、大文字小文字を無視して比べる
+      if (e.key.toLowerCase() !== GLOBAL_SEARCH_KEY) return;
+      e.preventDefault();
+      setGlobalSearchOpen(true);
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+  /**
+   * 開いた先で寄せる要素 (#248)。開くのは非同期 (File の読み込み) なので、その Sheet が画面に
+   * 出てから寄せる
+   */
+  const [pendingReveal, setPendingReveal] = useState<FileSearchHit | null>(
+    null,
+  );
+  const openSearchHit = useCallback(
+    (hit: { fileId: FileId; sheetId: SheetId }) => {
+      setGlobalSearchOpen(false);
+      openTab(
+        {
+          fileId: hit.fileId,
+          sheetId: hit.sheetId,
+          branchId: null,
+          cut: HEAD_CUT,
+        },
+        { forceNew: false },
+      );
+    },
+    [openTab],
+  );
+  // 開いた Sheet が画面に出たら寄せる。GraphEditor は view ごとに作り直されるので、canvas の口は
+  // **試すたびに最新を読む** (着いた瞬間の口は前の Sheet のもの)。React Flow が要素を受け取るのも
+  // 描いた後なので、寄せられるまで間を置いて試す (回数に限りを付ける — 要素が消えていれば寄せられない)
+  const controlsRef = useRef(panels.controls);
+  controlsRef.current = panels.controls;
+  useEffect(() => {
+    if (pendingReveal === null) return;
+    if (
+      fileOps.activeFile?.id !== pendingReveal.fileId ||
+      viewSheet?.id !== pendingReveal.sheetId
+    )
+      return;
+    setPendingReveal(null);
+    let attempts = 0;
+    const tryReveal = () => {
+      if (controlsRef.current?.reveal(pendingReveal)) return;
+      attempts += 1;
+      if (attempts < REVEAL_ATTEMPTS) setTimeout(tryReveal, REVEAL_RETRY_MS);
+    };
+    setTimeout(tryReveal, 0);
+  }, [pendingReveal, fileOps.activeFile?.id, viewSheet?.id]);
+
   /**
    * タブの名前。File の名前は一覧から、シートと branch の名前は**見たことのあるもの**から引く —
    * 背後のタブの File は開いていないので、シートの名前が手元に無い。見たことが無ければ出さない
@@ -1037,8 +1113,11 @@ export default function App() {
   const addressLabelOf = (address: GraphViewAddress) => {
     const { fileId, sheetId, branchId } = address;
     const names = seenNamesRef.current;
-    const fileName = fileOps.files.find((f) => f.id === fileId)?.name ?? '';
-    const sheetName = names.get(sheetId);
+    const listed = fileOps.files.find((f) => f.id === fileId);
+    const fileName = listed?.name ?? '';
+    // 開いていない File の Sheet の名前は一覧が持つ (#249)
+    const sheetName =
+      names.get(sheetId) ?? listed?.sheets.find((s) => s.id === sheetId)?.name;
     const base = sheetName ? `${fileName} / ${sheetName}` : fileName;
     return branchId ? `${base} (⎇ ${names.get(branchId) ?? ''})` : base;
   };
@@ -1253,6 +1332,8 @@ export default function App() {
             onSelectSheet={(sheetId, options) =>
               openSheetTab(sheetId, null, options)
             }
+            onOpenSheetOf={openSheetOf}
+            onOpenGlobalSearch={() => setGlobalSearchOpen(true)}
             onAddSheet={handleAddSheet}
             onAddKindSheet={handleAddKindSheet}
             onAddSeedTemplate={handleAddSeedTemplate}
@@ -1646,6 +1727,19 @@ export default function App() {
           onDismiss={appUpdate.dismiss}
         />
       </div>
+      {globalSearchOpen && (
+        <GlobalSearchDialog
+          files={fileOps.files}
+          folderTree={folders.tree}
+          searchContent={searchFiles}
+          onOpenName={openSearchHit}
+          onOpenContent={(hit) => {
+            openSearchHit(hit);
+            setPendingReveal(hit);
+          }}
+          onClose={() => setGlobalSearchOpen(false)}
+        />
+      )}
       {loginDialogOpen && (
         <AtprotoLoginDialog
           needsPassword={authNeedsPassword()}

@@ -5,6 +5,7 @@ import {
   type GraphFile,
   type GraphFileListItem,
   graphFileToBatches,
+  listItemOf,
   type SheetId,
 } from '@conversensus/shared';
 import type { SheetChange } from '../../sync/computeOperations';
@@ -44,11 +45,7 @@ export function createInMemoryFileSheetOpsDeps(): FileSheetOpsDeps & {
         ],
       };
       fileStore.set(id, file);
-      fileList.push({
-        id: file.id,
-        name: file.name,
-        description: file.description,
-      });
+      fileList.push(listItemOf(file));
       return file;
     },
 
@@ -98,11 +95,7 @@ export function createInMemoryFileSheetOpsDeps(): FileSheetOpsDeps & {
         sheets: data.sheets,
       };
       fileStore.set(file.id, file);
-      fileList.push({
-        id: file.id,
-        name: file.name,
-        description: file.description,
-      });
+      fileList.push(listItemOf(file));
       return file;
     },
 

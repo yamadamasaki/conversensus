@@ -1,7 +1,7 @@
 /**
  * ローカル正典への入口 (step1 以来の `api.ts`)
  *
- * hooks から上はこの 9 関数だけを見る。中身は差し替えられるバックエンド (`local/backend.ts`)
+ * hooks から上はこれらの関数だけを見る。中身は差し替えられるバックエンド (`local/backend.ts`)
  * に委ねる (step3 Phase 2 D2) — ブラウザでは Worker の中の `LocalStore`、App 結合テストは同じ
  * プロセスの `LocalStore` である。
  */
@@ -40,6 +40,8 @@ export const listLocalActorBatches: LocalBackend['listLocalActorBatches'] =
   () => backend.listLocalActorBatches();
 export const renameActor: LocalBackend['renameActor'] = (from, to) =>
   backend.renameActor(from, to);
+export const searchFiles: LocalBackend['searchFiles'] = (query, options) =>
+  backend.searchFiles(query, options);
 export const createFile: LocalBackend['createFile'] = (name) =>
   backend.createFile(name);
 export const postImportFile: LocalBackend['postImportFile'] = (data) =>

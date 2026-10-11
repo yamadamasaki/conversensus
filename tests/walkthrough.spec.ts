@@ -5,8 +5,8 @@ import { collectPageProblems } from './pageProblems';
 /**
  * 通しスモーク (ANA-125 S2)
  *
- * ファイル作成 → ノード作成 → ノード編集 → シート追加 → シート切替 → export →
- * import → 画像 drop を **1 本の導線として** WebKit で通す。
+ * ファイル作成 → ノード作成 → ノード編集 → シート追加 → シート切替 → File をまたぐ検索 →
+ * export → import → 画像 drop を **1 本の導線として** WebKit で通す。
  *
  * ここの合格条件は 2 つある。
  *
@@ -93,6 +93,21 @@ test.describe('通しスモーク (ANA-125 S2)', () => {
     await item.getByRole('button', { name: 'Sheet 1', exact: true }).click();
     // 戻ったら編集が残っている (シート切替で React Flow を再 seed する経路の検査)
     await expect(page.locator(NODE)).toContainText(nodeText);
+
+    // --- File をまたいで探す (#248) ---
+    // 中身はローカル正典の Worker で引く (App 結合は同じプロセスの store で、Worker を通らない)
+    await page
+      .getByRole('button', { name: 'File をまたいで中身も探す (⌘⇧F)' })
+      .click();
+    const search = page.getByRole('dialog', { name: 'File をまたいで探す' });
+    await search.getByRole('searchbox').fill(nodeText);
+    const contentHits = search.getByRole('region', { name: '中身の当たり' });
+    await expect(contentHits).toContainText(`${fileName} / Sheet 1`, {
+      timeout: SETTLE_TIMEOUT_MS,
+    });
+    await contentHits.getByRole('button').first().click();
+    await expect(search).toHaveCount(0);
+    await expect(page.locator(`${NODE}.selected`)).toContainText(nodeText);
 
     // --- export ---
     await item.locator('button[title="詳細"]').first().click();

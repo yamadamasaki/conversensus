@@ -12,6 +12,7 @@ import {
   type GraphFileListItem,
   type Lamport,
   LOCAL_DID,
+  listItemOf,
   type Participation,
   participationGenesisBatch,
   projectFile,
@@ -652,14 +653,7 @@ export function useFileSheetOperations({
       const created = await deps.createFile(name);
       // 未ログインで作った File は、ログインして「送る」と答えるまでこの端末から出さない (#253)
       markIfSignedOut(created.id as FileId);
-      setFiles((fs) => [
-        ...fs,
-        {
-          id: created.id,
-          name: created.name,
-          description: created.description,
-        },
-      ]);
+      setFiles((fs) => [...fs, listItemOf(created)]);
       // 作成直後も同じ op-log 経路で読み直し、projection を表示する (open との一貫性)。
       // `POST /files` が genesis を書いた後なので必ず読める (p6-1)。
       const file = await loadFile(created.id);
@@ -703,17 +697,9 @@ export function useFileSheetOperations({
    */
   const updateFileState = useCallback((updated: GraphFile) => {
     setActiveFile(updated);
-    // サイドバー一覧の名前・説明を追随させる (一覧は id/name/description だけを持つ)
+    // サイドバー一覧の名前・説明・Sheet の名前を追随させる
     setFiles((fs) =>
-      fs.map((f) =>
-        f.id === updated.id
-          ? {
-              id: updated.id,
-              name: updated.name,
-              description: updated.description,
-            }
-          : f,
-      ),
+      fs.map((f) => (f.id === updated.id ? listItemOf(updated) : f)),
     );
   }, []);
 
@@ -898,10 +884,7 @@ export function useFileSheetOperations({
       try {
         const file = await deps.importFile(data);
         markIfSignedOut(file.id as FileId);
-        setFiles((fs) => [
-          ...fs,
-          { id: file.id, name: file.name, description: file.description },
-        ]);
+        setFiles((fs) => [...fs, listItemOf(file)]);
         setActiveFile(file);
         setActiveSheetId((file.sheets[0]?.id ?? null) as SheetId | null);
         setExpandedFileIds((prev) => new Set([...prev, file.id]));

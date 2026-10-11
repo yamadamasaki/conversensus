@@ -309,12 +309,13 @@ function GraphEditorInner({
         : getNodes().find(
             (n) => n.id === getEdges().find((e) => e.id === hit.id)?.source,
           );
-      if (!target) return;
+      if (!target) return false;
       setCenter(
         target.position.x + (target.measured?.width ?? 0) / 2,
         target.position.y + (target.measured?.height ?? 0) / 2,
         { zoom: REVEAL_ZOOM, duration: REVEAL_DURATION_MS },
       );
+      return true;
     },
     [getNodes, getEdges, setCenter, setNodes, setEdges],
   );

@@ -22,6 +22,7 @@ import { ICON_SIZE_SM } from './ui/Button';
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { HitText, hitKeyOf } from './search/HitText';
 import type { SearchHit } from './search/searchSheet';
 
 /** 検索窓と結果一覧の重なり順。ダイアログ (1000) より下、通知 (900) より下 */
@@ -32,33 +33,6 @@ const RESULTS_WIDTH = 420;
 
 /** 結果一覧の高さの上限。これを超えたらスクロールさせる */
 const RESULTS_MAX_HEIGHT = '50vh';
-
-/** 欄の名前。仕様の結果一覧が出す「要素の種類 (node/edge, label/content/property)」 */
-const FIELD_LABEL = {
-  label: 'label',
-  content: '本文',
-  property: 'property',
-} as const;
-
-const KIND_LABEL = {
-  node: 'node',
-  edge: 'edge',
-} as const;
-
-/** ヒットの同一性。**同じ要素が複数の欄で当たる**ので、id だけでは足りない */
-function keyOf(hit: SearchHit): string {
-  return `${hit.elementKind}:${hit.id}:${hit.field}:${hit.propertyName ?? ''}`;
-}
-
-/** 抜粋を 3 つに割る。ヒットした部分だけ色を変えるため */
-function splitSnippet(hit: SearchHit): [string, string, string] {
-  const end = hit.matchStart + hit.matchLength;
-  return [
-    hit.snippet.slice(0, hit.matchStart),
-    hit.snippet.slice(hit.matchStart, end),
-    hit.snippet.slice(end),
-  ];
-}
 
 type Props = {
   /** 検索語が変わるたびに呼ばれる。**Enter を待たない** (後述) */
@@ -193,9 +167,8 @@ export function SearchPanel({
           ) : (
             <ul style={{ margin: 0, padding: 0, listStyle: 'none' }}>
               {hits.map((hit) => {
-                const [before, match, after] = splitSnippet(hit);
                 return (
-                  <li key={keyOf(hit)}>
+                  <li key={hitKeyOf(hit)}>
                     {/* **ダブルクリックで示す** (仕様)。ただし 1 回のクリックでも
                         効くようにしてある — 押して何も起きない UI は、壊れて
                         見えるからである */}
@@ -216,25 +189,7 @@ export function SearchPanel({
                         lineHeight: 1.6,
                       }}
                     >
-                      <span
-                        style={{
-                          color: color.textMuted,
-                          fontSize: font.caption,
-                        }}
-                      >
-                        {KIND_LABEL[hit.elementKind]} / {FIELD_LABEL[hit.field]}
-                        {/* property は名前と型も出す (仕様) */}
-                        {hit.propertyName !== undefined &&
-                          ` — ${hit.propertyName}: ${hit.propertyType}`}
-                      </span>
-                      <br />
-                      <span>
-                        {before}
-                        <mark style={{ background: color.warningBg }}>
-                          {match}
-                        </mark>
-                        {after}
-                      </span>
+                      <HitText hit={hit} />
                     </button>
                   </li>
                 );

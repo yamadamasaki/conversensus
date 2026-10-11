@@ -56,6 +56,7 @@ export function startWorkerBackend(): Promise<WorkerBackendStart> {
     fetchBlob: call('fetchBlob'),
     listLocalActorBatches: call('listLocalActorBatches'),
     renameActor: call('renameActor'),
+    searchFiles: call('searchFiles'),
   } as unknown as LocalBackend;
 
   return new Promise((resolveStart) => {

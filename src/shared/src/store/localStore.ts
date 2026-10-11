@@ -76,6 +76,11 @@ export class LocalStore {
     return this.events.listOplogFiles();
   }
 
+  /** 一覧に出る File を畳み込んだもの (#248 File をまたぐ検索)。trunk だけ */
+  listProjectedFiles(): GraphFile[] {
+    return this.events.listProjectedFiles();
+  }
+
   /** op-log を持つ file_id の全集合 (削除済みも含む。remote からの発見の既知集合, ANA-127) */
   listAllFileIds(): FileId[] {
     return this.events.listAllFileIds();

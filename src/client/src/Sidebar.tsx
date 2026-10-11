@@ -30,6 +30,7 @@ import {
   Network,
   Pencil,
   Shapes,
+  TextSearch,
   Trash2,
   UserPlus,
   X,
@@ -53,6 +54,8 @@ import { SettingsPopup } from './SettingsPopup';
 import { ShareStatusIcon } from './ShareStatusIcon';
 import { StorageAtRiskBanner } from './StorageAtRiskBanner';
 import { SyncStatusIndicator } from './SyncStatusIndicator';
+import { NameHighlight } from './search/NameHighlight';
+import { filterByName } from './search/nameFilter';
 import type { FileSharing } from './sync/rosterView';
 import { color, font, radius } from './theme';
 import { Button, ICON_SIZE_SM, IconButton } from './ui/Button';
@@ -126,6 +129,17 @@ type Props = {
   onOpenFile: (id: string) => void;
   /** シートを開く。`newTab` は ⌘ / Ctrl を押しながら選んだ (別のタブで開く, Q2) */
   onSelectSheet: (sheetId: SheetId, options: OpenOptions) => void;
+  /**
+   * 開いていない File の Sheet を開く (#249)。名前の検索で当たった Sheet の行から使う。
+   * 渡さなければ、当たった Sheet の行を出さない
+   */
+  onOpenSheetOf?: (
+    fileId: FileId,
+    sheetId: SheetId,
+    options: OpenOptions,
+  ) => void;
+  /** File をまたいで名前と中身を探すダイアログを開く (#248) */
+  onOpenGlobalSearch?: () => void;
   /** template を当てずに作るなら省略する (Phase 5 D1: 紐づけは作成時のみ) */
   /** シートを足す。File に template graph があれば、当てるものを選ばせるのは App */
   onAddSheet: () => void;
@@ -207,6 +221,8 @@ export function Sidebar({
   onToggleExpand,
   onOpenFile,
   onSelectSheet,
+  onOpenSheetOf,
+  onOpenGlobalSearch,
   onAddSheet,
   onAddKindSheet,
   onAddSeedTemplate,
@@ -247,6 +263,18 @@ export function Sidebar({
   } | null>(null);
 
   const localOnlyFiles = useLocalOnlyFiles();
+  /** 名前の検索語 (#249)。空なら絞らない */
+  const [nameQuery, setNameQuery] = useState('');
+  // Folder を使わない一覧 (folders を渡さない) も、トップ・レベルだけのツリーとして絞る
+  const nameFilter = filterByName(
+    folders?.tree ?? {
+      folders: [],
+      files: files.map((f) => f.id as FileId),
+      renames: [],
+    },
+    files,
+    nameQuery,
+  );
   /** 保存領域が守られていないなら、端末だけの File が消されうる (#263) */
   const storageAtRisk = usePersistenceState() === 'notPersisted';
   const showAlert = (message: string) =>
@@ -334,7 +362,7 @@ export function Sidebar({
               onToggleExpand(f.id);
             }}
           >
-            {f.name}
+            <NameHighlight name={f.name} query={nameQuery} />
           </button>
 
           {localOnly && (
@@ -467,6 +495,43 @@ export function Sidebar({
           </ul>
         )}
 
+        {/*
+          名前の検索で当たった Sheet (#249)。Sheet の一覧を出していない File (開いていない・畳んだ)
+          でだけ出す — 出していれば、そこで当たりに色が付く
+        */}
+        {nameFilter && onOpenSheetOf && !(isExpanded && fileData) && (
+          <ul
+            aria-label={`${f.name} の当たった Sheet`}
+            style={{ listStyle: 'none', margin: 0, padding: 0 }}
+          >
+            {(nameFilter.matchedSheets.get(f.id as FileId) ?? []).map((s) => (
+              <li key={s.id}>
+                <button
+                  type="button"
+                  style={{
+                    display: 'block',
+                    width: '100%',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    fontSize: font.body,
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    padding: '3px 4px 3px 20px',
+                  }}
+                  onClick={(e) =>
+                    onOpenSheetOf(f.id as FileId, s.id, openOptionsOf(e))
+                  }
+                >
+                  <NameHighlight name={s.name} query={nameQuery} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+
         {/* シート一覧 (展開時) */}
         {isExpanded && fileData && (
           <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
@@ -512,7 +577,7 @@ export function Sidebar({
                       }}
                       onClick={(e) => onSelectSheet(s.id, openOptionsOf(e))}
                     >
-                      {s.name}
+                      <NameHighlight name={s.name} query={nameQuery} />
                       {kind &&
                         SHEET_KIND_MARK[kind] &&
                         (() => {
@@ -840,6 +905,11 @@ export function Sidebar({
   };
 
   const fileById = new Map(files.map((f) => [f.id, f]));
+  /** 描くツリー。名前で絞っていれば絞った後のもの (#249) */
+  const shownTree = nameFilter?.tree ?? {
+    folders: folders?.tree.folders ?? [],
+    files: folders?.tree.files ?? files.map((f) => f.id as FileId),
+  };
 
   /** Folder の行と、その中身 (下位の Folder → File)。折り畳めば中身を出さない */
   const renderFolder = (
@@ -847,7 +917,8 @@ export function Sidebar({
     ops: FolderProps,
   ): React.ReactElement => {
     const { id } = node.folder;
-    const open = !ops.collapsed.has(id);
+    // 名前で絞っている間は、残った Folder をすべて開く (当たりを隠さない)
+    const open = nameFilter !== null || !ops.collapsed.has(id);
     const empty = isEmptyFolder(node);
     return (
       <li key={id}>
@@ -886,7 +957,7 @@ export function Sidebar({
               aria-hidden
               style={{ verticalAlign: 'middle', marginRight: 4 }}
             />
-            {node.name}
+            <NameHighlight name={node.name} query={nameQuery} />
           </span>
           <button
             type="button"
@@ -1023,6 +1094,41 @@ export function Sidebar({
         )}
       </div>
 
+      {/* 名前の検索 (#249)。打つたびにツリーを絞る。Esc で空にする */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 2,
+          margin: '4px 0',
+        }}
+      >
+        <input
+          type="search"
+          value={nameQuery}
+          onChange={(e) => setNameQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setNameQuery('');
+          }}
+          placeholder="名前で探す (File・Sheet・Folder)"
+          aria-label="File・Sheet・Folder を名前で探す"
+          style={{
+            flex: 1,
+            minWidth: 0,
+            padding: '4px 6px',
+            fontSize: font.body,
+          }}
+        />
+        {/* 中身まで探す口は別のダイアログ (#248)。⌘⇧F でも開く */}
+        {onOpenGlobalSearch && (
+          <IconButton
+            icon={TextSearch}
+            label="File をまたいで中身も探す (⌘⇧F)"
+            onClick={onOpenGlobalSearch}
+          />
+        )}
+      </div>
+
       {/* ファイル一覧 */}
       <ul
         style={{
@@ -1033,29 +1139,44 @@ export function Sidebar({
           overflowY: 'auto',
         }}
       >
+        {nameFilter &&
+          nameFilter.tree.folders.length === 0 &&
+          nameFilter.tree.files.length === 0 && (
+            <li
+              style={{
+                padding: 4,
+                color: color.textMuted,
+                fontSize: font.body,
+              }}
+            >
+              「{nameQuery.trim()}」に当たる名前はありません
+            </li>
+          )}
         {folders ? (
           <>
-            {folders.tree.folders.map((node) => renderFolder(node, folders))}
-            {folders.tree.folders.length > 0 &&
-              folders.tree.files.length > 0 && (
-                // トップ・レベルの File はまとめて出し、Folder とは区切る (仕様)
-                <li aria-hidden="true">
-                  <hr
-                    style={{
-                      border: 'none',
-                      borderTop: `1px solid ${color.borderSubtle}`,
-                      margin: '4px 0',
-                    }}
-                  />
-                </li>
-              )}
-            {folders.tree.files.map((id) => {
+            {shownTree.folders.map((node) => renderFolder(node, folders))}
+            {shownTree.folders.length > 0 && shownTree.files.length > 0 && (
+              // トップ・レベルの File はまとめて出し、Folder とは区切る (仕様)
+              <li aria-hidden="true">
+                <hr
+                  style={{
+                    border: 'none',
+                    borderTop: `1px solid ${color.borderSubtle}`,
+                    margin: '4px 0',
+                  }}
+                />
+              </li>
+            )}
+            {shownTree.files.map((id) => {
               const f = fileById.get(id);
               return f === undefined ? null : renderFile(f);
             })}
           </>
         ) : (
-          files.map(renderFile)
+          shownTree.files.map((id) => {
+            const f = fileById.get(id);
+            return f === undefined ? null : renderFile(f);
+          })
         )}
       </ul>
       {/* ATProto セッション */}
