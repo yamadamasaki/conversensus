@@ -1,5 +1,7 @@
+import { execSync } from 'node:child_process';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
+import packageJson from './package.json' with { type: 'json' };
 import { SECURITY_HEADERS } from './src/securityHeaders.ts';
 
 /**
@@ -20,9 +22,41 @@ const CROSS_ORIGIN_ISOLATION_HEADERS = {
  */
 const DEV_HOST = '127.0.0.1';
 
+/**
+ * **この build の印** (#262)。開いているタブは配信の `version.json` をこれと見比べ、違えば
+ * 「新しい版があります」を出す。commit が同じでも build し直せば変わるよう、時刻を足す
+ */
+function buildIdOf() {
+  let commit = 'nogit';
+  try {
+    commit = execSync('git rev-parse --short HEAD').toString().trim();
+  } catch {
+    // git の無い所で build しても止めない。時刻だけで足りる
+  }
+  return `${packageJson.version}+${commit}.${Date.now().toString(36)}`;
+}
+
+const BUILD_ID = buildIdOf();
+/** 配信の印の置き場所。`src/update/appUpdate.ts` の `VERSION_PATH` と揃える */
+const VERSION_FILE = 'version.json';
+
+/** build の成果物に `version.json` を足す (開発サーバでは出さない — 確かめるのは本番だけ) */
+const emitVersionFile = {
+  name: 'conversensus-version-file',
+  apply: 'build',
+  generateBundle() {
+    this.emitFile({
+      type: 'asset',
+      fileName: VERSION_FILE,
+      source: JSON.stringify({ build: BUILD_ID }),
+    });
+  },
+};
+
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), emitVersionFile],
+  define: { __BUILD_ID__: JSON.stringify(BUILD_ID) },
   server: { host: DEV_HOST, headers: CROSS_ORIGIN_ISOLATION_HEADERS },
   // 開発サーバは HMR と React Refresh が inline の script を使うので、CSP は本番ビルドの配信にだけ付ける
   preview: {

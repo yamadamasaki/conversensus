@@ -11,13 +11,16 @@
  * 保存した応答はヘッダごと残るので、オフラインで返す画面にも COOP/COEP が付いたままになる
  * (cross-origin isolation が無いと SQLite-WASM の `opfs` VFS が開けない)。
  *
- * 新しい版の出し方 (開いているタブをどうするか) は設計 U2 で決める。いまは次に開いたときに
- * 新しい版になる。
+ * 新しい版の出し方 (設計 U2、#262): 開いているタブは `version.json` を見て「新しい版があります」を
+ * 出し、利用者が再読み込みする (`src/update/appUpdate.ts`)。**`version.json` はここで握らない** —
+ * キャッシュから返すと、古い印を見て新しい版に気付けない。
  */
 
 const CACHE_NAME = 'conversensus-v1';
 /** オフラインで返す画面の鍵 */
 const APP_SHELL = '/';
+/** 新しい版の印。常にネットワークから取らせる (`src/update/appUpdate.ts` の `VERSION_PATH`) */
+const VERSION_PATH = '/version.json';
 
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (event) => {
@@ -52,7 +55,9 @@ async function cacheFirst(request) {
 self.addEventListener('fetch', (event) => {
   const request = event.request;
   if (request.method !== 'GET') return;
-  if (new URL(request.url).origin !== self.location.origin) return;
+  const url = new URL(request.url);
+  if (url.origin !== self.location.origin) return;
+  if (url.pathname === VERSION_PATH) return;
   event.respondWith(
     request.mode === 'navigate'
       ? networkFirstShell(request)
