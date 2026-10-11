@@ -34,6 +34,7 @@ import {
   type TapHandle,
 } from '../sync/fileSession';
 import type { FileSessionPool } from '../sync/fileSessionPool';
+import type { LiveSignal } from '../sync/liveChannel';
 import type { DetectedOverwrites } from '../sync/overwrites';
 import type { RosterSource } from '../sync/rosterSource';
 import type { SyncProvider } from '../sync/syncProvider';
@@ -55,6 +56,8 @@ export type UseEventSyncTapOptions = {
   pool?: { pool: FileSessionPool<FileSession>; holder: string };
   /** remote 送信キュー。null/未指定なら local-only (未ログイン時と同じ挙動) */
   remoteQueue?: RemoteSyncQueue | null;
+  /** 参加者の PDS の流れ (#252)。合図で取りに行き、繋がっている間はポーリングを延ばす */
+  live?: LiveSignal | null;
   /**
    * この op-log の発番下限 (branch のみ: 分岐点 `base.at`)。
    * 空の branch op-log でも base より後から発番させる (`EventSyncTap.clockFloor`)。
@@ -222,6 +225,7 @@ export function useEventSyncTap(
   {
     pool: pooled,
     remoteQueue = null,
+    live = null,
     actor,
     roster = null,
     trunkFileId,
@@ -279,6 +283,7 @@ export function useEventSyncTap(
             fetchLocal,
             forkDeps,
             pollIntervalMs,
+            ...(live && { live }),
           })
         : null,
     [
@@ -294,6 +299,7 @@ export function useEventSyncTap(
       fetchLocal,
       forkDeps,
       pollIntervalMs,
+      live,
     ],
   );
 

@@ -40,9 +40,11 @@ import {
 import { setLocalBackend } from '../api';
 import { logout, setAuthBackend } from '../atproto/client';
 import { passwordAuth } from '../atproto/passwordAuth';
+import { setLiveChannelFactory } from '../hooks/useLiveChannel';
 import type { LocalBackend } from '../local/backend';
 import { broadcastingBackend } from '../local/localChanges';
 import { storeBackend } from '../local/storeBackend';
+import { FakeLiveChannel } from './fakeLiveChannel';
 import { createFakePds, type FakePds } from './fakePds';
 
 /** 偽の PDS の origin。パスワードの認証 (`passwordAuth`) をここへ向ける */
@@ -65,6 +67,8 @@ export type AppWorld = {
   localStore: () => LocalStore;
   /** 境界の偽物に届かなかった URL (想定外の通信の検出用) */
   unhandled: string[];
+  /** 参加者の PDS の流れの偽物 (#252)。合図はテストが手で出す */
+  live: FakeLiveChannel;
   dispose: () => Promise<void>;
 };
 
@@ -90,6 +94,9 @@ export async function createAppWorld(): Promise<AppWorld> {
   // OAuth は PDS の同意画面を人が通るので、プロセスの中では偽の PDS にパスワードでログインする
   // (step3 Phase 2 D7)。本番と開発の既定は OAuth
   setAuthBackend(passwordAuth(PDS_ORIGIN));
+  // WebSocket を開かない。偽の PDS は firehose を持たない
+  const live = new FakeLiveChannel();
+  setLiveChannelFactory(() => live);
   const unhandled: string[] = [];
   const devices = new Map<string, Device>();
   let current: Device | null = null;
@@ -139,12 +146,14 @@ export async function createAppWorld(): Promise<AppWorld> {
       return current.store;
     },
     unhandled,
+    live,
     dispose: async () => {
       await logout();
       localStorage.clear();
       globalThis.fetch = realFetch;
       setLocalBackend(null);
       setAuthBackend(null);
+      setLiveChannelFactory(null);
       for (const device of devices.values()) device.store.events.close();
     },
   };

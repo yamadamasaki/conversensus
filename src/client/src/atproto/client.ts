@@ -17,7 +17,8 @@ export type { AtprotoSession } from './auth';
  * 自分たちの PDS。handle の解決もここに頼む (`oauthAuth.ts`)。開発用 PDS は :3000 で公開する
  * (アカウントの DID 文書がそこを指している, infra/pds/docker-compose.yml)
  */
-const PDS_URL = import.meta.env.VITE_ATPROTO_PDS_URL ?? 'http://localhost:3000';
+export const PDS_URL =
+  import.meta.env.VITE_ATPROTO_PDS_URL ?? 'http://localhost:3000';
 
 let backend: AuthBackend | null = null;
 let current: SignedIn | null = null;

@@ -11,6 +11,7 @@
  *   `blob:` にしたもの。外部の画像を読むかどうかは #287 で決める
  * - `connect-src https:`: OAuth は利用者の DID から PDS と認可サーバを引き、受信は参加者の PDS を
  *   読む。**どの host になるかは利用者次第**なので https に限るところまでにする
+ * - `connect-src wss:`: 参加者の PDS の firehose を読む (#252)。host は上と同じ理由で決められない
  * - `frame-ancestors 'none'`: 他のサイトに枠で埋め込ませない
  */
 export type HeaderName = string;
@@ -23,7 +24,7 @@ export const CONTENT_SECURITY_POLICY: HeaderValue = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' https: data: blob:",
   "font-src 'self' data:",
-  "connect-src 'self' https: blob: data:",
+  "connect-src 'self' https: wss: blob: data:",
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",

@@ -38,6 +38,15 @@ export const SYNC_TO_REMOTE =
 export const SYNC_POLL_INTERVAL_MS = 30_000;
 
 /**
+ * PDS の firehose に繋がっている間の定期同期の間隔 (#252, ミリ秒)。
+ *
+ * 繋がっている間は、相手の書き込みは合図で取りに行く (`sync/liveChannel.ts`)。ポーリングは
+ * 合図の取りこぼしを拾う安全網として残し、間隔だけを延ばす (利用者判断 2026-10-11)。切れたら
+ * `SYNC_POLL_INTERVAL_MS` に戻る
+ */
+export const LIVE_SYNC_POLL_INTERVAL_MS = 5 * 60_000;
+
+/**
  * multiple モードを開発用の入口から作れるか (step3 Phase 3 Q6)。**利用者の入口は作らない** —
  * multiple は「特別な場合に用いる」もので、利用者の入口は Phase 5 の merger の起動になる。
  * ここで開くのはテストと実機確認のための口である。

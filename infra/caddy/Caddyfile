@@ -14,7 +14,7 @@ app.conversensus.site {
     # セキュリティのヘッダ (#284)。**値は src/client/src/securityHeaders.ts と同じにする**
     # (vite preview にも付け、securityHeaders.test.ts が一致を見る)。各項の理由もそちら
     header {
-        Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' https: data: blob:; font-src 'self' data:; connect-src 'self' https: blob: data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+        Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' https: data: blob:; font-src 'self' data:; connect-src 'self' https: wss: blob: data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
         X-Content-Type-Options nosniff
         Referrer-Policy no-referrer
         Strict-Transport-Security "max-age=31536000"

@@ -67,6 +67,7 @@ import type { UndoState } from './hooks/useEventStore';
 import { useFileSheetOperations } from './hooks/useFileSheetOperations';
 import { useFolders } from './hooks/useFolders';
 import { useGraphPanels } from './hooks/useGraphPanels';
+import { useLiveChannel } from './hooks/useLiveChannel';
 import { useLocalOnlyCount } from './hooks/useLocalOnlyCount';
 import { useMergerSnapshot } from './hooks/useMergerSnapshot';
 import { useNoticeInbox } from './hooks/useNoticeInbox';
@@ -214,6 +215,8 @@ export default function App() {
 
   // remote (ATProto) 送信キュー。未ログイン時は null → tap は local-only (W3d5-5)
   const remoteQueue = useRemoteSyncQueue(atprotoSession);
+  // 参加者の PDS の流れ (#252)。取りに行けるのはログインしている間だけ
+  const live = useLiveChannel(atprotoSession !== null);
 
   /** ログアウト — この端末のデータも消すかを訊く (#288) */
   const handleLogout = useCallback(
@@ -285,6 +288,7 @@ export default function App() {
     onOverwrites: handleOverwrites,
     onForksArrived: handleForksArrived,
     remoteQueue,
+    live,
     actor,
     // 多アクタ同期は名簿を先に読む (step2 Phase 2 S2)。ダイアログと同じ供給元である
     roster,
@@ -337,6 +341,7 @@ export default function App() {
     trunkRecord: fileOps.syncRecord,
     // branch の編集も remote へ出す (step2 Phase 3 T7-2)
     remoteQueue,
+    live,
     // 参加者の branch を引き、trunk の受信で branch 一覧を読み直す (T7-3)
     roster,
     receiveEpoch: fileOps.receiveEpoch,
