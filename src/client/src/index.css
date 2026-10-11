@@ -185,6 +185,29 @@ body {
 }
 
 /*
+ * タブ帯 (#277)。溢れても横のスクロールバーは出さない — 帯の高さを食い、名前の上に重なる。
+ * 横へは trackpad・Shift+ホイール・縦のホイール (TabBar が横へ読み替える) で送る
+ */
+.cs-tabbar {
+  scrollbar-width: none;
+}
+.cs-tabbar::-webkit-scrollbar {
+  display: none;
+}
+.cs-tab {
+  color: var(--cs-text-muted);
+}
+.cs-tab:hover {
+  background: var(--cs-bg-hover);
+}
+/* アクティブなタブ: 地をボディと同じ白にし、上に選択の色の帯を引く。文字も濃くする */
+.cs-tab[data-active="true"] {
+  background: var(--cs-bg);
+  color: var(--cs-text);
+  box-shadow: inset 0 2px 0 var(--cs-selection);
+}
+
+/*
  * グラフの描き方 (visual language §8)
  */
 
