@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
+import { E2E_CLIENT_PORT, E2E_PREVIEW_PORT } from './tests/ports';
 
 /**
  * WebKit 適合の E2E (ANA-125)
@@ -12,16 +13,10 @@ import { defineConfig, devices } from '@playwright/test';
  * (計画書 §7.1)。要るようになればここに 1 行足すだけである。
  */
 
-// **利用者が動かしている dev サーバ (:5173) には触らない。**別のポートで自前に立てる。
-// ローカル正典はブラウザ内 (OPFS) にあり、テストごとに新しいプロファイルで開く
+// **利用者が動かしている dev サーバ (:5173〜) には触らない。**別のポートで自前に立てる
+// (`tests/ports.ts`)。ローカル正典はブラウザ内 (OPFS) にあり、テストごとに新しいプロファイルで開く
 // (`tests/fixtures.ts`) ので、デーモンは要らない (step3 Phase 2 S2-3)。
-const E2E_CLIENT_PORT = 5174;
 const E2E_CLIENT_URL = `http://127.0.0.1:${E2E_CLIENT_PORT}`;
-/**
- * 本番ビルドの配信 (`vite preview`)。**service worker は本番ビルドでだけ登録する**ので、
- * オフライン起動 (`offline.spec.ts`) はこちらで見る
- */
-const E2E_PREVIEW_PORT = 5175;
 
 export default defineConfig({
   testDir: './tests',

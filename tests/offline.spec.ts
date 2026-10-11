@@ -1,6 +1,7 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
 import { collectPageProblems } from './pageProblems';
+import { E2E_PREVIEW_URL } from './ports';
 
 /**
  * service worker とオフライン起動 (step3 Phase 2 S2-5)
@@ -9,12 +10,11 @@ import { collectPageProblems } from './pageProblems';
  * だけ登録する。
  */
 
-const PREVIEW_URL = 'http://127.0.0.1:5175/';
 const SETTLE_TIMEOUT_MS = 15_000;
 
 /** 開いて、service worker が画面を握った状態で開き直す (資源を覚えさせる) */
 async function openUnderServiceWorker(page: Page) {
-  await page.goto(PREVIEW_URL);
+  await page.goto(E2E_PREVIEW_URL);
   await page
     .getByPlaceholder('新しい File の名前')
     .waitFor({ timeout: SETTLE_TIMEOUT_MS });
