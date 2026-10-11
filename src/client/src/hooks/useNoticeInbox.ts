@@ -20,6 +20,12 @@ import {
   forkNoticeKeyOf,
   overwriteNoticeKeyOf,
 } from '../notices/noticeKeys';
+import {
+  addPending,
+  NO_PENDING_CONFLICTS,
+  type PendingConflicts,
+  takePending,
+} from '../notices/pendingNotices';
 import type { NoticeKey } from '../notices/types';
 import { accumulateArrivedForks, NO_ARRIVED_FORKS } from '../sync/forkArrival';
 import {
@@ -70,6 +76,17 @@ export function useNoticeInbox(did: Did | null) {
    */
   const conflictSeqRef = useRef(0);
 
+  /**
+   * 前に出ている File。`undefined` はまだ知らない (起動の途中) — そのときは届いた通知をそのまま出す
+   */
+  const frontRef = useRef<FileId | null | undefined>(undefined);
+  /**
+   * 前に出ていない File の競合の通知。File ごとに溜め、そのタブに印を付ける。前に出したら
+   * `bringToFront` が通知として出す
+   */
+  const [pending, setPending] =
+    useState<PendingConflicts>(NO_PENDING_CONFLICTS);
+
   /** いま競合の通知に出ている競合の鍵 (fork を重ねないため) */
   const shownConflictKeysRef = useRef(new Set<NoticeKey>());
   /** いま競合の通知に出ている File (actor が替わったときに既読で落とし直すため) */
@@ -97,12 +114,19 @@ export function useNoticeInbox(did: Did | null) {
       const conflicts = notice.conflicts.filter(
         (c) => !dismissed.has(conflictNoticeKeyOf(c)),
       );
-      setConflictNotice({
+      const filtered = {
         ...notice,
         conflicts,
         // 保留した件数は残った競合の数を超えない (全部落ちたら 0)
         forkCount: Math.min(notice.forkCount ?? 0, conflicts.length),
-      });
+      };
+      // 既読を待つ間に別の File が前に出たら、その File の控えへ (#260)
+      const front = frontRef.current;
+      if (front !== undefined && front !== fileId) {
+        setPending((prev) => addPending(prev, filtered));
+        return;
+      }
+      setConflictNotice(filtered);
     });
   }, []);
 
@@ -166,6 +190,89 @@ export function useNoticeInbox(did: Did | null) {
     }
   }, []);
 
+  // --- 前に出ていない File の通知 (#260) ---
+
+  /** 背後で fork が届いた File。中身は前に出したときに op-log から求め直す (`openForksOf`) */
+  const [forkMarked, setForkMarked] = useState<ReadonlySet<FileId>>(
+    () => new Set(),
+  );
+
+  /** 背後のタブの File で検出した競合。既読を落として、その File の控えに足す */
+  const noteBackgroundConflicts = useCallback((notice: ConflictNoticeState) => {
+    const { fileId } = notice;
+    if (fileId === undefined) return;
+    void dismissalsRef.current.dismissedIn(fileId).then((dismissed) => {
+      const conflicts = notice.conflicts.filter(
+        (c) => !dismissed.has(conflictNoticeKeyOf(c)),
+      );
+      setPending((prev) =>
+        addPending(prev, {
+          ...notice,
+          conflicts,
+          forkCount: Math.min(notice.forkCount ?? 0, conflicts.length),
+        }),
+      );
+    });
+  }, []);
+
+  /** 背後のタブの File に届いた fork。既読でないものがあれば、その File に印を付ける */
+  const noteBackgroundForks = useCallback(
+    (fileId: FileId, forks: readonly ForkMeta[]) => {
+      void dismissalsRef.current.dismissedIn(fileId).then((dismissed) => {
+        if (forks.some((f) => !dismissed.has(forkNoticeKeyOf(f))))
+          setForkMarked((prev) => new Set([...prev, fileId]));
+      });
+    },
+    [],
+  );
+
+  /**
+   * 前に出る File が替わった。右下の通知を、その File の分に入れ替える:
+   *
+   * - 出ていた別の File の競合の通知は、その File の控えへ戻す (タブに印が付く)
+   * - 前に出た File の控えがあれば、通知として出す (出ている同じ File の通知とは合わせる)
+   * - 別の File の届いた fork は通知から外し、その File に印を付ける (前に出せば求め直す)
+   */
+  const latestRef = useRef({ conflictNotice, pending });
+  latestRef.current = { conflictNotice, pending };
+  const bringToFront = useCallback((fileId: FileId | null) => {
+    frontRef.current = fileId;
+    const { conflictNotice: shown, pending: held } = latestRef.current;
+    const shownOther =
+      shown.fileId !== undefined &&
+      shown.fileId !== fileId &&
+      shown.conflicts.length > 0;
+    const shownSame =
+      fileId !== null && shown.fileId === fileId && shown.conflicts.length > 0;
+    // 出ていた別の File の通知は控えへ。同じ File の通知は控えと合わせてから出し直す
+    const stashed = shownOther || shownSame ? addPending(held, shown) : held;
+    const [mine, rest] =
+      fileId === null ? [undefined, stashed] : takePending(stashed, fileId);
+    // **受信の通知の連番は進めない** — 前に出た File の検出が既読を待っている最中かもしれない
+    if (shownOther || mine !== undefined)
+      setConflictNotice(mine ?? NO_CONFLICT_NOTICE);
+    if (rest !== held) setPending(rest);
+    const others = arrivedForksRef.current.filter(
+      (f) => f.trunkFileId !== fileId,
+    );
+    if (others.length > 0)
+      setArrivedForks((prev) => prev.filter((f) => f.trunkFileId === fileId));
+    setForkMarked((prev) => {
+      if (others.length === 0 && (fileId === null || !prev.has(fileId)))
+        return prev;
+      const next = new Set(prev);
+      for (const f of others) next.add(f.trunkFileId);
+      if (fileId !== null) next.delete(fileId);
+      return next;
+    });
+  }, []);
+
+  /** 印を付ける File (前に出ていない File の、判断が要る通知) */
+  const markedFiles = useMemo(
+    () => new Set<FileId>([...pending.keys(), ...forkMarked]),
+    [pending, forkMarked],
+  );
+
   // --- 端末の控え (S6-1b, 設計 Q2) ---
 
   const storage = useMemo(() => safeLocalStorage(), []);
@@ -202,6 +309,10 @@ export function useNoticeInbox(did: Did | null) {
           prev,
         ),
       );
+      // 前に出ていない File の控え (#260)。他の端末で閉じたものは既読で落とす
+      for (const held of cached.pending ?? []) {
+        noteBackgroundConflicts({ ...held, labels: new Map(held.labels) });
+      }
     }
 
     // 控えから戻したものも、復元の前に検出したものも、既読で落とす
@@ -246,7 +357,7 @@ export function useNoticeInbox(did: Did | null) {
         );
       });
     }
-  }, [did, storage, dismissals]);
+  }, [did, storage, dismissals, noteBackgroundConflicts]);
 
   useEffect(() => {
     if (loadedFor !== did) return;
@@ -255,13 +366,17 @@ export function useNoticeInbox(did: Did | null) {
         ...conflictNotice,
         labels: [...conflictNotice.labels],
       },
+      pending: [...pending.values()].map((held) => ({
+        ...held,
+        labels: [...held.labels],
+      })),
       overwrites: {
         reports: overwriteNotice.reports,
         labels: [...overwriteNotice.labels],
         files: [...overwriteFileRef.current],
       },
     });
-  }, [conflictNotice, overwriteNotice, loadedFor, did, storage]);
+  }, [conflictNotice, pending, overwriteNotice, loadedFor, did, storage]);
 
   /** 競合の通知を閉じる。出ていた競合と fork を既読にする */
   const closeConflictNotice = useCallback(() => {
@@ -299,7 +414,23 @@ export function useNoticeInbox(did: Did | null) {
     setOverwriteNotice(NO_OVERWRITE_NOTICE);
   }, [overwriteNotice, dismissals]);
 
+  /** File を削除したら、その File の既読を消す (#259) */
+  const forgetFile = useCallback((fileId: FileId) => {
+    setPending((prev) => takePending(prev, fileId)[1]);
+    setForkMarked((prev) => {
+      const next = new Set(prev);
+      next.delete(fileId);
+      return next;
+    });
+    return dismissalsRef.current.forgetFile(fileId);
+  }, []);
+
   return {
+    forgetFile,
+    noteBackgroundConflicts,
+    noteBackgroundForks,
+    bringToFront,
+    markedFiles,
     conflictNotice,
     showConflicts,
     closeConflictNotice,

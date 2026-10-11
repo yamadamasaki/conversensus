@@ -152,6 +152,15 @@ interface UseFileSheetOperationsParams {
    * 上書きの報告と同じく**受け手が溜める**。省略すると通知しない
    */
   onForksArrived?: (forks: readonly ForkMeta[]) => void;
+  /** File を削除した後に呼ぶ。その File の既読を消す (#259) */
+  onFileDeleted?: (fileId: FileId) => void;
+  /**
+   * 背後のタブの File で検出した競合 (#260)。前に出ている File の分 (`setConflictNotice`) と分けて
+   * 渡す — 受け手は File ごとに溜めてタブに印を付け、前に出したときに出す
+   */
+  onBackgroundConflicts?: (notice: ConflictNoticeState) => void;
+  /** 背後のタブの File に届いた fork (#260)。受け手はタブに印を付ける */
+  onBackgroundForks?: (fileId: FileId, forks: readonly ForkMeta[]) => void;
   deps?: FileSheetOpsDeps;
   /** ログインしている人の名前 (handle)。未ログインの編集を出し直すか訊くときに見せる (FPR 前 L-1) */
   accountLabel?: string;
@@ -188,6 +197,9 @@ export function useFileSheetOperations({
   setConflictNotice,
   onOverwrites,
   onForksArrived,
+  onFileDeleted,
+  onBackgroundConflicts,
+  onBackgroundForks,
   deps = defaultFileSheetOpsDeps,
   syncRecord: syncRecordOverride,
   remoteQueue = null,
@@ -558,11 +570,31 @@ export function useFileSheetOperations({
     [sessionPool],
   );
 
-  /** 背後のタブが参照する File を宣言する。そのセッションは同期を続ける (Q4) */
+  /**
+   * 背後のタブが参照する File を宣言する。そのセッションは同期を続ける (Q4)。
+   *
+   * **背後のセッションにも知らせを付ける** (#260)。付けないと、背後で検出した競合と上書きは
+   * 捨てられる (fork だけは前に出したときに op-log から求め直せる)。前に出た File のセッションには
+   * 前の tap が自分の知らせを付け直す — 呼び出し側 (App) の effect は tap の effect より後に走る
+   */
   const holdBackground = useCallback(
-    (fileIds: readonly FileId[]) =>
-      sessionPool.hold(BACKGROUND_HOLDER, fileIds),
-    [sessionPool],
+    (fileIds: readonly FileId[]) => {
+      sessionPool.hold(BACKGROUND_HOLDER, fileIds);
+      for (const id of fileIds) {
+        sessionPool.session(id)?.setListeners({
+          onConflicts: (fileId, detected, forkCount) =>
+            onBackgroundConflicts?.({
+              conflicts: detected.conflicts,
+              labels: detected.labels,
+              forkCount,
+              fileId,
+            }),
+          onOverwrites: handleOverwrites,
+          onForksArrived: (fileId, forks) => onBackgroundForks?.(fileId, forks),
+        });
+      }
+    },
+    [sessionPool, handleOverwrites, onBackgroundConflicts, onBackgroundForks],
   );
 
   // trunk 読取 (Phase 6 p6-3 で op-log 単独へ, 設計 §3.6)。
@@ -814,11 +846,20 @@ export function useFileSheetOperations({
           return next;
         });
         setPopupTarget(null);
+        onFileDeleted?.(id as FileId);
       } catch (err) {
         console.error('Failed to delete file:', err);
       }
     },
-    [activeFile, files, setConfirmState, deps, actor, pushToFile],
+    [
+      activeFile,
+      files,
+      setConfirmState,
+      deps,
+      actor,
+      pushToFile,
+      onFileDeleted,
+    ],
   );
 
   const handleSaveSheetSettings = useCallback(

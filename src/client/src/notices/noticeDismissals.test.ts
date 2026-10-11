@@ -21,8 +21,17 @@ function fakeStore(initial: NoticeDismissal[] = []) {
   const put = mock(async (d: NoticeDismissal) => {
     records.set(`${d.fileId}|${d.key}`, d);
   });
-  const store: NoticeDismissalStore = { listByFile, put };
-  return { store, records, listByFile, put };
+  const removeFile = mock(async (fileId: FileId) => {
+    let removed = 0;
+    for (const [id, d] of records)
+      if (d.fileId === fileId) {
+        records.delete(id);
+        removed += 1;
+      }
+    return removed;
+  });
+  const store: NoticeDismissalStore = { listByFile, put, removeFile };
+  return { store, records, listByFile, put, removeFile };
 }
 
 describe('NoticeDismissals', () => {
@@ -109,5 +118,36 @@ describe('NoticeDismissals', () => {
         );
       }),
     );
+  });
+
+  test('File を削除したら、その File の既読だけを消し、手元の集合も読み直す (#259)', async () => {
+    const pds = fakeStore([
+      { fileId: FILE, key: 'k1', dismissedAt: NOW.toISOString() },
+      { fileId: FILE, key: 'k2', dismissedAt: NOW.toISOString() },
+      { fileId: OTHER, key: 'k3', dismissedAt: NOW.toISOString() },
+    ]);
+    const d = new NoticeDismissals(pds.store);
+    expect((await d.dismissedIn(FILE)).size).toBe(2);
+    await d.forgetFile(FILE);
+    expect(pds.removeFile).toHaveBeenCalledWith(FILE);
+    expect([...pds.records.values()].map((r) => r.key)).toEqual(['k3']);
+    // 手元の集合も捨てる (同じ id の File は戻らないが、残すと消えたものを既読と言い続ける)
+    expect((await d.dismissedIn(FILE)).size).toBe(0);
+  });
+
+  test('消し損ねても投げない (残っても読まれないだけ)', async () => {
+    const pds = fakeStore();
+    pds.removeFile.mockImplementationOnce(async () => {
+      throw new Error('network');
+    });
+    const d = new NoticeDismissals(pds.store);
+    await expect(d.forgetFile(FILE)).resolves.toBeUndefined();
+  });
+
+  test('ログインしていなければ保存先に触らない', async () => {
+    const d = new NoticeDismissals(null);
+    await d.dismiss(FILE, ['k1']);
+    await d.forgetFile(FILE);
+    expect((await d.dismissedIn(FILE)).size).toBe(0);
   });
 });

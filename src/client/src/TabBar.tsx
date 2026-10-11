@@ -26,7 +26,16 @@ type Props = {
   labelOf: (tab: Tab) => string;
   onActivate: (id: TabId) => void;
   onClose: (id: TabId) => void;
+  /**
+   * 前に出ていない File に、判断の要る通知 (競合・届いた fork) があるか (#260)。あれば印を付ける。
+   * 中身はそのタブを前に出したときに右下に出る
+   */
+  hasNotice?: (tab: Tab) => boolean;
 };
+
+/** 通知の印の名前。タブの名前 (button の中身) には入れない — タブの名前で引く検査を変えない */
+export const TAB_NOTICE_LABEL = '確かめていない競合があります';
+const NOTICE_DOT_SIZE = 8;
 
 export function TabBar({
   tabs,
@@ -34,6 +43,7 @@ export function TabBar({
   labelOf,
   onActivate,
   onClose,
+  hasNotice,
 }: Props) {
   const activeRef = useRef<HTMLDivElement>(null);
   // アクティブなタブが帯の外に送られていたら見える所まで寄せる (溢れたとき)
@@ -106,6 +116,21 @@ export function TabBar({
             >
               {label}
             </button>
+            {hasNotice?.(tab) && (
+              <span
+                role="img"
+                aria-label={TAB_NOTICE_LABEL}
+                title={TAB_NOTICE_LABEL}
+                style={{
+                  flexShrink: 0,
+                  width: NOTICE_DOT_SIZE,
+                  height: NOTICE_DOT_SIZE,
+                  borderRadius: '50%',
+                  background: color.conflict,
+                  marginRight: 2,
+                }}
+              />
+            )}
             <button
               type="button"
               aria-label={`${label} を閉じる`}

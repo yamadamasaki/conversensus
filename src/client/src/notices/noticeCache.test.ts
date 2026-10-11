@@ -112,4 +112,23 @@ describe('noticeCache', () => {
     saveNotices(null, ALICE, notices);
     expect(loadNotices(null, ALICE)).toBeNull();
   });
+
+  test('前に出ていない File の通知の控え (#260) も戻り、それだけでも控えを消さない', () => {
+    const storage = memoryStorage();
+    const onlyPending: CachedNotices = {
+      ...EMPTY,
+      pending: [notices.conflicts],
+    };
+    saveNotices(storage, ALICE, onlyPending);
+    expect(loadNotices(storage, ALICE)).toEqual(onlyPending);
+  });
+
+  test('前に出ていない File の通知の控えが壊れていたら、控えごと null', () => {
+    const storage = memoryStorage();
+    storage.setItem(
+      noticeCacheKey(ALICE),
+      JSON.stringify({ ...notices, pending: [{ conflicts: 'x' }] }),
+    );
+    expect(loadNotices(storage, ALICE)).toBeNull();
+  });
 });

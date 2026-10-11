@@ -8,6 +8,7 @@
 import type { FileId } from '@conversensus/shared';
 import type { NoticeDismissalStore } from '../notices/noticeDismissals';
 import type { NoticeDismissal } from '../notices/types';
+import { rkeyFromUri } from './batchRkey';
 import { noticeDismissals } from './collections';
 import {
   noticeDismissalRkey,
@@ -36,5 +37,16 @@ export const pdsNoticeDismissalStore: NoticeDismissalStore = {
   async put(dismissal) {
     const rkey = await noticeDismissalRkey(dismissal.fileId, dismissal.key);
     await noticeDismissals.put(rkey, noticeDismissalToRecord(dismissal));
+  },
+  /**
+   * rkey が `<fileId>~` で始まるものを消す。本文の fileId は見ない — 範囲の中のものは
+   * どれもその File の既読として書いたもので、壊れていても残す理由が無い
+   */
+  async removeFile(fileId: FileId) {
+    const records = await noticeDismissals.listByFile(fileId);
+    for (const record of records) {
+      await noticeDismissals.delete(rkeyFromUri(record.uri));
+    }
+    return records.length;
   },
 };

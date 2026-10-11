@@ -187,6 +187,9 @@ type FilePlacementRecord = {
 
 - **U1**: 既読 record の数。通知を閉じるたびに 1 件増える。File の削除で片付けるが、長く使う File では溜まる。
   merge 済みの fork や、op-log に居ない batch を指す鍵の record を掃除するかは、量を見てから
+  - (#259, 2026-10-11) **File の削除で、その File の既読を消す**ようにした (`NoticeDismissals.forgetFile`)。
+    消すのは削除した人の repo の分だけで、ほかの参加者の既読はそれぞれの repo に残る (読まれないだけで害は無い)。
+    溜まる分の掃除は、量を見てから決める (利用者判断)。2026-10-11 の本番は 1 アカウントで既読 0 件
 - **U2**: ~~lexicon の `$type` と検証~~ → **S6-0 で解消**: 新しい 3 つは mapper で Zod 検証する
 
 ## 6. 実施記録
