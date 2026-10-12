@@ -646,6 +646,10 @@ bob が共有の File を開いたまま別の File を作り (新しいタブ�
   タブの並びの復元だけでは trunk が前に出るので、リンクを読んで開いたことがここで分かる。開く行を外すと
   このテストが落ちることを確かめてある
 - 手元に無い File のリンクは開かず (タブは 0 枚)、「この端末にありません」と知らせる
+- **過去の時点のリンク (#73)**: node を 1 つ置いた batch の時点 (`at`) と、その node の強調 (`n`) を載せたリンクを
+  貼ると、新しいタブ (「· 時点」) で開き、その時点の姿 (1 つ) を見るだけで出す。ヘッダは「過去の時点 · 読み取り専用」と
+  言い、元に戻すは押せない。URL はその時点を指したまま。最新のタブへ戻ると 2 つ出る。timeline の画面 (T3〜) より
+  先に、アドレスだけで開けることをここで固定する
 
 happy-dom の既定の URL (`about:blank`) では fragment を書けないので、この describe の間だけ http の URL にする。
 
@@ -662,3 +666,23 @@ happy-dom の既定の URL (`about:blank`) では fragment を書けないので
 ヘッダの「map」で canvas の map を消すと、**再読み込みの後も消えたまま**で (端末の `localStorage`)、
 押せばまた出る。ヘッダ・`useGraphPanels`・`GraphEditor` をまたぐので、この層で見る。map で見る範囲を動かす
 (`pannable` / `zoomable`) は React Flow の機能そのものなので、ここでは見ない (実機で確かめる)。
+
+## timeline view (#73)
+
+1 端末・未ログインで File を作って node を 1 つ置き、branch b1 を切って node を置き、commit する。右サイドバーを
+広げて「timeline」に切り替える。
+
+- version tree に trunk の分岐 (「branch b1」) と、b1 の線の commit が出る
+- commit を選ぶと operation inspector に種類と、**関係する要素 (b1 で置いた node) の名前**が出る。名前はその時点の
+  姿から引くので、読み込んでから出る
+- 「その時点のグラフを開く」で新しいタブが開き、見るだけで 2 つ (trunk の 1 つ + b1 の 1 つ) を出す
+- 開いている間、ボタンは「元のグラフに戻る」になる。押すと時点のタブが閉じ (タブの数が元に戻る)、開く前の
+  b1 のタブへ戻る。同じ点をもう一度押すと inspector が閉じる (利用者の指摘 2026-10-12)
+- trunk の最初の「N 件の変更」を広げ、change point を選ぶと change inspector に「node を追加」が出る。関係する
+  要素を押すと、その時点 (1 つ) を新しいタブで開き、URL に強調 (`n=`) が載る
+
+- ログインした alice の File では、木の actor が DID ではなく handle (`alice.test`) で出る。名簿は共有の File にしか
+  無いので、handle の解決で引く
+
+作る途中で、branch の commit の切断面が trunk の actor を含まず、その時点の姿が「見つからない」ことがここで
+見つかった (`buildTimeline.test.md`)。強調が URL に載ることも見るので、Deep Link と同じく fragment を書ける URL で開く。

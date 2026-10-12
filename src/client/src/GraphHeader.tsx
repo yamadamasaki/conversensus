@@ -20,6 +20,7 @@ import {
   GitCommitHorizontal,
   GitMerge,
   Group,
+  History,
   ImageDown,
   Link,
   Map as MapIcon,
@@ -52,6 +53,11 @@ export type HeaderTitle = {
   sheetName: string;
   /** merger のタブ。merge 後の姿を見ている */
   merger: boolean;
+  /**
+   * 過去の時点を見ている (#73 その時点のタブ)。読み取り専用。branch の時点なら branch の名前
+   * (このときは `branch` を渡さない — commit・merge は最新の branch に対する操作なので出さない)
+   */
+  past?: { branchName: string | null };
 };
 
 type Props = {
@@ -275,7 +281,25 @@ function GraphTitle({
           {title.sheetName}
         </strong>
       </span>
-      {title.merger ? (
+      {title.past ? (
+        <>
+          {title.past.branchName !== null ? (
+            <Chip
+              tone="branch"
+              title={compact ? title.past.branchName : undefined}
+            >
+              <GitBranch size={ICON_SIZE_SM} aria-hidden />
+              {!compact && <span>{title.past.branchName}</span>}
+            </Chip>
+          ) : (
+            <Chip tone="neutral">trunk</Chip>
+          )}
+          <Chip tone="pending" title="過去の時点の姿です。編集できません">
+            <History size={ICON_SIZE_SM} aria-hidden />
+            {compact ? '時点' : '過去の時点 · 読み取り専用'}
+          </Chip>
+        </>
+      ) : title.merger ? (
         <Chip tone="branch">
           <GitMerge size={ICON_SIZE_SM} aria-hidden />
           merge
