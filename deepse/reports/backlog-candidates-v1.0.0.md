@@ -68,7 +68,7 @@
 
 | # | 題 | 出所 |
 | --- | --- | --- |
-| D1 | deps の大きさと、使われなくなった actor の退役 | Phase 1 U1・U2、計画 U1 |
+| D1 | deps の大きさと、使われなくなった actor の退役 | Phase 1 U1・U2、計画 U1 → **差分で送る (2026-10-13, `plans/refine-d1-deps-delta.md`)** |
 | D2 | 歯抜けの先に届いた batch の扱い | Phase 1 U3 |
 | D3 | 選択の正 (view の state か React Flow か) | Phase 3 U1 |
 | D4 | 背後のタブの数の上限 | Phase 3 U2 |

@@ -75,8 +75,13 @@ export type BatchRecord = {
   clock: number;
   /** 因果の点 (Batch.seq と対等) */
   seq: number;
-  /** 因果の知識 (Batch.deps と対等) */
+  /**
+   * 因果の知識 (Batch.deps と対等)。`depsBase` が有れば**差分**で、同じ File の同じ actor の
+   * seq = `depsBase` の batch の全体の deps に足すと全体に戻る (D1, `depsDelta.ts`)
+   */
   deps: Record<string, number>;
+  /** 差分の基の seq (D1)。無ければ `deps` は全体 (D1 より前のレコードはすべてこれ) */
+  depsBase?: number;
   timestamp: number;
   ops: unknown[]; // Op[] を JSON として格納 (records は任意 JSON を許容)
   /** merge の写しなら元の batch の点 (統一語彙 Batch.copyOf と対等, step3 Phase 1 D2) */
