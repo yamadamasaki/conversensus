@@ -22,6 +22,8 @@ import {
 } from './buildTimeline';
 
 const A = 'did:plc:alice#d1';
+/** File を作った actor (genesis)。branch の commit の vector には現れない */
+const G = 'did:plc:alice#genesis';
 const TRUNK = '00000000-0000-4000-8000-0000000000f1' as FileId;
 const BRANCH_FILE = '00000000-0000-4000-8000-0000000000f2' as FileId;
 const SHEET = '00000000-0000-4000-8000-0000000000a1' as SheetId;
@@ -84,7 +86,7 @@ function scenario() {
           name: 'b1',
           sheetId: SHEET,
           branchFileId: BRANCH_FILE,
-          base: commit('base', 3, 2),
+          base: commit('base', 3, 2, { vector: { [G]: 1, [A]: 2 } }),
         },
       ],
       { sheetId: undefined },
@@ -195,7 +197,61 @@ describe('buildTimeline (#73 T1)', () => {
     const ops = (trunk as TimelineLane).entries.flatMap((e) =>
       e.kind === 'operation' ? [e.point] : [],
     );
-    expect(ops.map((p) => p.cut)).toEqual([{ [A]: 2 }, { [A]: 8 }]);
+    expect(ops.map((p) => p.cut)).toEqual([{ [G]: 1, [A]: 2 }, { [A]: 8 }]);
+  });
+
+  test('branch の上の点の切断面は、分岐点の切断面と合わせる (commit の vector は branch の op-log だけから作られる)', () => {
+    const [, b1] = build();
+    const points = (b1 as TimelineLane).entries.flatMap((e) =>
+      e.kind === 'operation' ? [e.point.cut] : e.points.map((p) => p.cut),
+    );
+    // commit c1 と change point のどれも、genesis の actor を含む
+    for (const cut of points) expect(cut?.[G]).toBe(1);
+    const commitCut = (b1 as TimelineLane).entries.find(
+      (e) => e.kind === 'operation',
+    );
+    expect(
+      commitCut?.kind === 'operation' ? commitCut.point.cut : null,
+    ).toEqual({ [G]: 1, [A]: 6 });
+  });
+
+  test('operation point の時刻は、その op を運んだ batch の壁時計', () => {
+    const [trunk, b1] = build();
+    const times = [trunk, b1].flatMap((lane) =>
+      (lane as TimelineLane).entries.flatMap((e) =>
+        e.kind === 'operation' ? [e.point.timestamp] : [],
+      ),
+    );
+    const at = (seq: number) => 1_700_000_000_000 + seq;
+    // 分岐 (batch 3)、merge (batch 9)、commit (batch 7)
+    expect(times).toEqual([at(3), at(9), at(7)]);
+  });
+
+  test('関係する要素: commit は直前からの変更、merge は取り込んだ写し、分岐は無し', () => {
+    const [trunk, b1] = build();
+    const touched = (lane: TimelineLane | undefined) =>
+      (lane as TimelineLane).entries.flatMap((e) =>
+        e.kind === 'operation'
+          ? [[e.point.kind, [...e.point.touched.nodeIds].sort()]]
+          : [],
+      );
+    expect(touched(trunk)).toEqual([
+      ['branch', []],
+      ['merge', ['n3', 'n4']],
+    ]);
+    expect(touched(b1)).toEqual([['commit', ['n3']]]);
+  });
+
+  test('絞っても commit の関係する要素は変わらない (絞る前の変更から求める)', () => {
+    const [, b1] = build({ nodeIds: ['n1'] });
+    const commitPoint = (b1 as TimelineLane).entries.find(
+      (e) => e.kind === 'operation',
+    );
+    expect(
+      commitPoint?.kind === 'operation'
+        ? [...commitPoint.point.touched.nodeIds]
+        : [],
+    ).toEqual(['n3']);
   });
 
   test('fork と、開いていない (閉じた) branch は出さない', () => {

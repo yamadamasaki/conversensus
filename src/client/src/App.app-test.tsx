@@ -2635,3 +2635,104 @@ describe('App 結合: map の on/off (#182)', () => {
     await waitFor(() => expect(minimap()).not.toBeNull());
   });
 });
+
+describe('App 結合: timeline view (#73)', () => {
+  // 強調が URL に載ることも見るので、fragment を書ける URL で開く (Deep Link の describe と同じ)
+  const happyDOM = (
+    globalThis as unknown as { happyDOM: { setURL(url: string): void } }
+  ).happyDOM;
+  beforeEach(() => happyDOM.setURL('http://127.0.0.1:5173/'));
+  afterEach(() => happyDOM.setURL('about:blank'));
+
+  test(
+    'version tree に trunk と branch の点が並び、inspector からその時点のグラフを新しいタブで見る',
+    async () => {
+      await world.activate('solo');
+      render(<App />);
+      const user = userEvent.setup();
+      await createFile(user, FILE_NAME);
+      await addNode(user);
+      await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+      await createBranch(user, BRANCH_NAME);
+      await openBranch(user, BRANCH_NAME);
+      await addNode(user);
+      await waitFor(() => expect(renderedNodeCount()).toBe(2), WIRING_TIMEOUT);
+      await commitBranch(user, '最初の commit');
+
+      await user.click(
+        screen.getByRole('button', { name: '右サイドバーを広げる' }),
+      );
+      await user.click(screen.getByRole('tab', { name: 'timeline' }));
+      const tree = await screen.findByRole(
+        'region',
+        { name: 'version tree' },
+        WIRING_TIMEOUT,
+      );
+      // trunk の上に分岐、branch の上に commit
+      await within(tree).findByRole(
+        'button',
+        { name: `branch ${BRANCH_NAME}` },
+        WIRING_TIMEOUT,
+      );
+      await user.click(
+        await within(tree).findByRole(
+          'button',
+          { name: '最初の commit' },
+          WIRING_TIMEOUT,
+        ),
+      );
+
+      // operation inspector: commit の詳細と、関係する要素 (branch で置いた node)
+      const operation = await screen.findByRole('region', {
+        name: 'operation inspector',
+      });
+      expect(within(operation).getByText('commit')).toBeTruthy();
+      // 名前はその時点の姿から引く (読み込んでから出る)
+      expect(
+        await within(operation).findAllByText(/^node \S/, {}, WIRING_TIMEOUT),
+      ).toHaveLength(1);
+      const tabsBefore = screen.getAllByRole('tab', { name: /Sheet 1/ }).length;
+      await user.click(
+        within(operation).getByRole('button', {
+          name: 'その時点のグラフを開く',
+        }),
+      );
+      await screen.findByText('過去の時点 · 読み取り専用', {}, WIRING_TIMEOUT);
+      await waitFor(() => expect(renderedNodeCount()).toBe(2), WIRING_TIMEOUT);
+      expect(screen.getAllByRole('tab', { name: /Sheet 1/ })).toHaveLength(
+        tabsBefore + 1,
+      );
+
+      // trunk の最初の変更 (node を置いた) を広げて選ぶと change inspector
+      const firstRun = within(tree).getAllByRole('button', {
+        name: /件の変更$/,
+      })[0] as HTMLElement;
+      await user.click(firstRun);
+      expect(firstRun.getAttribute('aria-expanded')).toBe('true');
+      const changes = within(tree).getAllByRole('button', { pressed: false });
+      const nodeAdded = changes.find((b) =>
+        /\d{1,2}:\d{2}/.test(b.textContent ?? ''),
+      );
+      if (!nodeAdded) throw new Error('change point が出ていない');
+      await user.click(nodeAdded);
+      const change = await screen.findByRole('region', {
+        name: 'change inspector',
+      });
+      expect(
+        within(change).getAllByText(/^node を追加/).length,
+      ).toBeGreaterThan(0);
+
+      // 関係する要素を押すと、その要素を強調してその時点 (node 1 つ) を新しいタブで開く
+      await user.click(
+        await within(change).findByRole(
+          'button',
+          { name: /^node \S/ },
+          WIRING_TIMEOUT,
+        ),
+      );
+      await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+      await waitFor(() => expect(location.hash).toContain('&n='));
+    },
+    MERGER_TEST_MS,
+  );
+});

@@ -11,6 +11,11 @@
 - 並びは op-log の順: change point は「その batch を切断面に含む最初の operation point」の前に置く
 - どの点も切断面を持つ。分岐点は base の vector、change point は `cutOfBatch` (書いた人が見ていたもの + その batch)
 - 選んだ要素で絞ると、それに触れた change point だけが残り、operation point は残る
+- **branch の上の点の切断面は、分岐点の切断面と合わせる。**branch の commit の vector は branch の op-log
+  だけから作られ (`makeCommit`)、trunk の actor (File を作った genesis など) を含まないため
+- operation point の時刻は、その op を運んだ batch の壁時計 (commit の `at` は Lamport で時刻ではない)
+- 関係する要素: commit は直前の operation point からの変更、merge は取り込んだ写し、分岐は無し。
+  絞っても変わらない (絞る前の変更から求める)
 
 ## なぜテストするか
 
@@ -20,6 +25,9 @@ version tree は「いつ、どの線で、何が起きたか」を見るため�
 - merge の写しを change point にすると、branch での編集が trunk でも行われたように見える
 - 切断面が違うと、inspector の view graph が別の時点の姿を出す
 - 絞りで operation point まで消えると、絞った時に線の形 (分岐・merge) が分からなくなる
+- 分岐点と合わせない切断面で切ると、trunk 側でシートそのものが切り落とされ、inspector に要素の名前が
+  出ず、view graph は「見つかりません」になる。**App 結合のテストで見つかった** (単体の筋書きは actor が
+  1 人だったので当たらなかった)。筋書きに genesis の actor を足して、ここでも固定した
 
 ## どのようにテストするか
 

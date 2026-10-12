@@ -55,9 +55,9 @@ batch は branch 専用の op-log (`branchFileId`) にある。
 | --- | --- | --- | --- |
 | **T1** ✅ | 履歴の組み立て (`timeline/buildTimeline.ts`, 純関数)。trunk と branch の線、operation point (分岐・commit・merge)、change point (シートで絞り、選んだ要素で絞る)、畳み (Q2)、各点の切断面 (F3) | 無し | 単体 + 性質 |
 | **T2** ✅ | その時点のタブ (Q3)。タブのアドレスが vector の切断面を持てば、本体を見るだけの pane で描く。ヘッダは「(時点) 読み取り専用」と言う。Deep Link に切断面と強調を載せる (#251 で外したもの) | 本体・ヘッダ | 単体 + App 結合 |
-| **T3** | 右サイドバーの切り替え (Q1) と version tree。いまの線 (trunk / 開いている branch) を強調、畳んだ change point を広げる | 右サイドバー | 単体 + App 結合 |
-| **T4** | operation inspector: 種類・コメント・actor・時刻・関係する node/edge・view graph | 右サイドバー | 単体 + App 結合 |
-| **T5** | change inspector: batch の op の一覧 (種類と内容・actor・時刻)、関係する node/edge、要素を押すとその時点のタブで強調して開く | 右サイドバー | 単体 + App 結合 |
+| **T3** ✅ | 右サイドバーの切り替え (Q1) と version tree。いまの線 (trunk / 開いている branch) を強調、畳んだ change point を広げる | 右サイドバー | 単体 + App 結合 |
+| **T4** ✅ | operation inspector: 種類・コメント・actor・時刻・関係する node/edge・view graph | 右サイドバー | 単体 + App 結合 |
+| **T5** ✅ | change inspector: batch の op の一覧 (種類と内容・actor・時刻)、関係する node/edge、要素を押すとその時点のタブで強調して開く | 右サイドバー | 単体 + App 結合 |
 
 ## 3. 未決 (実装しながら決める既定案)
 
@@ -82,3 +82,22 @@ batch は branch 専用の op-log (`branchFileId`) にある。
 - ヘッダは流れと「過去の時点 · 読み取り専用」を言い、編集の口・commit・merge は出さない。タブの名前に「· 時点」
 - Deep Link に切断面 (`at=<actor>@<seq>`) と強調 (`n=` / `e=`) を載せた。性質の往復で**空の切断面が最新に化ける**
   反例が出たので、値の無い `at=` で表す
+
+### T3〜T5 (2026-10-12)
+
+- 右サイドバーの上に「property / timeline」(`RightSidebar`)。timeline の中身は `TimelinePanel`
+  (`useTimeline` が trunk と出す branch の op-log を読み、正典が動けば読み直す)
+- version tree は**縦の木**にした (`VersionTree`)。仕様の図は線を横に並べるが、右サイドバーは狭い。分岐の点の直下に
+  その branch の線を字下げして出す。見ている線の名前を太字に、線を太く色付きにする
+- operation inspector: 種類・コメント・actor・時刻・関係する要素・「その時点のグラフを開く」。時刻はその op を
+  運んだ batch の壁時計 (commit の `at` は Lamport)。古い commit (vector 無し) は開けない
+- change inspector: actor・時刻・op の一覧 (`describeOp`)・関係する要素。要素を押すと、その要素を強調して
+  その時点を開く
+- 要素の名前はその時点の姿から引く (`usePaneSheet`)。消えた要素は「(その時点には無い要素)」
+- 選んだ要素 (property editor と同じ選択) があれば、それに触れた change point だけを出し、その旨を出す。
+  過去の時点のタブでは選択が無い
+
+**見つかったこと**: branch の commit の vector は branch の op-log だけから作られる
+(`makeCommit(…, branchBatches)`)。trunk の actor を含まないので、そのまま切断面にすると trunk 側でシートが
+切り落とされる。timeline では分岐点の切断面と合わせて使う (`buildTimeline` の `onBranch`)。commit の vector を
+切断面として使う他の場所が出てきたら、同じ扱いが要る

@@ -96,7 +96,7 @@ import { ParticipationHistoryDialog } from './ParticipationHistoryDialog';
 import { PassivePane } from './PassivePane';
 import { PropertyEditor } from './PropertyEditor';
 import { propertyRows } from './property/propertyRows';
-import { RightSidebar } from './RightSidebar';
+import { RightSidebar, type RightSidebarPane } from './RightSidebar';
 import { ReadOnlyProvider } from './readOnlyContext';
 import { SearchPanel } from './SearchPanel';
 import { type OpenOptions, Sidebar } from './Sidebar';
@@ -122,6 +122,7 @@ import {
   tabAddress,
 } from './tabs/tabs';
 import { color, font, radius, shadow } from './theme';
+import { TimelinePanel } from './timeline/TimelinePanel';
 import { Button } from './ui/Button';
 import { EmptyState } from './ui/EmptyState';
 import { CURRENT_BUILD_ID } from './update/appUpdate';
@@ -1048,6 +1049,14 @@ export default function App() {
         'リンクの File はこの端末にありません。参加している File なら、同期が終わってからもう一度開いてください',
       ),
   });
+  /** 右サイドバーの pane (#73 Q1)。property と timeline を切り替える */
+  const [rightPane, setRightPane] = useState<RightSidebarPane>('property');
+  /** actor (`did#端末`) を名簿の名前にする (timeline の inspector) */
+  const { labelOf } = participation.state;
+  const labelOfActor = useCallback(
+    (actor: string) => labelOf(actor.split('#')[0] as Did),
+    [labelOf],
+  );
   const linkAddress = pastView ?? viewAddress;
   const copyViewLink = useCallback(async () => {
     if (!linkAddress) return;
@@ -1727,6 +1736,25 @@ export default function App() {
               panels.controls?.setProperty(name, value)
             }
             readOnly={readOnly}
+            pane={rightPane}
+            onPaneChange={setRightPane}
+            timeline={
+              <TimelinePanel
+                place={
+                  viewAddress
+                    ? {
+                        fileId: viewAddress.fileId,
+                        sheetId: viewAddress.sheetId,
+                      }
+                    : null
+                }
+                currentLane={pastView ? pastView.branchId : viewedBranchId}
+                // 過去の時点のタブでは選択が無い (見るだけの pane は選択を写さない)
+                focus={pastView ? undefined : panels.selection}
+                labelOfActor={labelOfActor}
+                onOpen={openTab}
+              />
+            }
           />
         </ErrorBoundary>
       </SidePanel>
