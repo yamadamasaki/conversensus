@@ -2,12 +2,13 @@ import { X } from 'lucide-react';
 import { color, font } from './theme';
 import { Button, IconButton } from './ui/Button';
 /**
- * multiple モードの pane 1 つの枠 (step3 Phase 3 S3-5)。名前・前に出す・閉じるを持つ帯と、中身。
+ * multiple モードの pane 1 つの枠 (step3 Phase 3 S3-5)。名前・{t.pane.bringToFront}・閉じるを持つ帯と、中身。
  *
  * アクティブな pane は枠の色で分ける — ヘッダと右サイドバーが対象にしているのはこの pane である (Q5)
  */
 
 import type { ReactNode } from 'react';
+import { useMessages } from './i18n/messages';
 
 const ACTIVE_BORDER = color.selection;
 const PASSIVE_BORDER = color.border;
@@ -15,7 +16,7 @@ const PASSIVE_BORDER = color.border;
 type Props = {
   label: string;
   active: boolean;
-  /** 前に出す。省くとボタンを出さない (merger の pane は並びが固定) */
+  /** {t.pane.bringToFront}。省くとボタンを出さない (merger の pane は並びが固定) */
   onActivate?: () => void;
   /** pane を閉じる。省くとボタンを出さない */
   onClose?: () => void;
@@ -29,6 +30,7 @@ export function PaneFrame({
   onClose,
   children,
 }: Props) {
+  const t = useMessages();
   return (
     <section
       aria-label={`pane: ${label}`}
@@ -62,17 +64,17 @@ export function PaneFrame({
         >
           {label}
         </span>
-        {/* 見るだけの pane を編集するには前に出す。押すと画面の仕組みがこの pane のアドレスへ移る */}
+        {/* 見るだけの pane を編集するには{t.pane.bringToFront}。押すと画面の仕組みがこの pane のアドレスへ移る */}
         {!active && onActivate && (
           <Button className="cs-btn--sm" onClick={onActivate}>
-            前に出す
+            {t.pane.bringToFront}
           </Button>
         )}
         {onClose && (
           <IconButton
             icon={X}
             small
-            label={`${label} の pane を閉じる`}
+            label={t.pane.close(label)}
             onClick={onClose}
           />
         )}

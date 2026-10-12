@@ -1,0 +1,128 @@
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { cleanup, render, screen } from '@testing-library/react';
+import { GraphHeader } from '../GraphHeader';
+import { NO_GROUP_ABILITY } from '../hooks/useGroupNodes';
+import { RightSidebar } from '../RightSidebar';
+import { TabBar } from '../TabBar';
+import { formatTime, VersionTree } from '../timeline/VersionTree';
+import { setLocale } from './locale';
+
+/**
+ * en で描くと英語の文言が出る (#50 i18n)。テストは ja に固定しているので、ここだけ en に替える。
+ * 各部品の振舞いは部品ごとのテストが ja で見る。ここで見るのは「辞書から引いていること」である
+ */
+beforeEach(() => setLocale('en'));
+afterEach(() => {
+  cleanup();
+  setLocale('ja');
+});
+
+const noop = () => {};
+
+/** 日本語の文字が描かれていないこと (言語の名前「日本語」は除く) */
+function expectNoJapanese(container: HTMLElement) {
+  const text = (container.textContent ?? '').replace('日本語', '');
+  const labels = [...container.querySelectorAll('[aria-label],[title]')]
+    .map(
+      (el) =>
+        `${el.getAttribute('aria-label') ?? ''}${el.getAttribute('title') ?? ''}`,
+    )
+    .join(' ');
+  expect(`${text} ${labels}`).not.toMatch(/[぀-ヿ一-鿿]/);
+}
+
+describe('en で描く (#50)', () => {
+  test('ヘッダ', () => {
+    const { container } = render(
+      <GraphHeader
+        controls={null}
+        title={{ fileName: 'Research', sheetName: 'Sheet 1', merger: false }}
+        groupAbility={NO_GROUP_ABILITY}
+        searchOpen={false}
+        onToggleSearch={noop}
+        propertyOpen={false}
+        onToggleProperty={noop}
+        mapOpen
+        onToggleMap={noop}
+        branch={{
+          name: 'b1',
+          merged: false,
+          pendingCount: 2,
+          canMerge: false,
+          onCommit: noop,
+          onMerge: noop,
+        }}
+        onCopyLink={() => Promise.resolve()}
+      />,
+    );
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeTruthy();
+    expect(screen.getByText('2 changes')).toBeTruthy();
+    expectNoJapanese(container);
+  });
+
+  test('右サイドバー', () => {
+    const { container } = render(
+      <RightSidebar
+        selection={undefined}
+        onSetProperty={noop}
+        readOnly={false}
+        pane="property"
+        onPaneChange={noop}
+        timeline={null}
+      />,
+    );
+    expect(
+      screen.getByText('Select an element to see its properties'),
+    ).toBeTruthy();
+    expectNoJapanese(container);
+  });
+
+  test('タブ', () => {
+    const tab = {
+      id: 't1',
+      panes: [
+        {
+          fileId: 'f' as never,
+          sheetId: 's' as never,
+          branchId: null,
+          cut: 'head' as const,
+        },
+      ],
+      active: 0,
+    };
+    const { container } = render(
+      <TabBar
+        tabs={[tab]}
+        activeId="t1"
+        labelOf={() => 'Research / Sheet 1'}
+        onActivate={noop}
+        onClose={noop}
+        hasNotice={() => true}
+      />,
+    );
+    expect(
+      screen.getByRole('button', { name: 'Close Research / Sheet 1' }),
+    ).toBeTruthy();
+    expectNoJapanese(container);
+  });
+
+  test('version tree', () => {
+    const { container } = render(
+      <VersionTree
+        lanes={[{ branchId: null, name: 'trunk', status: null, entries: [] }]}
+        currentLane={null}
+        selected={null}
+        onSelect={noop}
+        labelOfActor={(a) => a}
+        renderDetail={() => null}
+      />,
+    );
+    expect(screen.getByRole('region', { name: 'trunk line' })).toBeTruthy();
+    expectNoJapanese(container);
+  });
+
+  test('timeline の時刻は en の書き方', () => {
+    // 年をまたがない日時。en では「10/12, 01:45 AM」のように月/日で、日本語の「時」などは付かない
+    expect(formatTime(Date.UTC(2026, 9, 12, 12, 0))).not.toMatch(/[぀-ヿ一-鿿]/);
+  });
+});

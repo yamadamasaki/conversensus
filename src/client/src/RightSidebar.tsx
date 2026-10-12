@@ -12,16 +12,14 @@ import { color, font, radius } from './theme';
 
 import type { ReactNode } from 'react';
 import type { PropertyTarget } from './graph/editorControls';
+import { useMessages } from './i18n/messages';
 import { PropertyEditor } from './PropertyEditor';
 import { propertyRows } from './property/propertyRows';
 
 /** 右サイドバーに出す pane */
 export type RightSidebarPane = 'property' | 'timeline';
 
-const PANE_LABELS: Record<RightSidebarPane, string> = {
-  property: 'property',
-  timeline: 'timeline',
-};
+const PANES: readonly RightSidebarPane[] = ['property', 'timeline'];
 
 type Props = {
   selection: PropertyTarget | undefined;
@@ -33,8 +31,6 @@ type Props = {
   timeline: ReactNode;
 };
 
-export const RIGHT_SIDEBAR_PROPERTY_LABEL = '詳細の property';
-
 export function RightSidebar({
   selection,
   onSetProperty,
@@ -43,9 +39,10 @@ export function RightSidebar({
   onPaneChange,
   timeline,
 }: Props) {
+  const t = useMessages();
   return (
     <aside
-      aria-label="詳細"
+      aria-label={t.rightSidebar.region}
       style={{
         display: 'flex',
         flexDirection: 'column',
@@ -55,14 +52,14 @@ export function RightSidebar({
       }}
     >
       <h3 style={{ margin: 0, padding: '10px 12px', fontSize: font.body }}>
-        詳細
+        {t.rightSidebar.heading}
       </h3>
       <div
         role="tablist"
-        aria-label="詳細の種類"
+        aria-label={t.rightSidebar.paneSwitch}
         style={{ display: 'flex', gap: 4, padding: '0 12px 8px' }}
       >
-        {(Object.keys(PANE_LABELS) as RightSidebarPane[]).map((p) => (
+        {PANES.map((p) => (
           <button
             key={p}
             type="button"
@@ -80,7 +77,7 @@ export function RightSidebar({
               color: color.text,
             }}
           >
-            {PANE_LABELS[p]}
+            {t.rightSidebar.panes[p]}
           </button>
         ))}
       </div>
@@ -89,7 +86,7 @@ export function RightSidebar({
       ) : selection ? (
         <PropertyEditor
           placement="docked"
-          label={RIGHT_SIDEBAR_PROPERTY_LABEL}
+          label={t.rightSidebar.propertyRegion}
           title={selection.title}
           rows={propertyRows(selection.properties)}
           addable={selection.addable}
@@ -108,7 +105,7 @@ export function RightSidebar({
             color: color.textMuted,
           }}
         >
-          要素を選ぶと、その property が出ます
+          {t.rightSidebar.noSelection}
         </p>
       )}
     </aside>

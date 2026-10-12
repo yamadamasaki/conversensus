@@ -29,6 +29,7 @@ import { handleLabels } from '../atproto/identity';
 import type { LabelResolver } from '../display/labelCache';
 import type { PropertyTarget } from '../graph/editorControls';
 import { usePaneSheet } from '../hooks/usePaneSheet';
+import { messages, useMessages } from '../i18n/messages';
 import { color, font, radius } from '../theme';
 import { Button } from '../ui/Button';
 import {
@@ -65,15 +66,6 @@ type Props = {
   resolveHandles?: (dids: readonly Did[]) => Promise<LabelResolver<Did>>;
 };
 
-const OPERATION_KIND_LABELS = {
-  branch: 'branch の作成',
-  commit: 'commit',
-  merge: 'merge',
-} as const;
-
-const NO_ELEMENT_NAME = '(名前の無い要素)';
-const MISSING_ELEMENT_NAME = '(その時点には無い要素)';
-
 const SECTION_HEADING = {
   margin: '8px 0 4px',
   fontSize: font.caption,
@@ -103,11 +95,11 @@ function elementName(sheet: Sheet | null, kind: 'node' | 'edge', id: string) {
   if (!sheet) return '';
   if (kind === 'node') {
     const node = sheet.nodes.find((n) => n.id === id);
-    if (!node) return MISSING_ELEMENT_NAME;
-    return node.content.trim() || NO_ELEMENT_NAME;
+    if (!node) return messages().timeline.missingElement;
+    return node.content.trim() || messages().timeline.unnamedElement;
   }
   const edge = sheet.edges.find((e) => e.id === id);
-  if (!edge) return MISSING_ELEMENT_NAME;
+  if (!edge) return messages().timeline.missingElement;
   if (edge.label?.trim()) return edge.label;
   const end = (nodeId: string) =>
     sheet.nodes.find((n) => n.id === nodeId)?.content.trim() || '?';
@@ -124,6 +116,7 @@ function ElementList({
   address: GraphViewAddress;
   onPick?: (kind: 'node' | 'edge', id: string) => void;
 }) {
+  const t = useMessages();
   const state = usePaneSheet(address);
   const sheet = state.kind === 'sheet' ? state.sheet : null;
   const items = [
@@ -142,7 +135,7 @@ function ElementList({
               <button
                 type="button"
                 onClick={() => onPick(kind, id)}
-                title="この要素を強調して、その時点のグラフを開く"
+                title={t.timeline.openWithHighlight}
                 style={{
                   background: 'none',
                   border: 'none',
@@ -197,13 +190,14 @@ function ViewButton({
   onReturn: () => void;
   disabled?: boolean;
 }) {
+  const t = useMessages();
   const showing =
     viewing !== null && addressKey(viewing) === addressKey(address);
   return (
     <div style={{ marginTop: 8 }}>
       {showing ? (
         <Button variant="primary" onClick={onReturn}>
-          元のグラフに戻る
+          {t.timeline.returnToOrigin}
         </Button>
       ) : (
         <Button
@@ -211,7 +205,7 @@ function ViewButton({
           disabled={disabled}
           onClick={() => onOpen(address)}
         >
-          その時点のグラフを開く
+          {t.timeline.openPast}
         </Button>
       )}
     </div>
@@ -233,6 +227,7 @@ function Inspector({
   viewing: GraphViewAddress | null;
   onReturn: () => void;
 }) {
+  const t = useMessages();
   // 押した点の直下に出すので、木の行と見分けられるよう囲む
   const box = {
     border: `1px solid ${color.border}`,
@@ -245,23 +240,27 @@ function Inspector({
     const commit = point.kind === 'branch' ? point.branch.base : point.commit;
     const address = addressAt(place, lane, point.cut);
     return (
-      <section aria-label="operation inspector" style={box}>
+      <section aria-label={t.timeline.operationInspector} style={box}>
         <h4 style={{ margin: '0 0 6px', fontSize: font.body }}>
-          operation inspector
+          {t.timeline.operationInspector}
         </h4>
         <dl style={FIELD_LIST}>
-          <Field name="種類">{OPERATION_KIND_LABELS[point.kind]}</Field>
-          <Field name="コメント">
+          <Field name={t.timeline.fields.kind}>
+            {t.timeline.operationKinds[point.kind]}
+          </Field>
+          <Field name={t.timeline.fields.comment}>
             {point.kind === 'branch'
               ? operationLabel(point)
               : commit.message || '—'}
           </Field>
-          <Field name="actor">{labelOfActor(commit.authorActor)}</Field>
-          <Field name="時刻">
+          <Field name={t.timeline.fields.actor}>
+            {labelOfActor(commit.authorActor)}
+          </Field>
+          <Field name={t.timeline.fields.time}>
             {point.timestamp !== null ? formatTime(point.timestamp) : '—'}
           </Field>
         </dl>
-        <h5 style={SECTION_HEADING}>関係する node/edge</h5>
+        <h5 style={SECTION_HEADING}>{t.timeline.related}</h5>
         <ElementList elements={point.touched} address={address} />
         <ViewButton
           address={address}
@@ -277,15 +276,19 @@ function Inspector({
   const { batch } = point;
   const address = addressAt(place, lane, point.cut);
   return (
-    <section aria-label="change inspector" style={box}>
+    <section aria-label={t.timeline.changeInspector} style={box}>
       <h4 style={{ margin: '0 0 6px', fontSize: font.body }}>
-        change inspector
+        {t.timeline.changeInspector}
       </h4>
       <dl style={FIELD_LIST}>
-        <Field name="actor">{labelOfActor(batch.actor)}</Field>
-        <Field name="時刻">{formatTime(batch.timestamp)}</Field>
+        <Field name={t.timeline.fields.actor}>
+          {labelOfActor(batch.actor)}
+        </Field>
+        <Field name={t.timeline.fields.time}>
+          {formatTime(batch.timestamp)}
+        </Field>
       </dl>
-      <h5 style={SECTION_HEADING}>op</h5>
+      <h5 style={SECTION_HEADING}>{t.timeline.ops}</h5>
       <ul
         style={{
           margin: 0,
@@ -308,7 +311,7 @@ function Inspector({
           );
         })}
       </ul>
-      <h5 style={SECTION_HEADING}>関係する node/edge</h5>
+      <h5 style={SECTION_HEADING}>{t.timeline.related}</h5>
       <ElementList
         elements={touchedOf(batch)}
         address={address}
@@ -379,6 +382,7 @@ export function TimelinePanel({
   onReturn,
   resolveHandles = (dids) => handleLabels.resolve(dids),
 }: Props) {
+  const t = useMessages();
   const focusKey = focus ? `${focus.kind}:${focus.id}` : '';
   // biome-ignore lint/correctness/useExhaustiveDependencies: 選んだ要素の同一性 (focusKey) が変わったときだけ組み直す
   const timelineFocus = useMemo<TimelineFocus | undefined>(
@@ -439,7 +443,7 @@ export function TimelinePanel({
           color: color.textMuted,
         }}
       >
-        グラフを開くと、その履歴が出ます
+        {t.timeline.noGraph}
       </p>
     );
   return (
@@ -455,13 +459,13 @@ export function TimelinePanel({
             borderRadius: radius.sm,
           }}
         >
-          「{focus.title}」に関わる変更だけを出しています
+          {t.timeline.focused(focus.title)}
         </p>
       )}
       <div style={{ padding: '0 12px 8px' }}>
         {state.kind === 'loading' ? (
           <p style={{ margin: 0, fontSize: font.body, color: color.textMuted }}>
-            読み込み中…
+            {t.timeline.loading}
           </p>
         ) : (
           <VersionTree

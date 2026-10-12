@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { TAB_NOTICE_LABEL, TabBar } from './TabBar';
+import { messages } from './i18n/messages';
+import { TabBar } from './TabBar';
+
+const TAB_NOTICE_LABEL = messages().tabs.unconfirmedConflict;
+
 import type { Tab, TabId } from './tabs/tabs';
 
 afterEach(() => {
