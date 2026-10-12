@@ -30,10 +30,19 @@ import {
   Undo2,
   Ungroup,
 } from 'lucide-react';
-import { type ReactNode, useEffect, useState } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import type { GraphEditorControls } from './graph/editorControls';
 import type { GroupAbility } from './hooks/useGroupNodes';
+import {
+  type FoldableControl,
+  foldedAt,
+  HEADER_FOLD_ORDER,
+  ICONS_ONLY_LEVEL,
+  iconsOnlyAt,
+} from './layout/headerFold';
+import { useFoldLevel } from './layout/useFoldLevel';
 import { Button, ICON_SIZE, ICON_SIZE_SM, IconButton } from './ui/Button';
+import { ClippedText } from './ui/ClippedText';
 
 export const GRAPH_HEADER_HEIGHT = 40;
 
@@ -190,9 +199,19 @@ function CopyLinkButton({ onCopy }: { onCopy: () => Promise<void> }) {
 
 /** 操作のまとまりの間を空ける (visual language §3 の余白の段) */
 const GROUP_GAP = 12;
-/** 名前が長くても道具のボタンを押し出さないよう、名前の幅に上限を置く */
-const TITLE_MAX_WIDTH = 240;
-const COMPACT_TITLE_MAX_WIDTH = 72;
+/**
+ * 名前の欄の最小の幅。名前は残りの幅を使って省略で縮むが、これより狭くなる前に操作の方を
+ * 「…」へ畳む (`headerFold.ts`)。0 まで縮めると、どのグラフを見ているかが分からなくなる
+ */
+const TITLE_MIN_WIDTH = 120;
+const COMPACT_TITLE_MIN_WIDTH = 64;
+/** branch の名前の幅の上限。長い名前でチップが名前の欄を占めないように (全体は tooltip) */
+const BRANCH_NAME_MAX_WIDTH = 160;
+
+/** 省略で縮む名前。切れていれば全体を tooltip に出す (`ClippedText`) */
+function ClippedName({ name, maxWidth }: { name: string; maxWidth?: number }) {
+  return <ClippedText full={name} style={{ maxWidth }} />;
+}
 
 /** 状態の印。流れ (trunk / branch / merge) と、未 commit の変更 */
 function Chip({
@@ -258,21 +277,15 @@ function GraphTitle({
         display: 'flex',
         alignItems: 'center',
         gap: 6,
-        minWidth: 0,
+        // 残りの幅を全部使い、足りなければ省略で縮む (最小の幅まで)
+        flex: '1 1 auto',
+        minWidth: compact ? COMPACT_TITLE_MIN_WIDTH : TITLE_MIN_WIDTH,
+        overflow: 'hidden',
         marginRight: GROUP_GAP,
         fontSize: font.body,
       }}
     >
-      <span
-        title={full}
-        style={{
-          minWidth: 0,
-          maxWidth: compact ? COMPACT_TITLE_MAX_WIDTH : TITLE_MAX_WIDTH,
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-        }}
-      >
+      <ClippedText full={full} style={{ flex: '0 1 auto' }}>
         {/* 狭い画面では File の名前を tooltip に退け、Sheet の名前だけを残す */}
         {!compact && (
           <span style={{ color: color.textMuted }}>{title.fileName} / </span>
@@ -280,7 +293,7 @@ function GraphTitle({
         <strong style={{ fontWeight: fontWeight.strong }}>
           {title.sheetName}
         </strong>
-      </span>
+      </ClippedText>
       {title.past ? (
         <>
           {title.past.branchName !== null ? (
@@ -289,7 +302,12 @@ function GraphTitle({
               title={compact ? title.past.branchName : undefined}
             >
               <GitBranch size={ICON_SIZE_SM} aria-hidden />
-              {!compact && <span>{title.past.branchName}</span>}
+              {!compact && (
+                <ClippedName
+                  name={title.past.branchName}
+                  maxWidth={BRANCH_NAME_MAX_WIDTH}
+                />
+              )}
             </Chip>
           ) : (
             <Chip tone="neutral">trunk</Chip>
@@ -307,7 +325,9 @@ function GraphTitle({
       ) : branch ? (
         <Chip tone="branch" title={compact ? branch.name : undefined}>
           <GitBranch size={ICON_SIZE_SM} aria-hidden />
-          {!compact && <span>{branch.name}</span>}
+          {!compact && (
+            <ClippedName name={branch.name} maxWidth={BRANCH_NAME_MAX_WIDTH} />
+          )}
           {branch.merged && <span>(merged)</span>}
         </Chip>
       ) : (
@@ -340,8 +360,38 @@ export function GraphHeader({
   const ready = controls !== null;
   const [paneMenuOpen, setPaneMenuOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  // 中身 (名前・出す操作) が変わったら、畳み方を下限から測り直す
+  const contentKey = [
+    title.fileName,
+    title.sheetName,
+    title.merger,
+    title.past?.branchName,
+    branch?.name,
+    branch?.merged,
+    branch?.pendingCount,
+    Boolean(onToggleMap),
+    Boolean(onCopyLink),
+  ].join('|');
+  const level = useFoldLevel(
+    toolbarRef,
+    compact ? ICONS_ONLY_LEVEL : 0,
+    contentKey,
+  );
+  const folded = foldedAt(level);
+  const iconsOnly = iconsOnlyAt(level);
+  const shows = (control: FoldableControl) => !folded.has(control);
+  /** 「…」に入れるもの。出す操作だけ (渡されていない操作は入れない) */
+  const inMenu = HEADER_FOLD_ORDER.filter(
+    (c) =>
+      folded.has(c) &&
+      (c !== 'map' || onToggleMap) &&
+      (c !== 'link' || onCopyLink),
+  );
+  const closeMenu = () => setMoreOpen(false);
   return (
     <div
+      ref={toolbarRef}
       role="toolbar"
       aria-label="グラフの操作"
       style={{
@@ -353,25 +403,31 @@ export function GraphHeader({
         padding: '0 8px',
         borderBottom: `1px solid ${color.border}`,
         background: color.bgSubtle,
+        // **`overflow: hidden` にしない** — 「…」のメニューはこの中に置くので、切るとメニューが
+        // ボディの下に隠れる (利用者の指摘)。溢れの測定 (`scrollWidth`) は切らなくても効く
       }}
     >
       <GraphTitle title={title} branch={branch} compact={compact} />
       {/* 検索の口 (step2 Phase 7)。仕様「検索ボタンで検索窓がポップアップ」 */}
-      <IconButton
-        icon={Search}
-        label="この Sheet を検索"
-        onClick={onToggleSearch}
-        aria-pressed={searchOpen}
-      />
+      {shows('search') && (
+        <IconButton
+          icon={Search}
+          label="この Sheet を検索"
+          onClick={onToggleSearch}
+          aria-pressed={searchOpen}
+        />
+      )}
       {/* property editor 表示の on/off。**選んだ要素に対して出す** (step2 Phase 4 Q2) */}
       <IconButton
         icon={PanelRight}
         label="property"
         onClick={onToggleProperty}
         aria-pressed={propertyOpen}
-        style={onToggleMap ? undefined : { marginRight: GROUP_GAP }}
+        style={
+          onToggleMap && shows('map') ? undefined : { marginRight: GROUP_GAP }
+        }
       />
-      {onToggleMap && (
+      {onToggleMap && shows('map') && (
         <IconButton
           icon={MapIcon}
           label="map"
@@ -394,24 +450,37 @@ export function GraphHeader({
         style={{ marginRight: GROUP_GAP }}
       />
       {/* **使えないときは無効にして見せる** (#269)。隠すと置き場所が変わる */}
-      <LabeledButton
-        compact={compact}
-        icon={Group}
-        label="group にまとめる"
-        onClick={() => controls?.groupSelected()}
-        disabled={!ready || !groupAbility.canGroup}
-      />
-      <LabeledButton
-        compact={compact}
-        icon={Ungroup}
-        label="group を解く"
-        onClick={() => controls?.ungroupSelected()}
-        disabled={!ready || !groupAbility.canUngroup}
-        style={{ marginRight: GROUP_GAP }}
-      />
-      {compact ? (
-        // 溢れたものを入れるメニュー (§9.2)。たまにしか使わないものだけを入れる
-        <div style={{ position: 'relative' }}>
+      {shows('group') && (
+        <>
+          <LabeledButton
+            compact={iconsOnly}
+            icon={Group}
+            label="group にまとめる"
+            onClick={() => controls?.groupSelected()}
+            disabled={!ready || !groupAbility.canGroup}
+          />
+          <LabeledButton
+            compact={iconsOnly}
+            icon={Ungroup}
+            label="group を解く"
+            onClick={() => controls?.ungroupSelected()}
+            disabled={!ready || !groupAbility.canUngroup}
+            style={{ marginRight: GROUP_GAP }}
+          />
+        </>
+      )}
+      {shows('png') && (
+        <IconButton
+          icon={ImageDown}
+          label="PNG で書き出す"
+          onClick={() => controls?.exportPng()}
+          disabled={!ready}
+        />
+      )}
+      {onCopyLink && shows('link') && <CopyLinkButton onCopy={onCopyLink} />}
+      {inMenu.length > 0 && (
+        // 幅が足りずに畳んだ操作 (`headerFold.ts`)。使う頻度の低いものから入る
+        <div style={{ position: 'relative', flexShrink: 0 }}>
           <IconButton
             icon={Ellipsis}
             label="その他の操作"
@@ -420,32 +489,26 @@ export function GraphHeader({
           />
           {moreOpen && (
             <HeaderMenu label="その他の操作">
-              <button
-                type="button"
-                role="menuitem"
-                disabled={!ready}
-                onClick={() => {
-                  controls?.exportPng();
-                  setMoreOpen(false);
-                }}
-                style={MENU_ITEM}
-              >
-                <ImageDown size={ICON_SIZE} aria-hidden />
-                PNG で書き出す
-              </button>
+              {inMenu.map((control) => (
+                <FoldedItem
+                  key={control}
+                  control={control}
+                  ready={ready}
+                  controls={controls}
+                  groupAbility={groupAbility}
+                  searchOpen={searchOpen}
+                  onToggleSearch={onToggleSearch}
+                  mapOpen={mapOpen ?? false}
+                  onToggleMap={onToggleMap}
+                  onCopyLink={onCopyLink}
+                  onDone={closeMenu}
+                />
+              ))}
             </HeaderMenu>
           )}
         </div>
-      ) : (
-        <IconButton
-          icon={ImageDown}
-          label="PNG で書き出す"
-          onClick={() => controls?.exportPng()}
-          disabled={!ready}
-        />
       )}
-      {onCopyLink && <CopyLinkButton onCopy={onCopyLink} />}
-      {paneCandidates && !compact && (
+      {paneCandidates && level === 0 && (
         <div style={{ position: 'relative', marginLeft: 8 }}>
           <IconButton
             icon={Columns2}
@@ -492,10 +555,11 @@ export function GraphHeader({
             display: 'flex',
             alignItems: 'center',
             gap: 8,
+            flexShrink: 0,
           }}
         >
           <LabeledButton
-            compact={compact}
+            compact={iconsOnly}
             variant="secondary"
             icon={GitCommitHorizontal}
             label="commit"
@@ -503,7 +567,7 @@ export function GraphHeader({
             disabled={branch.pendingCount === 0}
           />
           <LabeledButton
-            compact={compact}
+            compact={iconsOnly}
             variant="secondary"
             icon={GitMerge}
             label="merge"
@@ -516,4 +580,105 @@ export function GraphHeader({
       )}
     </div>
   );
+}
+
+/** 「…」の中の 1 項目。畳んだ操作と同じ働きをし、押したらメニューを閉じる */
+function FoldedItem({
+  control,
+  ready,
+  controls,
+  groupAbility,
+  searchOpen,
+  onToggleSearch,
+  mapOpen,
+  onToggleMap,
+  onCopyLink,
+  onDone,
+}: {
+  control: FoldableControl;
+  ready: boolean;
+  controls: GraphEditorControls | null;
+  groupAbility: GroupAbility;
+  searchOpen: boolean;
+  onToggleSearch: () => void;
+  mapOpen: boolean;
+  onToggleMap?: () => void;
+  onCopyLink?: () => Promise<void>;
+  onDone: () => void;
+}) {
+  const item = (
+    icon: LucideIcon,
+    label: string,
+    run: () => void,
+    options: { disabled?: boolean; checked?: boolean } = {},
+  ) => {
+    const Icon = icon;
+    const onClick = () => {
+      run();
+      onDone();
+    };
+    const body = (
+      <>
+        <Icon size={ICON_SIZE} aria-hidden />
+        {label}
+      </>
+    );
+    // on/off の操作は押されているかを読み上げる (`menuitemcheckbox`)
+    return options.checked === undefined ? (
+      <button
+        key={label}
+        type="button"
+        role="menuitem"
+        disabled={options.disabled}
+        onClick={onClick}
+        style={MENU_ITEM}
+      >
+        {body}
+      </button>
+    ) : (
+      <button
+        key={label}
+        type="button"
+        role="menuitemcheckbox"
+        aria-checked={options.checked}
+        disabled={options.disabled}
+        onClick={onClick}
+        style={MENU_ITEM}
+      >
+        {body}
+      </button>
+    );
+  };
+  switch (control) {
+    case 'png':
+      return item(ImageDown, 'PNG で書き出す', () => controls?.exportPng(), {
+        disabled: !ready,
+      });
+    case 'map':
+      return onToggleMap
+        ? item(MapIcon, 'map', onToggleMap, { checked: mapOpen })
+        : null;
+    case 'link':
+      return onCopyLink
+        ? item(Link, 'この view のリンクを写す', () => {
+            // 写せなかったときの知らせは渡した側が出す
+            onCopyLink().catch(() => {});
+          })
+        : null;
+    case 'group':
+      return (
+        <>
+          {item(Group, 'group にまとめる', () => controls?.groupSelected(), {
+            disabled: !ready || !groupAbility.canGroup,
+          })}
+          {item(Ungroup, 'group を解く', () => controls?.ungroupSelected(), {
+            disabled: !ready || !groupAbility.canUngroup,
+          })}
+        </>
+      );
+    case 'search':
+      return item(Search, 'この Sheet を検索', onToggleSearch, {
+        checked: searchOpen,
+      });
+  }
 }
