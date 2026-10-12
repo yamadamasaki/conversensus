@@ -13,6 +13,7 @@ import { color, font, fontWeight, radius, shadow } from './theme';
 
 import type { LucideIcon } from 'lucide-react';
 import {
+  Check,
   Columns2,
   Ellipsis,
   GitBranch,
@@ -20,13 +21,14 @@ import {
   GitMerge,
   Group,
   ImageDown,
+  Link,
   PanelRight,
   Redo2,
   Search,
   Undo2,
   Ungroup,
 } from 'lucide-react';
-import { type ReactNode, useState } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 import type { GraphEditorControls } from './graph/editorControls';
 import type { GroupAbility } from './hooks/useGroupNodes';
 import { Button, ICON_SIZE, ICON_SIZE_SM, IconButton } from './ui/Button';
@@ -70,6 +72,11 @@ type Props = {
    * 選ぶとこのタブの pane として並ぶ。渡さなければ「⧉」は出さない (本番の既定)
    */
   paneCandidates?: readonly { label: string; onAdd: () => void }[];
+  /**
+   * この view のリンク (#251) を写す。写せたら resolve する。アドレスバーの無い PWA の窓でも
+   * 渡せるように置く。渡さなければ出さない
+   */
+  onCopyLink?: () => Promise<void>;
   /**
    * 狭い画面 (visual language §9.2)。文字のボタンを記号だけにし、たまにしか使わないもの
    * (PNG・並べる) を `Ellipsis` のメニューへ入れる
@@ -144,6 +151,32 @@ const MENU_ITEM = {
   fontSize: font.body,
   padding: '4px 6px',
 } as const;
+
+/** 「写しました」を出しておく長さ */
+export const LINK_COPIED_MS = 1500;
+
+/** リンクを写すボタン。写せたら少しの間、印を替えて知らせる */
+function CopyLinkButton({ onCopy }: { onCopy: () => Promise<void> }) {
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(false), LINK_COPIED_MS);
+    return () => clearTimeout(timer);
+  }, [copied]);
+  return (
+    <IconButton
+      icon={copied ? Check : Link}
+      label={copied ? 'リンクを写しました' : 'この view のリンクを写す'}
+      onClick={() => {
+        // 写せなかったときの知らせは渡した側が出す
+        onCopy().then(
+          () => setCopied(true),
+          () => {},
+        );
+      }}
+    />
+  );
+}
 
 /** 操作のまとまりの間を空ける (visual language §3 の余白の段) */
 const GROUP_GAP = 12;
@@ -271,6 +304,7 @@ export function GraphHeader({
   onToggleProperty,
   branch,
   paneCandidates,
+  onCopyLink,
   compact = false,
 }: Props) {
   const ready = controls !== null;
@@ -371,6 +405,7 @@ export function GraphHeader({
           disabled={!ready}
         />
       )}
+      {onCopyLink && <CopyLinkButton onCopy={onCopyLink} />}
       {paneCandidates && !compact && (
         <div style={{ position: 'relative', marginLeft: 8 }}>
           <IconButton

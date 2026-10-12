@@ -20,8 +20,9 @@
  *
  * 複数の参加者は**端末を順番に切り替えて**表す。同時に 2 つの App は立てられない —
  * `atproto/client.ts` の agent がプロセスに 1 つだからである。端末は「ローカル正典の DB」と
- * 「localStorage (セッション・deviceId など)」の組で、`activate` がバックエンドと
- * localStorage を差し替える。
+ * 「localStorage (セッション・deviceId など)」と「URL の fragment (#251 の Deep Link)」の組で、
+ * `activate` がバックエンドと localStorage と fragment を差し替える。fragment を分けないと、
+ * ある端末が見ていた view のリンクを別の端末が起動時に開こうとする (別のブラウザでは起きない)。
  *
  * 相手の記録を手で組み立てずに本物の App に書かせるのは、**記録の形が変わっても
  * テストが追随する**ためである (step3 Phase 1 で op-log の形を作り直す)。
@@ -54,7 +55,14 @@ type Device = {
   store: LocalStore;
   backend: LocalBackend;
   storage: Record<string, string>;
+  /** URL の fragment (#251)。いま見ている view のアドレスが載る */
+  hash: string;
 };
+
+/** fragment を替える。履歴は積まない (`useViewLink` と同じ) */
+function replaceHash(hash: string): void {
+  history.replaceState(null, '', location.pathname + location.search + hash);
+}
 
 export type AppWorld = {
   pds: FakePds;
@@ -115,7 +123,10 @@ export async function createAppWorld(): Promise<AppWorld> {
   const activate = async (deviceName: string) => {
     // agent はプロセスに 1 つなので、端末を替える前に必ず手放す。
     // logout はセッション記録も消すので、localStorage の控えはその前に取る
-    if (current) current.storage = snapshotStorage();
+    if (current) {
+      current.storage = snapshotStorage();
+      current.hash = location.hash;
+    }
     await logout();
 
     let device = devices.get(deviceName);
@@ -130,12 +141,14 @@ export async function createAppWorld(): Promise<AppWorld> {
         store,
         backend: broadcastingBackend(storeBackend(store), null),
         storage: {},
+        hash: '',
       };
       devices.set(deviceName, device);
     }
     current = device;
     setLocalBackend(device.backend);
     restoreStorage(device.storage);
+    replaceHash(device.hash);
   };
 
   return {
@@ -150,6 +163,7 @@ export async function createAppWorld(): Promise<AppWorld> {
     dispose: async () => {
       await logout();
       localStorage.clear();
+      replaceHash('');
       globalThis.fetch = realFetch;
       setLocalBackend(null);
       setAuthBackend(null);
