@@ -676,8 +676,13 @@ happy-dom の既定の URL (`about:blank`) では fragment を書けないので
 - commit を選ぶと operation inspector に種類と、**関係する要素 (b1 で置いた node) の名前**が出る。名前はその時点の
   姿から引くので、読み込んでから出る
 - 「その時点のグラフを開く」で新しいタブが開き、見るだけで 2 つ (trunk の 1 つ + b1 の 1 つ) を出す
+- 開いている間、ボタンは「元のグラフに戻る」になる。押すと時点のタブが閉じ (タブの数が元に戻る)、開く前の
+  b1 のタブへ戻る。同じ点をもう一度押すと inspector が閉じる (利用者の指摘 2026-10-12)
 - trunk の最初の「N 件の変更」を広げ、change point を選ぶと change inspector に「node を追加」が出る。関係する
   要素を押すと、その時点 (1 つ) を新しいタブで開き、URL に強調 (`n=`) が載る
+
+- ログインした alice の File では、木の actor が DID ではなく handle (`alice.test`) で出る。名簿は共有の File にしか
+  無いので、handle の解決で引く
 
 作る途中で、branch の commit の切断面が trunk の actor を含まず、その時点の姿が「見つからない」ことがここで
 見つかった (`buildTimeline.test.md`)。強調が URL に載ることも見るので、Deep Link と同じく fragment を書ける URL で開く。

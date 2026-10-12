@@ -1051,12 +1051,49 @@ export default function App() {
   });
   /** 右サイドバーの pane (#73 Q1)。property と timeline を切り替える */
   const [rightPane, setRightPane] = useState<RightSidebarPane>('property');
-  /** actor (`did#端末`) を名簿の名前にする (timeline の inspector) */
-  const { labelOf } = participation.state;
-  const labelOfActor = useCallback(
-    (actor: string) => labelOf(actor.split('#')[0] as Did),
-    [labelOf],
+  /**
+   * timeline から開いた時点のタブと、開く前のタブ (利用者の指摘 2026-10-12: 見終わった後に戻る先が
+   * 分からなくなる)。「元のグラフに戻る」で開く前のタブへ戻り、時点のタブは閉じる (利用者の決定)
+   */
+  const pastOriginRef = useRef<{ originTabId: string; pastKey: string } | null>(
+    null,
   );
+  const { activate: activateTab, closeWhere: closeTabsWhere } = tabs;
+  const activeTabId = tabs.state.activeId;
+  const openPastView = useCallback(
+    (address: GraphViewAddress) => {
+      const origin = pastOriginRef.current;
+      // 時点のタブを見ている間に別の点を開いたら、そのタブを替える (戻る先は最初のタブのまま)
+      const viewingPast = origin !== null && activeTabId !== origin.originTabId;
+      if (viewingPast) {
+        const pastKey = origin.pastKey;
+        closeTabsWhere(
+          (a) => isReadOnlyCut(a.cut) && addressKey(a) === pastKey,
+        );
+      }
+      pastOriginRef.current = {
+        originTabId: viewingPast ? origin.originTabId : (activeTabId ?? ''),
+        pastKey: addressKey(address),
+      };
+      openTab(address);
+    },
+    [activeTabId, closeTabsWhere, openTab],
+  );
+  const returnFromPastView = useCallback(() => {
+    const origin = pastOriginRef.current;
+    if (!origin) return;
+    pastOriginRef.current = null;
+    activateTab(origin.originTabId);
+    closeTabsWhere(
+      (a) => isReadOnlyCut(a.cut) && addressKey(a) === origin.pastKey,
+    );
+  }, [activateTab, closeTabsWhere]);
+  /**
+   * timeline の絞り (選んだ要素)。時点のタブでは選択が無いので、最新のタブで最後に選んでいたものを
+   * 保つ — 保たないと、時点を見ている間に木の形が変わり、選んだ点が見えなくなる
+   */
+  const timelineFocusRef = useRef(panels.selection);
+  if (!pastView) timelineFocusRef.current = panels.selection;
   const linkAddress = pastView ?? viewAddress;
   const copyViewLink = useCallback(async () => {
     if (!linkAddress) return;
@@ -1749,10 +1786,10 @@ export default function App() {
                     : null
                 }
                 currentLane={pastView ? pastView.branchId : viewedBranchId}
-                // 過去の時点のタブでは選択が無い (見るだけの pane は選択を写さない)
-                focus={pastView ? undefined : panels.selection}
-                labelOfActor={labelOfActor}
-                onOpen={openTab}
+                focus={timelineFocusRef.current}
+                onOpen={openPastView}
+                viewing={pastView}
+                onReturn={returnFromPastView}
               />
             }
           />

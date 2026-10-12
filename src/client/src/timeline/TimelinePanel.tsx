@@ -1,17 +1,22 @@
 /**
  * timeline view の pane (#73, 計画 T3〜T5)。右サイドバーの「timeline」で出す (Q1)
  *
- * 上に version tree、下に inspector。inspector は選んだ点の種類で 2 つに分かれる (仕様)。
+ * version tree の、押した点の直下に inspector を出す (出すのは 1 つ)。inspector は選んだ点の種類で
+ * 2 つに分かれる (仕様)。
  *
  * - **operation inspector** (branch・commit・merge): 種類・コメント・actor・時刻・関係する node/edge
  * - **change inspector** (batch): op の一覧 (種類と内容)・actor・時刻・関係する node/edge
  *
- * どちらも「その時点のグラフ」を新しいタブで見るだけで開ける (Q3)。change inspector から要素を
+ * どちらも「その時点のグラフ」を新しいタブで見るだけで開ける (Q3)。開いている間はボタンが
+ * 「元のグラフに戻る」になり、押すとその時点のタブを閉じて開く前のタブへ戻る。change inspector から要素を
  * 押すと、その要素を強調して開く。要素の名前は**その時点の姿**から引く (消えた要素も名前が出る)
  */
 
 import {
+  addressKey,
   type BranchId,
+  type Did,
+  didFromActor,
   type FileId,
   type GraphViewAddress,
   HEAD_CUT,
@@ -20,6 +25,8 @@ import {
   type VersionVector,
 } from '@conversensus/shared';
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
+import { handleLabels } from '../atproto/identity';
+import type { LabelResolver } from '../display/labelCache';
 import type { PropertyTarget } from '../graph/editorControls';
 import { usePaneSheet } from '../hooks/usePaneSheet';
 import { color, font, radius } from '../theme';
@@ -27,6 +34,7 @@ import { Button } from '../ui/Button';
 import {
   type ElementIds,
   type TimelineFocus,
+  type TimelineLane,
   touchedElements as touchedOf,
 } from './buildTimeline';
 import { opDetail, opKindLabel } from './describeOp';
@@ -47,9 +55,14 @@ type Props = {
   currentLane: BranchId | null;
   /** 選んでいる要素。あれば、それに触れた change point だけを出す (仕様) */
   focus: PropertyTarget | undefined;
-  labelOfActor: (actor: string) => string;
   /** アドレスを新しいタブで開く (その時点のグラフ, Q3) */
   onOpen: (address: GraphViewAddress) => void;
+  /** いま見ている過去の時点のタブのアドレス。最新を見ていれば null */
+  viewing: GraphViewAddress | null;
+  /** 開いた時点のタブを閉じて、開く前のタブへ戻る */
+  onReturn: () => void;
+  /** DID を handle にする。既定は `handleLabels` (テストで差し替える) */
+  resolveHandles?: (dids: readonly Did[]) => Promise<LabelResolver<Did>>;
 };
 
 const OPERATION_KIND_LABELS = {
@@ -167,20 +180,65 @@ function addressAt(
   };
 }
 
+/**
+ * 「その時点のグラフを開く」と「元のグラフに戻る」を 1 つのボタンで切り替える (利用者の指摘 2026-10-12:
+ * 開いた後でどのタブに戻ればよいか分からなくなる)。この点の時点を見ている間は「戻る」になる
+ */
+function ViewButton({
+  address,
+  viewing,
+  onOpen,
+  onReturn,
+  disabled = false,
+}: {
+  address: GraphViewAddress;
+  viewing: GraphViewAddress | null;
+  onOpen: (address: GraphViewAddress) => void;
+  onReturn: () => void;
+  disabled?: boolean;
+}) {
+  const showing =
+    viewing !== null && addressKey(viewing) === addressKey(address);
+  return (
+    <div style={{ marginTop: 8 }}>
+      {showing ? (
+        <Button variant="primary" onClick={onReturn}>
+          元のグラフに戻る
+        </Button>
+      ) : (
+        <Button
+          variant="secondary"
+          disabled={disabled}
+          onClick={() => onOpen(address)}
+        >
+          その時点のグラフを開く
+        </Button>
+      )}
+    </div>
+  );
+}
+
 function Inspector({
   selection,
   place,
   labelOfActor,
   onOpen,
+  viewing,
+  onReturn,
 }: {
   selection: TimelineSelection;
   place: Place;
   labelOfActor: (actor: string) => string;
   onOpen: (address: GraphViewAddress) => void;
+  viewing: GraphViewAddress | null;
+  onReturn: () => void;
 }) {
+  // 押した点の直下に出すので、木の行と見分けられるよう囲む
   const box = {
-    borderTop: `1px solid ${color.border}`,
-    padding: '8px 12px',
+    border: `1px solid ${color.border}`,
+    borderRadius: radius.sm,
+    background: color.bgSubtle,
+    padding: 8,
   } as const;
   if (selection.kind === 'operation') {
     const { point, lane } = selection;
@@ -205,15 +263,13 @@ function Inspector({
         </dl>
         <h5 style={SECTION_HEADING}>関係する node/edge</h5>
         <ElementList elements={point.touched} address={address} />
-        <div style={{ marginTop: 8 }}>
-          <Button
-            variant="secondary"
-            disabled={point.cut === null}
-            onClick={() => onOpen(address)}
-          >
-            その時点のグラフを開く
-          </Button>
-        </div>
+        <ViewButton
+          address={address}
+          viewing={viewing}
+          onOpen={onOpen}
+          onReturn={onReturn}
+          disabled={point.cut === null}
+        />
       </section>
     );
   }
@@ -265,21 +321,63 @@ function Inspector({
           )
         }
       />
-      <div style={{ marginTop: 8 }}>
-        <Button variant="secondary" onClick={() => onOpen(address)}>
-          その時点のグラフを開く
-        </Button>
-      </div>
+      <ViewButton
+        address={address}
+        viewing={viewing}
+        onOpen={onOpen}
+        onReturn={onReturn}
+      />
     </section>
   );
+}
+
+/** 選んだ点の同一性 */
+function selectionKey(selection: TimelineSelection): string {
+  if (selection.kind === 'change') return `change:${selection.point.batch.id}`;
+  const { point } = selection;
+  return point.kind === 'branch'
+    ? `branch:${point.branch.id}`
+    : `commit:${point.commit.id}`;
+}
+
+const DID_PREFIX = 'did:';
+
+function isDid(value: string): value is Did {
+  return value.startsWith(DID_PREFIX);
+}
+
+/** 木に出る actor の DID (重ねず、順を揃える) */
+function actorDids(lanes: readonly TimelineLane[]): string[] {
+  const dids = new Set<string>();
+  const add = (actor: string) => {
+    const did = didFromActor(actor);
+    if (isDid(did)) dids.add(did);
+  };
+  for (const lane of lanes) {
+    for (const entry of lane.entries) {
+      if (entry.kind === 'changes') {
+        for (const p of entry.points) add(p.batch.actor);
+      } else {
+        const p = entry.point;
+        add(
+          p.kind === 'branch'
+            ? p.branch.base.authorActor
+            : p.commit.authorActor,
+        );
+      }
+    }
+  }
+  return [...dids].sort();
 }
 
 export function TimelinePanel({
   place,
   currentLane,
   focus,
-  labelOfActor,
   onOpen,
+  viewing,
+  onReturn,
+  resolveHandles = (dids) => handleLabels.resolve(dids),
 }: Props) {
   const focusKey = focus ? `${focus.kind}:${focus.id}` : '';
   // biome-ignore lint/correctness/useExhaustiveDependencies: 選んだ要素の同一性 (focusKey) が変わったときだけ組み直す
@@ -295,6 +393,38 @@ export function TimelinePanel({
   );
   const state = useTimeline(place, timelineFocus);
   const [selected, setSelected] = useState<TimelineSelection | null>(null);
+  /** 同じ点をもう一度押したら閉じる (出す inspector は 1 つ) */
+  const select = (next: TimelineSelection) =>
+    setSelected((current) =>
+      current && selectionKey(current) === selectionKey(next) ? null : next,
+    );
+
+  // actor の DID を handle にする (利用者の指摘 2026-10-12)。名簿は共有の File にしか無いので、
+  // 名簿ではなく handle の解決 (`handleLabels`) で引く。未ログインの actor (`local`) は引かない
+  const [handleOf, setHandleOf] = useState<LabelResolver<Did>>(
+    () => handleLabels.peek,
+  );
+  const lanes = state.kind === 'ready' ? state.lanes : null;
+  const didsKey = lanes ? actorDids(lanes).join(',') : '';
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 出ている DID の集まり (didsKey) が変わったときだけ引く
+  useEffect(() => {
+    if (!didsKey) return;
+    let cancelled = false;
+    resolveHandles(didsKey.split(',') as Did[])
+      .then((resolver) => {
+        if (!cancelled) setHandleOf(() => resolver);
+      })
+      .catch((error) =>
+        console.warn('[timeline] handle を引けなかった:', error),
+      );
+    return () => {
+      cancelled = true;
+    };
+  }, [didsKey]);
+  const labelOfActor = (actor: string) => {
+    const did = didFromActor(actor);
+    return isDid(did) ? handleOf(did) : did;
+  };
   const placeKey = place ? `${place.fileId}/${place.sheetId}` : '';
   // biome-ignore lint/correctness/useExhaustiveDependencies: 別のシートへ移ったら選んだ点を捨てる
   useEffect(() => setSelected(null), [placeKey]);
@@ -338,19 +468,21 @@ export function TimelinePanel({
             lanes={state.lanes}
             currentLane={currentLane}
             selected={selected}
-            onSelect={setSelected}
+            onSelect={select}
             labelOfActor={labelOfActor}
+            renderDetail={(selection) => (
+              <Inspector
+                selection={selection}
+                place={place}
+                labelOfActor={labelOfActor}
+                onOpen={onOpen}
+                viewing={viewing}
+                onReturn={onReturn}
+              />
+            )}
           />
         )}
       </div>
-      {selected && (
-        <Inspector
-          selection={selected}
-          place={place}
-          labelOfActor={labelOfActor}
-          onOpen={onOpen}
-        />
-      )}
     </div>
   );
 }

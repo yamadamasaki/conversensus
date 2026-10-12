@@ -11,7 +11,7 @@ import {
 } from '@conversensus/shared';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { ChangePoint, TimelineLane } from './buildTimeline';
-import { VersionTree } from './VersionTree';
+import { type TimelineSelection, VersionTree } from './VersionTree';
 
 afterEach(cleanup);
 
@@ -88,15 +88,24 @@ const lanes: TimelineLane[] = [
   },
 ];
 
-function renderTree(currentLane: BranchId | null = null) {
+function renderTree(
+  currentLane: BranchId | null = null,
+  selected: TimelineSelection | null = null,
+) {
   const onSelect = mock(() => {});
   render(
     <VersionTree
       lanes={lanes}
       currentLane={currentLane}
-      selected={null}
+      selected={selected}
       onSelect={onSelect}
       labelOfActor={() => 'alice'}
+      renderDetail={(selection) => (
+        <p>
+          詳細:{' '}
+          {selection.kind === 'change' ? selection.point.batch.id : 'operation'}
+        </p>
+      )}
     />,
   );
   return onSelect;
@@ -135,5 +144,23 @@ describe('VersionTree (#73 T3)', () => {
     renderTree(B1);
     expect(screen.getByText('b1').style.fontWeight).toBe('bold');
     expect(screen.getByText('trunk').style.fontWeight).toBe('normal');
+  });
+
+  test('選んだ点の直下に詳細を出す (1 つだけ)', () => {
+    const firstRun = lanes[0]?.entries[0];
+    const second =
+      firstRun?.kind === 'changes' ? firstRun.points[1] : undefined;
+    if (!second) throw new Error('筋書きの change point が無い');
+    renderTree(null, { kind: 'change', point: second, lane: null });
+    fireEvent.click(screen.getByRole('button', { name: '2 件の変更' }));
+    const rows = screen
+      .getByRole('region', { name: 'trunk の線' })
+      .querySelectorAll('li');
+    const texts = [...rows].map((li) => li.textContent ?? '');
+    const at = texts.indexOf('詳細: batch-2');
+    expect(at).toBeGreaterThan(0);
+    // 直前の行は選んだ点 (2 つ目の変更)、直後は分岐の点
+    expect(texts[at - 1]).toContain('alice');
+    expect(screen.getAllByText(/^詳細:/)).toHaveLength(1);
   });
 });

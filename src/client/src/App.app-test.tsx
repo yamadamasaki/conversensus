@@ -2703,6 +2703,30 @@ describe('App 結合: timeline view (#73)', () => {
         tabsBefore + 1,
       );
 
+      // 開いている間は「元のグラフに戻る」になり、押すと時点のタブを閉じて開く前のタブ (b1) へ戻る
+      await user.click(
+        within(operation).getByRole('button', { name: '元のグラフに戻る' }),
+      );
+      await waitFor(() =>
+        expect(screen.getAllByRole('tab', { name: /Sheet 1/ })).toHaveLength(
+          tabsBefore,
+        ),
+      );
+      expect(screen.queryByText('過去の時点 · 読み取り専用')).toBeNull();
+      await screen.findByRole('button', { name: 'commit' }, WIRING_TIMEOUT);
+      expect(
+        within(operation).getByRole('button', {
+          name: 'その時点のグラフを開く',
+        }),
+      ).toBeTruthy();
+      // 同じ点をもう一度押すと inspector を閉じる
+      await user.click(
+        within(tree).getByRole('button', { name: '最初の commit' }),
+      );
+      expect(
+        screen.queryByRole('region', { name: 'operation inspector' }),
+      ).toBeNull();
+
       // trunk の最初の変更 (node を置いた) を広げて選ぶと change inspector
       const firstRun = within(tree).getAllByRole('button', {
         name: /件の変更$/,
@@ -2735,4 +2759,35 @@ describe('App 結合: timeline view (#73)', () => {
     },
     MERGER_TEST_MS,
   );
+
+  test('actor は DID ではなく handle で出る', async () => {
+    const user = await startOn('alice', ALICE);
+    await createFile(user, FILE_NAME);
+    await addNode(user);
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+    await user.click(
+      screen.getByRole('button', { name: '右サイドバーを広げる' }),
+    );
+    await user.click(screen.getByRole('tab', { name: 'timeline' }));
+    const tree = await screen.findByRole(
+      'region',
+      { name: 'version tree' },
+      WIRING_TIMEOUT,
+    );
+    await user.click(
+      await within(tree).findByRole(
+        'button',
+        { name: /件の変更$/ },
+        WIRING_TIMEOUT,
+      ),
+    );
+    await waitFor(
+      () =>
+        expect(
+          within(tree).getAllByText(new RegExp(ALICE.handle)).length,
+        ).toBeGreaterThan(0),
+      WIRING_TIMEOUT,
+    );
+    expect(within(tree).queryByText(/did:plc:/)).toBeNull();
+  });
 });

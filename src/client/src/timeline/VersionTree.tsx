@@ -8,7 +8,7 @@
  * - いまの線 (見ている trunk / branch) を強調する (仕様)
  * - operation point は大きな丸、change point は小さな丸 (仕様)。change point の続きは
  *   「N 件の変更」に畳み、押すと広げる (Q2)
- * - 点を押すと選ぶ。選んだ点の詳細は inspector が出す
+ * - 点を押すと選び、その直下に詳細 (inspector) を出す。出すのは選んだ 1 つだけ
  */
 
 import type { BranchId } from '@conversensus/shared';
@@ -31,8 +31,14 @@ type Props = {
   /** 見ている線。trunk は null */
   currentLane: BranchId | null;
   selected: TimelineSelection | null;
+  /** 点を押した。選んでいる点をもう一度押したときも呼ぶ (閉じるかは呼んだ側が決める) */
   onSelect: (selection: TimelineSelection) => void;
   labelOfActor: (actor: string) => string;
+  /**
+   * 選んだ点の詳細 (inspector)。**その点の直下に出す** — 変更が多いと、木の下に出した inspector が
+   * 押した点から遠くなって見えにくい (利用者の指摘 2026-10-12)。出すのは選んだ 1 つだけ
+   */
+  renderDetail: (selection: TimelineSelection) => ReactNode;
 };
 
 const TIME_FORMAT = new Intl.DateTimeFormat('ja-JP', {
@@ -180,7 +186,18 @@ export function VersionTree({
   selected,
   onSelect,
   labelOfActor,
+  renderDetail,
 }: Props) {
+  /** 選んだ点なら、その直下に詳細を出す行 */
+  const detailOf = (candidate: TimelineSelection, key: string) =>
+    isSelected(selected, candidate) ? (
+      <li
+        key={`${key}-detail`}
+        style={{ listStyle: 'none', margin: '2px 0 6px' }}
+      >
+        {renderDetail(candidate)}
+      </li>
+    ) : null;
   /** 広げた change point の続き。鍵は先頭の batch の id */
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const toggle = (key: string) =>
@@ -229,7 +246,7 @@ export function VersionTree({
                   point,
                   lane: lane.branchId,
                 };
-                return (
+                return [
                   <Row
                     key={point.batch.id}
                     emphasized={emphasized}
@@ -244,8 +261,9 @@ export function VersionTree({
                         {labelOfActor(point.batch.actor)}
                       </span>
                     </PointButton>
-                  </Row>
-                );
+                  </Row>,
+                  detailOf(candidate, point.batch.id),
+                ];
               })}
           </ul>
         </li>
@@ -257,9 +275,10 @@ export function VersionTree({
       lane: lane.branchId,
     };
     const label = operationLabel(entry.point);
+    const rowKey = `op-${index}`;
     const row = (
       <Row
-        key={`op-${index}`}
+        key={rowKey}
         emphasized={emphasized}
         dot={<Dot size={OPERATION_DOT} filled={false} />}
       >
@@ -272,6 +291,7 @@ export function VersionTree({
         </PointButton>
       </Row>
     );
+    const detail = detailOf(candidate, rowKey);
     // 分岐の点の直下に、その branch の線を字下げして出す
     if (entry.point.kind === 'branch') {
       const branchLane = laneById.get(entry.point.branch.id);
@@ -281,6 +301,7 @@ export function VersionTree({
           <li key={`branch-${index}`} style={{ listStyle: 'none' }}>
             <ul style={{ margin: 0, padding: 0 }}>
               {row}
+              {detail}
               <li style={{ listStyle: 'none', paddingLeft: INDENT }}>
                 {renderLane(branchLane)}
               </li>
@@ -289,7 +310,7 @@ export function VersionTree({
         );
       }
     }
-    return row;
+    return [row, detail];
   };
 
   const renderLane = (lane: TimelineLane): ReactNode => (
