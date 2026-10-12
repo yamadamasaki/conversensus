@@ -3,15 +3,14 @@
  * (`GlobalSearchDialog`, #248) で同じに見せる
  */
 
+import { messages } from '../i18n/messages';
 import { color, font } from '../theme';
 import type { SearchHit } from './searchSheet';
 
 /** 欄の名前。仕様の結果一覧が出す「要素の種類 (node/edge, label/content/property)」 */
-const FIELD_LABEL = {
-  label: 'label',
-  content: '本文',
-  property: 'property',
-} as const;
+function fieldLabel(field: SearchHit['field']): string {
+  return field === 'content' ? messages().search.contentField : field;
+}
 
 const KIND_LABEL = {
   node: 'node',
@@ -38,7 +37,7 @@ export function HitText({ hit }: { hit: SearchHit }) {
   return (
     <>
       <span style={{ color: color.textMuted, fontSize: font.caption }}>
-        {KIND_LABEL[hit.elementKind]} / {FIELD_LABEL[hit.field]}
+        {KIND_LABEL[hit.elementKind]} / {fieldLabel(hit.field)}
         {/* property は名前と型も出す (仕様) */}
         {hit.propertyName !== undefined &&
           ` — ${hit.propertyName}: ${hit.propertyType}`}

@@ -1,3 +1,4 @@
+import { useMessages } from './i18n/messages';
 import { color, font, radius } from './theme';
 
 /**
@@ -17,14 +18,13 @@ type Props = {
   signedIn: boolean;
 };
 
-export const STORAGE_AT_RISK_LABEL = '端末だけの File が消えるおそれ';
-
 export function StorageAtRiskBanner({ count, signedIn }: Props) {
+  const t = useMessages();
   if (count === 0) return null;
   return (
     <div
       role="note"
-      aria-label={STORAGE_AT_RISK_LABEL}
+      aria-label={t.banners.storageAtRisk}
       style={{
         background: color.warningBg,
         border: `1px solid ${color.warning}`,
@@ -36,11 +36,10 @@ export function StorageAtRiskBanner({ count, signedIn }: Props) {
         marginBottom: 4,
       }}
     >
-      このブラウザは、しばらく使わない間にこの端末だけの File ({count} 件)
-      を消すことがあります。
+      {t.banners.storageAtRiskText(count)}
       {signedIn
-        ? 'File の詳細の「アカウントに保存する」で保存してください'
-        : 'ログインしてアカウントに保存してください'}
+        ? t.banners.storageAtRiskSignedIn
+        : t.banners.storageAtRiskSignedOut}
     </div>
   );
 }

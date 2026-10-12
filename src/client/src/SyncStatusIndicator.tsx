@@ -28,6 +28,7 @@ import { color, font } from './theme';
 
 import { useCallback, useEffect, useState } from 'react';
 import type { RemoteSyncQueue } from './atproto/remoteSyncQueue';
+import { useMessages } from './i18n/messages';
 
 type Props = {
   /** remote 送信キュー。null (未ログイン / SYNC_TO_REMOTE=false) なら非表示 */
@@ -40,10 +41,6 @@ type Props = {
    */
   onSyncNow: () => Promise<void>;
 };
-
-/** 未ログインのときの表示。ログインすれば PDS へ同期される */
-const LOCAL_ONLY_STATUS =
-  'この端末にだけ保存されています (ログインすると同期されます)';
 
 const containerStyle: React.CSSProperties = {
   display: 'flex',
@@ -65,6 +62,7 @@ const syncNowBtnStyle: React.CSSProperties = {
 };
 
 export function SyncStatusIndicator({ remoteQueue, onSyncNow }: Props) {
+  const t = useMessages();
   const [pending, setPending] = useState(0);
   const [syncing, setSyncing] = useState(false);
   /** 直近の手動同期が失敗したか。控えめな警告色に切り替える */
@@ -95,7 +93,8 @@ export function SyncStatusIndicator({ remoteQueue, onSyncNow }: Props) {
   if (!remoteQueue) {
     return (
       <div style={{ ...containerStyle, color: color.textMuted }} role="status">
-        <span>{LOCAL_ONLY_STATUS}</span>
+        {/* 未ログインのときの表示。ログインすれば PDS へ同期される */}
+        <span>{t.sync.localOnly}</span>
       </div>
     );
   }
@@ -103,8 +102,8 @@ export function SyncStatusIndicator({ remoteQueue, onSyncNow }: Props) {
   // 上限に達していると実際の未送信はこれ以上ある (溢れた分は catch-up で回収, D1)
   const status =
     pending === 0
-      ? 'アカウントに保存済み'
-      : `未保存の変更 ${remoteQueue.overflowed ? `${pending} 件以上` : `${pending} 件`}`;
+      ? t.sync.saved
+      : t.sync.unsaved(pending, remoteQueue.overflowed);
 
   return (
     <div
@@ -129,7 +128,7 @@ export function SyncStatusIndicator({ remoteQueue, onSyncNow }: Props) {
           ...(syncing && { color: color.textMuted }),
         }}
       >
-        {syncing ? '同期中…' : '今すぐ同期'}
+        {syncing ? t.sync.syncing : t.sync.syncNow}
       </button>
     </div>
   );

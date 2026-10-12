@@ -48,6 +48,7 @@ import {
 } from './folders/folderTree';
 import { useLocalOnlyFiles } from './hooks/useLocalOnlyFiles';
 import { LanguageSwitcher } from './i18n/LanguageSwitcher';
+import { messages, useMessages } from './i18n/messages';
 import { LocalOnlyBanner } from './LocalOnlyBanner';
 import { usePersistenceState } from './local/storagePersistence';
 import type { PopupTarget } from './SettingsPopup';
@@ -63,7 +64,6 @@ import { Button, ICON_SIZE_SM, IconButton } from './ui/Button';
 
 /** 特殊なグラフのシートの印 (step3 Phase 4)。名前の後ろに出す */
 /** この端末だけの File の印の名前 (#253) */
-const LOCAL_ONLY_LABEL = 'この端末だけの File (アカウントに保存していない)';
 
 const SHEET_KIND_MARK: Record<SheetKind, { icon: LucideIcon; title: string }> =
   {
@@ -196,14 +196,11 @@ type Props = {
  * 絵は 2 値しか表せないので、何が起きているかは title が引き受ける
  */
 function shareTitle(share: FileSharing | null): string {
-  if (share?.isDetached)
-    return (
-      '共有が切れています。この File の参加者ではないので, ほかの参加者の編集は届きません' +
-      ' (ここまでの内容は手元に残っています)。押すと参加者一覧'
-    );
+  const t = messages().sidebar;
+  if (share?.isDetached) return t.shareDetached;
   if (share && share.participants > 1)
-    return `参加者一覧 (共有中: ${share.participants} 人)`;
-  return '参加者一覧';
+    return t.participantsShared(share.participants);
+  return t.participants;
 }
 
 export function Sidebar({
@@ -249,6 +246,7 @@ export function Sidebar({
   sharing = null,
   onOpenParticipate,
 }: Props) {
+  const t = useMessages();
   const newFileComposingRef = useRef(false);
   const importInputRef = useRef<HTMLInputElement>(null);
   // どのファイルの「▾」を開いているか。ファイル単位で持つのは、一覧に複数の
@@ -369,8 +367,8 @@ export function Sidebar({
           {localOnly && (
             <span
               role="img"
-              aria-label={LOCAL_ONLY_LABEL}
-              title={LOCAL_ONLY_LABEL}
+              aria-label={t.sidebar.localOnlyFile}
+              title={t.sidebar.localOnlyFile}
               style={{
                 display: 'inline-flex',
                 color: color.textMuted,
@@ -418,8 +416,8 @@ export function Sidebar({
           {folders && (
             <button
               type="button"
-              title="Folder へ移す"
-              aria-label={`${f.name} を Folder へ移す`}
+              title={t.sidebar.moveToFolder}
+              aria-label={t.sidebar.moveFileToFolder(f.name)}
               aria-expanded={moveMenuFileId === f.id}
               className="cs-btn cs-btn--icon cs-btn--sm"
               onClick={(e) => {
@@ -434,8 +432,8 @@ export function Sidebar({
           {/* ギアボタン */}
           <button
             type="button"
-            title="詳細"
-            aria-label="詳細"
+            title={t.sidebar.details}
+            aria-label={t.sidebar.details}
             className="cs-btn cs-btn--icon cs-btn--sm"
             onClick={(e) => {
               e.stopPropagation();
@@ -456,7 +454,7 @@ export function Sidebar({
               onSave={(name, desc) => onSaveFileSettings(f.id, name, desc)}
               onDelete={() => onDeleteFile(f.id)}
               onClose={() => onSetPopupTarget(null)}
-              deleteLabel="File を削除"
+              deleteLabel={t.sidebar.deleteFile}
               onExport={() => onExportFile(f.id)}
               // この端末だけの File を後から送る口 (#253)。ログインしているときだけ
               onSaveToAccount={
@@ -473,11 +471,11 @@ export function Sidebar({
 
         {folders && moveMenuFileId === f.id && (
           <ul
-            aria-label={`${f.name} の移し先`}
+            aria-label={t.sidebar.moveDestination(f.name)}
             style={{ listStyle: 'none', margin: 0, padding: 0 }}
           >
             {[
-              { id: undefined, path: 'トップ・レベル' },
+              { id: undefined, path: t.sidebar.topLevel },
               ...folderPaths(folders.tree),
             ].map((dest) => (
               <li key={dest.id ?? 'top'}>
@@ -502,7 +500,7 @@ export function Sidebar({
         */}
         {nameFilter && onOpenSheetOf && !(isExpanded && fileData) && (
           <ul
-            aria-label={`${f.name} の当たった Sheet`}
+            aria-label={t.sidebar.matchedSheets(f.name)}
             style={{ listStyle: 'none', margin: 0, padding: 0 }}
           >
             {(nameFilter.matchedSheets.get(f.id as FileId) ?? []).map((s) => (
@@ -601,8 +599,8 @@ export function Sidebar({
                     {/* ギアボタン */}
                     <button
                       type="button"
-                      title="詳細"
-                      aria-label="詳細"
+                      title={t.sidebar.details}
+                      aria-label={t.sidebar.details}
                       className="cs-btn cs-btn--icon cs-btn--sm"
                       onClick={(e) => {
                         e.stopPropagation();
@@ -630,7 +628,7 @@ export function Sidebar({
                         }
                         onDelete={() => onDeleteSheet(s.id)}
                         onClose={() => onSetPopupTarget(null)}
-                        deleteLabel="Sheet を削除"
+                        deleteLabel={t.sidebar.deleteSheet}
                       />
                     )}
                   </div>
@@ -719,8 +717,8 @@ export function Sidebar({
                                     <>
                                       <button
                                         type="button"
-                                        title="trunk に merge"
-                                        aria-label="trunk に merge"
+                                        title={t.sidebar.mergeToTrunk}
+                                        aria-label={t.sidebar.mergeToTrunk}
                                         className="cs-btn cs-btn--icon cs-btn--sm"
                                         onClick={(e) => {
                                           e.stopPropagation();
@@ -734,8 +732,8 @@ export function Sidebar({
                                       </button>
                                       <button
                                         type="button"
-                                        title="branch を閉じる"
-                                        aria-label="branch を閉じる"
+                                        title={t.sidebar.closeBranch}
+                                        aria-label={t.sidebar.closeBranch}
                                         className="cs-btn cs-btn--icon cs-btn--sm"
                                         onClick={(e) => {
                                           e.stopPropagation();
@@ -752,8 +750,8 @@ export function Sidebar({
                                     !isClosed && (
                                       <button
                                         type="button"
-                                        title="branch を削除"
-                                        aria-label="branch を削除"
+                                        title={t.sidebar.deleteBranch}
+                                        aria-label={t.sidebar.deleteBranch}
                                         className="cs-btn cs-btn--icon cs-btn--sm"
                                         onClick={(e) => {
                                           e.stopPropagation();
@@ -770,8 +768,8 @@ export function Sidebar({
                                   {isMerged && (
                                     <button
                                       type="button"
-                                      title="branch を閉じる"
-                                      aria-label="branch を閉じる"
+                                      title={t.sidebar.closeBranch}
+                                      aria-label={t.sidebar.closeBranch}
                                       className="cs-btn cs-btn--icon cs-btn--sm"
                                       onClick={(e) => {
                                         e.stopPropagation();
@@ -785,8 +783,8 @@ export function Sidebar({
                                   {isClosed && (
                                     <button
                                       type="button"
-                                      title="branch を削除"
-                                      aria-label="branch を削除"
+                                      title={t.sidebar.deleteBranch}
+                                      aria-label={t.sidebar.deleteBranch}
                                       className="cs-btn cs-btn--icon cs-btn--sm"
                                       onClick={(e) => {
                                         e.stopPropagation();
@@ -845,11 +843,11 @@ export function Sidebar({
                   cursor: 'pointer',
                 }}
               >
-                + Sheet を追加
+                {t.sidebar.addSheet}
               </button>
               <button
                 type="button"
-                aria-label="template 付きで Sheet を追加"
+                aria-label={t.sidebar.addSheetWithTemplate}
                 aria-expanded={templateMenuFileId === f.id}
                 onClick={() =>
                   setTemplateMenuFileId(
@@ -885,17 +883,17 @@ export function Sidebar({
               ))}
             {templateMenuFileId === f.id &&
               // 種を File の template graph に複製する (step3 Phase 4 Q1)
-              SEED_TEMPLATES.map((t) => (
-                <li key={t.id}>
+              SEED_TEMPLATES.map((template) => (
+                <li key={template.id}>
                   <button
                     type="button"
                     onClick={() => {
                       setTemplateMenuFileId(null);
-                      onAddSeedTemplate(t);
+                      onAddSeedTemplate(template);
                     }}
                     style={MENU_ITEM}
                   >
-                    + {t.name} を追加
+                    {t.sidebar.addTemplate(template.name)}
                   </button>
                 </li>
               ))}
@@ -933,7 +931,11 @@ export function Sidebar({
         >
           <button
             type="button"
-            aria-label={`${node.name} を${open ? '畳む' : '開く'}`}
+            aria-label={
+              open
+                ? t.sidebar.collapseFolder(node.name)
+                : t.sidebar.expandFolder(node.name)
+            }
             aria-expanded={open}
             onClick={() => ops.onToggle(id)}
             className="cs-btn cs-btn--icon cs-btn--sm"
@@ -962,8 +964,8 @@ export function Sidebar({
           </span>
           <button
             type="button"
-            title="この中に Folder を作る"
-            aria-label={`${node.name} の中に Folder を作る`}
+            title={t.sidebar.createFolderInside}
+            aria-label={t.sidebar.createFolderIn(node.name)}
             className="cs-btn cs-btn--icon cs-btn--sm"
             onClick={() => ops.onCreate(id)}
           >
@@ -971,8 +973,8 @@ export function Sidebar({
           </button>
           <button
             type="button"
-            title="名前を変える"
-            aria-label={`${node.name} の名前を変える`}
+            title={t.sidebar.rename}
+            aria-label={t.sidebar.renameFolder(node.name)}
             className="cs-btn cs-btn--icon cs-btn--sm"
             onClick={() => ops.onRename(node)}
           >
@@ -981,8 +983,10 @@ export function Sidebar({
           <button
             type="button"
             // 空のときだけ削除できる (仕様)
-            title={empty ? '削除' : '空でない Folder は削除できません'}
-            aria-label={`${node.name} を削除`}
+            title={
+              empty ? t.sidebar.deleteFolder : t.sidebar.cannotDeleteNonEmpty
+            }
+            aria-label={t.sidebar.deleteFolderNamed(node.name)}
             disabled={!empty}
             className="cs-btn cs-btn--icon cs-btn--sm"
             onClick={() => ops.onDelete(id)}
@@ -1034,7 +1038,7 @@ export function Sidebar({
             if (newFileComposingRef.current) return;
             if (e.key === 'Enter') onCreateFile();
           }}
-          placeholder="新しい File の名前"
+          placeholder={t.sidebar.newFileName}
           // **`minWidth: 0` が要る** (GitHub #51)。flex アイテムの `min-width` は既定が
           // `auto` で, `<input>` は `size` 属性由来の固有幅より細くならない。その固有幅は
           // エンジンごとに違うので, WebKit では行が溢れて import ボタンがサイドバーの外へ
@@ -1050,7 +1054,7 @@ export function Sidebar({
         />
         <IconButton
           icon={FilePlus}
-          label="File を作る"
+          label={t.sidebar.createFile}
           onClick={onCreateFile}
         />
       </div>
@@ -1066,28 +1070,28 @@ export function Sidebar({
         <Button
           variant="plain"
           icon={FileUp}
-          title="インポート (.conversensus)"
+          title={t.sidebar.importTitle}
           onClick={() => importInputRef.current?.click()}
         >
-          import
+          {t.sidebar.import}
         </Button>
         {/* 参加コードを貼って共同作業に加わる (step2 Phase 1) */}
         {onOpenParticipate && (
           <Button
             variant="plain"
             icon={UserPlus}
-            title="参加コードで参加する"
+            title={t.sidebar.participateTitle}
             onClick={onOpenParticipate}
           >
-            参加
+            {t.sidebar.participate}
           </Button>
         )}
         {folders && (
           <Button
             variant="plain"
             icon={FolderPlus}
-            aria-label="Folder を作る"
-            title="Folder を作る"
+            aria-label={t.sidebar.createFolder}
+            title={t.sidebar.createFolder}
             onClick={() => folders.onCreate(undefined)}
           >
             Folder
@@ -1111,8 +1115,8 @@ export function Sidebar({
           onKeyDown={(e) => {
             if (e.key === 'Escape') setNameQuery('');
           }}
-          placeholder="名前で探す (File・Sheet・Folder)"
-          aria-label="File・Sheet・Folder を名前で探す"
+          placeholder={t.sidebar.nameSearchPlaceholder}
+          aria-label={t.sidebar.nameSearchLabel}
           style={{
             flex: 1,
             minWidth: 0,
@@ -1124,7 +1128,7 @@ export function Sidebar({
         {onOpenGlobalSearch && (
           <IconButton
             icon={TextSearch}
-            label="File をまたいで中身も探す (⌘⇧F)"
+            label={t.sidebar.globalSearch}
             onClick={onOpenGlobalSearch}
           />
         )}
@@ -1150,7 +1154,7 @@ export function Sidebar({
                 fontSize: font.body,
               }}
             >
-              「{nameQuery.trim()}」に当たる名前はありません
+              {t.sidebar.noNameMatch(nameQuery.trim())}
             </li>
           )}
         {folders ? (
@@ -1229,7 +1233,7 @@ export function Sidebar({
                   padding: '2px 4px',
                 }}
               >
-                ログアウト
+                {t.sidebar.logout}
               </button>
             </div>
             {/* remote 同期ステータス (§3.7)。ログイン時のみ意味を持つ */}
@@ -1256,7 +1260,7 @@ export function Sidebar({
                 padding: '2px 0',
               }}
             >
-              ATProto ログイン
+              {t.sidebar.login}
             </button>
           </>
         )}

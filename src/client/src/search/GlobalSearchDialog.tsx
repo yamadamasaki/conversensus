@@ -15,6 +15,7 @@
 import type { GraphFileListItem } from '@conversensus/shared';
 import { useEffect, useRef, useState } from 'react';
 import type { FolderTree } from '../folders/folderTree';
+import { useMessages } from '../i18n/messages';
 import { color, font, radius, space } from '../theme';
 import { Dialog } from '../ui/Dialog';
 import { HitText, hitKeyOf } from './HitText';
@@ -26,7 +27,6 @@ import type { SearchOptions } from './searchSheet';
 /** 打ち終わりを待つ時間。1 文字ごとに全 File を畳み込まない */
 export const CONTENT_SEARCH_DELAY_MS = 250;
 
-export const GLOBAL_SEARCH_LABEL = 'File をまたいで探す';
 const DIALOG_WIDTH_WIDE = 560;
 
 type Props = {
@@ -71,6 +71,7 @@ export function GlobalSearchDialog({
   onOpenContent,
   onClose,
 }: Props) {
+  const t = useMessages();
   const [query, setQuery] = useState('');
   /** 変換が確定した検索語。日本語の変換中に引かない */
   const [settled, setSettled] = useState('');
@@ -123,8 +124,8 @@ export function GlobalSearchDialog({
   return (
     <Dialog
       kind="input"
-      label={GLOBAL_SEARCH_LABEL}
-      title={GLOBAL_SEARCH_LABEL}
+      label={t.search.global}
+      title={t.search.global}
       onDismiss={onClose}
       width={DIALOG_WIDTH_WIDE}
       scroll
@@ -133,8 +134,8 @@ export function GlobalSearchDialog({
         <input
           ref={inputRef}
           type="search"
-          aria-label="検索語"
-          placeholder="名前と中身を探す"
+          aria-label={t.search.term}
+          placeholder={t.search.globalPlaceholder}
           value={query}
           onChange={(e) => {
             setQuery(e.target.value);
@@ -157,7 +158,7 @@ export function GlobalSearchDialog({
           }}
         />
         <label
-          title="大文字と小文字を区別する (中身)"
+          title={t.search.caseSensitive}
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -176,8 +177,10 @@ export function GlobalSearchDialog({
       </div>
 
       {names.length > 0 && (
-        <section aria-label="名前の当たり">
-          <h3 style={sectionTitleStyle}>名前 ({names.length} 件)</h3>
+        <section aria-label={t.search.nameHits}>
+          <h3 style={sectionTitleStyle}>
+            {t.search.nameHitsHeading(names.length)}
+          </h3>
           <ul style={{ margin: 0, padding: 0, listStyle: 'none' }}>
             {names.map((hit) => (
               <li key={`${hit.kind}:${hit.fileId}:${hit.sheetId}:${hit.name}`}>
@@ -207,10 +210,12 @@ export function GlobalSearchDialog({
       )}
 
       {contentHits !== null && contentHits.hits.length > 0 && (
-        <section aria-label="中身の当たり">
+        <section aria-label={t.search.contentHits}>
           <h3 style={sectionTitleStyle}>
-            中身 ({contentHits.hits.length} 件
-            {contentHits.truncated && '。多すぎるので途中まで'})
+            {t.search.contentHitsHeading(
+              contentHits.hits.length,
+              contentHits.truncated,
+            )}
           </h3>
           <ul style={{ margin: 0, padding: 0, listStyle: 'none' }}>
             {contentHits.hits.map((hit) => (
@@ -234,12 +239,12 @@ export function GlobalSearchDialog({
 
       {searching && (
         <p style={{ margin: `${space[3]}px 0 0`, color: color.textMuted }}>
-          中身を探しています…
+          {t.search.searching}
         </p>
       )}
       {nothing && (
         <p style={{ margin: `${space[3]}px 0 0`, color: color.textMuted }}>
-          「{term}」に当たるものはありません
+          {t.search.noMatch(term)}
         </p>
       )}
     </Dialog>

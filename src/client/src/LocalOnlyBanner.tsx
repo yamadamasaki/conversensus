@@ -1,3 +1,4 @@
+import { useMessages } from './i18n/messages';
 import { color, font, radius } from './theme';
 
 /**
@@ -16,14 +17,13 @@ type Props = {
   onLogin: () => void;
 };
 
-export const LOCAL_ONLY_BANNER_LABEL = '未ログインの編集';
-
 export function LocalOnlyBanner({ count, onLogin }: Props) {
+  const t = useMessages();
   if (count === 0) return null;
   return (
     <button
       type="button"
-      aria-label={LOCAL_ONLY_BANNER_LABEL}
+      aria-label={t.banners.localOnlyEdits}
       onClick={onLogin}
       style={{
         width: '100%',
@@ -39,8 +39,7 @@ export function LocalOnlyBanner({ count, onLogin }: Props) {
         marginBottom: 4,
       }}
     >
-      未ログイン: この端末にだけ {count} 件の編集があります。
-      ログインすると送られます
+      {t.banners.localOnlyEditsText(count)}
     </button>
   );
 }

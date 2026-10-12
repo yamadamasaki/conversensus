@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { LOCAL_ONLY_BANNER_LABEL, LocalOnlyBanner } from './LocalOnlyBanner';
+import { messages } from './i18n/messages';
+import { LocalOnlyBanner } from './LocalOnlyBanner';
+
+const LOCAL_ONLY_BANNER_LABEL = messages().banners.localOnlyEdits;
 
 afterEach(cleanup);
 

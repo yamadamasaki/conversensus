@@ -2,7 +2,12 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { cleanup, render, screen } from '@testing-library/react';
 import { GraphHeader } from '../GraphHeader';
 import { NO_GROUP_ABILITY } from '../hooks/useGroupNodes';
+import { LocalOnlyBanner } from '../LocalOnlyBanner';
 import { RightSidebar } from '../RightSidebar';
+import { SearchPanel } from '../SearchPanel';
+import { SettingsPopup } from '../SettingsPopup';
+import { StorageAtRiskBanner } from '../StorageAtRiskBanner';
+import { SyncStatusIndicator } from '../SyncStatusIndicator';
 import { TabBar } from '../TabBar';
 import { formatTime, VersionTree } from '../timeline/VersionTree';
 import { setLocale } from './locale';
@@ -118,6 +123,52 @@ describe('en で描く (#50)', () => {
       />,
     );
     expect(screen.getByRole('region', { name: 'trunk line' })).toBeTruthy();
+    expectNoJapanese(container);
+  });
+
+  test('File の詳細', () => {
+    const { container } = render(
+      <SettingsPopup
+        name="Research"
+        description=""
+        onSave={noop}
+        onDelete={noop}
+        onClose={noop}
+        deleteLabel="Delete File"
+        onExport={noop}
+        onSaveToAccount={noop}
+      />,
+    );
+    expect(screen.getByText('Save to account')).toBeTruthy();
+    expectNoJapanese(container);
+  });
+
+  test('Sheet の検索', () => {
+    const { container } = render(
+      <SearchPanel
+        onSearch={noop}
+        hits={[]}
+        searched={false}
+        onReveal={noop}
+        onClose={noop}
+      />,
+    );
+    expect(screen.getByRole('button', { name: 'Close search' })).toBeTruthy();
+    expectNoJapanese(container);
+  });
+
+  test('知らせの帯と同期の状態', () => {
+    const { container } = render(
+      <>
+        <LocalOnlyBanner count={2} onLogin={noop} />
+        <StorageAtRiskBanner count={1} signedIn={false} />
+        <SyncStatusIndicator
+          remoteQueue={null}
+          onSyncNow={() => Promise.resolve()}
+        />
+      </>,
+    );
+    expect(screen.getByText(/2 edits exist only on this device/)).toBeTruthy();
     expectNoJapanese(container);
   });
 
