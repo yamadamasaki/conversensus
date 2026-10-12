@@ -38,6 +38,6 @@ ANA-107 S4 (設計 D5) で、ノードの生成経路を pane とグループ本
 - **閉じる経路**: `clearNodeTypeMenu` と ESC。
 
 グループ本体のダブルクリックがこのフックを呼ぶこと自体は
-`GroupNode.test.tsx` が担当する。選ばれた種類のノードを実際に作るのは
+`GroupNode.mock-test.tsx` が担当する。選ばれた種類のノードを実際に作るのは
 `GraphEditor` の `addNode` で、生成イベントの適用は
 `events/applyEvent.test.ts` の `NODE_ADDED` が見る。

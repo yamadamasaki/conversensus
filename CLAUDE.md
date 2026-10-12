@@ -46,6 +46,16 @@ bun run setup   # pre-commit hook をインストール (lint + typecheck が co
 - 性質が見つけた反例は, **例のテストとして残す**. 乱数が毎回そこを引く保証はない
 - 例ベースのテストを置き換えるのではなく, **全称命題の部分だけを性質にする**. 具体的な振舞いの固定は例の方が読みやすい
 
+### モジュールの差し替え (`mock.module`)
+
+- bun の `mock.module` は**プロセス全体に効き、取り消せない**。使うテストは `*.mock-test.tsx` (仕様書は
+  `*.mock-test.md`) とし、1 ファイルずつ別のプロセスで走らせる (`bun run test:mock`、`bun run test` が呼ぶ)
+- 差し替えは**本物を再エクスポートして差分だけを替える** (`...await import('@xyflow/react')`)。名前が欠けると、
+  その部品が間接に読むモジュールの読み込みが壊れる
+- 描いたものの後片付け (`cleanup`) は preload が毎回行う (`src/client/src/testing/cleanupAfterEach.ts`)。
+  bun では Testing Library の自動の後片付けが効かないため
+- 順序に依存していないかは `bun test --randomize --seed=N` で見る (#265 で 40 通りを確かめた)
+
 ### App 結合
 
 - **フックと子の間を一周する値**を見る層 (step3 Phase 0 で新設)。`<App />` を丸ごと描き,

@@ -27,7 +27,7 @@ S5 の push で必ず失敗し、batch が outbox に詰まり続ける。
 
 IO の seam (ローカル blob ストア・PDS・キャッシュ) は**引数の `deps` で差し替える**。
 `mock.module` を使わないのは、bun のそれがテストファイルをまたいでグローバルに効き、
-他のテストを壊すためである (`ImageNode.test.tsx` の注記と同じ理由)。
+他のテストを壊すためである (`ImageNode.mock-test.tsx` の注記と同じ理由)。
 
 `URL.createObjectURL` はスタブに差し替える。テスト環境の実装差に左右されず
 「blob: の URL を返したかどうか」だけを見るためである。
@@ -158,7 +158,7 @@ op に base64 を載せない一方で, 単に落とすと旧形式には blob �
   `atprotoSyncProvider.test.ts` の領分である
 - **blob CID の計算**: `shared/blob.ts` のテストが実機 PDS のベクタで固定している
 - **`ImageNode` の描画と Object URL の解放タイミング**: React の effect の話なので
-  `ImageNode.test.tsx` の領分
+  `ImageNode.mock-test.tsx` の領分
 - **貼り付け先の選び方**: `images/pasteTarget.test.ts` の領分
 
 ## 由来 DID (step2 Phase 2 S5)

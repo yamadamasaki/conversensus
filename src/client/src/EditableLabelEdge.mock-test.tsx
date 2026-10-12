@@ -5,7 +5,12 @@ import type { ReactNode } from 'react';
 // EditableLabelEdge が @xyflow/react を読み込む前にモックを登録できる
 const mockSetEdges = mock((_updater: unknown) => {});
 
+// **本物を再エクスポートし、差分だけを替える** (#265)。替えなかった名前 (`MarkerType` など) が
+// 欠けると、この部品が間接に読むモジュールの読み込みが壊れる。差し替えはプロセス全体に効くので、
+// このファイルは他のテストと別のプロセスで走らせる (`*.mock-test.tsx`, `bun run test:mock`)
+const realReactFlow = await import('@xyflow/react');
 mock.module('@xyflow/react', () => ({
+  ...realReactFlow,
   BaseEdge: () => null,
   // EdgeLabelRenderer はポータルで描画するため, テスト用に children を直接レンダリング
   EdgeLabelRenderer: ({ children }: { children: ReactNode }) => <>{children}</>,
@@ -15,8 +20,6 @@ mock.module('@xyflow/react', () => ({
   useReactFlow: () => ({ setEdges: mockSetEdges }),
   // 測られた node が無い = 向かい合う辺の計算 (#256) を通らず、渡された端をそのまま使う
   useInternalNode: () => undefined,
-  // mock.module はプロセス全体に効くので、ほかのテスト (facingSides) が使う値も本物と同じにする
-  Position: { Left: 'left', Top: 'top', Right: 'right', Bottom: 'bottom' },
 }));
 
 const mockDispatch = mock((_event: unknown) => {});

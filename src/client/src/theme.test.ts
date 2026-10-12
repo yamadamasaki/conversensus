@@ -97,7 +97,10 @@ describe('部品に色を直書きしない (#267)', () => {
       const path = join(dir, name);
       const rel = base ? `${base}/${name}` : name;
       if (statSync(path).isDirectory()) return sources(path, rel);
-      if (!/\.tsx?$/.test(name) || /\.(test|app-test)\.tsx?$/.test(name))
+      if (
+        !/\.tsx?$/.test(name) ||
+        /\.(test|app-test|mock-test)\.tsx?$/.test(name)
+      )
         return [];
       return [rel];
     });

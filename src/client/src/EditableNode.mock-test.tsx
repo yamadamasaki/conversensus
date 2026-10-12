@@ -10,7 +10,12 @@ const mockGetNode = mock((_id: string) => undefined);
 // biome-ignore lint/suspicious/noExplicitAny: テスト用スタブ
 const mockHandle = mock((_props: any) => null);
 
+// **本物を再エクスポートし、差分だけを替える** (#265)。替えなかった名前 (`MarkerType` など) が
+// 欠けると、この部品が間接に読むモジュールの読み込みが壊れる。差し替えはプロセス全体に効くので、
+// このファイルは他のテストと別のプロセスで走らせる (`*.mock-test.tsx`, `bun run test:mock`)
+const realReactFlow = await import('@xyflow/react');
 mock.module('@xyflow/react', () => ({
+  ...realReactFlow,
   Handle: mockHandle,
   // biome-ignore lint/suspicious/noExplicitAny: テスト用スタブ
   NodeResizer: (_props: any) => null,
