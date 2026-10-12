@@ -9,6 +9,7 @@ import { Dialog, DialogActions } from './ui/Dialog';
  */
 
 import { useState } from 'react';
+import { useMessages } from './i18n/messages';
 
 type Props = {
   templateGraphs: readonly { id: string; name: string }[];
@@ -21,6 +22,7 @@ export function TemplateApplyDialog({
   onSubmit,
   onCancel,
 }: Props) {
+  const t = useMessages();
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const toggle = (id: string) =>
     setSelected((prev) => {
@@ -31,10 +33,8 @@ export function TemplateApplyDialog({
     });
 
   return (
-    <Dialog kind="input" label="Sheet を追加" onDismiss={onCancel}>
-      <p style={{ margin: `0 0 ${space[2]}px` }}>
-        当てる template graph を選んでください
-      </p>
+    <Dialog kind="input" label={t.templateApply.title} onDismiss={onCancel}>
+      <p style={{ margin: `0 0 ${space[2]}px` }}>{t.templateApply.body}</p>
       <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
         {templateGraphs.map((t) => (
           <li key={t.id}>
@@ -56,7 +56,7 @@ export function TemplateApplyDialog({
         ))}
       </ul>
       <DialogActions>
-        <Button onClick={onCancel}>キャンセル</Button>
+        <Button onClick={onCancel}>{t.common.cancel}</Button>
         <Button
           variant="primary"
           // 並びは File の中の template graph の順にする (選んだ順ではない)
@@ -66,7 +66,7 @@ export function TemplateApplyDialog({
             )
           }
         >
-          Sheet を追加
+          {t.templateApply.submit}
         </Button>
       </DialogActions>
     </Dialog>

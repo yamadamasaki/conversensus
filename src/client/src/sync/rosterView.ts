@@ -17,6 +17,7 @@ import type {
   RejectReason,
 } from '@conversensus/shared';
 import { hasEverParticipated } from '@conversensus/shared';
+import { messages } from '../i18n/messages';
 
 /**
  * 一覧に出す状態 (仕様の UI 例)。
@@ -194,20 +195,10 @@ export function actionLabel(
   action: RosterAction,
   status: RosterStatus,
 ): string {
-  switch (action) {
-    case 'preview':
-      return '中身を見る';
-    case 'accept':
-      return '承認';
-    case 'resign':
-      return '参加取りやめ';
-    case 'reinvite':
-      return '再度参加依頼';
-    case 'reopen':
-      return 'この File を引き取る';
-    case 'revoke':
-      return status === 'sent' ? '依頼キャンセル' : '参加取りやめ';
-  }
+  const labels = messages().invitation.actions;
+  if (action === 'revoke')
+    return status === 'sent' ? labels.cancelInvite : labels.revoke;
+  return labels[action];
 }
 
 // --- File の共有状態 (step2 Phase 2, 2026-09-05 実機で発覚) ---
@@ -266,19 +257,6 @@ export function fileSharing(
 
 // --- 捨てられた判断の知らせ (step2 Phase 1) ---
 
-/** 判断を捨てた理由を、何が起きたか分かる文にする */
-const REJECT_REASON_LABEL: Record<RejectReason, string> = {
-  issuerNotParticipating: '発行者が参加者でない',
-  issuerNotInvited: '発行者が招待されていない',
-  targetNotInRoster: '対象が名簿にいない',
-  targetAlreadyParticipating: '対象は既に参加者',
-  targetForeignPds: '対象が別の PDS のアカウント',
-  duplicateGenesis: '起点が二重',
-  rosterNotEmpty: 'まだ参加している人がいる',
-  noGenesis: '起点がまだ見えていない',
-  notFounder: '起点を書いたのが創設者ではない',
-};
-
 /**
  * **いま書いた batch**のうち捨てられた op の要約。捨てられていなければ `null`。
  *
@@ -301,8 +279,10 @@ export function describeRejected(
   if (mine.length === 0) return null;
   const counts = new Map<RejectReason, number>();
   for (const r of mine) counts.set(r.reason, (counts.get(r.reason) ?? 0) + 1);
-  const parts = [...counts].map(
-    ([reason, n]) => `${n} 件 (${REJECT_REASON_LABEL[reason]})`,
+  // 判断を捨てた理由を、何が起きたか分かる文にする
+  const t = messages().invitation;
+  const parts = [...counts].map(([reason, n]) =>
+    t.rejectedPart(n, t.rejectReasons[reason]),
   );
-  return `いまの操作は名簿に反映されなかった: ${parts.join(', ')}`;
+  return t.rejected(parts.join(', '));
 }

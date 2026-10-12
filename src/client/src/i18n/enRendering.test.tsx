@@ -1,8 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { cleanup, render, screen } from '@testing-library/react';
+import { AtprotoLoginDialog } from '../AtprotoLoginDialog';
+import { CommitDialog } from '../CommitDialog';
+import { ConfirmDialog } from '../ConfirmDialog';
 import { GraphHeader } from '../GraphHeader';
 import { NO_GROUP_ABILITY } from '../hooks/useGroupNodes';
 import { LocalOnlyBanner } from '../LocalOnlyBanner';
+import { ParticipateDialog } from '../ParticipateDialog';
 import { RightSidebar } from '../RightSidebar';
 import { SearchPanel } from '../SearchPanel';
 import { SettingsPopup } from '../SettingsPopup';
@@ -24,8 +28,12 @@ afterEach(() => {
 
 const noop = () => {};
 
-/** 日本語の文字が描かれていないこと (言語の名前「日本語」は除く) */
-function expectNoJapanese(container: HTMLElement) {
+/**
+ * 日本語の文字が描かれていないこと (言語の名前「日本語」は除く)。ダイアログなど `document.body` へ描く
+ * 部品もあるので、渡された箱ではなくページ全体を見る
+ */
+function expectNoJapanese(_container?: HTMLElement) {
+  const container = document.body;
   const text = (container.textContent ?? '').replace('日本語', '');
   const labels = [...container.querySelectorAll('[aria-label],[title]')]
     .map(
@@ -169,6 +177,26 @@ describe('en で描く (#50)', () => {
       </>,
     );
     expect(screen.getByText(/2 edits exist only on this device/)).toBeTruthy();
+    expectNoJapanese(container);
+  });
+
+  test('ダイアログ (ログイン・commit・確認・参加)', () => {
+    const { container } = render(
+      <>
+        <AtprotoLoginDialog
+          onLogin={() => Promise.resolve()}
+          onCancel={noop}
+          needsPassword
+        />
+        <CommitDialog changes={[]} onCommit={noop} onCancel={noop} />
+        <ConfirmDialog message="Delete?" onConfirm={noop} onCancel={noop} />
+        <ParticipateDialog onSubmit={noop} onCancel={noop} />
+      </>,
+    );
+    expect(
+      screen.getAllByRole('button', { name: 'Cancel' }).length,
+    ).toBeGreaterThan(0);
+    expect(screen.getByText('No changes')).toBeTruthy();
     expectNoJapanese(container);
   });
 

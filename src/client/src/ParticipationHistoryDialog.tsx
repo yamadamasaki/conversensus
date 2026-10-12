@@ -1,4 +1,5 @@
 import type { Did } from '@conversensus/shared';
+import { useMessages } from './i18n/messages';
 import type { ParticipationRound } from './sync/participationHistoryView';
 import { formatDay } from './sync/participationHistoryView';
 import { color, font } from './theme';
@@ -21,8 +22,6 @@ const ABOVE_ROSTER = 1;
  * 画面に持つと、畳み込みが捨てた op まで拾ってしまう。
  */
 
-const COLUMNS = ['依頼', '依頼取り止め', '参加', '参加取り止め'] as const;
-
 type Props = {
   /** 誰の履歴か。**DID ではなくハンドル名を渡す** */
   label: string;
@@ -38,6 +37,7 @@ export function ParticipationHistoryDialog({
   labelOf,
   onClose,
 }: Props) {
+  const t = useMessages();
   const cell = (mark: ParticipationRound['invited']) =>
     mark ? (
       <>
@@ -52,8 +52,8 @@ export function ParticipationHistoryDialog({
   return (
     <Dialog
       kind="alert"
-      label={`参加履歴 - ${label}`}
-      title={`参加履歴 - ${label}`}
+      label={t.participationHistory.title(label)}
+      title={t.participationHistory.title(label)}
       onDismiss={onClose}
       width={HISTORY_DIALOG_WIDTH}
       scroll
@@ -61,7 +61,7 @@ export function ParticipationHistoryDialog({
     >
       {rounds.length === 0 ? (
         <p style={{ fontSize: font.body, color: color.textMuted }}>
-          まだ記録がない。
+          {t.participationHistory.empty}
         </p>
       ) : (
         <table
@@ -73,7 +73,7 @@ export function ParticipationHistoryDialog({
         >
           <thead>
             <tr style={{ textAlign: 'left', color: color.textMuted }}>
-              {COLUMNS.map((c) => (
+              {t.participationHistory.columns.map((c) => (
                 <th key={c} style={{ padding: '4px 6px', fontWeight: 500 }}>
                   {c}
                 </th>
@@ -104,7 +104,7 @@ export function ParticipationHistoryDialog({
 
       <DialogActions>
         <Button variant="primary" onClick={onClose}>
-          閉じる
+          {t.common.close}
         </Button>
       </DialogActions>
     </Dialog>

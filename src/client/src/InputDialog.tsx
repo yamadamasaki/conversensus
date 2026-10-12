@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useMessages } from './i18n/messages';
 import { color, font, radius, space } from './theme';
 import { Button } from './ui/Button';
 import { Dialog, DialogActions } from './ui/Dialog';
@@ -19,8 +20,9 @@ export function InputDialog({
   onCancel,
   initialValue = '',
   submitLabel = 'OK',
-  cancelLabel = 'キャンセル',
+  cancelLabel,
 }: Props) {
+  const t = useMessages();
   const [value, setValue] = useState(initialValue);
   const composingRef = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -36,7 +38,7 @@ export function InputDialog({
   };
 
   return (
-    <Dialog kind="input" label="入力" onDismiss={onCancel}>
+    <Dialog kind="input" label={t.common.input} onDismiss={onCancel}>
       <label
         htmlFor="input-dialog-field"
         style={{ display: 'block', margin: `0 0 ${space[3]}px` }}
@@ -74,7 +76,7 @@ export function InputDialog({
         }}
       />
       <DialogActions>
-        <Button onClick={onCancel}>{cancelLabel}</Button>
+        <Button onClick={onCancel}>{cancelLabel ?? t.common.cancel}</Button>
         <Button
           variant="primary"
           onClick={handleSubmit}

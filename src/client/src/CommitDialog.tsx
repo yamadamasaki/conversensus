@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useMessages } from './i18n/messages';
 import { isLayoutOnly, type SheetChange } from './sync/computeOperations';
 import { color, font, radius } from './theme';
 import { Button } from './ui/Button';
@@ -13,6 +14,7 @@ type Props = {
 };
 
 export function CommitDialog({ changes, onCommit, onCancel }: Props) {
+  const t = useMessages();
   const [message, setMessage] = useState('');
   const composingRef = useRef(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -43,8 +45,8 @@ export function CommitDialog({ changes, onCommit, onCancel }: Props) {
   return (
     <Dialog
       kind="input"
-      label="commit を作成"
-      title="commit を作成"
+      label={t.commit.title}
+      title={t.commit.title}
       onDismiss={onCancel}
       width={COMMIT_DIALOG_WIDTH}
     >
@@ -59,35 +61,39 @@ export function CommitDialog({ changes, onCommit, onCancel }: Props) {
           color: color.textMuted,
         }}
       >
-        {!hasChanges && <span>変更なし</span>}
-        {opSummary.nodeAdd > 0 && <div>node 追加: {opSummary.nodeAdd}</div>}
+        {!hasChanges && <span>{t.commit.noChanges}</span>}
+        {opSummary.nodeAdd > 0 && (
+          <div>{t.commit.nodeAdd(opSummary.nodeAdd)}</div>
+        )}
         {opSummary.nodeUpdate > 0 && (
           <div>
-            node 変更: {opSummary.nodeUpdate}
+            {t.commit.nodeUpdate(opSummary.nodeUpdate)}
             {opSummary.nodeMoved > 0 &&
-              ` (うち移動のみ: ${opSummary.nodeMoved})`}
+              t.commit.nodeMovedOnly(opSummary.nodeMoved)}
           </div>
         )}
         {opSummary.nodeRemove > 0 && (
-          <div>node 削除: {opSummary.nodeRemove}</div>
+          <div>{t.commit.nodeRemove(opSummary.nodeRemove)}</div>
         )}
-        {opSummary.edgeAdd > 0 && <div>edge 追加: {opSummary.edgeAdd}</div>}
+        {opSummary.edgeAdd > 0 && (
+          <div>{t.commit.edgeAdd(opSummary.edgeAdd)}</div>
+        )}
         {opSummary.edgeUpdate > 0 && (
           <div>
-            edge 変更: {opSummary.edgeUpdate}
+            {t.commit.edgeUpdate(opSummary.edgeUpdate)}
             {opSummary.edgeMoved > 0 &&
-              ` (うち経路のみ: ${opSummary.edgeMoved})`}
+              t.commit.edgeMovedOnly(opSummary.edgeMoved)}
           </div>
         )}
         {opSummary.edgeRemove > 0 && (
-          <div>edge 削除: {opSummary.edgeRemove}</div>
+          <div>{t.commit.edgeRemove(opSummary.edgeRemove)}</div>
         )}
       </div>
 
       {/* コミットメッセージ */}
       <textarea
         ref={textareaRef}
-        placeholder="commit メッセージを入力…"
+        placeholder={t.commit.messagePlaceholder}
         value={message}
         onChange={(e) => setMessage(e.target.value)}
         onCompositionStart={() => {
@@ -120,11 +126,11 @@ export function CommitDialog({ changes, onCommit, onCancel }: Props) {
           marginTop: 4,
         }}
       >
-        Cmd+Enter で commit
+        {t.commit.shortcut}
       </div>
 
       <DialogActions>
-        <Button onClick={onCancel}>キャンセル</Button>
+        <Button onClick={onCancel}>{t.common.cancel}</Button>
         <Button
           variant="primary"
           onClick={() => {
@@ -132,7 +138,7 @@ export function CommitDialog({ changes, onCommit, onCancel }: Props) {
           }}
           disabled={!message.trim() || !hasChanges}
         >
-          commit
+          {t.commit.submit}
         </Button>
       </DialogActions>
     </Dialog>

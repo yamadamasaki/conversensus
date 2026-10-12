@@ -1,4 +1,5 @@
 import type { InvitationPreview } from './hooks/useParticipation';
+import { useMessages } from './i18n/messages';
 import { color, space } from './theme';
 import { Button } from './ui/Button';
 import { Dialog, DialogActions } from './ui/Dialog';
@@ -32,11 +33,15 @@ export function AcceptInvitationDialog({
   busy = false,
   error = null,
 }: Props) {
+  const t = useMessages();
   return (
-    <Dialog kind="input" label="参加依頼の承認" onDismiss={onClose}>
+    <Dialog kind="input" label={t.acceptInvitation.title} onDismiss={onClose}>
       <p style={{ margin: 0 }}>
-        {preview.inviterLabel} さんが、あなた {preview.inviteeLabel} さんを File
-        “{preview.fileName}” の対話への参加を依頼しています。
+        {t.acceptInvitation.body(
+          preview.inviterLabel,
+          preview.inviteeLabel,
+          preview.fileName,
+        )}
       </p>
 
       {error && (
@@ -49,9 +54,9 @@ export function AcceptInvitationDialog({
       )}
 
       <DialogActions>
-        <Button onClick={onClose}>閉じる</Button>
+        <Button onClick={onClose}>{t.common.close}</Button>
         <Button variant="primary" disabled={busy} onClick={onAccept}>
-          参加する
+          {t.acceptInvitation.accept}
         </Button>
       </DialogActions>
     </Dialog>
