@@ -28,6 +28,7 @@ import {
   loggedInDid,
   uploadImageBlob,
 } from '../atproto/blob';
+import { messages } from '../i18n/messages';
 
 /**
  * op の properties に載せる画像の参照。**ATProto の blob ref そのもの**である (設計 D1/D2a)。
@@ -107,7 +108,7 @@ export type ResolvedImage = { url: string; fromCache: boolean };
  */
 function formatSize(bytes: number): string {
   const mib = (bytes / BYTES_PER_MIB).toFixed(MIB_FRACTION_DIGITS);
-  return `${mib} MiB / ${bytes.toLocaleString('en-US')} バイト`;
+  return `${mib} MiB / ${messages().imageErrors.bytes(bytes.toLocaleString('en-US'))}`;
 }
 
 function toImageBlobRef(stored: StoredBlob): ImageBlobRef {
@@ -288,13 +289,18 @@ export async function saveImageBlob(
   const mimeType = source.type;
   if (!mimeType.startsWith(IMAGE_MIME_PREFIX)) {
     throw new Error(
-      `画像ではないので追加できません (${mimeType || '種別不明'})`,
+      messages().imageErrors.notImage(
+        mimeType || messages().imageErrors.unknownType,
+      ),
     );
   }
   // 読み込む前に弾く。上限は PDS の実測値で、超えたものは送信時 (S5) に必ず失敗する
   if (source.size > MAX_BLOB_SIZE) {
     throw new Error(
-      `画像が大きすぎます (${formatSize(source.size)})。上限は ${formatSize(MAX_BLOB_SIZE)} です`,
+      messages().imageErrors.tooLarge(
+        formatSize(source.size),
+        formatSize(MAX_BLOB_SIZE),
+      ),
     );
   }
 

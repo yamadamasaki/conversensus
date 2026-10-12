@@ -8,7 +8,8 @@
  * - プロファイルを毎回新しくするのは、以前のローカルサーバの DB を毎回消していたのと同じ理由
  *   (「作ったファイルが 1 つだけ」のような前提を崩さない)
  *
- * 端末の設定 (`devices['Desktop Safari']` など) は project の `use` から受け継ぐ。
+ * 端末の設定 (`devices['Desktop Safari']` など) は project の `use` から受け継ぐ。言語 (`locale`) は
+ * Playwright の fixture から受け取る — `test.use({ locale })` で替えたテストにも効かせるため (#50)。
  */
 
 import { type BrowserContext, test as base, type Page } from '@playwright/test';
@@ -16,7 +17,7 @@ import { type BrowserContext, test as base, type Page } from '@playwright/test';
 export { expect } from '@playwright/test';
 
 export const test = base.extend<{ context: BrowserContext; page: Page }>({
-  context: async ({ playwright, browserName }, use, testInfo) => {
+  context: async ({ playwright, browserName, locale }, use, testInfo) => {
     const {
       viewport,
       userAgent,
@@ -27,7 +28,17 @@ export const test = base.extend<{ context: BrowserContext; page: Page }>({
     } = testInfo.project.use;
     const context = await playwright[browserName].launchPersistentContext(
       testInfo.outputPath('profile'),
-      { viewport, userAgent, deviceScaleFactor, isMobile, hasTouch, baseURL },
+      // **locale も渡す。**persistent context は project の `use` を自動では受け継がないので、
+      // 渡さないとエンジンの既定の言語で開き、画面の言語 (#50) が設定と食い違う
+      {
+        viewport,
+        userAgent,
+        deviceScaleFactor,
+        isMobile,
+        hasTouch,
+        baseURL,
+        locale,
+      },
     );
     await use(context);
     await context.close();

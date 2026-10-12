@@ -34,9 +34,9 @@ import {
 import { loadRoster, putJudgment } from '../atproto/judgmentStore';
 import { fileNameLabels, remoteFileRef } from '../atproto/remoteFileName';
 import type { LabelResolver } from '../display/labelCache';
+import { messages } from '../i18n/messages';
 import { appendJudgment } from '../sync/appendJudgment';
 import { rememberOwnJudgmentPoint } from '../sync/ownJudgmentPoint';
-import type { DecodeFailure } from '../sync/participationCode';
 import {
   decodeParticipationCode,
   encodeParticipationCode,
@@ -277,7 +277,10 @@ export function useParticipation({
           // 承認は「どこを読めば招待が見つかるか」を伴う。招待者は一覧の行が持っている
           const inviter = state.rows.find((r) => r.did === did)?.inviter;
           if (!inviter) {
-            setState((s) => ({ ...s, error: '招待者が分からない' }));
+            setState((s) => ({
+              ...s,
+              error: messages().participation.noInviter,
+            }));
             return;
           }
           return write(fileId, [{ kind: 'participation.accept', inviter }]);
@@ -299,7 +302,7 @@ export function useParticipation({
           // 他 actor のグラフを読む経路がまだ無い
           setState((s) => ({
             ...s,
-            error: '中身の表示は step2 Phase 2 で繋ぐ',
+            error: messages().participation.previewNotReady,
           }));
           return;
       }
@@ -325,14 +328,17 @@ export function useParticipation({
     async (code: string): Promise<InvitationPreview | null> => {
       const decoded = decodeParticipationCode(code);
       if (!decoded.ok) {
-        setState((s) => ({ ...s, error: FAILURE_MESSAGE[decoded.reason] }));
+        setState((s) => ({
+          ...s,
+          error: messages().participation.decode[decoded.reason],
+        }));
         return null;
       }
       const { fileId, inviter, invitee } = decoded.payload;
       if (invitee !== viewer) {
         setState((s) => ({
           ...s,
-          error: 'この参加コードは別のアカウント宛である',
+          error: messages().participation.wrongAccount,
         }));
         return null;
       }
@@ -356,7 +362,7 @@ export function useParticipation({
           setState((s) => ({
             ...s,
             busy: false,
-            error: '参加依頼が見つからない。取り消された可能性がある',
+            error: messages().participation.invitationMissing,
           }));
           return null;
         }
@@ -441,14 +447,6 @@ export function useParticipation({
     reset,
   };
 }
-
-/** 復号の失敗理由を、ユーザにしてもらうことが分かる文にする */
-const FAILURE_MESSAGE: Record<DecodeFailure, string> = {
-  malformed: '参加コードとして読めない。貼り付け直してほしい',
-  unsupportedVersion:
-    'この参加コードは古い形式である。発行し直してもらってほしい',
-  invalidFields: '参加コードの中身が揃っていない。発行し直してもらってほしい',
-};
 
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);

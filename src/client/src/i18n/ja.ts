@@ -447,4 +447,114 @@ export const ja = {
       object: '構造体',
     },
   },
+  app: {
+    emptyFilesTitle: 'File がありません',
+    emptyFilesNote:
+      'File は Sheet (グラフ) を束ねる単位です。新しく作るか、.conversensus を import するか、受け取った参加コードで共同作業に加わってください。',
+    createFile: 'File を作る',
+    participate: '参加コードで参加する',
+    openFileTitle: 'File を開いてください',
+    openFileNote: '左のサイドバーで File を選ぶと、その Sheet が開きます。',
+    unnamedElement: '(名前のない要素)',
+    folderExists: (name: string) =>
+      `同じ階層に「${name}」という Folder があります`,
+    folderName: 'Folder の名前:',
+    folderNewName: (name: string) => `「${name}」の新しい名前:`,
+    confirmDeleteSheet: (name: string) =>
+      `Sheet「${name}」を削除しますか？\n中身もすべて削除されます。`,
+    delete: '削除',
+    linkFileMissing:
+      'リンクの File はこの端末にありません。参加している File なら、同期が終わってからもう一度開いてください',
+    copyLinkFailed: 'リンクを写せませんでした',
+    pastSuffix: '時点',
+    mergeSource: (label: string) => `merge 元: ${label} (開いた時点)`,
+    mergeTarget: (label: string) => `merge 先: ${label}`,
+    mergeResult: 'merge 後',
+    take: '取り込む',
+    takeIntoResult: (count: number) => `merge 後に取り込む (${count})`,
+  },
+  logout: {
+    erase: '消してログアウト',
+    keep: '残してログアウト',
+    otherTabs:
+      '別の conversensus のタブが開いているので、この端末のデータを消せません。\n他のタブ (インストールしたアプリの窓も含む) を閉じてから、もう一度ログアウトしてください。',
+    question:
+      'ログアウトします。この端末に保存した conversensus のデータ (File・設定) も消しますか?\n共有の端末では消してください。送ってある編集は PDS に残り、次にログインすれば戻ります。',
+    unsent: (count: number, overflowed: boolean) =>
+      `\n\nまだ送っていない編集が ${count} 件${overflowed ? '以上' : ''}あります。消すと失われます。`,
+  },
+  branchOps: {
+    conflictCount: (category: string, count: number) =>
+      `${category} ${count} 件`,
+    openFailed: 'branch を開けませんでした。',
+    namePrompt: 'branch 名を入力してください:',
+    createFailed: 'branch の作成に失敗しました。',
+    mergeFailed: 'merge に失敗しました。',
+    confirmMergeConflicts: (name: string, conflicts: string) =>
+      `branch "${name}" の取り込みで ${conflicts} を検出しました。取り込むと trunk に載り、取り消せません。続けますか?`,
+    mergeReason: (name: string) =>
+      `branch "${name}" を trunk に merge します。理由を入力してください:`,
+    confirmClose: (name: string) => `branch "${name}" を close しますか？`,
+    closeFailed: 'close に失敗しました。',
+    confirmDelete: (name: string) =>
+      `branch "${name}" を削除しますか？\nこの操作は取り消せません。`,
+    deleteFailed: '削除に失敗しました。',
+    commitFailed: 'commit に失敗しました。',
+  },
+  fileOps: {
+    openFailed: 'File を開けませんでした。',
+    confirmDelete: (name: string) =>
+      `File「${name}」を削除しますか？\nSheet もすべて削除され、取り消せません。`,
+    lastSheet: '最後の Sheet は削除できません',
+    importFailed: 'インポートに失敗しました。ファイル形式を確認してください。',
+    missingBlobs: (count: number) =>
+      `${count} 個の画像の実体がこの端末に無いため, 書き出したファイルには含まれていません。`,
+    adoptConfirm: 'アカウントに保存する',
+    adoptCancel: 'この端末に残す',
+    adoptFiles: (names: string) => `\n(File: ${names})`,
+    adoptNamesSeparator: '、',
+    adoptLastEdit: (at: string) => `\n(最後の編集: ${at})`,
+    adoptWhose: (account: string | undefined) =>
+      account ? `@${account} の` : 'あなたの',
+    adoptEdits: (count: number) => (count > 0 ? `(編集 ${count} 件) ` : ''),
+    adoptMessage: (edits: string, files: string, last: string, whose: string) =>
+      `ログインしていない間にこの端末で作った・編集した File があります ${edits}${files}${last}\n` +
+      `${whose}アカウントに保存して、他の端末や共有相手に届くようにしますか?\n` +
+      '残す場合は、File ごと (名前も) この端末にだけ残ります。あとで File の詳細の「アカウントに保存する」から保存できます。',
+  },
+  participation: {
+    noInviter: '招待者が分からない',
+    previewNotReady: '中身の表示は step2 Phase 2 で繋ぐ',
+    wrongAccount: 'この参加コードは別のアカウント宛である',
+    invitationMissing: '参加依頼が見つからない。取り消された可能性がある',
+    decode: {
+      malformed: '参加コードとして読めない。貼り付け直してほしい',
+      unsupportedVersion:
+        'この参加コードは古い形式である。発行し直してもらってほしい',
+      invalidFields:
+        '参加コードの中身が揃っていない。発行し直してもらってほしい',
+    },
+    notFound: (handle: string) => `${handle} は見つからない`,
+    self: (handle: string) => `${handle} は自分自身である`,
+    alreadyParticipating: (handle: string) => `${handle} は既に参加している`,
+    foreignPds: (handle: string) => `${handle} は別の PDS のアカウントである`,
+  },
+  imageErrors: {
+    notImage: (mime: string) => `画像ではないので追加できません (${mime})`,
+    unknownType: '種別不明',
+    tooLarge: (size: string, max: string) =>
+      `画像が大きすぎます (${size})。上限は ${max} です`,
+    bytes: (count: string) => `${count} バイト`,
+  },
+  importErrors: {
+    readFailed: 'ファイルの読み込みに失敗しました',
+    invalidFormat: (details: string) => `ファイル形式が不正です:\n${details}`,
+  },
+  storageReasons: {
+    noOpfs:
+      'OPFS が使えない (プライベートブラウズなど、保存領域の無い窓の可能性)',
+    noIsolation:
+      'cross-origin isolation が無い (COOP/COEP ヘッダが配信されていない)',
+    workerFailed: (message: string) => `Worker を起動できない: ${message}`,
+  },
 };

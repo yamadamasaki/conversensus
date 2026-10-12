@@ -456,4 +456,118 @@ export const en: Messages = {
       object: 'structure',
     },
   },
+  app: {
+    emptyFilesTitle: 'No Files',
+    emptyFilesNote:
+      'A File bundles Sheets (graphs). Create a new one, import a .conversensus file, or join a collaboration with a participation code you received.',
+    createFile: 'Create File',
+    participate: 'Join with a participation code',
+    openFileTitle: 'Open a File',
+    openFileNote: 'Choose a File in the left sidebar to open its Sheet.',
+    unnamedElement: '(unnamed element)',
+    folderExists: (name: string) =>
+      `A Folder named "${name}" already exists at this level`,
+    folderName: 'Folder name:',
+    folderNewName: (name: string) => `New name for "${name}":`,
+    confirmDeleteSheet: (name: string) =>
+      `Delete the Sheet "${name}"?\nEverything in it will be deleted too.`,
+    delete: 'Delete',
+    linkFileMissing:
+      'The File of this link is not on this device. If you participate in it, open the link again after syncing',
+    copyLinkFailed: 'Could not copy the link',
+    pastSuffix: 'past',
+    mergeSource: (label: string) => `merge source: ${label} (when opened)`,
+    mergeTarget: (label: string) => `merge target: ${label}`,
+    mergeResult: 'merge result',
+    take: 'Take in',
+    takeIntoResult: (count: number) => `Take into the merge result (${count})`,
+  },
+  logout: {
+    erase: 'Delete and log out',
+    keep: 'Keep and log out',
+    otherTabs:
+      'Another conversensus tab is open, so the data on this device cannot be deleted.\nClose the other tabs (including installed app windows) and log out again.',
+    question:
+      'You are logging out. Also delete the conversensus data (Files, settings) saved on this device?\nDelete it on a shared device. Edits already sent stay on your PDS and come back the next time you log in.',
+    unsent: (count: number, overflowed: boolean) =>
+      `\n\nThere ${count === 1 && !overflowed ? 'is' : 'are'} ${count}${overflowed ? '+' : ''} unsent ${count === 1 && !overflowed ? 'edit' : 'edits'}. They will be lost if you delete.`,
+  },
+  branchOps: {
+    conflictCount: (category: string, count: number) => `${category} ${count}`,
+    openFailed: 'Could not open the branch.',
+    namePrompt: 'Enter a branch name:',
+    createFailed: 'Could not create the branch.',
+    mergeFailed: 'merge failed.',
+    confirmMergeConflicts: (name: string, conflicts: string) =>
+      `Taking in the branch "${name}" found ${conflicts}. Once taken in, it goes onto trunk and cannot be undone. Continue?`,
+    mergeReason: (name: string) =>
+      `merge the branch "${name}" into trunk. Enter the reason:`,
+    confirmClose: (name: string) => `Close the branch "${name}"?`,
+    closeFailed: 'Could not close.',
+    confirmDelete: (name: string) =>
+      `Delete the branch "${name}"?\nThis cannot be undone.`,
+    deleteFailed: 'Could not delete.',
+    commitFailed: 'commit failed.',
+  },
+  fileOps: {
+    openFailed: 'Could not open the File.',
+    confirmDelete: (name: string) =>
+      `Delete the File "${name}"?\nAll its Sheets will be deleted too, and this cannot be undone.`,
+    lastSheet: 'The last Sheet cannot be deleted',
+    importFailed: 'Import failed. Check the file format.',
+    missingBlobs: (count: number) =>
+      `${count} ${count === 1 ? 'image is' : 'images are'} not on this device, so the exported file does not include ${count === 1 ? 'it' : 'them'}.`,
+    adoptConfirm: 'Save to account',
+    adoptCancel: 'Keep on this device',
+    adoptFiles: (names: string) => `\n(Files: ${names})`,
+    adoptNamesSeparator: ', ',
+    adoptLastEdit: (at: string) => `\n(Last edit: ${at})`,
+    adoptWhose: (account: string | undefined) =>
+      account ? `the account @${account}` : 'your account',
+    adoptEdits: (count: number) =>
+      count > 0 ? `(${count} ${count === 1 ? 'edit' : 'edits'}) ` : '',
+    adoptMessage: (edits: string, files: string, last: string, whose: string) =>
+      `There are Files created or edited on this device while you were logged out ${edits}${files}${last}\n` +
+      `Save them to ${whose} so they reach your other devices and the people you share with?\n` +
+      'If you keep them, the Files (including their names) stay only on this device. You can save them later with "Save to account" in the File details.',
+  },
+  participation: {
+    noInviter: 'The inviter is unknown',
+    previewNotReady: 'Previewing the contents is not available yet',
+    wrongAccount: 'This participation code is for a different account',
+    invitationMissing:
+      'The invitation was not found. It may have been canceled',
+    decode: {
+      malformed:
+        'This cannot be read as a participation code. Please paste it again',
+      unsupportedVersion:
+        'This participation code is in an old format. Please ask for a new one',
+      invalidFields:
+        'This participation code is incomplete. Please ask for a new one',
+    },
+    notFound: (handle: string) => `${handle} was not found`,
+    self: (handle: string) => `${handle} is yourself`,
+    alreadyParticipating: (handle: string) =>
+      `${handle} is already participating`,
+    foreignPds: (handle: string) => `${handle} is an account on another PDS`,
+  },
+  imageErrors: {
+    notImage: (mime: string) =>
+      `This is not an image and cannot be added (${mime})`,
+    unknownType: 'unknown type',
+    tooLarge: (size: string, max: string) =>
+      `The image is too large (${size}). The limit is ${max}`,
+    bytes: (count: string) => `${count} bytes`,
+  },
+  importErrors: {
+    readFailed: 'Could not read the file',
+    invalidFormat: (details: string) =>
+      `The file format is invalid:\n${details}`,
+  },
+  storageReasons: {
+    noOpfs:
+      'OPFS is not available (possibly a window without storage, such as private browsing)',
+    noIsolation: 'No cross-origin isolation (COOP/COEP headers are not served)',
+    workerFailed: (message: string) => `Could not start the Worker: ${message}`,
+  },
 };

@@ -5,7 +5,9 @@
  * **保存領域が開けたかを先に確かめてから**画面を出す (開けなかったら編集させない, D5)。
  */
 
+import { messages } from '../i18n/messages';
 import type { LocalBackend } from './backend';
+import { STORAGE_FAILURE } from './storageFailure';
 import type {
   BackendMethod,
   RequestBody,
@@ -72,7 +74,7 @@ export function startWorkerBackend(): Promise<WorkerBackendStart> {
         return;
       }
       if (message.kind === 'unavailable') {
-        resolveStart({ ok: false, reason: message.reason });
+        resolveStart({ ok: false, reason: startFailureReason(message.reason) });
         worker.terminate();
         return;
       }
@@ -85,8 +87,16 @@ export function startWorkerBackend(): Promise<WorkerBackendStart> {
     worker.onerror = (event) => {
       resolveStart({
         ok: false,
-        reason: `Worker を起動できない: ${event.message}`,
+        reason: messages().storageReasons.workerFailed(event.message),
       });
     };
   });
+}
+
+/** worker から届いた理由を、いまの言語の文にする。知らない理由 (例外の文) はそのまま出す */
+export function startFailureReason(reason: string): string {
+  const t = messages().storageReasons;
+  if (reason === STORAGE_FAILURE.noOpfs) return t.noOpfs;
+  if (reason === STORAGE_FAILURE.noIsolation) return t.noIsolation;
+  return reason;
 }

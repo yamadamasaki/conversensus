@@ -4,6 +4,8 @@ import { findNameMatch } from './nameFilter';
 /**
  * 名前の中の当たりに色を付ける (#249)。当たらなければ名前をそのまま出す。
  * 色は Sheet 内検索の結果一覧と同じ (`SearchPanel`)
+ *
+ * 名前は利用者が付けたものなので `translate="no"` を付ける (#50)。ブラウザの自動翻訳に書き換えさせない
  */
 export function NameHighlight({
   name,
@@ -13,10 +15,10 @@ export function NameHighlight({
   query: string;
 }) {
   const match = findNameMatch(name, query);
-  if (match === null) return <>{name}</>;
+  if (match === null) return <span translate="no">{name}</span>;
   const end = match.start + match.length;
   return (
-    <>
+    <span translate="no">
       {name.slice(0, match.start)}
       {/*
         display を明示する。既定の表示が inline でないと見なす環境 (happy-dom) では、名前の
@@ -32,6 +34,6 @@ export function NameHighlight({
         {name.slice(match.start, end)}
       </mark>
       {name.slice(end)}
-    </>
+    </span>
   );
 }

@@ -1,10 +1,6 @@
 import { describe, expect, it, mock } from 'bun:test';
-import {
-  type LogoutFlowDeps,
-  logoutFlow,
-  logoutQuestion,
-  OTHER_TABS_MESSAGE,
-} from './logoutFlow';
+import { messages } from '../i18n/messages';
+import { type LogoutFlowDeps, logoutFlow, logoutQuestion } from './logoutFlow';
 
 function depsOf(answer: boolean, otherTabs = false) {
   const calls: string[] = [];
@@ -36,7 +32,7 @@ describe('logoutFlow (#288)', () => {
   it('消すと答えても別のタブが開いていれば、知らせてログアウトもしない', async () => {
     const { deps, calls } = depsOf(true, true);
     expect(await logoutFlow(deps)).toBe('blockedByOtherTabs');
-    expect(calls).toEqual([`alert:${OTHER_TABS_MESSAGE}`]);
+    expect(calls).toEqual([`alert:${messages().logout.otherTabs}`]);
   });
 
   it('残すなら別のタブは数えない', async () => {
