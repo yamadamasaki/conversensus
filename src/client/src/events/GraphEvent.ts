@@ -19,6 +19,17 @@ type Position = { x: number; y: number };
 type Size = { width: number; height: number };
 type EdgeStyle = { pathType?: EdgePathType } & Record<string, unknown>;
 
+/** node の置き場所と大きさ。大きさは group の枠だけが持つ (#250) */
+export type NodeBox = { x: number; y: number; width?: number; height?: number };
+
+/**
+ * 親 group を中身に合わせて広げた分 (#250)。動かした・大きさを変えた node がはみ出すと、親の
+ * 枠が広がり、左・上へはみ出したなら兄弟の相対座標もずれる。**その変化を元の操作に載せる** —
+ * 同じ batch で op-log に書き (再読み込み・他の端末でも同じ枠になる)、undo で一緒に戻す。
+ * 付けるのは dispatch の入口 (`withParentFit`)
+ */
+export type LayoutFit = { nodeId: NodeId; from: NodeBox; to: NodeBox };
+
 type EventBase = {
   id: string; // crypto.randomUUID()
   timestamp: number; // Date.now()
@@ -79,6 +90,8 @@ export type NodeReparentedEvent = EventBase & {
   newParentId: NodeId | undefined;
   oldPosition: Position;
   newPosition: Position;
+  /** 親 group を広げた分 (#250) */
+  fitted?: LayoutFit[];
 };
 /**
  * グループ化 / 解除で動く子ノードの配置。
@@ -219,6 +232,8 @@ export type NodeMovedEvent = EventBase & {
   nodeId: NodeId;
   from: Position;
   to: Position;
+  /** 親 group を広げた分 (#250) */
+  fitted?: LayoutFit[];
 };
 export type NodeResizedEvent = EventBase & {
   category: 'layout';
@@ -226,6 +241,8 @@ export type NodeResizedEvent = EventBase & {
   nodeId: NodeId;
   from: Size;
   to: Size;
+  /** 親 group を広げた分 (#250) */
+  fitted?: LayoutFit[];
 };
 
 // --- Presentation ---

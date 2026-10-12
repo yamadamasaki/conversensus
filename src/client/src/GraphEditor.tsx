@@ -150,7 +150,15 @@ type Props = {
   onSelectionChange?: (target: PropertyTarget | undefined) => void;
   /** ヘッダの「group にまとめる / 解く」を押せるか (#269)。変わったときだけ知らせる */
   onGroupAbilityChange?: (ability: GroupAbility) => void;
+  /** map を出すか (ヘッダの on/off, #182)。既定は出す */
+  showMap?: boolean;
 };
+
+/**
+ * 縮小の下限 (#250 無限キャンバス)。React Flow の既定は 0.5 で、大きなグラフは「全体を表示」でも
+ * 一画面に収まらなかった。node の文字が読めなくなる所まで縮めても、形と置き場所は見える
+ */
+export const MIN_ZOOM = 0.05;
 
 function GraphEditorInner({
   sheet: activeSheet,
@@ -175,6 +183,7 @@ function GraphEditorInner({
   onControls,
   onSelectionChange,
   onGroupAbilityChange,
+  showMap = true,
 }: Props) {
   const { screenToFlowPosition, getNodes, getEdges, setCenter, fitView } =
     useReactFlow();
@@ -939,6 +948,7 @@ function GraphEditorInner({
                 onEdgeContextMenu={onEdgeContextMenu}
                 zoomOnDoubleClick={false}
                 deleteKeyCode={null}
+                minZoom={MIN_ZOOM}
                 fitView
               >
                 {readOnly && (
@@ -971,7 +981,8 @@ function GraphEditorInner({
                 )}
                 <Background />
                 <Controls />
-                <MiniMap />
+                {/* map で見る範囲を動かす・拡大縮小する (#182) */}
+                {showMap && <MiniMap pannable zoomable />}
               </ReactFlow>
               {nodeTypeMenu && (
                 <NodeTypeMenu
