@@ -27,14 +27,9 @@ import { Button } from './ui/Button';
  */
 
 import type { Did } from '@conversensus/shared';
+import { messages, useMessages } from './i18n/messages';
 import type { OverwriteReport } from './sync/overwrites';
 import { overwriteKeyOf } from './sync/overwrites';
-
-const ASPECT_LABEL = {
-  position: '位置',
-  size: '大きさ',
-  route: '経路',
-} as const;
 
 /**
  * 1 件を 1 行で言い表す。**「競合しました」とは言わない** — 相手が私のを見た上で
@@ -42,15 +37,16 @@ const ASPECT_LABEL = {
  * 言うのは**起きた事実**だけである。
  */
 function describe(report: OverwriteReport): string {
+  const t = messages().overwrites;
   switch (report.category) {
     case 'content':
-      return report.propertyName
-        ? `property「${report.propertyName}」が別の値になりました`
-        : '内容が書き換えられました';
+      return report.propertyName ? t.property(report.propertyName) : t.content;
     case 'structure':
-      return 'つなぎ方が変えられました';
+      return t.structure;
     case 'layout':
-      return `${ASPECT_LABEL[report.aspect ?? 'position']}が変えられました`;
+      return t.layout(
+        messages().conflicts.aspects[report.aspect ?? 'position'],
+      );
   }
 }
 
@@ -73,11 +69,12 @@ export function OverwriteNotice({
   actorLabelOf,
   onDismiss,
 }: Props) {
+  const t = useMessages();
   if (reports.length === 0) return null;
 
   return (
     <section
-      aria-label="上書きの報告"
+      aria-label={t.overwrites.region}
       style={{
         width: 380,
         maxWidth: 'calc(100vw - 32px)',
@@ -104,9 +101,7 @@ export function OverwriteNotice({
             color: color.textMuted,
           }}
         >
-          <span>
-            あなたが書いた {reports.length} 件が, 相手の編集で変わりました
-          </span>
+          <span>{t.overwrites.heading(reports.length)}</span>
         </summary>
         <ul style={{ margin: '8px 0 0', paddingLeft: 20 }}>
           {reports.map((report) => (
@@ -120,9 +115,9 @@ export function OverwriteNotice({
           <Button
             className="cs-btn--sm"
             onClick={onDismiss}
-            aria-label="上書きの報告を消す"
+            aria-label={t.overwrites.dismissLabel}
           >
-            消す
+            {t.overwrites.dismiss}
           </Button>
         </div>
       </details>

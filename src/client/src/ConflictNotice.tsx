@@ -30,6 +30,7 @@ import { Button, IconButton } from './ui/Button';
  */
 
 import type { ForkMeta, MergeConflict } from '@conversensus/shared';
+import { messages, useMessages } from './i18n/messages';
 
 /**
  * 通知の重なり順。ダイアログ (1000) より下、画面上の浮遊 UI (100) より上。
@@ -42,40 +43,15 @@ export const NOTICE_Z_INDEX = 900;
 /** 通知の段。仕様の 3 段そのもの */
 type Tier = {
   category: MergeConflict['category'];
-  title: string;
-  /** その段がどう扱われるか。件数より先に読ませたい情報である */
-  handling: string;
-  /** 既定で開くか。人の判断が要る段だけ開く */
+  /** 既定で開くか。人の判断が要る段だけ開く (段の名前と扱われ方は辞書の `conflicts.tiers`) */
   open: boolean;
 };
 
 const TIERS: Tier[] = [
-  {
-    category: 'content',
-    title: '内容の競合',
-    handling:
-      'いまは後から来た方が残っています。どちらを採るかは対話で決めます。',
-    open: true,
-  },
-  {
-    category: 'structure',
-    title: '構造の競合',
-    handling: '片方の操作が、もう片方の前提を壊しています。',
-    open: true,
-  },
-  {
-    category: 'layout',
-    title: '位置・大きさの競合',
-    handling: '後から来た方になりました。対話は起こしません。',
-    open: false,
-  },
+  { category: 'content', open: true },
+  { category: 'structure', open: true },
+  { category: 'layout', open: false },
 ];
-
-const ASPECT_LABEL = {
-  position: '位置',
-  size: '大きさ',
-  route: '経路',
-} as const;
 
 /**
  * 競合の同一性。**単位は「対象 + 何について揉めたか」**である (検出側の単位キーと同じ)。
@@ -98,22 +74,21 @@ type ConflictUnit = {
   category: MergeConflict['category'];
   propertyName?: string;
   kind?: 'removeDependency' | 'parallelChange';
-  aspect?: keyof typeof ASPECT_LABEL;
+  aspect?: 'position' | 'size' | 'route';
 };
 
 /** 1 件の競合を 1 行で言い表す。**対象が何かと、何が起きたか**の 2 つだけ */
 function describe(unit: ConflictUnit): string {
+  const t = messages().conflicts;
   switch (unit.category) {
     case 'content':
-      return unit.propertyName
-        ? `property「${unit.propertyName}」を二人が別々の値にしました`
-        : '内容を二人が別々に書き換えました';
+      return unit.propertyName ? t.property(unit.propertyName) : t.content;
     case 'structure':
       return unit.kind === 'removeDependency'
-        ? '片方が消したものを、もう片方が使っています'
-        : 'つなぎ方を二人が別々に変えました';
+        ? t.removeDependency
+        : t.parallelStructure;
     case 'layout':
-      return `${ASPECT_LABEL[unit.aspect ?? 'position']}を二人が別々に変えました`;
+      return t.layout(t.aspects[unit.aspect ?? 'position']);
   }
 }
 
@@ -159,6 +134,7 @@ export function ConflictNotice({
   onOpenMerger,
   onClose,
 }: Props) {
+  const t = useMessages();
   if (conflicts.length === 0 && arrivedForks.length === 0) return null;
 
   const byTier = TIERS.map((tier) => ({
@@ -169,7 +145,7 @@ export function ConflictNotice({
   return (
     <section
       role="status"
-      aria-label="競合の通知"
+      aria-label={t.conflicts.region}
       style={{
         width: 380,
         maxWidth: 'calc(100vw - 32px)',
@@ -196,13 +172,13 @@ export function ConflictNotice({
       >
         <strong>
           {conflicts.length > 0
-            ? `merge で ${conflicts.length} 件の競合を検出しました`
-            : `相手が保留した競合が ${arrivedForks.length} 件届きました`}
+            ? t.conflicts.detected(conflicts.length)
+            : t.conflicts.arrived(arrivedForks.length)}
         </strong>
         <IconButton
           icon={X}
           small
-          label="競合の通知を閉じる"
+          label={t.conflicts.close}
           onClick={onClose}
         />
       </div>
@@ -211,17 +187,20 @@ export function ConflictNotice({
         // **通知だけでは消えてしまう。**保留したことを記録に残したと伝える —
         // 後から「何でこれが生じたんだ?」に答えられるのはこの記録である
         <p style={{ margin: '8px 0 0', color: color.textMuted }}>
-          {forkCount} 件を保留として記録しました。後から対話で決められます。
+          {t.conflicts.recorded(forkCount)}
         </p>
       )}
 
       {byTier.map(({ tier, items }) => (
         <details key={tier.category} open={tier.open} style={{ marginTop: 12 }}>
           <summary style={{ cursor: 'pointer', fontWeight: 600 }}>
-            {tier.title} {items.length} 件
+            {t.conflicts.tierCount(
+              t.conflicts.tiers[tier.category].title,
+              items.length,
+            )}
           </summary>
           <p style={{ margin: '4px 0 8px', color: color.textMuted }}>
-            {tier.handling}
+            {t.conflicts.tiers[tier.category].handling}
           </p>
           <ul style={{ margin: 0, paddingLeft: 20 }}>
             {items.map((c) => (
@@ -238,17 +217,17 @@ export function ConflictNotice({
         // 判断が要る段 (content / structure) の保留なので開いて出す
         <details open style={{ marginTop: 12 }}>
           <summary style={{ cursor: 'pointer', fontWeight: 600 }}>
-            相手が保留した競合 {arrivedForks.length} 件
+            {t.conflicts.arrivedHeading(arrivedForks.length)}
           </summary>
           <p style={{ margin: '4px 0 8px', color: color.textMuted }}>
-            相手の手元で検出され、保留として記録されています。後から対話で決められます。
+            {t.conflicts.arrivedNote}
           </p>
           <ul style={{ margin: 0, paddingLeft: 20 }}>
             {arrivedForks.map((fork) => (
               <li key={fork.conflictKey} style={{ marginBottom: 2 }}>
                 <span style={{ fontWeight: 600 }}>
                   {fork.origin.targetLabel === ''
-                    ? '(名前のない要素)'
+                    ? t.conflicts.unnamed
                     : fork.origin.targetLabel}
                 </span>
                 : {describe(fork.origin)}
@@ -259,7 +238,7 @@ export function ConflictNotice({
                     onClick={() => onOpenMerger(fork)}
                     style={{ marginLeft: space[2] }}
                   >
-                    merger で決める
+                    {t.conflicts.decideInMerger}
                   </Button>
                 )}
               </li>

@@ -11,6 +11,7 @@ import { useEventDispatch } from './EventDispatchContext';
 import { makeEventBase } from './events/GraphEvent';
 import { DiffMark } from './graph/DiffMark';
 import { useInlineEdit } from './hooks/useInlineEdit';
+import { useMessages } from './i18n/messages';
 import { useBlobOrigin } from './images/blobOriginContext';
 import {
   IMAGE_MIME_PREFIX,
@@ -27,13 +28,6 @@ import {
 import { replaceNodeImage } from './images/replaceNodeImage';
 import { color, font, monospace, radius } from './theme';
 
-/**
- * 利用者が URL で指した画像が読めなかったときの案内 (step3 Phase 2 Q4)。PWA は cross-origin
- * isolation (COEP) の下で動くので、CORS / CORP を返さない画像は読めない
- */
-export const EXTERNAL_IMAGE_BLOCKED =
-  'この URL の画像は表示できません。画像をドロップすると保存されます';
-
 type ImageNodeData = {
   content: string;
   diffType?: 'add' | 'update';
@@ -42,6 +36,7 @@ type ImageNodeData = {
 };
 
 export function ImageNode({ id, data, selected }: NodeProps) {
+  const t = useMessages();
   const nodeData = data as unknown as ImageNodeData;
   const { getNode } = useReactFlow();
   const { dispatch } = useEventDispatch();
@@ -308,7 +303,7 @@ export function ImageNode({ id, data, selected }: NodeProps) {
             }}
           >
             <span style={{ fontSize: font.caption, color: color.textMuted }}>
-              画像
+              {t.image.placeholder}
             </span>
           </div>
         </div>
@@ -446,7 +441,7 @@ export function ImageNode({ id, data, selected }: NodeProps) {
                 // biome-ignore lint/a11y/noAutofocus: needed for immediate URL entry
                 autoFocus={editingUrl}
                 className="nodrag nopan"
-                placeholder="画像URLを入力"
+                placeholder={t.image.urlPlaceholder}
                 value={urlInput}
                 onChange={(e) => setUrlInput(e.target.value)}
                 onBlur={commitUrl}
@@ -475,15 +470,17 @@ export function ImageNode({ id, data, selected }: NodeProps) {
             /* 利用者が URL で指した画像。cross-origin isolation (COEP, step3 Phase 2 D8) の下では、
                相手が CORS / CORP を返さないと読めない (Q4 で受け入れた)。取れる手を案内する */
             <span style={{ fontSize: font.caption, color: color.textMuted }}>
-              {EXTERNAL_IMAGE_BLOCKED}
+              {/* 利用者が URL で指した画像が読めなかったときの案内 (step3 Phase 2 Q4)。PWA は cross-origin
+                  isolation (COEP) の下で動くので、CORS / CORP を返さない画像は読めない */}
+              {t.image.blocked}
             </span>
           ) : imgError || (!displayUrl && resolveFailed) ? (
             <span style={{ fontSize: font.caption, color: color.textMuted }}>
-              画像を読み込めません
+              {t.image.failed}
             </span>
           ) : blobCid && !displayUrl ? (
             <span style={{ fontSize: font.caption, color: color.textMuted }}>
-              画像を読み込み中...
+              {t.image.loading}
             </span>
           ) : displayUrl ? (
             <img

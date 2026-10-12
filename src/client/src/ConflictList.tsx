@@ -9,6 +9,7 @@ import { color, font, radius } from './theme';
 
 import type { MergeConflict, Op } from '@conversensus/shared';
 import { useState } from 'react';
+import { messages, useMessages } from './i18n/messages';
 import { mergerCheckKey, type SideLabels } from './sync/merger';
 
 type Props = {
@@ -27,36 +28,26 @@ type Props = {
   sideLabels?: SideLabels;
 };
 
-const BRANCH_SIDE_LABELS: SideLabels = {
-  ours: 'merge 先',
-  theirs: 'merge 元',
-};
-
-const CATEGORY_LABEL = {
-  content: '内容',
-  structure: 'つなぎ方',
-  layout: '位置',
-} as const;
-
 /** 競合の片側の op を、人が読める一言にする */
 export function describeSide(op: Op): string {
+  const t = messages().merger;
   switch (op.kind) {
     case 'node.setContent':
-      return `本文「${op.content}」`;
+      return t.text(op.content);
     case 'node.setLabel':
     case 'edge.setLabel':
-      return `名前「${op.label}」`;
+      return t.name(op.label);
     case 'node.setProperty':
     case 'edge.setProperty':
       return op.value === undefined
-        ? `property ${op.name} を消す`
-        : `property ${op.name} = ${JSON.stringify(op.value)}`;
+        ? t.removeProperty(op.name)
+        : t.setProperty(op.name, JSON.stringify(op.value));
     case 'node.remove':
     case 'edge.remove':
-      return '削除';
+      return t.removed;
     case 'node.add':
     case 'edge.add':
-      return '追加';
+      return t.added;
     default:
       return op.kind;
   }
@@ -69,8 +60,13 @@ export function ConflictList({
   onToggle,
   onMerge,
   busy = false,
-  sideLabels = BRANCH_SIDE_LABELS,
+  sideLabels: givenSideLabels,
 }: Props) {
+  const t = useMessages();
+  const sideLabels = givenSideLabels ?? {
+    ours: t.merger.target,
+    theirs: t.merger.source,
+  };
   const [comment, setComment] = useState('');
   const done = new Set(checked);
   const resolved = conflicts.filter((c) => done.has(mergerCheckKey(c))).length;
@@ -103,9 +99,9 @@ export function ConflictList({
       >
         {conflicts.map((c) => {
           const key = mergerCheckKey(c);
-          const what = labelOf(c.target) || '(名前のない要素)';
+          const what = labelOf(c.target) || t.merger.unnamed;
           const about = c.propertyName
-            ? ` の property「${c.propertyName}」`
+            ? t.merger.aboutProperty(c.propertyName)
             : '';
           return (
             <li
@@ -126,7 +122,7 @@ export function ConflictList({
                 <span>
                   <strong>
                     {what}
-                    {about} ({CATEGORY_LABEL[c.category]})
+                    {about} ({t.merger.categories[c.category]})
                   </strong>
                   <br />
                   {sideLabels.ours}: {describeSide(c.ours.op)} /{' '}
@@ -138,8 +134,8 @@ export function ConflictList({
         })}
       </ul>
       <textarea
-        aria-label="merge のコメント"
-        placeholder="コメント (merge の理由)"
+        aria-label={t.merger.comment}
+        placeholder={t.merger.commentPlaceholder}
         value={comment}
         onChange={(e) => setComment(e.target.value)}
         rows={3}

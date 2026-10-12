@@ -19,6 +19,7 @@ import { makeEventBase } from './events/GraphEvent';
 import { DiffMark } from './graph/DiffMark';
 import { useGraphNodeHandlers } from './graph/graphNodeContext';
 import { useInlineEdit } from './hooks/useInlineEdit';
+import { useMessages } from './i18n/messages';
 import { MARKDOWN_COMPONENTS } from './markdownComponents';
 import { useReadOnly } from './readOnlyContext';
 import { color, font, monospace, radius } from './theme';
@@ -48,6 +49,7 @@ const FLOATING_LABEL = {
 } as const;
 
 export function EditableNode({ id, data, selected }: NodeProps) {
+  const t = useMessages();
   const { getNode } = useReactFlow();
   const { dispatch } = useEventDispatch();
 
@@ -193,7 +195,9 @@ export function EditableNode({ id, data, selected }: NodeProps) {
                 {content}
               </ReactMarkdown>
             ) : (
-              <span style={{ color: color.textMuted }}>(空)</span>
+              <span style={{ color: color.textMuted }}>
+                {t.graph.emptyNode}
+              </span>
             )}
           </div>
         </div>
@@ -373,9 +377,7 @@ export function EditableNode({ id, data, selected }: NodeProps) {
                 {content}
               </ReactMarkdown>
             ) : (
-              <span style={{ color: color.textMuted }}>
-                ダブルクリックで編集
-              </span>
+              <span style={{ color: color.textMuted }}>{t.graph.editHint}</span>
             )}
           </div>
         )}

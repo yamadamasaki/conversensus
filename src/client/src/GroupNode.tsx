@@ -5,10 +5,12 @@ import { useEventDispatch } from './EventDispatchContext';
 import { makeEventBase } from './events/GraphEvent';
 import { DiffMark } from './graph/DiffMark';
 import { useInlineEdit } from './hooks/useInlineEdit';
+import { useMessages } from './i18n/messages';
 import { useNodeCreation } from './NodeCreationContext';
 import { color, font, radius } from './theme';
 
 export function GroupNode({ id, data, selected }: NodeProps) {
+  const t = useMessages();
   const { getNode } = useReactFlow();
   const { dispatch } = useEventDispatch();
   const { openNodeTypeMenu } = useNodeCreation();
@@ -109,7 +111,7 @@ export function GroupNode({ id, data, selected }: NodeProps) {
           }}
         >
           <span style={{ textDecoration: 'line-through' }}>
-            {content || 'グループ'}
+            {content || t.graph.groupDefault}
           </span>
         </div>
         <div style={{ flex: 1 }} />
@@ -199,7 +201,7 @@ export function GroupNode({ id, data, selected }: NodeProps) {
               }}
             />
           ) : (
-            <span>{content || 'グループ'}</span>
+            <span>{content || t.graph.groupDefault}</span>
           )}
         </div>
         {/* biome-ignore lint/a11y/noStaticElementInteractions: 本体エリアはダブルクリックで子ノードを追加する */}

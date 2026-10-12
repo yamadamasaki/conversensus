@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { UPDATE_NOTICE_LABEL, UpdateNotice } from './UpdateNotice';
+import { messages } from '../i18n/messages';
+import { UpdateNotice } from './UpdateNotice';
+
+const UPDATE_NOTICE_LABEL = messages().update.label;
 
 afterEach(cleanup);
 

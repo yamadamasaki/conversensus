@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it } from 'bun:test';
 
 const { render, screen, cleanup } = await import('@testing-library/react');
-const { IMAGE_LINK_PREFIX, MarkdownImageAsLink, MarkdownLink } = await import(
+const { messages } = await import('./i18n/messages');
+const IMAGE_LINK_PREFIX = messages().image.linkPrefix;
+const { MarkdownImageAsLink, MarkdownLink } = await import(
   './markdownComponents'
 );
 

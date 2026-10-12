@@ -3,17 +3,23 @@ import { cleanup, render, screen } from '@testing-library/react';
 import { AtprotoLoginDialog } from '../AtprotoLoginDialog';
 import { CommitDialog } from '../CommitDialog';
 import { ConfirmDialog } from '../ConfirmDialog';
+import { ConflictNotice } from '../ConflictNotice';
 import { GraphHeader } from '../GraphHeader';
 import { NO_GROUP_ABILITY } from '../hooks/useGroupNodes';
 import { LocalOnlyBanner } from '../LocalOnlyBanner';
+import { NodeTypeMenu } from '../NodeTypeMenu';
+import { OverwriteNotice } from '../OverwriteNotice';
 import { ParticipateDialog } from '../ParticipateDialog';
+import { PropertyEditor } from '../PropertyEditor';
 import { RightSidebar } from '../RightSidebar';
 import { SearchPanel } from '../SearchPanel';
 import { SettingsPopup } from '../SettingsPopup';
 import { StorageAtRiskBanner } from '../StorageAtRiskBanner';
+import { Erased, StorageUnavailable } from '../StorageUnavailable';
 import { SyncStatusIndicator } from '../SyncStatusIndicator';
 import { TabBar } from '../TabBar';
 import { formatTime, VersionTree } from '../timeline/VersionTree';
+import { UpdateNotice } from '../update/UpdateNotice';
 import { setLocale } from './locale';
 
 /**
@@ -198,6 +204,77 @@ describe('en で描く (#50)', () => {
     ).toBeGreaterThan(0);
     expect(screen.getByText('No changes')).toBeTruthy();
     expectNoJapanese(container);
+  });
+
+  test('競合・上書き・新しい版の知らせ', () => {
+    const target = 'n1';
+    render(
+      <>
+        <ConflictNotice
+          conflicts={[
+            {
+              target,
+              category: 'content',
+              ours: {
+                batchId: 'b1',
+                op: { kind: 'node.setContent', target, content: 'A' },
+              },
+              theirs: {
+                batchId: 'b2',
+                op: { kind: 'node.setContent', target, content: 'B' },
+              },
+            } as never,
+          ]}
+          labelOf={() => 'Claim'}
+          forkCount={1}
+          onClose={noop}
+        />
+        <OverwriteNotice
+          reports={[
+            { target, category: 'structure', by: 'did:plc:bob' } as never,
+          ]}
+          labelOf={() => 'Claim'}
+          actorLabelOf={() => 'bob.test'}
+          onDismiss={noop}
+        />
+        <UpdateNotice available onReload={noop} onDismiss={noop} />
+      </>,
+    );
+    expect(screen.getByText('merge found 1 conflict')).toBeTruthy();
+    expectNoJapanese();
+  });
+
+  test('node の作成メニューと property editor', () => {
+    render(
+      <>
+        <NodeTypeMenu
+          position={{ x: 0, y: 0 }}
+          nodeKinds={[]}
+          onSelect={noop}
+          graphNodeOption
+        />
+        <PropertyEditor
+          title="Claim"
+          rows={[]}
+          addable={[]}
+          onSet={noop}
+          onRemove={noop}
+          onClose={noop}
+        />
+      </>,
+    );
+    expect(screen.getByText('No properties')).toBeTruthy();
+    expectNoJapanese();
+  });
+
+  test('保存領域が開けない・データを消した', () => {
+    render(
+      <>
+        <StorageUnavailable reason="SecurityError" />
+        <Erased />
+      </>,
+    );
+    expectNoJapanese();
   });
 
   test('timeline の時刻は en の書き方', () => {

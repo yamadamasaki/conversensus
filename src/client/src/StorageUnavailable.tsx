@@ -1,3 +1,4 @@
+import { useMessages } from './i18n/messages';
 import { color, font } from './theme';
 
 /**
@@ -7,10 +8,8 @@ import { color, font } from './theme';
  * 編集を始めさせず、理由と取れる手を出す。
  */
 
-const STORAGE_UNAVAILABLE_TITLE = 'この窓では保存できません';
-export const ERASED_TITLE = 'この端末の conversensus のデータを消しました';
-
 export function StorageUnavailable({ reason }: { reason: string }) {
+  const t = useMessages();
   return (
     <main
       role="alert"
@@ -21,13 +20,10 @@ export function StorageUnavailable({ reason }: { reason: string }) {
         lineHeight: 1.7,
       }}
     >
-      <h1 style={{ fontSize: font.title }}>{STORAGE_UNAVAILABLE_TITLE}</h1>
-      <p>
-        編集を保存する場所 (ブラウザの保存領域) を開けませんでした。
-        プライベートブラウズの窓では保存できないことがあります。通常の窓で開き直してください。
-      </p>
+      <h1 style={{ fontSize: font.title }}>{t.storage.unavailableTitle}</h1>
+      <p>{t.storage.unavailableBody}</p>
       <p style={{ color: color.textMuted, fontSize: font.body }}>
-        理由: {reason}
+        {t.storage.reason(reason)}
       </p>
     </main>
   );
@@ -35,6 +31,7 @@ export function StorageUnavailable({ reason }: { reason: string }) {
 
 /** 保存領域を開いている間の表示。白い画面のまま待たせない */
 export function Starting() {
+  const t = useMessages();
   return (
     <main
       role="status"
@@ -45,7 +42,7 @@ export function Starting() {
         color: color.textMuted,
       }}
     >
-      起動中…
+      {t.storage.starting}
     </main>
   );
 }
@@ -55,6 +52,7 @@ export function Starting() {
  * 窓はスクリプトからは閉じられない (スクリプトが開いた窓でないため) ので、閉じてもらう
  */
 export function Erased() {
+  const t = useMessages();
   return (
     <main
       role="status"
@@ -65,8 +63,8 @@ export function Erased() {
         lineHeight: 1.7,
       }}
     >
-      <h1 style={{ fontSize: font.title }}>{ERASED_TITLE}</h1>
-      <p>このタブを閉じてください。</p>
+      <h1 style={{ fontSize: font.title }}>{t.storage.erasedTitle}</h1>
+      <p>{t.storage.erasedBody}</p>
     </main>
   );
 }

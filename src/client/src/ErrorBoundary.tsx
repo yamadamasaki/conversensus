@@ -10,21 +10,29 @@ import { color, font } from './theme';
  */
 
 import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { messages } from './i18n/messages';
 
 /** どこが描けなかったか (「グラフ」「左サイドバー」など) */
 export type BoundaryLabel = string;
 
-/** 境界を置く場所の名前 (知らせの文に出る) */
+/**
+ * 境界を置く場所の名前 (知らせの文に出る)。**読むたびに辞書から引く** (getter) ので、言語を
+ * 替えた後の描画ではその言語の名前になる (#50)
+ */
 export const BOUNDARY_LABELS = {
-  app: 'conversensus',
-  graph: 'グラフ',
-  leftSidebar: '左サイドバー',
-  rightSidebar: '右サイドバー',
-} as const satisfies Record<string, BoundaryLabel>;
-
-const FAILED_SUFFIX = 'を表示できませんでした';
-const RETRY_LABEL = 'もう一度表示する';
-const RELOAD_LABEL = '再読み込み';
+  get app() {
+    return messages().boundary.app;
+  },
+  get graph() {
+    return messages().boundary.graph;
+  },
+  get leftSidebar() {
+    return messages().boundary.leftSidebar;
+  },
+  get rightSidebar() {
+    return messages().boundary.rightSidebar;
+  },
+} satisfies Record<string, BoundaryLabel>;
 
 type Props = { label: BoundaryLabel; children: ReactNode };
 type State = { error: Error | null };
@@ -38,7 +46,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
     console.error(
-      `[ErrorBoundary] ${this.props.label}${FAILED_SUFFIX}`,
+      `[ErrorBoundary] ${messages().boundary.failed(this.props.label)}`,
       error,
       info.componentStack,
     );
@@ -50,18 +58,17 @@ export class ErrorBoundary extends Component<Props, State> {
     return (
       <div role="alert" style={{ padding: 16, fontSize: font.body }}>
         <p style={{ margin: '0 0 8px' }}>
-          {this.props.label}
-          {FAILED_SUFFIX}
+          {messages().boundary.failed(this.props.label)}
         </p>
         <p style={{ margin: '0 0 12px', color: color.textMuted }}>
           {error.message}
         </p>
         {/* 例外が一時的なもの (読み込みの途中など) なら描き直せば戻る */}
         <button type="button" onClick={() => this.setState({ error: null })}>
-          {RETRY_LABEL}
+          {messages().boundary.retry}
         </button>{' '}
         <button type="button" onClick={() => location.reload()}>
-          {RELOAD_LABEL}
+          {messages().boundary.reload}
         </button>
       </div>
     );
