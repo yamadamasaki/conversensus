@@ -10,26 +10,25 @@ import {
   type ConversensusFile,
   parseConversensusFile,
 } from '@conversensus/shared';
+import { messages } from '../i18n/messages';
 
 export type ImportReadResult =
   | { ok: true; data: ConversensusFile }
   | { ok: false; message: string };
-
-/** 読めなかったとき (JSON でない・読み込みの失敗) */
-export const IMPORT_READ_FAILED = 'ファイルの読み込みに失敗しました';
 
 export async function readImportFile(file: Blob): Promise<ImportReadResult> {
   let json: unknown;
   try {
     json = JSON.parse(await file.text());
   } catch {
-    return { ok: false, message: IMPORT_READ_FAILED };
+    // 読めなかったとき (JSON でない・読み込みの失敗)
+    return { ok: false, message: messages().importErrors.readFailed };
   }
   // 旧版の移行を含めた解釈は shared に 1 本化してある (server も同じ関数を使う)
   const parsed = parseConversensusFile(json);
   if (parsed.success) return { ok: true, data: parsed.data };
-  const messages = parsed.error.errors
+  const details = parsed.error.errors
     .map((err) => `${err.path.join('.')}: ${err.message}`)
     .join('\n');
-  return { ok: false, message: `ファイル形式が不正です:\n${messages}` };
+  return { ok: false, message: messages().importErrors.invalidFormat(details) };
 }

@@ -541,6 +541,9 @@ bun run test:e2e:webkit   # webkit だけ
 
 - **サーバの起動は要らない**. Playwright が**専用ポートで自前のクライアントを起動する**
   (開発サーバ `:5184`, 本番ビルドの配信 `:5185`, `tests/ports.ts`). 手で立てる `:5173`〜`:5176` (alice, bob, 手元の本番ビルド) とは重ならないので, それらを立てたまま走らせてよい
+- **画面の言語は ja に固定する** (#50). 画面はブラウザの言語に従うが, テストは日本語の文言で要素を引くので,
+  `playwright.config.ts` の `locale: 'ja-JP'` を fixture が persistent context に渡す. 英語の画面は
+  `tests/i18n.spec.ts` だけが `test.use({ locale: 'en-US' })` で見る
 - **利用者のデータは汚れない**. E2E はテストごとに新しいブラウザのプロファイルで開く
   (`tests/fixtures.ts`). 保存領域もそのプロファイルの中にある
 - テストは `tests/*.spec.ts`, 仕様書は同じ場所に `tests/*.spec.md` を置く.

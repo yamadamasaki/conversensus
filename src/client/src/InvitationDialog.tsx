@@ -1,7 +1,8 @@
 import type { Did } from '@conversensus/shared';
 import { Check, Copy, History } from 'lucide-react';
 import { useRef, useState } from 'react';
-import type { RosterAction, RosterRow, RosterStatus } from './sync/rosterView';
+import { useMessages } from './i18n/messages';
+import type { RosterAction, RosterRow } from './sync/rosterView';
 import { actionLabel } from './sync/rosterView';
 import { color, font, radius, space } from './theme';
 import { Button, IconButton } from './ui/Button';
@@ -28,13 +29,6 @@ const ROSTER_DIALOG_WIDTH = 620;
  * 「自分で辞めたか, 辞めさせられたかは問わない」と定めている。畳み込みは区別を
  * 持っているが、**画面はそれを使わない** (誰がやったかは参加履歴に出る)
  */
-const STATUS_LABEL: Record<RosterStatus, string> = {
-  sent: '依頼中',
-  accepted: '参加中',
-  revoked: '離脱中',
-  resigned: '離脱中',
-  invalid: '無効',
-};
 
 /** 表示名が引けなかった DID はそのまま出る。長いので折り返せるようにする */
 const ID_CELL = {
@@ -105,6 +99,7 @@ export function InvitationDialog({
   busy = false,
   error = null,
 }: Props) {
+  const t = useMessages();
   const [handle, setHandle] = useState('');
   const [copied, setCopied] = useState<Did | null>(null);
   const composingRef = useRef(false);
@@ -131,15 +126,15 @@ export function InvitationDialog({
       // クリップボードは権限で失敗しうる。**黙らない** — コードを渡せたと
       // 誤解したまま相手を待つのが最悪である
       setCopied(null);
-      window.prompt('コピーできなかった。手で選んでコピーしてほしい:', code);
+      window.prompt(t.invitation.copyFailed, code);
     }
   };
 
   return (
     <Dialog
       kind="input"
-      label="参加者一覧"
-      title="参加者一覧"
+      label={t.invitation.title}
+      title={t.invitation.title}
       onDismiss={onClose}
       width={ROSTER_DIALOG_WIDTH}
       scroll
@@ -163,8 +158,7 @@ export function InvitationDialog({
             color: color.warningText,
           }}
         >
-          {unreadable.length}{' '}
-          人分の記録が読めなかった。名簿が欠けている可能性がある。
+          {t.invitation.unreadable(unreadable.length)}
         </p>
       )}
 
@@ -190,11 +184,21 @@ export function InvitationDialog({
       >
         <thead>
           <tr style={{ textAlign: 'left', color: color.textMuted }}>
-            <th style={{ padding: '4px 6px' }}>参加者</th>
-            <th style={{ padding: '4px 6px' }}>依頼者</th>
-            <th style={{ padding: '4px 6px' }}>状態</th>
-            <th style={{ padding: '4px 6px' }}>参加履歴</th>
-            <th style={{ padding: '4px 6px' }}>操作</th>
+            <th style={{ padding: '4px 6px' }}>
+              {t.invitation.columns.participant}
+            </th>
+            <th style={{ padding: '4px 6px' }}>
+              {t.invitation.columns.inviter}
+            </th>
+            <th style={{ padding: '4px 6px' }}>
+              {t.invitation.columns.status}
+            </th>
+            <th style={{ padding: '4px 6px' }}>
+              {t.invitation.columns.history}
+            </th>
+            <th style={{ padding: '4px 6px' }}>
+              {t.invitation.columns.actions}
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -207,12 +211,17 @@ export function InvitationDialog({
               <td style={ID_CELL}>
                 {row.inviter ? labelOf(row.inviter) : '—'}
               </td>
-              <td style={{ padding: '6px' }}>{STATUS_LABEL[row.status]}</td>
+              <td style={{ padding: '6px' }}>
+                {
+                  // `revoked` と `resigned` を「離脱中」に畳む (仕様: 自分で辞めたか, 辞めさせられたかは問わない)
+                  t.invitation.status[row.status]
+                }
+              </td>
               <td style={{ padding: '6px' }}>
                 <IconButton
                   icon={History}
                   small
-                  label={`${labelOf(row.did)} の参加履歴`}
+                  label={t.invitation.historyOf(labelOf(row.did))}
                   onClick={() => onOpenHistory(row.did)}
                 />
               </td>
@@ -236,7 +245,9 @@ export function InvitationDialog({
                     icon={copied === row.did ? Check : Copy}
                     onClick={() => copy(row.did)}
                   >
-                    {copied === row.did ? 'コピーした' : 'コードをコピー'}
+                    {copied === row.did
+                      ? t.invitation.copied
+                      : t.invitation.copyCode}
                   </Button>
                 )}
               </td>
@@ -255,8 +266,8 @@ export function InvitationDialog({
       >
         <input
           value={handle}
-          aria-label="ハンドル名"
-          placeholder="ハンドル・ネーム, ハンドル・ネーム"
+          aria-label={t.invitation.handles}
+          placeholder={t.invitation.handlesPlaceholder}
           disabled={busy}
           onChange={(e) => setHandle(e.target.value)}
           onCompositionStart={() => {
@@ -279,7 +290,7 @@ export function InvitationDialog({
           }}
         />
         <Button variant="primary" disabled={busy} onClick={submit}>
-          参加依頼する
+          {t.invitation.invite}
         </Button>
       </div>
 
@@ -297,7 +308,7 @@ export function InvitationDialog({
       )}
 
       <DialogActions>
-        <Button onClick={onClose}>閉じる</Button>
+        <Button onClick={onClose}>{t.common.close}</Button>
       </DialogActions>
     </Dialog>
   );

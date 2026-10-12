@@ -14,8 +14,11 @@ import {
   waitFor,
 } from '@testing-library/react';
 import type { FolderTree } from '../folders/folderTree';
-import { GLOBAL_SEARCH_LABEL, GlobalSearchDialog } from './GlobalSearchDialog';
+import { messages } from '../i18n/messages';
+import { GlobalSearchDialog } from './GlobalSearchDialog';
 import type { FileSearchHit, FileSearchResult } from './searchFiles';
+
+const GLOBAL_SEARCH_LABEL = messages().search.global;
 
 afterEach(cleanup);
 

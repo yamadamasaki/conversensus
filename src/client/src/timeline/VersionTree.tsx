@@ -13,6 +13,8 @@
 
 import type { BranchId } from '@conversensus/shared';
 import { type ReactNode, useState } from 'react';
+import { getLocale } from '../i18n/locale';
+import { messages, useMessages } from '../i18n/messages';
 import { color, font, radius } from '../theme';
 import type {
   ChangePoint,
@@ -41,26 +43,36 @@ type Props = {
   renderDetail: (selection: TimelineSelection) => ReactNode;
 };
 
-const TIME_FORMAT = new Intl.DateTimeFormat('ja-JP', {
+const TIME_FORMAT_OPTIONS: Intl.DateTimeFormatOptions = {
   month: 'numeric',
   day: 'numeric',
   hour: '2-digit',
   minute: '2-digit',
-});
+};
+/** 言語ごとの日時の書き方 (作るのが重いので覚えておく) */
+const timeFormats = new Map<string, Intl.DateTimeFormat>();
 
+/** 時刻を、いまの画面の言語の書き方で出す (#50) */
 export function formatTime(timestamp: number): string {
-  return TIME_FORMAT.format(new Date(timestamp));
+  const locale = getLocale();
+  let format = timeFormats.get(locale);
+  if (!format) {
+    format = new Intl.DateTimeFormat(locale, TIME_FORMAT_OPTIONS);
+    timeFormats.set(locale, format);
+  }
+  return format.format(new Date(timestamp));
 }
 
 /** operation point の名前 */
 export function operationLabel(point: OperationPoint): string {
+  const t = messages().timeline;
   switch (point.kind) {
     case 'branch':
-      return `branch ${point.branch.name}`;
+      return t.branchPoint(point.branch.name);
     case 'commit':
-      return point.commit.message || '(コメントなし)';
+      return point.commit.message || t.noComment;
     case 'merge':
-      return `merge ${point.source?.name ?? ''}`.trim();
+      return t.mergePoint(point.source?.name ?? '');
   }
 }
 
@@ -188,6 +200,7 @@ export function VersionTree({
   labelOfActor,
   renderDetail,
 }: Props) {
+  const t = useMessages();
   /** 選んだ点なら、その直下に詳細を出す行 */
   const detailOf = (candidate: TimelineSelection, key: string) =>
     isSelected(selected, candidate) ? (
@@ -236,7 +249,7 @@ export function VersionTree({
                   fontSize: font.caption,
                 }}
               >
-                {entry.points.length} 件の変更
+                {t.timeline.changes(entry.points.length)}
               </button>
             </Row>
             {open &&
@@ -314,7 +327,7 @@ export function VersionTree({
   };
 
   const renderLane = (lane: TimelineLane): ReactNode => (
-    <section aria-label={`${lane.name} の線`}>
+    <section aria-label={t.timeline.lane(lane.name)}>
       <div
         style={{
           fontSize: font.caption,
@@ -324,7 +337,7 @@ export function VersionTree({
         }}
       >
         {lane.name}
-        {lane.status === 'merged' && ' (merged)'}
+        {lane.status === 'merged' && t.timeline.merged}
       </div>
       <ul style={{ margin: 0, padding: 0 }}>
         {lane.entries.map((entry, i) => renderEntry(entry, lane, i))}
@@ -338,7 +351,7 @@ export function VersionTree({
   // 分岐の点が見えなかった branch (分岐が別のシートなど) は最後に並べる
   const rest = lanes.filter((l) => !placed.has(l.branchId));
   return (
-    <section aria-label="version tree">
+    <section aria-label={t.timeline.tree}>
       {body}
       {rest.map((lane) => (
         <div key={lane.branchId ?? 'trunk'} style={{ paddingLeft: INDENT }}>

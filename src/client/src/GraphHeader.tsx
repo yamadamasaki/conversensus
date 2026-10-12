@@ -33,6 +33,7 @@ import {
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import type { GraphEditorControls } from './graph/editorControls';
 import type { GroupAbility } from './hooks/useGroupNodes';
+import { useMessages } from './i18n/messages';
 import {
   type FoldableControl,
   foldedAt,
@@ -176,6 +177,7 @@ export const LINK_COPIED_MS = 1500;
 
 /** リンクを写すボタン。写せたら少しの間、印を替えて知らせる */
 function CopyLinkButton({ onCopy }: { onCopy: () => Promise<void> }) {
+  const t = useMessages();
   const [copied, setCopied] = useState(false);
   useEffect(() => {
     if (!copied) return;
@@ -185,7 +187,7 @@ function CopyLinkButton({ onCopy }: { onCopy: () => Promise<void> }) {
   return (
     <IconButton
       icon={copied ? Check : Link}
-      label={copied ? 'リンクを写しました' : 'この view のリンクを写す'}
+      label={copied ? t.header.linkCopied : t.header.copyLink}
       onClick={() => {
         // 写せなかったときの知らせは渡した側が出す
         onCopy().then(
@@ -270,6 +272,7 @@ function GraphTitle({
   branch: HeaderBranch | null;
   compact: boolean;
 }) {
+  const t = useMessages();
   const full = `${title.fileName} / ${title.sheetName}`;
   return (
     <div
@@ -312,9 +315,9 @@ function GraphTitle({
           ) : (
             <Chip tone="neutral">trunk</Chip>
           )}
-          <Chip tone="pending" title="過去の時点の姿です。編集できません">
+          <Chip tone="pending" title={t.header.pastTooltip}>
             <History size={ICON_SIZE_SM} aria-hidden />
-            {compact ? '時点' : '過去の時点 · 読み取り専用'}
+            {compact ? t.header.pastCompact : t.header.pastFull}
           </Chip>
         </>
       ) : title.merger ? (
@@ -334,8 +337,8 @@ function GraphTitle({
         <Chip tone="neutral">trunk</Chip>
       )}
       {branch && branch.pendingCount > 0 && (
-        <Chip tone="pending" title="まだ commit していない変更">
-          {branch.pendingCount} 変更
+        <Chip tone="pending" title={t.header.pendingTooltip}>
+          {t.header.pending(branch.pendingCount)}
         </Chip>
       )}
     </div>
@@ -357,6 +360,7 @@ export function GraphHeader({
   onCopyLink,
   compact = false,
 }: Props) {
+  const t = useMessages();
   const ready = controls !== null;
   const [paneMenuOpen, setPaneMenuOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
@@ -393,7 +397,7 @@ export function GraphHeader({
     <div
       ref={toolbarRef}
       role="toolbar"
-      aria-label="グラフの操作"
+      aria-label={t.header.toolbar}
       style={{
         display: 'flex',
         alignItems: 'center',
@@ -412,7 +416,7 @@ export function GraphHeader({
       {shows('search') && (
         <IconButton
           icon={Search}
-          label="この Sheet を検索"
+          label={t.header.search}
           onClick={onToggleSearch}
           aria-pressed={searchOpen}
         />
@@ -420,7 +424,7 @@ export function GraphHeader({
       {/* property editor 表示の on/off。**選んだ要素に対して出す** (step2 Phase 4 Q2) */}
       <IconButton
         icon={PanelRight}
-        label="property"
+        label={t.header.property}
         onClick={onToggleProperty}
         aria-pressed={propertyOpen}
         style={
@@ -430,7 +434,7 @@ export function GraphHeader({
       {onToggleMap && shows('map') && (
         <IconButton
           icon={MapIcon}
-          label="map"
+          label={t.header.map}
           onClick={onToggleMap}
           aria-pressed={mapOpen ?? false}
           style={{ marginRight: GROUP_GAP }}
@@ -438,13 +442,13 @@ export function GraphHeader({
       )}
       <IconButton
         icon={Undo2}
-        label="元に戻す"
+        label={t.header.undo}
         onClick={() => controls?.undo()}
         disabled={!ready}
       />
       <IconButton
         icon={Redo2}
-        label="やり直す"
+        label={t.header.redo}
         onClick={() => controls?.redo()}
         disabled={!ready}
         style={{ marginRight: GROUP_GAP }}
@@ -455,14 +459,14 @@ export function GraphHeader({
           <LabeledButton
             compact={iconsOnly}
             icon={Group}
-            label="group にまとめる"
+            label={t.header.group}
             onClick={() => controls?.groupSelected()}
             disabled={!ready || !groupAbility.canGroup}
           />
           <LabeledButton
             compact={iconsOnly}
             icon={Ungroup}
-            label="group を解く"
+            label={t.header.ungroup}
             onClick={() => controls?.ungroupSelected()}
             disabled={!ready || !groupAbility.canUngroup}
             style={{ marginRight: GROUP_GAP }}
@@ -472,7 +476,7 @@ export function GraphHeader({
       {shows('png') && (
         <IconButton
           icon={ImageDown}
-          label="PNG で書き出す"
+          label={t.header.exportPng}
           onClick={() => controls?.exportPng()}
           disabled={!ready}
         />
@@ -483,12 +487,12 @@ export function GraphHeader({
         <div style={{ position: 'relative', flexShrink: 0 }}>
           <IconButton
             icon={Ellipsis}
-            label="その他の操作"
+            label={t.header.more}
             aria-expanded={moreOpen}
             onClick={() => setMoreOpen((open) => !open)}
           />
           {moreOpen && (
-            <HeaderMenu label="その他の操作">
+            <HeaderMenu label={t.header.more}>
               {inMenu.map((control) => (
                 <FoldedItem
                   key={control}
@@ -512,12 +516,12 @@ export function GraphHeader({
         <div style={{ position: 'relative', marginLeft: 8 }}>
           <IconButton
             icon={Columns2}
-            label="並べる (開発用)"
+            label={t.header.arrange}
             aria-expanded={paneMenuOpen}
             onClick={() => setPaneMenuOpen((open) => !open)}
           />
           {paneMenuOpen && (
-            <HeaderMenu label="並べるグラフ">
+            <HeaderMenu label={t.header.arrangeMenu}>
               {paneCandidates.length === 0 ? (
                 <div
                   style={{
@@ -526,7 +530,7 @@ export function GraphHeader({
                     padding: 6,
                   }}
                 >
-                  並べられるタブがありません
+                  {t.header.noArrangeable}
                 </div>
               ) : (
                 paneCandidates.map((c) => (
@@ -562,7 +566,7 @@ export function GraphHeader({
             compact={iconsOnly}
             variant="secondary"
             icon={GitCommitHorizontal}
-            label="commit"
+            label={t.header.commit}
             onClick={branch.onCommit}
             disabled={branch.pendingCount === 0}
           />
@@ -570,7 +574,7 @@ export function GraphHeader({
             compact={iconsOnly}
             variant="secondary"
             icon={GitMerge}
-            label="merge"
+            label={t.header.merge}
             onClick={branch.onMerge}
             // merge できるのは「commit 済み」= 未コミットの編集が無く commit が
             // 1 件以上ある状態だけ。画面に出ている差分がそのまま merge の対象になる
@@ -606,6 +610,7 @@ function FoldedItem({
   onCopyLink?: () => Promise<void>;
   onDone: () => void;
 }) {
+  const t = useMessages();
   const item = (
     icon: LucideIcon,
     label: string,
@@ -651,16 +656,16 @@ function FoldedItem({
   };
   switch (control) {
     case 'png':
-      return item(ImageDown, 'PNG で書き出す', () => controls?.exportPng(), {
+      return item(ImageDown, t.header.exportPng, () => controls?.exportPng(), {
         disabled: !ready,
       });
     case 'map':
       return onToggleMap
-        ? item(MapIcon, 'map', onToggleMap, { checked: mapOpen })
+        ? item(MapIcon, t.header.map, onToggleMap, { checked: mapOpen })
         : null;
     case 'link':
       return onCopyLink
-        ? item(Link, 'この view のリンクを写す', () => {
+        ? item(Link, t.header.copyLink, () => {
             // 写せなかったときの知らせは渡した側が出す
             onCopyLink().catch(() => {});
           })
@@ -668,16 +673,16 @@ function FoldedItem({
     case 'group':
       return (
         <>
-          {item(Group, 'group にまとめる', () => controls?.groupSelected(), {
+          {item(Group, t.header.group, () => controls?.groupSelected(), {
             disabled: !ready || !groupAbility.canGroup,
           })}
-          {item(Ungroup, 'group を解く', () => controls?.ungroupSelected(), {
+          {item(Ungroup, t.header.ungroup, () => controls?.ungroupSelected(), {
             disabled: !ready || !groupAbility.canUngroup,
           })}
         </>
       );
     case 'search':
-      return item(Search, 'この Sheet を検索', onToggleSearch, {
+      return item(Search, t.header.search, onToggleSearch, {
         checked: searchOpen,
       });
   }

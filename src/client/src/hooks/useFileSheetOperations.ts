@@ -34,6 +34,7 @@ import { SYNC_POLL_INTERVAL_MS } from '../config';
 import type { GraphEvent } from '../events/GraphEvent';
 import { makeEventBase } from '../events/GraphEvent';
 import { exportFile, importFile } from '../files/fileTransfer';
+import { messages } from '../i18n/messages';
 import { collectBlobOrigins } from '../images/blobOrigins';
 import { subscribeLocalChanges } from '../local/localChanges';
 import type { PopupTarget } from '../SettingsPopup';
@@ -647,7 +648,7 @@ export function useFileSheetOperations({
         if (!quiet) {
           await new Promise<void>((resolve) => {
             setAlertState({
-              message: 'File を開けませんでした。',
+              message: messages().fileOps.openFailed,
               resolve,
             });
           });
@@ -819,9 +820,9 @@ export function useFileSheetOperations({
       if (target) {
         const ok = await new Promise<boolean>((resolve) => {
           setConfirmState({
-            message: `File「${target.name}」を削除しますか？\nSheet もすべて削除され、取り消せません。`,
+            message: messages().fileOps.confirmDelete(target.name),
             resolve,
-            confirmLabel: '削除',
+            confirmLabel: messages().app.delete,
             danger: true,
           });
         });
@@ -900,7 +901,7 @@ export function useFileSheetOperations({
       if (activeFile.sheets.length <= 1) {
         await new Promise<void>((resolve) => {
           setAlertState({
-            message: '最後の Sheet は削除できません',
+            message: messages().fileOps.lastSheet,
             resolve,
           });
         });
@@ -938,8 +939,7 @@ export function useFileSheetOperations({
         console.error('Failed to import file:', err);
         await new Promise<void>((resolve) => {
           setAlertState({
-            message:
-              'インポートに失敗しました。ファイル形式を確認してください。',
+            message: messages().fileOps.importFailed,
             resolve,
           });
         });
@@ -964,7 +964,7 @@ export function useFileSheetOperations({
         if (missingBlobs.length > 0) {
           await new Promise<void>((resolve) => {
             setAlertState({
-              message: `${missingBlobs.length} 個の画像の実体がこの端末に無いため, 書き出したファイルには含まれていません。`,
+              message: messages().fileOps.missingBlobs(missingBlobs.length),
               resolve,
             });
           });
@@ -1167,8 +1167,9 @@ export function useFileSheetOperations({
                 lastEditedAt,
               ),
               resolve,
-              confirmLabel: ADOPT_CONFIRM_LABEL,
-              cancelLabel: ADOPT_CANCEL_LABEL,
+              // ログインのときの問いの主のボタン (#253)。キャンセルの側は File ごとこの端末に残す
+              confirmLabel: messages().fileOps.adoptConfirm,
+              cancelLabel: messages().fileOps.adoptCancel,
             }),
           );
         },
@@ -1286,30 +1287,27 @@ function formatDateTime(at: number): string {
   );
 }
 
-/** ログインのときの問いの主のボタン (#253) */
-export const ADOPT_CONFIRM_LABEL = 'アカウントに保存する';
-/** 同じく「キャンセル」の側。File ごとこの端末に残す */
-export const ADOPT_CANCEL_LABEL = 'この端末に残す';
-
 export function localAdoptionMessage(
   batches: number,
   fileNames: readonly string[],
   accountLabel?: string,
   lastEditedAt?: number,
 ): string {
+  const t = messages().fileOps;
   const files =
-    fileNames.length === 0 ? '' : `\n(File: ${fileNames.join('、')})`;
+    fileNames.length === 0
+      ? ''
+      : t.adoptFiles(fileNames.join(t.adoptNamesSeparator));
   // 共有の端末で、前の人の編集かどうかを見分ける手がかり (#288)
   const last =
     lastEditedAt === undefined
       ? ''
-      : `\n(最後の編集: ${formatDateTime(lastEditedAt)})`;
-  const who = accountLabel ? `@${accountLabel} の` : 'あなたの';
-  const edits = batches > 0 ? `(編集 ${batches} 件) ` : '';
-  return (
-    `ログインしていない間にこの端末で作った・編集した File があります ${edits}${files}${last}\n` +
-    `${who}アカウントに保存して、他の端末や共有相手に届くようにしますか?\n` +
-    // 「送らない」の範囲を言う (#253): 名前も含めて何も送らない。後から保存する口も言う
-    '残す場合は、File ごと (名前も) この端末にだけ残ります。あとで File の詳細の「アカウントに保存する」から保存できます。'
+      : t.adoptLastEdit(formatDateTime(lastEditedAt));
+  // 「送らない」の範囲を言う (#253): 名前も含めて何も送らない。後から保存する口も言う
+  return t.adoptMessage(
+    t.adoptEdits(batches),
+    files,
+    last,
+    t.adoptWhose(accountLabel),
   );
 }

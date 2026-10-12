@@ -14,6 +14,7 @@ import {
   SQL_DRIVER_CONTRACT,
 } from '@conversensus/shared';
 import sqlite3InitModule from '@sqlite.org/sqlite-wasm';
+import { STORAGE_FAILURE } from '../storageFailure';
 import { storeBackend } from '../storeBackend';
 import type { WorkerRequest, WorkerResponse } from './protocol';
 import { WasmSqliteDriver } from './wasmSqliteDriver';
@@ -27,10 +28,12 @@ async function open() {
   const sqlite3 = await sqlite3InitModule();
   // 使えるかは `oo1.OpfsDb` の有無で見る (S0-4 の注意 4)
   if (!sqlite3.oo1.OpfsDb) {
+    // 文ではなく理由の札を送る。worker は端末に覚えた画面の言語を読めない (`localStorage` が無い) ので、
+    // 文にするのは画面の側である (`workerBackend.ts` の `startFailureReason`, #50)
     throw new Error(
       self.crossOriginIsolated
-        ? 'OPFS が使えない (プライベートブラウズなど、保存領域の無い窓の可能性)'
-        : 'cross-origin isolation が無い (COOP/COEP ヘッダが配信されていない)',
+        ? STORAGE_FAILURE.noOpfs
+        : STORAGE_FAILURE.noIsolation,
     );
   }
   const store = new LocalStore(

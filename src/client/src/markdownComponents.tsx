@@ -14,11 +14,10 @@
 
 import type { ComponentPropsWithoutRef } from 'react';
 import type { Components, ExtraProps } from 'react-markdown';
+import { messages } from './i18n/messages';
 
 const NEW_TAB = '_blank';
 const SAFE_REL = 'noopener noreferrer';
-/** 画像の代わりのリンクの頭 */
-export const IMAGE_LINK_PREFIX = '画像: ';
 
 type AnchorProps = ComponentPropsWithoutRef<'a'> & ExtraProps;
 type ImageProps = ComponentPropsWithoutRef<'img'> & ExtraProps;
@@ -31,7 +30,8 @@ export function MarkdownLink({ node: _node, ...props }: AnchorProps) {
 
 /** 画像は読み込まず、画像の場所へのリンクにする。URL が落とされていれば代替の文字だけ */
 export function MarkdownImageAsLink({ src, alt }: ImageProps) {
-  const label = `${IMAGE_LINK_PREFIX}${alt || src || ''}`;
+  // 画像の代わりのリンクの頭 (「画像: 」)
+  const label = `${messages().image.linkPrefix}${alt || src || ''}`;
   if (typeof src !== 'string' || src === '') return <span>{label}</span>;
   return (
     <a href={src} target={NEW_TAB} rel={SAFE_REL} title={src}>

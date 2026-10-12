@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { useMessages } from './i18n/messages';
 import { Button } from './ui/Button';
 import { Dialog, DialogActions } from './ui/Dialog';
 
@@ -18,10 +19,11 @@ export function ConfirmDialog({
   message,
   onConfirm,
   onCancel,
-  confirmLabel = 'OK',
-  cancelLabel = 'キャンセル',
+  confirmLabel,
+  cancelLabel,
   danger = false,
 }: Props) {
+  const t = useMessages();
   const cancelRef = useRef<HTMLButtonElement>(null);
 
   // 既定のフォーカスは「キャンセル」に置く。Enter の打ち癖で重い操作を通さない
@@ -30,17 +32,17 @@ export function ConfirmDialog({
   }, []);
 
   return (
-    <Dialog kind="confirm" label="確認" onDismiss={onCancel}>
+    <Dialog kind="confirm" label={t.common.confirm} onDismiss={onCancel}>
       <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{message}</p>
       <DialogActions>
         <Button ref={cancelRef} onClick={onCancel}>
-          {cancelLabel}
+          {cancelLabel ?? t.common.cancel}
         </Button>
         <Button
           variant={danger ? 'danger-solid' : 'primary'}
           onClick={onConfirm}
         >
-          {confirmLabel}
+          {confirmLabel ?? t.common.ok}
         </Button>
       </DialogActions>
     </Dialog>

@@ -28,6 +28,7 @@ import {
   tipClock,
   type VersionVector,
 } from '@conversensus/shared';
+import { messages } from '../i18n/messages';
 import { computeSheetChanges } from './computeOperations';
 import { labelsOfConflicts } from './conflicts';
 import { originOf, planMerge } from './mergeBranch';
@@ -73,8 +74,8 @@ export function forkSideLabels(
   const nameOf = (actor: string, fallback: string) =>
     actor === '' ? fallback : labelOf(didFromActor(actor) as Did);
   return {
-    ours: nameOf(fork.origin.ours.actor, '一方'),
-    theirs: nameOf(fork.origin.theirs.actor, 'もう一方'),
+    ours: nameOf(fork.origin.ours.actor, messages().merger.oneSide),
+    theirs: nameOf(fork.origin.theirs.actor, messages().merger.otherSide),
   };
 }
 

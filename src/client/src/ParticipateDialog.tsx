@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useMessages } from './i18n/messages';
 import { color, font, monospace, radius, space } from './theme';
 import { Button } from './ui/Button';
 import { Dialog, DialogActions } from './ui/Dialog';
@@ -29,6 +30,7 @@ export function ParticipateDialog({
   busy = false,
   error = null,
 }: Props) {
+  const t = useMessages();
   const [code, setCode] = useState('');
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -45,17 +47,17 @@ export function ParticipateDialog({
   return (
     <Dialog
       kind="input"
-      label="共同作業に参加"
-      title="参加コードを入力"
+      label={t.participate.title}
+      title={t.participate.heading}
       onDismiss={onCancel}
     >
       <p style={{ margin: `0 0 ${space[3]}px`, color: color.textMuted }}>
-        受け取った参加コードを貼り付けてください。
+        {t.participate.body}
       </p>
       <textarea
         ref={inputRef}
         value={code}
-        aria-label="参加コード"
+        aria-label={t.participate.code}
         disabled={busy}
         rows={4}
         onChange={(e) => setCode(e.target.value)}
@@ -79,9 +81,9 @@ export function ParticipateDialog({
         </p>
       )}
       <DialogActions>
-        <Button onClick={onCancel}>キャンセル</Button>
+        <Button onClick={onCancel}>{t.common.cancel}</Button>
         <Button variant="primary" disabled={busy} onClick={submit}>
-          OK
+          {t.common.ok}
         </Button>
       </DialogActions>
     </Dialog>

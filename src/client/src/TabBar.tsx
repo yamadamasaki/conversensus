@@ -10,6 +10,7 @@ import { ICON_SIZE_SM } from './ui/Button';
  */
 
 import { useEffect, useRef } from 'react';
+import { useMessages } from './i18n/messages';
 import type { Tab, TabId } from './tabs/tabs';
 
 export const TAB_BAR_HEIGHT = 32;
@@ -33,8 +34,6 @@ type Props = {
   hasNotice?: (tab: Tab) => boolean;
 };
 
-/** 通知の印の名前。タブの名前 (button の中身) には入れない — タブの名前で引く検査を変えない */
-export const TAB_NOTICE_LABEL = '確かめていない競合があります';
 const NOTICE_DOT_SIZE = 8;
 
 export function TabBar({
@@ -45,6 +44,7 @@ export function TabBar({
   onClose,
   hasNotice,
 }: Props) {
+  const t = useMessages();
   const activeRef = useRef<HTMLDivElement>(null);
   // アクティブなタブが帯の外に送られていたら見える所まで寄せる (溢れたとき)
   // biome-ignore lint/correctness/useExhaustiveDependencies: activeId が変わったときだけ寄せる
@@ -59,7 +59,7 @@ export function TabBar({
   return (
     <div
       role="tablist"
-      aria-label="開いているグラフ"
+      aria-label={t.tabs.bar}
       className="cs-tabbar"
       // マウスのホイールは縦にしか回らない。溢れた帯を横へ送れるよう、縦の回転を横に読み替える
       onWheel={(e) => {
@@ -119,8 +119,9 @@ export function TabBar({
             {hasNotice?.(tab) && (
               <span
                 role="img"
-                aria-label={TAB_NOTICE_LABEL}
-                title={TAB_NOTICE_LABEL}
+                // 通知の印の名前。タブの名前 (button の中身) には入れない — タブの名前で引く検査を変えない
+                aria-label={t.tabs.unconfirmedConflict}
+                title={t.tabs.unconfirmedConflict}
                 style={{
                   flexShrink: 0,
                   width: NOTICE_DOT_SIZE,
@@ -133,7 +134,7 @@ export function TabBar({
             )}
             <button
               type="button"
-              aria-label={`${label} を閉じる`}
+              aria-label={t.tabs.close(label)}
               onClick={() => onClose(tab.id)}
               className="cs-btn cs-btn--icon cs-btn--sm"
             >

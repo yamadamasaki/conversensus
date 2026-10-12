@@ -7,6 +7,7 @@
  */
 
 import { Pencil, Plus } from 'lucide-react';
+import { useMessages } from '../i18n/messages';
 import { color } from '../theme';
 
 export type DiffType = 'add' | 'update';
@@ -15,12 +16,14 @@ const MARK_SIZE = 16;
 const MARK_ICON = 11;
 
 const MARKS = {
-  add: { Icon: Plus, bg: color.diffAdd, label: '追加' },
-  update: { Icon: Pencil, bg: color.diffUpdate, label: '変更' },
+  add: { Icon: Plus, bg: color.diffAdd },
+  update: { Icon: Pencil, bg: color.diffUpdate },
 } as const;
 
 export function DiffMark({ diffType }: { diffType: DiffType }) {
-  const { Icon, bg, label } = MARKS[diffType];
+  const t = useMessages();
+  const { Icon, bg } = MARKS[diffType];
+  const label = t.graph.diff[diffType];
   return (
     <span
       role="img"

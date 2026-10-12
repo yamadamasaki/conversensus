@@ -2,6 +2,7 @@ import type { EdgePathType } from '@conversensus/shared';
 import { Check } from 'lucide-react';
 import { DEFAULT_EDGE_PATH_TYPE } from './graphTransform';
 import type { EdgeContextMenuState } from './hooks/useEdgeContextMenu';
+import { useMessages } from './i18n/messages';
 import { color, font, radius, shadow } from './theme';
 import { ICON_SIZE_SM } from './ui/Button';
 import { DIALOG_Z_INDEX } from './ui/Dialog';
@@ -12,6 +13,7 @@ type Props = {
 };
 
 export function EdgeContextMenu({ contextMenu, onSelect }: Props) {
+  const t = useMessages();
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: context menu uses mousedown to block propagation
     <div
@@ -39,15 +41,15 @@ export function EdgeContextMenu({ contextMenu, onSelect }: Props) {
         }}
       >
         {contextMenu.targetEdgeIds.length === 1
-          ? 'edge の種類'
-          : `${contextMenu.targetEdgeIds.length} 本の edge を変更`}
+          ? t.graph.edgeKind
+          : t.graph.edgesToChange(contextMenu.targetEdgeIds.length)}
       </div>
       {(
         [
-          [DEFAULT_EDGE_PATH_TYPE, 'Bezier（曲線）'],
-          ['straight', 'Straight（直線）'],
-          ['step', 'Step（直角）'],
-          ['smoothstep', 'Smooth Step（角丸）'],
+          [DEFAULT_EDGE_PATH_TYPE, t.graph.pathTypes.default],
+          ['straight', t.graph.pathTypes.straight],
+          ['step', t.graph.pathTypes.step],
+          ['smoothstep', t.graph.pathTypes.smoothstep],
         ] as [EdgePathType, string][]
       ).map(([type, label]) => {
         const isCurrent = contextMenu.currentPathType === type;

@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { cleanup, render, screen } from '@testing-library/react';
-import {
-  STORAGE_AT_RISK_LABEL,
-  StorageAtRiskBanner,
-} from './StorageAtRiskBanner';
+import { messages } from './i18n/messages';
+import { StorageAtRiskBanner } from './StorageAtRiskBanner';
+
+const STORAGE_AT_RISK_LABEL = messages().banners.storageAtRisk;
 
 afterEach(cleanup);
 

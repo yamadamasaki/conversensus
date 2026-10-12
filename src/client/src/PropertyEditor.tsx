@@ -29,7 +29,8 @@ import { ICON_SIZE_SM } from './ui/Button';
  */
 
 import { useEffect, useRef, useState } from 'react';
-import type { PropertyRow, ReadOnlyReason } from './property/propertyRows';
+import { messages, useMessages } from './i18n/messages';
+import type { PropertyRow } from './property/propertyRows';
 import { FLOATING_UI_Z_INDEX } from './SettingsPopup';
 
 /** 検索窓 (800) より下、画面上の浮遊 UI と同じ層 */
@@ -38,29 +39,18 @@ export const PROPERTY_EDITOR_Z_INDEX = FLOATING_UI_Z_INDEX;
 const PANEL_WIDTH = 320;
 const PANEL_MAX_HEIGHT = '60vh';
 
-/** なぜ編集できないかを人に言う。**理由ごとに文言を変える** */
-const READ_ONLY_NOTE: Record<ReadOnlyReason, string> = {
-  templateKind: '種別は作成時に決まり、変更できません',
-  structuredValue: '構造を持つ値はこの画面では編集できません',
-};
-
 /**
- * 型の表示名。
+ * 型の表示名 (辞書の `property.types`)。
  *
  * **step 2 に来るのは `string` だけである** — 型は宣言から来るもので、step 2 は
  * 宣言の仕組みを持たないからである (利用者判断 2026-09-20)。残りを残してあるのは
  * **宣言から型が引ける step 3 のため**で、そのとき拡張が `number` や `date` を
  * 宣言しうる。消すと、そのたびに表を作り直すことになる。
  */
-const TYPE_LABEL: Record<string, string> = {
-  string: '文字列',
-  number: '数値',
-  boolean: '真偽値',
-  date: '日付',
-  datetime: '日時',
-  array: '配列',
-  object: '構造体',
-};
+function typeLabel(type: string): string {
+  const types: Record<string, string> = messages().property.types;
+  return types[type] ?? type;
+}
 
 /** 値を 1 行で見せる。**編集できない値もここを通る** */
 function displayValue(value: unknown): string {
@@ -109,6 +99,7 @@ export function PropertyEditor({
   placement = 'floating',
   label = 'property',
 }: Props) {
+  const t = useMessages();
   const [newName, setNewName] = useState('');
   const [newValue, setNewValue] = useState('');
 
@@ -162,7 +153,7 @@ export function PropertyEditor({
           <button
             type="button"
             onClick={onClose}
-            aria-label="property を閉じる"
+            aria-label={t.property.close}
             className="cs-btn cs-btn--icon cs-btn--sm"
           >
             <X size={ICON_SIZE_SM} aria-hidden />
@@ -172,7 +163,7 @@ export function PropertyEditor({
 
       {rows.length === 0 ? (
         <p style={{ margin: 0, padding: 12, color: color.textMuted }}>
-          property はありません
+          {t.property.none}
         </p>
       ) : (
         <ul style={{ margin: 0, padding: 0, listStyle: 'none' }}>
@@ -195,9 +186,9 @@ export function PropertyEditor({
         >
           <div style={{ display: 'flex', gap: 6 }}>
             <input
-              aria-label="追加する property の名前"
+              aria-label={t.property.newName}
               list="property-addable"
-              placeholder="名前"
+              placeholder={t.property.newNamePlaceholder}
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               style={{
@@ -208,8 +199,8 @@ export function PropertyEditor({
               }}
             />
             <input
-              aria-label="追加する property の値"
-              placeholder="値"
+              aria-label={t.property.newValue}
+              placeholder={t.property.newValuePlaceholder}
               value={newValue}
               onChange={(e) => setNewValue(e.target.value)}
               style={{
@@ -233,7 +224,7 @@ export function PropertyEditor({
                 cursor: canAdd ? 'pointer' : 'not-allowed',
               }}
             >
-              追加
+              {t.property.add}
             </button>
           </div>
           {/* template が宣言した名前を候補に出す (仕様「名前を選択するメニュー」)。
@@ -265,6 +256,7 @@ function PropertyField({
   onSet: (name: string, value: unknown) => void;
   onRemove: (name: string) => void;
 }) {
+  const t = useMessages();
   const shown = displayValue(row.value);
   const [draft, setDraft] = useState(shown);
   const composingRef = useRef(false);
@@ -315,7 +307,7 @@ function PropertyField({
             flexShrink: 0,
           }}
         >
-          {TYPE_LABEL[row.type] ?? row.type}
+          {typeLabel(row.type)}
         </span>
       </div>
 
@@ -326,7 +318,7 @@ function PropertyField({
       ) : (
         <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
           <input
-            aria-label={`${row.name} の値`}
+            aria-label={t.property.valueOf(row.name)}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onCompositionStart={() => {
@@ -351,7 +343,7 @@ function PropertyField({
           <button
             type="button"
             onClick={() => onRemove(row.name)}
-            aria-label={`${row.name} を削除`}
+            aria-label={t.property.remove(row.name)}
             className="cs-btn cs-btn--icon cs-btn--sm"
           >
             <Trash2 size={ICON_SIZE_SM} aria-hidden />
@@ -362,7 +354,8 @@ function PropertyField({
       {/* **なぜ編集できないかを言う。**言わないと「壊れている」に見える */}
       {row.readOnly !== undefined && (
         <div style={{ color: color.textMuted, fontSize: font.caption }}>
-          {READ_ONLY_NOTE[row.readOnly]}
+          {/* なぜ編集できないかを人に言う。**理由ごとに文言を変える** */}
+          {t.property.readOnly[row.readOnly]}
         </div>
       )}
     </li>

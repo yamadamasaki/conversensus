@@ -1,6 +1,7 @@
 import type { FileId, SheetId } from '@conversensus/shared';
 import { FileDown, Trash2, Upload } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useMessages } from './i18n/messages';
 import { color, font, radius, shadow, space } from './theme';
 import { Button } from './ui/Button';
 
@@ -32,6 +33,7 @@ export function SettingsPopup({
   onExport,
   onSaveToAccount,
 }: Props) {
+  const t = useMessages();
   const [draftName, setDraftName] = useState(name);
   const [draftDesc, setDraftDesc] = useState(description);
   const popupRef = useRef<HTMLDivElement>(null);
@@ -110,7 +112,7 @@ export function SettingsPopup({
           htmlFor="popup-name"
           style={{ fontSize: font.caption, color: color.textMuted }}
         >
-          名前
+          {t.settings.name}
         </label>
         <input
           id="popup-name"
@@ -141,7 +143,7 @@ export function SettingsPopup({
           htmlFor="popup-desc"
           style={{ fontSize: font.caption, color: color.textMuted }}
         >
-          概要
+          {t.settings.description}
         </label>
         <textarea
           id="popup-desc"
@@ -153,7 +155,7 @@ export function SettingsPopup({
           onCompositionEnd={() => {
             descComposingRef.current = false;
           }}
-          placeholder="概要を入力…"
+          placeholder={t.settings.descriptionPlaceholder}
           rows={3}
           style={{
             fontSize: font.body,
@@ -168,12 +170,12 @@ export function SettingsPopup({
       {onSaveToAccount && (
         // この端末だけの File を後から送る口 (#253)。ログインのときに「この端末に残す」と答えた File
         <Button icon={Upload} onClick={onSaveToAccount}>
-          アカウントに保存する
+          {t.settings.saveToAccount}
         </Button>
       )}
       {onExport && (
         <Button icon={FileDown} onClick={onExport}>
-          エクスポート (.conversensus)
+          {t.settings.export}
         </Button>
       )}
       {/* 破壊的な操作は「OK」から最も離す (visual language §6.2, #271)。
@@ -191,7 +193,7 @@ export function SettingsPopup({
           {deleteLabel}
         </Button>
         <Button variant="primary" onClick={handleSave}>
-          OK
+          {t.settings.ok}
         </Button>
       </div>
     </div>

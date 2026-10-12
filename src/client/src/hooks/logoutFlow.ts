@@ -8,6 +8,8 @@
  * 4. 消すなら、印を付けて再読み込みする。消すのは次の起動の最初 (`local/eraseDevice.ts`)
  */
 
+import { messages } from '../i18n/messages';
+
 /** 消すと失われるもの。PDS へまだ送っていない編集 */
 export type UnsentEdits = { count: number; overflowed: boolean };
 
@@ -22,22 +24,11 @@ export type LogoutFlowDeps = {
   reload: () => void;
 };
 
-export const ERASE_CONFIRM_LABEL = '消してログアウト';
-export const KEEP_CANCEL_LABEL = '残してログアウト';
-export const OTHER_TABS_MESSAGE =
-  '別の conversensus のタブが開いているので、この端末のデータを消せません。\n' +
-  '他のタブ (インストールしたアプリの窓も含む) を閉じてから、もう一度ログアウトしてください。';
-
 export function logoutQuestion(unsent: UnsentEdits | null): string {
+  const t = messages().logout;
   const warning =
-    unsent && unsent.count > 0
-      ? `\n\nまだ送っていない編集が ${unsent.overflowed ? `${unsent.count} 件以上` : `${unsent.count} 件`}あります。消すと失われます。`
-      : '';
-  return (
-    'ログアウトします。この端末に保存した conversensus のデータ (File・設定) も消しますか?\n' +
-    '共有の端末では消してください。送ってある編集は PDS に残り、次にログインすれば戻ります。' +
-    warning
-  );
+    unsent && unsent.count > 0 ? t.unsent(unsent.count, unsent.overflowed) : '';
+  return t.question + warning;
 }
 
 export type LogoutOutcome = 'kept' | 'erasing' | 'blockedByOtherTabs';
@@ -45,7 +36,7 @@ export type LogoutOutcome = 'kept' | 'erasing' | 'blockedByOtherTabs';
 export async function logoutFlow(deps: LogoutFlowDeps): Promise<LogoutOutcome> {
   const erase = await deps.askErase(logoutQuestion(deps.unsent));
   if (erase && (await deps.otherTabsOpen())) {
-    await deps.alert(OTHER_TABS_MESSAGE);
+    await deps.alert(messages().logout.otherTabs);
     return 'blockedByOtherTabs';
   }
   await deps.logout();

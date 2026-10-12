@@ -26,6 +26,7 @@ import * as api from '../api';
 import { TRUNK_PREFIX } from '../atproto';
 import type { RemoteSyncQueue } from '../atproto/remoteSyncQueue';
 import type { GraphEvent } from '../events/GraphEvent';
+import { messages } from '../i18n/messages';
 import { branchMetaRecorder, readBranchMeta } from '../sync/branchMetaLog';
 import {
   type BranchProjectionDeps,
@@ -97,7 +98,9 @@ function describeConflicts(conflicts: readonly MergeConflict[]): string {
     byCategory.set(c.category, (byCategory.get(c.category) ?? 0) + 1);
   }
   return [...byCategory]
-    .map(([category, count]) => `${category} ${count} 件`)
+    .map(([category, count]) =>
+      messages().branchOps.conflictCount(category, count),
+    )
     .join(' / ');
 }
 
@@ -529,7 +532,7 @@ export function useBranchOperations({
         // 失敗は daemon 由来なので、原因を切り分けられるよう画面にも出す。
         await new Promise<void>((resolve) => {
           setAlertState({
-            message: 'branch を開けませんでした。',
+            message: messages().branchOps.openFailed,
             resolve,
           });
         });
@@ -560,7 +563,7 @@ export function useBranchOperations({
   const handleCreateBranch = useCallback(
     async (sheetId: SheetId) => {
       const name = await new Promise<string>((resolve) => {
-        setInputState({ message: 'branch 名を入力してください:', resolve });
+        setInputState({ message: messages().branchOps.namePrompt, resolve });
       });
       if (!name?.trim()) return;
       try {
@@ -588,7 +591,7 @@ export function useBranchOperations({
         console.warn('[branch] create failed:', err);
         await new Promise<void>((resolve) => {
           setAlertState({
-            message: 'branch の作成に失敗しました。',
+            message: messages().branchOps.createFailed,
             resolve,
           });
         });
@@ -722,7 +725,7 @@ export function useBranchOperations({
       } catch (err) {
         console.warn('[merger] merge failed:', err);
         await new Promise<void>((resolve) => {
-          setAlertState({ message: 'merge に失敗しました。', resolve });
+          setAlertState({ message: messages().branchOps.mergeFailed, resolve });
         });
       }
     },
@@ -755,7 +758,10 @@ export function useBranchOperations({
         if (blocking.length > 0) {
           const proceed = await new Promise<boolean>((resolve) => {
             setConfirmState({
-              message: `branch "${branch.name}" の取り込みで ${describeConflicts(blocking)} を検出しました。取り込むと trunk に載り、取り消せません。続けますか?`,
+              message: messages().branchOps.confirmMergeConflicts(
+                branch.name,
+                describeConflicts(blocking),
+              ),
               resolve,
               confirmLabel: 'merge',
             });
@@ -767,7 +773,7 @@ export function useBranchOperations({
         // 唯一の確認になる — 見せるものが無いのに二段構えにしても得るものが無い。
         const message = await new Promise<string>((resolve) => {
           setInputState({
-            message: `branch "${branch.name}" を trunk に merge します。理由を入力してください:`,
+            message: messages().branchOps.mergeReason(branch.name),
             resolve,
           });
         });
@@ -777,7 +783,7 @@ export function useBranchOperations({
       } catch (err) {
         console.warn('[branch] merge failed:', err);
         await new Promise<void>((resolve) => {
-          setAlertState({ message: 'merge に失敗しました。', resolve });
+          setAlertState({ message: messages().branchOps.mergeFailed, resolve });
         });
       }
     },
@@ -807,7 +813,7 @@ export function useBranchOperations({
     async (branch: BranchMeta) => {
       const ok = await new Promise<boolean>((resolve) => {
         setConfirmState({
-          message: `branch "${branch.name}" を close しますか？`,
+          message: messages().branchOps.confirmClose(branch.name),
           resolve,
           confirmLabel: 'close',
         });
@@ -833,7 +839,7 @@ export function useBranchOperations({
       } catch (err) {
         console.warn('[branch] close failed:', err);
         await new Promise<void>((resolve) => {
-          setAlertState({ message: 'close に失敗しました。', resolve });
+          setAlertState({ message: messages().branchOps.closeFailed, resolve });
         });
       }
     },
@@ -844,9 +850,9 @@ export function useBranchOperations({
     async (branch: BranchMeta) => {
       const ok = await new Promise<boolean>((resolve) => {
         setConfirmState({
-          message: `branch "${branch.name}" を削除しますか？\nこの操作は取り消せません。`,
+          message: messages().branchOps.confirmDelete(branch.name),
           resolve,
-          confirmLabel: '削除',
+          confirmLabel: messages().app.delete,
           danger: true,
         });
       });
@@ -869,7 +875,10 @@ export function useBranchOperations({
       } catch (err) {
         console.warn('[branch] delete failed:', err);
         await new Promise<void>((resolve) => {
-          setAlertState({ message: '削除に失敗しました。', resolve });
+          setAlertState({
+            message: messages().branchOps.deleteFailed,
+            resolve,
+          });
         });
       }
     },
@@ -904,7 +913,10 @@ export function useBranchOperations({
       } catch (err) {
         console.warn('[commit] create failed:', err);
         await new Promise<void>((resolve) => {
-          setAlertState({ message: 'commit に失敗しました。', resolve });
+          setAlertState({
+            message: messages().branchOps.commitFailed,
+            resolve,
+          });
         });
       }
     },

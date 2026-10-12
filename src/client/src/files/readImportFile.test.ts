@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'bun:test';
 import { CONVERSENSUS_FILE_VERSION } from '@conversensus/shared';
-import { IMPORT_READ_FAILED, readImportFile } from './readImportFile';
+import { messages } from '../i18n/messages';
+import { readImportFile } from './readImportFile';
+
+const IMPORT_READ_FAILED = messages().importErrors.readFailed;
 
 const FILE_ID = '11111111-1111-4111-8111-111111111111';
 const SHEET_ID = '22222222-2222-4222-8222-222222222222';

@@ -1,4 +1,5 @@
 import type { NodeKindRef } from '@conversensus/shared';
+import { useMessages } from './i18n/messages';
 import { color, font, radius, shadow } from './theme';
 import { DIALOG_Z_INDEX } from './ui/Dialog';
 
@@ -45,11 +46,11 @@ const ITEM: React.CSSProperties = {
   cursor: 'pointer',
 };
 
-const APPEARANCES: [NodeTypeOption, string][] = [
-  ['markdown', 'Markdown'],
-  ['group', 'group'],
-  ['image', '画像'],
-];
+const APPEARANCES = [
+  'markdown',
+  'group',
+  'image',
+] as const satisfies readonly NodeTypeOption[];
 
 /**
  * ノード生成メニュー。**2 段**にする (設計 D3)。
@@ -71,6 +72,7 @@ export function NodeTypeMenu({
   onSelect,
   graphNodeOption = false,
 }: Props) {
+  const t = useMessages();
   return (
     <div
       data-node-type-menu
@@ -90,29 +92,29 @@ export function NodeTypeMenu({
       {graphNodeOption && (
         <button
           type="button"
-          title="この File に Sheet を足し、その graph node を置く"
+          title={t.graph.graphNodeTitle}
           onClick={() => onSelect('graph')}
           style={ITEM}
         >
-          グラフ
+          {t.graph.graphNode}
         </button>
       )}
-      <div style={HEADING}>node の見た目</div>
-      {APPEARANCES.map(([type, label]) => (
+      <div style={HEADING}>{t.graph.nodeAppearance}</div>
+      {APPEARANCES.map((type) => (
         <button
           key={type}
           type="button"
           onClick={() => onSelect(type)}
           style={ITEM}
         >
-          {label}
+          {t.graph.appearances[type]}
         </button>
       ))}
 
       {/* template が当たっていないシートでは段そのものが無い (設計 D3) */}
       {nodeKinds.length > 0 && (
         <>
-          <div style={{ ...HEADING, marginTop: 4 }}>node の種別</div>
+          <div style={{ ...HEADING, marginTop: 4 }}>{t.graph.nodeKind}</div>
           {nodeKinds.map((ref) => (
             <button
               key={`${ref.templateId}/${ref.kind.id}`}

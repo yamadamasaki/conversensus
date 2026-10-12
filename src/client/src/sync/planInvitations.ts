@@ -16,6 +16,7 @@
  */
 
 import type { Did } from '@conversensus/shared';
+import { messages } from '../i18n/messages';
 
 export type PlanInvitationsDeps = {
   /** ハンドル名から DID を引く。解決できなければ `null` */
@@ -58,23 +59,23 @@ export async function planInvitations(
   const problems: string[] = [];
   for (const [handle, did] of resolved) {
     if (!did) {
-      problems.push(`${handle} は見つからない`);
+      problems.push(messages().participation.notFound(handle));
       continue;
     }
     if (did === deps.viewer) {
       // **参加中かどうかの前に見る。**離脱中の自分は `isParticipating` を抜ける
-      problems.push(`${handle} は自分自身である`);
+      problems.push(messages().participation.self(handle));
       continue;
     }
     if (deps.isParticipating(did)) {
-      problems.push(`${handle} は既に参加している`);
+      problems.push(messages().participation.alreadyParticipating(handle));
       continue;
     }
     if (!(await deps.isLocalDid(did))) {
       // 仕様は他 PDS のアカウントへの依頼を「やらない」ではなく**「無効とする」**と
       // 定めている。畳み込みも同じ判定をする (`targetForeignPds`) が、
       // ここで止めれば「なぜ相手が一覧に出ないのか」が画面に出る
-      problems.push(`${handle} は別の PDS のアカウントである`);
+      problems.push(messages().participation.foreignPds(handle));
       continue;
     }
     // **既に依頼済でも通す。**参加コードの再発行は正当な操作で、畳み込みも

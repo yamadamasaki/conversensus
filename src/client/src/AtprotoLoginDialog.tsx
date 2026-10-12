@@ -1,11 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
+import { useMessages } from './i18n/messages';
 import { color, font, radius } from './theme';
 import { Button } from './ui/Button';
 import { Dialog, DialogActions } from './ui/Dialog';
-
-/** OAuth のときの案内。パスワードはこのアプリではなく PDS のページで入れる */
-const OAUTH_NOTE =
-  'あなたの PDS のページへ移ってログインし、このアプリに戻ってきます。';
 
 type Props = {
   /**
@@ -26,6 +23,7 @@ export function AtprotoLoginDialog({
   onCancel,
   needsPassword,
 }: Props) {
+  const t = useMessages();
   const [handle, setHandle] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -46,11 +44,7 @@ export function AtprotoLoginDialog({
     } catch (error) {
       // 文言は利用者向けに丸めるので、理由はコンソールに残す (原因を追えるように)
       console.warn('[atproto] ログインを始められなかった:', error);
-      setError(
-        needsPassword
-          ? 'ログインに失敗しました。ハンドルまたはパスワードを確認してください。'
-          : 'ログインを始められませんでした。ハンドルを確認してください。',
-      );
+      setError(needsPassword ? t.login.failed : t.login.couldNotStart);
       setSubmitting(false);
     }
   };
@@ -59,8 +53,8 @@ export function AtprotoLoginDialog({
   return (
     <Dialog
       kind="input"
-      label="ATProto ログイン"
-      title="ATProto ログイン"
+      label={t.login.title}
+      title={t.login.title}
       onDismiss={onCancel}
     >
       <form onSubmit={handleSubmit}>
@@ -69,7 +63,7 @@ export function AtprotoLoginDialog({
             htmlFor="atproto-handle"
             style={{ display: 'block', fontSize: font.body, marginBottom: 4 }}
           >
-            ハンドル
+            {t.login.handle}
           </label>
           <input
             id="atproto-handle"
@@ -98,7 +92,7 @@ export function AtprotoLoginDialog({
                 marginBottom: 4,
               }}
             >
-              パスワード
+              {t.login.password}
             </label>
             <input
               id="atproto-password"
@@ -123,7 +117,8 @@ export function AtprotoLoginDialog({
               margin: '0 0 16px',
             }}
           >
-            {OAUTH_NOTE}
+            {/* OAuth のときの案内。パスワードはこのアプリではなく PDS のページで入れる */}
+            {t.login.oauthNote}
           </p>
         )}
         {error && (
@@ -139,13 +134,13 @@ export function AtprotoLoginDialog({
           </p>
         )}
         <DialogActions>
-          <Button onClick={onCancel}>キャンセル</Button>
+          <Button onClick={onCancel}>{t.common.cancel}</Button>
           <Button
             type="submit"
             variant="primary"
             disabled={submitting || !ready}
           >
-            {submitting ? 'ログイン中…' : 'ログイン'}
+            {submitting ? t.login.submitting : t.login.submit}
           </Button>
         </DialogActions>
       </form>

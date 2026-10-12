@@ -9,6 +9,7 @@ import { color, font, radius, shadow } from './theme';
 
 import type { EdgeKindRef, Template } from '@conversensus/shared';
 import { useEffect } from 'react';
+import { useMessages } from './i18n/messages';
 import { FLOATING_UI_Z_INDEX } from './SettingsPopup';
 
 type Props = {
@@ -18,15 +19,13 @@ type Props = {
   onSelect: (kind: EdgeKindRef | undefined) => void;
 };
 
-/** label の無い種類 (「この組は繋いでよい」だけを表す) の見せ方 */
-const UNNAMED = '(名前なし)';
-
 export function EdgeKindMenu({
   position,
   candidates,
   templates,
   onSelect,
 }: Props) {
+  const t = useMessages();
   // Escape で閉じる = 種類無しで繋ぐ
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -46,7 +45,7 @@ export function EdgeKindMenu({
   return (
     <div
       role="menu"
-      aria-label="edge の種類"
+      aria-label={t.graph.edgeKind}
       style={{
         position: 'fixed',
         left: position.x,
@@ -74,7 +73,10 @@ export function EdgeKindMenu({
               onClick={() => onSelect(ref)}
               style={ITEM}
             >
-              {ref.kind.label || UNNAMED}
+              {
+                // label の無い種類 (「この組は繋いでよい」だけを表す) の見せ方
+                ref.kind.label || t.graph.unnamedKind
+              }
             </button>
           ))}
         </div>
@@ -89,7 +91,7 @@ export function EdgeKindMenu({
           borderTop: `1px solid ${color.borderSubtle}`,
         }}
       >
-        種類なしで繋ぐ
+        {t.graph.connectWithoutKind}
       </button>
     </div>
   );

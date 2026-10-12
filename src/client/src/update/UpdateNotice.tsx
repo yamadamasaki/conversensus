@@ -1,3 +1,4 @@
+import { useMessages } from '../i18n/messages';
 import { color, font, radius, shadow, space } from '../theme';
 import { Button } from '../ui/Button';
 
@@ -18,14 +19,13 @@ type Props = {
   onDismiss: () => void;
 };
 
-export const UPDATE_NOTICE_LABEL = '新しい版の知らせ';
-
 export function UpdateNotice({ available, onReload, onDismiss }: Props) {
+  const t = useMessages();
   if (!available) return null;
   return (
     <section
       role="status"
-      aria-label={UPDATE_NOTICE_LABEL}
+      aria-label={t.update.label}
       style={{
         width: 380,
         maxWidth: 'calc(100vw - 32px)',
@@ -38,7 +38,7 @@ export function UpdateNotice({ available, onReload, onDismiss }: Props) {
         lineHeight: 1.6,
       }}
     >
-      <div>新しい版があります。再読み込みすると切り替わります</div>
+      <div>{t.update.text}</div>
       <div
         style={{
           display: 'flex',
@@ -48,10 +48,10 @@ export function UpdateNotice({ available, onReload, onDismiss }: Props) {
         }}
       >
         <Button className="cs-btn--sm" onClick={onDismiss}>
-          あとで
+          {t.update.later}
         </Button>
         <Button variant="primary" className="cs-btn--sm" onClick={onReload}>
-          再読み込み
+          {t.update.reload}
         </Button>
       </div>
     </section>

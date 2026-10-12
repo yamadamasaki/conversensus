@@ -53,11 +53,7 @@ import type { PreviewMarks } from './GraphPreview';
 import { highlightMarks } from './GraphPreview';
 import { alignToPane } from './graph/alignToPane';
 import { splitMetagraphEvent } from './graph/metagraphEvents';
-import {
-  ERASE_CONFIRM_LABEL,
-  KEEP_CANCEL_LABEL,
-  logoutFlow,
-} from './hooks/logoutFlow';
+import { logoutFlow } from './hooks/logoutFlow';
 import { useActor } from './hooks/useActor';
 import { useAtprotoSession } from './hooks/useAtprotoSession';
 import {
@@ -84,6 +80,7 @@ import { useTabs } from './hooks/useTabs';
 import { useViewportTier } from './hooks/useViewportTier';
 import { InputDialog } from './InputDialog';
 import { InvitationDialog } from './InvitationDialog';
+import { messages, useMessages } from './i18n/messages';
 import { BlobOriginProvider } from './images/blobOriginContext';
 import { compactHeader } from './layout/viewportTier';
 import { useViewLink } from './links/useViewLink';
@@ -145,11 +142,9 @@ const SPECIAL_SHEET_NAMES: Record<SheetKind, (n: number) => string> = {
 /** merger の後の pane で、画面の state へ返さない (`onSheetChange` の受け手) */
 const ignoreSheetChange = () => {};
 
-/** File が 1 つも無いときの案内 (§9.1)。JSX の折り返しで「、」の後に空白が入らないよう 1 つの文字列にする */
-const EMPTY_FILES_NOTE =
-  'File は Sheet (グラフ) を束ねる単位です。新しく作るか、.conversensus を import するか、受け取った参加コードで共同作業に加わってください。';
-
 export default function App() {
+  // 画面の言語を購読する。替えたら App ごと描き直し、子の文言も新しい言語になる (#50)
+  const t = useMessages();
   // Dialog state (UI only)
   const [confirmState, setConfirmState] = useState<{
     message: string;
@@ -206,7 +201,7 @@ export default function App() {
     (target: string) => {
       const label = conflictNotice.labels.get(target);
       if (label === undefined) return target;
-      return label === '' ? '(名前のない要素)' : label;
+      return label === '' ? messages().app.unnamedElement : label;
     },
     [conflictNotice.labels],
   );
@@ -244,8 +239,8 @@ export default function App() {
             setConfirmState({
               message,
               resolve,
-              confirmLabel: ERASE_CONFIRM_LABEL,
-              cancelLabel: KEEP_CANCEL_LABEL,
+              confirmLabel: messages().logout.erase,
+              cancelLabel: messages().logout.keep,
               danger: true,
             }),
           ),
@@ -647,7 +642,7 @@ export default function App() {
       const name = (await askName(message)).trim();
       if (name === '') return null;
       if (siblingNameTaken(folders.tree, parent, name, except)) {
-        await showAlert(`同じ階層に「${name}」という Folder があります`);
+        await showAlert(messages().app.folderExists(name));
         return null;
       }
       return name;
@@ -659,12 +654,12 @@ export default function App() {
     collapsed: folders.collapsed,
     onToggle: folders.toggleFolder,
     onCreate: async (parent: FolderId | undefined) => {
-      const name = await askFolderName('Folder の名前:', parent);
+      const name = await askFolderName(messages().app.folderName, parent);
       if (name !== null) folders.createFolder(name, parent);
     },
     onRename: async (node: FolderNode) => {
       const name = await askFolderName(
-        `「${node.name}」の新しい名前:`,
+        messages().app.folderNewName(node.name),
         node.folder.parent,
         node.folder.id,
       );
@@ -830,9 +825,9 @@ export default function App() {
         }
         void new Promise<boolean>((resolve) =>
           setConfirmState({
-            message: `Sheet「${target.name}」を削除しますか？\n中身もすべて削除されます。`,
+            message: messages().app.confirmDeleteSheet(target.name),
             resolve,
-            confirmLabel: '削除',
+            confirmLabel: messages().app.delete,
             danger: true,
           }),
         ).then((ok) => {
@@ -1044,10 +1039,7 @@ export default function App() {
     filesLoaded,
     hasFile: (fileId) => fileList.some((f) => f.id === fileId),
     open: openTab,
-    onMissing: () =>
-      void showAlert(
-        'リンクの File はこの端末にありません。参加している File なら、同期が終わってからもう一度開いてください',
-      ),
+    onMissing: () => void showAlert(messages().app.linkFileMissing),
   });
   /** 右サイドバーの pane (#73 Q1)。property と timeline を切り替える */
   const [rightPane, setRightPane] = useState<RightSidebarPane>('property');
@@ -1100,7 +1092,7 @@ export default function App() {
     try {
       await navigator.clipboard.writeText(viewUrl(linkAddress, location.href));
     } catch (error) {
-      void showAlert('リンクを写せませんでした');
+      void showAlert(messages().app.copyLinkFailed);
       throw error;
     }
   }, [linkAddress, showAlert]);
@@ -1233,7 +1225,9 @@ export default function App() {
     const base = sheetName ? `${fileName} / ${sheetName}` : fileName;
     const flow = branchId ? `${base} (⎇ ${names.get(branchId) ?? ''})` : base;
     // 過去の時点のタブ (#73) は、最新のタブと見分けられるようにする
-    return isReadOnlyCut(address.cut) ? `${flow} · 時点` : flow;
+    return isReadOnlyCut(address.cut)
+      ? `${flow} · ${messages().app.pastSuffix}`
+      : flow;
   };
   /** multiple のタブは pane の名前を並べる */
   const tabLabelOf = (tab: Tab) =>
@@ -1247,9 +1241,9 @@ export default function App() {
    */
   const paneCandidates = devPanesEnabled()
     ? tabs.state.tabs
-        .filter((t) => t.id !== currentTab?.id)
-        .map((t) => {
-          const address = tabAddress(t);
+        .filter((tab) => tab.id !== currentTab?.id)
+        .map((tab) => {
+          const address = tabAddress(tab);
           return {
             label: addressLabelOf(address),
             onAdd: () => tabs.addPane(address),
@@ -1335,7 +1329,7 @@ export default function App() {
         // 空の状態 (visual language §9.1, #279): 何が無いかと、次に何をすればよいか
         <EmptyState
           icon={Files}
-          title="File がありません"
+          title={t.app.emptyFilesTitle}
           actions={
             <>
               <Button
@@ -1343,7 +1337,7 @@ export default function App() {
                 icon={FilePlus}
                 onClick={() => void fileOps.handleCreate()}
               >
-                File を作る
+                {t.app.createFile}
               </Button>
               <Button
                 icon={FileUp}
@@ -1356,7 +1350,7 @@ export default function App() {
                   icon={UserPlus}
                   onClick={() => setParticipateOpen(true)}
                 >
-                  参加コードで参加する
+                  {t.app.participate}
                 </Button>
               )}
               <input
@@ -1379,11 +1373,12 @@ export default function App() {
             </>
           }
         >
-          {EMPTY_FILES_NOTE}
+          {/* File が 1 つも無いときの案内 (§9.1)。1 つの文字列にして、JSX の折り返しで「、」の後に空白が入らないようにする */}
+          {t.app.emptyFilesNote}
         </EmptyState>
       ) : (
-        <EmptyState icon={PanelLeft} title="File を開いてください">
-          左のサイドバーで File を選ぶと、その Sheet が開きます。
+        <EmptyState icon={PanelLeft} title={t.app.openFileTitle}>
+          {t.app.openFileNote}
         </EmptyState>
       )}
       {/* ボディ内の property editor (仕様: ヘッダで on にしていれば、選択している要素に
@@ -1625,7 +1620,11 @@ export default function App() {
               }}
             >
               <PaneFrame
-                label={`merge 元: ${addressLabelOf(currentTab.panes[MERGER_PANE.source] as GraphViewAddress)} (開いた時点)`}
+                label={t.app.mergeSource(
+                  addressLabelOf(
+                    currentTab.panes[MERGER_PANE.source] as GraphViewAddress,
+                  ),
+                )}
                 active={false}
               >
                 <PassivePane
@@ -1638,7 +1637,11 @@ export default function App() {
                 />
               </PaneFrame>
               <PaneFrame
-                label={`merge 先: ${addressLabelOf(currentTab.panes[MERGER_PANE.target] as GraphViewAddress)}`}
+                label={t.app.mergeTarget(
+                  addressLabelOf(
+                    currentTab.panes[MERGER_PANE.target] as GraphViewAddress,
+                  ),
+                )}
                 active={false}
               >
                 <PassivePane
@@ -1650,7 +1653,7 @@ export default function App() {
                   onElementContextMenu={openTakeMenu('target')}
                 />
               </PaneFrame>
-              <PaneFrame label="merge 後" active>
+              <PaneFrame label={t.app.mergeResult} active>
                 {activeBody}
               </PaneFrame>
               {takeMenu && (
@@ -1663,7 +1666,7 @@ export default function App() {
                 >
                   <div
                     role="menu"
-                    aria-label="取り込む"
+                    aria-label={t.app.take}
                     style={{
                       position: 'fixed',
                       left: takeMenu.at.x,
@@ -1690,7 +1693,7 @@ export default function App() {
                         padding: '4px 8px',
                       }}
                     >
-                      merge 後に取り込む ({takeMenu.ids.length})
+                      {t.app.takeIntoResult(takeMenu.ids.length)}
                     </button>
                   </div>
                 </div>

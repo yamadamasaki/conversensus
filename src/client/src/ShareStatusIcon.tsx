@@ -1,4 +1,5 @@
 import { Users } from 'lucide-react';
+import { useMessages } from './i18n/messages';
 import { color } from './theme';
 import { ICON_SIZE_SM } from './ui/Button';
 
@@ -28,6 +29,7 @@ const ICON_BOX = 15;
 const CROSS_COLOR = color.dangerText;
 
 export function ShareStatusIcon({ detached }: { detached: boolean }) {
+  const t = useMessages();
   return (
     <span
       style={{
@@ -44,7 +46,7 @@ export function ShareStatusIcon({ detached }: { detached: boolean }) {
       {detached && (
         <svg
           role="img"
-          aria-label="共有が切れている"
+          aria-label={t.sync.detached}
           viewBox="0 0 16 16"
           style={{
             position: 'absolute',

@@ -38,7 +38,9 @@ mock.module('./EventDispatchContext', () => ({
 const { render, screen, fireEvent, cleanup, waitFor } = await import(
   '@testing-library/react'
 );
-const { EXTERNAL_IMAGE_BLOCKED, ImageNode } = await import('./ImageNode');
+const { ImageNode } = await import('./ImageNode');
+const { messages } = await import('./i18n/messages');
+const EXTERNAL_IMAGE_BLOCKED = messages().image.blocked;
 const { ImageErrorProvider } = await import('./images/imageErrorContext');
 const { setLocalBackend } = await import('./api');
 

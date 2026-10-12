@@ -79,6 +79,7 @@ import {
 import { useImageIntake } from './hooks/useImageIntake';
 import { useNodeDragTracking } from './hooks/useNodeDragTracking';
 import { useNodeTypeMenu } from './hooks/useNodeTypeMenu';
+import { messages, useMessages } from './i18n/messages';
 import { ImageErrorProvider } from './images/imageErrorContext';
 import { NodeCreationContext } from './NodeCreationContext';
 import type { NodeTypeOption } from './NodeTypeMenu';
@@ -185,6 +186,7 @@ function GraphEditorInner({
   onGroupAbilityChange,
   showMap = true,
 }: Props) {
+  const t = useMessages();
   const { screenToFlowPosition, getNodes, getEdges, setCenter, fitView } =
     useReactFlow();
   // キャンバスの大きさが変わったら表示を合わせ直す。自分で動かした後は動かさない (#257)
@@ -274,7 +276,7 @@ function GraphEditorInner({
       return {
         kind: 'edge',
         id: edge.id,
-        title: String(edge.label || '辺'),
+        title: String(edge.label || messages().graph.unnamedEdge),
         properties,
         // **候補は edge にしか無い** — 宣言を持つのは `EdgeKind` だけである
         addable: addablePropertyNames(templates, properties),
@@ -965,7 +967,7 @@ function GraphEditorInner({
                         fontSize: font.body,
                       }}
                     >
-                      参加していなかった間の編集を取り込んでいます。終わるまで読み取り専用です
+                      {t.graph.readOnlyCatchingUp}
                     </div>
                   </Panel>
                 )}
@@ -973,9 +975,9 @@ function GraphEditorInner({
                   // 空の Sheet (visual language §9.1, #279): 何をすれば node ができるかを言う。
                   // 押す操作を邪魔しないよう、ポインタは下の pane へ通す
                   <div aria-live="polite" style={EMPTY_SHEET_HINT}>
-                    <p style={{ margin: 0 }}>ダブルクリックで node を作る</p>
+                    <p style={{ margin: 0 }}>{t.graph.emptyHint}</p>
                     <p style={{ margin: 0, fontSize: font.caption }}>
-                      画像をドロップしても置けます
+                      {t.graph.emptyHintImage}
                     </p>
                   </div>
                 )}

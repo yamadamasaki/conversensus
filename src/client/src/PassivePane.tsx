@@ -6,6 +6,7 @@ import { color, font } from './theme';
 import type { GraphViewAddress, Sheet } from '@conversensus/shared';
 import { GraphPreview, type PreviewMarks } from './GraphPreview';
 import { usePaneSheet } from './hooks/usePaneSheet';
+import { useMessages } from './i18n/messages';
 
 const MESSAGE = {
   display: 'flex',
@@ -30,10 +31,12 @@ export function PassivePane({
   onElementClick,
   onElementContextMenu,
 }: Props) {
+  const t = useMessages();
   const state = usePaneSheet(address);
-  if (state.kind === 'loading') return <div style={MESSAGE}>読み込み中…</div>;
+  if (state.kind === 'loading')
+    return <div style={MESSAGE}>{t.pane.loading}</div>;
   if (state.kind === 'missing')
-    return <div style={MESSAGE}>このグラフは見つかりません</div>;
+    return <div style={MESSAGE}>{t.pane.missing}</div>;
   return (
     <GraphPreview
       sheet={state.sheet}

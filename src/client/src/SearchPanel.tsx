@@ -22,6 +22,7 @@ import { ICON_SIZE_SM } from './ui/Button';
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { useMessages } from './i18n/messages';
 import { HitText, hitKeyOf } from './search/HitText';
 import type { SearchHit } from './search/searchSheet';
 
@@ -52,6 +53,7 @@ export function SearchPanel({
   onReveal,
   onClose,
 }: Props) {
+  const t = useMessages();
   const [query, setQuery] = useState('');
   const [caseSensitive, setCaseSensitive] = useState(false);
   // 日本語の入力中 (変換中) に検索を走らせない。走らせると未確定の文字で
@@ -73,7 +75,7 @@ export function SearchPanel({
 
   return (
     <section
-      aria-label="検索"
+      aria-label={t.search.region}
       style={{
         position: 'absolute',
         top: 12,
@@ -100,8 +102,8 @@ export function SearchPanel({
         <input
           ref={inputRef}
           type="text"
-          aria-label="検索語"
-          placeholder="この Sheet を検索"
+          aria-label={t.search.term}
+          placeholder={t.search.sheetPlaceholder}
           value={query}
           onChange={(e) => {
             setQuery(e.target.value);
@@ -151,7 +153,7 @@ export function SearchPanel({
         <button
           type="button"
           onClick={onClose}
-          aria-label="検索を閉じる"
+          aria-label={t.search.close}
           className="cs-btn cs-btn--icon cs-btn--sm"
         >
           <X size={ICON_SIZE_SM} aria-hidden />
@@ -162,7 +164,7 @@ export function SearchPanel({
         <div style={{ maxHeight: RESULTS_MAX_HEIGHT, overflowY: 'auto' }}>
           {hits.length === 0 ? (
             <p style={{ margin: 0, padding: 12, color: color.textMuted }}>
-              「{query}」に当たるものはありません
+              {t.search.noMatch(query)}
             </p>
           ) : (
             <ul style={{ margin: 0, padding: 0, listStyle: 'none' }}>

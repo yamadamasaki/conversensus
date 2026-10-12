@@ -15,6 +15,7 @@ import { ICON_SIZE } from './ui/Button';
  */
 
 import { type ReactNode, useRef } from 'react';
+import { useMessages } from './i18n/messages';
 import {
   type PanelSide,
   resizedWidth,
@@ -59,6 +60,7 @@ export function SidePanel({
   onDismiss,
   children,
 }: Props) {
+  const t = useMessages();
   const drag = useRef<{ startX: number; startWidth: number } | null>(null);
   const border = side === 'left' ? 'borderRight' : 'borderLeft';
   // 広げる・畳むの印。サイドバーの側に合わせる
@@ -83,7 +85,7 @@ export function SidePanel({
       {withButton && (
         <button
           type="button"
-          aria-label={`${label}を広げる`}
+          aria-label={t.sidePanel.expand(label)}
           onClick={onToggle}
           className="cs-btn cs-btn--icon"
         >
@@ -99,7 +101,7 @@ export function SidePanel({
     <div
       role="separator"
       aria-orientation="vertical"
-      aria-label={`${label}の幅`}
+      aria-label={t.sidePanel.width(label)}
       aria-valuenow={state.width}
       tabIndex={0}
       onPointerDown={(e) => {
@@ -169,7 +171,7 @@ export function SidePanel({
     >
       <button
         type="button"
-        aria-label={`${label}を畳む`}
+        aria-label={t.sidePanel.collapse(label)}
         onClick={onToggle}
         className="cs-btn cs-btn--icon cs-btn--sm"
         style={{
