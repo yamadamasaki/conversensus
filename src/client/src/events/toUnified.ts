@@ -36,7 +36,7 @@ import {
   nodeSetLayoutOp,
   type Op,
 } from '@conversensus/shared';
-import type { GraphEvent } from './GraphEvent';
+import type { GraphEvent, LayoutFit } from './GraphEvent';
 
 /**
  * `node.setLayout` op の生成は **shared の `nodeSetLayoutOp` に一本化してある** (ANA-125 S4)。
@@ -140,6 +140,7 @@ export function graphEventToOps(event: GraphEvent): Op[] {
           x: event.newPosition.x,
           y: event.newPosition.y,
         }),
+        ...fittedOps(event.fitted),
       ];
     case 'NODES_GROUPED': {
       const ops: Op[] = [
@@ -247,13 +248,17 @@ export function graphEventToOps(event: GraphEvent): Op[] {
         ...(change.value !== undefined && { value: change.value }),
       }));
     case 'NODE_MOVED':
-      return [nodeSetLayoutOp(event.nodeId, { x: event.to.x, y: event.to.y })];
+      return [
+        nodeSetLayoutOp(event.nodeId, { x: event.to.x, y: event.to.y }),
+        ...fittedOps(event.fitted),
+      ];
     case 'NODE_RESIZED':
       return [
         nodeSetLayoutOp(event.nodeId, {
           width: event.to.width,
           height: event.to.height,
         }),
+        ...fittedOps(event.fitted),
       ];
     case 'NODE_STYLE_CHANGED': {
       // 実体は width/height の変更 → layout に正規化する
@@ -407,4 +412,9 @@ export function graphEventToBatch(
     ops: graphEventToOps(event),
     ...(sheetId !== undefined && { sheetId }),
   };
+}
+
+/** 親 group を広げた分 (#250) を、元の操作と同じ batch の layout op にする */
+function fittedOps(fitted: LayoutFit[] | undefined): Op[] {
+  return (fitted ?? []).map((f) => nodeSetLayoutOp(f.nodeId, f.to));
 }

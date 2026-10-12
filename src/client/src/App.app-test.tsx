@@ -2543,3 +2543,32 @@ describe('App 結合: Deep Link (#251)', () => {
     expect(screen.queryAllByRole('tab')).toHaveLength(0);
   });
 });
+
+describe('App 結合: map の on/off (#182)', () => {
+  const minimap = () => document.querySelector('.react-flow__minimap');
+
+  test('ヘッダの map で消し、再読み込みの後も消えたまま、押せばまた出る', async () => {
+    await world.activate('solo');
+    render(<App />);
+    const user = userEvent.setup();
+    await createFile(user, FILE_NAME);
+    await waitFor(() => expect(minimap()).not.toBeNull(), WIRING_TIMEOUT);
+
+    await user.click(screen.getByRole('button', { name: 'map' }));
+    await waitFor(() => expect(minimap()).toBeNull());
+
+    cleanup();
+    await world.activate('solo');
+    render(<App />);
+    const again = await screen.findByRole(
+      'button',
+      { name: 'map' },
+      WIRING_TIMEOUT,
+    );
+    expect(again.getAttribute('aria-pressed')).toBe('false');
+    expect(minimap()).toBeNull();
+
+    await userEvent.setup().click(again);
+    await waitFor(() => expect(minimap()).not.toBeNull());
+  });
+});

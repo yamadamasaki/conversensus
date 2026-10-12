@@ -5,6 +5,7 @@ import {
 } from '@conversensus/shared';
 import type { Edge, Node } from '@xyflow/react';
 import {
+  applyLayoutFits,
   recalculateParentBounds,
   toFlowEdges,
   toFlowNodes,
@@ -74,10 +75,19 @@ export function applyEvent(
       };
 
     case 'NODE_REPARENTED': {
-      const withUpdated = nodes.map((n) =>
-        n.id !== event.nodeId
-          ? n
-          : { ...n, parentId: event.newParentId, position: event.newPosition },
+      // 親 group を広げた分 (#250) を先に当てる。無ければ (古い undo の履歴) 下の
+      // recalculateParentBounds が広げる
+      const withUpdated = applyLayoutFits(
+        nodes.map((n) =>
+          n.id !== event.nodeId
+            ? n
+            : {
+                ...n,
+                parentId: event.newParentId,
+                position: event.newPosition,
+              },
+        ),
+        event.fitted,
       );
       if (!event.newParentId) {
         return { nodes: recalculateParentBounds(withUpdated), edges };
@@ -211,9 +221,16 @@ export function applyEvent(
       };
 
     case 'NODE_MOVED':
+      // group の中で動かしてはみ出したら、親を広げる (#250)。以前は親を変えたときと
+      // 大きさを変えたときだけ広げていた
       return {
-        nodes: nodes.map((n) =>
-          n.id === event.nodeId ? { ...n, position: event.to } : n,
+        nodes: recalculateParentBounds(
+          applyLayoutFits(
+            nodes.map((n) =>
+              n.id === event.nodeId ? { ...n, position: event.to } : n,
+            ),
+            event.fitted,
+          ),
         ),
         edges,
       };
@@ -221,17 +238,20 @@ export function applyEvent(
     case 'NODE_RESIZED':
       return {
         nodes: recalculateParentBounds(
-          nodes.map((n) =>
-            n.id === event.nodeId
-              ? {
-                  ...n,
-                  style: {
-                    ...n.style,
-                    width: event.to.width,
-                    height: event.to.height,
-                  },
-                }
-              : n,
+          applyLayoutFits(
+            nodes.map((n) =>
+              n.id === event.nodeId
+                ? {
+                    ...n,
+                    style: {
+                      ...n.style,
+                      width: event.to.width,
+                      height: event.to.height,
+                    },
+                  }
+                : n,
+            ),
+            event.fitted,
           ),
         ),
         edges,

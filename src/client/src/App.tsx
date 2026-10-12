@@ -1213,6 +1213,7 @@ export default function App() {
                 key={addressKey(viewAddress)}
                 graphKey={addressKey(viewAddress)}
                 undoStateMap={undoStateMapRef}
+                showMap={panels.mapOpen}
                 sheet={editorSheet ?? viewSheet}
                 fileId={fileOps.activeFile.id}
                 fileName={fileOps.activeFile.name}
@@ -1532,6 +1533,8 @@ export default function App() {
             onToggleSearch={panels.toggleSearch}
             propertyOpen={panels.propertyOpen}
             onToggleProperty={panels.toggleProperty}
+            mapOpen={panels.mapOpen}
+            onToggleMap={panels.toggleMap}
             branch={headerBranch}
             paneCandidates={paneCandidates}
             onCopyLink={copyViewLink}

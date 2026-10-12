@@ -18,7 +18,20 @@ import type {
   PropertyTarget,
 } from '../graph/editorControls';
 import { type SearchHit, searchSheet } from '../search/searchSheet';
+import { safeLocalStorage } from '../sync/safeStorage';
 import { type GroupAbility, NO_GROUP_ABILITY } from './useGroupNodes';
+
+/** map の on/off を覚えておく所 (#182)。端末ごと */
+export const MAP_VISIBLE_STORAGE_KEY = 'conversensus.mapVisible';
+
+/** 既定は出す。消したことだけを覚える */
+function restoreMapVisible(): boolean {
+  try {
+    return safeLocalStorage()?.getItem(MAP_VISIBLE_STORAGE_KEY) !== 'false';
+  } catch {
+    return true;
+  }
+}
 
 export function useGraphPanels(viewKey: string | null) {
   const [controls, setControls] = useState<GraphEditorControls | null>(null);
@@ -26,6 +39,16 @@ export function useGraphPanels(viewKey: string | null) {
   const [groupAbility, setGroupAbility] =
     useState<GroupAbility>(NO_GROUP_ABILITY);
   const [propertyOpen, setPropertyOpen] = useState(false);
+  // map の on/off は property editor と同じくヘッダのオプションで、view をまたいで保つ。
+  // 再読み込みの後も保つ (#182)
+  const [mapOpen, setMapOpen] = useState(restoreMapVisible);
+  useEffect(() => {
+    try {
+      safeLocalStorage()?.setItem(MAP_VISIBLE_STORAGE_KEY, String(mapOpen));
+    } catch {
+      // 覚えられなくても切り替えは効く。再読み込みで出す側に戻るだけである
+    }
+  }, [mapOpen]);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchHits, setSearchHits] = useState<SearchHit[]>([]);
   // 「まだ引いていない」と「引いて 0 件」を分ける。同じ見た目にすると、開いた
@@ -65,6 +88,8 @@ export function useGraphPanels(viewKey: string | null) {
     propertyOpen,
     toggleProperty: useCallback(() => setPropertyOpen((open) => !open), []),
     closeProperty: useCallback(() => setPropertyOpen(false), []),
+    mapOpen,
+    toggleMap: useCallback(() => setMapOpen((open) => !open), []),
     searchOpen,
     toggleSearch: useCallback(() => {
       if (searchOpen) closeSearch();

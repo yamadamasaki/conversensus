@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { applyEvent } from '../events/applyEvent';
 import type { GraphEvent } from '../events/GraphEvent';
 import { invertEvent } from '../events/invertEvent';
+import { withParentFit } from '../graph/parentFit';
 
 const MAX_UNDO_STACK = 50;
 
@@ -45,8 +46,10 @@ export function useEventStore(
   }, []);
 
   const dispatch = useCallback(
-    (event: GraphEvent) => {
+    (dispatched: GraphEvent) => {
       const { nodes: currentNodes, edges: currentEdges } = stateRef.current;
+      // 親 group を広げた分を載せる (#250)。op-log にも undo にも同じ姿が入る
+      const event = withParentFit(dispatched, currentNodes, currentEdges);
       const inverse = invertEvent(event);
       const { nodes: newNodes, edges: newEdges } = applyEvent(
         event,

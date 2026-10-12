@@ -175,6 +175,34 @@ export function fromFlowNodes(nodes: Node[]): {
   return { nodes: graphNodes, layouts };
 }
 
+/**
+ * 親 group を広げた分 (#250, `LayoutFit`) を node に当てる。置き場所はそのまま、大きさは
+ * 持っているときだけ替える
+ */
+export function applyLayoutFits(
+  nodes: Node[],
+  fits:
+    | readonly {
+        nodeId: string;
+        to: { x: number; y: number; width?: number; height?: number };
+      }[]
+    | undefined,
+): Node[] {
+  if (!fits || fits.length === 0) return nodes;
+  const byId = new Map(fits.map((f) => [f.nodeId, f.to]));
+  return nodes.map((node) => {
+    const box = byId.get(node.id);
+    if (!box) return node;
+    return {
+      ...node,
+      position: { x: box.x, y: box.y },
+      ...(box.width !== undefined || box.height !== undefined
+        ? { style: { ...node.style, width: box.width, height: box.height } }
+        : {}),
+    };
+  });
+}
+
 // 子ノードが親ノードの境界をはみ出している場合, 親を拡大して全ての子を包む
 export function recalculateParentBounds(nodes: Node[]): Node[] {
   const childrenByParent = new Map<string, Node[]>();

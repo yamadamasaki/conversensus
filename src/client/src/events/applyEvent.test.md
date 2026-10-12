@@ -144,3 +144,10 @@ React Flow は親が居ない子の相対座標の扱いを規定していない
 `data.label` を更新し、**`data.content` は触らない**。P0 で分けた 2 つのフィールドが
 画面側でも分かれていることの確認で、`NODE_CONTENT_CHANGED` の対になる。
 対象でないノードに `label` が生えないことも併せて見る。
+
+## 親 group を広げる (#250)
+
+- `NODE_MOVED` で group の中の node がはみ出したら、親を広げる (以前は親を変えたとき・大きさを変えたとき
+  だけ広げていた)
+- event に載っている広げた分 (`fitted`) を当てる。求め方と op-log・undo との整合は
+  `graph/parentFit.test.md` が見る

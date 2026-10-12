@@ -22,6 +22,7 @@ import {
   Group,
   ImageDown,
   Link,
+  Map as MapIcon,
   PanelRight,
   Redo2,
   Search,
@@ -66,6 +67,9 @@ type Props = {
   onToggleSearch: () => void;
   propertyOpen: boolean;
   onToggleProperty: () => void;
+  /** map の on/off (#182)。渡さなければ出さない */
+  mapOpen?: boolean;
+  onToggleMap?: () => void;
   branch: HeaderBranch | null;
   /**
    * 並べられるもの (multiple モードの開発用の入口, S3-5 / Q6)。開いている他のタブのアドレスで、
@@ -302,6 +306,8 @@ export function GraphHeader({
   onToggleSearch,
   propertyOpen,
   onToggleProperty,
+  mapOpen,
+  onToggleMap,
   branch,
   paneCandidates,
   onCopyLink,
@@ -339,8 +345,17 @@ export function GraphHeader({
         label="property"
         onClick={onToggleProperty}
         aria-pressed={propertyOpen}
-        style={{ marginRight: GROUP_GAP }}
+        style={onToggleMap ? undefined : { marginRight: GROUP_GAP }}
       />
+      {onToggleMap && (
+        <IconButton
+          icon={MapIcon}
+          label="map"
+          onClick={onToggleMap}
+          aria-pressed={mapOpen ?? false}
+          style={{ marginRight: GROUP_GAP }}
+        />
+      )}
       <IconButton
         icon={Undo2}
         label="元に戻す"

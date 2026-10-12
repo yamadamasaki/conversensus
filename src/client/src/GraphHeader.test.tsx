@@ -174,3 +174,36 @@ describe('GraphHeader のリンクを写すボタン (#251)', () => {
     ).toBeNull();
   });
 });
+
+describe('GraphHeader の map の on/off (#182)', () => {
+  function renderWithMap(mapOpen?: boolean, onToggleMap?: () => void) {
+    render(
+      <GraphHeader
+        controls={controls()}
+        title={TITLE}
+        groupAbility={NO_GROUP_ABILITY}
+        searchOpen={false}
+        onToggleSearch={noop}
+        propertyOpen={false}
+        onToggleProperty={noop}
+        mapOpen={mapOpen}
+        onToggleMap={onToggleMap}
+        branch={null}
+      />,
+    );
+  }
+
+  test('渡さなければ出さない', () => {
+    renderWithMap();
+    expect(screen.queryByRole('button', { name: 'map' })).toBeNull();
+  });
+
+  test('出ているかを押された状態で示し、押せば切り替えを頼む', () => {
+    const onToggleMap = mock(noop);
+    renderWithMap(true, onToggleMap);
+    const button = screen.getByRole('button', { name: 'map' });
+    expect(button.getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(button);
+    expect(onToggleMap).toHaveBeenCalledTimes(1);
+  });
+});

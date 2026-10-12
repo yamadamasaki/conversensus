@@ -656,3 +656,9 @@ happy-dom の既定の URL (`about:blank`) では fragment を書けないので
   (別のブラウザでは起きない)
 - happy-dom は `replaceState` でも `hashchange` を出す。移る途中の姿 (branch を開く前の trunk) を書いたのを
   届いたリンクと取り違え、「再読み込みしてもタブが並ぶ (Q3)」が落ちた。自分で書いた値は読み飛ばすようにした
+
+## map の on/off (#182)
+
+ヘッダの「map」で canvas の map を消すと、**再読み込みの後も消えたまま**で (端末の `localStorage`)、
+押せばまた出る。ヘッダ・`useGraphPanels`・`GraphEditor` をまたぐので、この層で見る。map で見る範囲を動かす
+(`pannable` / `zoomable`) は React Flow の機能そのものなので、ここでは見ない (実機で確かめる)。

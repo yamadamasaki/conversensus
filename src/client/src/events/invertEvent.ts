@@ -1,4 +1,4 @@
-import type { GraphEvent } from './GraphEvent';
+import type { GraphEvent, LayoutFit } from './GraphEvent';
 import { makeEventBase } from './GraphEvent';
 
 export function invertEvent(event: GraphEvent): GraphEvent {
@@ -59,6 +59,7 @@ export function invertEvent(event: GraphEvent): GraphEvent {
         newParentId: event.oldParentId,
         oldPosition: event.newPosition,
         newPosition: event.oldPosition,
+        ...invertFitted(event.fitted),
       };
     case 'NODES_GROUPED':
       return {
@@ -159,6 +160,7 @@ export function invertEvent(event: GraphEvent): GraphEvent {
         nodeId: event.nodeId,
         from: event.to,
         to: event.from,
+        ...invertFitted(event.fitted),
       };
     case 'NODE_RESIZED':
       return {
@@ -168,6 +170,7 @@ export function invertEvent(event: GraphEvent): GraphEvent {
         nodeId: event.nodeId,
         from: event.to,
         to: event.from,
+        ...invertFitted(event.fitted),
       };
     case 'EDGE_STYLE_CHANGED':
       return {
@@ -233,4 +236,19 @@ export function invertEvent(event: GraphEvent): GraphEvent {
         `invertEvent: 構造イベントは反転不可 (undo 対象外): ${event.type}`,
       );
   }
+}
+
+/** 親 group を広げた分を逆向きにする (#250)。無ければ項目ごと付けない */
+function invertFitted(fitted: LayoutFit[] | undefined): {
+  fitted?: LayoutFit[];
+} {
+  return fitted
+    ? {
+        fitted: fitted.map((f) => ({
+          nodeId: f.nodeId,
+          from: f.to,
+          to: f.from,
+        })),
+      }
+    : {};
 }

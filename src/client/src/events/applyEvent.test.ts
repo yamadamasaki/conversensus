@@ -713,6 +713,53 @@ describe('NODE_MOVED', () => {
     expect(nodes[0].position).toEqual({ x: 50, y: 60 });
     expect(nodes[1].position).toEqual({ x: 100, y: 200 });
   });
+
+  it('group の中で動かしてはみ出したら、親を広げる (#250)', () => {
+    const g = {
+      id: 'g',
+      type: 'groupNode',
+      position: { x: 0, y: 0 },
+      data: {},
+      style: { width: 300, height: 200 },
+    };
+    const c = {
+      id: 'c',
+      parentId: 'g',
+      position: { x: 20, y: 50 },
+      data: {},
+      style: { width: 160, height: 80 },
+    };
+    const event: GraphEvent = {
+      ...base,
+      category: 'layout',
+      type: 'NODE_MOVED',
+      nodeId: 'c' as NodeId,
+      from: { x: 20, y: 50 },
+      to: { x: 400, y: 50 },
+    };
+    const { nodes } = applyEvent(event, [g, c], []);
+    expect(Number(nodes[0].style?.width)).toBeGreaterThanOrEqual(400 + 160);
+  });
+
+  it('載っている広げた分 (fitted) を当てる (#250)', () => {
+    const event: GraphEvent = {
+      ...base,
+      category: 'layout',
+      type: 'NODE_MOVED',
+      nodeId: 'n1' as NodeId,
+      from: { x: 10, y: 20 },
+      to: { x: 50, y: 60 },
+      fitted: [
+        {
+          nodeId: 'n2' as NodeId,
+          from: { x: 100, y: 200 },
+          to: { x: 130, y: 200 },
+        },
+      ],
+    };
+    const { nodes } = applyEvent(event, [n1, n2], []);
+    expect(nodes[1].position).toEqual({ x: 130, y: 200 });
+  });
 });
 
 describe('NODE_RESIZED', () => {
