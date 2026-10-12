@@ -93,10 +93,10 @@ describe('GraphHeader の狭い画面 (visual language §9.2)', () => {
 });
 
 describe('GraphHeader の名前と状態 (#276)', () => {
-  test('File と Sheet の名前を出し、全体を tooltip に持つ', () => {
+  test('File と Sheet の名前を出す (切れたときの tooltip は `ClippedText` が出す)', () => {
     renderHeader(false, controls(), null);
     expect(screen.getByText('Sheet 1')).toBeTruthy();
-    expect(screen.getByTitle('研究 / Sheet 1')).toBeTruthy();
+    expect(screen.getByText(/研究/)).toBeTruthy();
   });
 
   test('branch でなければ trunk と言う', () => {

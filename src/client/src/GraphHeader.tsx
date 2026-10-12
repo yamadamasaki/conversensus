@@ -42,6 +42,7 @@ import {
 } from './layout/headerFold';
 import { useFoldLevel } from './layout/useFoldLevel';
 import { Button, ICON_SIZE, ICON_SIZE_SM, IconButton } from './ui/Button';
+import { ClippedText } from './ui/ClippedText';
 
 export const GRAPH_HEADER_HEIGHT = 40;
 
@@ -207,22 +208,9 @@ const COMPACT_TITLE_MIN_WIDTH = 64;
 /** branch の名前の幅の上限。長い名前でチップが名前の欄を占めないように (全体は tooltip) */
 const BRANCH_NAME_MAX_WIDTH = 160;
 
-/** 省略で縮む名前。全体は tooltip に出す */
+/** 省略で縮む名前。切れていれば全体を tooltip に出す (`ClippedText`) */
 function ClippedName({ name, maxWidth }: { name: string; maxWidth?: number }) {
-  return (
-    <span
-      title={name}
-      style={{
-        minWidth: 0,
-        maxWidth,
-        overflow: 'hidden',
-        textOverflow: 'ellipsis',
-        whiteSpace: 'nowrap',
-      }}
-    >
-      {name}
-    </span>
-  );
+  return <ClippedText full={name} style={{ maxWidth }} />;
 }
 
 /** 状態の印。流れ (trunk / branch / merge) と、未 commit の変更 */
@@ -297,16 +285,7 @@ function GraphTitle({
         fontSize: font.body,
       }}
     >
-      <span
-        title={full}
-        style={{
-          flex: '0 1 auto',
-          minWidth: 0,
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-        }}
-      >
+      <ClippedText full={full} style={{ flex: '0 1 auto' }}>
         {/* 狭い画面では File の名前を tooltip に退け、Sheet の名前だけを残す */}
         {!compact && (
           <span style={{ color: color.textMuted }}>{title.fileName} / </span>
@@ -314,7 +293,7 @@ function GraphTitle({
         <strong style={{ fontWeight: fontWeight.strong }}>
           {title.sheetName}
         </strong>
-      </span>
+      </ClippedText>
       {title.past ? (
         <>
           {title.past.branchName !== null ? (
@@ -424,8 +403,8 @@ export function GraphHeader({
         padding: '0 8px',
         borderBottom: `1px solid ${color.border}`,
         background: color.bgSubtle,
-        // 畳み切っても入らない幅では切る (はみ出して下の canvas に重ならない)
-        overflow: 'hidden',
+        // **`overflow: hidden` にしない** — 「…」のメニューはこの中に置くので、切るとメニューが
+        // ボディの下に隠れる (利用者の指摘)。溢れの測定 (`scrollWidth`) は切らなくても効く
       }}
     >
       <GraphTitle title={title} branch={branch} compact={compact} />

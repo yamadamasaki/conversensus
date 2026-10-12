@@ -47,10 +47,34 @@ test.describe('ヘッダの畳み', () => {
       toolbar.getByRole('button', { name: '元に戻す' }),
     ).toBeVisible();
 
+    // メニューは**押せる**こと。ヘッダの枠で切られてボディの下に隠れると押せない
+    // (`toBeVisible` は重なりや切り取りを見ないので、実際に押して確かめる)
     await toolbar.getByRole('button', { name: 'その他の操作' }).click();
-    await expect(
-      page.getByRole('menuitem', { name: 'PNG で書き出す' }),
-    ).toBeVisible();
+    const map = page.getByRole('menuitemcheckbox', { name: 'map' });
+    await expect(map).toHaveAttribute('aria-checked', 'true');
+    // 押す前に、その場所でポインタを受けるのがメニューの項目であることを見る。Playwright の click は
+    // 押す前に要素を見える所へ送る (`overflow: hidden` の箱もスクリプトからは送れる) ので、
+    // 切られていても押せてしまう
+    expect(
+      await map.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        const hit = document.elementFromPoint(
+          r.left + r.width / 2,
+          r.top + r.height / 2,
+        );
+        return el.contains(hit);
+      }),
+    ).toBe(true);
+    await map.click();
+    await expect(page.locator('.react-flow__minimap')).toHaveCount(0);
+
+    // 切れた名前に乗せると、全体が tooltip に出る
+    // 切れた要素の中心は見えている範囲の外にあるので、名前の左端に乗せる
+    await toolbar
+      .getByText('Sheet 1')
+      .locator('..')
+      .hover({ position: { x: 8, y: 8 } });
+    await expect(page.getByRole('tooltip')).toContainText(LONG_NAME.trim());
     expect(problems.list()).toEqual([]);
   });
 });
