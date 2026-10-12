@@ -47,6 +47,7 @@ import {
   isEmptyFolder,
 } from './folders/folderTree';
 import { useLocalOnlyFiles } from './hooks/useLocalOnlyFiles';
+import { LanguageSwitcher } from './i18n/LanguageSwitcher';
 import { LocalOnlyBanner } from './LocalOnlyBanner';
 import { usePersistenceState } from './local/storagePersistence';
 import type { PopupTarget } from './SettingsPopup';
@@ -1259,6 +1260,7 @@ export function Sidebar({
             </button>
           </>
         )}
+        <LanguageSwitcher />
       </div>
       {alertState && (
         <AlertDialog

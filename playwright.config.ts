@@ -28,6 +28,9 @@ export default defineConfig({
   reporter: 'list',
   use: {
     baseURL: E2E_CLIENT_URL,
+    // テストは日本語の文言で要素を引く。画面はブラウザの言語に従う (#50) ので ja に固定する。
+    // en で描くものは、そのテストの中で locale を替える
+    locale: 'ja-JP',
     trace: 'on-first-retry',
   },
 
