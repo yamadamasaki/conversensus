@@ -226,3 +226,93 @@ describe('GraphHeader の過去の時点 (#73)', () => {
     expect(screen.getByText('trunk')).toBeTruthy();
   });
 });
+
+describe('GraphHeader の幅に合わせた畳み (利用者の指摘 2026-10-12)', () => {
+  /**
+   * happy-dom は配置をしないので、ヘッダ (toolbar) の幅を差し替える。中身の幅は
+   * 「名前の欄 120 + 出ているボタンの数 × 40」で近似する (畳めばボタンが減って縮む)
+   */
+  const BUTTON_WIDTH = 40;
+  const TITLE_WIDTH = 120;
+  function setToolbarWidth(width: number) {
+    const proto = HTMLElement.prototype as unknown as Record<string, unknown>;
+    const isToolbar = (el: HTMLElement) =>
+      el.getAttribute('role') === 'toolbar';
+    Object.defineProperty(proto, 'clientWidth', {
+      configurable: true,
+      get(this: HTMLElement) {
+        return isToolbar(this) ? width : 0;
+      },
+    });
+    Object.defineProperty(proto, 'scrollWidth', {
+      configurable: true,
+      get(this: HTMLElement) {
+        return isToolbar(this)
+          ? TITLE_WIDTH + this.querySelectorAll('button').length * BUTTON_WIDTH
+          : 0;
+      },
+    });
+  }
+  afterEach(() => {
+    const proto = HTMLElement.prototype as unknown as Record<string, unknown>;
+    delete proto.clientWidth;
+    delete proto.scrollWidth;
+  });
+
+  function renderFull(onToggleMap = mock(noop), c = controls()) {
+    render(
+      <GraphHeader
+        controls={c}
+        title={TITLE}
+        groupAbility={NO_GROUP_ABILITY}
+        searchOpen={false}
+        onToggleSearch={noop}
+        propertyOpen={false}
+        onToggleProperty={noop}
+        mapOpen={true}
+        onToggleMap={onToggleMap}
+        branch={null}
+        onCopyLink={() => Promise.resolve()}
+      />,
+    );
+    return { onToggleMap, c };
+  }
+
+  const visible = (name: string) => screen.queryByRole('button', { name });
+
+  test('幅が十分なら何も畳まず、「…」も出さない', () => {
+    setToolbarWidth(2000);
+    renderFull();
+    expect(visible('その他の操作')).toBeNull();
+    expect(visible('PNG で書き出す')).not.toBeNull();
+  });
+
+  test('狭ければ PNG から順に畳み、undo・property は残す。畳んだものは「…」から使える', () => {
+    // 全部で 10 個 (検索・property・map・undo・redo・group 2・PNG・リンク + 「…」)。
+    // 6 個分しか入らない幅では PNG・map・リンク・group を畳む
+    setToolbarWidth(TITLE_WIDTH + 6 * BUTTON_WIDTH);
+    const { onToggleMap } = renderFull();
+    for (const name of [
+      'PNG で書き出す',
+      'map',
+      'この view のリンクを写す',
+      'group にまとめる',
+    ])
+      expect(visible(name)).toBeNull();
+    for (const name of [
+      '元に戻す',
+      'やり直す',
+      'property',
+      'この Sheet を検索',
+    ])
+      expect(visible(name)).not.toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'その他の操作' }));
+    const map = screen.getByRole('menuitemcheckbox', { name: 'map' });
+    expect(map.getAttribute('aria-checked')).toBe('true');
+    fireEvent.click(map);
+    expect(onToggleMap).toHaveBeenCalledTimes(1);
+    // 押したらメニューは閉じる
+    expect(screen.queryByRole('menu', { name: 'その他の操作' })).toBeNull();
+  });
+});
