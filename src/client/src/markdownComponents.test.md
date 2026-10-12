@@ -16,9 +16,9 @@ node の本文の Markdown の描き方 (`MARKDOWN_COMPONENTS`, #287) — 画像
 
 ## どのように
 
-部品を直接描いて見る。**react-markdown を通しては見ない** — `EditableNode.test.tsx` が `react-markdown` を
+部品を直接描いて見る。**react-markdown を通しては見ない** — `EditableNode.mock-test.tsx` が `react-markdown` を
 `mock.module` で差し替えていて、それはプロセス全体に効く (#265)。同じプロセスで本物を import すると、順序に
-よってモックが返る。`EditableNode.test.tsx` の側で、`ReactMarkdown` にこの `components` が渡ることを見ている。
+よってモックが返る。`EditableNode.mock-test.tsx` の側で、`ReactMarkdown` にこの `components` が渡ることを見ている。
 
 - **画像は img を作らずリンクにする**: 読み込まないことそのもの。リンクの文字は「画像: 代替の文字」、無ければ URL
 - **画像のリンクも新しいタブ・`noopener noreferrer`**

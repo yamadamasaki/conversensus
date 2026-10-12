@@ -87,7 +87,8 @@ timeline の時刻と `Intl` の書き方も言語に従う。
 - **E2E の fixture が persistent context に `locale` を渡していなかった** (`tests/fixtures.ts`)。設定の locale はどの
   テストにも効いておらず、エンジンの既定の言語で開いていた。渡すように直した
 - WebKit の E2E で、他のテストが作った File が一覧に見えていた。「テストごとに新しいプロファイル」の前提と食い違う。
-  i18n の E2E は利用者の名前を除いて見るようにしたが、プロファイルの分離そのものは調べていない (残す)
+  → **#265 の作業で直した** (2026-10-13)。WebKit は保存領域 (OPFS など) をプロファイルの外に持つので、fixture が開く前に
+  その origin の保存領域を空にする (`tests/fixtures.ts` の `clearOriginStorage`)
 - worker は端末に覚えた言語を読めない (`localStorage` が無い) ので、保存領域を開けない理由は札で送り、画面の側で文に
   する (`local/storageFailure.ts`)
 - 利用者が付けた名前 (`NameHighlight`) に `translate="no"` を付けた。ブラウザの自動翻訳に書き換えさせない

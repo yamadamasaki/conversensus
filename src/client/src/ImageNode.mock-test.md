@@ -126,3 +126,9 @@ PWA は cross-origin isolation (COEP `require-corp`) の下で動く (SQLite-WAS
 
 案内は `<img>` の `onError` で、表示していたのが `imageUrl` (利用者の URL) だったときだけ出す。
 blob の画像が読めないときは従来どおり「画像を読み込めません」である。
+
+## 別のプロセスで走らせる (#265)
+
+`mock.module` はプロセス全体に効き、取り消せないので、このファイルは `*.mock-test.tsx` として他のテストと別の
+プロセスで走らせる (`bun run test:mock`)。`@xyflow/react` は本物を再エクスポートして差分だけを替える — 名前が欠けると、
+この部品が間接に読むモジュールの読み込みが壊れる (単独で走らせると `MarkerType` が見つからずに落ちていた)。

@@ -544,7 +544,9 @@ bun run test:e2e:webkit   # webkit だけ
 - **画面の言語は ja に固定する** (#50). 画面はブラウザの言語に従うが, テストは日本語の文言で要素を引くので,
   `playwright.config.ts` の `locale: 'ja-JP'` を fixture が persistent context に渡す. 英語の画面は
   `tests/i18n.spec.ts` だけが `test.use({ locale: 'en-US' })` で見る
-- **利用者のデータは汚れない**. E2E はテストごとに新しいブラウザのプロファイルで開く
+- **利用者のデータは汚れない**. E2E はテストごとに新しいブラウザのプロファイルで開く. **WebKit は保存領域 (OPFS など)
+  をプロファイルの外に持ち, 前のテストの File が残る**ので, fixture が開く前にその origin の保存領域を空にする
+  (`tests/fixtures.ts`).
   (`tests/fixtures.ts`). 保存領域もそのプロファイルの中にある
 - テストは `tests/*.spec.ts`, 仕様書は同じ場所に `tests/*.spec.md` を置く.
   `bunfig.toml` が `tests/` を bun のランナーから外しているので `bun test` とは衝突しない

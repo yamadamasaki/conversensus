@@ -1,4 +1,4 @@
-# GroupNode.test.tsx — テスト仕様
+# GroupNode.mock-test.tsx — テスト仕様
 
 ## 何をテストするか
 
@@ -18,7 +18,7 @@ ANA-107 S4 (設計 D5) で、本体のダブルクリックの意味を変えた
 ## どのようにテストするか
 
 `@xyflow/react` と 2 つの context をモジュール単位でモックし、React Flow の
-実体なしにコンポーネント単体をレンダリングする (`EditableNode.test.tsx` と
+実体なしにコンポーネント単体をレンダリングする (`EditableNode.mock-test.tsx` と
 同じ方式)。生成先コンテナがメニューに正しく渡るかを、モックした
 `openNodeTypeMenu` の引数で見る。
 
@@ -33,3 +33,9 @@ ANA-107 S4 (設計 D5) で、本体のダブルクリックの意味を変えた
 - **ghost 表示**: 差分表示の抜け殻ではノードを作らせない。
 
 座標をコンテナ相対に直す処理は `hooks/useNodeTypeMenu.test.ts` が担当する。
+
+## 別のプロセスで走らせる (#265)
+
+`mock.module` はプロセス全体に効き、取り消せないので、このファイルは `*.mock-test.tsx` として他のテストと別の
+プロセスで走らせる (`bun run test:mock`)。`@xyflow/react` は本物を再エクスポートして差分だけを替える — 名前が欠けると、
+この部品が間接に読むモジュールの読み込みが壊れる (単独で走らせると `MarkerType` が見つからずに落ちていた)。
