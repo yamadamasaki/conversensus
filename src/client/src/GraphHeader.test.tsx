@@ -207,3 +207,22 @@ describe('GraphHeader の map の on/off (#182)', () => {
     expect(onToggleMap).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('GraphHeader の過去の時点 (#73)', () => {
+  test('流れと「過去の時点 · 読み取り専用」を言う', () => {
+    renderHeader(false, controls(), null, {
+      ...TITLE,
+      past: { branchName: 'b1' },
+    });
+    expect(screen.getByText('b1')).toBeTruthy();
+    expect(screen.getByText('過去の時点 · 読み取り専用')).toBeTruthy();
+  });
+
+  test('trunk の時点なら trunk と言う', () => {
+    renderHeader(false, controls(), null, {
+      ...TITLE,
+      past: { branchName: null },
+    });
+    expect(screen.getByText('trunk')).toBeTruthy();
+  });
+});

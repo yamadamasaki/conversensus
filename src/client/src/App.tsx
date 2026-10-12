@@ -13,6 +13,7 @@ import {
   HEAD_CUT,
   heldMaxima,
   isFork,
+  isReadOnlyCut,
   METAGRAPH_SHEET_KIND,
   type NodeId,
   type PropertyName,
@@ -49,6 +50,7 @@ import { type FolderNode, siblingNameTaken } from './folders/folderTree';
 import { GraphEditor } from './GraphEditor';
 import { GraphHeader, type HeaderBranch } from './GraphHeader';
 import type { PreviewMarks } from './GraphPreview';
+import { highlightMarks } from './GraphPreview';
 import { alignToPane } from './graph/alignToPane';
 import { splitMetagraphEvent } from './graph/metagraphEvents';
 import {
@@ -67,6 +69,7 @@ import type { UndoState } from './hooks/useEventStore';
 import { useFileSheetOperations } from './hooks/useFileSheetOperations';
 import { useFolders } from './hooks/useFolders';
 import { useGraphPanels } from './hooks/useGraphPanels';
+import { NO_GROUP_ABILITY } from './hooks/useGroupNodes';
 import { useLiveChannel } from './hooks/useLiveChannel';
 import { useLocalOnlyCount } from './hooks/useLocalOnlyCount';
 import { useMergerSnapshot } from './hooks/useMergerSnapshot';
@@ -410,6 +413,17 @@ export default function App() {
     );
   };
   const currentTab = activeTab(tabs.state);
+  /**
+   * 過去の時点のタブ (#73)。アクティブな pane は最新の姿しか出せない (編集の仕組みは最新に書く) ので、
+   * 本体を見るだけの pane で描く。merger と multiple のタブは除く (それぞれの描き方がある)
+   */
+  const pastView: GraphViewAddress | null =
+    currentTab &&
+    !currentTab.merger &&
+    !isMultiple(currentTab) &&
+    isReadOnlyCut(tabAddress(currentTab).cut)
+      ? tabAddress(currentTab)
+      : null;
   const { open: openTab } = tabs;
 
   /**
@@ -1022,7 +1036,8 @@ export default function App() {
    */
   const { files: fileList, filesLoaded } = fileOps;
   useViewLink({
-    current: viewAddress,
+    // 過去の時点のタブなら、その切断面と強調も載せる (#73)
+    current: pastView ?? viewAddress,
     // ログインの戻り (OAuth) は fragment で届く。読み終えるまで書かない
     canWrite: !atprotoResuming,
     filesLoaded,
@@ -1033,15 +1048,16 @@ export default function App() {
         'リンクの File はこの端末にありません。参加している File なら、同期が終わってからもう一度開いてください',
       ),
   });
+  const linkAddress = pastView ?? viewAddress;
   const copyViewLink = useCallback(async () => {
-    if (!viewAddress) return;
+    if (!linkAddress) return;
     try {
-      await navigator.clipboard.writeText(viewUrl(viewAddress, location.href));
+      await navigator.clipboard.writeText(viewUrl(linkAddress, location.href));
     } catch (error) {
       void showAlert('リンクを写せませんでした');
       throw error;
     }
-  }, [viewAddress, showAlert]);
+  }, [linkAddress, showAlert]);
 
   /**
    * 背後のタブの File も同期を続ける (Q4)。前に出ている File は tap が持つので除く。
@@ -1169,7 +1185,9 @@ export default function App() {
     const sheetName =
       names.get(sheetId) ?? listed?.sheets.find((s) => s.id === sheetId)?.name;
     const base = sheetName ? `${fileName} / ${sheetName}` : fileName;
-    return branchId ? `${base} (⎇ ${names.get(branchId) ?? ''})` : base;
+    const flow = branchId ? `${base} (⎇ ${names.get(branchId) ?? ''})` : base;
+    // 過去の時点のタブ (#73) は、最新のタブと見分けられるようにする
+    return isReadOnlyCut(address.cut) ? `${flow} · 時点` : flow;
   };
   /** multiple のタブは pane の名前を並べる */
   const tabLabelOf = (tab: Tab) =>
@@ -1522,20 +1540,27 @@ export default function App() {
         />
         {viewAddress && (
           <GraphHeader
-            controls={panels.controls}
+            controls={pastView ? null : panels.controls}
             title={{
               fileName: fileOps.activeFile?.name ?? '',
               sheetName: viewSheet?.name ?? '',
               merger: Boolean(currentTab?.merger),
+              ...(pastView && {
+                past: {
+                  branchName: pastView.branchId
+                    ? (seenNamesRef.current.get(pastView.branchId) ?? '')
+                    : null,
+                },
+              }),
             }}
-            groupAbility={panels.groupAbility}
+            groupAbility={pastView ? NO_GROUP_ABILITY : panels.groupAbility}
             searchOpen={panels.searchOpen}
             onToggleSearch={panels.toggleSearch}
             propertyOpen={panels.propertyOpen}
             onToggleProperty={panels.toggleProperty}
             mapOpen={panels.mapOpen}
             onToggleMap={panels.toggleMap}
-            branch={headerBranch}
+            branch={pastView ? null : headerBranch}
             paneCandidates={paneCandidates}
             onCopyLink={copyViewLink}
             compact={compactHeader(viewportTier)}
@@ -1669,7 +1694,15 @@ export default function App() {
             })
           ) : (
             <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
-              {activeBody}
+              {pastView ? (
+                // 過去の時点のタブ (#73)。見るだけで、強調はアドレスの highlight
+                <PassivePane
+                  address={pastView}
+                  marksFor={() => highlightMarks(pastView.highlight)}
+                />
+              ) : (
+                activeBody
+              )}
             </div>
           )}
         </div>

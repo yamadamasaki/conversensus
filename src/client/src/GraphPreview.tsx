@@ -41,6 +41,27 @@ export type PreviewMarks = DiffMarks & {
 };
 
 /**
+ * 強調だけの印 (#73 その時点のタブ)。アドレスの highlight を、他の pane で選ばれた要素と同じ見た目にする
+ */
+export function highlightMarks(
+  highlight:
+    | { nodeIds: readonly string[]; edgeIds: readonly string[] }
+    | undefined,
+): PreviewMarks {
+  return {
+    addedNodes: new Set(),
+    updatedNodes: new Set(),
+    addedEdges: new Set(),
+    updatedEdges: new Set(),
+    conflicts: new Set(),
+    selected: new Set([
+      ...(highlight?.nodeIds ?? []),
+      ...(highlight?.edgeIds ?? []),
+    ]),
+  };
+}
+
+/**
  * 競合の印。差分の色 (枠の色) とは別の描き方にする (仕様: 差分表示とは異なる方法で競合表示する)。
  * 一括指定 (`outline`) ではなく個別に書く — 値に CSS 変数を含む一括指定は, happy-dom が
  * 正しく分解できず App 結合のテストから見えなくなる

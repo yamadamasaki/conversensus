@@ -53,8 +53,8 @@ batch は branch 専用の op-log (`branchFileId`) にある。
 
 | # | 中身 | 画面 | テスト |
 | --- | --- | --- | --- |
-| **T1** | 履歴の組み立て (`timeline/buildTimeline.ts`, 純関数)。trunk と branch の線、operation point (分岐・commit・merge)、change point (シートで絞り、選んだ要素で絞る)、畳み (Q2)、各点の切断面 (F3) | 無し | 単体 + 性質 |
-| **T2** | その時点のタブ (Q3)。タブのアドレスが vector の切断面を持てば、本体を見るだけの pane で描く。ヘッダは「(時点) 読み取り専用」と言う。Deep Link に切断面と強調を載せる (#251 で外したもの) | 本体・ヘッダ | 単体 + App 結合 |
+| **T1** ✅ | 履歴の組み立て (`timeline/buildTimeline.ts`, 純関数)。trunk と branch の線、operation point (分岐・commit・merge)、change point (シートで絞り、選んだ要素で絞る)、畳み (Q2)、各点の切断面 (F3) | 無し | 単体 + 性質 |
+| **T2** ✅ | その時点のタブ (Q3)。タブのアドレスが vector の切断面を持てば、本体を見るだけの pane で描く。ヘッダは「(時点) 読み取り専用」と言う。Deep Link に切断面と強調を載せる (#251 で外したもの) | 本体・ヘッダ | 単体 + App 結合 |
 | **T3** | 右サイドバーの切り替え (Q1) と version tree。いまの線 (trunk / 開いている branch) を強調、畳んだ change point を広げる | 右サイドバー | 単体 + App 結合 |
 | **T4** | operation inspector: 種類・コメント・actor・時刻・関係する node/edge・view graph | 右サイドバー | 単体 + App 結合 |
 | **T5** | change inspector: batch の op の一覧 (種類と内容・actor・時刻)、関係する node/edge、要素を押すとその時点のタブで強調して開く | 右サイドバー | 単体 + App 結合 |
@@ -65,3 +65,20 @@ batch は branch 専用の op-log (`branchFileId`) にある。
 - **「関係する node/edge」**: operation point は「1 つ前の operation point からその点までの batch が触った要素」、
   change point は「その batch の op が触った要素」。名前は**その時点の姿**から引く (消えた要素も名前が出る)
 - **actor の表示**: 名簿のラベル (`labelCache`) を使う。引けなければ DID の短縮
+
+## 4. 記録
+
+### T1 (2026-10-12)
+
+`client/src/timeline/buildTimeline.ts`。trunk の上の commit で merge でないもの (シートを持たない) は出さない。
+性質「change point は絞りに触れた batch ちょうどで、operation point は絞りによらない」。
+
+### T2 (2026-10-12)
+
+- タブのアクティブなアドレスが過去の切断面なら (`isReadOnlyCut`)、本体を `PassivePane` で描く (`App` の `pastView`)。
+  強調は `highlightMarks` (他の pane で選ばれた要素と同じ見た目)。merger と multiple のタブは除く
+- タブの移動 (`useTabNavigation`) は File・Sheet・branch だけを見るので、編集の画面はその流れの最新に着く。
+  サイドバーやヘッダの名前はそれを使う
+- ヘッダは流れと「過去の時点 · 読み取り専用」を言い、編集の口・commit・merge は出さない。タブの名前に「· 時点」
+- Deep Link に切断面 (`at=<actor>@<seq>`) と強調 (`n=` / `e=`) を載せた。性質の往復で**空の切断面が最新に化ける**
+  反例が出たので、値の無い `at=` で表す

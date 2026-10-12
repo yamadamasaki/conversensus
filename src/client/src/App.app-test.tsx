@@ -11,6 +11,7 @@ import {
   templateIdOf,
 } from '@conversensus/shared';
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -2526,6 +2527,68 @@ describe('App 結合: Deep Link (#251)', () => {
       await waitFor(() => expect(renderedNodeCount()).toBe(2), WIRING_TIMEOUT);
       await screen.findByRole('button', { name: 'commit' }, WIRING_TIMEOUT);
       expect(location.hash).toBe(branchHash);
+    },
+    MERGER_TEST_MS,
+  );
+
+  test(
+    '過去の時点のリンクは新しいタブで見るだけで開き、その時点の姿を出す (#73)',
+    async () => {
+      await world.activate('solo');
+      render(<App />);
+      const user = userEvent.setup();
+      await createFile(user, FILE_NAME);
+      await addNode(user);
+      await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+      await waitFor(() =>
+        expect(location.hash).toMatch(/^#\/v\/[^/]+\/[^/?]+$/),
+      );
+      const headHash = location.hash;
+
+      // 1 つ目の node を置いた batch の時点
+      const fileId = world.localStore().listFiles()[0]?.id as FileId;
+      const placed = world
+        .localStore()
+        .getBatches(fileId)
+        .filter((b) => b.ops.some((op) => op.kind === 'node.add'))
+        .at(-1);
+      if (!placed) throw new Error('node を置いた batch が無い');
+      const firstNode = placed.ops.find((op) => op.kind === 'node.add')
+        ?.target as NodeId;
+      await addNode(user);
+      await waitFor(() => expect(renderedNodeCount()).toBe(2), WIRING_TIMEOUT);
+
+      const pastHash = `${headHash}?${new URLSearchParams([
+        ...Object.entries({ ...placed.deps, [placed.actor]: placed.seq }).map(
+          ([actor, seq]) => ['at', `${actor}@${seq}`],
+        ),
+        ['n', firstNode],
+      ]).toString()}`;
+      act(() => {
+        history.replaceState(null, '', `/${pastHash}`);
+        window.dispatchEvent(new HashChangeEvent('hashchange'));
+      });
+
+      await screen.findByText('過去の時点 · 読み取り専用', {}, WIRING_TIMEOUT);
+      await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+      expect(
+        screen.getByRole('tab', { name: `${FILE_NAME} / Sheet 1 · 時点` }),
+      ).toBeTruthy();
+      // 見るだけ: 編集の口は押せない
+      expect(
+        screen
+          .getByRole('button', { name: '元に戻す' })
+          .hasAttribute('disabled'),
+      ).toBe(true);
+      // URL はその時点のタブを指したまま
+      expect(location.hash).toContain('?at=');
+
+      // 最新のタブへ戻ると 2 つ
+      await user.click(
+        screen.getByRole('tab', { name: `${FILE_NAME} / Sheet 1` }),
+      );
+      await waitFor(() => expect(renderedNodeCount()).toBe(2), WIRING_TIMEOUT);
+      expect(location.hash).toBe(headHash);
     },
     MERGER_TEST_MS,
   );
