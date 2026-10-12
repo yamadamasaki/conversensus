@@ -43,7 +43,7 @@ E2E は `locale: 'ja-JP'`)。en は辞書の形の検査と、en で描く数件
   - `ja.ts`: 正の辞書。画面ごとに入れ子 (`header`・`sidebar`・`timeline`…)。値は文字列か、引数を取る関数
   - `en.ts`: `Messages` (= `ja` の形) を満たす。関数の引数も同じ
   - `locale.ts`: 言語の一覧、ブラウザの言語からの選択、端末への保存、現在の言語の保持と購読
-  - `useT()`: React から引く。言語を替えると描き直す。`t()`: React の外から引く
+  - `useMessages()`: React から引く。言語を替えると描き直す。`messages()`: React の外から引く
 - `<html lang>` を現在の言語に合わせる (読み上げ・ブラウザの翻訳の提案)
 - 日時は `Intl` に言語を渡す (timeline の時刻など)
 
