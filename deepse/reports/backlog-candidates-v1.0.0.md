@@ -69,15 +69,15 @@
 | # | 題 | 出所 |
 | --- | --- | --- |
 | D1 | deps の大きさと、使われなくなった actor の退役 | Phase 1 U1・U2、計画 U1 → **差分で送る (2026-10-13, `plans/refine-d1-deps-delta.md`)** |
-| D2 | 歯抜けの先に届いた batch の扱い | Phase 1 U3 |
-| D3 | 選択の正 (view の state か React Flow か) | Phase 3 U1 |
+| D2 | 歯抜けの先に届いた batch の扱い | Phase 1 U3 → **今の扱い (歯抜けの先も知っていると数える) を決定にした (2026-10-13)** |
+| D3 | 選択の正 (view の state か React Flow か) | Phase 3 U1 → **決着済み (Phase 3: 正は React Flow、外へは写し)**。timeline の絞りが選択の 1 つしか見ないのは使ってから |
 | D4 | 背後のタブの数の上限 | Phase 3 U2 |
-| D5 | 過去の切断面の view の入口 | Phase 3 U3 (→ A1) |
+| D5 | 過去の切断面の view の入口 | Phase 3 U3 (→ A1) → **#73 の timeline で入口ができた (2026-10-12)** |
 | D6 | template graph の property の型 | Phase 4 U1 |
 | D7 | template graph の自分自身への適用 | Phase 4 U2 |
 | D8 | 適用先を新しい切断面へ上げる操作 | Phase 4 U3 |
-| D9 | merger の 3 pane の詰め方 | Phase 5 U1 |
-| D10 | 競合の「差異」の見せ方 | Phase 5 U3 |
+| D9 | merger の 3 pane の詰め方 | Phase 5 U1 → 今はやらない (もっと使い込む, 2026-10-13) |
+| D10 | 競合の「差異」の見せ方 | Phase 5 U3 → 今はやらない (もっと使い込む, 2026-10-13) |
 
 ## E. 既に開いている issue の扱い (提案)
 

@@ -160,7 +160,7 @@ describe('makeBaseCommit / isUpTo: 分岐点は vector で切る', () => {
 
   /**
    * 歯抜けは恒久的に生じうる — 参加期間のフィルタは離脱中の batch を取り込まない。
-   * 歯抜けで止まると (`contiguousFrontier`)、戻ってきた人のその後の編集が base に入らなくなる
+   * 歯抜けで止まると、戻ってきた人のその後の編集が base に入らなくなる
    */
   test('歯抜けがあっても、持っていた最大の seq まで base に入る', () => {
     const held = [pointOf('bob', 1, 1), pointOf('bob', 3, 7)];

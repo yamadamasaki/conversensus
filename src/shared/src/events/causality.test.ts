@@ -3,7 +3,6 @@ import fc from 'fast-check';
 import {
   type CausalPoint,
   concurrent,
-  contiguousFrontier,
   depsFor,
   EMPTY_VECTOR,
   happenedBefore,
@@ -177,32 +176,6 @@ describe('happenedBefore と畳み込みの全順序', () => {
   });
 });
 
-describe('contiguousFrontier: 歯抜けを越えない', () => {
-  const arbHeld = fc.array(
-    fc.record({
-      actor: fc.constantFrom('a', 'b'),
-      seq: fc.integer({ min: 1, max: 8 }),
-    }),
-    { maxLength: 12 },
-  );
-
-  it('あらゆる手持ちで、到達点 k は「1〜k をすべて持ち、k+1 を持たない」', () => {
-    fc.assert(
-      fc.property(arbHeld, (held) => {
-        const frontier = contiguousFrontier(held);
-        for (const actor of ['a', 'b']) {
-          const seqs = new Set(
-            held.filter((p) => p.actor === actor).map((p) => p.seq),
-          );
-          const k = frontier[actor] ?? 0;
-          for (let s = 1; s <= k; s++) expect(seqs.has(s)).toBe(true);
-          expect(seqs.has(k + 1)).toBe(false);
-        }
-      }),
-    );
-  });
-});
-
 describe('例', () => {
   const point = (actor: string, seq: number, deps: VersionVector = {}) => ({
     actor,
@@ -240,14 +213,13 @@ describe('例', () => {
     ).toEqual({ A: 4, B: 2 });
   });
 
-  it('到達点は歯抜けの手前で止まる', () => {
-    expect(
-      contiguousFrontier([
-        { actor: 'A', seq: 1 },
-        { actor: 'A', seq: 2 },
-        { actor: 'A', seq: 4 },
-        { actor: 'B', seq: 2 },
-      ]),
-    ).toEqual({ A: 2 });
+  it('歯抜けの先の batch も知識に入る。手前の batch を持たなくても「見た」と言う (D2 の決定)', () => {
+    // X の 1 と 3 を持ち、2 はまだ届いていない
+    const knowledge = knowledgeOf([point('X', 1), point('X', 3)]);
+    expect(knowledge).toEqual({ X: 3 });
+    // その知識で書いた点は、まだ持っていない X の 2 より後と判定される (受け入れた穴: 2 と同じ要素を
+    // 触っていても、2 が後から届いたときに競合として知らされない)
+    const mine = point('Me', 1, depsFor(knowledge, 'Me'));
+    expect(happenedBefore(point('X', 2), mine)).toBe(true);
   });
 });

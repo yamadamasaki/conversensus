@@ -14,8 +14,20 @@
  *   vector。**batch の `deps` はこちらである。**持っていない batch も、受け取った batch が
  *   依存していれば「知っている」に入る。こうしないと推移律が崩れる — B が A を見て書いた
  *   batch を C が受け取って書いたとき、C が A の batch を持っていなくても、A は C より前である
- * - **手元の到達点** (`contiguousFrontier`): actor ごとに**歯抜けなく持っている**最大の seq。
- *   「私は何を判断できるか」を問うときに使う (設計 U3)
+ *
+ * ## 歯抜けの先に届いた batch (D2 の決定, 2026-10-13)
+ *
+ * **歯抜けの先の batch も「知っている」に数える。**actor X の k 番目を持っていれば、その手前の j を
+ * まだ持っていなくても、知識は X:k になる。当初の設計 (Phase 1 U3) は「判断では歯抜けの先を見ていない
+ * 側に数える」としていたが、歯抜けは**恒久的に生じる** — 参加期間のフィルタは離脱中の batch を取り込まず、
+ * 1 人の seq は trunk・branch・判断ログで 1 系列なので手元に無い branch の分が歯抜けに見える。歯抜けで
+ * 止めると、その人の以後の編集が並行に見え続け、競合が出続ける。
+ *
+ * 受け入れた穴: X の j が届く前に k が届き、その間に自分が j と同じ要素を編集すると、自分の deps は
+ * 「j を見た」と言う。後から j が届いても並行と判定されず、競合として知らされずに自分の編集が勝つ。
+ * 起きるのは「X の送信が一部だけ遅れている」と「遅れた編集と同じ要素をその間に触る」が重なるときだけで、
+ * 受信は毎回 File の先頭から読み、送れなかった batch は送り手が送り直すので、歯抜けは普通すぐ埋まる
+ * (`deepse/plans/step3-phase1-oplog-v2.md` の U3 の決着)
  */
 
 import type { Actor } from './unified';
@@ -100,37 +112,10 @@ export function depsFor(knowledge: VersionVector, self: Actor): VersionVector {
 }
 
 /**
- * 手元の到達点。actor ごとに、1 から**歯抜けなく**持っている最大の seq。
- *
- * 歯抜けの先の batch は持っていても数えない — その間の batch を見ていない以上、
- * 「その actor の k 番目までを見た」とは言えない。
- */
-export function contiguousFrontier(
-  points: Iterable<Pick<CausalPoint, 'actor' | 'seq'>>,
-): VersionVector {
-  const seqsByActor = new Map<Actor, Set<Seq>>();
-  for (const { actor, seq } of points) {
-    let seqs = seqsByActor.get(actor);
-    if (!seqs) {
-      seqs = new Set();
-      seqsByActor.set(actor, seqs);
-    }
-    seqs.add(seq);
-  }
-  const frontier: Record<Actor, Seq> = {};
-  for (const [actor, seqs] of seqsByActor) {
-    let k = 0;
-    while (seqs.has(k + 1)) k += 1;
-    if (k > 0) frontier[actor] = k;
-  }
-  return frontier;
-}
-
-/**
  * actor ごとに**持っている最大の seq** (歯抜けを気にしない)。分岐点の vector に使う
  * (`makeBaseCommit`)。
  *
- * `contiguousFrontier` と違い歯抜けで止まらない。歯抜けは転送中にだけ生じるとは限らず、
+ * 歯抜けで止まらない。歯抜けは転送中にだけ生じるとは限らず、
  * **参加期間のフィルタが離脱中の batch を取り込まない**ので恒久的にも生じる。歯抜けで止まると、
  * いったん離脱して戻った人のその後の編集が、どの分岐点にも入らなくなる
  */
