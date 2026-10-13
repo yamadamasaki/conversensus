@@ -37,6 +37,7 @@ import {
   recordToRemoteBatch,
 } from './batchMapper';
 import { batchRkey } from './batchRkey';
+import { DepsDeltaEncoder, restoreDeps } from './depsDelta';
 import type { BatchFileHead } from './rangeFetch';
 import type { RemoteBatchTarget } from './remoteSyncQueue';
 import type {
@@ -100,6 +101,8 @@ export type AtprotoSyncProviderDeps = {
 export class AtprotoSyncProvider implements RemoteBatchTarget {
   private readonly batches: BatchCollection;
   private readonly uploadBlobs: BlobUploader;
+  /** deps を差分で送るための覚え (D1)。送れた batch だけを基にする */
+  private readonly depsEncoder = new DepsDeltaEncoder();
 
   constructor(deps: AtprotoSyncProviderDeps) {
     this.batches = deps.batches;
@@ -171,8 +174,10 @@ export class AtprotoSyncProvider implements RemoteBatchTarget {
         }
         await this.batches.put(
           batchRkey(fileId, batch.actor, batch.seq),
-          batchToRecord(batch, fileId),
+          batchToRecord(batch, fileId, this.depsEncoder.encode(fileId, batch)),
         );
+        // 送れたものだけを次の差分の基にする (飛ばした batch を基にすると受け手が戻せない)
+        this.depsEncoder.confirm(fileId, batch);
         sentIds.push(batch.id);
       } catch (error) {
         // 全体的な失敗: ここで打ち切り、送れた分だけを Outbox に伝える
@@ -248,6 +253,7 @@ export class AtprotoSyncProvider implements RemoteBatchTarget {
 function toRemoteBatches(records: readonly RecordSummary[]): RemoteBatch[] {
   let skipped = 0;
   const entries: RemoteBatch[] = [];
+  const valid: BatchRecord[] = [];
   for (const r of records) {
     if (!isBatchRecordValue(r.value)) {
       // 壊れた/他種/旧形式 (fileId 無し) レコードを飛ばす。
@@ -257,7 +263,30 @@ function toRemoteBatches(records: readonly RecordSummary[]): RemoteBatch[] {
       skipped += 1;
       continue;
     }
-    const entry = recordToRemoteBatch(r.value);
+    valid.push(r.value);
+  }
+  // 差分で届いた deps (D1) を全体に戻す。File ごとに、actor ごとの seq の順に畳む。基が今回の取得に
+  // 無いものは今回は受けない — 受信は毎回その File の先頭から読むので、基が届けば次の回に受かる
+  const byFile = new Map<string, BatchRecord[]>();
+  for (const value of valid) {
+    const list = byFile.get(value.fileId) ?? [];
+    list.push(value);
+    byFile.set(value.fileId, list);
+  }
+  let unresolvedDeps = 0;
+  const restoredValues: BatchRecord[] = [];
+  for (const list of byFile.values()) {
+    const { restored, unresolved } = restoreDeps(list);
+    restoredValues.push(...restored);
+    unresolvedDeps += unresolved.length;
+  }
+  if (unresolvedDeps > 0) {
+    console.warn(
+      `[atproto] deferred ${unresolvedDeps} batch record(s): the base of their delta deps has not arrived yet`,
+    );
+  }
+  for (const value of restoredValues) {
+    const entry = recordToRemoteBatch(value);
     // 形は合っても中身が壊れている (既知の op の項目が欠けている・clock が大きすぎる) ものは
     // ここで 1 件ずつ落とす。保存の一括検証まで持ち込むと、受信がまるごと止まる (M1・M2)
     if (!isAcceptableRemoteBatch(entry.batch)) {

@@ -202,3 +202,12 @@ remote に隙間ができることは受け入れる。projection は対象を�
 受信は PDS から入る batch を 1 件ずつ本物と同じ形 (`ReceivedBatchSchema`) で検証し、合わないものを落とす
 (`isAcceptableRemoteBatch`)。そのため部品の batch の id と node は UUID でなければならない。読める名前 (`a`, `mine` …) から
 UUID を作り (`uuidOf`)、確かめるときに名前へ戻す (`labelOf`) ので、各件の読み方は変わらない。
+
+## deps を差分で送る (D1)
+
+- 最初の 1 件は全体、以後は送れた前の batch を基にした差分 (`depsBase`) を送る
+- 受け手 (`pullRemoteForFile`) は差分を全体に戻して返す
+- 差分の基が届いていない batch は今回は返さない (受信は毎回 File の先頭から読むので、基が届けば次の取得で受かる)
+
+仕組みそのもの (送れなかった batch・順不同) は `depsDelta.test.md` が性質で見る。ここでは、送る形と受けた形が
+プロバイダを通して正しく繋がっていることを見る。偽の PDS (`inMemoryBatches`) に書かれたレコードを直に読んで、送った形を確かめる

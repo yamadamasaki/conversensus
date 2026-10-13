@@ -17,6 +17,7 @@ import {
   type ISODateString,
   ReceivedBatchSchema,
 } from '@conversensus/shared';
+import type { EncodedDeps } from './depsDelta';
 import type { BatchRecord, RemoteBatch } from './types';
 
 /**
@@ -48,6 +49,8 @@ function isDot(value: unknown): value is { actor: string; seq: number } {
 export function batchToRecord(
   batch: Batch,
   fileId: FileId,
+  /** 送る deps の形 (D1)。省けば全体を送る */
+  encoded: EncodedDeps = { deps: batch.deps },
 ): Omit<BatchRecord, '$type'> {
   return {
     id: batch.id,
@@ -55,7 +58,8 @@ export function batchToRecord(
     actor: batch.actor,
     clock: batch.clock,
     seq: batch.seq,
-    deps: batch.deps,
+    deps: encoded.deps,
+    ...(encoded.depsBase !== undefined && { depsBase: encoded.depsBase }),
     timestamp: batch.timestamp,
     ops: batch.ops,
     // content batch のみ sheetId を持つ。undefined なら省略し、往復で無 → 無を保つ。
@@ -88,6 +92,12 @@ export function isBatchRecordValue(value: unknown): value is BatchRecord {
     typeof v.seq === 'number' &&
     Number.isInteger(v.seq) &&
     isVersionVector(v.deps) &&
+    // 差分の基 (D1) は optional。有るなら自分より前の seq でなければ弾く
+    (v.depsBase === undefined ||
+      (typeof v.depsBase === 'number' &&
+        Number.isInteger(v.depsBase) &&
+        v.depsBase > 0 &&
+        v.depsBase < v.seq)) &&
     typeof v.timestamp === 'number' &&
     Array.isArray(v.ops) &&
     // sheetId は optional。無いレコード (file 構造 batch) も通すが、

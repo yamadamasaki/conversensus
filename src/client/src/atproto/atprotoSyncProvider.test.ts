@@ -83,6 +83,10 @@ function inMemoryBatches() {
     _scanned: () => number;
     /** `listByFile` に渡された repo の列 (step2 Phase 2 S2) */
     _reposRead: () => (string | undefined)[];
+    /** 書かれたレコード (送った形を見る, D1) */
+    _records: () => Map<string, { uri: string; cid: string; value: unknown }>;
+    /** レコードを消す (基が届いていない状況を作る, D1) */
+    _delete: (rkey: string) => void;
   } = {
     // 引数は rkey (`batchRkey` が組む)
     put(rkey, data) {
@@ -134,6 +138,10 @@ function inMemoryBatches() {
     _rkeys: () => [...records.keys()],
     _scanned: () => scanned,
     _reposRead: () => reposRead,
+    _records: () => records,
+    _delete: (rkey) => {
+      records.delete(rkey);
+    },
   };
   return store;
 }
@@ -178,6 +186,69 @@ describe('AtprotoSyncProvider', () => {
         [batch('1', 1)].map((batch) => ({ fileId: FILE, batch })),
       );
       expect(batches._size()).toBe(1);
+    });
+  });
+
+  describe('deps を差分で送る (D1)', () => {
+    /** deps を指定した batch */
+    const withDeps = (
+      id: string,
+      seq: number,
+      deps: Record<string, number>,
+    ) => ({
+      ...batch(id, seq),
+      deps,
+    });
+    const recordAt = (
+      batches: ReturnType<typeof inMemoryBatches>,
+      seq: number,
+    ) =>
+      batches._records().get(batchRkey(FILE, 'did:plc:alice', seq))?.value as {
+        deps: Record<string, number>;
+        depsBase?: number;
+      };
+
+    it('最初の 1 件は全体、以後は送れた前の batch を基にした差分を送る', async () => {
+      const batches = inMemoryBatches();
+      const provider = makeProvider(batches);
+      await provider.pushRemote([
+        { fileId: FILE, batch: withDeps('1', 1, { bob: 3, carol: 2 }) },
+        { fileId: FILE, batch: withDeps('2', 2, { bob: 4, carol: 2 }) },
+      ]);
+      expect(recordAt(batches, 1)).toMatchObject({
+        deps: { bob: 3, carol: 2 },
+      });
+      expect(recordAt(batches, 1).depsBase).toBeUndefined();
+      expect(recordAt(batches, 2)).toMatchObject({
+        deps: { bob: 4 },
+        depsBase: 1,
+      });
+    });
+
+    it('受け手は差分を全体に戻して返す', async () => {
+      const batches = inMemoryBatches();
+      const provider = makeProvider(batches);
+      await provider.pushRemote([
+        { fileId: FILE, batch: withDeps('1', 1, { bob: 3, carol: 2 }) },
+        { fileId: FILE, batch: withDeps('2', 2, { bob: 4, carol: 2 }) },
+      ]);
+      const pulled = await makeProvider(batches).pullRemoteForFile(FILE);
+      expect(pulled.map((e) => e.batch.deps)).toEqual([
+        { bob: 3, carol: 2 },
+        { bob: 4, carol: 2 },
+      ]);
+    });
+
+    it('差分の基が届いていない batch は今回は返さない (次の取得で受かる)', async () => {
+      const batches = inMemoryBatches();
+      const provider = makeProvider(batches);
+      await provider.pushRemote([
+        { fileId: FILE, batch: withDeps('1', 1, { bob: 3 }) },
+        { fileId: FILE, batch: withDeps('2', 2, { bob: 4 }) },
+      ]);
+      batches._delete(batchRkey(FILE, 'did:plc:alice', 1));
+      const pulled = await makeProvider(batches).pullRemoteForFile(FILE);
+      expect(pulled).toEqual([]);
     });
   });
 
