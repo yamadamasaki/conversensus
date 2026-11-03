@@ -748,7 +748,7 @@ PDS の設定は `/opt/conversensus/infra/pds/.env` (git の外. 秘密を含む
 `Forbidden sec-fetch-site header "same-site"`) で止まった. 2026-10-05 に pds 0.5.37 (oauth-provider 0.23.1) へ
 上げて直した.
 
-**image は版の tag で固定してある** (#286, `0.4.5037` — `_health` が返す版と同じ綴り. `latest` だと, いつ上がるかが
+**image は版の tag で固定してある** (#286, `0.4.5051` — `_health` が返す版と同じ綴り. `latest` だと, いつ上がるかが
 決まらない). 上げるときは, 先に **リポジトリの 2 つの compose ファイルの tag を PR で上げて** main:release で出し
 (サーバの compose ファイルはリポジトリの写し), それから控えを取って上げる (DB の移行は戻せない).
 tag の一覧は `https://github.com/bluesky-social/pds/pkgs/container/pds`:
@@ -762,6 +762,7 @@ cp -p .env /root/pds-backups/env-$(date +%Y%m%d)
 docker compose -f docker-compose.prod.yml pull
 docker compose -f docker-compose.prod.yml up -d --force-recreate
 curl -s https://pds.conversensus.site/xrpc/_health
+docker compose -f docker-compose.prod.yml exec pds node -v   # image の Node の版
 ```
 
 控えは `/root/pds-backups/` にある (2026-10-05: 0.4.219 の時点のもの).
@@ -801,6 +802,41 @@ gh release create vX.Y.Z --title "..." --notes-file <説明> --verify-tag
 
 - **旧 API サーバを止める** (step3 Phase 2 S2-7): `systemctl disable --now conversensus`.
   2026-10-05 の最初の deploy の後に行った. 旧 API のデータは移さない (v2 で読めない, step3 Phase 2 Q2)
+
+### 11.6 公表された脆弱性への対処
+
+upstream (`bluesky-social/pds`) の対処は **公式の `compose.yaml` と `pdsadmin update` を前提にしている**。
+ここは compose ファイルを自前で持ち、Caddy をホストで直接動かしているので、`pdsadmin update` では入らない。
+upstream の commit を見て、同じことを手で取り込む。
+
+#### eMudhra の CA 鍵の漏洩 (2026-10)
+
+- サーバの証明書は Let's Encrypt なので、配っている側は影響を受けない
+- PDS が外へ出る TLS (PLC directory、他の PDS など) で、漏洩した鍵の連鎖を信じてしまうのが問題。
+  Node 24.22.1 以上と CA bundle の更新が要る
+- upstream は `pds 0.4.5044` (#383) で Node を `24.22.1` に上げ、`@atproto/pds` 側の対策も入れた。
+  ここでは **image の固定を `0.4.5037` → `0.4.5051` に上げて取り込む** (§11.3「PDS を上げる」の手順)。
+  上げた後、`node -v` が `v24.22.1` 以上であることを確かめる
+
+#### Multipath TCP (CVE-2026-98432, 2026-10)
+
+- 脆弱性は Linux kernel の IPv4 TCP の use-after-free。MPTCP で待ち受けていると遠くから届く。
+  Go 1.24 以上でビルドした Caddy は **既定で MPTCP で待ち受ける**
+- upstream (#392) は Caddy に `GODEBUG=multipathtcp=0` を与えて塞いだ。ここの Caddy はホストの systemd なので
+  drop-in で同じものを与える:
+
+```shell
+mkdir -p /etc/systemd/system/caddy.service.d
+cat > /etc/systemd/system/caddy.service.d/mptcp.conf <<'EOF'
+[Service]
+Environment=GODEBUG=multipathtcp=0
+EOF
+systemctl daemon-reload && systemctl restart caddy
+ss -Mltn            # MPTCP の listener が出ないこと
+```
+
+- これは **入口を狭めるだけ** で、本当の対処は直った kernel に上げて再起動すること
+  (`apt upgrade` の後 `reboot`。`/var/run/reboot-required` があれば再起動待ち)
 
 ## 関連
 
