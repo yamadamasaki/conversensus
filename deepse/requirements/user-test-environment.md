@@ -832,8 +832,12 @@ cat > /etc/systemd/system/caddy.service.d/mptcp.conf <<'EOF'
 Environment=GODEBUG=multipathtcp=0
 EOF
 systemctl daemon-reload && systemctl restart caddy
-ss -Mltn            # MPTCP の listener が出ないこと
+ss -Mlnp            # 見出しの行だけなら MPTCP の listener は無い
 ```
+
+`-t` を付けないこと。`ss` は種類の option (`-M` = MPTCP、`-t` = TCP) を並べると和を出すので、
+`-Mltn` では普通の TCP の listener も出て見分けられない。drop-in の前は `caddy` の :80 と :443 が出る。
+カーネルの MPTCP が有効かは `sysctl net.mptcp.enabled` (1 = 有効、Ubuntu の既定)。
 
 - これは **入口を狭めるだけ** で、本当の対処は直った kernel に上げて再起動すること
   (`apt upgrade` の後 `reboot`。`/var/run/reboot-required` があれば再起動待ち)
