@@ -1,0 +1,35 @@
+# 文書のサイト (docs.conversensus.site)
+
+- 日付: 2026-11-04
+- 状態: 決定 (利用者 2026-11-04)
+
+## 決めたこと
+
+| | 選んだもの | 理由 |
+| --- | --- | --- |
+| 置き場所 | GitHub Pages、独自ドメイン `docs.conversensus.site` | 無料で広告が無い。PR で直して merge すれば出る。VPS (PDS とアプリの配信) の運用を増やさない |
+| generator | VitePress | bun / Node で動く (別の言語の道具を増やさない)。日英の切り替えが標準。原稿の生の HTML (`<figure><img>`) と相対パスの図がそのまま通る |
+| 配信 | `.github/workflows/docs.yml` | PR では作るだけ (リンク切れで落ちる)。main に入ったら作って出す |
+
+Read the Docs は版ごとの出し分けが強みだが、入門は「いまの使い方」なので要らない。言語ごとに別のプロジェクトになるのも手間。自前の VPS は運用が増える。
+
+## 形
+
+- 原稿は `docs/introductory_guide_to_conversensus/<言語>/` に置く (今のまま)。URL では言語を先頭に出す
+  (`/intro/…` が日本語、`/en/intro/…` が英語)。`docs/.vitepress/config.mts` の rewrites で付け替える
+- 図は押すと拡大する (medium-zoom, `docs/.vitepress/theme/`)。図の多くは画面全体なので、本文の幅では文字が読めない
+- 注記 (`> [!NOTE]` など) の見出しは日本語にしてある。英語版では locale ごとに上書きする
+- 手元で見る: `bun run docs:dev`。作る: `bun run docs:build` (出力は `docs/.vitepress/dist/`)
+
+## 一度だけ要る設定 (利用者)
+
+1. リポジトリの Settings → Pages → Build and deployment の Source を「GitHub Actions」にする
+2. 同じ画面の Custom domain に `docs.conversensus.site` を入れる (`docs/public/CNAME` にも書いてある)
+3. DNS に `docs.conversensus.site` → `yamadamasaki.github.io` の CNAME を足す
+4. 証明書が出たら「Enforce HTTPS」を入れる
+
+## 次にやること
+
+- 英語版: `introductory_guide_to_conversensus/en/` を足し、config に en の locale と rewrites を足す
+- アプリから入門へのリンク
+- 図の軽量化 (今は 2 倍の解像度の PNG で、合計 7.9 MB)
