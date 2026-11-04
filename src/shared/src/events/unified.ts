@@ -268,7 +268,7 @@ export const OpSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('node.setLabel'),
     target: NodeIdSchema,
-    /** node の種別名。`edge.setLabel` と同じ概念 — 本文を変えるのは `node.setContent` */
+    /** node の label (LPG)。`edge.setLabel` と同じ概念 — 本文を変えるのは `node.setContent` */
     label: z.string(),
   }),
   z.object({

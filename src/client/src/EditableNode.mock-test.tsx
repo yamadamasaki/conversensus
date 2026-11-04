@@ -47,7 +47,9 @@ const { render, screen, fireEvent, cleanup } = await import(
 const { EditableNode } = await import('./EditableNode');
 const { MARKDOWN_COMPONENTS } = await import('./markdownComponents');
 const { ReadOnlyProvider } = await import('./readOnlyContext');
-const { DERIVED_FROM_SHEET_PROPERTY } = await import('@conversensus/shared');
+const { DERIVED_FROM_SHEET_PROPERTY, GRAPH_NODE_LABEL } = await import(
+  '@conversensus/shared'
+);
 
 // NodeProps の最小スタブ
 // biome-ignore lint/suspicious/noExplicitAny: テスト用 NodeProps スタブ
@@ -268,7 +270,7 @@ describe('EditableNode', () => {
     });
   });
 
-  describe('label の口の置き場と差分の印 (visual language §8, #272 #258)', () => {
+  describe('label の口の置き場と差分の印 (visual language §8, #272, step4)', () => {
     const plain = (
       selected: boolean,
       data: Record<string, unknown> = { content: '本文' },
@@ -294,18 +296,24 @@ describe('EditableNode', () => {
       );
     });
 
-    it('metagraph の graph node には、選んでも label の口を出さない (#258)', () => {
+    it('metagraph の graph node は label `graph` を見せるが、編集の口にしない (step4)', () => {
       const sheetId = '00000000-0000-4000-8000-000000000001';
       const { container } = render(
         <EditableNode
           {...plain(true, {
             content: 'Sheet 1',
+            label: GRAPH_NODE_LABEL,
             properties: { [DERIVED_FROM_SHEET_PROPERTY]: sheetId },
           })}
         />,
       );
+      const chip = container.querySelector('[data-node-label]');
+      if (!chip) throw new Error('ラベルが無い');
 
-      expect(container.querySelector('[data-node-label]')).toBeNull();
+      expect(chip.textContent).toBe(GRAPH_NODE_LABEL);
+      expect(chip.tagName).not.toBe('BUTTON');
+      fireEvent.click(chip);
+      expect(container.querySelector('[data-node-label-input]')).toBeNull();
     });
 
     it('差分の node には、色だけでなく形の印を添える (追加 / 変更)', () => {

@@ -110,9 +110,10 @@ export const GraphNodeSchema = z.object({
   id: NodeIdSchema,
   content: z.string(),
   /**
-   * node の**種別名**。`edge` の `label` と同じ概念で、template が候補を与える。
+   * node の **LPG の label**。`edge` の `label` と同じ概念で、意味は決まっておらず変更もできる。
+   * template などの拡張が意味 (種別名) を与え、場合によっては変更不可にする (toulmin の「主張」)。
    * 本文は `content` であって `label` ではない (Phase 5 P0 で語を分けた)。
-   * 既存ノードは種別を持たないので optional。
+   * label の無い node もあるので optional。
    */
   label: z.string().optional(),
   properties: z.record(z.string(), z.unknown()).optional(),
