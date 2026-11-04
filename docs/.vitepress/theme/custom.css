@@ -1,0 +1,28 @@
+/* 原稿の図 (<figure><img><figcaption>) */
+.vp-doc figure {
+  margin: 24px 0;
+}
+
+.vp-doc figure img {
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 6px;
+  cursor: zoom-in;
+}
+
+/* 1 つの figure に図が複数あるときは、間を空ける */
+.vp-doc figure img + img {
+  margin-top: 12px;
+}
+
+.vp-doc figcaption {
+  margin-top: 8px;
+  text-align: center;
+  font-size: 0.875rem;
+  color: var(--vp-c-text-2);
+}
+
+/* 拡大した図をサイトの見出しより前に出す */
+.medium-zoom-overlay,
+.medium-zoom-image--opened {
+  z-index: 100;
+}

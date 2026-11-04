@@ -14,7 +14,9 @@
 			"scripts/**/*.ts",
 			"playwright.config.ts",
 			"playwright.shots.config.ts",
-			"docs/introductory_guide_to_conversensus/shots/**/*.ts"
+			"docs/introductory_guide_to_conversensus/shots/**/*.ts",
+			"docs/.vitepress/config.mts",
+			"docs/.vitepress/theme/**/*.ts"
 		]
 	},
 	"formatter": {
