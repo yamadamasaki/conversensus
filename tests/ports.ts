@@ -12,3 +12,8 @@ export const E2E_CLIENT_PORT = 5184;
  */
 export const E2E_PREVIEW_PORT = 5185;
 export const E2E_PREVIEW_URL = `http://127.0.0.1:${E2E_PREVIEW_PORT}/`;
+/**
+ * 入門の図を撮るときの dev サーバ (step4)。E2E と同時に走らせても起動に失敗しないよう、別にする
+ * (`playwright.shots.config.ts`)
+ */
+export const SHOTS_CLIENT_PORT = 5186;
