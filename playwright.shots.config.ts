@@ -1,5 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
-import { SHOTS_CLIENT_PORT } from './tests/ports';
+import { SHOTS_CLIENT_PORT, SHOTS_PEER_PORT } from './tests/ports';
 
 /**
  * 入門の図を撮る (step4)。テストではないので `bun run test` / `test:e2e` には入れない。
@@ -12,6 +12,8 @@ import { SHOTS_CLIENT_PORT } from './tests/ports';
  * 方針は `deepse/architecture/step4/intro-guide-figures.md` §2
  */
 const SHOTS_URL = `http://127.0.0.1:${SHOTS_CLIENT_PORT}`;
+/** 6 章の 2 人目が開く dev サーバ。origin (保存領域) を 1 人目と分けるため */
+const SHOTS_PEER_URL = `http://127.0.0.1:${SHOTS_PEER_PORT}`;
 const LOCALES = { ja: 'ja-JP', en: 'en-US' } as const;
 const locale = process.env.SHOTS_LOCALE === 'en' ? LOCALES.en : LOCALES.ja;
 
@@ -30,11 +32,13 @@ export default defineConfig({
     viewport: { width: 1280, height: 800 },
     // 文書の図なので高精細で撮る
     deviceScaleFactor: 2,
+    // 押す相手を間違えたときに、テスト全体の上限まで待たずに落とす
+    actionTimeout: 20_000,
   },
-  webServer: {
-    command: `bun run --cwd src/client dev --port ${SHOTS_CLIENT_PORT} --strictPort`,
-    url: SHOTS_URL,
+  webServer: [SHOTS_CLIENT_PORT, SHOTS_PEER_PORT].map((port, i) => ({
+    command: `bun run --cwd src/client dev --port ${port} --strictPort`,
+    url: [SHOTS_URL, SHOTS_PEER_URL][i] as string,
     reuseExistingServer: false,
     timeout: 60_000,
-  },
+  })),
 });

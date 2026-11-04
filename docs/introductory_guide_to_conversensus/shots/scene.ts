@@ -53,6 +53,11 @@ const TEXT = {
     trunkClaim:
       '社会が個人に強制してよいのは, **他者への危害**を防ぐときだけである',
     mergeReason: '読書会で「別の読み」の言い方を採ることにした',
+    taroNote: '世論による縛りは, 法律より逃れにくいのではないか',
+    hanakoClaim:
+      '社会が個人に干渉してよいのは, **他者への危害**を防ぐときに限られる',
+    taroClaim:
+      '社会が個人に干渉してよいのは, **他者への危害**を防ぐ場合だけである',
     applies: '当てはめる',
   },
   en: {
@@ -93,6 +98,11 @@ const TEXT = {
     trunkClaim:
       'Society may compel an individual only to prevent **harm to others**',
     mergeReason: 'The book club adopted the wording of "another reading"',
+    taroNote: 'Is public opinion harder to escape than law?',
+    hanakoClaim:
+      'Society may interfere with an individual solely to prevent **harm to others**',
+    taroClaim:
+      'Society may interfere with an individual only in order to prevent **harm to others**',
     applies: 'applies',
   },
 } as const;

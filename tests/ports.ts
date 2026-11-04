@@ -17,3 +17,5 @@ export const E2E_PREVIEW_URL = `http://127.0.0.1:${E2E_PREVIEW_PORT}/`;
  * (`playwright.shots.config.ts`)
  */
 export const SHOTS_CLIENT_PORT = 5186;
+/** 入門の図の 2 人目 (6 章)。ログインの戻り先は 127.0.0.1 に限られるので、別の origin はポートで分ける */
+export const SHOTS_PEER_PORT = 5187;
