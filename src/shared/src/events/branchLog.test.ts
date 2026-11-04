@@ -122,6 +122,42 @@ describe('branchSheet', () => {
   });
 });
 
+describe('branchSheet: 他の sheet の batch を混ぜない (step4)', () => {
+  test('🔴 trunk に他の sheet の node があっても、branch の sheet には出ない', () => {
+    // trunk の op-log はファイル全体のログである。絞らずに畳むと、merger の merge 元の pane に
+    // 他の sheet の node が「追加」として現れた (入門の図を撮っていて発覚)
+    const mine: SheetId = SheetIdSchema.parse(crypto.randomUUID());
+    const other: SheetId = SheetIdSchema.parse(crypto.randomUUID());
+    const a = nid();
+    const stray = nid();
+    const inSheet = (clock: number, sheetId: SheetId, ops: Op[]): Batch => ({
+      ...batch(clock, ops),
+      sheetId,
+    });
+    const trunkBatches = [
+      inSheet(1, mine, [{ kind: 'node.add', target: a, content: 'A' }]),
+      inSheet(2, other, [{ kind: 'node.add', target: stray, content: '他' }]),
+    ];
+    const branch: Branch = {
+      id: bid(),
+      name: 'feature',
+      base: makeCommit(cid(), 'base', 'local', trunkBatches),
+      status: BRANCH_STATUS.OPEN,
+    };
+    const branchBatches = [
+      inSheet(3, other, [
+        { kind: 'node.setContent', target: stray, content: '他-branch' },
+      ]),
+    ];
+
+    const sheet = branchSheet(branch, trunkBatches, branchBatches, {
+      id: mine,
+      name: 'S',
+    });
+    expect(sheet.nodes.map((n) => n.id)).toEqual([a]);
+  });
+});
+
 /**
  * 分岐点を vector で切る (step3 Phase 1 D3)。scalar の `at` で切ると、分岐時には持っていなかった
  * batch が clock の小ささだけで後から base に入る (step3-entry §2.1)
