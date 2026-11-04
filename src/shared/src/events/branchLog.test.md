@@ -18,6 +18,10 @@ O3 spike で確定した再定義 —「コミット = ログ上のラベル付�
   - base より後の trunk 変更は含まれず (分岐後の trunk は見えない)、
   - ブランチ側の変更・追加が反映される
   ことを確認する。ブランチの状態がログの projection として導出できる証拠。
+- 🔴 **branchSheet は他の sheet の batch を混ぜない** (step4): trunk の op-log はファイル全体のログで、
+  `projectBatches` は sheet で仕分けない。絞らずに畳むと、merger の merge 元の pane に他の sheet の node が
+  「追加」として現れた (入門の図を撮っていて発覚)。trunk・branch の両方に他の sheet の batch を置き、
+  branch の sheet にはその sheet の node だけが出ることを見る
 
 ## 分岐点は vector で切る (step3 Phase 1 D3)
 

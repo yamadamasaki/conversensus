@@ -12,7 +12,9 @@
 			"src/**/*.tsx",
 			"tests/**/*.ts",
 			"scripts/**/*.ts",
-			"playwright.config.ts"
+			"playwright.config.ts",
+			"playwright.shots.config.ts",
+			"docs/introductory_guide_to_conversensus/shots/**/*.ts"
 		]
 	},
 	"formatter": {

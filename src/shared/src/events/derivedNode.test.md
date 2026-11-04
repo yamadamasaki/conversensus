@@ -24,11 +24,12 @@ op を積む」並行性の問題が構造上起きない。代わりに畳み�
 | テスト | 固定すること |
 | --- | --- |
 | id は決定的で、NodeId として有効 | 誰の手元でも同じ id。edge の端点の型を変えずに済む (U4 の決定) |
-| 在る sheet は node、消えた sheet は vanished | `derivedNodesFor` の出力の形 |
+| 在る sheet は node、消えた sheet は vanished | `derivedNodesFor` の出力の形 (label `graph`・content は名前) |
 | File の sheet が node として出る。**metagraph 自身も出る** | 仕様: metagraph 自身も特殊な sheet として metagraph に登場する (step3 Phase 4 Q4)。複数の metagraph が互いを指せる。Phase 1 では「一覧を見せる view であって一覧の中のグラフではない」として除いていた |
 | ふつうの sheet には出ない | 種別が metagraph の sheet だけ |
 | sheet.setName が content になる | 名前の正は sheet 側 |
 | 🔴 導出 node への setContent / remove は効かない | edge を張っておく — remove が効くとカスケードで edge が消える。導出 node 自体は畳み込みの最後に足すので、node だけを見ても変化が見えない |
+| 🔴 label は `graph` に決まっていて、setLabel は効かない | graph node とふつうの node を見分ける印 (step4)。content と同じく保存せず導出する |
 | 🔴 add の無い導出 node への layout と edge を受け付ける | D8 の本体 |
 | 🔴 sheet が消えれば layout と edge も消え、作り直せば戻る | 畳み直しで戻る (sheet.create の add-wins) |
 | 🔴 まだ作られていない sheet の導出 node への edge は live にしない | 性質テストが見つけた反例 (下) |

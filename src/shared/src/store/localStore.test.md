@@ -26,6 +26,7 @@ HTTP に置いたままだと、ブラウザ側に**第 2 の実装**ができ�
 | importFile: id をすべて振り直し、参照を付け替える | 同じファイルを 2 回取り込んでも別の File になる |
 | 🔴 importFile: 返り値と projection が一致 | id の振り直しの**後**のものを genesis にしなければ、取り込み直後と開き直しで画面が変わる |
 | 🔴 importFile: 同梱 blobs は op-log に入らない | base64 を op-log に流すとレコード上限に当たる (ANA-116 の再発) |
+| 🔴 importFile: metagraph の graph node を二重にしない | 書き出した File には導出した graph node が載る。ふつうの node として取り込むと、古い Sheet を指す node が残って二重になっていた (step4)。graph node は取り込まず、その id を新しい Sheet の導出 node に付け替えるので、張った edge と置き場所はそのまま付いてくる |
 | importFile: 形が合わなければ理由を返し、何も書かない | |
 | 自分の追記は marker を立てず、受信は立てる | 受信の経路を分けている理由 (step1 Phase 4d-5) |
 | 追記はべき等 | |

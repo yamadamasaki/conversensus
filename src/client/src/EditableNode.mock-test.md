@@ -76,13 +76,15 @@ node の**ラベル**を出し、条件付きで編集させる。`content` (mar
 あるラベルも編集の口 (button) ではなく div で出し、本文のダブルクリックでも編集に入らない。merger の見るだけの
 pane は選択が連動するので、選択中にだけ出る「label」の口が、押しても何も起きない形で現れていた (実機で発覚)。
 
-## label の口の置き場と差分の印 (visual language §8, #272 #258)
+## label の口の置き場と差分の印 (visual language §8, #272, step4)
 
 - **label の無い node を選ぶと、口は本文 (`[data-node-body]`) の外に出る。**v1.0.0 では選ぶと本文の中に
   「label」の口が現れ、本文が下へずれた (UI/UX review §2.4)。口は node の上辺の上に浮かせる
 - **label があれば本文の中に置く。**選択で出たり消えたりしないので、ずれは起きない
-- **metagraph の graph node には label の口を出さない** (#258)。graph node は Sheet を指し、label を付ける意味が仕様に無い。
-  graph node であることは `DERIVED_FROM_SHEET_PROPERTY` を持つことで決まる
+- **metagraph の graph node は label `graph` (`GRAPH_NODE_LABEL`) を見せるが、編集の口にしない** (step4)。
+  graph node とふつうの node を見分ける印である。label は content と同じく導出で保存しないので、変えても効かない。
+  graph node であることは `DERIVED_FROM_SHEET_PROPERTY` を持つことで決まる。#258 では「label を付ける意味が無い」として
+  口を出さなかったが、見分けにくさ (入門のドラフトで発覚) を受けて、決まった label を見せる方に変えた
 - **差分の node には形の印 (`[data-diff-mark]`) を添える。**追加と変更は枠の色だけが違うので、色に頼らない区別が要る
   (visual language §1.3)。印の名前 (`aria-label`) で種類を見る
 

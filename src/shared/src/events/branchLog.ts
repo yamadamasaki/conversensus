@@ -168,7 +168,13 @@ export function batchesUpTo(batches: Batch[], commit: Commit): Batch[] {
 
 /**
  * ブランチの sheet を導出する。
- * base 時点の trunk batches に、ブランチ側 batches を重ねて projection する。
+ * base 時点の trunk batches に、ブランチ側 batches を重 neて projection する。
+ *
+ * **その sheet の batch に絞ってから畳む。**trunk の op-log はファイル全体 (全シート) のログで、
+ * `projectBatches` は content op を sheet で仕分けない。絞らずに畳むと**他シートの node が
+ * branch のシートに現れる** (merger の merge 元の pane で発覚, step4)。`branchProjection` は
+ * 呼ぶ前に絞っていたが、`projectAddress` (merger・過去の時点) は絞っていなかったので、ここで絞る。
+ * sheetId の無い batch (ファイル構造の op) は残す — `projectBatches` が file op を読まないので害は無い
  */
 export function branchSheet(
   branch: Branch,
@@ -176,6 +182,11 @@ export function branchSheet(
   branchBatches: Batch[],
   meta: { id: SheetId; name: string; description?: string },
 ): Sheet {
-  const base = batchesUpTo(trunkBatches, branch.base);
-  return toSheet(projectBatches([...base, ...branchBatches]), meta);
+  const ofSheet = (b: Batch) =>
+    b.sheetId === undefined || b.sheetId === meta.id;
+  const base = batchesUpTo(trunkBatches.filter(ofSheet), branch.base);
+  return toSheet(
+    projectBatches([...base, ...branchBatches.filter(ofSheet)]),
+    meta,
+  );
 }

@@ -1,0 +1,13 @@
+{
+  /* 入門の図を撮るスクリプト (step4, docs/introductory_guide_to_conversensus/shots/)。
+     Playwright の Node ランタイムで動き、ファイルの読み書きに node: を使うので、
+     Node の型 (bun の型が含む) の付いたテストの設定に乗る。E2E の設定 (types なし) とは分ける */
+  "extends": "./tsconfig.test.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.shots.tsbuildinfo"
+  },
+  "include": [
+    "../../docs/introductory_guide_to_conversensus/shots/**/*.ts",
+    "../../playwright.shots.config.ts"
+  ]
+}

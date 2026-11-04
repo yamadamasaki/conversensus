@@ -6,6 +6,8 @@
  *
  * - 名前の正は sheet 側の 1 つだけ (`sheet.setName`)。導出 node の content は sheet の名前で、
  *   導出 node への `node.setContent` などは畳み込みが無視する
+ * - label は {@link GRAPH_NODE_LABEL} に決まっている (step4)。content と同じく**保存せず導出する**
+ *   ので、導出 node への `node.setLabel` も畳み込みの最後に上書きされて効かない
  * - graph node の追加・削除は `sheet.create` / `sheet.remove` そのもの。「全 metagraph に
  *   op を積む」並行性の問題が構造上起きない
  *
@@ -13,13 +15,22 @@
  * NodeId の型と edge のスキーマを変えずに済む方を採った。
  */
 
-import type { GraphNode, NodeId, Sheet, SheetId } from '../schemas';
+import type { GraphNode, NodeId, NodeLabel, Sheet, SheetId } from '../schemas';
 import { deterministicUuid } from './genesis';
 import type { PropertyName } from './unified';
 
 /** 導出 node が、どの sheet から導出されたかを載せるプロパティ */
 export const DERIVED_FROM_SHEET_PROPERTY: PropertyName =
   'app.conversensus.derivedFromSheet';
+
+/**
+ * graph node の label (step4)。metagraph で graph node とふつうの node を見分けるための印。
+ *
+ * LPG の label そのものであって、表示用の文言ではない (データなので訳さない)。template の
+ * 種別は label ではなく種別プロパティ (`kindPropertyOf`) で見分けるので、利用者の template が
+ * 同じ名前の種別を持っても判定はぶつからない (見た目の文字が同じになるだけ)
+ */
+export const GRAPH_NODE_LABEL: NodeLabel = 'graph';
 
 /** sheet の導出 node の id。**誰の手元でも同じ id になる** */
 export function derivedNodeIdOf(sheetId: SheetId): NodeId {
@@ -54,6 +65,7 @@ export function derivedNodesFor(
     const id = derivedNodeIdOf(sheet.id);
     live.set(id, {
       id,
+      label: GRAPH_NODE_LABEL,
       content: sheet.name,
       properties: { [DERIVED_FROM_SHEET_PROPERTY]: sheet.id },
     });

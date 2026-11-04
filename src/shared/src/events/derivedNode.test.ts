@@ -15,6 +15,7 @@ import {
   DERIVED_FROM_SHEET_PROPERTY,
   derivedNodeIdOf,
   derivedNodesFor,
+  GRAPH_NODE_LABEL,
   placeDerivedNodes,
   refreshDerivedNodes,
 } from './derivedNode';
@@ -108,6 +109,7 @@ describe('derivedNodesFor', () => {
     const derived = derivedNodesFor([{ id: S1, name: '一' }], [S1, S2]);
     expect(derived.live.get(D1)).toEqual({
       id: D1,
+      label: GRAPH_NODE_LABEL,
       content: '一',
       properties: { [DERIVED_FROM_SHEET_PROPERTY]: S1 },
     });
@@ -174,6 +176,18 @@ describe('metagraph の導出 node (projectFile)', () => {
       '二',
     ]);
     expect(sheet.edges.map((edge) => edge.id)).toEqual([e]);
+  });
+
+  test('🔴 label は graph に決まっていて、導出 node への node.setLabel は効かない (step4)', () => {
+    // label も content と同じく保存せず導出する。op で変えられると、graph node を見分ける印が崩れる
+    const sheet = metaSheetOf([
+      ...metagraph(),
+      fileBatch(3, [{ kind: 'sheet.create', target: S1, name: '一' }]),
+      inMeta(4, [{ kind: 'node.setLabel', target: D1, label: '別の種別' }]),
+    ]);
+    expect(sheet.nodes.find((node) => node.id === D1)?.label).toBe(
+      GRAPH_NODE_LABEL,
+    );
   });
 
   test('🔴 node.add の無い導出 node への node.setLayout と edge を受け付ける', () => {

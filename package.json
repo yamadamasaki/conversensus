@@ -7,16 +7,17 @@
   ],
   "scripts": {
     "dev:client": "bun run --cwd src/client dev",
-    "typecheck": "bun run --cwd src/client tsc --noEmit -p tsconfig.app.json && bun run --cwd src/client tsc --noEmit -p tsconfig.test.json && bun run --cwd src/shared tsc --noEmit -p tsconfig.json && bun run --cwd src/client tsc --noEmit -p ../../tsconfig.e2e.json && bun run --cwd src/client tsc --noEmit -p tsconfig.scripts.json",
-    "lint": "bun --bun biome check src/ tests/ scripts/ playwright.config.ts",
-    "lint:fix": "bun --bun biome check --write src/ tests/ scripts/ playwright.config.ts",
+    "typecheck": "bun run --cwd src/client tsc --noEmit -p tsconfig.app.json && bun run --cwd src/client tsc --noEmit -p tsconfig.test.json && bun run --cwd src/shared tsc --noEmit -p tsconfig.json && bun run --cwd src/client tsc --noEmit -p ../../tsconfig.e2e.json && bun run --cwd src/client tsc --noEmit -p tsconfig.scripts.json && bun run --cwd src/client tsc --noEmit -p tsconfig.shots.json",
+    "lint": "bun --bun biome check src/ tests/ scripts/ playwright.config.ts playwright.shots.config.ts docs/introductory_guide_to_conversensus/shots/",
+    "lint:fix": "bun --bun biome check --write src/ tests/ scripts/ playwright.config.ts playwright.shots.config.ts docs/introductory_guide_to_conversensus/shots/",
     "setup": "cp scripts/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit && echo 'pre-commit hook installed'",
     "test": "bun test && bun run test:mock && bun run test:app",
     "test:mock": "for f in $(find src -name '*.mock-test.tsx'); do bun test ./$f || exit 1; done",
     "test:app": "bun test $(find src -name '*.app-test.tsx' | sed 's|^|./|')",
     "clear-pds-data": "bun run --cwd src/client scripts/clear-pds-data.ts",
     "test:e2e": "playwright test",
-    "test:e2e:webkit": "playwright test --project=webkit"
+    "test:e2e:webkit": "playwright test --project=webkit",
+    "docs:shots": "playwright test -c playwright.shots.config.ts && SHOTS_LOCALE=en playwright test -c playwright.shots.config.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.7",

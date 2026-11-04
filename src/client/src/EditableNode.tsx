@@ -87,9 +87,9 @@ export function EditableNode({ id, data, selected }: NodeProps) {
 
   const content = String(data.content ?? '');
   /**
-   * 種別名 (Phase 5)。**本文 (`content`) とは別物**である — `content` は markdown の
-   * 本文で、`label` は template が与える「主張」「反論」などの種別名。
-   * template が当たっていないシートでは空なので、その場合は何も描かない
+   * LPG の label。**本文 (`content`) とは別物**である — `content` は markdown の本文で、
+   * `label` は利用者が自由に付ける名前か、template が与える「主張」「反論」などの種別名、
+   * metagraph の graph node なら `graph` (step4)。空なら何も描かない
    */
   const label = String(data.label ?? '');
   /**
@@ -113,12 +113,14 @@ export function EditableNode({ id, data, selected }: NodeProps) {
    * 選択中にだけ出る「ラベル」の口が、押しても何も起きない形で現れていた (実機で発覚)
    */
   const readOnly = useReadOnly();
-  const labelLocked = kindFromTemplate || readOnly;
   const derivedFrom = (
     data.properties as Record<string, unknown> | undefined
   )?.[DERIVED_FROM_SHEET_PROPERTY];
   const graphNodeSheet =
     typeof derivedFrom === 'string' ? (derivedFrom as SheetId) : undefined;
+  /** graph node の label (`graph`) は導出で、保存しないので変えられない (step4) */
+  const labelLocked =
+    kindFromTemplate || readOnly || graphNodeSheet !== undefined;
   const diffType = data.diffType as 'add' | 'update' | undefined;
   const ghost = data.ghost === true;
 
@@ -229,8 +231,7 @@ export function EditableNode({ id, data, selected }: NodeProps) {
    * ラベルを持たない node では**選択中だけ**付ける口を出す — 常に出すと、
    * ラベルを使わない普通のグラフが賑やかになる
    */
-  // metagraph の graph node (= Sheet) には label を付けない — 仕様に意味が無い (#258)
-  const showLabel = label || (selected && !labelLocked && !graphNodeSheet);
+  const showLabel = label || (selected && !labelLocked);
   const labelSlot = labelEdit.editing ? (
     <input
       // biome-ignore lint/a11y/noAutofocus: 編集開始時に即座に入力できるよう必要

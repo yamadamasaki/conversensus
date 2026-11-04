@@ -1,9 +1,18 @@
 import { beforeEach, describe, expect, test } from 'bun:test';
 import { computeBlobCid, MAX_BLOB_SIZE } from '../blob';
+import {
+  DERIVED_FROM_SHEET_PROPERTY,
+  derivedNodeIdOf,
+} from '../events/derivedNode';
 import { projectFile } from '../events/project';
 import { METAGRAPH_SHEET_KIND, sheetKindOf } from '../events/sheetKind';
 import type { Batch } from '../events/unified';
-import type { FileId } from '../schemas';
+import {
+  CONVERSENSUS_FILE_VERSION,
+  EdgeIdSchema,
+  type FileId,
+  NodeIdSchema,
+} from '../schemas';
 import { BunSqliteDriver, IN_MEMORY } from './bunSqliteDriver';
 import { EventStore } from './eventStore';
 import { LocalStore } from './localStore';
@@ -123,6 +132,59 @@ describe('importFile', () => {
     expect(JSON.stringify(store.getBatches(result.file.id))).not.toContain(
       'AQID',
     );
+  });
+
+  test('🔴 metagraph の graph node を二重にせず、張った edge と置き場所を新しい graph node に付ける (step4)', () => {
+    // 書き出した File には導出した graph node が載っている。ふつうの node として取り込むと、
+    // 古い Sheet を指す node が残り、新しい graph node と二重になっていた
+    const original = store.createFile({ name: '元' });
+    const [plain, meta] = original.sheets;
+    if (!plain || !meta) throw new Error('Sheet が足りない');
+    const graphNode = derivedNodeIdOf(plain.id);
+    const note = NodeIdSchema.parse('11111111-1111-4111-8111-111111111111');
+    const exported = {
+      ...projectFile(store.getBatches(original.id), original.id),
+      version: CONVERSENSUS_FILE_VERSION,
+    };
+    exported.sheets = exported.sheets.map((sheet) =>
+      sheet.id === meta.id
+        ? {
+            ...sheet,
+            nodes: [...sheet.nodes, { id: note, content: 'メモ' }],
+            edges: [
+              {
+                id: EdgeIdSchema.parse('22222222-2222-4222-8222-222222222222'),
+                source: note,
+                target: graphNode,
+              },
+            ],
+            layouts: [{ nodeId: graphNode, x: 10, y: 20 }],
+          }
+        : sheet,
+    );
+
+    const result = store.importFile(JSON.parse(JSON.stringify(exported)));
+    if (!result.ok) throw new Error('取り込めなかった');
+    const imported = projectFile(
+      store.getBatches(result.file.id),
+      result.file.id,
+    );
+    const [newPlain, newMeta] = imported.sheets;
+    if (!newPlain || !newMeta) throw new Error('Sheet が足りない');
+    const newGraphNode = derivedNodeIdOf(newPlain.id);
+
+    // graph node は Sheet の数 (Sheet 1 と index) だけで、どれも新しい Sheet を指す
+    expect(
+      newMeta.nodes
+        .filter(
+          (n) => n.properties?.[DERIVED_FROM_SHEET_PROPERTY] !== undefined,
+        )
+        .map((n) => n.properties?.[DERIVED_FROM_SHEET_PROPERTY])
+        .sort(),
+    ).toEqual([newPlain.id, newMeta.id].sort());
+    expect(newMeta.nodes).toHaveLength(3);
+    expect(newMeta.edges.map((e) => e.target)).toEqual([newGraphNode]);
+    expect(newMeta.layouts).toEqual([{ nodeId: newGraphNode, x: 10, y: 20 }]);
   });
 
   test('形の合わないものは取り込まず、理由を返す', () => {
