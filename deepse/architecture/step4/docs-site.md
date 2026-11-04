@@ -18,7 +18,11 @@ Read the Docs は版ごとの出し分けが強みだが、入門は「いまの
 - 原稿は `docs/introductory_guide_to_conversensus/<言語>/` に置く (今のまま)。URL では言語を先頭に出す
   (`/intro/…` が日本語、`/en/intro/…` が英語)。`docs/.vitepress/config.mts` の rewrites で付け替える
 - 図は押すと拡大する (medium-zoom, `docs/.vitepress/theme/`)。図の多くは画面全体なので、本文の幅では文字が読めない
-- 注記 (`> [!NOTE]` など) の見出しは日本語にしてある。英語版では locale ごとに上書きする
+- 注記 (`> [!NOTE]` など) の見出しは言語ごとに出す (日本語の原稿では「注記」「注意」など、英語の原稿では NOTE・WARNING)。
+  VitePress の見出しの設定 (`markdown.container`) はサイト全体で 1 組しか持てない (locale ごとに分けられない) ので、
+  既定の英語のまま作らせ、英語の原稿 (置き場所が `…/en/…`) 以外では markdown の段階で日本語に置き換える
+- 英語版 (2026-11-04): 原稿は `introductory_guide_to_conversensus/en/`、トップは `docs/en/index.md`。
+  図は `images/en/` (`bun run docs:shots` が英語の画面で撮ったもの)。画面の文言は英語の辞書 (`src/client/src/i18n/en.ts`) の表記に合わせた
 - 手元で見る: `bun run docs:dev`。作る: `bun run docs:build` (出力は `docs/.vitepress/dist/`)
 
 ## 一度だけ要る設定 (利用者)
@@ -30,6 +34,5 @@ Read the Docs は版ごとの出し分けが強みだが、入門は「いまの
 
 ## 次にやること
 
-- 英語版: `introductory_guide_to_conversensus/en/` を足し、config に en の locale と rewrites を足す
 - アプリから入門へのリンク
 - 図の軽量化 (今は 2 倍の解像度の PNG で、合計 7.9 MB)
