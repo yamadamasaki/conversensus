@@ -16,7 +16,7 @@
 
 ## どのように
 
-- **round-trip**: `projectFile(graphFileToBatches(file), file.id)` が元の `GraphFile` と等価 (ファイルメタ・シート順・ノード内容・properties・エッジ・pathType) を再構築することを確認する。genesis と読み取り経路が対になっていることの最重要保証。
+- **round-trip**: `projectFile(graphFileToBatches(file), file.id)` が元の `GraphFile` と等価 (ファイルメタ・シート順・ノード内容・node の label・properties・エッジ・pathType) を再構築することを確認する。genesis と読み取り経路が対になっていることの最重要保証。node の label は以前ここで落ちていて, import した File で label が消えた (step4 で発覚)。
 - **presentation 保全 (H1)**: genesis が生成する ops に `edge.setStyle` / `edge.setLabelOffset` が含まれることを確認する。snapshot の `edgeLayouts` に格納された style / label offset を取りこぼさない。
 - **空 ops 禁止 (critic L-3)**: 全 batch の ops が非空であることと、空シートは `sheet.create` batch は持つが content batch を生成しないことを確認する (`appendBatch` は空 ops を throw する)。
 - **予約属性 (§3.4)**: 全 batch が `actor = "genesis"` / 固定 `timestamp` / 一意の昇順連番 clock を持つことを確認する。端末非依存な決定論の土台。

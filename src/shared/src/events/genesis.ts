@@ -150,6 +150,8 @@ function sheetContentOps(sheet: Sheet): Op[] {
       kind: 'node.add',
       target: n.id,
       content: n.content,
+      // label を落とすと、import した File で node の label が消える (step4 で発覚)
+      ...(n.label !== undefined && { label: n.label }),
       ...(n.properties && { properties: n.properties }),
       ...(n.nodeType && { nodeType: n.nodeType }),
       ...(n.parentId !== undefined && { parentId: n.parentId }),

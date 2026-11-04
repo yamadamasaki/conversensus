@@ -16,6 +16,10 @@
  */
 
 import { computeBlobCid, MAX_BLOB_SIZE } from '../blob';
+import {
+  DERIVED_FROM_SHEET_PROPERTY,
+  derivedNodeIdOf,
+} from '../events/derivedNode';
 import { graphFileToBatches } from '../events/genesis';
 import { METAGRAPH_SHEET_KIND, SHEET_KIND_PROPERTY } from '../events/sheetKind';
 import type { Actor, Batch } from '../events/unified';
@@ -25,6 +29,7 @@ import type {
   FileId,
   GraphFile,
   GraphFileListItem,
+  GraphNode,
   NodeId,
   SheetId,
 } from '../schemas';
@@ -136,12 +141,32 @@ export class LocalStore {
     const parsed = parseConversensusFile(raw);
     if (!parsed.success) return { ok: false, error: parsed.error };
     const { version: _, blobs: _blobs, ...fileData } = parsed.data;
+    const sheetIdMap = new Map<string, SheetId>(
+      fileData.sheets.map((sheet) => [sheet.id, newId() as SheetId]),
+    );
+    /**
+     * metagraph の graph node は保存せず、Sheet の一覧から導出する (`derivedNode.ts`)。
+     * 書き出した File には導出した姿が載っているので、**ふつうの node として取り込むと
+     * 古い Sheet を指す node が残り、新しい graph node と二重になる** (step4 で発覚)。
+     * graph node は取り込まず、その id を新しい Sheet の導出 node の id に付け替える —
+     * graph node に張った edge と置き場所 (layout) は、そのまま新しい graph node に付く
+     */
+    const derivedTargetOf = (node: GraphNode): NodeId | null | undefined => {
+      const from = node.properties?.[DERIVED_FROM_SHEET_PROPERTY];
+      if (typeof from !== 'string') return undefined;
+      const sheetId = sheetIdMap.get(from);
+      return sheetId ? derivedNodeIdOf(sheetId) : null;
+    };
     const file: GraphFile = {
       ...fileData,
       id: newId() as FileId,
       sheets: fileData.sheets.map((sheet) => {
         const nodeIdMap = new Map<string, NodeId>(
-          sheet.nodes.map((n) => [n.id, newId() as NodeId]),
+          sheet.nodes.map((n) => [
+            n.id,
+            // 消えた Sheet の graph node は行き先が無いので新しい id にする (下で node からも除く)
+            derivedTargetOf(n) ?? (newId() as NodeId),
+          ]),
         );
         const edgeIdMap = new Map<string, EdgeId>(
           sheet.edges.map((e) => [e.id, newId() as EdgeId]),
@@ -150,12 +175,14 @@ export class LocalStore {
         const edgeOf = (id: string) => (edgeIdMap.get(id) ?? id) as EdgeId;
         return {
           ...sheet,
-          id: newId() as SheetId,
-          nodes: sheet.nodes.map((n) => ({
-            ...n,
-            id: nodeOf(n.id),
-            ...(n.parentId ? { parentId: nodeOf(n.parentId) } : {}),
-          })),
+          id: sheetIdMap.get(sheet.id) as SheetId,
+          nodes: sheet.nodes
+            .filter((n) => derivedTargetOf(n) === undefined)
+            .map((n) => ({
+              ...n,
+              id: nodeOf(n.id),
+              ...(n.parentId ? { parentId: nodeOf(n.parentId) } : {}),
+            })),
           edges: sheet.edges.map((e) => ({
             ...e,
             id: edgeOf(e.id),

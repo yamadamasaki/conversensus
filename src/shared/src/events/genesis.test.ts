@@ -35,7 +35,7 @@ function sampleFile(): GraphFile {
         name: 'シート1',
         nodes: [
           { id: a, content: 'A' },
-          { id: b, content: 'B', properties: { color: 'red' } },
+          { id: b, content: 'B', label: '主張', properties: { color: 'red' } },
         ],
         edges: [{ id: e, source: a, target: b, label: 'e1' }],
         layouts: [
@@ -75,6 +75,8 @@ describe('graphFileToBatches (genesis)', () => {
     expect(s1.nodes.find((n) => n.content === 'B')?.properties).toEqual({
       color: 'red',
     });
+    // node の label も保全される (step4: 以前は落ちていて、import した File で label が消えた)
+    expect(s1.nodes.find((n) => n.content === 'B')?.label).toBe('主張');
     expect(s1.edges).toHaveLength(1);
     expect(s1.edges[0].label).toBe('e1');
     // presentation (H1): edge style / label offset が保全される
