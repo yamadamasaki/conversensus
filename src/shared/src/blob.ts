@@ -10,8 +10,20 @@
  * 識別子が 1 つに揃うので対応表が要らない。
  */
 
+import { SYSTEM_PROPERTY_PREFIX } from './events/properties';
+
 export type BlobCid = string;
 export type MimeType = string;
+
+/**
+ * 画像の参照を置く properties のキー。**システムのプロパティなので名前空間を持つ**
+ * (#137 / `deepse/requirements/spec/propertyEditor.md`)。`.` を含まない名前は規約上
+ * すべて custom (グラフの編集者のもの) になり、property editor でユーザに見えてしまう。
+ *
+ * client の画像の扱い (`images/imageBlob.ts`) と、場面の組み立て (`scenario/fileBuilder.ts`) の
+ * 両方が使うので shared に置く
+ */
+export const IMAGE_PROPERTY_KEY = `${SYSTEM_PROPERTY_PREFIX}image`;
 
 /**
  * blob の上限。PDS の実測値そのもの (5 MiB ちょうどまで通り、+1 バイトで

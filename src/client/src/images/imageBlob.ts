@@ -12,6 +12,7 @@
 import {
   type BlobCid,
   type Did,
+  IMAGE_PROPERTY_KEY,
   MAX_BLOB_SIZE,
   type MimeType,
   type Op,
@@ -45,12 +46,8 @@ export type ImageBlobRef = {
   size: number;
 };
 
-/**
- * 画像の参照を置く properties のキー。**システムのプロパティなので名前空間を持つ**
- * (#137 / `deepse/requirements/spec/propertyEditor.md`)。`.` を含まない名前は規約上
- * すべて custom (グラフの編集者のもの) になり、property editor でユーザに見えてしまう。
- */
-export const IMAGE_PROPERTY_KEY = `${SYSTEM_PROPERTY_PREFIX}image`;
+/** 画像の参照を置く properties のキー (定義は shared の `blob.ts`) */
+export { IMAGE_PROPERTY_KEY };
 
 /**
  * 名前空間化する前の画像キー。**読み取りだけ**残す (#137)。

@@ -161,13 +161,22 @@ export class LocalStore {
       ...fileData,
       id: newId() as FileId,
       sheets: fileData.sheets.map((sheet) => {
-        const nodeIdMap = new Map<string, NodeId>(
-          sheet.nodes.map((n) => [
-            n.id,
-            // 消えた Sheet の graph node は行き先が無いので新しい id にする (下で node からも除く)
-            derivedTargetOf(n) ?? (newId() as NodeId),
-          ]),
-        );
+        const nodeIdMap = new Map<string, NodeId>([
+          // graph node の id は Sheet の id から決まるので、node の一覧に載っていなくても
+          // (layout と edge だけで指していても) 付け替えられる
+          ...[...sheetIdMap].map(
+            ([from, to]) =>
+              [derivedNodeIdOf(from as SheetId), derivedNodeIdOf(to)] as const,
+          ),
+          ...sheet.nodes.map(
+            (n) =>
+              [
+                n.id,
+                // 消えた Sheet の graph node は行き先が無いので新しい id にする (下で node からも除く)
+                derivedTargetOf(n) ?? (newId() as NodeId),
+              ] as const,
+          ),
+        ]);
         const edgeIdMap = new Map<string, EdgeId>(
           sheet.edges.map((e) => [e.id, newId() as EdgeId]),
         );
