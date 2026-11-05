@@ -6,6 +6,7 @@
  * モジュールの定数にする — React Flow は描画のたびに別の object を渡されると警告を出す
  */
 
+import { ConnectionMode } from '@xyflow/react';
 import { EditableLabelEdge } from '../EditableLabelEdge';
 import { EditableNode } from '../EditableNode';
 import { GroupNode } from '../GroupNode';
@@ -19,3 +20,10 @@ export const FLOW_NODE_TYPES = {
 };
 
 export const FLOW_EDGE_TYPES = { editableLabel: EditableLabelEdge };
+
+/**
+ * 辺の端の handle の解き方。**node の handle はすべて `type="source"`** (どの向きからも繋げるため)
+ * なので、`Loose` でないと辺の行き先の handle が見つからず、React Flow は辺を描かない。
+ * 見るだけの pane がこれを持たず、merger の merge 元・merge 先に辺が出なかった (#328)
+ */
+export const FLOW_CONNECTION_MODE = ConnectionMode.Loose;

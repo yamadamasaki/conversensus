@@ -15,7 +15,11 @@ import type { Sheet } from '@conversensus/shared';
 import { Background, ReactFlow, ReactFlowProvider } from '@xyflow/react';
 import { useMemo } from 'react';
 import { EventDispatchContext } from './EventDispatchContext';
-import { FLOW_EDGE_TYPES, FLOW_NODE_TYPES } from './graph/flowTypes';
+import {
+  FLOW_CONNECTION_MODE,
+  FLOW_EDGE_TYPES,
+  FLOW_NODE_TYPES,
+} from './graph/flowTypes';
 import { toFlowEdges, toFlowNodes } from './graphTransform';
 import { NodeCreationContext } from './NodeCreationContext';
 import { ReadOnlyProvider } from './readOnlyContext';
@@ -133,6 +137,7 @@ export function GraphPreview({
               edges={edges}
               nodeTypes={FLOW_NODE_TYPES}
               edgeTypes={FLOW_EDGE_TYPES}
+              connectionMode={FLOW_CONNECTION_MODE}
               nodesDraggable={false}
               nodesConnectable={false}
               edgesReconnectable={false}
