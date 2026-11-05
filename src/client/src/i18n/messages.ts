@@ -29,7 +29,11 @@ export function messages(): Messages {
   return CATALOGS[getLocale()];
 }
 
+/** いまの言語。React から使う。言語が替わると描き直す */
+export function useLocale(): Locale {
+  return useSyncExternalStore(subscribeLocale, getLocale, getLocale);
+}
+
 export function useMessages(): Messages {
-  const locale = useSyncExternalStore(subscribeLocale, getLocale, getLocale);
-  return CATALOGS[locale];
+  return CATALOGS[useLocale()];
 }

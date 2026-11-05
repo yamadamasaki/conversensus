@@ -46,6 +46,7 @@ import {
   folderPaths,
   isEmptyFolder,
 } from './folders/folderTree';
+import { GuideLink } from './GuideLink';
 import { useLocalOnlyFiles } from './hooks/useLocalOnlyFiles';
 import { LanguageSwitcher } from './i18n/LanguageSwitcher';
 import { messages, useMessages } from './i18n/messages';
@@ -1264,6 +1265,7 @@ export function Sidebar({
             </button>
           </>
         )}
+        <GuideLink />
         <LanguageSwitcher />
       </div>
       {alertState && (

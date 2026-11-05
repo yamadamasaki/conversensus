@@ -150,6 +150,7 @@ export const en: Messages = {
     noNameMatch: (query: string) => `No names match "${query}"`,
     logout: 'Log out',
     login: 'Log in with ATProto',
+    guide: 'Read the guide',
   },
   settings: {
     name: 'Name',

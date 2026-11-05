@@ -148,6 +148,7 @@ export const ja = {
     noNameMatch: (query: string) => `「${query}」に当たる名前はありません`,
     logout: 'ログアウト',
     login: 'ATProto ログイン',
+    guide: '入門を読む',
   },
   settings: {
     name: '名前',
