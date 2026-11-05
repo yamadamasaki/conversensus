@@ -15,7 +15,7 @@ conversensus では, 現在のグラフだけではなく, グラフの成長過
 あるグラフの「正規」あるいは「最新」版. グラフごとに一つだけあります. Sheet そのものが trunk を表しています.
 
 <figure>
-	<img src="../images/ja/evolving_graph-trunk.png" alt="trunk">
+	<img src="../images/ja/evolving_graph-trunk.webp" alt="trunk">
 	<figcaption>trunk</figcaption>
 </figure>
 
@@ -28,21 +28,21 @@ branch は, 左サイドバーの Sheet の行にあるボタンから作りま�
 branch には名前を付けることができます.  branch を作った意図が分かるような名前をつけるといいでしょう. 後で変えることもできますから, 考えすぎる必要はありません.
 
 <figure>
-	<img src="../images/ja/evolving_graph-branch-create.png" alt="branch 作成">
+	<img src="../images/ja/evolving_graph-branch-create.webp" alt="branch 作成">
 	<figcaption>branch 作成</figcaption>
 </figure>
 
 branch を変更すると, その変更は branch に蓄積されていきます. branch のグラフには, 直前の commit (次節参照) からの差分が示されます.
 
 <figure>
-	<img src="../images/ja/evolving_graph-branch-diff.png" alt="branch に変更を重ねる">
+	<img src="../images/ja/evolving_graph-branch-diff.webp" alt="branch に変更を重ねる">
 	<figcaption>branch に変更を重ねる</figcaption>
 </figure>
 
 branch を閉じると branch への変更はできなくなります. また branch を削除すると, 左サイドバーに表示されなくなります.
 
 <figure>
-	<img src="../images/ja/evolving_graph-branch-close-delete.png" alt="branch の close/delete">
+	<img src="../images/ja/evolving_graph-branch-close-delete.webp" alt="branch の close/delete">
 	<figcaption>branch の close/delete</figcaption>
 </figure>
 
@@ -51,7 +51,7 @@ branch を閉じると branch への変更はできなくなります. また br
 commit は, branch に対する変更に区切りを付ける印です. commit ごとにその理由を記述します.
 
 <figure>
-	<img src="../images/ja/evolving_graph-commit.png" alt="commit">
+	<img src="../images/ja/evolving_graph-commit.webp" alt="commit">
 	<figcaption>commit</figcaption>
 </figure>
 
@@ -62,7 +62,7 @@ commit は, branch に対する変更に区切りを付ける印です. commit �
 branch を merge するとは, branch に対する commit を trunk に取り込むことです. branch にまだ commit されていない変更があると, merge はできません.
 
 <figure>
-	<img src="../images/ja/evolving_graph-merge.png" alt="merge">
+	<img src="../images/ja/evolving_graph-merge.webp" alt="merge">
 	<figcaption>merge</figcaption>
 </figure>
 
@@ -89,7 +89,7 @@ merger の画面には, 上に merge 元 (branch の, 開いた時点の姿) と
 衝突の一覧の衝突をすべて確かめて印を付け, merge の理由を書いて「merge」を押すと, merge 後のグラフが trunk に取り込まれます.
 
 <figure>
-	<img src="../images/ja/evolving_graph-merger.png" alt="衝突の解決">
+	<img src="../images/ja/evolving_graph-merger.webp" alt="衝突の解決">
 	<figcaption>衝突の解決</figcaption>
 </figure>
 
@@ -106,7 +106,7 @@ timeline には version tree が表示され, trunk と branch の分かれ方�
 header の「この view のリンクを写す」で, いま見ているグラフ (Sheet や branch) へのリンクを OS のクリップボードにコピーできます. このリンクを開くと, conversensus でそのグラフが表示されます.
 
 <figure>
-	<img src="../images/ja/evolving_graph-timeline.png" alt="timeline pane の例">
+	<img src="../images/ja/evolving_graph-timeline.webp" alt="timeline pane の例">
 	<figcaption>timeline pane の例</figcaption>
 </figure>
 

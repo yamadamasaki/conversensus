@@ -11,7 +11,7 @@ That is, nodes and edges can have a label and any number of properties (neither 
 A node can also hold various contents, and edges are directed. There are no other rules.
 
 <figure>
-	<img src="../images/en/what_is_conversensus-simple-graph.png" alt="A simple graph">
+	<img src="../images/en/what_is_conversensus-simple-graph.webp" alt="A simple graph">
 	<figcaption>A simple graph</figcaption>
 </figure>
 

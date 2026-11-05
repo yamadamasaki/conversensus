@@ -25,7 +25,7 @@ conversensus is one attempt to build tools that support such diverse "habits" of
 ## Doodling a graph
 
 <figure>
-	<img src="../images/en/thinking_with_graphs-graph.png" alt="The graph screen">
+	<img src="../images/en/thinking_with_graphs-graph.webp" alt="The graph screen">
 	<figcaption>The graph screen</figcaption>
 </figure>
 
@@ -49,8 +49,8 @@ Double-click an empty part of the screen to create a node. You can create the fo
 
 
 <figure>
-	<img src="../images/en/thinking_with_graphs-node-menu.png" alt="Creating nodes">
-	<img src="../images/en/thinking_with_graphs-created-nodes.png" alt="Creating nodes">
+	<img src="../images/en/thinking_with_graphs-node-menu.webp" alt="Creating nodes">
+	<img src="../images/en/thinking_with_graphs-created-nodes.webp" alt="Creating nodes">
 	<figcaption>Creating nodes</figcaption>
 </figure>
 

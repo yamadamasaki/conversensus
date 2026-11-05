@@ -9,7 +9,7 @@ File の編集に参加を依頼できるのは, ATProto アカウントを持�
 File の参加者一覧を開き, 参加を依頼したい人のハンドル名を入力して「参加依頼する」を押します. ハンドル名は, カンマで区切って複数入力することもできます.
 
 <figure>
-	<img src="../images/ja/interact_with_graphs-invite.png" alt="参加依頼">
+	<img src="../images/ja/interact_with_graphs-invite.webp" alt="参加依頼">
 	<figcaption>参加依頼</figcaption>
 </figure>
 
@@ -20,14 +20,14 @@ File の参加者一覧を開き, 参加を依頼したい人のハンドル名�
 参加コードを受け取った相手は, 「参加コードで参加する」から参加コードを貼り付けます. 誰からどの File への参加依頼なのかが表示されるので, 確認して「参加する」を押すと, File の編集に参加できます.
 
 <figure>
-	<img src="../images/ja/interact_with_graphs-accept.png" alt="参加">
+	<img src="../images/ja/interact_with_graphs-accept.webp" alt="参加">
 	<figcaption>参加</figcaption>
 </figure>
 
 参加者一覧では, 誰が参加しているか (依頼中, 参加中, 離脱中) と, 誰がいつからいつまで File の編集に参加していたか (参加履歴) を見ることができます.
 
 <figure>
-	<img src="../images/ja/interact_with_graphs-participants.png" alt="参加者一覧">
+	<img src="../images/ja/interact_with_graphs-participants.webp" alt="参加者一覧">
 	<figcaption>参加者一覧</figcaption>
 </figure>
 
@@ -36,7 +36,7 @@ File の参加者一覧を開き, 参加を依頼したい人のハンドル名�
 File の編集に参加している間, その人はその File に関するすべての操作を同じように行うことができます. 誰がその操作を行なったかは, すべて履歴に残ります.
 
 <figure>
-	<img src="../images/ja/interact_with_graphs-timeline.png" alt="複数のメンバが関わる履歴">
+	<img src="../images/ja/interact_with_graphs-timeline.webp" alt="複数のメンバが関わる履歴">
 	<figcaption>複数のメンバが関わる履歴</figcaption>
 </figure>
 
@@ -56,7 +56,7 @@ File の編集に参加している間, その人はその File に関するす�
 別のタブで開いている File で衝突が起きたときには, そのタブに印が付きます.
 
 <figure>
-	<img src="../images/ja/interact_with_graphs-conflict.png" alt="衝突の通知">
+	<img src="../images/ja/interact_with_graphs-conflict.webp" alt="衝突の通知">
 	<figcaption>衝突の通知</figcaption>
 </figure>
 
@@ -65,7 +65,7 @@ File の編集に参加している間, その人はその File に関するす�
 File の編集から本人が離れることも, 他の人が離すこともできます (「参加取りやめ」). 今のところ, そのためのシステム化されたプロトコルはありません. アカウントの加入/離脱については, あらかじめ conversensus の外で話し合いを持つことをお勧めします.
 
 <figure>
-	<img src="../images/ja/interact_with_graphs-leave.png" alt="離脱">
+	<img src="../images/ja/interact_with_graphs-leave.webp" alt="離脱">
 	<figcaption>離脱</figcaption>
 </figure>
 

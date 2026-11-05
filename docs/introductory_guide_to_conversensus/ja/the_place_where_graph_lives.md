@@ -15,7 +15,7 @@ Folder は, Linux, macOS, Windows などの皆さんが利用している OS の
 これらは, 画面左側の左サイドバーに表示されます.
 
 <figure>
-	<img src="../images/ja/the_place_where_graph_lives-sidebar.png" alt="左サイドバー">
+	<img src="../images/ja/the_place_where_graph_lives-sidebar.webp" alt="左サイドバー">
 	<figcaption>左サイドバー</figcaption>
 </figure>
 
