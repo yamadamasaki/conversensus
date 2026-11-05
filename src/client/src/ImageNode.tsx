@@ -448,6 +448,8 @@ export function ImageNode({ id, data, selected }: NodeProps) {
         <div
           style={{
             flex: 1,
+            // flex の子は既定で中身より縮まない。0 にしないと、背の高い画像が枠を押し広げる
+            minHeight: 0,
             background: color.bgSubtle,
             display: 'flex',
             alignItems: 'center',
@@ -514,8 +516,11 @@ export function ImageNode({ id, data, selected }: NodeProps) {
               alt={content}
               onError={() => setImgError(true)}
               style={{
+                // **枠の中に全体を収める** (#332)。枠の縦横比が画像と違うと、以前は幅に合わせて
+                // 下が切れていた。余白は出るが、どの大きさに resize しても画像の全体が見える
                 width: '100%',
-                height: 'auto',
+                height: '100%',
+                objectFit: 'contain',
                 display: 'block',
               }}
               draggable={false}

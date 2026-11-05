@@ -26,6 +26,10 @@ test('初期画面と、単純なグラフ', async ({ page }, testInfo) => {
   await expect(page.locator(`${NODE} img`)).toBeVisible({
     timeout: SETTLE_TIMEOUT_MS,
   });
+  // どの node にも label が出ている (図の注文。画像の node は #326 まで描かなかった)
+  await expect(
+    page.locator(`${NODE} [data-node-label]`).filter({ hasText: S.coverLabel }),
+  ).toBeVisible();
   await nodeWith(page, S.claimLabel).click();
   await page.getByRole('button', { name: t.header.property }).click();
   await shoot(page, 'what_is_conversensus-simple-graph');
