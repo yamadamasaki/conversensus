@@ -25,7 +25,7 @@ conversensus は, そのように多様な思考や認知の「癖」を支え�
 ## グラフを落書きする
 
 <figure>
-	<img src="../images/ja/thinking_with_graphs-graph.png" alt="グラフの画面">
+	<img src="../images/ja/thinking_with_graphs-graph.webp" alt="グラフの画面">
 	<figcaption>グラフの画面</figcaption>
 </figure>
 
@@ -49,8 +49,8 @@ conversensus は, そのように多様な思考や認知の「癖」を支え�
 
 
 <figure>
-	<img src="../images/ja/thinking_with_graphs-node-menu.png" alt="node の作成">
-	<img src="../images/ja/thinking_with_graphs-created-nodes.png" alt="node の作成">
+	<img src="../images/ja/thinking_with_graphs-node-menu.webp" alt="node の作成">
+	<img src="../images/ja/thinking_with_graphs-created-nodes.webp" alt="node の作成">
 	<figcaption>node の作成</figcaption>
 </figure>
 

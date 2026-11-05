@@ -2,12 +2,17 @@
  * 入門の図を撮るための道具 (step4)
  *
  * 画面の文言は**アプリの辞書から引く** (`src/client/src/i18n`)。同じスクリプトで ja と en の図を撮るため。
- * 撮った図は `../images/<言語>/<名前>.png` に置く。
+ * 撮った図は `../images/<言語>/<名前>.webp` に置く。
+ *
+ * **図は WebP (lossy, 品質 85) で書く。**PNG では 27 枚 × 2 言語で 8 MB あり、文書のサイトを開くたびに重かった。
+ * 画面の文字が滲まないことを確かめた品質で、PNG の 4 割ほどになる。高精細の画面向けに 2 倍で撮るのはそのまま
+ * (`playwright.shots.config.ts` の `deviceScaleFactor`)
  */
 
 import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { Locator, Page, TestInfo } from '@playwright/test';
+import sharp from 'sharp';
 import { en } from '../../../src/client/src/i18n/en';
 import { ja } from '../../../src/client/src/i18n/ja';
 import type { ConversensusFile } from '../../../src/shared/src/schemas';
@@ -23,13 +28,22 @@ const IMAGES_DIR = path.resolve(__dirname, '..', 'images', LOCALE);
 export const SETTLE_TIMEOUT_MS = 15_000;
 /** 図の切り抜きに足す余白 (px) */
 const CLIP_PADDING = 24;
+/** 図の WebP の品質 (0〜100)。画面の小さな文字が滲まない下限の近く */
+const WEBP_QUALITY = 85;
 
 export const NODE = '.react-flow__node';
 export const PANE = '.react-flow__pane';
 
 /** 図の置き場所 */
 export function imagePath(name: string): string {
-  return path.join(IMAGES_DIR, `${name}.png`);
+  return path.join(IMAGES_DIR, `${name}.webp`);
+}
+
+/** 撮った PNG を WebP にして図の置き場所に書く */
+async function saveImage(png: Buffer, name: string): Promise<void> {
+  await sharp(png)
+    .webp({ quality: WEBP_QUALITY, effort: 6 })
+    .toFile(imagePath(name));
 }
 
 /**
@@ -40,7 +54,7 @@ export async function shoot(target: Page | Locator, name: string) {
   const page = 'page' in target ? target.page() : target;
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(400);
-  await target.screenshot({ path: imagePath(name), animations: 'disabled' });
+  await saveImage(await target.screenshot({ animations: 'disabled' }), name);
 }
 
 /** いくつかの要素をまとめて囲む範囲を撮る (グラフの一部だけを図にするとき) */
@@ -59,11 +73,11 @@ export async function shootAround(
   const bottom = Math.max(...present.map((b) => b.y + b.height)) + CLIP_PADDING;
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(400);
-  await page.screenshot({
-    path: imagePath(name),
+  const png = await page.screenshot({
     animations: 'disabled',
     clip: { x: left, y: top, width: right - left, height: bottom - top },
   });
+  await saveImage(png, name);
 }
 
 /**

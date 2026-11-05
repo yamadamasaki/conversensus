@@ -15,7 +15,7 @@ Just like the file system of the OS you use (Linux, macOS, Windows, and so on), 
 These are shown in the left sidebar on the left of the screen.
 
 <figure>
-	<img src="../images/en/the_place_where_graph_lives-sidebar.png" alt="The left sidebar">
+	<img src="../images/en/the_place_where_graph_lives-sidebar.webp" alt="The left sidebar">
 	<figcaption>The left sidebar</figcaption>
 </figure>
 
