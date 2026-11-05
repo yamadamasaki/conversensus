@@ -5,7 +5,12 @@ import {
   derivedNodeIdOf,
 } from '../events/derivedNode';
 import { projectFile } from '../events/project';
-import { METAGRAPH_SHEET_KIND, sheetKindOf } from '../events/sheetKind';
+import {
+  METAGRAPH_SHEET_KIND,
+  SHEET_KIND_PROPERTY,
+  sheetKindOf,
+  TEMPLATE_SHEET_KIND,
+} from '../events/sheetKind';
 import type { Batch } from '../events/unified';
 import {
   CONVERSENSUS_FILE_VERSION,
@@ -13,6 +18,8 @@ import {
   type FileId,
   NodeIdSchema,
 } from '../schemas';
+import { resolveTemplates, templateIdOf } from '../template/fromSheet';
+import { kindPropertyOf, nodeKindIn } from '../template/kind';
 import { BunSqliteDriver, IN_MEMORY } from './bunSqliteDriver';
 import { EventStore } from './eventStore';
 import { LocalStore } from './localStore';
@@ -185,6 +192,87 @@ describe('importFile', () => {
     expect(newMeta.nodes).toHaveLength(3);
     expect(newMeta.edges.map((e) => e.target)).toEqual([newGraphNode]);
     expect(newMeta.layouts).toEqual([{ nodeId: newGraphNode, x: 10, y: 20 }]);
+  });
+
+  test('🔴 template を当てた Sheet は、取り込んだ後も新しい template graph を指す (#327)', () => {
+    // 取り込みは Sheet と要素の id を振り直す。template への参照 (`{sheet, at}`)・種別の property 名・
+    // その値 (template graph の node / edge の id) を付け替えないと、template が黙って落ちる
+    const TPL = '33333333-3333-4333-8333-333333333333';
+    const CLAIM = '44444444-4444-4444-8444-444444444444';
+    const DATA = '55555555-5555-4555-8555-555555555555';
+    const SUPPORTS = '66666666-6666-4666-8666-666666666666';
+    const USED_EDGE = '77777777-7777-4777-8777-777777777777';
+    const kindOf = (sheetId: string) => kindPropertyOf(templateIdOf(sheetId));
+    const raw = payload({
+      // 旧版の取り込み (migration) は Sheet の property と templateIds を持たない版から上げる
+      version: CONVERSENSUS_FILE_VERSION,
+      sheets: [
+        {
+          id: TPL,
+          name: '論証',
+          properties: { [SHEET_KIND_PROPERTY]: TEMPLATE_SHEET_KIND },
+          nodes: [
+            { id: CLAIM, content: '', label: '主張' },
+            { id: DATA, content: '', label: 'データ' },
+          ],
+          edges: [
+            { id: SUPPORTS, source: DATA, target: CLAIM, label: '支える' },
+          ],
+        },
+        {
+          id: 'ffffffff-0000-4111-8222-333333333333',
+          name: '論点',
+          // 元の File の actor の切断面。取り込んだ File には無い actor である
+          templateIds: [{ sheet: TPL, at: { 'did:plc:alice#dev': 4 } }],
+          nodes: [
+            {
+              id: NODE,
+              content: '自由は大事',
+              properties: { [kindOf(TPL)]: CLAIM, 章: 1 },
+            },
+            {
+              id: '88888888-8888-4888-8888-888888888888',
+              content: '事実',
+              properties: { [kindOf(TPL)]: DATA },
+            },
+          ],
+          edges: [
+            {
+              id: USED_EDGE,
+              source: '88888888-8888-4888-8888-888888888888',
+              target: NODE,
+              properties: { [kindOf(TPL)]: SUPPORTS },
+            },
+          ],
+        },
+      ],
+    });
+
+    const result = store.importFile(raw);
+    if (!result.ok) throw new Error('取り込めなかった');
+    const batches = store.getBatches(result.file.id);
+    const imported = projectFile(batches, result.file.id);
+    const [tpl, used] = imported.sheets;
+    if (!tpl || !used) throw new Error('Sheet が足りない');
+
+    const [template] = resolveTemplates(
+      used.templateIds,
+      batches,
+      result.file.id,
+    );
+    if (!template) throw new Error('template が解決できない');
+    expect(template.id).toBe(templateIdOf(tpl.id));
+    expect(template.nodeKinds.map((k) => k.label).sort()).toEqual(
+      ['データ', '主張'].sort(),
+    );
+
+    // 種別は新しい template graph の node / edge を指し、ほかの property はそのまま
+    const claim = used.nodes.find((n) => n.content === '自由は大事');
+    expect(nodeKindIn(template, claim?.properties)?.label).toBe('主張');
+    expect(claim?.properties?.章).toBe(1);
+    expect(Object.keys(claim?.properties ?? {})).not.toContain(kindOf(TPL));
+    const [edge] = used.edges;
+    expect(edge?.properties?.[kindOf(tpl.id)]).toBe(tpl.edges[0]?.id);
   });
 
   test('形の合わないものは取り込まず、理由を返す', () => {

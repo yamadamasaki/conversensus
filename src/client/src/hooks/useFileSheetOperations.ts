@@ -35,7 +35,12 @@ import type { GraphEvent } from '../events/GraphEvent';
 import { makeEventBase } from '../events/GraphEvent';
 import { exportFile, importFile } from '../files/fileTransfer';
 import { messages } from '../i18n/messages';
-import { collectBlobOrigins } from '../images/blobOrigins';
+import {
+  type BlobOrigins,
+  collectBlobOrigins,
+  NO_BLOB_ORIGINS,
+  resolveBlobOrigin,
+} from '../images/blobOrigins';
 import { subscribeLocalChanges } from '../local/localChanges';
 import type { PopupTarget } from '../SettingsPopup';
 import { didFromActor } from '../sync/actor';
@@ -258,11 +263,20 @@ export function useFileSheetOperations({
    * 画像 blob の由来 `cid → DID` (step2 Phase 2 S5)。**projection と同じ batch から
    * 導く**ので、projection を差し替える場所で必ず一緒に更新する。
    */
-  const [blobOrigins, setBlobOrigins] = useState<Map<BlobCid, Did>>(new Map());
+  const [blobOrigins, setBlobOrigins] = useState<BlobOrigins>(NO_BLOB_ORIGINS);
+  /**
+   * File の創設者 (名簿の `founder`)。genesis に載った画像はその repo にある (#333)。
+   * 名簿は op-log の読み込みより後に届くので、由来とは別に持って引くときに合わせる
+   */
+  // 値の `null` は「名簿を読んだが創設者がいない」。キーが無いのは「まだ読んでいない」(`resolveBlobOrigin`)
+  const [founders, setFounders] = useState<ReadonlyMap<FileId, Did | null>>(
+    new Map(),
+  );
+  const activeFounder = activeFile ? founders.get(activeFile.id) : undefined;
   /** cid から由来を引く。**Map ではなく関数を降ろす** (`blobOriginContext`) */
   const originOf = useCallback(
-    (cid: BlobCid) => blobOrigins.get(cid),
-    [blobOrigins],
+    (cid: BlobCid) => resolveBlobOrigin(blobOrigins, cid, activeFounder),
+    [blobOrigins, activeFounder],
   );
   /**
    * 果たしていない同期義務 (step2 Phase 2 S6)。**再参加した File を、同期が済むまで
@@ -324,6 +338,12 @@ export function useFileSheetOperations({
     (fileId: FileId, participation: Participation) => {
       const viewer = didFromActor(actor);
       setSharing({ fileId, state: fileSharing(participation, viewer) });
+      const founder = participation.founder ?? null;
+      setFounders((prev) =>
+        prev.get(fileId) === founder
+          ? prev
+          : new Map(prev).set(fileId, founder),
+      );
 
       const since = rejoinObligation(participation, viewer);
       setObligation(

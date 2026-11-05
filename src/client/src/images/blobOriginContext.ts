@@ -8,18 +8,19 @@
  * 受け取るだけでよく、Map の同一性がレンダリングに漏れない。
  */
 
-import type { BlobCid, Did } from '@conversensus/shared';
+import type { BlobCid } from '@conversensus/shared';
 import { createContext, useContext } from 'react';
+import { type BlobOrigin, OWN_REPO } from './blobOrigins';
 
 /** cid からその blob を持つ repo の DID を引く。分からなければ `undefined` */
-export type BlobOriginResolver = (cid: BlobCid) => Did | undefined;
+export type BlobOriginResolver = (cid: BlobCid) => BlobOrigin;
 
 /**
  * 既定は「分からない」。**Provider を置き忘れても壊れない** — 呼び出し側は自分の
  * repo に落ちるので、単一 actor の File はこれまで通り表示される
  * (多アクタの画像だけが出なくなる)。
  */
-const BlobOriginContext = createContext<BlobOriginResolver>(() => undefined);
+const BlobOriginContext = createContext<BlobOriginResolver>(() => OWN_REPO);
 
 export const BlobOriginProvider = BlobOriginContext.Provider;
 

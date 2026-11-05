@@ -31,6 +31,7 @@ mock.module('./NodeCreationContext', () => ({
 
 const { render, fireEvent, cleanup } = await import('@testing-library/react');
 const { GroupNode } = await import('./GroupNode');
+const { ReadOnlyProvider } = await import('./readOnlyContext');
 
 const GROUP_ID = 'group-1';
 
@@ -98,5 +99,69 @@ describe('GroupNode', () => {
     fireEvent.doubleClick(bodyArea(container), { clientX: 250, clientY: 180 });
 
     expect(mockOpenNodeTypeMenu).not.toHaveBeenCalled();
+  });
+
+  describe('label (#326)', () => {
+    const withLabel = (label?: string, extra: Record<string, unknown> = {}) => {
+      const props = makeProps();
+      props.data = { ...props.data, ...(label ? { label } : {}), ...extra };
+      return props;
+    };
+
+    it('label を描き、押すと編集に入り、確定すると NODE_LABEL_CHANGED を出す', () => {
+      const { container, getByDisplayValue } = render(
+        <GroupNode {...withLabel('論点')} />,
+      );
+      const chip = container.querySelector('[data-node-label]');
+      expect(chip?.textContent).toBe('論点');
+
+      fireEvent.click(chip as Element);
+      const input = getByDisplayValue('論点');
+      fireEvent.change(input, { target: { value: '争点' } });
+      fireEvent.keyDown(input, { key: 'Enter' });
+
+      expect(mockDispatch).toHaveBeenCalledTimes(1);
+      expect(mockDispatch.mock.calls[0]?.[0]).toMatchObject({
+        type: 'NODE_LABEL_CHANGED',
+        nodeId: GROUP_ID,
+        from: '論点',
+        to: '争点',
+      });
+    });
+
+    it('template の種別の label は変更できない (button にしない)', () => {
+      const { container } = render(
+        <GroupNode
+          {...withLabel('主張', {
+            properties: { 'template.tpl.kind': 'claim' },
+          })}
+        />,
+      );
+      const chip = container.querySelector('[data-node-label]');
+      expect(chip?.textContent).toBe('主張');
+      expect(chip?.tagName).toBe('DIV');
+    });
+
+    it('label の無い group は、選択中だけ付ける口を出す。読み取り専用の画面では出さない', () => {
+      const unselected = render(<GroupNode {...withLabel()} />);
+      expect(
+        unselected.container.querySelector('[data-node-label]'),
+      ).toBeNull();
+      cleanup();
+
+      const selected = { ...withLabel(), selected: true };
+      const editable = render(<GroupNode {...selected} />);
+      expect(
+        editable.container.querySelector('[data-node-label]')?.textContent,
+      ).toBe('label');
+      cleanup();
+
+      const readOnly = render(
+        <ReadOnlyProvider value={true}>
+          <GroupNode {...selected} />
+        </ReadOnlyProvider>,
+      );
+      expect(readOnly.container.querySelector('[data-node-label]')).toBeNull();
+    });
   });
 });

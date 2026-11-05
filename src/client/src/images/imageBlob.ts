@@ -89,6 +89,11 @@ export type ImageBlobLocation = {
    * op-log から導く (`collectBlobOrigins`)。単一 actor の File では常に省かれる。
    */
   originDid?: Did;
+  /**
+   * **どの repo かがまだ決められない** (#333, `resolveBlobOrigin` の `awaiting`)。手元に無ければ PDS へ
+   * 取りに行かずに `AWAITING_ORIGIN` を返す — 自分の repo に落ちると必ず `Blob not found` になる
+   */
+  awaitingOrigin?: boolean;
 };
 
 /**
@@ -96,6 +101,9 @@ export type ImageBlobLocation = {
  * 受け取った側が `revokeObjectURL` してはならない (他のノードが表示中でも壊れる)。
  */
 export type ResolvedImage = { url: string; fromCache: boolean };
+
+/** 由来が決まるまで PDS へ取りに行かなかった (`ImageBlobLocation.awaitingOrigin`)。読み込み中のまま待つ */
+export const AWAITING_ORIGIN = { awaiting: true } as const;
 
 /**
  * 大きさの表示。**MiB とバイト数を併記する。**
@@ -341,7 +349,7 @@ function displayUrl(blob: Blob, mimeType: string): string {
 export async function resolveImageUrl(
   location: ImageBlobLocation,
   deps: ResolveImageDeps = defaultResolveDeps,
-): Promise<ResolvedImage | undefined> {
+): Promise<ResolvedImage | typeof AWAITING_ORIGIN | undefined> {
   // 1. アップロード直後のメモリキャッシュ
   const cached = deps.cached(location.cid);
   if (cached) return { url: cached, fromCache: true };
@@ -355,6 +363,7 @@ export async function resolveImageUrl(
   //    throw して表示が止まってしまう (旧 ImageNode の不具合)
   const own = deps.did();
   if (!own) return undefined;
+  if (location.awaitingOrigin) return AWAITING_ORIGIN;
 
   // **ログインの有無を決めるのは自分の DID、引きに行く先は由来の DID** である
   // (step2 Phase 2 S5)。他 actor が貼った画像は自分の repo には無い。

@@ -14,6 +14,7 @@ import {
   heldMaxima,
   isFork,
   isReadOnlyCut,
+  localizeSeed,
   METAGRAPH_SHEET_KIND,
   type NodeId,
   type PropertyName,
@@ -80,7 +81,7 @@ import { useTabs } from './hooks/useTabs';
 import { useViewportTier } from './hooks/useViewportTier';
 import { InputDialog } from './InputDialog';
 import { InvitationDialog } from './InvitationDialog';
-import { messages, useMessages } from './i18n/messages';
+import { messages, useLocale, useMessages } from './i18n/messages';
 import { BlobOriginProvider } from './images/blobOriginContext';
 import { compactHeader } from './layout/viewportTier';
 import { useViewLink } from './links/useViewLink';
@@ -541,14 +542,22 @@ export default function App() {
   }, [addSheet, templateGraphs.length]);
 
   /** template graph の種を File に複製する (Q1)。複製した template graph はふつうの template graph */
+  // 種の種類名は利用者の言語で焼き込む (#330)。焼き込んだ後はふつうの利用者のデータ
+  const locale = useLocale();
   const handleAddSeedTemplate = useCallback(
-    (seed: Template) =>
-      addSheet({
-        name: seed.name,
+    (seed: Template) => {
+      const localized = localizeSeed(seed, locale);
+      return addSheet({
+        name: localized.name,
         properties: { [SHEET_KIND_PROPERTY]: TEMPLATE_SHEET_KIND },
-        content: templateGraphOf(seed, generateId, SEED_PLACEMENTS[seed.id]),
-      }),
-    [addSheet],
+        content: templateGraphOf(
+          localized,
+          generateId,
+          SEED_PLACEMENTS[seed.id],
+        ),
+      });
+    },
+    [addSheet, locale],
   );
 
   /**

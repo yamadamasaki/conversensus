@@ -107,7 +107,9 @@ test('trunk、branch、commit、merge、衝突、history', async ({
   await conflicts.getByRole('checkbox').first().check();
   await conflicts.getByRole('textbox').fill(S.mergeReason);
   await shoot(conflicts, 'evolving_graph-merge');
-  await conflicts.getByRole('button', { name: 'merge', exact: true }).click();
+  await conflicts
+    .getByRole('button', { name: t.merger.mergeButton, exact: true })
+    .click();
   await expect(conflicts).toHaveCount(0, { timeout: SETTLE_TIMEOUT_MS });
 
   // --- history: timeline ---

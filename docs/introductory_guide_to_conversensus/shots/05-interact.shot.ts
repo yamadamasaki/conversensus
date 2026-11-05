@@ -38,7 +38,6 @@ async function windowFor(browser: Browser, account: Account): Promise<Page> {
  * その数だけ「Failed to load resource」を問題から外す
  *
  * - `/oauth/par` の 400 `use_dpop_nonce`: DPoP の nonce の受け渡し。OAuth のライブラリがやり直す
- * - 画像の取得の 400 / 404: import した画像が PDS に無い (#333)。直ったらここから外す
  */
 function expectedFailures(page: Page): string[] {
   const seen: string[] = [];
@@ -46,8 +45,6 @@ function expectedFailures(page: Page): string[] {
     const url = response.url();
     const status = response.status();
     if (status === 400 && url.includes('/oauth/par')) seen.push(url);
-    if ((status === 400 || status === 404) && /getBlob|\/blob\//.test(url))
-      seen.push(url);
   });
   return seen;
 }
@@ -57,13 +54,9 @@ const LOAD_FAILED = 'console.error: Failed to load resource';
 /**
  * 起きてよい問題の文言。
  *
- * - 画像の node が blob を解決できない: import した画像が PDS に無い (#333)。直ったら外す
  * - 通信を切った間の送信の失敗: 衝突を起こすために taro の通信をわざと切る
  */
-const EXPECTED_PROBLEMS = [
-  /^console\.error: \[ImageNode\] blob resolve failed/,
-  /net::ERR_INTERNET_DISCONNECTED$/,
-];
+const EXPECTED_PROBLEMS = [/net::ERR_INTERNET_DISCONNECTED$/];
 
 function withoutExpected(problems: string[], expected: string[]): string[] {
   let allowance = expected.length;
@@ -197,8 +190,7 @@ test('参加依頼、参加、一緒に編集、衝突、離脱', async ({
       .locator(`[aria-label="${t.conflicts.region}"]`)
       .or(page.locator(`[aria-label="${t.overwrites.region}"]`))
       .first();
-  // 衝突は taro の側で見つかり、保留として hanako にも届く。図は hanako の窓で撮る —
-  // taro の窓では、import した画像が読めない (#333)
+  // 衝突は taro の側で見つかり、保留として hanako にも届く。図は hanako の窓で撮る
   await noticeOf(taro).waitFor({ timeout: SYNC_TIMEOUT_MS * 2 });
   const shown = (await noticeOf(hanako)
     .waitFor({ timeout: SYNC_TIMEOUT_MS })

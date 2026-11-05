@@ -18,35 +18,12 @@ import { useEventDispatch } from './EventDispatchContext';
 import { makeEventBase } from './events/GraphEvent';
 import { DiffMark } from './graph/DiffMark';
 import { useGraphNodeHandlers } from './graph/graphNodeContext';
+import { FloatingNodeLabel, NodeLabel } from './graph/NodeLabel';
 import { useInlineEdit } from './hooks/useInlineEdit';
 import { useMessages } from './i18n/messages';
 import { MARKDOWN_COMPONENTS } from './markdownComponents';
 import { useReadOnly } from './readOnlyContext';
 import { color, font, monospace, radius } from './theme';
-
-/** ラベルの見た目。空のとき (ラベルを付ける口) は破線の枠だけにする */
-function chipStyle(label: string, editable: boolean): React.CSSProperties {
-  return {
-    fontSize: font.caption,
-    color: label ? color.primary : color.textMuted,
-    background: label ? color.selectionBg : 'transparent',
-    border: label ? 'none' : `1px dashed ${color.border}`,
-    borderRadius: radius.sm,
-    padding: '1px 5px',
-    marginBottom: 4,
-    display: 'inline-block',
-    cursor: editable ? 'text' : 'default',
-  };
-}
-
-/** label の口を node の上辺の上に浮かせる (本文を押し下げない) */
-const FLOATING_LABEL = {
-  position: 'absolute',
-  bottom: '100%',
-  left: 0,
-  marginBottom: 2,
-  zIndex: 1,
-} as const;
 
 export function EditableNode({ id, data, selected }: NodeProps) {
   const t = useMessages();
@@ -123,18 +100,6 @@ export function EditableNode({ id, data, selected }: NodeProps) {
     kindFromTemplate || readOnly || graphNodeSheet !== undefined;
   const diffType = data.diffType as 'add' | 'update' | undefined;
   const ghost = data.ghost === true;
-
-  const labelEdit = useInlineEdit(label, (value) => {
-    if (value !== label) {
-      dispatch({
-        ...makeEventBase('content'),
-        type: 'NODE_LABEL_CHANGED',
-        nodeId: id as NodeId,
-        from: label,
-        to: value,
-      });
-    }
-  });
 
   const { editing, inputValue, setInputValue, startEdit, confirm, cancel } =
     useInlineEdit(content, (value) => {
@@ -226,71 +191,18 @@ export function EditableNode({ id, data, selected }: NodeProps) {
   }
 
   /*
-   * ラベル。**template の種別なら変更できない** (仕様 OnMutation) ので編集の口を
-   * 出さない。その他の node のラベルは自由なので、ダブルクリックで編集に入る。
-   * ラベルを持たない node では**選択中だけ**付ける口を出す — 常に出すと、
-   * ラベルを使わない普通のグラフが賑やかになる
+   * label (#326 で `NodeLabel` に切り出した)。**label の無い node では、口を本文の外 (上辺の上) に
+   * 浮かせる** (#272, visual language §8.1)。本文の中に置くと、選んだだけで本文が下へずれる。
+   * label があれば本文の一部として中に置く
    */
-  const showLabel = label || (selected && !labelLocked);
-  const labelSlot = labelEdit.editing ? (
-    <input
-      // biome-ignore lint/a11y/noAutofocus: 編集開始時に即座に入力できるよう必要
-      autoFocus
-      className="nodrag nopan"
-      data-node-label-input
-      value={labelEdit.inputValue}
-      onChange={(e) => labelEdit.setInputValue(e.target.value)}
-      onBlur={labelEdit.confirm}
-      onCompositionStart={() => labelEdit.setComposing(true)}
-      onCompositionEnd={() => labelEdit.setComposing(false)}
-      onKeyDown={(e) => {
-        if (labelEdit.composingRef.current) return; // IME 変換中は無視
-        if (e.key === 'Enter') labelEdit.confirm();
-        if (e.key === 'Escape') labelEdit.cancel();
-      }}
-      style={{
-        fontSize: font.caption,
-        padding: '1px 4px',
-        marginBottom: 4,
-        borderRadius: radius.sm,
-        border: `1px solid ${color.primary}`,
-        outline: 'none',
-        width: '60%',
-      }}
+  const labelSlot = (
+    <NodeLabel
+      nodeId={id}
+      label={label}
+      selected={selected}
+      locked={labelLocked}
     />
-  ) : (
-    showLabel &&
-    // **編集できるかで要素そのものを変える。**変更できないラベルを button に
-    // すると、押せそうに見えて押せない要素になる (仕様 OnMutation)
-    (labelLocked ? (
-      <div data-node-label style={chipStyle(label, false)}>
-        {label}
-      </div>
-    ) : (
-      <button
-        type="button"
-        data-node-label
-        data-editable="true"
-        className="nodrag nopan"
-        // **クリック 1 回で編集に入る。**本文のダブルクリックと違い、これは
-        // 「ラベルを付ける」と書かれた明示的な口である。しかもラベルの無い node
-        // では**選択中しか出ない**ので、ダブルクリックの途中で選択が外れると
-        // 口ごと消えてしまう (実機で踏んだ)
-        onClick={(e) => {
-          e.stopPropagation();
-          labelEdit.startEdit();
-        }}
-        style={chipStyle(label, true)}
-      >
-        {label || 'label'}
-      </button>
-    ))
   );
-  /**
-   * **label の無い node では、口を本文の外 (上辺の上) に浮かせる** (#272, visual language §8.1)。
-   * 本文の中に置くと、選んだだけで本文が下へずれる。label があれば本文の一部として中に置く
-   */
-  const floatingLabel = !label && labelSlot;
 
   return (
     <>
@@ -302,7 +214,7 @@ export function EditableNode({ id, data, selected }: NodeProps) {
         onResizeEnd={onResizeEnd}
       />
       <Handle type="source" position={Position.Top} id="source-top" />
-      {floatingLabel && <div style={FLOATING_LABEL}>{floatingLabel}</div>}
+      {!label && <FloatingNodeLabel>{labelSlot}</FloatingNodeLabel>}
       {diffType && <DiffMark diffType={diffType} />}
       {/* biome-ignore lint/a11y/noStaticElementInteractions: ノードコンテナはダブルクリックで編集を開始する */}
       <div

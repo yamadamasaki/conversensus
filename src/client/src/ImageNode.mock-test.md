@@ -132,3 +132,12 @@ blob の画像が読めないときは従来どおり「画像を読み込めま
 `mock.module` はプロセス全体に効き、取り消せないので、このファイルは `*.mock-test.tsx` として他のテストと別の
 プロセスで走らせる (`bun run test:mock`)。`@xyflow/react` は本物を再エクスポートして差分だけを替える — 名前が欠けると、
 この部品が間接に読むモジュールの読み込みが壊れる (単独で走らせると `MarkerType` が見つからずに落ちていた)。
+
+## label (#326)
+
+markdown の node と同じ部品 (`graph/NodeLabel.tsx`) で LPG の label を描く。以前は画像の node が label を描かず、
+label の付いた画像 (入門 1 章の図) を描けなかった。
+
+- **label は本文 (キャプション) とは別に、枠の上に出る。**枠の中に置くとキャプションの見出しを押し下げる
+- **template の種別の label は変更できない** (button ではなく div)。選択中の口と読み取り専用の扱いは
+  `GroupNode.mock-test` と `EditableNode.mock-test` が見る (同じ部品)

@@ -186,7 +186,7 @@ describe('ImageNode', () => {
 
     /** ノードの本体 (drop を受ける要素) */
     const nodeBody = (container: HTMLElement) =>
-      container.firstElementChild as HTMLElement;
+      container.querySelector('[data-node-frame]') as HTMLElement;
 
     it('落とした画像で properties を差し替える op を dispatch する', async () => {
       stubBlobStore();
@@ -230,10 +230,7 @@ describe('ImageNode', () => {
         </div>,
       );
 
-      fireEvent.drop(
-        nodeBody(container.firstElementChild as HTMLElement),
-        dropWith([imageFile()]),
-      );
+      fireEvent.drop(nodeBody(container), dropWith([imageFile()]));
 
       await waitFor(() => expect(mockDispatch).toHaveBeenCalled());
       expect(onParentDrop).not.toHaveBeenCalled();
@@ -256,10 +253,7 @@ describe('ImageNode', () => {
         </ImageErrorProvider>,
       );
 
-      fireEvent.drop(
-        nodeBody(container.firstElementChild as HTMLElement),
-        dropWith([imageFile()]),
-      );
+      fireEvent.drop(nodeBody(container), dropWith([imageFile()]));
 
       await waitFor(() => expect(reportError).toHaveBeenCalled());
       expect(mockDispatch).not.toHaveBeenCalled();
@@ -278,7 +272,7 @@ describe('ImageNode', () => {
       );
 
       fireEvent.drop(
-        nodeBody(container.firstElementChild as HTMLElement),
+        nodeBody(container),
         dropWith([new File(['x'], 'a.txt', { type: 'text/plain' })]),
       );
 
@@ -442,6 +436,34 @@ describe('ImageNode', () => {
       );
 
       await waitFor(() => expect(screen.queryByRole('img')).toBeNull());
+    });
+  });
+
+  describe('label (#326)', () => {
+    it('label を描く。本文 (キャプション) とは別に、枠の上に出る', () => {
+      const props = makeProps('表紙');
+      props.data = { ...props.data, label: '出典' };
+      const { container } = render(<ImageNode {...props} />);
+      const chip = container.querySelector('[data-node-label]');
+      expect(chip?.textContent).toBe('出典');
+      // 枠 (キャプションの見出しを含む) の外にある — 見出しを押し下げない
+      expect(
+        container.querySelector('[data-node-frame]')?.contains(chip as Node),
+      ).toBe(false);
+    });
+
+    it('template の種別の label は変更できない (button にしない)', () => {
+      const props = makeProps();
+      props.data = {
+        ...props.data,
+        label: 'データ',
+        properties: {
+          ...(props.data as { properties: Record<string, unknown> }).properties,
+          'template.tpl.kind': 'data',
+        },
+      };
+      const { container } = render(<ImageNode {...props} />);
+      expect(container.querySelector('[data-node-label]')?.tagName).toBe('DIV');
     });
   });
 });

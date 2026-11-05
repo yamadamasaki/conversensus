@@ -2,7 +2,8 @@
 
 ## 何を
 
-`collectBlobOrigins` (op-log から `cid → その blob を持つ repo の DID` を導く) を検証する。
+`collectBlobOrigins` (op-log から `cid → その blob を持つ repo の DID` を導く) と、
+`resolveBlobOrigin` (genesis に載った cid を創設者に当てて引く, #333) を検証する。
 
 ## なぜ
 
@@ -29,8 +30,20 @@ repo に無い**ので足りない (step2 Phase 2 §5, Exit 4)。
   並べてから先頭を採ることで決定論になる
 - **⚠️ 入力の順序で結論が変わらない。**上の裏返しで、受信順は手元ごとに違う。
   逆順に与えても同じ由来になることを直接見る
-- **genesis の batch は由来にならない。**`GENESIS_ACTOR` は DID ではないので repo を
-  名指しできない
+- **genesis に載った画像は、actor の由来ではなく genesis の側に控える。**`GENESIS_ACTOR` は
+  DID ではないので、それだけでは repo を名指しできない
+- `resolveBlobOrigin`:
+  - **⚠️ genesis に載った画像は創設者の repo から引く (#333)。**genesis の batch を PDS に書くのは
+    File の創設者で、受信も genesis を創設者の repo からだけ採る。import した File の画像は
+    genesis にしか載らないので、これが無いと参加者は自分の repo に取りに行き `Blob not found` に
+    なっていた
+  - **⚠️ 名簿をまだ読んでいなければ、genesis にだけ載った画像は待つ。**名簿は op-log の後から届く。
+    待たずに自分の repo に落ちると、参加者の最初の取得が必ず `Blob not found` になった (6 章の shot で発覚)。
+    待っている間 `ImageNode` は読み込み中のままで、名簿が届けば由来が変わって引き直す
+  - **名簿を読んで創設者がいなければ自分の repo に落ちる。**共有していない古い File を待たせ続けない
+  - **genesis と編集の両方に載った cid は創設者を採る。**genesis はどの編集より先にあるので、
+    「最初に載せた人」の規則と同じになる。名簿がまだでも、載せた人の repo からは引ける (待たない)
+  - **genesis に無い cid には創設者を当てず、由来が無ければ自分の repo**
 - **未ログインで書かれた batch は由来にならない。**actor は `local#<deviceId>` で、
   やはり DID が無い。由来が入らなければ呼び出し側は自分の repo に落ちるので、
   **単一 actor 時代の File はこれまで通り表示される**

@@ -18,7 +18,6 @@ import {
 import {
   Background,
   type Connection,
-  ConnectionMode,
   Controls,
   type Edge,
   type EdgeChange,
@@ -50,7 +49,11 @@ import {
   propertyTargetKey,
 } from './graph/editorControls';
 import { exportPng } from './graph/exportPng';
-import { FLOW_EDGE_TYPES, FLOW_NODE_TYPES } from './graph/flowTypes';
+import {
+  FLOW_CONNECTION_MODE,
+  FLOW_EDGE_TYPES,
+  FLOW_NODE_TYPES,
+} from './graph/flowTypes';
 import { GraphNodeProvider } from './graph/graphNodeContext';
 import {
   canConnectByTemplate,
@@ -930,7 +933,7 @@ function GraphEditorInner({
                 edgeTypes={FLOW_EDGE_TYPES}
                 onNodesChange={handleNodesChange}
                 onEdgesChange={handleEdgesChange}
-                connectionMode={ConnectionMode.Loose}
+                connectionMode={FLOW_CONNECTION_MODE}
                 onConnect={onConnect}
                 onConnectEnd={onConnectEnd}
                 isValidConnection={isValidConnection}

@@ -1,4 +1,9 @@
-import type { BlobCid, Did, NodeId } from '@conversensus/shared';
+import {
+  type BlobCid,
+  type Did,
+  hasTemplateKind,
+  type NodeId,
+} from '@conversensus/shared';
 import {
   Handle,
   type NodeProps,
@@ -10,6 +15,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useEventDispatch } from './EventDispatchContext';
 import { makeEventBase } from './events/GraphEvent';
 import { DiffMark } from './graph/DiffMark';
+import { FloatingNodeLabel, NodeLabel } from './graph/NodeLabel';
 import { useInlineEdit } from './hooks/useInlineEdit';
 import { useMessages } from './i18n/messages';
 import { useBlobOrigin } from './images/blobOriginContext';
@@ -26,6 +32,7 @@ import {
   useReportImageError,
 } from './images/imageErrorContext';
 import { replaceNodeImage } from './images/replaceNodeImage';
+import { useReadOnly } from './readOnlyContext';
 import { color, font, monospace, radius } from './theme';
 
 type ImageNodeData = {
@@ -59,9 +66,21 @@ export function ImageNode({ id, data, selected }: NodeProps) {
   const blobMimeType = location?.mimeType ?? '';
   // 由来も原始値で持つ。**依存に入れる** — 名簿を読み直して由来が分かった時点で
   // 引き直せないと、先に「無い」と決めた画像がそのまま出ないままになる
-  const blobOriginDid = (blobCid && originOf(blobCid as BlobCid)) || '';
+  const origin = blobCid ? originOf(blobCid as BlobCid) : undefined;
+  const blobOriginDid = origin?.kind === 'repo' ? origin.did : '';
+  // 由来がまだ決まらない (名簿を待っている, #333) 間は PDS へ取りに行かず、読み込み中のまま待つ
+  const awaitingOrigin = origin?.kind === 'awaiting';
   const content = String(nodeData.content ?? '');
   const diffType = nodeData.diffType as 'add' | 'update' | undefined;
+  /**
+   * LPG の label (#326)。markdown の node と同じく、template の種別なら・読み取り専用の画面なら変えられない。
+   * 見出し (本文) を押し下げないよう、常に枠の上に浮かせる
+   */
+  const label = String(data.label ?? '');
+  const readOnly = useReadOnly();
+  const labelLocked =
+    hasTemplateKind(data.properties as Record<string, unknown> | undefined) ||
+    readOnly;
   const ghost = nodeData.ghost === true;
 
   const preSizeRef = useRef({ width: 0, height: 0 });
@@ -126,8 +145,11 @@ export function ImageNode({ id, data, selected }: NodeProps) {
       cid: blobCid,
       mimeType: blobMimeType,
       ...(blobOriginDid && { originDid: blobOriginDid as Did }),
+      ...(awaitingOrigin && { awaitingOrigin }),
     })
       .then((resolved) => {
+        // 何も作っていないので片付けるものも無い。由来が決まれば依存が変わってやり直す
+        if (resolved && 'awaiting' in resolved) return;
         if (cancelled) {
           if (resolved && !resolved.fromCache)
             URL.revokeObjectURL(resolved.url);
@@ -151,7 +173,7 @@ export function ImageNode({ id, data, selected }: NodeProps) {
     return () => {
       cancelled = true;
     };
-  }, [blobCid, blobMimeType, blobOriginDid]);
+  }, [blobCid, blobMimeType, blobOriginDid, awaitingOrigin]);
 
   // アンマウント時に自前の Object URL を解放する
   useEffect(() => {
@@ -339,6 +361,14 @@ export function ImageNode({ id, data, selected }: NodeProps) {
         onResizeEnd={onResizeEnd}
       />
       <Handle type="source" position={Position.Top} id="source-top" />
+      <FloatingNodeLabel>
+        <NodeLabel
+          nodeId={id}
+          label={label}
+          selected={selected}
+          locked={labelLocked}
+        />
+      </FloatingNodeLabel>
       {diffType && <DiffMark diffType={diffType} />}
       {/* biome-ignore lint/a11y/noStaticElementInteractions: drop to replace the image (ANA-117) */}
       <div
@@ -424,6 +454,8 @@ export function ImageNode({ id, data, selected }: NodeProps) {
         <div
           style={{
             flex: 1,
+            // flex の子は既定で中身より縮まない。0 にしないと、背の高い画像が枠を押し広げる
+            minHeight: 0,
             background: color.bgSubtle,
             display: 'flex',
             alignItems: 'center',
@@ -490,8 +522,11 @@ export function ImageNode({ id, data, selected }: NodeProps) {
               alt={content}
               onError={() => setImgError(true)}
               style={{
+                // **枠の中に全体を収める** (#332)。枠の縦横比が画像と違うと、以前は幅に合わせて
+                // 下が切れていた。余白は出るが、どの大きさに resize しても画像の全体が見える
                 width: '100%',
-                height: 'auto',
+                height: '100%',
+                objectFit: 'contain',
                 display: 'block',
               }}
               draggable={false}
