@@ -39,3 +39,14 @@ ANA-107 S4 (設計 D5) で、本体のダブルクリックの意味を変えた
 `mock.module` はプロセス全体に効き、取り消せないので、このファイルは `*.mock-test.tsx` として他のテストと別の
 プロセスで走らせる (`bun run test:mock`)。`@xyflow/react` は本物を再エクスポートして差分だけを替える — 名前が欠けると、
 この部品が間接に読むモジュールの読み込みが壊れる (単独で走らせると `MarkerType` が見つからずに落ちていた)。
+
+### label (#326)
+
+markdown の node と同じ部品 (`graph/NodeLabel.tsx`) で LPG の label を描く。以前は group が label を描かず、
+label の付いた group (入門 1 章の図) を描けなかった。
+
+- **label を描き、押すと編集に入り、確定すると `NODE_LABEL_CHANGED` を出す**
+- **template の種別の label は変更できない。**押せそうに見えて押せない要素にしないため、button ではなく div にする
+  (仕様 OnMutation)
+- **label の無い group は選択中だけ付ける口を出し、読み取り専用の画面では出さない。**常に出すと label を使わない
+  グラフが賑やかになる。見るだけの pane では押しても何も起きない

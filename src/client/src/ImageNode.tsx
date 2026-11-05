@@ -1,4 +1,9 @@
-import type { BlobCid, Did, NodeId } from '@conversensus/shared';
+import {
+  type BlobCid,
+  type Did,
+  hasTemplateKind,
+  type NodeId,
+} from '@conversensus/shared';
 import {
   Handle,
   type NodeProps,
@@ -10,6 +15,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useEventDispatch } from './EventDispatchContext';
 import { makeEventBase } from './events/GraphEvent';
 import { DiffMark } from './graph/DiffMark';
+import { FloatingNodeLabel, NodeLabel } from './graph/NodeLabel';
 import { useInlineEdit } from './hooks/useInlineEdit';
 import { useMessages } from './i18n/messages';
 import { useBlobOrigin } from './images/blobOriginContext';
@@ -26,6 +32,7 @@ import {
   useReportImageError,
 } from './images/imageErrorContext';
 import { replaceNodeImage } from './images/replaceNodeImage';
+import { useReadOnly } from './readOnlyContext';
 import { color, font, monospace, radius } from './theme';
 
 type ImageNodeData = {
@@ -62,6 +69,15 @@ export function ImageNode({ id, data, selected }: NodeProps) {
   const blobOriginDid = (blobCid && originOf(blobCid as BlobCid)) || '';
   const content = String(nodeData.content ?? '');
   const diffType = nodeData.diffType as 'add' | 'update' | undefined;
+  /**
+   * LPG の label (#326)。markdown の node と同じく、template の種別なら・読み取り専用の画面なら変えられない。
+   * 見出し (本文) を押し下げないよう、常に枠の上に浮かせる
+   */
+  const label = String(data.label ?? '');
+  const readOnly = useReadOnly();
+  const labelLocked =
+    hasTemplateKind(data.properties as Record<string, unknown> | undefined) ||
+    readOnly;
   const ghost = nodeData.ghost === true;
 
   const preSizeRef = useRef({ width: 0, height: 0 });
@@ -339,6 +355,14 @@ export function ImageNode({ id, data, selected }: NodeProps) {
         onResizeEnd={onResizeEnd}
       />
       <Handle type="source" position={Position.Top} id="source-top" />
+      <FloatingNodeLabel>
+        <NodeLabel
+          nodeId={id}
+          label={label}
+          selected={selected}
+          locked={labelLocked}
+        />
+      </FloatingNodeLabel>
       {diffType && <DiffMark diffType={diffType} />}
       {/* biome-ignore lint/a11y/noStaticElementInteractions: drop to replace the image (ANA-117) */}
       <div

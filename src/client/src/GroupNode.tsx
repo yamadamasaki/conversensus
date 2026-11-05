@@ -1,12 +1,14 @@
-import type { NodeId } from '@conversensus/shared';
+import { hasTemplateKind, type NodeId } from '@conversensus/shared';
 import { type NodeProps, NodeResizer, useReactFlow } from '@xyflow/react';
 import { useCallback, useRef } from 'react';
 import { useEventDispatch } from './EventDispatchContext';
 import { makeEventBase } from './events/GraphEvent';
 import { DiffMark } from './graph/DiffMark';
+import { FloatingNodeLabel, NodeLabel } from './graph/NodeLabel';
 import { useInlineEdit } from './hooks/useInlineEdit';
 import { useMessages } from './i18n/messages';
 import { useNodeCreation } from './NodeCreationContext';
+import { useReadOnly } from './readOnlyContext';
 import { color, font, radius } from './theme';
 
 export function GroupNode({ id, data, selected }: NodeProps) {
@@ -58,6 +60,15 @@ export function GroupNode({ id, data, selected }: NodeProps) {
   );
   const content = String(data.content ?? '');
   const diffType = data.diffType as 'add' | 'update' | undefined;
+  /**
+   * LPG の label (#326)。markdown の node と同じく、template の種別なら・読み取り専用の画面なら変えられない。
+   * 見出し (本文) を押し下げないよう、常に枠の上に浮かせる
+   */
+  const label = String(data.label ?? '');
+  const readOnly = useReadOnly();
+  const labelLocked =
+    hasTemplateKind(data.properties as Record<string, unknown> | undefined) ||
+    readOnly;
   const ghost = data.ghost === true;
 
   const {
@@ -128,6 +139,14 @@ export function GroupNode({ id, data, selected }: NodeProps) {
         onResizeStart={onResizeStart}
         onResizeEnd={onResizeEnd}
       />
+      <FloatingNodeLabel>
+        <NodeLabel
+          nodeId={id}
+          label={label}
+          selected={selected}
+          locked={labelLocked}
+        />
+      </FloatingNodeLabel>
       {diffType && <DiffMark diffType={diffType} />}
       <div
         data-node-frame
