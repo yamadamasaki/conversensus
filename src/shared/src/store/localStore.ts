@@ -34,6 +34,10 @@ import type {
   SheetId,
 } from '../schemas';
 import type { EventStore, LocalActorBatchCount } from './eventStore';
+import {
+  type ImportIdMaps,
+  remapTemplateReferences,
+} from './importTemplateRefs';
 
 const DEFAULT_FILE_NAME = '無題';
 const DEFAULT_SHEET_NAME = 'Sheet 1';
@@ -157,7 +161,9 @@ export class LocalStore {
       const sheetId = sheetIdMap.get(from);
       return sheetId ? derivedNodeIdOf(sheetId) : null;
     };
-    const file: GraphFile = {
+    // 要素の id の対応を Sheet ごとに控える。template への参照の付け替えが使う (#327)
+    const elementIdMaps = new Map<string, ReadonlyMap<string, string>>();
+    const renumbered: GraphFile = {
       ...fileData,
       id: newId() as FileId,
       sheets: fileData.sheets.map((sheet) => {
@@ -179,6 +185,10 @@ export class LocalStore {
         ]);
         const edgeIdMap = new Map<string, EdgeId>(
           sheet.edges.map((e) => [e.id, newId() as EdgeId]),
+        );
+        elementIdMaps.set(
+          sheet.id,
+          new Map<string, string>([...nodeIdMap, ...edgeIdMap]),
         );
         const nodeOf = (id: string) => (nodeIdMap.get(id) ?? id) as NodeId;
         const edgeOf = (id: string) => (edgeIdMap.get(id) ?? id) as EdgeId;
@@ -209,6 +219,17 @@ export class LocalStore {
         };
       }),
     };
+    // template への参照の切断面は genesis 全体 (`importTemplateRefs.ts`)。付け替えは batch の
+    // 数を変えない (`sheet.create` の中身が変わるだけ) ので、一度組んで数えればよい
+    const ids: ImportIdMaps = {
+      sheet: sheetIdMap,
+      element: (sheetId, elementId) =>
+        elementIdMaps.get(sheetId)?.get(elementId),
+    };
+    const genesisSeq = graphFileToBatches(
+      remapTemplateReferences(renumbered, ids, 1),
+    ).length;
+    const file = remapTemplateReferences(renumbered, ids, genesisSeq);
     // id を振り直した後の `file` をそのまま genesis にするので、返す GraphFile と
     // op-log の projection は同じ内容になる
     this.initializeOplog(file);
