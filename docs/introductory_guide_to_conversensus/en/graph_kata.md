@@ -17,7 +17,7 @@ The reverse also holds. If you choose "Graph" when creating a node in index, a S
 Graph nodes have the label `graph`, which tells them apart from ordinary nodes. This label cannot be changed.
 
 <figure>
-	<img src="../images/en/graph_kata-index-default.png" alt="The default index">
+	<img src="../images/en/graph_kata-index-default.webp" alt="The default index">
 	<figcaption>The default index</figcaption>
 </figure>
 
@@ -26,7 +26,7 @@ You can add any nodes (other than graph nodes) and edges to index. That is, you 
 Double-click a graph node to show its Sheet in a tab.
 
 <figure>
-	<img src="../images/en/graph_kata-index-notes.png" alt="index">
+	<img src="../images/en/graph_kata-index-notes.webp" alt="index">
 	<figcaption>index</figcaption>
 </figure>
 
@@ -35,8 +35,8 @@ Besides the index created with the File, you can make your own metagraphs. Choos
 This lets you express several different viewpoints on the relations between the Sheets in a File.
 
 <figure>
-	<img src="../images/en/graph_kata-add-menu.png" alt="metagraph">
-	<img src="../images/en/graph_kata-metagraph.png" alt="metagraph">
+	<img src="../images/en/graph_kata-add-menu.webp" alt="metagraph">
+	<img src="../images/en/graph_kata-metagraph.webp" alt="metagraph">
 	<figcaption>metagraph</figcaption>
 </figure>
 
@@ -47,9 +47,9 @@ Choose "+ Add Toulmin model" from the ▾ next to "+ Add Sheet" in the left side
 The Toulmin model is a base graph (schema) for logical argument and analysis of a problem, used for analyzing arguments (Toulmin is the name of the philosopher who proposed it).
 
 <figure>
-	<img src="../images/en/graph_kata-toulmin-template.png" alt="The Toulmin model">
-	<img src="../images/en/graph_kata-template-apply.png" alt="The Toulmin model">
-	<img src="../images/en/graph_kata-toulmin-menu.png" alt="The Toulmin model">
+	<img src="../images/en/graph_kata-toulmin-template.webp" alt="The Toulmin model">
+	<img src="../images/en/graph_kata-template-apply.webp" alt="The Toulmin model">
+	<img src="../images/en/graph_kata-toulmin-menu.webp" alt="The Toulmin model">
 	<figcaption>The Toulmin model</figcaption>
 </figure>
 

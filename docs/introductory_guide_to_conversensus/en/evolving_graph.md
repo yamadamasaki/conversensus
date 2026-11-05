@@ -15,7 +15,7 @@ In conversensus, not only the current graph but also how the graph grew and its 
 The "official" or "latest" version of a graph. There is exactly one per graph. The Sheet itself represents the trunk.
 
 <figure>
-	<img src="../images/en/evolving_graph-trunk.png" alt="trunk">
+	<img src="../images/en/evolving_graph-trunk.webp" alt="trunk">
 	<figcaption>trunk</figcaption>
 </figure>
 
@@ -28,21 +28,21 @@ You make a branch with the button on the Sheet's row in the left sidebar ("+ bra
 You can give a branch a name. A name that tells why you made the branch is a good idea. You can change it later, so do not think too hard about it.
 
 <figure>
-	<img src="../images/en/evolving_graph-branch-create.png" alt="Creating a branch">
+	<img src="../images/en/evolving_graph-branch-create.webp" alt="Creating a branch">
 	<figcaption>Creating a branch</figcaption>
 </figure>
 
 When you change a branch, the changes accumulate in the branch. The branch's graph shows the differences since the last commit (see the next section).
 
 <figure>
-	<img src="../images/en/evolving_graph-branch-diff.png" alt="Piling up changes on a branch">
+	<img src="../images/en/evolving_graph-branch-diff.webp" alt="Piling up changes on a branch">
 	<figcaption>Piling up changes on a branch</figcaption>
 </figure>
 
 When you close a branch, it can no longer be changed. When you delete a branch, it is no longer shown in the left sidebar.
 
 <figure>
-	<img src="../images/en/evolving_graph-branch-close-delete.png" alt="Closing/deleting a branch">
+	<img src="../images/en/evolving_graph-branch-close-delete.webp" alt="Closing/deleting a branch">
 	<figcaption>Closing/deleting a branch</figcaption>
 </figure>
 
@@ -51,7 +51,7 @@ When you close a branch, it can no longer be changed. When you delete a branch, 
 A commit is a mark that closes off a set of changes to a branch. Each commit records its reason.
 
 <figure>
-	<img src="../images/en/evolving_graph-commit.png" alt="commit">
+	<img src="../images/en/evolving_graph-commit.webp" alt="commit">
 	<figcaption>commit</figcaption>
 </figure>
 
@@ -62,7 +62,7 @@ After committing a branch, you can keep piling up changes on it.
 To merge a branch is to take the commits of the branch into the trunk. If the branch has changes not yet committed, it cannot be merged.
 
 <figure>
-	<img src="../images/en/evolving_graph-merge.png" alt="merge">
+	<img src="../images/en/evolving_graph-merge.webp" alt="merge">
 	<figcaption>merge</figcaption>
 </figure>
 
@@ -89,7 +89,7 @@ The merger shows the merge source (the branch, as it was when opened) and the me
 Check every conflict in the conflict list and mark it, write the reason for the merge, and press "merge"; the merge result is then taken into the trunk.
 
 <figure>
-	<img src="../images/en/evolving_graph-merger.png" alt="Resolving conflicts">
+	<img src="../images/en/evolving_graph-merger.webp" alt="Resolving conflicts">
 	<figcaption>Resolving conflicts</figcaption>
 </figure>
 
@@ -106,7 +106,7 @@ Press "Open the graph at that point" to show the graph at a past point in a tab.
 With "Copy link to this view" in the header, you can copy a link to the graph you are looking at (a Sheet or a branch) to the OS clipboard. Opening the link shows that graph in conversensus.
 
 <figure>
-	<img src="../images/en/evolving_graph-timeline.png" alt="An example of the timeline pane">
+	<img src="../images/en/evolving_graph-timeline.webp" alt="An example of the timeline pane">
 	<figcaption>An example of the timeline pane</figcaption>
 </figure>
 

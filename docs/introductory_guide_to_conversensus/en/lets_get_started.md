@@ -64,6 +64,6 @@ For now, in any of cases (1) to (3), you can collaborate only with people who ha
 Whether or not you use an ATProto account, when you open https://app.conversensus.site/ in a web browser, you see a conversensus screen like this.
 
 <figure>
-	<img src="../images/en/lets_get_started-initial.png" alt="The initial screen of conversensus">
+	<img src="../images/en/lets_get_started-initial.webp" alt="The initial screen of conversensus">
 	<figcaption>The initial screen of conversensus</figcaption>
 </figure>

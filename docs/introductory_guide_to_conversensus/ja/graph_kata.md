@@ -17,7 +17,7 @@ File を新たに作成すると, index という名前の metagraph が特別�
 graph node には `graph` というラベルが付いていて, ふつうの node と見分けられるようになっています. このラベルは変えられません.
 
 <figure>
-	<img src="../images/ja/graph_kata-index-default.png" alt="デフォルトの index">
+	<img src="../images/ja/graph_kata-index-default.webp" alt="デフォルトの index">
 	<figcaption>デフォルトの index</figcaption>
 </figure>
 
@@ -26,7 +26,7 @@ graph node には `graph` というラベルが付いていて, ふつうの nod
 graph node をダブルクリックすると, その Sheet がタブに表示されます.
 
 <figure>
-	<img src="../images/ja/graph_kata-index-notes.png" alt="index">
+	<img src="../images/ja/graph_kata-index-notes.webp" alt="index">
 	<figcaption>index</figcaption>
 </figure>
 
@@ -35,8 +35,8 @@ graph node をダブルクリックすると, その Sheet がタブに表示さ
 これによって, File 内の Sheet の関係に複数の異なる視点を表現することができます.
 
 <figure>
-	<img src="../images/ja/graph_kata-add-menu.png" alt="metagraph">
-	<img src="../images/ja/graph_kata-metagraph.png" alt="metagraph">
+	<img src="../images/ja/graph_kata-add-menu.webp" alt="metagraph">
+	<img src="../images/ja/graph_kata-metagraph.webp" alt="metagraph">
 	<figcaption>metagraph</figcaption>
 </figure>
 
@@ -47,9 +47,9 @@ graph node をダブルクリックすると, その Sheet がタブに表示さ
 Toulmin モデルとは, ある問題に関する論理的な議論や分析を行うためのベースとなるグラフ (図式) のことで, 論証の分析に使われます (Toulmin は, このモデルを提案した哲学者の名前です).
 
 <figure>
-	<img src="../images/ja/graph_kata-toulmin-template.png" alt="toulmin モデル">
-	<img src="../images/ja/graph_kata-template-apply.png" alt="toulmin モデル">
-	<img src="../images/ja/graph_kata-toulmin-menu.png" alt="toulmin モデル">
+	<img src="../images/ja/graph_kata-toulmin-template.webp" alt="toulmin モデル">
+	<img src="../images/ja/graph_kata-template-apply.webp" alt="toulmin モデル">
+	<img src="../images/ja/graph_kata-toulmin-menu.webp" alt="toulmin モデル">
 	<figcaption>toulmin モデル</figcaption>
 </figure>
 

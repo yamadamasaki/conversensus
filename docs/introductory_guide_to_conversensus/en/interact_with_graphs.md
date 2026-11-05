@@ -9,7 +9,7 @@ You can invite people who have an ATProto account. For now, however, they need a
 Open the File's participants list, enter the handle of the person you want to invite, and press "Invite". You can enter several handles separated by commas.
 
 <figure>
-	<img src="../images/en/interact_with_graphs-invite.png" alt="Inviting">
+	<img src="../images/en/interact_with_graphs-invite.webp" alt="Inviting">
 	<figcaption>Inviting</figcaption>
 </figure>
 
@@ -20,14 +20,14 @@ An invitation issues a participation code. Copy it and give it to the other pers
 The person who received the participation code pastes it into "Join with a participation code". It shows who invites you to which File; check it and press "Join" to join in editing the File.
 
 <figure>
-	<img src="../images/en/interact_with_graphs-accept.png" alt="Joining">
+	<img src="../images/en/interact_with_graphs-accept.webp" alt="Joining">
 	<figcaption>Joining</figcaption>
 </figure>
 
 The participants list shows who is participating (Invited, Participating, Left), and who took part in editing the File from when to when (the participation history).
 
 <figure>
-	<img src="../images/en/interact_with_graphs-participants.png" alt="The participants list">
+	<img src="../images/en/interact_with_graphs-participants.webp" alt="The participants list">
 	<figcaption>The participants list</figcaption>
 </figure>
 
@@ -36,7 +36,7 @@ The participants list shows who is participating (Invited, Participating, Left),
 While participating in editing a File, a person can do every operation on that File in the same way. Who did each operation is all kept in the history.
 
 <figure>
-	<img src="../images/en/interact_with_graphs-timeline.png" alt="A history involving several members">
+	<img src="../images/en/interact_with_graphs-timeline.webp" alt="A history involving several members">
 	<figcaption>A history involving several members</figcaption>
 </figure>
 
@@ -56,7 +56,7 @@ When something you wrote has been changed by someone else's edit, an "overwrite 
 When a conflict occurs in a File open in another tab, that tab gets a mark.
 
 <figure>
-	<img src="../images/en/interact_with_graphs-conflict.png" alt="A conflict notice">
+	<img src="../images/en/interact_with_graphs-conflict.webp" alt="A conflict notice">
 	<figcaption>A conflict notice</figcaption>
 </figure>
 
@@ -65,7 +65,7 @@ When a conflict occurs in a File open in another tab, that tab gets a mark.
 A person can leave editing a File, and others can remove them ("Leave" / "Remove"). For now there is no systematized protocol for this. We recommend talking outside conversensus beforehand about accounts joining and leaving.
 
 <figure>
-	<img src="../images/en/interact_with_graphs-leave.png" alt="Leaving">
+	<img src="../images/en/interact_with_graphs-leave.webp" alt="Leaving">
 	<figcaption>Leaving</figcaption>
 </figure>
 

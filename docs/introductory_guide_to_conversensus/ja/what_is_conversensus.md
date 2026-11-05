@@ -11,7 +11,7 @@ conversensus は, グラフ (graph) を用いて, 考え, 書き/描き, 対話�
 また, node はさまざまな内容 (contents) を持つことができ, edge には方向性がある (directed) ものとします. それ以外の決まりはありません.
 
 <figure>
-	<img src="../images/ja/what_is_conversensus-simple-graph.png" alt="単純なグラフ">
+	<img src="../images/ja/what_is_conversensus-simple-graph.webp" alt="単純なグラフ">
 	<figcaption>単純なグラフ</figcaption>
 </figure>
 

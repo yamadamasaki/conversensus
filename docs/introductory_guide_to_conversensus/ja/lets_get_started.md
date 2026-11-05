@@ -64,6 +64,6 @@ ATProto アカウントを取得するには, 以下の方法があります.
 ATProto アカウントを使うかどうかは別として, とりあえず https://app.conversensus.site/ に Web ブラウザからアクセスすると, 次のような conversensus の画面が表示されます.
 
 <figure>
-	<img src="../images/ja/lets_get_started-initial.png" alt="conversensus の初期画面">
+	<img src="../images/ja/lets_get_started-initial.webp" alt="conversensus の初期画面">
 	<figcaption>conversensus の初期画面</figcaption>
 </figure>
