@@ -66,7 +66,10 @@ export function ImageNode({ id, data, selected }: NodeProps) {
   const blobMimeType = location?.mimeType ?? '';
   // 由来も原始値で持つ。**依存に入れる** — 名簿を読み直して由来が分かった時点で
   // 引き直せないと、先に「無い」と決めた画像がそのまま出ないままになる
-  const blobOriginDid = (blobCid && originOf(blobCid as BlobCid)) || '';
+  const origin = blobCid ? originOf(blobCid as BlobCid) : undefined;
+  const blobOriginDid = origin?.kind === 'repo' ? origin.did : '';
+  // 由来がまだ決まらない (名簿を待っている, #333) 間は PDS へ取りに行かず、読み込み中のまま待つ
+  const awaitingOrigin = origin?.kind === 'awaiting';
   const content = String(nodeData.content ?? '');
   const diffType = nodeData.diffType as 'add' | 'update' | undefined;
   /**
@@ -142,8 +145,11 @@ export function ImageNode({ id, data, selected }: NodeProps) {
       cid: blobCid,
       mimeType: blobMimeType,
       ...(blobOriginDid && { originDid: blobOriginDid as Did }),
+      ...(awaitingOrigin && { awaitingOrigin }),
     })
       .then((resolved) => {
+        // 何も作っていないので片付けるものも無い。由来が決まれば依存が変わってやり直す
+        if (resolved && 'awaiting' in resolved) return;
         if (cancelled) {
           if (resolved && !resolved.fromCache)
             URL.revokeObjectURL(resolved.url);
@@ -167,7 +173,7 @@ export function ImageNode({ id, data, selected }: NodeProps) {
     return () => {
       cancelled = true;
     };
-  }, [blobCid, blobMimeType, blobOriginDid]);
+  }, [blobCid, blobMimeType, blobOriginDid, awaitingOrigin]);
 
   // アンマウント時に自前の Object URL を解放する
   useEffect(() => {

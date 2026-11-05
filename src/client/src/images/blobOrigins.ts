@@ -91,16 +91,42 @@ export function collectBlobOrigins(batches: readonly Batch[]): BlobOrigins {
 }
 
 /**
- * cid の由来の DID を引く。genesis に載った cid は**創設者を先に採る** — genesis は
- * どの編集よりも先にあるので、「最初に載せた人」はこれになる。創設者がまだ分からない
- * (名簿を読んでいない・共有していない) ときは、actor が載せた由来へ、それも無ければ
- * `undefined` (呼び出し側が自分の repo に落ちる) へ進む
+ * blob をどの repo から引くか。
+ *
+ * - `repo`: その DID の repo
+ * - `own`: 自分の repo (由来が分からない — 単一 actor 時代の File はすべてこれ)
+ * - `awaiting`: **まだ決められない**。genesis にだけ載った画像で、File の名簿をまだ読んでいない。
+ *   自分の repo に落ちると、参加者は必ず `Blob not found` を引く (#333 の実機で、名簿が届く前の
+ *   最初の取得がそうなった)。名簿が届けば `repo` か `own` に変わるので、それまで取りに行かない
+ */
+export type BlobOrigin =
+  | { kind: 'repo'; did: Did }
+  | { kind: 'own' }
+  | { kind: 'awaiting' };
+
+export const OWN_REPO: BlobOrigin = { kind: 'own' };
+const AWAITING_ROSTER: BlobOrigin = { kind: 'awaiting' };
+
+/**
+ * cid の由来を引く。
+ *
+ * `founder` は File の名簿の創設者で、**`undefined` は名簿をまだ読んでいない**、`null` は読んだが創設者が
+ * いない (共有していない古い File など) を表す。
+ *
+ * - genesis に載った cid は**創設者を先に採る** — genesis はどの編集よりも先にあるので、「最初に載せた人」は
+ *   これになる
+ * - 創設者がいなければ、actor が載せた由来へ、それも無ければ自分の repo へ
+ * - genesis にだけ載った cid で名簿をまだ読んでいなければ、**待つ**
  */
 export function resolveBlobOrigin(
   origins: BlobOrigins,
   cid: BlobCid,
-  founder: Did | undefined,
-): Did | undefined {
-  if (founder !== undefined && origins.genesis.has(cid)) return founder;
-  return origins.authored.get(cid);
+  founder: Did | null | undefined,
+): BlobOrigin {
+  const inGenesis = origins.genesis.has(cid);
+  if (inGenesis && founder) return { kind: 'repo', did: founder };
+  const authored = origins.authored.get(cid);
+  if (authored !== undefined) return { kind: 'repo', did: authored };
+  if (inGenesis && founder === undefined) return AWAITING_ROSTER;
+  return OWN_REPO;
 }

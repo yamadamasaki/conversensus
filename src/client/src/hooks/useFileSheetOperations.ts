@@ -268,7 +268,10 @@ export function useFileSheetOperations({
    * File の創設者 (名簿の `founder`)。genesis に載った画像はその repo にある (#333)。
    * 名簿は op-log の読み込みより後に届くので、由来とは別に持って引くときに合わせる
    */
-  const [founders, setFounders] = useState<ReadonlyMap<FileId, Did>>(new Map());
+  // 値の `null` は「名簿を読んだが創設者がいない」。キーが無いのは「まだ読んでいない」(`resolveBlobOrigin`)
+  const [founders, setFounders] = useState<ReadonlyMap<FileId, Did | null>>(
+    new Map(),
+  );
   const activeFounder = activeFile ? founders.get(activeFile.id) : undefined;
   /** cid から由来を引く。**Map ではなく関数を降ろす** (`blobOriginContext`) */
   const originOf = useCallback(
@@ -335,14 +338,12 @@ export function useFileSheetOperations({
     (fileId: FileId, participation: Participation) => {
       const viewer = didFromActor(actor);
       setSharing({ fileId, state: fileSharing(participation, viewer) });
-      const founder = participation.founder;
-      setFounders((prev) => {
-        if (prev.get(fileId) === founder) return prev;
-        const next = new Map(prev);
-        if (founder === undefined) next.delete(fileId);
-        else next.set(fileId, founder);
-        return next;
-      });
+      const founder = participation.founder ?? null;
+      setFounders((prev) =>
+        prev.get(fileId) === founder
+          ? prev
+          : new Map(prev).set(fileId, founder),
+      );
 
       const since = rejoinObligation(participation, viewer);
       setObligation(

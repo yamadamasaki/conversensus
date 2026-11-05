@@ -10,7 +10,12 @@ import type {
   Op,
 } from '@conversensus/shared';
 import { GENESIS_ACTOR } from '@conversensus/shared';
-import { collectBlobOrigins, resolveBlobOrigin } from './blobOrigins';
+import {
+  type BlobOrigin,
+  collectBlobOrigins,
+  OWN_REPO,
+  resolveBlobOrigin,
+} from './blobOrigins';
 import { imagePropertiesOf } from './imageBlob';
 
 const ALICE = 'did:plc:alice' as Did;
@@ -121,6 +126,8 @@ describe('collectBlobOrigins', () => {
   });
 });
 
+const repo = (did: Did): BlobOrigin => ({ kind: 'repo', did });
+
 describe('resolveBlobOrigin', () => {
   test('⚠️ genesis に載った画像は創設者の repo から引く (#333)', () => {
     // import した File の画像は genesis にしか載らない。創設者を引けないと、参加者は
@@ -128,15 +135,25 @@ describe('resolveBlobOrigin', () => {
     const origins = collectBlobOrigins([
       batch(GENESIS_ACTOR, 1, [addImage('n1', CID)]),
     ]);
-    expect(resolveBlobOrigin(origins, CID, ALICE)).toBe(ALICE);
+    expect(resolveBlobOrigin(origins, CID, ALICE)).toEqual(repo(ALICE));
   });
 
-  test('創設者がまだ分からなければ、genesis の画像の由来も分からない', () => {
-    // 名簿は op-log の後から届く。分からない間は呼び出し側が自分の repo に落ちる
+  test('⚠️ 名簿をまだ読んでいなければ、genesis にだけ載った画像は待つ (#333)', () => {
+    // 名簿は op-log の後から届く。待たずに自分の repo に落ちると、参加者の最初の取得が
+    // 必ず `Blob not found` になった (実機の shot で発覚)
     const origins = collectBlobOrigins([
       batch(GENESIS_ACTOR, 1, [addImage('n1', CID)]),
     ]);
-    expect(resolveBlobOrigin(origins, CID, undefined)).toBeUndefined();
+    expect(resolveBlobOrigin(origins, CID, undefined)).toEqual({
+      kind: 'awaiting',
+    });
+  });
+
+  test('名簿を読んで創設者がいなければ、自分の repo に落ちる (共有していない古い File)', () => {
+    const origins = collectBlobOrigins([
+      batch(GENESIS_ACTOR, 1, [addImage('n1', CID)]),
+    ]);
+    expect(resolveBlobOrigin(origins, CID, null)).toEqual(OWN_REPO);
   });
 
   test('genesis と編集の両方に載った cid は創設者を採る — genesis が最初だから', () => {
@@ -144,14 +161,15 @@ describe('resolveBlobOrigin', () => {
       batch(GENESIS_ACTOR, 1, [addImage('n1', CID)]),
       by(BOB, 5, [addImage('n2', CID)]),
     ]);
-    expect(resolveBlobOrigin(origins, CID, ALICE)).toBe(ALICE);
-    // 創設者が分からなければ、載せた人の repo から引ける
-    expect(resolveBlobOrigin(origins, CID, undefined)).toBe(BOB);
+    expect(resolveBlobOrigin(origins, CID, ALICE)).toEqual(repo(ALICE));
+    // 名簿がまだでも、載せた人の repo から引ける (待たない)
+    expect(resolveBlobOrigin(origins, CID, undefined)).toEqual(repo(BOB));
   });
 
-  test('genesis に無い cid には創設者を当てない', () => {
+  test('genesis に無い cid には創設者を当てず、由来が無ければ自分の repo', () => {
     const origins = collectBlobOrigins([by(BOB, 1, [addImage('n1', OTHER)])]);
-    expect(resolveBlobOrigin(origins, OTHER, ALICE)).toBe(BOB);
-    expect(resolveBlobOrigin(origins, CID, ALICE)).toBeUndefined();
+    expect(resolveBlobOrigin(origins, OTHER, ALICE)).toEqual(repo(BOB));
+    expect(resolveBlobOrigin(origins, CID, ALICE)).toEqual(OWN_REPO);
+    expect(resolveBlobOrigin(origins, CID, undefined)).toEqual(OWN_REPO);
   });
 });

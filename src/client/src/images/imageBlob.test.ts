@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, mock } from 'bun:test';
 import type { Did, NodeId, Op } from '@conversensus/shared';
 import type { StoredBlob } from '../api';
 import {
+  AWAITING_ORIGIN,
   collectImageBlobRefs,
   createPdsBlobUploader,
   IMAGE_PROPERTY_KEY,
@@ -9,6 +10,7 @@ import {
   imagePropertiesChange,
   imagePropertiesOf,
   migrateLegacyImageProperties,
+  type ResolvedImage,
   type ResolveImageDeps,
   readImageBlobLocation,
   replaceImageProperties,
@@ -299,8 +301,8 @@ describe('resolveImageUrl', () => {
     });
 
     const resolved = await resolveImageUrl(location, deps);
-    expect(resolved?.fromCache).toBe(false);
-    expect(resolved?.url).toStartWith('blob:');
+    expect((resolved as ResolvedImage | undefined)?.fromCache).toBe(false);
+    expect((resolved as ResolvedImage | undefined)?.url).toStartWith('blob:');
     expect(remote).not.toHaveBeenCalled();
   });
 
@@ -326,7 +328,7 @@ describe('resolveImageUrl', () => {
     });
 
     const resolved = await resolveImageUrl(location, deps);
-    expect(resolved?.url).toStartWith('blob:');
+    expect((resolved as ResolvedImage | undefined)?.url).toStartWith('blob:');
     expect(remote).toHaveBeenCalledTimes(1);
     expect(remote.mock.calls[0]).toEqual([DID, CID, PNG]);
   });
@@ -345,6 +347,20 @@ describe('resolveImageUrl', () => {
 
     await resolveImageUrl({ ...location, originDid: OTHER_DID }, deps);
     expect(remote.mock.calls[0]).toEqual([OTHER_DID, CID, PNG]);
+  });
+
+  it('⚠️ 由来がまだ決まらなければ PDS へ取りに行かず、待つと答える (#333)', async () => {
+    // 自分の repo に落ちると、参加者は必ず `Blob not found` を引く。手元にあればそれを使う
+    const remote = mock(async () => new Blob([]));
+    const deps = resolveDeps({
+      remote: remote as unknown as ResolveImageDeps['remote'],
+      did: () => DID,
+    });
+
+    expect(
+      await resolveImageUrl({ ...location, awaitingOrigin: true }, deps),
+    ).toBe(AWAITING_ORIGIN);
+    expect(remote).not.toHaveBeenCalled();
   });
 
   it('⚠️ ログインの有無を決めるのは自分の DID である', async () => {
@@ -391,7 +407,7 @@ describe('resolveImageUrl', () => {
     const resolved = await resolveImageUrl(location, deps);
     await Promise.resolve();
     await Promise.resolve();
-    expect(resolved?.url).toStartWith('blob:');
+    expect((resolved as ResolvedImage | undefined)?.url).toStartWith('blob:');
   });
 
   it('PDS の取得自体が失敗したときは投げる (呼び出し元がログに出す)', async () => {
