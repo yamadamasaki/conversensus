@@ -75,7 +75,7 @@ export function ConflictList({
 
   return (
     <section
-      aria-label="conflict list"
+      aria-label={t.merger.list}
       style={{
         display: 'flex',
         flexDirection: 'column',
@@ -86,7 +86,7 @@ export function ConflictList({
       }}
     >
       <h3 style={{ margin: '0 0 6px', fontSize: font.body }}>
-        conflict list ({resolved} / {conflicts.length})
+        {t.merger.listHeading(resolved, conflicts.length)}
       </h3>
       <ul
         style={{
@@ -156,7 +156,7 @@ export function ConflictList({
           cursor: canMerge ? 'pointer' : 'not-allowed',
         }}
       >
-        merge
+        {t.merger.mergeButton}
       </button>
     </section>
   );

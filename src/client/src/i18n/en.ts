@@ -373,6 +373,12 @@ export const en: Messages = {
     aboutProperty: (name: string) => `: property "${name}"`,
     comment: 'merge comment',
     commentPlaceholder: 'Comment (reason for the merge)',
+    /** conflict list の領域の名前 (用語なので ja でも訳さない) */
+    list: 'conflict list',
+    listHeading: (resolved: number, total: number) =>
+      `conflict list (${resolved} / ${total})`,
+    /** merger で merge を確かめるボタン */
+    mergeButton: 'merge',
   },
   update: {
     label: 'New version notice',

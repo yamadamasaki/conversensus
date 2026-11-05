@@ -364,6 +364,12 @@ export const ja = {
     aboutProperty: (name: string) => ` の property「${name}」`,
     comment: 'merge のコメント',
     commentPlaceholder: 'コメント (merge の理由)',
+    /** conflict list の領域の名前 (用語なので ja でも訳さない) */
+    list: 'conflict list',
+    listHeading: (resolved: number, total: number) =>
+      `conflict list (${resolved} / ${total})`,
+    /** merger で merge を確かめるボタン */
+    mergeButton: 'merge',
   },
   update: {
     label: '新しい版の知らせ',
