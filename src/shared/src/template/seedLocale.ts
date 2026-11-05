@@ -32,7 +32,7 @@ const TRANSLATIONS: Readonly<
       nodeKinds: {
         claim: {
           label: 'Claim',
-          description: 'The conclusion the argument sets out to establish',
+          description: 'The conclusion being argued for',
         },
         data: {
           label: 'Data',
