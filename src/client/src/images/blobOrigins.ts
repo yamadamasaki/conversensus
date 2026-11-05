@@ -26,14 +26,41 @@
  */
 
 import type { Batch, BlobCid, Did } from '@conversensus/shared';
-import { didFromActor, orderBatches } from '@conversensus/shared';
+import {
+  didFromActor,
+  GENESIS_ACTOR,
+  orderBatches,
+} from '@conversensus/shared';
 import { collectImageBlobRefs } from './imageBlob';
 
-/** DID でない actor (genesis / 未ログインの `local`) は由来にならない */
+/** DID でない actor (genesis / 未ログインの `local`) は、それだけでは由来にならない */
 function asDid(actor: string): Did | undefined {
   const did = didFromActor(actor);
   return did.startsWith('did:') ? (did as Did) : undefined;
 }
+
+/**
+ * op-log から導いた画像 blob の由来。
+ *
+ * **genesis に載った画像は別に持つ** (#333)。genesis の batch の actor (`GENESIS_ACTOR`) は
+ * DID ではないが、その batch を PDS に書くのは File の**創設者**である — 受信も genesis を
+ * 創設者の repo からだけ採る (`receiveParticipantBatches`)。ところが創設者は名簿
+ * (`participation.founder`) にあって op-log には無く、名簿は op-log を読んだ後から届く。
+ * そこで cid だけを控えておき、創設者が分かった時点で `resolveBlobOrigin` が引く。
+ * import した File の画像はすべて genesis に載るので、これが無いと参加者は自分の repo に
+ * 取りに行き `Blob not found` になっていた
+ */
+export type BlobOrigins = {
+  /** 画像を載せた batch の actor が DID のもの: `cid → DID` */
+  readonly authored: ReadonlyMap<BlobCid, Did>;
+  /** genesis の batch に載った cid (創設者の repo にある) */
+  readonly genesis: ReadonlySet<BlobCid>;
+};
+
+export const NO_BLOB_ORIGINS: BlobOrigins = {
+  authored: new Map(),
+  genesis: new Set(),
+};
 
 /**
  * op-log から `cid → 載せた人の DID` を導く。
@@ -45,16 +72,35 @@ function asDid(actor: string): Did | undefined {
  * 由来が分からない cid は**入らない**。呼び出し側は自分の repo に落ちる
  * (`resolveImageUrl`) — 単一 actor 時代の File はすべてこれである。
  */
-export function collectBlobOrigins(
-  batches: readonly Batch[],
-): Map<BlobCid, Did> {
-  const origins = new Map<BlobCid, Did>();
+export function collectBlobOrigins(batches: readonly Batch[]): BlobOrigins {
+  const authored = new Map<BlobCid, Did>();
+  const genesis = new Set<BlobCid>();
   for (const batch of orderBatches([...batches])) {
+    if (batch.actor === GENESIS_ACTOR) {
+      for (const ref of collectImageBlobRefs(batch.ops))
+        genesis.add(ref.ref.$link);
+      continue;
+    }
     const did = asDid(batch.actor);
     if (!did) continue;
     for (const ref of collectImageBlobRefs(batch.ops)) {
-      if (!origins.has(ref.ref.$link)) origins.set(ref.ref.$link, did);
+      if (!authored.has(ref.ref.$link)) authored.set(ref.ref.$link, did);
     }
   }
-  return origins;
+  return { authored, genesis };
+}
+
+/**
+ * cid の由来の DID を引く。genesis に載った cid は**創設者を先に採る** — genesis は
+ * どの編集よりも先にあるので、「最初に載せた人」はこれになる。創設者がまだ分からない
+ * (名簿を読んでいない・共有していない) ときは、actor が載せた由来へ、それも無ければ
+ * `undefined` (呼び出し側が自分の repo に落ちる) へ進む
+ */
+export function resolveBlobOrigin(
+  origins: BlobOrigins,
+  cid: BlobCid,
+  founder: Did | undefined,
+): Did | undefined {
+  if (founder !== undefined && origins.genesis.has(cid)) return founder;
+  return origins.authored.get(cid);
 }

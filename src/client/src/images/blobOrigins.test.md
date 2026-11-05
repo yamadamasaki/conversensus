@@ -2,7 +2,8 @@
 
 ## 何を
 
-`collectBlobOrigins` (op-log から `cid → その blob を持つ repo の DID` を導く) を検証する。
+`collectBlobOrigins` (op-log から `cid → その blob を持つ repo の DID` を導く) と、
+`resolveBlobOrigin` (genesis に載った cid を創設者に当てて引く, #333) を検証する。
 
 ## なぜ
 
@@ -29,8 +30,18 @@ repo に無い**ので足りない (step2 Phase 2 §5, Exit 4)。
   並べてから先頭を採ることで決定論になる
 - **⚠️ 入力の順序で結論が変わらない。**上の裏返しで、受信順は手元ごとに違う。
   逆順に与えても同じ由来になることを直接見る
-- **genesis の batch は由来にならない。**`GENESIS_ACTOR` は DID ではないので repo を
-  名指しできない
+- **genesis に載った画像は、actor の由来ではなく genesis の側に控える。**`GENESIS_ACTOR` は
+  DID ではないので、それだけでは repo を名指しできない
+- `resolveBlobOrigin`:
+  - **⚠️ genesis に載った画像は創設者の repo から引く (#333)。**genesis の batch を PDS に書くのは
+    File の創設者で、受信も genesis を創設者の repo からだけ採る。import した File の画像は
+    genesis にしか載らないので、これが無いと参加者は自分の repo に取りに行き `Blob not found` に
+    なっていた
+  - **創設者がまだ分からなければ由来も分からない。**名簿は op-log の後から届く。
+    分からない間は呼び出し側が自分の repo に落ちる (持ち主自身はそれで引ける)
+  - **genesis と編集の両方に載った cid は創設者を採る。**genesis はどの編集より先にあるので、
+    「最初に載せた人」の規則と同じになる。創設者が分からなければ載せた人に落ちる
+  - **genesis に無い cid には創設者を当てない**
 - **未ログインで書かれた batch は由来にならない。**actor は `local#<deviceId>` で、
   やはり DID が無い。由来が入らなければ呼び出し側は自分の repo に落ちるので、
   **単一 actor 時代の File はこれまで通り表示される**

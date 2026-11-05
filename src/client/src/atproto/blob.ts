@@ -1,5 +1,5 @@
 import type { Did } from '@conversensus/shared';
-import { currentDid, getAgent, pdsUrl } from './client';
+import { currentDid, getAgent } from './client';
 
 /**
  * 表示してよい画像の形式 (security review M3)。**他人が書いた property が MIME を決める**ので、
@@ -97,27 +97,14 @@ export async function fetchRemoteBlob(
   cid: string,
   mimeType: string,
 ): Promise<Blob> {
-  // com.atproto.sync.getBlob を試す
-  try {
-    const res = await getAgent().api.com.atproto.sync.getBlob({ did, cid });
-    if (res.success) {
-      return new Blob([res.data], { type: mimeType });
-    }
-    console.warn('[blob] sync.getBlob returned success=false');
-  } catch (err) {
-    console.warn('[blob] sync.getBlob failed:', err);
+  // **他の経路へは落ちない** (#333)。以前は PDS の `/blob/<did>/<cid>` を試していたが、
+  // そういう endpoint は PDS に無く (常に 404)、PDS の URL が `/` で終わると `//blob/` にも
+  // なっていた。由来の誤りなどの本当の原因を 404 で隠すだけだった
+  const res = await getAgent().api.com.atproto.sync.getBlob({ did, cid });
+  if (!res.success) {
+    throw new Error(`Failed to resolve blob ${cid} from ${did}`);
   }
-
-  // フォールバック: PDS の raw blob URL
-  const rawUrl = `${pdsUrl()}/blob/${did}/${cid}`;
-  const res = await fetch(rawUrl);
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(
-      `Failed to resolve blob ${cid} (HTTP ${res.status}): ${body}`,
-    );
-  }
-  return new Blob([await res.arrayBuffer()], { type: mimeType });
+  return new Blob([res.data], { type: mimeType });
 }
 
 /**
