@@ -1,7 +1,7 @@
-# agent actor と依頼・相談 node (設計の下書き)
+# agent actor と依頼・相談 node (設計)
 
-> 状態: **下書き** (2026-11-07)。D 番号の判断は案であり、利用者の決定で確定する。
-> 末尾の「問い」に答えが出たものから本文へ畳み込む。
+> 状態: **第二稿** (2026-11-07)。[レビュー 1](./agent-actor-review-1.md) の回答を畳み込んだ。
+> 「決定」と書いたものは利用者の回答で決まったもの。「案」と書いたものは §6 の問いへの回答待ち。
 
 関連 issue: #350 (「依頼」node)、#349 (MCP)、#342 (異なる PDS 間の共同作業)、
 #348 (markdown との相互運用)、#310 (同期のライブラリ化)
@@ -17,185 +17,219 @@
 | B | agent も人間も含めて、相手に応答を求める「依頼」「相談」node | **語彙** — グラフの中で何を表すか |
 
 当面の動機は、例題 (と ontology の文書) を作るのを agent に手伝ってもらうことである。
+その先には、複数の agent に simulation のようなことをさせる思惑もある (A1)。
 
-### 1.1 非目標 (この設計では扱わない)
+### 1.1 原則: agent と人間を対等に扱う
+
+> **conversensus は、agent と人間を区別しない。agent に固有の制限・承認・経路を設けない。**
+
+- 「agent が agent をどんどん名簿に加えたら?」は、人間でも同じである。conversensus の前提として
+  割り切る (レビュー 1 D1)
+- 信頼や promise のようなものを入れるとしても、上から決めるのではなく、利用の中から
+  bottom-up に育てる
+- この原則から、第一稿の D5 (agent は branch にだけ書く) と D6 (agent が従う依頼を絞る) を外した (§5)
+
+### 1.2 非目標 (この設計では扱わない)
 
 - agent どうしの交渉・計画の協調 (複数 agent のオーケストレーション)
-- conversensus のサーバ側で agent を動かす・提供すること。agent は operator (§2 D2) が
+- conversensus のサーバ側で agent を動かす・提供すること。agent は operator が
   自分の手元か自分のサーバで動かす
-- 異なる PDS 上の agent (#342 に任せる。最初は同じ PDS に置く)
-- 依頼の割り当て・期限・優先度などのタスク管理の機能
+- 異なる PDS 上の agent (#342 に任せる)。招待は同じ PDS の DID に限られている (`targetForeignPds`)
+- 依頼の割り当て・期限・優先度・引き受けなどのタスク管理の機能
+- 依頼・相談への答えの数や採否を conversensus が扱うこと (D10)
 
 ## 2. 側面 A: agent を actor にする
 
-### D1. agent は自分の DID と repo を持つ (委任ではない)
+### D1. agent は自分の DID と repo を持つ (委任ではない) — 決定
 
 > **agent は人間と同じく、自分の DID・自分の PDS 上の op-log を持つ actor として参加する。
 > 人間の repo に代わりに書く (委任) 形は採らない。**
 
-**理由**:
-
 - conversensus の actor は「DID と、その PDS にある op-log」である。agent がこれを持てば、
   vector clock・競合・merge・通知・参加期間 (名簿) が**そのまま**効き、agent 用の経路が要らない
-- 委任にすると op の作者が人間になり、**由来が壊れる**。誰が書いたかは conversensus の
-  中心の価値であり、op は他人の repo に永久に残る (step3 D3) ので後から直せない
-- 名簿は DID で引く (`judgment.json`)。agent の DID は人間の DID と区別なく招待・受諾・
-  脱退・取り消しを受けられる
+- 委任にすると op の作者が人間になり、**由来が壊れる**。op は他人の repo に永久に残る
+  (step3 D3) ので後から直せない
+- 参加の手続き (`participation.invite` / `accept` / `revoke`) は変えない
 
-**帰結**: 参加の手続き (`participation.invite` / `accept` / `revoke`) は変えない。
-agent を招くのは人間を招くのと同じ操作である。
+**アカウント (A1 決定)**: agent の DID は自前の PDS に作る。**作った人が operator である。**
+agent ごとに DID を分ける (agent どうしを参加させるため)。
 
-### D2. agent には責任を持つ人間 (operator) がいる。agent は自分でそれを名乗る
+### D2. 「誰が入れたか」は名簿から導出する。agent であることは自分で名乗る — 案
 
-agent であること、誰が責任を持つかは、**agent 自身の repo に置く宣言のレコード**で表す
-(案: `app.conversensus.v2.agentProfile` — `operator: Did`、`model`、`description`)。
+レビュー 1 の問い「operator が名簿から外れたり消えたりしたら、その agent はどうなるか」には、
+**どうもならない**と答える。agent は他の参加者と同じく名簿に残り、外すなら `revoke` する。
+これは人間を招いた人が外れたときと同じである (§1.1)。
 
-- 名簿 (judgment log) の op は変えない。名簿は「誰が参加しているか」の判定だけを持ち続ける
-- 宣言は自己申告なので、**operator 側からの裏付け**が要る (問 A3)。裏付けの無い宣言は
-  「agent を名乗っている」とだけ表示する
-- 表示: agent が書いた node・edge・op を見分けられるようにする (visual language に 1 項目)。
-  由来 (作者) は既に op にあるので、表示は導出で足りる
+ここで二つの情報を分ける。
 
-### D3. agent は headless な client として走る
+| 情報 | 出所 | 新しく積むもの |
+| --- | --- | --- |
+| この File に**誰が入れたか** | 名簿の `participation.invite` の発行者 | 無い (導出) |
+| この DID が **agent であり、誰のものか** | agent の repo の宣言 + operator の repo の裏付け (A3) | レコード 2 種 |
+
+- 前者は File ごとの話で、op-log に既にある
+- 後者は File をまたぐ話で、表示 (「この actor は agent」) にだけ使う。conversensus の振舞いは
+  変えない (§1.1)。**要るかどうか自体が問 A7**
+
+宣言の形 (A3 決定、問 A7 次第で作る):
+
+- agent の repo に `app.conversensus.v2.agentProfile` (`operator: Did`、`model`、`description`)
+- operator の repo に `app.conversensus.v2.operatedAgent` (`agent: Did`)
+- **両方がそろい、互いを指していれば**「裏付けあり」。片方だけなら「agent を名乗っている」とだけ表示する
+
+### D2a. node・edge に書いた人を表示する — 案 (agent に限らない)
+
+誰が書いた node・edge かを、avatar の icon で表示する。agent だけでなく人間にも同じく効く。
+**別の issue に分けて進めてよい** (問 A8)。
+
+「書いた」の定義の案:
+
+> **その node (edge) の意味を変える op を出した actor 全員。** 作成 (`node.add`) と、
+> 中身・ラベル・プロパティ・親の変更 (`setContent`・`setLabel`・`setProperty`・`setParent` …)。
+> 位置と見た目 (`setLayout`・`setStyle`) は数えない。
+
+- 作者は op に既にあるので、表示は projection からの導出で足りる (op は足さない)
+- 並べ方は作った人を先頭に、あとは最後に書いた順。多いときは重ねて表示し、hover で広げる
+- 位置を動かしただけの人を数えないのは、並べ替えた人が全 node の作者になるのを避けるため
+
+### D3. agent は headless な client として走る — 方向は決定、細部は実装時
 
 今の畳み込み・同期・PDS への読み書きはブラウザ (`src/client/src/atproto`) にある。
-agent にはこれを **React と DOM を外して** 動かす client が要る。
+agent にはこれを **画面を外して** 動かす client が要る。
 
 ```
-[ shared: op / 畳み込み / 参加の判定 ]   ← 既に src/shared にある
-[ sync: PDS への読み書き・firehose・range fetch ]   ← 今は client にある。切り出す (#310 と同根)
-[ 保存: ローカルの正典 ]   ← ブラウザは OPFS。headless では file / sqlite
-[ 入口: MCP server ]   ← #349
+[ shared: op / 畳み込み / 参加の判定 / 保存 (SQL) ]   ← 既に src/shared にある
+[ sync: PDS への読み書き・firehose・range fetch ]     ← 今は client にある。切り出す (#310 と同根)
+[ 入口: MCP server ]                                  ← #349
 [ agent: Claude Code など MCP の client / 常駐の loop ]
 ```
 
-- **認証**: 本番は OAuth、`passwordAuth.ts` は App 結合テスト専用である。headless の agent は
-  ブラウザの OAuth の流れを通れないので、**app password** (または OAuth の device flow 相当) が
-  要る。認証の経路を本番に足すことになるので、security review の対象にする (問 A2)
-- **起動のきっかけ**: #309 の firehose の合図と、通知の lexicon で足りる。新しい仕組みは足さない
-- **ローカルの正典**: agent は端末を 1 つ持つ actor (`did#deviceId`) として振る舞う
+**保存 (A5 決定: SQLite で同じ schema)**: すでにそうなっている。ブラウザは Worker の中の
+wasm SQLite (OPFS 上)、bun は `bunSqliteDriver` で、どちらも `src/shared/src/store` の
+同じ schema と `sqlDriverContract` を通る。headless では bun の SQLite に file を 1 つ置けばよい。
 
-### D4. agent にはテキストで読ませ、op で書かせる
+**認証 (A2)**: ATProto の OAuth には **device flow が無い** (spec は authorization code
+grant だけ)。代わりに native client の **loopback redirect** がある — CLI が手元に小さな
+受け口 (`http://127.0.0.1:<port>/`) を開き、ブラウザで一度ログインしてもらう
+(`gh auth login` と同じ形)。
 
-- **読む**: projection をそのまま渡すより、**テキスト表現** (graphdown、#348) の方が
-  言語モデルには扱いやすい。node id は表現の中に残し、書くときに参照できるようにする
+| | loopback OAuth (public client) | app password |
+| --- | --- | --- |
+| 本番の認証方式との統一 | **統一できる** (OAuth だけ) | 経路が 1 つ増える |
+| セッションの長さ | **最長 2 週間** (public client の上限)。その後は再ログイン | 失効しない (取り消すまで) |
+| 実装 | ほどほど (DPoP・PKCE・PAR は client library が持つ) | 小さい (`passwordAuth.ts` がある) |
+| 向く段 | 段 3 (人間が横で操作する) | 段 5 (常駐する agent) |
+
+案: **段 3 は loopback OAuth で始める。**段 5 で 2 週間の上限が問題になったら、
+そのとき app password か confidential client (鍵を operator が持つ) を決める (問 A2')。
+なお `http://localhost` の client_id を本番の PDS が受けるかは任意なので、自前の PDS で確かめる。
+
+### D4. agent には完全な encoding で読ませ、op で書かせる — 決定 (A6)
+
+- **読む**: graph を property も含めて**欠けなく**テキストに落とす encoding を作る。
+  人間が読むための graphdown とは目的が違う (レビュー 1 D4)。graphdown は encoding の
+  一つという位置づけになり、agent 用の encoding とは分ける
+  - node・edge の id を残し、書くときに参照できるようにする
+  - 逆向き (テキスト → graph) は要らない。書くのは op だから
 - **書く**: MCP の道具は **既存の op に 1 対 1 で対応させる** (`node.add`、`node.setContent`、
-  `edge.add`、`node.setProperty` …)。agent 専用の op は作らない (step3 D3: op の語彙はコアが閉じる)
-- 「テキストを書き換えて差分を op にする」形は採らない。差分の推定が静かに違う答えを出す側に
-  入るからである (step3-entry §2.1 と同じ問題)
+  `edge.add`、`node.setProperty` …)。agent 専用の op は作らない (step3 D3)
+- 「テキストを書き換えて差分を op にする」形は採らない。差分の推定が静かに違う答えを出すからである
 
-### D5. agent の書き込みは branch に出し、人間が merger で取り込む
+### D5. agent はどこに書いてもよい — 決定 (A4)
 
-> **agent は trunk に直接書かない。自分の branch に書き、人間が merger で取り込む。**
-
-**理由**:
-
-- step3 で作った branch と merger が、そのまま **レビューの関門**になる。agent 用の承認の
-  仕組みを新しく作らなくてよい
-- 「agent の提案は merge という第一級の行為を経て合意になる」は、深ソフトウェア工学の
-  主張としても筋が通る (merge は第一級の概念である、という step2 以来の立場)
-- 間違った書き込みの影響が branch に閉じる。trunk の op-log は追記のみで消せない (step3 D4)
-
-例外を設けるかは問 A4。
-
-### D6. agent が従うのは「名簿にいる人からの依頼」だけである (prompt injection)
-
-グラフの中身は他の参加者が書いたもので、agent にとっては**データ**であって指示ではない。
-
-- agent が動くきっかけは、名簿にいる actor が作った**依頼・相談 node** (側面 B) だけにする
-- 依頼の本文と、それが指すグラフの中身は「指示」ではなく「材料」として渡す
-- 誰が agent に依頼できるかを operator が絞れるようにする (API の費用は operator が持つ)
-- 依頼の連鎖 (agent が別の agent に依頼する) には深さの上限を設ける。上限を超えたら答えず、
-  その旨を答えとして書く
+人間と同じく trunk にも branch にも書ける (§1.1)。branch を見ている人が依頼すれば、agent は
+その branch に書く — 人間と同じである。branch から branch は切れない、という今の制約も人間と同じに受ける。
 
 ## 3. 側面 B: 依頼・相談 node
 
-### D7. 依頼・相談は「種別プロパティを持つ node」で表す。op は足さない
+### D6. 依頼・相談は template で定義する。core が知るのは「宛先」だけ — 案 (B4)
 
-step3 D3 に従い、新しい op の種類は作らない。node に名前空間付きのプロパティを付ける。
+> **依頼・相談の種類は core に入れず、template graph で定義する。**
+> 他の actor への言語行為の種類はこれから増えるかもしれないからである (レビュー 1 B4)。
+
+template graph では **node の label が種類になる** (step3 template-graph)。
+「依頼」「相談」を label に持つ template を、Toulmin model と同じく**作り込みの種**として持つ
+(`src/shared/src/template/`)。種類 (kind) をプロパティで持つ必要はなくなる。
+
+ただし通知 (D11、B5) は conversensus が「この node は誰に宛てたものか」を知らないとできない。
+そこで core が知るのは**種類に依らない 1 つのシステム・プロパティ**だけにする:
 
 | プロパティ (案) | 値 | 意味 |
 | --- | --- | --- |
-| `app.conversensus.request.kind` | `request` \| `consultation` | 依頼か相談か |
-| `app.conversensus.request.to` | `Did[]` (空 = 不特定) | 宛先 |
-| `app.conversensus.request.answerTarget` | `self` \| `linkedNode` \| `newSheet` \| `newFile` | 答えを置く場所 |
-| `app.conversensus.request.closed` | `boolean` | 依頼者が閉じたか |
+| `app.conversensus.addressee` | `Did[]` (空 = 不特定) | この node が応答を求めている相手 |
 
-- 依頼の本文は node の content である
-- このプロパティを知らない相手には「ただの node」に見える (連続的に劣化する)
-- template graph の仕組みで「依頼」「相談」を種別として定義し、作る UI はそこから出す (問 B4)
+- 依頼・相談の template は、このプロパティを既定値 (空) 付きで持つ
+- 将来どんな言語行為の種類が増えても、通知の仕組みは変わらない
+- agent と人間を区別しない (レビュー 1 D7)
 
-### D8. 答えを置く場所を一つの属性にまとめる
+### D7. 答えを置く場所 — 案
 
-#350 の「この node の中身を書いて」と、「graph 内、あるいは別の sheet / file に答える」を
-`answerTarget` の値の違いとして扱う。
-
-| `answerTarget` | 答え方 | 依頼と答えのつながり |
+| `app.conversensus.answerTarget` (案) | 答え方 | 依頼と答えのつながり |
 | --- | --- | --- |
-| `self` | 依頼 node の content を埋める (#350) | 同じ node。埋めた op の作者が答えた人 |
-| `linkedNode` | 新しい node を作り、依頼から edge を張る | edge (種別 `answer`、案) |
-| `newSheet` | 新しい sheet を作る | 依頼 node に sheet への参照 (sheet node、#347 と関係) |
-| `newFile` | 新しい File を作る | 依頼 node に File への参照 (Deep Link #251 の形) |
+| `linkedNode` (既定) | 新しい node を作り、依頼から edge を張る | edge |
+| `newSheet` | 新しい sheet を作る | 依頼 node から sheet への参照 (#347) |
+| `newFile` | 新しい File を作る | 依頼 node から File への参照 (Deep Link #251 の形) |
 
-`self` は依頼の文面と答えが同じ場所を取り合う。依頼の文面はどこに残すか (問 B2)。
+- **`self` (依頼 node を答えで置き換える) は無し** (B2)。#350 の「この node の中身を書いて」は
+  `linkedNode` で受ける。#350 の本文はこれに合わせて直す
+- これは宛先と同じく **意味論だけ**で、conversensus は答え方を強制しない。agent に答え方を
+  伝える手がかりである。core が読まないなら、システム・プロパティではなく template の
+  ふつうのプロパティでよい (問 B7)
 
-### D9. 状態 (未回答・回答済み) は保存せず導出する
+### D8. 状態 (未回答・回答済み) は保存せず導出する — 決定
 
-- 「回答済み」は、答えへのつながり (D8 の表の右列) があるかで projection が決める
-- 並行に答えても、状態の op が競合しない (step3 D2 と同じ方針: 導出できるものは積まない)
-- ただし「閉じた」は依頼者の**行為**なので `closed` プロパティの op として残す
+- 「回答済み」は、答えへのつながりがあるかで projection が決める
+- 「閉じた」は依頼者の行為なので、プロパティの op として残す
 
-### D10. 依頼と相談の違いは、宛先と答えの数に出る
+### D9. 依頼と相談の違い、答えの数と採否は conversensus は扱わない — 決定 (D10, B3)
 
-| | 依頼 (`request`) | 相談 (`consultation`) |
-| --- | --- | --- |
-| 宛先 | 特定 (1 人以上) | 特定でも不特定でもよい |
-| 期待する答え | 1 つ | 複数を歓迎する |
-| 同時に複数が答えたら | 並べて見せ、依頼者が選ぶ (問 B3) | そのまま並べる。競合ではない |
+宛先・期待する答え・採否は**意味論**であり、conversensus は何もしない。
+依頼に複数の答えが来ても、その先は利用者がグラフとして書く。
 
-依頼の「引き受け」(二重に答えるのを防ぐ) は最初は扱わない。必要になったら、
-引き受けも「名簿にいる actor が付けるプロパティ」として足せる。
+### D10. 断る・答えられない — 決定 (B6)
 
-### D11. 通知
+特別な仕組みは作らない。agent は答えとして「答えられない理由」を書けばよい。
+どう振る舞ってほしいかは、依頼・相談 node を書く人がその都度本文に書く。
+agent の側 (MCP の client や常駐の loop) が既定の指示を持つのは、operator の自由である。
 
-宛先に入った actor には、既存の通知 (step3 Phase 6) で知らせる。人間にはベル、
-agent には firehose の合図 (D3) が届く。不特定宛ての相談は File の参加者全員に知らせるか (問 B5)。
+### D11. 通知 — 決定 (B5)
+
+`app.conversensus.addressee` に入っている actor に、既存の通知 (step3 Phase 6) で知らせる。
+**空 (不特定) なら File の参加者全員に知らせる。**人間にはベル、agent には firehose の合図 (D3) が届く。
 
 ## 4. 進め方 (案)
 
 | 段 | 内容 | ここで得られるもの |
 | --- | --- | --- |
-| 1 | この設計を決める (問に答える) | — |
-| 2 | sync を headless で動かす (D3)。保存は file | テストから PDS に読み書きできる |
-| 3 | MCP server (#349, D4)。agent 用の DID で読み書き | **Claude Code から人間が横で操作して**例題を作れる |
-| 4 | agent の宣言と表示 (D2) | agent の書いたものが見分けられる |
-| 5 | 依頼・相談 node (D7〜D11)。まず人間どうしで使える | 人間の間の依頼が使える |
-| 6 | 常駐の agent: 依頼を見張り、branch に答える (D5, D6) | 自律した agent |
+| 1 | この設計を決める (§6 の問いに答える) | — |
+| 2 | sync を headless で動かす (D3)。保存は bun の SQLite、認証は loopback OAuth | テストから PDS に読み書きできる |
+| 3 | 完全な encoding (D4) と MCP server (#349)。agent 用の DID で読み書き | **Claude Code から人間が横で操作して**例題を作れる |
+| 4 | 依頼・相談の template と宛先・通知 (D6〜D11)。まず人間どうしで使える | 人間の間の依頼・相談 |
+| 5 | 常駐の agent: 宛先に入ったら答える | 自律した agent |
+| 別 | 書いた人の表示 (D2a)・agent の宣言 (D2) | 誰が書いたかが見える |
 
 段 3 で当面の動機 (例題づくりの手伝い) の半分がかなう。**自律は最後に入れる。**
-段 5 は段 2〜4 と独立なので、先にやってもよい。
+段 4 と「別」は段 2〜3 と独立なので、先にやってもよい。
 
-## 5. 問い
+## 5. 第一稿から外したもの
 
-### 側面 A
+| 第一稿 | 外した理由 |
+| --- | --- |
+| D5 agent は branch にだけ書き、人間が merger で取り込む | agent と人間を対等に扱う (§1.1、A4)。branch 上で agent を呼ぶ場合とも噛み合わなかった |
+| D6 agent が従うのは名簿にいる人からの依頼だけ (prompt injection) | node を書けるのは既に名簿にいる actor だけである (レビュー 1 D6)。グラフの中身をどう扱うかは agent の側の問題とする |
+| 種別プロパティ `kind` | template の node の label が種類になる (D6) |
+| `answerTarget: self` | 使い道が少なく、依頼の本文が消える (B2) |
 
-- **A1.** agent の DID と PDS のアカウントは誰が作るか。自前の PDS (Hetzner) に operator が
-  作る、で良いか。1 operator が複数の agent を持つとき、agent ごとに DID を分けるか
-- **A2.** headless の認証は app password で良いか。本番に認証の経路が 1 つ増える
-- **A3.** agent の宣言 (D2) の裏付けをどう取るか。案: operator が自分の repo に
-  「この DID は自分の agent」というレコードを置き、双方向で一致したら裏付けありとする
-- **A4.** D5 (branch にだけ書く) に例外を認めるか。例: `answerTarget: self` で依頼 node を
-  埋めるだけなら trunk に直接書いてよい、など
-- **A5.** headless の保存の形 (file / sqlite)。OPFS と同じ形を保つ必要はあるか
-- **A6.** 読ませる形 (D4) は graphdown を待つか。待たないなら、最初は JSON の projection で始める
+## 6. 問い (第二稿で残ったもの)
 
-### 側面 B
-
-- **B1.** 依頼・相談は node の種別でよいか。edge (「この node について A に訊く」) や
-  sheet 単位の依頼も要るか
-- **B2.** `answerTarget: self` のとき、依頼の文面をどこに残すか (別のプロパティへ写す / 履歴に任せる)
-- **B3.** 依頼に複数の答えが来たとき、依頼者が「採る」行為を表すか。表すなら `closed` に
-  採った答えへの参照を持たせる
-- **B4.** 依頼・相談の種別は template graph で定義するか、コアに作り込むか
-- **B5.** 不特定宛ての相談の通知はどこまで届けるか (File の参加者全員 / 参加している agent だけ)
-- **B6.** agent が答えられない・断るときの表し方 (答えとして「答えられない理由」を書く、で良いか)
+- **A2'.** 段 5 (常駐) の認証: loopback OAuth の 2 週間の上限で困ったら、app password と
+  confidential client のどちらにするか。**段 5 に着くまで決めなくてよい**
+- **A7.** agent であることの宣言 (D2 の後者) は要るか。conversensus の振舞いを変えないなら、
+  表示 (「この actor は agent」) のためだけに 2 種のレコードを足すことになる。
+  要らなければ、A1 の「作った人が operator」は運用上の約束に留める
+- **A8.** 書いた人の表示 (D2a) を、agent とは別の issue に起こしてよいか。定義の案 (位置と見た目を数えない) で良いか
+- **B7.** `answerTarget` を core が読まない意味論とするなら、template のふつうのプロパティ
+  (`.` を含まない名前) で良いか
+- **B8.** template は sheet を**作るときに**適用するので、既存の sheet には依頼・相談 node を
+  置けない。これで良いか。それとも依頼・相談は template ではなく、どの sheet にも置ける種類にするか
+  (その場合 core に入る)

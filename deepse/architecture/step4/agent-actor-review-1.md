@@ -1,0 +1,44 @@
+# agent-actor.md のレビュー (第一回目)
+
+- D1: 賛成
+    - LM agent actor がどんどん LM agent をメンバに加え続けたら? などと思いがちだが, それは human actor も同じ, と割り切る (conversensus の前提として)
+    - いつかは信頼, とか promise のようなものを導入するかもしれないけど, それは topdown ではなく bottomup が望ましい
+- D2: いい気もするけど…
+    - operator がメンバから外れたり, 消えた場合は, その operator に導入された agent はどうする?
+    - それを考えると, その agent をメンバにしたのが誰か (op-log にあるはず) だけわかればいい気もする
+    - 誰が「書いた」node/edge かは分かるといい. これは human actor も同じ. node/edge に avator の icon を付ける?
+        - ただ「書いた」とは何か? の定義が必要. 作成/変更した actor 全員が対象になる気がするが, それでいいか? (例えばたくさんいる時には, icon が重なって表示され, hover で展開されるとか)
+- D3: 認証とか, file/sqlite の置き場所とか, いまいち具体的に理解できていないけど, それは設計 or 実装時に再度教えてもらっても良い
+- D4: downstream に markdown encoding を使う件
+    - その場合はグラフの情報を (property なども含めて) 完全に markdown に落とす必要がある. その encoding は, 人間が読むためのものとは異なる気がする
+    - なので, graphdown を利用するとしても, encoding の一つという位置付けになりそう. graphdown とは分けてもいいかもしれない
+- D5: agent は branch に書く件
+    - なるほど, それは一つのアイデアかも, とは思いましたが…
+    - branch 上で agent を呼んだらどうなる? (今は branch から branch は切れない)
+    - agent/human をできるだけ対等に扱う立場からは, なくてもいいかも
+- D6: prompt injection
+    - 今のままでも, (依頼/相談に限らず) node を作れるのは名簿にいる actor だけだから, とりあえず考えなくてもいいのではないだろうか?
+- D7, D8: プロパティ
+    - kind: OK
+    - to: OK (ただし, LM agent/human actor を区別しない)
+    - answerTarget: self は, replace とする. 依頼/相談側の本文は消える. 依頼時のみ
+    - あまり使い道ないかな…? self はなくてもいいかも
+- D9: OK
+- D10: 依頼時に複数の答えが返っても, conversensus 側では特に何もしないでいい. ユーザがグラフとして, 書く
+    - そういう意味では, 宛先も期待する答えも semantics だけであって, conversensus 側で何かする必要もないかも
+- D11: OK
+- A1:
+    - 自前の PDS に operator が作る (というより, 作った人が operator となる)
+    - agent ごとに DID を分ける (というのも, 複数 agent 同士で何か (simulation のようなことを) させようという思惑もある)
+- A2:
+    - OAuth の device flow を実装するのは大変ですか? それを使えば, 認証方法だけはまとめられる?
+- A3: とりあえず, その案でいきましょう
+- A4: D5 はなしの方向ではどうでしょう?
+- A5: OPFS と同じである必要はない気はします. ただ, 今は sqlite on OPFS だと思うので, sqlite で同じ schema を使うのが楽ではないですか?
+- A6: D4 に対して書いた通り
+- B1: とりあえず, node の種別だけでいいでしょう
+- B2: D7, D8 に対して書いた通り, self なしではどうでしょう?
+- B3: D10 に対して書いた通り, そこから先はグラフとして書く, としておきましょう
+- B4: 依頼/相談の種別はとりあえず temprate で定義. この先, 他の actor への言語行為の種類は増えるかもしれないから, あまり core に入れたくないと思っている
+- B5: File の参加者全員ですね
+- B6: これは, やるとしたら conversensus 側で prompt に指示を追加する感じでしょうか? なら, 今のところは依頼/相談 node を書いた人がそれをその都度書けばいいかと思うけど, どうでしょう?
