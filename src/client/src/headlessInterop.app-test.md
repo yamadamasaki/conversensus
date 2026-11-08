@@ -30,3 +30,8 @@ App 結合の世界 (`testing/appWorld.ts`) の中で、端末の切り替えと
   node と edge を足す → alice が同期すると、**agent の node と書き換えた本文が alice の画面に描かれる**。
   edge は描かれたかを画面で見ない (React Flow の edge は happy-dom で測れない)。edge が届くことは
   `mcp.test.ts` が見ている
+- 🔴 **依頼を行き来する** (agent 段 4 完了基準 6): alice (App) が File を作って agent を招き、agent が参加する →
+  alice が依頼の Sheet で依頼を作り、宛先に agent を名簿から選んで送る → agent (MCP) が `list_requests` で
+  見つけて `answer_request` で答え、続けて依頼の種類 (encoding の template の注釈から id を引く) で node を作り、
+  宛先に alice を置いて送る → alice が同期すると agent の答えが描かれ、右下に「agent.test から依頼が届きました」
+  が出る。開いて区画で答える → agent が読むと、**2 つの依頼がどちらも回答あり**

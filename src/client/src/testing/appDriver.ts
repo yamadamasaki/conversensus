@@ -246,7 +246,7 @@ export async function addRequestSheet(user: UserEvent) {
 
 /** 右サイドバーを広げる (既定では畳まれている) */
 export async function openRightSidebar(user: UserEvent) {
-  await user.click(
-    screen.getByRole('button', { name: '右サイドバーを広げる' }),
-  );
+  // **広げたかどうかは端末に残る**ので、同じ端末で描き直すと既に広がっている。そのときは何もしない
+  const open = screen.queryByRole('button', { name: '右サイドバーを広げる' });
+  if (open) await user.click(open);
 }

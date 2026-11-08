@@ -31,6 +31,7 @@ import {
   setAuthBackend,
 } from '@conversensus/client/src/atproto/client';
 import { batches } from '@conversensus/client/src/atproto/collections';
+import { handleLabels } from '@conversensus/client/src/atproto/identity';
 import {
   listJudgmentFileIds,
   loadRoster,
@@ -59,6 +60,7 @@ import {
   encodeParticipationCode,
 } from '@conversensus/client/src/sync/participationCode';
 import { collectParticipantBatches } from '@conversensus/client/src/sync/receiveParticipantBatches';
+import { senderOf } from '@conversensus/client/src/sync/requestArrival';
 import {
   createRosterSource,
   type RosterSource,
@@ -72,11 +74,14 @@ import {
   type FileId,
   type GraphFile,
   type GraphFileListItem,
+  isAddressedTo,
   type JudgmentBatch,
   type JudgmentOp,
   LocalStore,
   METAGRAPH_SHEET_KIND,
   projectFile,
+  type RequestEntry,
+  requestsInFile,
   resolveTemplates,
   type SheetId,
   sheetKindOf,
@@ -228,6 +233,32 @@ export class Headless {
     return encodeFile(projectFile(trunk, fileId), (sheet) =>
       resolveTemplates(sheet.templateIds, trunk, fileId),
     );
+  }
+
+  /**
+   * File の参加者 (DID とハンドル名)。依頼の宛先を選ぶのに使う (agent 段 4 R6)
+   */
+  async participants(fileId: FileId): Promise<{ did: Did; handle: string }[]> {
+    const { roster } = this.requireConnection();
+    const { participation } = await roster.read(fileId);
+    const dids = [...participation.participating];
+    const labelOf = await handleLabels.resolve(dids);
+    return dids.map((did) => ({ did, handle: labelOf(did) }));
+  }
+
+  /**
+   * 自分宛ての未回答の依頼 (agent 段 4 R6)。**自分が送ったものは除く** — 宛先が不特定なら自分も
+   * 宛先に入るが、自分の依頼に自分で答えることはない。手元の正典から読む (最新にするなら先に `sync`)
+   */
+  requestsForMe(fileId: FileId): (RequestEntry & { from: Did | undefined })[] {
+    const { did } = this.requireConnection();
+    const batches = this.store.events.getBatches(fileId);
+    return requestsInFile(projectFile(batches, fileId)).flatMap((r) => {
+      const from = senderOf(batches, r.node.id);
+      return r.status === 'sent' && isAddressedTo(r.node, did) && from !== did
+        ? [{ ...r, from }]
+        : [];
+    });
   }
 
   /**

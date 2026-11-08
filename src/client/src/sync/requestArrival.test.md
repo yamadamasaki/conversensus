@@ -19,3 +19,4 @@ batch を手で組んで検証する。
 - 同じ受信で閉じられたものは出さない
 - `sent` を書いた op が無ければ何も返さない (関係の無い受信で File を畳まない)
 - 依頼ではない node の `sent` は数えない
+- `senderOf`: 最後に `sent` を書いた人 (MCP の `list_requests` が、自分が送った依頼を除くのに使う)。送っていなければ undefined、他の property の op は数えない

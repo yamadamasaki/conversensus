@@ -7,7 +7,7 @@ import {
   type Op,
   SENT_PROPERTY,
 } from '@conversensus/shared';
-import { detectArrivedRequests } from './requestArrival';
+import { detectArrivedRequests, senderOf } from './requestArrival';
 
 const FILE = '11111111-1111-4111-8111-111111111111' as FileId;
 const SHEET = '22222222-2222-4222-8222-222222222222';
@@ -125,5 +125,25 @@ describe('detectArrivedRequests', () => {
       ),
     ];
     expect(detect(local, [setProp(ALICE, SENT_PROPERTY, 1)])).toEqual([]);
+  });
+});
+
+describe('senderOf', () => {
+  test('最後に sent を書いた人。送っていなければ undefined', () => {
+    const local = made([]);
+    expect(senderOf(local, REQ)).toBeUndefined();
+    expect(
+      senderOf(
+        [
+          ...local,
+          setProp(ALICE, SENT_PROPERTY, 1),
+          setProp(BOB, SENT_PROPERTY, 2),
+        ],
+        REQ,
+      ),
+    ).toBe(BOB);
+    expect(
+      senderOf([...local, setProp(ALICE, 'priority', 'x')], REQ),
+    ).toBeUndefined();
   });
 });

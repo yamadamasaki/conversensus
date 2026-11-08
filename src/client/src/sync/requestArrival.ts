@@ -114,3 +114,26 @@ export function detectArrivedRequests(
     ];
   });
 }
+
+/**
+ * その依頼を最後に送った人 (最後に `sent` を書いた batch の DID)。送っていなければ undefined。
+ * 「自分が送った依頼に自分で答えない」ために使う (MCP の `list_requests`)。順序は畳み込みと同じ clock
+ */
+export function senderOf(
+  batches: readonly Batch[],
+  nodeId: string,
+): Did | undefined {
+  let last: { clock: number; from: Did } | undefined;
+  for (const batch of batches) {
+    const sends = batch.ops.some(
+      (op) =>
+        op.kind === 'node.setProperty' &&
+        op.target === nodeId &&
+        op.name === SENT_PROPERTY,
+    );
+    if (sends && (!last || batch.clock >= last.clock)) {
+      last = { clock: batch.clock, from: didFromActor(batch.actor) as Did };
+    }
+  }
+  return last?.from;
+}
