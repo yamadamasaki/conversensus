@@ -73,7 +73,9 @@ agent の宣言 (D2)。
 | M1 | 済 | `encoding.ts`、`Headless.encode` (template を引いて注釈に添える)。読み戻しはテストの中だけに書き、「注釈を除いて欠けなく復元できる」を性質で見る |
 | M2 | 済 | `tools.ts`。UI の規則に揃えた: 種別は作るときだけ、種別プロパティ・system は書かない、edge の種別は候補に従う。node の大きさの定数を `nodeGeometry.ts` に分けた (`graphTransform.ts` は React Flow を読むため) |
 | M3 | 済 | `mcp.ts` (道具 13: whoami・list_files・accept_invitation・read_file と書く道具 9)、`dataDirLock.ts` (置き場所の lock、落ちたプロセスの lock は取り直す)。in-memory の SDK client で一周 (`mcp.test.ts`)、本物の起動の形で stdio (`mcpStdio.test.ts`: 標準出力が汚れない・閉じればプロセスが終わり lock を放す)、App の alice の画面まで (`headlessInterop.app-test.tsx`)。**完了基準 1〜4 を満たす**。metagraph の Sheet には書かせない (画面は編集を読み替えていて、道具にはそれが無い) |
-| M4 | 途中 | 手順を `user-test-environment.md` §5.6 に書いた。開発用の PDS で: **段 2 の OAuth の不具合を見つけて直した** (戻すときの client の戻り先がログインのときと違い、loopback の client_id がずれて token の更新が断られ、セッションが消えていた。access token が切れるまで表に出ない)。ログインし直し、強制の更新を別プロセスで 2 回通した。stdio の MCP server で whoami・list_files (新しい端末でも参加している File を見つける)・read_file が通った。**残り: 利用者が Claude Code に登録して例題を作る (完了基準 5)** |
+| M4 | 済 | 手順を `user-test-environment.md` §5.6 に書いた。開発用の PDS で: **段 2 の OAuth の不具合を見つけて直した** (戻すときの client の戻り先がログインのときと違い、loopback の client_id がずれて token の更新が断られ、セッションが消えていた。access token が切れるまで表に出ない)。ログインし直し、強制の更新を別プロセスで 2 回通した。stdio の MCP server で whoami・list_files (新しい端末でも参加している File を見つける)・read_file が通った。Claude Code に登録して例題を作り、App の画面に出ることを**利用者が確かめた (2026-11-08、完了基準 5)** |
+
+**段 3 の完了基準はすべて満たした。**
 
 ## 5. 決めたこと
 
