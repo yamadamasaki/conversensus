@@ -99,6 +99,7 @@ ATPROTO_IDENTIFIER=alice.test ATPROTO_PASSWORD=devpassword123 \
 | --- | --- | --- |
 | `alice.test` | `did:plc:jiceejfkqacmynibpou3kkxk` | `devpassword123` |
 | `bob.test` | `did:plc:ag2ritx6qpujmphxjj2upd53` | 同上 |
+| `agent.test` | `did:plc:ubjpsxgqvwhrup6cyw2x44cu` | 同上 (agent 用。§5.5) |
 
 DID は `curl -s "http://localhost:3000/xrpc/com.atproto.identity.resolveHandle?handle=bob.test"`
 で確かめられる (PDS を作り直すと変わる).
@@ -363,6 +364,29 @@ DtR は step3 Phase 1 S1-1 で撤去した (競合の解消は merger に替わ�
 
 自動化した例が `src/client/data-p4/p4.ts` にある (Q3 の検証台本, 投棄前提).
 **画面の見た目だけでは `"4"` と `4` を区別できない**ので, そこは必ずログで見る.
+
+### 5.5 headless の agent を参加させる (agent 段 2)
+
+ブラウザの外 (bun のプロセス) で、`agent.test` として File に参加して読み書きする。
+設計は `deepse/architecture/step4/agent-actor.md`、計画は `deepse/plans/agent-stage2-headless.md`。
+
+```bash
+# ログイン: PDS の同意のページがブラウザで開く。agent.test のパスワードを入れて許可する
+bun run src/headless/src/cli.ts login agent.test
+
+# App の alice が agent.test を参加者に依頼し、参加コードを渡す
+bun run src/headless/src/cli.ts accept <参加コード>     # 参加して中身を出す
+bun run src/headless/src/cli.ts show <fileId>          # 同期して中身を出す
+bun run src/headless/src/cli.ts add <fileId> "本文"     # 最初の Sheet に node を足して送る
+bun run src/headless/src/cli.ts files                  # 手元の File の一覧
+```
+
+- 置き場所の既定は `~/.conversensus/agent` (`--data <dir>` で変える)。**1 つの置き場所 = 1 つの端末
+  (actor)**。消すと次は別の actor になる
+- セッションは置き場所の `oauth.json` にあり、次からはログインし直さずに戻る。public client なので
+  **最長 2 週間**で同意し直す
+- 書いたものは agent の repo に、agent の actor で載る。`REPO=agent.test bun run scripts/inspect-remote-batches.ts --dump`
+  で見られる (genesis の batch も出るが、それは誰の repo に出てもよい)
 
 ## 6. 2 台目 (device B) を同じマシンで動かす
 

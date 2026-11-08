@@ -1,0 +1,17 @@
+{
+  "name": "@conversensus/headless",
+  "private": true,
+  "version": "1.3.0",
+  "type": "module",
+  "dependencies": {
+    "@atproto/api": "^0.19.6",
+    "@atproto/jwk-jose": "0.2.4",
+    "@atproto/oauth-client": "0.8.10",
+    "@conversensus/client": "workspace:*",
+    "@conversensus/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.1",
+    "typescript": "~5.8.3"
+  }
+}
