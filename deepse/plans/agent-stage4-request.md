@@ -76,7 +76,7 @@
 | --- | --- | --- |
 | R1 | 済 | `shared/src/events/request.ts`。値は形が違っても落ちない (読めない値は無いのと同じ) |
 | R2 | 済 | `shared/src/template/request.ts`。**edge の種類「答え」は置かなかった** (Q4 の案から外れる): 置くと、人が依頼から普通の node へ引いた edge にも自動で「答え」が付き、`answers` の無い「答えに見える edge」ができる。答えの edge は「答える」の操作だけが作る |
-| R3 | — | |
+| R3 | 済 | `client/src/request/requestEvents.ts`。答えるは既存の `NODES_PASTED` (node と edge を 1 batch、undo もある) で書く。答えの edge の label は書く人の言語 (画面は利用者の言語の「答え」、MCP は渡されたときだけ) |
 | R4 | — | |
 | R5 | — | |
 | R6 | — | |
