@@ -77,8 +77,10 @@ alice (新しい端末) が受信して、**両方の node が見えた。既存
 | H1 | 済 | `src/headless` (workspace)・`FileStorage`・`Headless.open`/`signIn`/`close`。S2・S4 は `atproto/client.ts` から OAuth の import を外して `main.tsx` で入れる形にして解いた (読み込んだだけでプロセスが終わらなくなっていた)。S5 (`start()` の `window`) は段 5 へ — 段 2 は `syncNow` だけを使う |
 | H2 | 済 | `createFile`・`sync`・`invite`・`accept`・`discover`・`files`。招待する側も headless で書ける (設計 §1.1) |
 | H3 | 済 | `read`・`record`・`settled`。App の alice ↔ headless の agent の App 結合 (`headlessInterop.app-test.tsx`) と、DOM の無い別プロセスでの一周 (`domFree.test.ts`、終わればプロセスが終わることも見る)。**完了基準 1〜4・6 を満たす**。観察: 参加者の catch-up は genesis を自分の repo にも送る (既存の振舞い、`readWrite.test.md`) |
-| H4 | 実装済・PDS で未確認 | `oauthLoopback.ts`。`@atproto/oauth-client-node` は使わず核の `@atproto/oauth-client` + `jwk-jose` で組む — node 版が引く DNS の handle 解決 (`handle-resolver-node` → undici 8) が bun で読み込み時に落ちるため。受け口の配線は偽の OAuth client で単体テスト |
-| H5 | 実装済・PDS で未確認 | `cli.ts` (login・logout・whoami・accept・files・show・add)。**開発用の PDS が `createSession` も PAR も内部エラーを返す状態**で、完了基準 5 は未確認 (2026-11-08)。agent 用のアカウント `agent.test` も招待コードの発行が内部エラーで作れていない。当面は `bob.test` を agent 役に使える (設計 D1) |
+| H4 | 済 | `oauthLoopback.ts`。`@atproto/oauth-client-node` は使わず核の `@atproto/oauth-client` + `jwk-jose` で組む — node 版が引く DNS の handle 解決 (`handle-resolver-node` → undici 8) が bun で読み込み時に落ちるため。受け口の配線は偽の OAuth client で単体テスト |
+| H5 | 済 | `cli.ts` (login・logout・whoami・accept・files・show・add)。**完了基準 5 を開発用の PDS で確かめた (2026-11-08)**: `agent.test` を作り、loopback OAuth でログイン (PDS は `http://localhost` の client_id を受けた)、別のプロセスでログインし直さずに戻る、App の alice の招待を CLI で承認して alice の node を読み、CLI で書いた node が alice の画面に出た (利用者が確認)。途中で PDS が内部エラーを返していたのはコンテナの再起動で直った |
+
+**段 2 の完了基準はすべて満たした。**
 
 ## 5. 決めたこと
 
