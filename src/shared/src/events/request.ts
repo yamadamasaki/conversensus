@@ -92,13 +92,24 @@ export function requestStatus(
   node: GraphNode,
   edges: readonly GraphEdge[],
 ): RequestStatus {
-  if (isClosed(node)) return 'closed';
   const sent = sentCountOf(node);
-  if (sent === 0) return 'draft';
-  const answered = edges.some(
-    (e) => e.source === node.id && answersOf(e) === sent,
+  return statusOf(
+    node,
+    edges.some((e) => e.source === node.id && answersOf(e) === sent),
   );
-  return answered ? 'answered' : 'sent';
+}
+
+/**
+ * 状態の規則そのもの。**最後の送信への答えがあるか**は呼ぶ側が数える (`requestStatus` は edge の配列から、
+ * 画面の node の印は React Flow の edge の store から)
+ */
+export function statusOf(
+  node: WithProperties,
+  answeredLatest: boolean,
+): RequestStatus {
+  if (isClosed(node)) return 'closed';
+  if (sentCountOf(node) === 0) return 'draft';
+  return answeredLatest ? 'answered' : 'sent';
 }
 
 /**

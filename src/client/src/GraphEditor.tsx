@@ -89,6 +89,12 @@ import type { NodeTypeOption } from './NodeTypeMenu';
 import { NodeTypeMenu } from './NodeTypeMenu';
 import { addablePropertyNames } from './property/propertyRows';
 import { useReadOnly } from './readOnlyContext';
+import { RequestActionError } from './request/requestEvents';
+import {
+  type RequestAction,
+  requestEventFor,
+  requestTargetOf,
+} from './request/requestTarget';
 import type { SearchHit } from './search/searchSheet';
 
 /** 検索結果から要素へ寄せるときの拡大率 (step2 Phase 7) */
@@ -260,7 +266,8 @@ function GraphEditorInner({
    */
   const propertyTarget = useMemo((): PropertyTarget | undefined => {
     const node = nodes.find((n) => n.selected && !n.data?.ghost);
-    if (node)
+    if (node) {
+      const request = requestTargetOf(node, edges);
       return {
         kind: 'node',
         id: node.id,
@@ -270,7 +277,9 @@ function GraphEditorInner({
           | Record<string, unknown>
           | undefined,
         addable: [],
+        ...(request && { request }),
       };
+    }
     const edge = edges.find((e) => e.selected && !e.data?.ghost);
     if (edge) {
       const properties = edge.data?.properties as
@@ -526,6 +535,39 @@ function GraphEditorInner({
       );
     },
     [propertyTarget, dispatch],
+  );
+
+  /**
+   * 右の欄の「依頼」の区画のボタン (agent 段 4 R4)。選ばれている応答を求める node に効く。
+   * できない操作は区画がボタンを出さないので、ここで弾かれたら (直前に状態が変わった) 何もしない
+   */
+  const applyRequestAction = useCallback(
+    (action: RequestAction) => {
+      if (propertyTarget?.kind !== 'node' || !propertyTarget.request) return;
+      const requestId = propertyTarget.id;
+      try {
+        dispatch(
+          requestEventFor(
+            action,
+            requestId,
+            getNodes(),
+            getEdges(),
+            messages().request.answerEdgeLabel,
+          ),
+        );
+        // 答えは node と edge をまとめて足す event (`NODES_PASTED`) で書くので、貼り付けと同じく
+        // 選択が外れる。依頼を選んだままにして、区画で続けて操作できるようにする
+        if (action.kind === 'answer') {
+          setNodes((ns) =>
+            ns.map((n) => ({ ...n, selected: n.id === requestId })),
+          );
+        }
+      } catch (error) {
+        if (!(error instanceof RequestActionError)) throw error;
+        console.warn('[request] 操作できなかった:', error.message);
+      }
+    },
+    [propertyTarget, dispatch, getNodes, getEdges, setNodes],
   );
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: mount/unmount のみ (React key 変更による再マウント)
@@ -887,6 +929,7 @@ function GraphEditorInner({
     handleExportPng,
     handleReveal,
     applyPropertyChange,
+    applyRequestAction,
     selectIds,
     dispatch,
   };
@@ -905,6 +948,7 @@ function GraphEditorInner({
       setProperty: (name, value) =>
         latestRef.current.applyPropertyChange(name, value),
       select: (ids) => latestRef.current.selectIds(ids),
+      request: (action) => latestRef.current.applyRequestAction(action),
       apply: (events) => {
         for (const event of events) latestRef.current.dispatch(event);
       },

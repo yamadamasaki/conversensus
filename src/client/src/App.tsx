@@ -63,6 +63,7 @@ import {
 } from './hooks/useBranchOperations';
 import { useChangeCounter } from './hooks/useChangeCounter';
 import type { UndoState } from './hooks/useEventStore';
+import { useFileParticipants } from './hooks/useFileParticipants';
 import { useFileSheetOperations } from './hooks/useFileSheetOperations';
 import { useFolders } from './hooks/useFolders';
 import { useGraphPanels } from './hooks/useGraphPanels';
@@ -1052,6 +1053,12 @@ export default function App() {
   });
   /** 右サイドバーの pane (#73 Q1)。property と timeline を切り替える */
   const [rightPane, setRightPane] = useState<RightSidebarPane>('property');
+  /** 依頼の宛先の候補 (agent 段 4 R4)。開いている File の参加者 */
+  const requestParticipants = useFileParticipants(
+    viewAddress?.fileId ?? null,
+    roster,
+    atprotoSession !== null,
+  );
   /**
    * timeline から開いた時点のタブと、開く前のタブ (利用者の指摘 2026-10-12: 見終わった後に戻る先が
    * 分からなくなる)。「元のグラフに戻る」で開く前のタブへ戻り、時点のタブは閉じる (利用者の決定)
@@ -1787,6 +1794,8 @@ export default function App() {
             readOnly={readOnly}
             pane={rightPane}
             onPaneChange={setRightPane}
+            participants={requestParticipants}
+            onRequestAction={(action) => panels.controls?.request(action)}
             timeline={
               <TimelinePanel
                 place={

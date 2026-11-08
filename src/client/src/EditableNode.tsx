@@ -1,6 +1,7 @@
 import {
   DERIVED_FROM_SHEET_PROPERTY,
   hasTemplateKind,
+  isRequestNode,
   type NodeId,
   type SheetId,
 } from '@conversensus/shared';
@@ -19,6 +20,7 @@ import { makeEventBase } from './events/GraphEvent';
 import { DiffMark } from './graph/DiffMark';
 import { useGraphNodeHandlers } from './graph/graphNodeContext';
 import { FloatingNodeLabel, NodeLabel } from './graph/NodeLabel';
+import { RequestBadge } from './graph/RequestBadge';
 import { useInlineEdit } from './hooks/useInlineEdit';
 import { useMessages } from './i18n/messages';
 import { MARKDOWN_COMPONENTS } from './markdownComponents';
@@ -250,6 +252,14 @@ export function EditableNode({ id, data, selected }: NodeProps) {
         }
       >
         {label && labelSlot}
+        {isRequestNode({
+          properties: data.properties as Record<string, unknown> | undefined,
+        }) && (
+          <RequestBadge
+            nodeId={id}
+            properties={data.properties as Record<string, unknown>}
+          />
+        )}
         {editing ? (
           <textarea
             // biome-ignore lint/a11y/noAutofocus: ノード編集開始時に即座に入力できるよう autoFocus が必要

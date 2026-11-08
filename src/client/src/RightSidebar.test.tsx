@@ -14,6 +14,8 @@ function renderSidebar(pane: RightSidebarPane) {
       pane={pane}
       onPaneChange={onPaneChange}
       timeline={<p>timeline の中身</p>}
+      participants={[]}
+      onRequestAction={() => {}}
     />,
   );
   return onPaneChange;
