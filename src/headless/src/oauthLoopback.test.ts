@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { mkdtempSync, rmSync, statSync } from 'node:fs';
+import { mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { OAuthSession } from '@atproto/oauth-client';
@@ -103,6 +103,32 @@ describe('oauthLoopback (H4)', () => {
     const resumed = await oauthLoopback(options).resume();
     expect(resumed?.session.did).toBe(DID);
     expect(log).toContain(`restore ${DID}`);
+  });
+
+  it('🔴 戻すときの client は、ログインしたときと同じ戻り先で作る (token の更新が同じ client_id で届く)', async () => {
+    // loopback の client_id は戻り先 (port を含む) から作られる。違う戻り先で作ると、token の
+    // 更新が別の client から来たことになり、PDS が断ってセッションが消える (開発用の PDS で起きた)
+    const client = fakeClient([]);
+    const options = { pdsUrl: PDS, storePath, createClient: client.create };
+    await oauthLoopback({ ...options, openUrl: browser }).signIn(HANDLE);
+    await oauthLoopback(options).resume();
+    expect(client.seen).toHaveLength(2);
+    expect(client.seen[1]).toBe(client.seen[0] as string);
+  });
+
+  it('戻り先を覚えていない古いセッションは戻さない (ログインし直す)', async () => {
+    const log: string[] = [];
+    writeFileSync(
+      storePath,
+      JSON.stringify({ states: {}, sessions: {}, lastDid: DID }),
+    );
+    const auth = oauthLoopback({
+      pdsUrl: PDS,
+      storePath,
+      createClient: fakeClient(log).create,
+    });
+    expect(await auth.resume()).toBeNull();
+    expect(log).toEqual([]);
   });
 
   it('ログインしていなければ戻さない', async () => {

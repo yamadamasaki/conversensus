@@ -388,6 +388,28 @@ bun run src/headless/src/cli.ts files                  # 手元の File の一�
 - 書いたものは agent の repo に、agent の actor で載る。`REPO=agent.test bun run scripts/inspect-remote-batches.ts --dump`
   で見られる (genesis の batch も出るが、それは誰の repo に出てもよい)
 
+### 5.6 Claude Code から agent として読み書きする (agent 段 3、MCP)
+
+§5.5 でログインした置き場所を、MCP server (`src/headless/src/mcp.ts`) が使う。計画は
+`deepse/plans/agent-stage3-mcp.md`。
+
+```bash
+# 先に一度だけ (§5.5): ログインと、参加コードでの参加 (参加は Claude Code の道具 accept_invitation でもできる)
+bun run src/headless/src/cli.ts login agent.test
+
+# Claude Code に登録する (このリポジトリの置き場所を絶対パスで書く)
+claude mcp add conversensus -- bun run /Volumes/MyBook/Projects/conversensus/src/headless/src/mcp.ts
+```
+
+- 登録したら **Claude Code を起動し直す**。`/mcp` で `conversensus` が繋がっていることと、道具
+  (`list_files`・`read_file`・`add_node` …) が見える
+- 頼み方の例: 「conversensus の File 一覧を見て、『例題』を読んで、主張を支える根拠を 2 つ足して」
+- **MCP server が動いている間は、同じ置き場所で CLI を使えない** (置き場所の lock。同じ actor の
+  番号が重なるのを防ぐ)。CLI を使うときは Claude Code を閉じるか、`--data` で別の置き場所にする
+- ログインが切れたら (2 週間)、Claude Code を閉じて `cli.ts login` をし直す。MCP server からは
+  ログインしない (ブラウザの同意を待てないため)
+- 外すとき: `claude mcp remove conversensus`
+
 ## 6. 2 台目 (device B) を同じマシンで動かす
 
 remote 同期の検証では, 「別端末が PDS 経由で受け取れるか」を見たいことがある. step3 Phase 2

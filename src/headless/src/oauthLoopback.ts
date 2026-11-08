@@ -83,11 +83,17 @@ type WithJwk<V extends { dpopKey: Key }> = Omit<V, 'dpopKey'> & {
 type NodeSavedState = WithJwk<InternalStateData>;
 type NodeSavedSession = WithJwk<Session>;
 
-/** OAuth client が保存するもの + 最後にログインした DID。1 つの JSON に置く */
+/** OAuth client が保存するもの + 最後にログインした DID と戻り先。1 つの JSON に置く */
 type Saved = {
   states: Record<string, NodeSavedState>;
   sessions: Record<string, NodeSavedSession>;
   lastDid?: string;
+  /**
+   * ログインしたときの戻り先 (port を含む)。**loopback の client_id は戻り先から作られる**ので、
+   * 戻すときも同じ戻り先で client を作らないと、token の更新が別の client から来たことになり、
+   * PDS が断ってセッションが消える
+   */
+  lastRedirectUri?: string;
 };
 
 /** OAuth client の store (`SimpleStore`) を 1 つの JSON file の上に作る */
@@ -265,13 +271,11 @@ export function oauthLoopback(options: OAuthLoopbackOptions): AuthBackend {
     needsPassword: false,
 
     resume: async () => {
-      const did = store.read().lastDid;
-      if (!did) return null;
-      // **戻り先は戻すのに使わない** (restore は token の更新だけ)。port は毎回変わるので仮の値でよい
-      const client = createClient(
-        `http://${LOOPBACK_HOST}${CALLBACK_PATH}`,
-        store,
-      );
+      const { lastDid: did, lastRedirectUri: redirectUri } = store.read();
+      // 戻り先を覚えていない (段 2 の初めの形の) セッションは、更新できないので戻さない
+      if (!did || !redirectUri) return null;
+      // 受け口は開かない (戻すのに戻りは来ない)。client_id を揃えるためだけに同じ戻り先を渡す
+      const client = createClient(redirectUri, store);
       current = await client.restore(did);
       return toSignedIn(current);
     },
@@ -291,6 +295,7 @@ export function oauthLoopback(options: OAuthLoopbackOptions): AuthBackend {
       current = session;
       store.update((s) => {
         s.lastDid = session.did;
+        s.lastRedirectUri = redirectUri;
       });
       return toSignedIn(session);
     },
@@ -300,6 +305,7 @@ export function oauthLoopback(options: OAuthLoopbackOptions): AuthBackend {
       current = null;
       store.update((s) => {
         delete s.lastDid;
+        delete s.lastRedirectUri;
       });
     },
   };
