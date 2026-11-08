@@ -12,6 +12,7 @@
  * 種の表は日本語で書いてある (`toulmin.ts`)。ここには**それ以外の言語**だけを置き、無い言語・無い要素は表のまま
  */
 
+import { REQUEST_TEMPLATE } from './request';
 import { TOULMIN_TEMPLATE } from './toulmin';
 import type { Template } from './types';
 
@@ -27,6 +28,24 @@ type SeedTranslation = {
 const TRANSLATIONS: Readonly<
   Record<string, Readonly<Record<SeedLocale, SeedTranslation>>>
 > = {
+  [REQUEST_TEMPLATE.id]: {
+    en: {
+      name: 'Request / Consultation',
+      nodeKinds: {
+        request: {
+          label: 'Request',
+          description:
+            'Ask the addressee to do what the body says. Write the answer in a new node and draw an edge from the request to it',
+        },
+        consultation: {
+          label: 'Consultation',
+          description:
+            'Ask the addressee for an opinion on the body. Write the answer in a new node and draw an edge from the consultation to it',
+        },
+      },
+      edgeKinds: {},
+    },
+  },
   [TOULMIN_TEMPLATE.id]: {
     en: {
       nodeKinds: {

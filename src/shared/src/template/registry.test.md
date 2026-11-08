@@ -13,7 +13,7 @@ step2 の `BUILTIN_TEMPLATES` / `templatesOf` (作り込みの template を id �
 
 ## どのように
 
-- 種は Toulmin model ひとつ
+- 種は Toulmin model と依頼・相談
 - 種は template の参照整合性を満たす (`from` / `to` の綴り違いは import 時に落ちる)
 
 作り込みの id を解決しない (縮退する) ことは `fromSheet.test.ts` が、種を複製して読み替えると同じ種類に

@@ -70,6 +70,18 @@
 | R6 | **MCP**: `list_requests` (自分宛ての未回答)、`answer_request`、`send_request`・`close_request`・`set_addressee`。encoding に状態の注釈 | `mcp.test` + App 結合 (完了基準 6) |
 | R7 | 開発用の PDS で Claude Code と人間で行き来する。`user-test-environment.md` に手順 | 完了基準 7 (人間が確かめる) |
 
+### 4.1 進捗
+
+| | 状態 | メモ |
+| --- | --- | --- |
+| R1 | 済 | `shared/src/events/request.ts`。値は形が違っても落ちない (読めない値は無いのと同じ) |
+| R2 | 済 | `shared/src/template/request.ts`。**edge の種類「答え」は置かなかった** (Q4 の案から外れる): 置くと、人が依頼から普通の node へ引いた edge にも自動で「答え」が付き、`answers` の無い「答えに見える edge」ができる。答えの edge は「答える」の操作だけが作る |
+| R3 | — | |
+| R4 | — | |
+| R5 | — | |
+| R6 | — | |
+| R7 | — | |
+
 ## 5. 決めたこと
 
 - 状態は保存せず導出する (D8)。「送った」「閉じた」は依頼した人の行為なので op に残る
