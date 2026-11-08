@@ -3,7 +3,8 @@
 ## 何を
 
 App (ブラウザの画面) の alice と、headless (`src/headless`) の agent が、同じ偽の PDS の上で
-招待・参加・読み書きを一周すること (agent 段 2 の完了基準 1〜4)。
+招待・参加・読み書きを一周すること (agent 段 2 の完了基準 1〜4)。agent が MCP の道具で読み書きする
+場合も同じ一周をする (agent 段 3 の完了基準 4)。
 
 ## なぜ
 
@@ -22,3 +23,10 @@ App 結合の世界 (`testing/appWorld.ts`) の中で、端末の切り替えと
   参加コードで参加し、alice の File と node を読み、node を 1 つ書いて送る → alice が同期すると、
   **agent の node が alice の画面に描かれる**
 - agent の書き込みは agent の repo にあり、agent の actor で書かれている (由来, 設計 D1)
+- 🔴 **MCP の道具で** (agent 段 3): agent の headless に MCP server を載せ、SDK の client を in-memory で
+  つなぐ (`headless/src/testing/mcpClient.ts`。client の workspace は SDK を持たないので、SDK の import は
+  headless の側に閉じる)。参加 (`accept_invitation`) → 一覧 (`list_files`) → 読む (`read_file`、alice の
+  node は本文が空なので、encoding の `content ""` の node として引く) → alice の node の本文を書き換え、
+  node と edge を足す → alice が同期すると、**agent の node と書き換えた本文が alice の画面に描かれる**。
+  edge は描かれたかを画面で見ない (React Flow の edge は happy-dom で測れない)。edge が届くことは
+  `mcp.test.ts` が見ている

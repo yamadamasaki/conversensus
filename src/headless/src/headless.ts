@@ -75,13 +75,17 @@ import {
   type JudgmentBatch,
   type JudgmentOp,
   LocalStore,
+  METAGRAPH_SHEET_KIND,
   projectFile,
   resolveTemplates,
   type SheetId,
+  sheetKindOf,
 } from '@conversensus/shared';
 import { BunSqliteDriver } from '@conversensus/shared/src/store/bunSqliteDriver';
+import { lockDataDir } from './dataDirLock';
 import { encodeFile } from './encoding';
 import { FileStorage } from './fileStorage';
+import { type ToolContext, ToolError } from './tools';
 
 /** `dataDir` の中の file の名前 */
 const STORE_FILE = 'store.sqlite';
@@ -127,8 +131,12 @@ export class Headless {
   private connection: Connection | null = null;
   private readonly clocks = new Map<FileId, CausalClock>();
   private readonly sessions = new Map<FileId, FileSession>();
+  /** 置き場所の lock を放す */
+  private readonly unlock: () => void;
 
   private constructor(options: HeadlessOptions) {
+    // **何より先に取る。**別のプロセスが同じ置き場所を握っていれば、何も触らずに断る
+    this.unlock = lockDataDir(options.dataDir);
     this.previousStorage = Object.getOwnPropertyDescriptor(
       globalThis,
       'localStorage',
@@ -220,6 +228,30 @@ export class Headless {
     return encodeFile(projectFile(trunk, fileId), (sheet) =>
       resolveTemplates(sheet.templateIds, trunk, fileId),
     );
+  }
+
+  /**
+   * 書く道具 (`tools.ts`) が見るもの: trunk の今の Sheet と、そこに当たっている template。
+   * `record` したものが正典に入ってから読むこと (`settled`)
+   *
+   * metagraph (`index`) には書かせない。画面は metagraph の編集を別の op に読み替えて
+   * (`metagraphTransform`) いて、道具はその読み替えを持たないからである
+   */
+  toolContext(fileId: FileId, sheetId: string): ToolContext {
+    const trunk = this.store.events.getBatches(fileId);
+    const sheet = projectFile(trunk, fileId).sheets.find(
+      (s) => s.id === sheetId,
+    );
+    if (!sheet) throw new ToolError(`この File に Sheet ${sheetId} は無い`);
+    if (sheetKindOf(sheet) === METAGRAPH_SHEET_KIND) {
+      throw new ToolError(
+        'metagraph (index) の Sheet には書けない。読むだけにする',
+      );
+    }
+    return {
+      sheet,
+      templates: resolveTemplates(sheet.templateIds, trunk, fileId),
+    };
   }
 
   /**
@@ -346,6 +378,7 @@ export class Headless {
       delete (globalThis as { localStorage?: Storage }).localStorage;
     }
     this.store.events.close();
+    this.unlock();
     opened = null;
   }
 

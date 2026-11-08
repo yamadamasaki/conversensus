@@ -72,7 +72,7 @@ agent の宣言 (D2)。
 | M0 | 済 | `@modelcontextprotocol/sdk` 1.32.2。zod は既に 3.25.76 が入っていて上げる必要は無かった (F7)。bun で stdio の server を立て、SDK の client から道具の一覧と呼び出しが通ることを確かめた (spike は捨てた) |
 | M1 | 済 | `encoding.ts`、`Headless.encode` (template を引いて注釈に添える)。読み戻しはテストの中だけに書き、「注釈を除いて欠けなく復元できる」を性質で見る |
 | M2 | 済 | `tools.ts`。UI の規則に揃えた: 種別は作るときだけ、種別プロパティ・system は書かない、edge の種別は候補に従う。node の大きさの定数を `nodeGeometry.ts` に分けた (`graphTransform.ts` は React Flow を読むため) |
-| M3 | — | |
+| M3 | 済 | `mcp.ts` (道具 13: whoami・list_files・accept_invitation・read_file と書く道具 9)、`dataDirLock.ts` (置き場所の lock、落ちたプロセスの lock は取り直す)。in-memory の SDK client で一周 (`mcp.test.ts`)、本物の起動の形で stdio (`mcpStdio.test.ts`: 標準出力が汚れない・閉じればプロセスが終わり lock を放す)、App の alice の画面まで (`headlessInterop.app-test.tsx`)。**完了基準 1〜4 を満たす**。metagraph の Sheet には書かせない (画面は編集を読み替えていて、道具にはそれが無い) |
 | M4 | — | |
 
 ## 5. 決めたこと
