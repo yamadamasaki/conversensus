@@ -33,6 +33,21 @@
 | F7 | 参加の発見・名簿・招待の承認の**組み立て**は `useParticipation` (React hook, 453 行) にある。部品 (`discoverParticipatingFiles`・`bootstrapParticipation`・`appendJudgment`・`participationCode`) は React の外 | 組み立ては headless 側に書く。部品は使い回す |
 | F8 | `atproto/client.ts` の agent はプロセスに 1 つ | headless のプロセスは agent 1 つ (= DID 1 つ) を前提にする。agent ごとにプロセスを分ける |
 
+### 2.1 H0 の spike の結果 (2026-11-08)
+
+`src/client/spikes/headless/spike.ts` (`bun run` で走る。DOM 無し、`happy-dom` も読まない)。
+偽の PDS の上で、alice が File を作って書き、agent を招待 → agent が承認して受信 → agent が書く →
+alice (新しい端末) が受信して、**両方の node が見えた。既存の部品の組み立てだけで一周する。**
+
+| # | 分かったこと | どのスライスで扱うか |
+| --- | --- | --- |
+| S1 | client のモジュールは**読み込みの時点では DOM を触らない**。`window`・`document`・`localStorage` が無くても import できる | — |
+| S2 | `oauth-client-browser` が読み込み時に `Locks API not available` と警告する (`atproto/client.ts` が既定の認証として `oauthAuth` を import するため)。害は無いが、headless で OAuth のブラウザ版を読まないように、既定の認証を遅れて作る形にしたい | H4 |
+| S3 | bun には `localStorage` が無い。代わりの `Storage` を入れれば、端末の id・セッション・参加の初期化の印がそのまま動く (F5 の確認) | H1 |
+| S4 | **処理が終わってもプロセスが終わらない。**何かの timer か接続が event loop を握っている。headless の client に `close()` が要る | H1 |
+| S5 | `FileSession.start()` (定期・`online` の契機) は spike では呼んでいない。呼べば F6 の `window` に当たる | H1 |
+| S6 | 組み立てに要ったのは、正典・認証・remote キュー・名簿の供給元・発番器・`FileSession`・判断の書き込み (`appendJudgment`) の 7 つ。`useFileSheetOperations`・`useRosterSource`・`useRemoteSyncQueue`・`useParticipation` に散っているものと同じ | H1・H2 |
+
 ## 3. 置き場所 (問 P1)
 
 案 A (推奨): **新しい workspace `src/headless` (`@conversensus/headless`)** を作り、client の
