@@ -76,6 +76,7 @@ alice (新しい端末) が受信して、**両方の node が見えた。既存
 | H0 | 済 | §2.1 |
 | H1 | 済 | `src/headless` (workspace)・`FileStorage`・`Headless.open`/`signIn`/`close`。S2・S4 は `atproto/client.ts` から OAuth の import を外して `main.tsx` で入れる形にして解いた (読み込んだだけでプロセスが終わらなくなっていた)。S5 (`start()` の `window`) は段 5 へ — 段 2 は `syncNow` だけを使う |
 | H2 | 済 | `createFile`・`sync`・`invite`・`accept`・`discover`・`files`。招待する側も headless で書ける (設計 §1.1) |
+| H3 | 済 | `read`・`record`・`settled`。App の alice ↔ headless の agent の App 結合 (`headlessInterop.app-test.tsx`) と、DOM の無い別プロセスでの一周 (`domFree.test.ts`、終わればプロセスが終わることも見る)。**完了基準 1〜4・6 を満たす**。観察: 参加者の catch-up は genesis を自分の repo にも送る (既存の振舞い、`readWrite.test.md`) |
 
 ## 5. 決めたこと
 

@@ -37,6 +37,7 @@ import {
   putJudgment,
 } from '@conversensus/client/src/atproto/judgmentStore';
 import { RemoteSyncQueue } from '@conversensus/client/src/atproto/remoteSyncQueue';
+import type { GraphEvent } from '@conversensus/client/src/events/GraphEvent';
 import { createPdsBlobUploader } from '@conversensus/client/src/images/imageBlob';
 import type { LocalBackend } from '@conversensus/client/src/local/backend';
 import { storeBackend } from '@conversensus/client/src/local/storeBackend';
@@ -69,10 +70,13 @@ import {
   type Did,
   EventStore,
   type FileId,
+  type GraphFile,
   type GraphFileListItem,
   type JudgmentBatch,
   type JudgmentOp,
   LocalStore,
+  projectFile,
+  type SheetId,
 } from '@conversensus/shared';
 import { BunSqliteDriver } from '@conversensus/shared/src/store/bunSqliteDriver';
 import { FileStorage } from './fileStorage';
@@ -199,11 +203,37 @@ export class Headless {
   }
 
   /**
+   * File の trunk を読む (手元の正典の op-log を畳んだもの)。最新にしたければ先に `sync` を呼ぶ
+   */
+  read(fileId: FileId): GraphFile {
+    return projectFile(this.store.events.getBatches(fileId), fileId);
+  }
+
+  /**
+   * File に書く。**UI と同じ GraphEvent の経路**を通す (`EventSyncTap` が op に落とす)。op を直に組む
+   * 口は作らない — 書く経路を 2 つにすると、手元の状態と op-log の projection が食い違いうる
+   * (計画 §5)。`sheetId` は書く先の Sheet (UI の「開いている Sheet」に当たる)。
+   *
+   * 正典への書き込みは非同期に進む。読む前・送る前に `settled` を待つ
+   */
+  record(fileId: FileId, sheetId: SheetId, event: GraphEvent): void {
+    this.sessionOf(fileId).record(event, sheetId);
+  }
+
+  /** `record` した書き込みが正典に入るのを待つ */
+  async settled(fileId: FileId): Promise<void> {
+    await this.sessionOf(fileId).settled();
+  }
+
+  /**
    * File の同期を 1 回する: 送信の catch-up と受信 (自分の repo → 名簿 → 参加者の repo)。
    * 名簿の起点が無ければ置く (`ensureOwnGenesis`)。中身は `FileSession.syncNow` である
    */
-  sync(fileId: FileId): Promise<void> {
-    return this.sessionOf(fileId).syncNow();
+  async sync(fileId: FileId): Promise<void> {
+    const session = this.sessionOf(fileId);
+    // 書いたものが正典に入ってから同期する。入る前に送信の catch-up が走ると、次の同期まで残る
+    await session.settled();
+    await session.syncNow();
   }
 
   /**

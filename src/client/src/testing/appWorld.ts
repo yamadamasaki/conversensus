@@ -49,7 +49,7 @@ import { FakeLiveChannel } from './fakeLiveChannel';
 import { createFakePds, type FakePds } from './fakePds';
 
 /** 偽の PDS の origin。パスワードの認証 (`passwordAuth`) をここへ向ける */
-const PDS_ORIGIN = 'http://localhost:2583';
+export const PDS_ORIGIN = 'http://localhost:2583';
 
 type Device = {
   store: LocalStore;
