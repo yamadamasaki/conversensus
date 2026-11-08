@@ -8,11 +8,14 @@ import type {
   NodeLayout,
 } from '@conversensus/shared';
 import { type Edge, MarkerType, type Node } from '@xyflow/react';
+import {
+  DEFAULT_NODE_STYLE,
+  GROUP_PADDING,
+  GROUP_TITLE_HEIGHT,
+} from './nodeGeometry';
 import { color } from './theme';
 
-export const DEFAULT_NODE_STYLE = { width: 160, height: 80 };
-export const GROUP_PADDING = 20;
-export const GROUP_TITLE_HEIGHT = 30;
+export { DEFAULT_NODE_STYLE, GROUP_PADDING, GROUP_TITLE_HEIGHT };
 export const GROUP_NODE_TYPE = 'group' as const; // GraphNode.nodeType (データモデル)
 export const IMAGE_NODE_TYPE = 'image' as const;
 export const RF_GROUP_NODE_TYPE = 'groupNode' as const; // React Flow の node.type

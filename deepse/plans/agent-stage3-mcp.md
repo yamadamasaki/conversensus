@@ -65,9 +65,21 @@ agent の宣言 (D2)。
 | M3 | **MCP server** (`src/headless/src/mcp.ts`): 道具を登録する。`files`・`read`・`sync` と M2 の書く道具。dataDir の lock | SDK の in-memory transport で client から呼ぶ。App 結合で alice の画面に出る (完了基準 4) |
 | M4 | Claude Code への登録の手順、`user-test-environment.md` に追記。開発用の PDS で例題を作る | 完了基準 5 (人間が確かめる) |
 
+### 4.1 進捗
+
+| | 状態 | メモ |
+| --- | --- | --- |
+| M0 | 済 | `@modelcontextprotocol/sdk` 1.32.2。zod は既に 3.25.76 が入っていて上げる必要は無かった (F7)。bun で stdio の server を立て、SDK の client から道具の一覧と呼び出しが通ることを確かめた (spike は捨てた) |
+| M1 | 済 | `encoding.ts`、`Headless.encode` (template を引いて注釈に添える)。読み戻しはテストの中だけに書き、「注釈を除いて欠けなく復元できる」を性質で見る |
+| M2 | 済 | `tools.ts`。UI の規則に揃えた: 種別は作るときだけ、種別プロパティ・system は書かない、edge の種別は候補に従う。node の大きさの定数を `nodeGeometry.ts` に分けた (`graphTransform.ts` は React Flow を読むため) |
+| M3 | — | |
+| M4 | — | |
+
 ## 5. 決めたこと
 
 - 書く経路は段 2 と同じく **GraphEvent** だけ
+- **種別は node・edge を作るときにだけ付ける** (UI と同じ。`node.setLabel` の道具は出さない)。
+  道具は UI ができないことをしない (設計 §1.1)
 - 読むたびに `sync` してから encoding する (段 3 は呼ばれたら同期する。常駐は段 5)
 - 認証は段 2 の loopback OAuth。ログインは CLI (`cli.ts login`) で済ませておき、MCP server は
   `resume` だけする (stdio の server はブラウザの同意を待てないため)

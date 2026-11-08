@@ -76,9 +76,11 @@ import {
   type JudgmentOp,
   LocalStore,
   projectFile,
+  resolveTemplates,
   type SheetId,
 } from '@conversensus/shared';
 import { BunSqliteDriver } from '@conversensus/shared/src/store/bunSqliteDriver';
+import { encodeFile } from './encoding';
 import { FileStorage } from './fileStorage';
 
 /** `dataDir` の中の file の名前 */
@@ -207,6 +209,17 @@ export class Headless {
    */
   read(fileId: FileId): GraphFile {
     return projectFile(this.store.events.getBatches(fileId), fileId);
+  }
+
+  /**
+   * File の trunk を、agent に読ませる完全な encoding で出す (設計 D4)。sheet に当たっている
+   * template を引いて、種別の名前と説明を注釈に添える
+   */
+  encode(fileId: FileId): string {
+    const trunk = this.store.events.getBatches(fileId);
+    return encodeFile(projectFile(trunk, fileId), (sheet) =>
+      resolveTemplates(sheet.templateIds, trunk, fileId),
+    );
   }
 
   /**
