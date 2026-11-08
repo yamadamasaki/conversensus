@@ -29,11 +29,11 @@ import { Headless } from './headless';
 import { oauthLoopback } from './oauthLoopback';
 
 /** 既定の PDS (開発用。`deepse/requirements/user-test-environment.md` §1) */
-const DEFAULT_PDS_URL = 'http://localhost:3000';
+export const DEFAULT_PDS_URL = 'http://localhost:3000';
 /** 既定の置き場所 */
-const DEFAULT_DATA_DIR = join(homedir(), '.conversensus', 'agent');
+export const DEFAULT_DATA_DIR = join(homedir(), '.conversensus', 'agent');
 /** OAuth のセッションを置く file (`dataDir` の中) */
-const OAUTH_FILE = 'oauth.json';
+export const OAUTH_FILE = 'oauth.json';
 
 export type Command =
   | { kind: 'login'; handle: string }
