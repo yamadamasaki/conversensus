@@ -68,6 +68,7 @@ import type { DetectedOverwrites } from '../sync/overwrites';
 import { recallOwnJudgmentPoint } from '../sync/ownJudgmentPoint';
 import { collectParticipantBatches } from '../sync/receiveParticipantBatches';
 import { reprojectAfterReceive } from '../sync/reprojectAfterReceive';
+import type { RequestArrival } from '../sync/requestArrival';
 import type { RosterSource } from '../sync/rosterSource';
 import { type FileSharing, fileSharing } from '../sync/rosterView';
 import { rejoinObligation } from '../sync/syncObligation';
@@ -167,6 +168,11 @@ interface UseFileSheetOperationsParams {
   onBackgroundConflicts?: (notice: ConflictNoticeState) => void;
   /** 背後のタブの File に届いた fork (#260)。受け手はタブに印を付ける */
   onBackgroundForks?: (fileId: FileId, forks: readonly ForkMeta[]) => void;
+  /**
+   * 自分宛てに送られた依頼が届いた (agent 段 4 R5)。**前の File でも背後のタブの File でも同じ口**で
+   * 受ける — 依頼の通知は前に出ている File に限らない
+   */
+  onRequestsArrived?: (requests: readonly RequestArrival[]) => void;
   deps?: FileSheetOpsDeps;
   /** ログインしている人の名前 (handle)。未ログインの編集を出し直すか訊くときに見せる (FPR 前 L-1) */
   accountLabel?: string;
@@ -206,6 +212,7 @@ export function useFileSheetOperations({
   onFileDeleted,
   onBackgroundConflicts,
   onBackgroundForks,
+  onRequestsArrived,
   deps = defaultFileSheetOpsDeps,
   syncRecord: syncRecordOverride,
   remoteQueue = null,
@@ -575,6 +582,7 @@ export function useFileSheetOperations({
     onConflicts: handleConflicts,
     onOverwrites: handleOverwrites,
     onForksArrived: handleForksArrived,
+    onRequestsArrived: (_fileId, requests) => onRequestsArrived?.(requests),
     onSynced: handleSynced,
   });
   const syncRecord = syncRecordOverride ?? internalSyncRecord;
@@ -612,10 +620,18 @@ export function useFileSheetOperations({
             }),
           onOverwrites: handleOverwrites,
           onForksArrived: (fileId, forks) => onBackgroundForks?.(fileId, forks),
+          onRequestsArrived: (_fileId, requests) =>
+            onRequestsArrived?.(requests),
         });
       }
     },
-    [sessionPool, handleOverwrites, onBackgroundConflicts, onBackgroundForks],
+    [
+      sessionPool,
+      handleOverwrites,
+      onBackgroundConflicts,
+      onBackgroundForks,
+      onRequestsArrived,
+    ],
   );
 
   // trunk 読取 (Phase 6 p6-3 で op-log 単独へ, 設計 §3.6)。

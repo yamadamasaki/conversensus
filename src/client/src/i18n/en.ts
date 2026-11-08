@@ -60,6 +60,12 @@ export const en: Messages = {
     answerPlaceholder: 'Write an answer',
     answer: 'Answer',
     answerEdgeLabel: 'answer',
+    notice: {
+      region: 'Requests for you',
+      arrived: (from: string) => `${from} sent you a request`,
+      open: 'Open',
+      dismiss: (from: string) => `Dismiss the request from ${from}`,
+    },
   },
   rightSidebar: {
     region: 'Details',

@@ -61,6 +61,12 @@ export const ja = {
     answerPlaceholder: '答えを書く',
     answer: '答える',
     answerEdgeLabel: '答え',
+    notice: {
+      region: '届いた依頼',
+      arrived: (from: string) => `${from} から依頼が届きました`,
+      open: '開く',
+      dismiss: (from: string) => `${from} からの依頼の知らせを閉じる`,
+    },
   },
   rightSidebar: {
     region: '詳細',

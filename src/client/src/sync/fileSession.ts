@@ -43,6 +43,7 @@ import {
   receiveParticipantBatches,
 } from './receiveParticipantBatches';
 import { receiveRemoteBatches } from './receiveRemoteBatches';
+import type { RequestArrival } from './requestArrival';
 import type { RosterSource } from './rosterSource';
 import type { SyncProvider } from './syncProvider';
 import type { ForkWriterDeps } from './writeForks';
@@ -107,6 +108,8 @@ export type FileSessionListeners = {
   ) => void;
   onOverwrites?: (fileId: FileId, detected: DetectedOverwrites) => void;
   onForksArrived?: (fileId: FileId, forks: ForkMeta[]) => void;
+  /** 自分宛てに送られた依頼が届いた (agent 段 4 R5) */
+  onRequestsArrived?: (fileId: FileId, requests: RequestArrival[]) => void;
   onSynced?: (fileId: FileId, tap: TapHandle) => void;
   onLocalChanged?: (fileId: FileId, tap: TapHandle) => void;
 };
@@ -389,6 +392,9 @@ export class FileSession {
     // 相手が保留した競合の到着 (T7-5)。自分が書いた fork は `onConflicts` が伝えている
     if (others.arrivedForks.length > 0) {
       this.listeners.onForksArrived?.(fileId, others.arrivedForks);
+    }
+    if (others.arrivedRequests.length > 0) {
+      this.listeners.onRequestsArrived?.(fileId, others.arrivedRequests);
     }
     if (others.readRepos.length > 0 || others.outsidePeriod > 0) {
       console.info(
