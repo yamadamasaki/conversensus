@@ -69,6 +69,14 @@ alice (新しい端末) が受信して、**両方の node が見えた。既存
 | H4 | 認証: loopback OAuth (`@atproto/oauth-client-node`)。セッションは `dataDir` に置く。テストでは `passwordAuth` 相当を使う | 開発用の PDS でログインできる。`http://localhost` の client_id を PDS が受けるか確かめる |
 | H5 | 手で動かす CLI: `login` / `accept <code>` / `files` / `sync <file>` / `show <file>` | 完了基準 5 (開発用の PDS で、ブラウザの人間と行き来する) |
 
+### 4.1 進捗
+
+| | 状態 | メモ |
+| --- | --- | --- |
+| H0 | 済 | §2.1 |
+| H1 | 済 | `src/headless` (workspace)・`FileStorage`・`Headless.open`/`signIn`/`close`。S2・S4 は `atproto/client.ts` から OAuth の import を外して `main.tsx` で入れる形にして解いた (読み込んだだけでプロセスが終わらなくなっていた)。S5 (`start()` の `window`) は段 5 へ — 段 2 は `syncNow` だけを使う |
+| H2 | 済 | `createFile`・`sync`・`invite`・`accept`・`discover`・`files`。招待する側も headless で書ける (設計 §1.1) |
+
 ## 5. 決めたこと
 
 - **書く経路は UI と同じ GraphEvent** (`EventSyncTap` が op へ落とす)。op を直接組む口は作らない —
@@ -80,3 +88,4 @@ alice (新しい端末) が受信して、**両方の node が見えた。既存
 ## 6. 問い
 
 - **P1.** 置き場所は案 A (新しい workspace、ファイルは動かさない) で良いか (§3)
+  - → 案 A (利用者 2026-11-08)

@@ -1,0 +1,10 @@
+{
+  /* headless (agent 段 2) は bun で直に走らせる。client の部品をパスで読むので, client の
+     単体テストと同じ設定 (DOM の型・bun の型) で見る。client の `vite-env.d.ts` は
+     `import.meta.env` の型のために入れる */
+  "extends": "../client/tsconfig.test.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.tsbuildinfo"
+  },
+  "include": ["src", "../client/src/vite-env.d.ts"]
+}

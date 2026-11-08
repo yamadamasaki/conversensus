@@ -3,11 +3,12 @@
   "private": true,
   "workspaces": [
     "src/shared",
-    "src/client"
+    "src/client",
+    "src/headless"
   ],
   "scripts": {
     "dev:client": "bun run --cwd src/client dev",
-    "typecheck": "bun run --cwd src/client tsc --noEmit -p tsconfig.app.json && bun run --cwd src/client tsc --noEmit -p tsconfig.test.json && bun run --cwd src/shared tsc --noEmit -p tsconfig.json && bun run --cwd src/client tsc --noEmit -p ../../tsconfig.e2e.json && bun run --cwd src/client tsc --noEmit -p tsconfig.scripts.json && bun run --cwd src/client tsc --noEmit -p tsconfig.shots.json",
+    "typecheck": "bun run --cwd src/client tsc --noEmit -p tsconfig.app.json && bun run --cwd src/client tsc --noEmit -p tsconfig.test.json && bun run --cwd src/shared tsc --noEmit -p tsconfig.json && bun run --cwd src/client tsc --noEmit -p ../../tsconfig.e2e.json && bun run --cwd src/client tsc --noEmit -p tsconfig.scripts.json && bun run --cwd src/client tsc --noEmit -p tsconfig.shots.json && bun run --cwd src/headless tsc --noEmit -p tsconfig.json",
     "lint": "bun --bun biome check src/ tests/ scripts/ playwright.config.ts playwright.shots.config.ts docs/introductory_guide_to_conversensus/shots/ docs/.vitepress/config.mts docs/.vitepress/theme/",
     "lint:fix": "bun --bun biome check --write src/ tests/ scripts/ playwright.config.ts playwright.shots.config.ts docs/introductory_guide_to_conversensus/shots/ docs/.vitepress/config.mts docs/.vitepress/theme/",
     "setup": "cp scripts/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit && echo 'pre-commit hook installed'",

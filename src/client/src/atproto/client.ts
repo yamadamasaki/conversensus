@@ -2,14 +2,18 @@
  * ATProto の窓口 (step1 以来の形を保つ)
  *
  * `getAgent` / `currentDid` / `login` / `resumeSession` / `logout` の形は変えず、中身を認証の口
- * (`auth.ts`) に委ねる (step3 Phase 2 D7)。既定は ATProto OAuth (`oauthAuth.ts`)、App 結合テストは
- * `setAuthBackend` でパスワードの実装に差し替える。
+ * (`auth.ts`) に委ねる (step3 Phase 2 D7)。口は使う側が `setAuthBackend` で入れる: ブラウザは
+ * ATProto OAuth (`oauthAuth.ts`, `main.tsx` が入れる)、App 結合テストはパスワードの実装、headless は
+ * 自分の実装。
+ *
+ * **ここで `oauthAuth` を import しない** (agent 段 2 H0)。`@atproto/oauth-client-browser` は読み込んだ
+ * だけで警告を出し、bun のプロセスを終わらせなくする。ブラウザの外 (headless) でも読むモジュールなので、
+ * ブラウザ専用の実装はブラウザの入口に置く。
  */
 
 import { type Agent, AtpAgent } from '@atproto/api';
 import type { Did } from '@conversensus/shared';
 import type { AtprotoSession, AuthBackend, SignedIn } from './auth';
-import { oauthAuth } from './oauthAuth';
 
 export type { AtprotoSession } from './auth';
 
@@ -25,12 +29,25 @@ let current: SignedIn | null = null;
 /** React StrictMode の二重呼び出しで 2 回ログインしない */
 let loginPromise: Promise<AtprotoSession> | null = null;
 
+/**
+ * 口が入れられていないとき。未ログインの Agent が向く先だけを持ち、ログインはできない。
+ * ブラウザでは描画の前に `main.tsx` が OAuth を入れるので、ここに来るのはテストだけである
+ */
+const UNCONFIGURED: AuthBackend = {
+  pdsUrl: PDS_URL,
+  needsPassword: false,
+  resume: async () => null,
+  signIn: async () => {
+    throw new Error('[atproto] 認証の口が入れられていない (setAuthBackend)');
+  },
+  signOut: async () => {},
+};
+
 function auth(): AuthBackend {
-  backend ??= oauthAuth(PDS_URL);
-  return backend;
+  return backend ?? UNCONFIGURED;
 }
 
-/** 認証の口を差し替える (App 結合テスト)。null で既定 (OAuth) に戻す */
+/** 認証の口を入れる。null で「入れていない」に戻す */
 export function setAuthBackend(next: AuthBackend | null): void {
   backend = next;
   current = null;

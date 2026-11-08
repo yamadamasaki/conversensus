@@ -3,6 +3,8 @@ import { createRoot } from 'react-dom/client';
 import './index.css';
 import App from './App.tsx';
 import { setLocalBackend } from './api';
+import { PDS_URL, setAuthBackend } from './atproto/client';
+import { oauthAuth } from './atproto/oauthAuth';
 import { BOUNDARY_LABELS, ErrorBoundary } from './ErrorBoundary';
 import { claimDeviceId } from './local/deviceClaim';
 import { browserEraseDeps, eraseIfRequested } from './local/eraseDevice';
@@ -74,6 +76,9 @@ async function startApp(): Promise<void> {
     if (deviceId) setClaimedDeviceId(deviceId);
     // 書いたら他のタブへ知らせる (D3)
     setLocalBackend(broadcastingBackend(started.backend));
+    // 認証はブラウザの OAuth。`atproto/client.ts` は headless でも読むので、ここで入れる (agent 段 2 H0)。
+    // OAuth の client は最初に使うときに開くので、消去 (`eraseIfRequested`) の後であればよい
+    setAuthBackend(oauthAuth(PDS_URL));
     if (import.meta.env.DEV) {
       // E2E がブラウザの中を覗く口: SQL ドライバの契約 (sqlDriverContract.ts) と、このタブの deviceId
       (window as unknown as { __conversensus: unknown }).__conversensus = {
