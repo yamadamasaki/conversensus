@@ -132,6 +132,13 @@ const DEFAULT_FILE_NAME = '無題';
 const DEFAULT_SHEET_NAME = 'Sheet 1';
 ```
 
+### 4. core は module を import しない
+
+依頼など、core から切り出した機能は `src/modules/<名前>` の workspace package に置く
+(計画 `deepse/plans/node-actions-request-module.md`)。core (`src/shared`・`src/client`) は module を import せず、
+どの module を使うかはアプリの入口 `src/client/src/main.tsx` だけが決める。lint (biome の `noRestrictedImports`、
+`biome.json` の `overrides`) がこの向きを守る。headless と module 自身の試験は module を使ってよい。
+
 ## コードレビュー基準
 
 優先度の高い順に
