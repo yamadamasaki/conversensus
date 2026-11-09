@@ -7,6 +7,7 @@
  */
 
 import type { GraphEvent } from '../events/GraphEvent';
+import type { RequestAction, RequestTarget } from '../request/requestTarget';
 import type { SearchHit } from '../search/searchSheet';
 
 /** 外から呼ぶ操作。`GraphEditor` が描かれている間だけ渡される */
@@ -33,6 +34,11 @@ export type GraphEditorControls = {
    * dispatch を通すので undo / redo できる
    */
   apply: (events: readonly GraphEvent[]) => void;
+  /**
+   * 選ばれている応答を求める node に、依頼の操作をする (agent 段 4 R4)。送る・閉じる・開き直す・
+   * 宛先・答える。dispatch を通すので undo / redo できる
+   */
+  request: (action: RequestAction) => void;
 };
 
 /**
@@ -47,6 +53,8 @@ export type PropertyTarget = {
   properties: Record<string, unknown> | undefined;
   /** 追加できる名前の候補 (template の宣言から)。候補は edge にしか無い */
   addable: readonly string[];
+  /** 応答を求める node なら、その状態 (右の欄の「依頼」の区画が描く、agent 段 4 R4) */
+  request?: RequestTarget;
 };
 
 /**
@@ -61,5 +69,6 @@ export function propertyTargetKey(target: PropertyTarget | undefined): string {
     target.title,
     target.properties ?? null,
     target.addable,
+    target.request ?? null,
   ]);
 }

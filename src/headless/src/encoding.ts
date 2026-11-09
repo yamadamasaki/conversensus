@@ -32,13 +32,17 @@
  */
 
 import {
+  addresseeOf,
   type GraphEdge,
   type GraphFile,
   type GraphNode,
   isKindProperty,
   kindPropertyOf,
   propertyCategory,
+  type RequestStatus,
+  requestStatus,
   type Sheet,
+  sentCountOf,
   type Template,
 } from '@conversensus/shared';
 
@@ -115,14 +119,44 @@ function kindDescriptionNotes(t: Template, depth: string): string[] {
     .map((k) => `${depth}#   ${value(k.label)}: ${value(k.description)}`);
 }
 
+/** 応答を求める node の状態の名前 (注釈用) */
+const REQUEST_STATUS_NOTE: Record<RequestStatus, string> = {
+  draft: '下書き (まだ送っていない)',
+  sent: '送った・未回答',
+  answered: '回答あり',
+  closed: '閉じた',
+};
+
+/**
+ * 応答を求める node なら、状態と宛先の注釈 (agent 段 4 R6)。状態は導出なので注釈に置く —
+ * 情報は property の行 (`sent`・`closed`・`addressee`) と答えの edge にある
+ */
+function requestNote(
+  node: GraphNode,
+  edges: readonly GraphEdge[],
+  depth: string,
+): string[] {
+  const addressee = addresseeOf(node);
+  if (addressee === undefined) return [];
+  const sent = sentCountOf(node);
+  const status = REQUEST_STATUS_NOTE[requestStatus(node, edges)];
+  const to =
+    addressee.length === 0 ? '指定なし (参加者全員)' : addressee.join(', ');
+  return [
+    `${depth}# 応答を求める node: ${status}${sent > 0 ? ` (${sent} 回目)` : ''}・宛先 ${to}`,
+  ];
+}
+
 function nodeLines(
   node: GraphNode,
   layout: Record<string, unknown> | undefined,
   templates: readonly Template[],
+  edges: readonly GraphEdge[],
 ): string[] {
   const depth = INDENT.repeat(2);
   return [
     `${INDENT}node ${node.id}`,
+    ...requestNote(node, edges, depth),
     `${depth}content ${value(node.content)}`,
     ...(node.label !== undefined ? [`${depth}label ${value(node.label)}`] : []),
     ...(node.nodeType ? [`${depth}type ${value(node.nodeType)}`] : []),
@@ -171,7 +205,7 @@ function sheetLines(sheet: Sheet, templates: readonly Template[]): string[] {
     ]),
     ...propertyLines(sheet.properties, INDENT, templates),
     ...sheet.nodes.flatMap((n) =>
-      nodeLines(n, nodeLayouts.get(n.id), templates),
+      nodeLines(n, nodeLayouts.get(n.id), templates, sheet.edges),
     ),
     ...sheet.edges.flatMap((e) =>
       edgeLines(e, edgeLayouts.get(e.id), templates),

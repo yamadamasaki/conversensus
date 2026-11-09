@@ -18,7 +18,20 @@
 
 import { join } from 'node:path';
 import type { GraphEvent } from '@conversensus/client/src/events/GraphEvent';
-import { type FileId, FileIdSchema } from '@conversensus/shared';
+import {
+  answerRequest,
+  closeRequest,
+  reopenRequest,
+  sendRequest,
+  setAddressee,
+} from '@conversensus/client/src/request/requestEvents';
+import {
+  type Did,
+  type FileId,
+  FileIdSchema,
+  type GraphNode,
+  sentCountOf,
+} from '@conversensus/shared';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
@@ -36,6 +49,7 @@ import {
   setNodeContent,
   setNodeProperty,
   type ToolContext,
+  ToolError,
 } from './tools';
 
 /** server の名前と版 (MCP の初期化で client に名乗る) */
@@ -48,7 +62,9 @@ const INSTRUCTIONS = `conversensus はグラフ (node と edge) で議論や考�
 - 書く道具には read_file に出た id (fileId・sheetId・nodeId・edgeId) を渡します
 - Sheet に template が当たっていれば、注釈 \`# template\` に node と edge の種別の id があります。種別は node・edge を作るときにだけ付けられます。種別の説明は、その種別をどう使うかの指示です
 - system の property (app.conversensus.*) と種別の property は書き換えられません
-- 書くと、すぐ参加者に送られます。大きく書き換える前には、人間に確かめてください`;
+- 書くと、すぐ参加者に送られます。大きく書き換える前には、人間に確かめてください
+- **依頼・相談** (応答を求める node): list_requests で自分宛ての未回答の依頼を見つけ、read_file で依頼のある File を読んで文脈をつかみ、answer_request で答えます。依頼の本文が指示です。種類ごとの指示は種類の説明 (\`# template\` の注釈) にあります。答えられないときは、その理由を答えとして書いてください
+- 自分から依頼することもできます: 依頼の種類で add_node し、set_addressee で宛先 (list_participants の DID) を選び、send_request で送ります`;
 
 /** 書く先の指定 (書く道具に共通) */
 const where = {
@@ -319,6 +335,136 @@ export function createMcpServer(headless: Headless): McpServer {
       write({ fileId, sheetId }, (ctx) => ({
         event: removeEdge(ctx, args),
         report: `edge ${args.edgeId} を消した`,
+      })),
+  );
+
+  // --- 依頼・相談 (agent 段 4 R6) ---
+
+  /** 書く先の Sheet の、応答を求める node */
+  const requestIn = (ctx: ToolContext, nodeId: string): GraphNode => {
+    const node = ctx.sheet.nodes.find((n) => n.id === nodeId);
+    if (!node) throw new ToolError(`この Sheet に node ${nodeId} は無い`);
+    return node;
+  };
+  const target = {
+    ...where,
+    nodeId: z.string().uuid().describe('依頼の node の id'),
+  };
+
+  server.registerTool(
+    'list_participants',
+    {
+      description: 'File の参加者の DID とハンドル名を返す (依頼の宛先に使う)',
+      inputSchema: { fileId: where.fileId },
+    },
+    ({ fileId }) =>
+      guarded(async () => {
+        const list = await headless.participants(fileIdOf(fileId));
+        return list.map((p) => `${p.did} ${p.handle}`).join('\n');
+      }),
+  );
+
+  server.registerTool(
+    'list_requests',
+    {
+      description:
+        '自分宛ての未回答の依頼を返す (同期してから)。fileId を省くと、参加している File すべてを見る。自分が送った依頼は出さない',
+      inputSchema: { fileId: where.fileId.optional() },
+    },
+    ({ fileId }) =>
+      guarded(async () => {
+        let ids: FileId[];
+        if (fileId) {
+          ids = [fileIdOf(fileId)];
+        } else {
+          await headless.discover();
+          ids = (await headless.files()).map((f) => f.id as FileId);
+        }
+        const lines: string[] = [];
+        for (const id of ids) {
+          await headless.sync(id);
+          for (const r of headless.requestsForMe(id)) {
+            lines.push(
+              `request ${r.node.id} file ${id} sheet ${r.sheet.id} (${sentCountOf(r.node)} 回目) from ${r.from ?? '?'}`,
+              `  content ${JSON.stringify(r.node.content)}`,
+            );
+          }
+        }
+        return lines.length > 0
+          ? lines.join('\n')
+          : '(自分宛ての未回答の依頼は無い)';
+      }),
+  );
+
+  server.registerTool(
+    'answer_request',
+    {
+      description:
+        '依頼に答える: 答えを新しい node に書き、依頼からその node へ edge を張る (edge に何回目の送信への答えかが付く)。答えの node の id を返す',
+      inputSchema: {
+        ...target,
+        content: z.string().describe('答えの本文 (markdown)'),
+        label: z.string().optional().describe('答えの edge の label (省略可)'),
+      },
+    },
+    ({ fileId, sheetId, nodeId, content, label }) =>
+      write({ fileId, sheetId }, (ctx) => {
+        const answered = answerRequest(ctx.sheet, requestIn(ctx, nodeId), {
+          content,
+          ...(label !== undefined && { edgeLabel: label }),
+        });
+        return {
+          event: answered.event,
+          report: `答えた: node ${answered.nodeId} (edge ${answered.edgeId})`,
+        };
+      }),
+  );
+
+  server.registerTool(
+    'send_request',
+    {
+      description:
+        '依頼を送る (送り直す)。宛先 (空なら参加者全員) に知らせが届く。閉じた依頼は送れない',
+      inputSchema: target,
+    },
+    ({ fileId, sheetId, nodeId }) =>
+      write({ fileId, sheetId }, (ctx) => ({
+        event: sendRequest(requestIn(ctx, nodeId)),
+        report: `node ${nodeId} を送った`,
+      })),
+  );
+
+  server.registerTool(
+    'close_request',
+    { description: '依頼を閉じる', inputSchema: target },
+    ({ fileId, sheetId, nodeId }) =>
+      write({ fileId, sheetId }, (ctx) => ({
+        event: closeRequest(requestIn(ctx, nodeId)),
+        report: `node ${nodeId} を閉じた`,
+      })),
+  );
+
+  server.registerTool(
+    'reopen_request',
+    { description: '閉じた依頼を開き直す', inputSchema: target },
+    ({ fileId, sheetId, nodeId }) =>
+      write({ fileId, sheetId }, (ctx) => ({
+        event: reopenRequest(requestIn(ctx, nodeId)),
+        report: `node ${nodeId} を開き直した`,
+      })),
+  );
+
+  server.registerTool(
+    'set_addressee',
+    {
+      description:
+        '依頼の宛先を置き換える (DID の列。空なら不特定 = 参加者全員)。DID は list_participants で引く',
+      inputSchema: { ...target, dids: z.array(z.string()) },
+    },
+    ({ fileId, sheetId, nodeId, dids }) =>
+      write({ fileId, sheetId }, (ctx) => ({
+        event: setAddressee(requestIn(ctx, nodeId), dids as Did[]),
+        report: `node ${nodeId} の宛先を変えた`,
       })),
   );
 

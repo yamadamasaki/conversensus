@@ -222,3 +222,31 @@ export async function mergeOpenBranch(user: UserEvent, reason: string) {
     WIRING_TIMEOUT,
   );
 }
+
+/**
+ * 「依頼・相談」の種を File に入れ、それを当てた Sheet を足して開く (agent 段 4)。
+ * 開いた Sheet は空 (node 0)
+ */
+export async function addRequestSheet(user: UserEvent) {
+  await user.click(
+    screen.getByRole('button', { name: 'template 付きで Sheet を追加' }),
+  );
+  await user.click(screen.getByRole('button', { name: '+ 依頼・相談 を追加' }));
+  await screen.findByTitle('template graph', {}, WIRING_TIMEOUT);
+  await user.click(screen.getByText('+ Sheet を追加'));
+  const dialog = await screen.findByRole('dialog', { name: 'Sheet を追加' });
+  await user.click(
+    within(dialog).getByRole('checkbox', { name: '依頼・相談' }),
+  );
+  await user.click(
+    within(dialog).getByRole('button', { name: 'Sheet を追加' }),
+  );
+  await waitFor(() => expect(renderedNodeCount()).toBe(0), WIRING_TIMEOUT);
+}
+
+/** 右サイドバーを広げる (既定では畳まれている) */
+export async function openRightSidebar(user: UserEvent) {
+  // **広げたかどうかは端末に残る**ので、同じ端末で描き直すと既に広がっている。そのときは何もしない
+  const open = screen.queryByRole('button', { name: '右サイドバーを広げる' });
+  if (open) await user.click(open);
+}

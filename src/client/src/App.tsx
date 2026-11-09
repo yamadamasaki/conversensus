@@ -39,6 +39,7 @@ import { AlertDialog } from './AlertDialog';
 import { AtprotoLoginDialog } from './AtprotoLoginDialog';
 import { fetchBatches, searchFiles } from './api';
 import { authNeedsPassword } from './atproto/client';
+import { handleLabels } from './atproto/identity';
 import { CommitDialog } from './CommitDialog';
 import { ConfirmDialog } from './ConfirmDialog';
 import { ConflictList } from './ConflictList';
@@ -63,6 +64,7 @@ import {
 } from './hooks/useBranchOperations';
 import { useChangeCounter } from './hooks/useChangeCounter';
 import type { UndoState } from './hooks/useEventStore';
+import { useFileParticipants } from './hooks/useFileParticipants';
 import { useFileSheetOperations } from './hooks/useFileSheetOperations';
 import { useFolders } from './hooks/useFolders';
 import { useGraphPanels } from './hooks/useGraphPanels';
@@ -94,6 +96,7 @@ import { ParticipationHistoryDialog } from './ParticipationHistoryDialog';
 import { PassivePane } from './PassivePane';
 import { PropertyEditor } from './PropertyEditor';
 import { propertyRows } from './property/propertyRows';
+import { RequestNotice } from './RequestNotice';
 import { RightSidebar, type RightSidebarPane } from './RightSidebar';
 import { ReadOnlyProvider } from './readOnlyContext';
 import { SearchPanel } from './SearchPanel';
@@ -186,7 +189,29 @@ export default function App() {
     dismissOverwrites,
     arrivedForks,
     handleForksArrived,
+    arrivedRequests,
+    handleRequestsArrived,
+    dismissRequest,
   } = useNoticeInbox(atprotoSession?.did ?? null);
+  /**
+   * 届いた依頼の送り手の表示名 (agent 段 4 R5)。名簿のダイアログの `labelOf` は開いている間だけの
+   * ものなので、届いた送り手の分をここで引く
+   */
+  const [requestFromLabel, setRequestFromLabel] = useState<
+    (did: Did) => string
+  >(() => (did: Did) => did);
+  useEffect(() => {
+    if (arrivedRequests.length === 0) return;
+    let cancelled = false;
+    void handleLabels
+      .resolve(arrivedRequests.map((r) => r.from))
+      .then((labelOf) => {
+        if (!cancelled) setRequestFromLabel(() => labelOf);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [arrivedRequests]);
   /** 上書きの報告の対象名。競合と同じ「分岐点での名前」から引く */
   const overwriteLabelOf = useCallback(
     (target: string) => overwriteNotice.labels.get(target) ?? target,
@@ -294,6 +319,7 @@ export default function App() {
     setConflictNotice: showConflicts,
     onOverwrites: handleOverwrites,
     onForksArrived: handleForksArrived,
+    onRequestsArrived: handleRequestsArrived,
     onFileDeleted: forgetFile,
     onBackgroundConflicts: noteBackgroundConflicts,
     onBackgroundForks: noteBackgroundForks,
@@ -1052,6 +1078,12 @@ export default function App() {
   });
   /** 右サイドバーの pane (#73 Q1)。property と timeline を切り替える */
   const [rightPane, setRightPane] = useState<RightSidebarPane>('property');
+  /** 依頼の宛先の候補 (agent 段 4 R4)。開いている File の参加者 */
+  const requestParticipants = useFileParticipants(
+    viewAddress?.fileId ?? null,
+    roster,
+    atprotoSession !== null,
+  );
   /**
    * timeline から開いた時点のタブと、開く前のタブ (利用者の指摘 2026-10-12: 見終わった後に戻る先が
    * 分からなくなる)。「元のグラフに戻る」で開く前のタブへ戻り、時点のタブは閉じる (利用者の決定)
@@ -1787,6 +1819,8 @@ export default function App() {
             readOnly={readOnly}
             pane={rightPane}
             onPaneChange={setRightPane}
+            participants={requestParticipants}
+            onRequestAction={(action) => panels.controls?.request(action)}
             timeline={
               <TimelinePanel
                 place={
@@ -1883,6 +1917,28 @@ export default function App() {
           arrivedForks={arrivedForks}
           onOpenMerger={handleOpenMerger}
           onClose={closeConflictNotice}
+        />
+        <RequestNotice
+          arrivals={arrivedRequests}
+          labelOf={requestFromLabel}
+          onOpen={(arrival) => {
+            // 検索の結果と同じ道で開いて寄せる (Sheet が画面に出てから node へ寄せる)
+            openSearchHit(arrival);
+            setPendingReveal({
+              fileId: arrival.fileId,
+              fileName: '',
+              sheetId: arrival.sheetId,
+              sheetName: '',
+              elementKind: 'node',
+              id: arrival.nodeId,
+              field: 'content',
+              snippet: arrival.content,
+              matchStart: 0,
+              matchLength: 0,
+            });
+            dismissRequest(arrival);
+          }}
+          onDismiss={dismissRequest}
         />
         <OverwriteNotice
           reports={overwriteNotice.reports}

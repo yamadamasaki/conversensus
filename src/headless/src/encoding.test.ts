@@ -364,4 +364,39 @@ describe('encodeFile', () => {
       }),
     );
   });
+
+  test('応答を求める node には、状態・回数・宛先を注釈する (情報は property と答えの edge にある)', () => {
+    const file = {
+      id: FILE,
+      name: 'f',
+      sheets: [
+        {
+          id: SHEET,
+          name: 's',
+          nodes: [
+            {
+              id: CLAIM,
+              content: '要約して',
+              properties: {
+                'app.conversensus.addressee': ['did:plc:agent'],
+                'app.conversensus.sent': 2,
+              },
+            },
+            { id: GROUND, content: '前の答え' },
+          ],
+          edges: [
+            {
+              id: EDGE,
+              source: CLAIM,
+              target: GROUND,
+              properties: { 'app.conversensus.answers': 1 },
+            },
+          ],
+        },
+      ],
+    } as unknown as GraphFile;
+    expect(encodeFile(file)).toContain(
+      '# 応答を求める node: 送った・未回答 (2 回目)・宛先 did:plc:agent',
+    );
+  });
 });

@@ -3,9 +3,10 @@ import { SEED_TEMPLATES } from './registry';
 import { TemplateSchema } from './types';
 
 describe('SEED_TEMPLATES', () => {
-  test('種は Toulmin model ひとつ (File に複製する元の表)', () => {
+  test('種は Toulmin model と依頼・相談 (File に複製する元の表)', () => {
     expect(SEED_TEMPLATES.map((t) => String(t.id))).toEqual([
       'jp.co.metabolics.toulmin',
+      'jp.co.metabolics.request',
     ]);
   });
 

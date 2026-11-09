@@ -41,3 +41,14 @@ export function forkNoticeKeyOf(fork: ForkMeta): NoticeKey {
 export function overwriteNoticeKeyOf(report: OverwriteReport): NoticeKey {
   return [overwriteKeyOf(report), report.mine, report.theirs].join(SEPARATOR);
 }
+
+/**
+ * 届いた依頼の既読の鍵 (agent 段 4 R5)。**送った回数を含む** — 送り直したら、閉じた人にも
+ * また知らせる (新しい答えが欲しくて送り直している、設計 D12)
+ */
+export function requestNoticeKeyOf(arrival: {
+  nodeId: string;
+  sent: number;
+}): NoticeKey {
+  return ['request', arrival.nodeId, String(arrival.sent)].join(SEPARATOR);
+}

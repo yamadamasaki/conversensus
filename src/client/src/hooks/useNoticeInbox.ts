@@ -19,6 +19,7 @@ import {
   conflictNoticeKeyOf,
   forkNoticeKeyOf,
   overwriteNoticeKeyOf,
+  requestNoticeKeyOf,
 } from '../notices/noticeKeys';
 import {
   addPending,
@@ -34,6 +35,7 @@ import {
   NO_OVERWRITE_NOTICE,
   type OverwriteNoticeState,
 } from '../sync/overwrites';
+import type { RequestArrival } from '../sync/requestArrival';
 import { safeLocalStorage } from '../sync/safeStorage';
 import type { ConflictNoticeState } from './useBranchOperations';
 
@@ -189,6 +191,46 @@ export function useNoticeInbox(did: Did | null) {
       });
     }
   }, []);
+
+  // --- 届いた依頼 (agent 段 4 R5) ---
+
+  /**
+   * 自分宛てに送られた依頼。**前に出ている File に限らない** — 依頼は誰かが答えを待っている。
+   * 受信のたびに溜め、同じ依頼の同じ送信 (鍵) は 1 つにする。既読は他の端末にも効く
+   */
+  const [arrivedRequests, setArrivedRequests] = useState<
+    readonly RequestArrival[]
+  >([]);
+  const handleRequestsArrived = useCallback(
+    (requests: readonly RequestArrival[]) => {
+      for (const fileId of new Set(requests.map((r) => r.fileId))) {
+        void dismissalsRef.current.dismissedIn(fileId).then((dismissed) => {
+          const fresh = requests.filter(
+            (r) => r.fileId === fileId && !dismissed.has(requestNoticeKeyOf(r)),
+          );
+          setArrivedRequests((prev) => {
+            const known = new Set(prev.map(requestNoticeKeyOf));
+            return [
+              ...prev,
+              ...fresh.filter((r) => !known.has(requestNoticeKeyOf(r))),
+            ];
+          });
+        });
+      }
+    },
+    [],
+  );
+  /** 届いた依頼の通知を 1 つ閉じる (既読にする) */
+  const dismissRequest = useCallback(
+    (arrival: RequestArrival) => {
+      const key = requestNoticeKeyOf(arrival);
+      void dismissals.dismiss(arrival.fileId, [key]);
+      setArrivedRequests((prev) =>
+        prev.filter((r) => requestNoticeKeyOf(r) !== key),
+      );
+    },
+    [dismissals],
+  );
 
   // --- 前に出ていない File の通知 (#260) ---
 
@@ -417,6 +459,7 @@ export function useNoticeInbox(did: Did | null) {
   /** File を削除したら、その File の既読を消す (#259) */
   const forgetFile = useCallback((fileId: FileId) => {
     setPending((prev) => takePending(prev, fileId)[1]);
+    setArrivedRequests((prev) => prev.filter((r) => r.fileId !== fileId));
     setForkMarked((prev) => {
       const next = new Set(prev);
       next.delete(fileId);
@@ -439,5 +482,8 @@ export function useNoticeInbox(did: Did | null) {
     dismissOverwrites,
     arrivedForks,
     handleForksArrived,
+    arrivedRequests,
+    handleRequestsArrived,
+    dismissRequest,
   };
 }

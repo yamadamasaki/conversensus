@@ -410,6 +410,34 @@ claude mcp add conversensus -- bun run /Volumes/MyBook/Projects/conversensus/src
   ログインしない (ブラウザの同意を待てないため)
 - 外すとき: `claude mcp remove conversensus`
 
+### 5.7 依頼・相談を人間と agent で行き来する (agent 段 4)
+
+§5.6 の MCP server を使う。計画は `deepse/plans/agent-stage4-request.md`。**MCP server のコードが変わったら
+Claude Code を起動し直す** (道具の一覧は起動時に読む)。
+
+人間 (App) から agent へ:
+
+1. App で File を開き、「template 付きで Sheet を追加」→「+ 依頼・相談 を追加」→「+ Sheet を追加」で
+   「依頼・相談」に印を付けて Sheet を作る
+2. その Sheet をダブルクリックして「依頼」の node を作り、本文に頼みたいことを書く
+3. node を選び、右サイドバー (畳まれていれば広げる) の「依頼」の区画で、宛先に `agent.test` を足して「送る」。
+   「今すぐ同期」
+4. Claude Code に「conversensus の自分宛ての依頼を見て、答えて」と頼む (`list_requests` → `read_file` →
+   `answer_request`)
+5. App で「今すぐ同期」。依頼の右に答えの node が出て、依頼の印が「回答あり」になる
+
+agent から人間へ:
+
+1. Claude Code に「さっきの Sheet に、alice への依頼を作って送って」と頼む (依頼の種類で `add_node` →
+   `set_addressee` → `send_request`)
+2. App で「今すぐ同期」。右下に「agent.test から依頼が届きました」が出る。「開く」で依頼が選ばれる
+3. 右の欄の「依頼」の区画で答えを書いて「答える」→「今すぐ同期」
+4. Claude Code に依頼の File を読ませると、状態の注釈が「回答あり」になっている
+
+- 依頼の通知が出るのは、同期している File (開いている・タブにある) だけ。開いていない File への依頼は、
+  開くまで知らない (常駐の受信は段 5)
+- 届いた依頼の通知は、再読み込みすると出直さない (既読にしていなくても)
+
 ## 6. 2 台目 (device B) を同じマシンで動かす
 
 remote 同期の検証では, 「別端末が PDS 経由で受け取れるか」を見たいことがある. step3 Phase 2

@@ -58,6 +58,7 @@ import {
   NO_OVERWRITES,
 } from './overwrites';
 import { filterByParticipation } from './participationFilter';
+import { detectArrivedRequests, type RequestArrival } from './requestArrival';
 import { type ForkWriterDeps, writeForksForConflicts } from './writeForks';
 
 export type CollectParticipantDeps = {
@@ -137,6 +138,8 @@ export type ReceiveParticipantResult = CollectParticipantResult & {
    * 出るのは主に**自分では検出しなかった第三者**の手元である
    */
   arrivedForks: ForkMeta[];
+  /** この受信で自分宛てに送られた依頼 (agent 段 4 R5) */
+  arrivedRequests: RequestArrival[];
 };
 
 /**
@@ -248,6 +251,7 @@ export async function receiveParticipantBatches(
       overwrites: NO_OVERWRITES,
       forks: [],
       arrivedForks: [],
+      arrivedRequests: [],
     };
 
   // **追記の前に検出する** (step2 Phase 3 T5)。分岐点は受信前の手元の状態なので、
@@ -287,6 +291,14 @@ export async function receiveParticipantBatches(
     written: forks,
   });
 
+  // **依頼の到着も同じ分岐点で採る** (agent 段 4 R5)。追記の後では受信前の送った回数が分からない
+  const arrivedRequests = detectArrivedRequests({
+    fileId,
+    local,
+    incoming,
+    viewer,
+  });
+
   const appended = await deps.appendReceived(fileId, collected.batches);
 
   // 受信規則。**書き込みが成功してから観測する** — 失敗して取り込めていないのに
@@ -301,5 +313,6 @@ export async function receiveParticipantBatches(
     overwrites,
     forks,
     arrivedForks,
+    arrivedRequests,
   };
 }
