@@ -21,6 +21,7 @@ import type {
   NodeId,
   Sheet,
   SheetId,
+  TemplateSeed,
 } from '@conversensus/shared';
 import type { GraphEvent } from '../events/GraphEvent';
 import type { Locale } from '../i18n/locale';
@@ -150,7 +151,7 @@ export type NoticeSource = {
   detect: (input: NoticeDetectInput) => ModuleNotice[];
 };
 
-/** module: 操作と印と知らせをまとめたもの */
+/** module: 操作と印と知らせと種をまとめたもの */
 export type NodeModule = {
   /** 全体で一意。操作は `<module>/<action>` で呼ぶ */
   id: string;
@@ -159,6 +160,8 @@ export type NodeModule = {
   badge?: (ctx: NodeBadgeContext) => NodeBadge | undefined;
   /** 受信から知らせを見つける */
   notices?: NoticeSource;
+  /** 「シートを追加 ▾」に並べる template graph の種 (core の種の後に、登録の順) */
+  seeds?: readonly TemplateSeed[];
 };
 
 /** 操作できない (使えない・引数が合わない・知らない操作)。画面は知らせ、MCP は理由を返す */

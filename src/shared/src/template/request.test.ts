@@ -9,7 +9,7 @@ import { SHEET_KIND_PROPERTY, TEMPLATE_SHEET_KIND } from '../events/sheetKind';
 import type { GraphNode, Sheet, TemplateId } from '../schemas';
 import { templateFromSheet } from './fromSheet';
 import { kindPropertyOf } from './kind';
-import { REQUEST_TEMPLATE } from './request';
+import { REQUEST_SEED, REQUEST_TEMPLATE } from './request';
 import { templateGraphOf } from './seed';
 import { localizeSeed } from './seedLocale';
 
@@ -60,12 +60,16 @@ describe('依頼・相談の種 (R2)', () => {
   });
 
   test('en に訳すと名前と種類名が英語になり、既定値は変わらない', () => {
-    const en = localizeSeed(REQUEST_TEMPLATE, 'en');
+    const en = localizeSeed(REQUEST_SEED, 'en');
     expect(en.name).toBe('Request / Consultation');
     expect(en.nodeKinds.map((k) => k.label)).toEqual([
       'Request',
       'Consultation',
     ]);
+    // 説明も訳されている (日本語の字が残らない)。core の種は seedLocale.test.ts がまとめて見る
+    for (const kind of en.nodeKinds) {
+      expect(kind.description ?? '').not.toMatch(/[぀-ヿ一-鿿]/);
+    }
     expect(en.nodeKinds.map((k) => k.defaults)).toEqual(
       REQUEST_TEMPLATE.nodeKinds.map((k) => k.defaults),
     );

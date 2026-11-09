@@ -4,6 +4,7 @@ import {
   ANSWER_TARGET_PROPERTY,
 } from '../events/request';
 import type { KindPlacement } from './seed';
+import type { TemplateSeed } from './seedLocale';
 import { type Template, TemplateSchema } from './types';
 
 /**
@@ -53,4 +54,28 @@ export const REQUEST_TEMPLATE: Template = TemplateSchema.parse({
 export const REQUEST_PLACEMENT: KindPlacement = {
   request: { x: 0, y: 0 },
   consultation: { x: 240, y: 0 },
+};
+
+/** 依頼・相談の種。依頼の module が出す (計画 node-actions-request-module.md B2)。訳は表の言語 (日本語) 以外 */
+export const REQUEST_SEED: TemplateSeed = {
+  template: REQUEST_TEMPLATE,
+  placement: REQUEST_PLACEMENT,
+  translations: {
+    en: {
+      name: 'Request / Consultation',
+      nodeKinds: {
+        request: {
+          label: 'Request',
+          description:
+            'Ask the addressee to do what the body says. Write the answer in a new node and draw an edge from the request to it',
+        },
+        consultation: {
+          label: 'Consultation',
+          description:
+            'Ask the addressee for an opinion on the body. Write the answer in a new node and draw an edge from the consultation to it',
+        },
+      },
+      edgeKinds: {},
+    },
+  },
 };

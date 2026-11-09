@@ -205,6 +205,14 @@ describe('答える', () => {
   });
 });
 
+describe('種', () => {
+  test('「シートを追加 ▾」に依頼・相談の種を出す', () => {
+    expect(registry.seeds.map((s) => String(s.template.id))).toEqual([
+      'jp.co.metabolics.request',
+    ]);
+  });
+});
+
 describe('印', () => {
   const badgeOf = (shape: Shape) => {
     const ctx = ctxOf(shape);

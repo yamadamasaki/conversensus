@@ -36,6 +36,7 @@ import {
   requestStatus,
   sentCountOf,
 } from '@conversensus/shared';
+import { REQUEST_SEED } from '@conversensus/shared/src/template/request';
 import { detectArrivedRequests } from './requestArrival';
 import {
   answerRequest,
@@ -189,6 +190,8 @@ export const REQUEST_MODULE: NodeModule = {
       run: (ctx) => reopenRequest(ctx.node),
     },
   ],
+  // 「シートを追加 ▾」の「+ 依頼・相談 を追加」(agent 段 4 R2)
+  seeds: [REQUEST_SEED],
   // 受信で自分宛てに送られた依頼を知らせる (agent 段 4 R5、設計 D11)。既読の鍵は node と送った回数 —
   // 送り直したら、閉じた人にもまた知らせる (新しい答えが欲しくて送り直している、D12)
   notices: {

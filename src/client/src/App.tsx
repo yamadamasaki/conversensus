@@ -3,6 +3,7 @@ import {
   BRANCH_STATUS,
   type BranchId,
   type BranchMeta,
+  CORE_SEEDS,
   DERIVED_FROM_SHEET_PROPERTY,
   type Did,
   derivedNodeIdOf,
@@ -20,16 +21,15 @@ import {
   type PropertyName,
   placeDerivedNodes,
   refreshDerivedNodes,
-  SEED_PLACEMENTS,
   SHEET_KIND_PROPERTY,
   type Sheet,
   type SheetId,
   type SheetKind,
   sheetKindOf,
   TEMPLATE_SHEET_KIND,
-  type Template,
   type TemplateGraphContent,
   type TemplateRef,
+  type TemplateSeed,
   templateGraphOf,
 } from '@conversensus/shared';
 import { FilePlus, Files, FileUp, PanelLeft, UserPlus } from 'lucide-react';
@@ -571,20 +571,22 @@ export default function App() {
     else addSheet();
   }, [addSheet, templateGraphs.length]);
 
+  /** 「シートを追加 ▾」の種: core の種と、module が出す種 (計画 node-actions-request-module.md B2) */
+  const seeds = useMemo(
+    () => [...CORE_SEEDS, ...nodeActionRegistry.seeds],
+    [nodeActionRegistry],
+  );
+
   /** template graph の種を File に複製する (Q1)。複製した template graph はふつうの template graph */
   // 種の種類名は利用者の言語で焼き込む (#330)。焼き込んだ後はふつうの利用者のデータ
   const locale = useLocale();
   const handleAddSeedTemplate = useCallback(
-    (seed: Template) => {
+    (seed: TemplateSeed) => {
       const localized = localizeSeed(seed, locale);
       return addSheet({
         name: localized.name,
         properties: { [SHEET_KIND_PROPERTY]: TEMPLATE_SHEET_KIND },
-        content: templateGraphOf(
-          localized,
-          generateId,
-          SEED_PLACEMENTS[seed.id],
-        ),
+        content: templateGraphOf(localized, generateId, seed.placement),
       });
     },
     [addSheet, locale],
@@ -1500,6 +1502,7 @@ export default function App() {
             onOpenGlobalSearch={() => setGlobalSearchOpen(true)}
             onAddSheet={handleAddSheet}
             onAddKindSheet={handleAddKindSheet}
+            seeds={seeds}
             onAddSeedTemplate={handleAddSeedTemplate}
             onSetPopupTarget={fileOps.setPopupTarget}
             onSaveFileSettings={fileOps.handleSaveFileSettings}

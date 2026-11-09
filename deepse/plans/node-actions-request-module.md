@@ -266,7 +266,7 @@ C は連合やライブラリ化 (#310) の後に考える。第三者のコー�
 | | 状態 | メモ |
 | --- | --- | --- |
 | B1 | 済 | `NodeModule.notices` (`NoticeSource`: 欄の名前・見出し・`detect`) と `ModuleNotice`。registry の `detectNotices` が module の順に集め、module の id を添える (既読の鍵 `noticeKeyOf` は `<module>/<鍵>`)。受信から App までの配線 (`receiveParticipantBatches` → `FileSession` → `useEventSyncTap`・`useFileSheetOperations` → `useNoticeInbox`) を `RequestArrival` から `ArrivedNotice` に替え、見つける関数は App が registry から渡す。`RequestNotice` は汎用の `ArrivedNotices` (module ごとに 1 つの欄)。依頼の到着の検出 (`requestArrival.ts`) と文言は module へ。辞書の `request.notice` は汎用の `notices` (開く・閉じる) に |
-| B2 | | |
+| B2 | 済 | 種は `TemplateSeed` (template・並べ方・訳) にまとめ、訳は種ごとに持つ (`seedLocale.ts` の表を外した)。core の種は `CORE_SEEDS` (Toulmin だけ)、module の種は `NodeModule.seeds` で registry の `seeds` に集まる。Sidebar は App から種を受け取る。依頼・相談の種 (`REQUEST_SEED`) は依頼の module が出す (表はまだ shared、B5 で移す)。試験の道具 `addRequestSheet` も module の `requestDriver` へ |
 | B3 | | |
 | B4 | | |
 | B5 | | |

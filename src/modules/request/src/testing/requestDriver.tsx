@@ -9,7 +9,10 @@ import { expect } from 'bun:test';
 import App from '@conversensus/client/src/App';
 import { createNodeActionRegistry } from '@conversensus/client/src/nodeActions/registry';
 import { NodeActionsProvider } from '@conversensus/client/src/nodeActions/registryContext';
-import { WIRING_TIMEOUT } from '@conversensus/client/src/testing/appDriver';
+import {
+  renderedNodeCount,
+  WIRING_TIMEOUT,
+} from '@conversensus/client/src/testing/appDriver';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import type { UserEvent } from '@testing-library/user-event';
 import { REQUEST_MODULE } from '../requestModule';
@@ -87,4 +90,25 @@ export function requestBadge(content?: string): string | null | undefined {
   return node
     ?.querySelector('[data-node-badge="request"]')
     ?.getAttribute('data-badge-value');
+}
+
+/**
+ * 「依頼・相談」の種を File に入れ、それを当てた Sheet を足して開く (agent 段 4)。
+ * 開いた Sheet は空 (node 0)
+ */
+export async function addRequestSheet(user: UserEvent) {
+  await user.click(
+    screen.getByRole('button', { name: 'template 付きで Sheet を追加' }),
+  );
+  await user.click(screen.getByRole('button', { name: '+ 依頼・相談 を追加' }));
+  await screen.findByTitle('template graph', {}, WIRING_TIMEOUT);
+  await user.click(screen.getByText('+ Sheet を追加'));
+  const dialog = await screen.findByRole('dialog', { name: 'Sheet を追加' });
+  await user.click(
+    within(dialog).getByRole('checkbox', { name: '依頼・相談' }),
+  );
+  await user.click(
+    within(dialog).getByRole('button', { name: 'Sheet を追加' }),
+  );
+  await waitFor(() => expect(renderedNodeCount()).toBe(0), WIRING_TIMEOUT);
 }

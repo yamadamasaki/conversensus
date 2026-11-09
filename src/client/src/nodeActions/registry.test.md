@@ -55,6 +55,11 @@ core は「node に操作がある」ことだけを知り、どんな操作が�
   - 印を持たない module
   - 印の関数が投げる module
 
+### 種 (例)
+
+- module の種 (`NodeModule.seeds`、計画 B2) を登録の順に並べる。種を持たない module は何も足さない
+  (core の種は画面が前に置く — `CORE_SEEDS`)
+
 ### 知らせ (例)
 
 - 知らせ (`NodeModule.notices`、計画 B1) は、知らせを持つ module の登録の順に集め、module の id を添える。

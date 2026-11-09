@@ -1,9 +1,10 @@
-# SEED_TEMPLATES のテスト
+# CORE_SEEDS のテスト
 
 ## 何を
 
-`SEED_TEMPLATES` — template graph の**種** (step3 Phase 4 S4-1c, Q1)。「シートを追加 ▾」の
-「Toulmin model を追加」が、これを File の template graph に複製する。
+`CORE_SEEDS` — core の template graph の**種** (step3 Phase 4 S4-1c, Q1)。「シートを追加 ▾」の
+「Toulmin model を追加」が、これを File の template graph に複製する。依頼・相談の種は依頼の module が出す
+(`NodeModule.seeds`、計画 node-actions-request-module.md B2)。
 
 ## なぜ
 
@@ -13,7 +14,7 @@ step2 の `BUILTIN_TEMPLATES` / `templatesOf` (作り込みの template を id �
 
 ## どのように
 
-- 種は Toulmin model と依頼・相談
+- core の種は Toulmin model だけ
 - 種は template の参照整合性を満たす (`from` / `to` の綴り違いは import 時に落ちる)
 
 作り込みの id を解決しない (縮退する) ことは `fromSheet.test.ts` が、種を複製して読み替えると同じ種類に

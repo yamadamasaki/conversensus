@@ -1,3 +1,4 @@
+import type { TemplateSeed } from '@conversensus/shared';
 /**
  * 登録された module と、「この node に今使える操作」(計画 node-actions-request-module.md N1)
  *
@@ -62,6 +63,8 @@ export type NodeActionRegistry = {
   detectNotices: (input: NoticeDetectInput) => ArrivedNotice[];
   /** module の知らせの宣言 */
   noticeSource: (moduleId: string) => NoticeSource | undefined;
+  /** module が出す template graph の種 (登録の順) */
+  readonly seeds: readonly TemplateSeed[];
 };
 
 export const actionKey = (moduleId: string, actionId: string): string =>
@@ -132,6 +135,7 @@ export function createNodeActionRegistry(
           : [],
       ),
     noticeSource: (moduleId) => modules.find((m) => m.id === moduleId)?.notices,
+    seeds: modules.flatMap((m) => m.seeds ?? []),
   };
 }
 

@@ -303,6 +303,23 @@ describe('引数の確かめ', () => {
   });
 });
 
+describe('種', () => {
+  test('module の種を登録の順に並べる (種を持たない module は何も足さない)', () => {
+    const seed = (id: string) =>
+      ({ template: { id, name: id, nodeKinds: [], edgeKinds: [] } }) as never;
+    const registry = createNodeActionRegistry([
+      { id: 'a', actions: [], seeds: [seed('a1'), seed('a2')] },
+      { id: 'none', actions: [] },
+      { id: 'b', actions: [], seeds: [seed('b1')] },
+    ]);
+    expect(registry.seeds.map((s) => String(s.template.id))).toEqual([
+      'a1',
+      'a2',
+      'b1',
+    ]);
+  });
+});
+
 describe('知らせ', () => {
   const input = {
     fileId: '11111111-1111-4111-8111-111111111111' as never,

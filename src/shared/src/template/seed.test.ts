@@ -2,7 +2,8 @@ import { describe, expect, test } from 'bun:test';
 import fc from 'fast-check';
 import type { Sheet, SheetId } from '../schemas';
 import { templateFromSheet, templateIdOf } from './fromSheet';
-import { SEED_PLACEMENTS, SEED_TEMPLATES } from './registry';
+import { CORE_SEEDS } from './registry';
+import { REQUEST_SEED } from './request';
 import { templateGraphOf } from './seed';
 import { TOULMIN_PLACEMENT, TOULMIN_TEMPLATE } from './toulmin';
 import { ANY_NODE_KIND, type Template, TemplateSchema } from './types';
@@ -126,11 +127,12 @@ describe('templateGraphOf: 例', () => {
   });
 
   test('すべての種は schema を通る template graph になる (置き場所は重ならない)', () => {
-    for (const seed of SEED_TEMPLATES) {
+    // 依頼・相談の種は依頼の module が出すが、表はまだ shared にある (計画 node-actions-request-module.md B5 で移す)
+    for (const seed of [...CORE_SEEDS, REQUEST_SEED]) {
       const { layouts } = templateGraphOf(
-        seed,
+        seed.template,
         idSource(),
-        SEED_PLACEMENTS[seed.id],
+        seed.placement,
       );
       const spots = new Set(layouts.map((l) => `${l.x},${l.y}`));
       expect(spots.size).toBe(layouts.length);
