@@ -32,6 +32,7 @@ import {
   sendRequest,
   setAddressee,
 } from './requestEvents';
+import { requestResident } from './requestResident';
 
 /**
  * 自分宛ての未回答の依頼。**自分が送ったものは除く** — 宛先が不特定なら自分も宛先に入るが、自分の依頼に
@@ -94,6 +95,8 @@ export const REQUEST_HEADLESS_MODULE: HeadlessModule = {
   id: 'request',
   instructions: INSTRUCTIONS,
   annotateNode: requestNote,
+  // 常駐の agent: 送られた依頼に言語モデルを起動する (段 5)。requestResident.ts とは互いに import するので、呼ぶときに引く
+  resident: (ctx) => requestResident(ctx),
   registerTools: ({ server, headless, write, guarded, fileIdOf, where }) => {
     const target = {
       ...where,

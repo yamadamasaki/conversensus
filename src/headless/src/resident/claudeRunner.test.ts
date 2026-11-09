@@ -8,24 +8,17 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { FileId, NodeId, SheetId } from '@conversensus/shared';
+import type { AgentTask } from './claudeRunner';
 import {
   AgentRunError,
   claudeArgs,
   claudeRunner,
   MCP_SERVER_NAME,
-  promptFor,
   writeMcpConfig,
 } from './claudeRunner';
-import type { RequestJob } from './dispatch';
 
-const JOB: RequestJob = {
-  fileId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' as FileId,
-  sheetId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' as SheetId,
-  nodeId: '11111111-1111-4111-8111-111111111111' as NodeId,
-  sent: 2,
-  content: '要約して',
-};
+/** 頼む仕事 (prompt は module が決める。依頼の prompt は依頼の module の試験が見る) */
+const TASK: AgentTask = { label: '依頼 x', prompt: 'この依頼に答えて' };
 const FAKE_CLAUDE = join(import.meta.dir, '..', 'testing', 'fakeClaude.ts');
 
 let dir: string;
@@ -40,7 +33,7 @@ afterEach(() => {
 const after = (args: string[], flag: string) => args[args.indexOf(flag) + 1];
 
 describe('claudeArgs (段 5 S5)', () => {
-  const args = claudeArgs(JOB, { mcpConfigPath: '/x/mcp.json' });
+  const args = claudeArgs(TASK, { mcpConfigPath: '/x/mcp.json' });
 
   it('🔴 使わせる道具を conversensus の MCP だけに絞る (完了基準 4)', () => {
     expect(after(args, '--tools')).toBe('');
@@ -50,26 +43,14 @@ describe('claudeArgs (段 5 S5)', () => {
     expect(after(args, '--permission-mode')).toBe('dontAsk');
   });
 
-  it('prompt は依頼の場所と回数と本文を持ち、MCP で答えるよう求める', () => {
-    const prompt = after(args, '-p') ?? '';
-    for (const part of [
-      JOB.fileId,
-      JOB.sheetId,
-      JOB.nodeId,
-      '2 回目',
-      '要約して',
-    ]) {
-      expect(prompt).toContain(part);
-    }
-    expect(prompt).toContain('read_file');
-    expect(prompt).toContain('answer_request');
-    expect(prompt).toBe(promptFor(JOB));
+  it('module が決めた prompt をそのまま -p に渡す', () => {
+    expect(after(args, '-p')).toBe(TASK.prompt);
   });
 
   it('operator の指示とモデルは、あるときだけ渡す', () => {
     expect(args).not.toContain('--append-system-prompt');
     expect(args).not.toContain('--model');
-    const more = claudeArgs(JOB, {
+    const more = claudeArgs(TASK, {
       mcpConfigPath: '/x/mcp.json',
       instructions: '丁寧に答える',
       model: 'sonnet',
@@ -119,10 +100,10 @@ describe('claudeRunner', () => {
   it('組み立てた引数で、置き場所を作業 directory にして起動し、出力を渡す', async () => {
     const out = join(dir, 'out.json');
     const outputs: string[] = [];
-    await runner({ out }, undefined, outputs).run(JOB);
+    await runner({ out }, undefined, outputs).run(TASK);
     const seen = JSON.parse(readFileSync(out, 'utf8'));
     expect(seen.argv).toEqual(
-      claudeArgs(JOB, { mcpConfigPath: join(dir, 'mcp.json') }),
+      claudeArgs(TASK, { mcpConfigPath: join(dir, 'mcp.json') }),
     );
     // macOS の tmpdir は /private を前に付けた実体を指す
     expect(seen.cwd.endsWith(dir.replace(/^\/private/, ''))).toBe(true);
@@ -130,13 +111,13 @@ describe('claudeRunner', () => {
   });
 
   it('終了コードが 0 でなければ AgentRunError (理由に stderr)', async () => {
-    const run = runner({ mode: 'fail' }).run(JOB);
+    const run = runner({ mode: 'fail' }).run(TASK);
     await expect(run).rejects.toBeInstanceOf(AgentRunError);
     await expect(run).rejects.toThrow('fake claude が失敗した');
   });
 
   it('🔴 時間を過ぎたら止めて AgentRunError', async () => {
-    await expect(runner({ mode: 'hang' }, 300).run(JOB)).rejects.toThrow(
+    await expect(runner({ mode: 'hang' }, 300).run(TASK)).rejects.toThrow(
       '時間切れ',
     );
   });

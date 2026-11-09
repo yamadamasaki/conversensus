@@ -32,8 +32,11 @@ export type RequestJob = {
   content: string;
 };
 
-/** 言語モデルを起動する口 (既定は `claude -p`、S5。試験では偽物) */
-export interface AgentRunner {
+/**
+ * 依頼 1 つに言語モデルを起動する口。常駐の入口では headless の汎用の起動 (`claude -p`) に prompt を渡す
+ * (`requestResident.ts`)。試験では偽物
+ */
+export interface JobRunner {
   run(job: RequestJob): Promise<void>;
 }
 
@@ -46,7 +49,7 @@ export interface AttemptStore {
 export type DispatcherDeps = {
   /** その File の、今答えるべき依頼 (手元の正典から) */
   requestsOf: (fileId: FileId) => RequestJob[];
-  runner: AgentRunner;
+  runner: JobRunner;
   attempts: AttemptStore;
   onError?: (job: RequestJob, error: unknown) => void;
 };

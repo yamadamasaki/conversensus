@@ -1,9 +1,11 @@
-# claudeRunner.test.ts — 依頼ごとに `claude -p` を起動する (agent 段 5 S5)
+# claudeRunner.test.ts — 仕事ごとに `claude -p` を起動する (agent 段 5 S5)
 
 ## 何を
 
-常駐の agent が依頼 1 つに `claude -p` を 1 回起動するときの、**引数** (使わせる道具・MCP の設定・prompt・指示)、
-**MCP の設定 file**、**起動の結果** (成功・失敗・時間切れ) を見る。
+常駐の agent が仕事 1 つ (依頼に答える、など) に `claude -p` を 1 回起動するときの、**引数** (使わせる道具・
+MCP の設定・prompt・指示)、**MCP の設定 file**、**起動の結果** (成功・失敗・時間切れ) を見る。何を頼むか (prompt) は
+module が決める (`AgentTask`、計画 node-actions-request-module.md B4)。依頼の prompt は依頼の module の
+`requestResident.test.ts` が見る。
 
 ## なぜ
 
@@ -21,7 +23,7 @@
 
 - 🔴 使わせる道具を絞る: 組み込みの道具なし (`--tools ""`)、conversensus の MCP だけ (`--strict-mcp-config`)、
   許すのは `mcp__conversensus`、他は尋ねずに断る (`dontAsk`)
-- prompt は依頼の File・Sheet・node・回数・本文を持ち、`read_file` で読んで `answer_request` で答えるよう求める
+- module が決めた prompt をそのまま `-p` に渡す
 - operator の指示とモデルは、あるときだけ渡す
 - 🔴 MCP の設定 file は URL と token を持ち、持ち主だけが読める (既にある file も絞り直す — `writeFileSync` の
   `mode` は新しい file にしか効かない)

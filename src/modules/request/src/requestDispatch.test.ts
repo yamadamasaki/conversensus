@@ -2,15 +2,15 @@ import { describe, expect, it } from 'bun:test';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { FileStorage } from '@conversensus/headless/src/fileStorage';
 import type { FileId, NodeId, SheetId } from '@conversensus/shared';
 import fc from 'fast-check';
-import { FileStorage } from '../fileStorage';
 import {
   type AttemptStore,
   createDispatcher,
   type RequestJob,
   storageAttempts,
-} from './dispatch';
+} from './requestDispatch';
 
 const FILE = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' as FileId;
 const SHEET = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' as SheetId;

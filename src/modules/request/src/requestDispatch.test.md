@@ -1,4 +1,4 @@
-# dispatch.test.ts — 依頼を見つけて言語モデルを起動する (agent 段 5 S3)
+# requestDispatch.test.ts — 依頼を見つけて言語モデルを起動する (agent 段 5 S3)
 
 ## 何を
 
@@ -37,3 +37,6 @@
 - 各 step の後に列を待つか待たないかを引く。待たないと、回している最中の `offer` が試される
 - 「高々 1 回」だけでは、何も起動しない実装も通る。**取り残さない**を一緒に述べて初めて意味がある。
   取り残しの反例は、この後半が見つけた
+
+もとは `src/headless/src/resident/dispatch.test.ts` にあった。依頼に固有なので、依頼を core から module へ切り出したとき
+(計画 node-actions-request-module.md B4) に依頼の module へ移した。起動の口は依頼を直接受ける `JobRunner` である。

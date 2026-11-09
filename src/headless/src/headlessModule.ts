@@ -11,6 +11,7 @@ import type { FileId, GraphEdge, GraphNode } from '@conversensus/shared';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { z } from 'zod';
 import type { Headless } from './headless';
+import type { AgentRunner } from './resident/claudeRunner';
 import type { ToolContext } from './tools';
 
 /** MCP の道具が返すもの */
@@ -38,6 +39,22 @@ export type McpKit = {
   where: { fileId: z.ZodString; sheetId: z.ZodString };
 };
 
+/** 常駐の agent が同期のたびに知らせる相手 (依頼を見つけて言語モデルを起動する、など) */
+export type ResidentWorker = {
+  /** File を同期し終えた */
+  offer: (fileId: FileId) => void;
+  /** 今ある仕事を終えるまで待つ (試験用) */
+  idle: () => Promise<void>;
+};
+
+/** module が常駐の振る舞いを作るときに渡すもの */
+export type ResidentContext = {
+  headless: Headless;
+  /** 言語モデルを起動する口 (既定は `claude -p`) */
+  runner: AgentRunner;
+  log: (message: string) => void;
+};
+
 export type HeadlessModule = {
   id: string;
   /** MCP の `instructions` に足す説明 (agent に道具の組み合わせ方を伝える) */
@@ -49,4 +66,6 @@ export type HeadlessModule = {
    * 導くものを agent に読ませる
    */
   annotateNode?: (node: GraphNode, edges: readonly GraphEdge[]) => string[];
+  /** 常駐の agent の振る舞い (計画 node-actions-request-module.md B4)。無ければ常駐しても何もしない */
+  resident?: (ctx: ResidentContext) => ResidentWorker;
 };

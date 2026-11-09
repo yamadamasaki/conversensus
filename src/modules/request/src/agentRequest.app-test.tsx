@@ -23,13 +23,14 @@ import {
 } from '@conversensus/client/src/testing/appWorld';
 import type { FakeAccount } from '@conversensus/client/src/testing/fakePds';
 import { Headless } from '@conversensus/headless/src/headless';
-import type { RequestJob } from '@conversensus/headless/src/resident/dispatch';
-import { startResident } from '@conversensus/headless/src/resident/resident';
+import { startResident } from '@conversensus/headless/src/resident/startResident';
 import { connectMcp, idIn } from '@conversensus/headless/src/testing/mcpClient';
 import type { Did } from '@conversensus/shared';
 import { cleanup, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type { RequestJob } from './requestDispatch';
 import { REQUEST_HEADLESS_MODULE } from './requestHeadless';
+import { createRequestWorker } from './requestResident';
 import {
   addRequestSheet,
   answerSelected,
@@ -252,23 +253,31 @@ describe('App 結合: 依頼を人間と headless の agent の間で (agent 段
           pollIntervalMs: 60 * 60_000,
           livePollIntervalMs: 60 * 60_000,
           log: () => {},
-          runner: {
-            run: async (job) => {
-              jobs.push(job);
-              const mcp = await connectMcp(agent, [REQUEST_HEADLESS_MODULE]);
-              try {
-                const result = await mcp.call('answer_request', {
-                  fileId: job.fileId,
-                  sheetId: job.sheetId,
-                  nodeId: job.nodeId,
-                  content: '常駐の agent の答え',
-                });
-                expect(result.isError).toBe(false);
-              } finally {
-                await mcp.close();
-              }
-            },
-          },
+          workers: [
+            createRequestWorker({
+              headless: agent,
+              log: () => {},
+              runner: {
+                run: async (job) => {
+                  jobs.push(job);
+                  const mcp = await connectMcp(agent, [
+                    REQUEST_HEADLESS_MODULE,
+                  ]);
+                  try {
+                    const result = await mcp.call('answer_request', {
+                      fileId: job.fileId,
+                      sheetId: job.sheetId,
+                      nodeId: job.nodeId,
+                      content: '常駐の agent の答え',
+                    });
+                    expect(result.isError).toBe(false);
+                  } finally {
+                    await mcp.close();
+                  }
+                },
+              },
+            }),
+          ],
         });
         await resident.idle();
         resident.stop();
