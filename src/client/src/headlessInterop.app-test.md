@@ -35,3 +35,9 @@ App 結合の世界 (`testing/appWorld.ts`) の中で、端末の切り替えと
   見つけて `answer_request` で答え、続けて依頼の種類 (encoding の template の注釈から id を引く) で node を作り、
   宛先に alice を置いて送る → alice が同期すると agent の答えが描かれ、右下に「agent.test から依頼が届きました」
   が出る。開いて区画で答える → agent が読むと、**2 つの依頼がどちらも回答あり**
+- 🔴 **常駐の agent** (agent 段 5 完了基準 5): alice (App) が依頼を作り、宛先に agent を選んで送る →
+  **誰も MCP を操作せず**、常駐の agent (`startResident`) を始めるだけ。常駐は同期して依頼を見つけ、言語モデルを
+  1 回起動する → alice が同期すると答えが描かれ、依頼の印が回答あり。
+  言語モデルは偽物で、本物の `claude -p` と同じく MCP の道具 (`answer_request`) で答える。HTTP の口は通さない
+  (happy-dom の `Response` では `Bun.serve` が答えられない — `resident/httpMcp.test.md`)。流れの合図も
+  通さず、始めたときの同期で見つける (合図は `resident/watch.test.ts`・`liveSocket.test.ts` が見る)

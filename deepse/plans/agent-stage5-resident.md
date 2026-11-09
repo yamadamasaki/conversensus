@@ -66,5 +66,5 @@ agent が**常駐**し、自分宛てに送られた依頼に、人が横にい�
 | S3 | 済 | `resident/dispatch.ts`。(File・node・送った回数) で数え、**起動の前に印**を置く (落ちても 2 度答えない)。印は node ごとの最後の回数を `localStorage` (= `storage.json`) に。1 つずつ、起動の直前に確かめ直す。性質が「回し終える間際の offer の取り残し」を見つけた |
 | S4 | 済 | `resident/httpMcp.ts` (127.0.0.1・token・要求ごとに stateless)。**happy-dom が `Response` を差し替え、`Bun.serve` が読めない**ので、試験は DOM の無い子のプロセスで走らせる (`httpMcp.domfree-test.ts`)。`headlessWorld` は 127.0.0.1 を本物に通す |
 | S5 | 済 | `resident/claudeRunner.ts`。組み込みの道具なし (`--tools ""`)・`--strict-mcp-config`・`--allowedTools mcp__conversensus`・`--permission-mode dontAsk`・`--no-session-persistence`。MCP の設定は持ち主だけが読める file (token を `ps` に出さない)。作業 directory は置き場所 (repo の CLAUDE.md を読ませない)。時間切れで止める。試験は偽の `claude` (`testing/fakeClaude.ts`) |
-| S6 | — | |
+| S6 | 済 | `resident/resident.ts` (`startResident` と入口)。見つけ直しのたびにログインを確かめる。App 結合: alice が画面で送る → 常駐 (偽の言語モデルが MCP の道具で答える) → alice の画面で回答あり (**完了基準 5**) |
 | S7 | — | |

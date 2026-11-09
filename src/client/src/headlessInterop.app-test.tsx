@@ -12,6 +12,8 @@ import {
 } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Headless } from '../../headless/src/headless';
+import type { RequestJob } from '../../headless/src/resident/dispatch';
+import { startResident } from '../../headless/src/resident/resident';
 import {
   connectMcp,
   idIn,
@@ -359,5 +361,95 @@ describe('App 結合: ブラウザの人間と headless の agent (agent 段 2 H
         await mcp.close();
       }
     });
+  }, 60_000);
+  test('🔴 常駐の agent: alice が画面で送ると、常駐の agent が見つけて答え、alice の画面で回答あり (agent 段 5 完了基準 5)', async () => {
+    const panel = () => screen.getByRole('region', { name: '依頼' });
+    const badge = () =>
+      document
+        .querySelector('.react-flow__node [data-request-status]')
+        ?.getAttribute('data-request-status');
+
+    // alice (App): File を作り agent を招く。agent が参加する
+    await world.activate('alice');
+    render(<App />);
+    let user = userEvent.setup();
+    await login(user, ALICE);
+    await createFile(user, FILE_NAME);
+    const code = await invite(user, AGENT);
+    await syncNow(user);
+    await asAgent(async (agent) => {
+      await agent.signIn(AGENT.handle, AGENT.password);
+      await agent.accept(code);
+    });
+
+    // alice (App): 依頼を作り、宛先に agent を選んで送る
+    await world.activate('alice');
+    render(<App />);
+    user = userEvent.setup();
+    await waitForResumedSession(ALICE);
+    await openFileNamed(user, FILE_NAME);
+    await addRequestSheet(user);
+    await openRightSidebar(user);
+    await addNode(user, '依頼');
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+    selectFirstNode();
+    await user.selectOptions(
+      await within(panel()).findByRole(
+        'combobox',
+        { name: '宛先を足す' },
+        WIRING_TIMEOUT,
+      ),
+      AGENT.did,
+    );
+    await user.click(
+      await within(panel()).findByRole('button', { name: '送る' }),
+    );
+    await waitFor(() => expect(badge()).toBe('sent'), WIRING_TIMEOUT);
+    await syncNow(user);
+
+    // 常駐の agent: 誰も MCP を操作しない。始めると同期して依頼を見つけ、言語モデル (偽物) を起動する。
+    // 偽物は本物の claude -p と同じく MCP の道具で答える
+    const jobs: RequestJob[] = [];
+    await asAgent(async (agent) => {
+      const resident = await startResident({
+        headless: agent,
+        handle: AGENT.handle,
+        appPassword: AGENT.password,
+        live: null,
+        pollIntervalMs: 60 * 60_000,
+        livePollIntervalMs: 60 * 60_000,
+        log: () => {},
+        runner: {
+          run: async (job) => {
+            jobs.push(job);
+            const mcp = await connectMcp(agent);
+            try {
+              const result = await mcp.call('answer_request', {
+                fileId: job.fileId,
+                sheetId: job.sheetId,
+                nodeId: job.nodeId,
+                content: '常駐の agent の答え',
+              });
+              expect(result.isError).toBe(false);
+            } finally {
+              await mcp.close();
+            }
+          },
+        },
+      });
+      await resident.idle();
+      resident.stop();
+    });
+    expect(jobs).toHaveLength(1);
+
+    // alice (App): 同期すると答えが描かれ、依頼は回答あり
+    await world.activate('alice');
+    render(<App />);
+    user = userEvent.setup();
+    await waitForResumedSession(ALICE);
+    await openFileNamed(user, FILE_NAME);
+    await syncNow(user);
+    await screen.findByText('常駐の agent の答え', {}, WIRING_TIMEOUT);
+    await waitFor(() => expect(badge()).toBe('answered'), WIRING_TIMEOUT);
   }, 60_000);
 });
