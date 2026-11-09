@@ -1,15 +1,13 @@
 import { describe, expect, test } from 'bun:test';
 import { createNodeActionRegistry } from '@conversensus/client/src/nodeActions/registry';
-import {
-  ADDRESSEE_PROPERTY,
-  type Batch,
-  CLOSED_PROPERTY,
-  type FileId,
-  type Op,
-  SENT_PROPERTY,
-} from '@conversensus/shared';
+import type { Batch, FileId, Op } from '@conversensus/shared';
 import { detectArrivedRequests, senderOf } from './requestArrival';
 import { REQUEST_MODULE } from './requestModule';
+import {
+  ADDRESSEE_PROPERTY,
+  CLOSED_PROPERTY,
+  SENT_PROPERTY,
+} from './requestNode';
 
 const FILE = '11111111-1111-4111-8111-111111111111' as FileId;
 const SHEET = '22222222-2222-4222-8222-222222222222';

@@ -10,18 +10,11 @@ import type { Headless } from '@conversensus/headless/src/headless';
 import type { HeadlessModule } from '@conversensus/headless/src/headlessModule';
 import { type ToolContext, ToolError } from '@conversensus/headless/src/tools';
 import {
-  addresseeOf,
   type Did,
   type FileId,
   type GraphEdge,
   type GraphNode,
-  isAddressedTo,
   projectFile,
-  type RequestEntry,
-  type RequestStatus,
-  requestStatus,
-  requestsInFile,
-  sentCountOf,
 } from '@conversensus/shared';
 import { z } from 'zod';
 import { senderOf } from './requestArrival';
@@ -32,6 +25,15 @@ import {
   sendRequest,
   setAddressee,
 } from './requestEvents';
+import {
+  addresseeOf,
+  isAddressedTo,
+  type RequestEntry,
+  type RequestStatus,
+  requestStatus,
+  requestsInFile,
+  sentCountOf,
+} from './requestNode';
 import { requestResident } from './requestResident';
 
 /**

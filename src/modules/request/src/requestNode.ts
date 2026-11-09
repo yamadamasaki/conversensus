@@ -19,9 +19,16 @@
  * (知らない op を読み飛ばすのと同じ構え、step3 FPR 基準 5)。
  */
 
-import type { Did, GraphEdge, GraphFile, GraphNode, Sheet } from '../schemas';
-import { SYSTEM_PROPERTY_PREFIX } from './properties';
-import { sheetKindOf, TEMPLATE_SHEET_KIND } from './sheetKind';
+import {
+  type Did,
+  type GraphEdge,
+  type GraphFile,
+  type GraphNode,
+  type Sheet,
+  SYSTEM_PROPERTY_PREFIX,
+  sheetKindOf,
+  TEMPLATE_SHEET_KIND,
+} from '@conversensus/shared';
 
 /**
  * 依頼の module の名前空間。本体に同梱する module なので system の名前 (`app.conversensus.`) の下に置く

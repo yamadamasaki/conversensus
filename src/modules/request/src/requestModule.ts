@@ -26,17 +26,7 @@ import type {
   NodeBadge,
   NodeModule,
 } from '@conversensus/client/src/nodeActions/nodeAction';
-import {
-  ANSWER_TARGET_LINKED_NODE,
-  ANSWER_TARGET_PROPERTY,
-  addresseeOf,
-  type Did,
-  isRequestNode,
-  type RequestStatus,
-  requestStatus,
-  sentCountOf,
-} from '@conversensus/shared';
-import { REQUEST_SEED } from '@conversensus/shared/src/template/request';
+import type { Did } from '@conversensus/shared';
 import { detectArrivedRequests } from './requestArrival';
 import {
   answerRequest,
@@ -44,6 +34,16 @@ import {
   reopenRequest,
   sendRequest,
 } from './requestEvents';
+import {
+  ANSWER_TARGET_LINKED_NODE,
+  ANSWER_TARGET_PROPERTY,
+  addresseeOf,
+  isRequestNode,
+  type RequestStatus,
+  requestStatus,
+  sentCountOf,
+} from './requestNode';
+import { REQUEST_SEED } from './requestTemplate';
 
 /** module の id。操作の鍵は `request/<操作>` になる */
 export const REQUEST_MODULE_ID = 'request';

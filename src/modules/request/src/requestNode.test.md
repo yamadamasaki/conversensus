@@ -1,4 +1,4 @@
-# request.test.ts — 応答を求める node のテスト仕様
+# requestNode.test.ts — 応答を求める node のテスト仕様
 
 ## 何を
 
@@ -30,3 +30,5 @@ agent が答える、が起こる。値は op-log から来るので、形の違
   切り出す計画 (node-actions-request-module.md N0) で core の名前から移した
 - **`requestsInFile`**: 状態つきで並べ、**template graph の sheet は除く** (依頼の種類の node は既定値として
   `addressee` を持つが、それは型の定義であって依頼ではない — 計画 F3)
+
+もとは shared の `events/request.test.ts`。依頼を core から module へ切り出したとき (計画 node-actions-request-module.md B5) に移した。

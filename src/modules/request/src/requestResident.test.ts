@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Headless } from '@conversensus/headless/src/headless';
 import { startResident } from '@conversensus/headless/src/resident/startResident';
-import { requestAdded } from '@conversensus/headless/src/testing/events';
 import {
   AGENT,
   ALICE,
@@ -9,16 +8,13 @@ import {
   type HeadlessWorld,
 } from '@conversensus/headless/src/testing/headlessWorld';
 import { connectMcp } from '@conversensus/headless/src/testing/mcpClient';
-import {
-  type FileId,
-  type NodeId,
-  requestStatus,
-  type SheetId,
-} from '@conversensus/shared';
+import type { FileId, NodeId, SheetId } from '@conversensus/shared';
 import type { RequestJob } from './requestDispatch';
 import { sendRequest } from './requestEvents';
 import { REQUEST_HEADLESS_MODULE } from './requestHeadless';
+import { requestStatus } from './requestNode';
 import { createRequestWorker, promptFor } from './requestResident';
+import { requestAdded } from './testing/requestNodes';
 
 /** 試験の間には来ないポーリング (同期は始めたときの 1 回だけ) */
 const NEVER = 60 * 60_000;

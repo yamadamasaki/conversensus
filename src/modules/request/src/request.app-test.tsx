@@ -17,15 +17,10 @@ import {
   createAppWorld,
 } from '@conversensus/client/src/testing/appWorld';
 import type { FakeAccount } from '@conversensus/client/src/testing/fakePds';
-import {
-  ANSWERS_PROPERTY,
-  type Did,
-  type FileId,
-  projectFile,
-  requestsInFile,
-} from '@conversensus/shared';
+import { type Did, type FileId, projectFile } from '@conversensus/shared';
 import { cleanup, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { ANSWERS_PROPERTY, requestsInFile } from './requestNode';
 import {
   addRequestSheet,
   answerSelected,

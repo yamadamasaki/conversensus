@@ -1,11 +1,14 @@
 import {
+  type KindPlacement,
+  type Template,
+  TemplateSchema,
+  type TemplateSeed,
+} from '@conversensus/shared';
+import {
   ADDRESSEE_PROPERTY,
   ANSWER_TARGET_LINKED_NODE,
   ANSWER_TARGET_PROPERTY,
-} from '../events/request';
-import type { KindPlacement } from './seed';
-import type { TemplateSeed } from './seedLocale';
-import { type Template, TemplateSchema } from './types';
+} from './requestNode';
 
 /**
  * 依頼・相談の template の種 (agent 段 4 R2, 設計 agent-actor.md D6)。

@@ -12,12 +12,7 @@ import type {
   ResidentContext,
   ResidentWorker,
 } from '@conversensus/headless/src/headlessModule';
-import {
-  type FileId,
-  type NodeId,
-  type SheetId,
-  sentCountOf,
-} from '@conversensus/shared';
+import type { FileId, NodeId, SheetId } from '@conversensus/shared';
 import {
   createDispatcher,
   type JobRunner,
@@ -25,6 +20,7 @@ import {
   storageAttempts,
 } from './requestDispatch';
 import { requestsForMe } from './requestHeadless';
+import { sentCountOf } from './requestNode';
 
 /** 依頼 1 つへの prompt */
 export function promptFor(job: RequestJob): string {

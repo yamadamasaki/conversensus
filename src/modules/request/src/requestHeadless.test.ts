@@ -1,10 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { encodeFile } from '@conversensus/headless/src/encoding';
 import { Headless } from '@conversensus/headless/src/headless';
-import {
-  nodeAdded,
-  requestAdded,
-} from '@conversensus/headless/src/testing/events';
+import { nodeAdded } from '@conversensus/headless/src/testing/events';
 import {
   AGENT,
   ALICE,
@@ -16,9 +13,10 @@ import {
   type McpTestClient,
 } from '@conversensus/headless/src/testing/mcpClient';
 import type { FileId, GraphFile, SheetId } from '@conversensus/shared';
-import { requestStatus } from '@conversensus/shared';
 import { sendRequest } from './requestEvents';
 import { REQUEST_HEADLESS_MODULE, requestNote } from './requestHeadless';
+import { requestStatus } from './requestNode';
+import { requestAdded } from './testing/requestNodes';
 
 let world: HeadlessWorld;
 let current: Headless | null = null;
