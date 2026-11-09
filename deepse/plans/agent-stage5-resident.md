@@ -64,7 +64,7 @@ agent が**常駐**し、自分宛てに送られた依頼に、人が横にい�
 | S1 | 済 | `Headless.ensureSignedIn` (生きていれば何もしない・失効していれば入り直す)。同じ DID で入り直すときは接続を保つ (発番器を作り直さない)。**`login` が前のログインの結果を持ち続け、入り直しが何もしていなかった**のを `resumeSession` で捨てるように直した。偽の PDS に `expireSessions` |
 | S2 | 済 | `resident/watch.ts` (契機だけを持ち、同期は `Headless.sync`)。`FileSession.start` は `document`・`window` を読むので使わない。知らない File の合図とポーリングで見つけ直す (新しく参加した File)。流れの口は `resident/liveSocket.ts` (いつも繋ぐ)。試験のため headless に `cborg` (dev) |
 | S3 | 済 | `resident/dispatch.ts`。(File・node・送った回数) で数え、**起動の前に印**を置く (落ちても 2 度答えない)。印は node ごとの最後の回数を `localStorage` (= `storage.json`) に。1 つずつ、起動の直前に確かめ直す。性質が「回し終える間際の offer の取り残し」を見つけた |
-| S4 | — | |
+| S4 | 済 | `resident/httpMcp.ts` (127.0.0.1・token・要求ごとに stateless)。**happy-dom が `Response` を差し替え、`Bun.serve` が読めない**ので、試験は DOM の無い子のプロセスで走らせる (`httpMcp.domfree-test.ts`)。`headlessWorld` は 127.0.0.1 を本物に通す |
 | S5 | — | |
 | S6 | — | |
 | S7 | — | |

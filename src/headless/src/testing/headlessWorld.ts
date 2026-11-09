@@ -20,6 +20,9 @@ import {
 import type { Did } from '@conversensus/shared';
 import type { HeadlessOptions } from '../headless';
 
+/** 手元のプロセスの口。偽の PDS ではない */
+const LOOPBACK_HOST = '127.0.0.1';
+
 /** 偽の PDS の origin (App 結合と同じ) */
 const PDS_ORIGIN = 'http://localhost:2583';
 
@@ -54,7 +57,10 @@ export function createHeadlessWorld(): HeadlessWorld {
   const realFetch = globalThis.fetch;
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = new Request(input, init);
-    if (pds.handles(new URL(request.url))) return pds.fetch(request);
+    const url = new URL(request.url);
+    if (pds.handles(url)) return pds.fetch(request);
+    // 常駐の agent が自分で出す MCP の口 (127.0.0.1、段 5 S4) は本物に通す
+    if (url.hostname === LOOPBACK_HOST) return realFetch(input, init);
     unhandled.push(request.url);
     return new Response('headlessWorld: unhandled', { status: 599 });
   }) as typeof fetch;

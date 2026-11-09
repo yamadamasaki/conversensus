@@ -6,6 +6,7 @@
  */
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { Headless } from '../headless';
 import { createMcpServer } from '../mcp';
@@ -25,6 +26,24 @@ export async function connectMcp(headless: Headless): Promise<McpTestClient> {
   await server.connect(serverSide);
   const client = new Client({ name: 'test', version: '0' });
   await client.connect(clientSide);
+  return wrap(client);
+}
+
+/** 常駐の agent が HTTP で出す MCP (段 5 S4) に、言語モデルと同じく URL と token でつなぐ */
+export async function connectMcpHttp(
+  url: string,
+  token: string,
+): Promise<McpTestClient> {
+  const client = new Client({ name: 'test', version: '0' });
+  await client.connect(
+    new StreamableHTTPClientTransport(new URL(url), {
+      requestInit: { headers: { authorization: `Bearer ${token}` } },
+    }),
+  );
+  return wrap(client);
+}
+
+function wrap(client: Client): McpTestClient {
   return {
     client,
     async call(name, args = {}) {
