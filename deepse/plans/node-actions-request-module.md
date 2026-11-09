@@ -203,7 +203,7 @@ C は連合やライブラリ化 (#310) の後に考える。第三者のコー�
 | | 状態 | メモ |
 | --- | --- | --- |
 | N0 | 済 | 設計 D6 (module が知る)・D7 (宛先などは「送る」の dialog で選ぶ)・D12 (ボタンは node のそばと右クリック) を改めた。名前を `app.conversensus.request.*` に移した (`REQUEST_PROPERTY_PREFIX`)。本体に同梱する module なので system の名前の下に置き、property の欄・検索・`set_property` からは見えないままにした。古い名前は読み替えない (データは開発用の PDS だけ) |
-| N1 | | |
+| N1 | 済 | `client/src/nodeActions/` (`nodeAction.ts` の型・`registry.ts`)。module は宣言と純粋な関数だけで、React を持たない。文言は言語ごとの `LocalizedText` を module が持つ。鍵は `<module>/<action>`。`runNodeAction` は直前に確かめ直し、引数を宣言どおりに確かめる (宣言に無い名前は断る)。module の関数が投げてもその操作・印を無いものとして扱い、画面を落とさない。置き場所は client (GraphEvent が client にあり、headless も client を読むため)。性質 3 つは、壊し方 2 つで落ちることを確かめた |
 | N2 | | |
 | N3 | | |
 | N4 | | |
