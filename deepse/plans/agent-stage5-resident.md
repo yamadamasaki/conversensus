@@ -62,7 +62,7 @@ agent が**常駐**し、自分宛てに送られた依頼に、人が横にい�
 | | 状態 | メモ |
 | --- | --- | --- |
 | S1 | 済 | `Headless.ensureSignedIn` (生きていれば何もしない・失効していれば入り直す)。同じ DID で入り直すときは接続を保つ (発番器を作り直さない)。**`login` が前のログインの結果を持ち続け、入り直しが何もしていなかった**のを `resumeSession` で捨てるように直した。偽の PDS に `expireSessions` |
-| S2 | — | |
+| S2 | 済 | `resident/watch.ts` (契機だけを持ち、同期は `Headless.sync`)。`FileSession.start` は `document`・`window` を読むので使わない。知らない File の合図とポーリングで見つけ直す (新しく参加した File)。流れの口は `resident/liveSocket.ts` (いつも繋ぐ)。試験のため headless に `cborg` (dev) |
 | S3 | — | |
 | S4 | — | |
 | S5 | — | |
