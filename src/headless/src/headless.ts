@@ -64,9 +64,9 @@ import {
   createRosterSource,
   type RosterSource,
 } from '@conversensus/client/src/sync/rosterSource';
-import { senderOf } from '@conversensus/request/src/requestArrival';
 import {
   type Actor,
+  type Batch,
   type BatchId,
   CausalClock,
   type Did,
@@ -74,21 +74,18 @@ import {
   type FileId,
   type GraphFile,
   type GraphFileListItem,
-  isAddressedTo,
   type JudgmentBatch,
   type JudgmentOp,
   LocalStore,
   METAGRAPH_SHEET_KIND,
   projectFile,
-  type RequestEntry,
-  requestsInFile,
   resolveTemplates,
   type SheetId,
   sheetKindOf,
 } from '@conversensus/shared';
 import { BunSqliteDriver } from '@conversensus/shared/src/store/bunSqliteDriver';
 import { lockDataDir } from './dataDirLock';
-import { encodeFile } from './encoding';
+import { type AnnotateNode, encodeFile } from './encoding';
 import { FileStorage } from './fileStorage';
 import { type ToolContext, ToolError } from './tools';
 
@@ -245,10 +242,12 @@ export class Headless {
    * File の trunk を、agent に読ませる完全な encoding で出す (設計 D4)。sheet に当たっている
    * template を引いて、種別の名前と説明を注釈に添える
    */
-  encode(fileId: FileId): string {
+  encode(fileId: FileId, annotate?: AnnotateNode): string {
     const trunk = this.store.events.getBatches(fileId);
-    return encodeFile(projectFile(trunk, fileId), (sheet) =>
-      resolveTemplates(sheet.templateIds, trunk, fileId),
+    return encodeFile(
+      projectFile(trunk, fileId),
+      (sheet) => resolveTemplates(sheet.templateIds, trunk, fileId),
+      annotate,
     );
   }
 
@@ -263,19 +262,9 @@ export class Headless {
     return dids.map((did) => ({ did, handle: labelOf(did) }));
   }
 
-  /**
-   * 自分宛ての未回答の依頼 (agent 段 4 R6)。**自分が送ったものは除く** — 宛先が不特定なら自分も
-   * 宛先に入るが、自分の依頼に自分で答えることはない。手元の正典から読む (最新にするなら先に `sync`)
-   */
-  requestsForMe(fileId: FileId): (RequestEntry & { from: Did | undefined })[] {
-    const { did } = this.requireConnection();
-    const batches = this.store.events.getBatches(fileId);
-    return requestsInFile(projectFile(batches, fileId)).flatMap((r) => {
-      const from = senderOf(batches, r.node.id);
-      return r.status === 'sent' && isAddressedTo(r.node, did) && from !== did
-        ? [{ ...r, from }]
-        : [];
-    });
+  /** File の trunk の op-log (手元の正典)。module が自分の規則で読む (依頼を送った人など) */
+  batches(fileId: FileId): readonly Batch[] {
+    return this.store.events.getBatches(fileId);
   }
 
   /**

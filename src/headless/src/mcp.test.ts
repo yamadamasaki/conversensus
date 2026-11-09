@@ -1,10 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { sendRequest } from '@conversensus/request/src/requestEvents';
 import type { FileId, SheetId } from '@conversensus/shared';
-import { requestStatus } from '@conversensus/shared';
 import { Headless } from './headless';
 import { parseServerArgs } from './mcp';
-import { nodeAdded, requestAdded } from './testing/events';
+import { nodeAdded } from './testing/events';
 import {
   AGENT,
   ALICE,
@@ -74,19 +72,13 @@ afterEach(async () => {
 });
 
 describe('MCP server (M3)', () => {
-  it('道具の一覧に、読む道具と書く道具が並ぶ', async () => {
+  it('道具の一覧に、読む道具と書く道具が並ぶ (module を渡さなければ module の道具は無い)', async () => {
     const c = await connectAgent();
     const names = (await c.client.listTools()).tools.map((t) => t.name).sort();
     expect(names).toEqual(
       [
         'accept_invitation',
-        'answer_request',
-        'close_request',
         'list_participants',
-        'list_requests',
-        'reopen_request',
-        'send_request',
-        'set_addressee',
         'add_edge',
         'add_node',
         'list_files',
@@ -234,114 +226,5 @@ describe('parseServerArgs', () => {
   it('知らない引数・値の無い引数は断る', () => {
     expect(() => parseServerArgs(['--data'])).toThrow(/値が無い/);
     expect(() => parseServerArgs(['login'])).toThrow(/知らない/);
-  });
-});
-
-describe('MCP: 依頼 (agent 段 4 R6)', () => {
-  /** alice が agent を招き、宛先 `addressee` の依頼を作って送る。agent は MCP で参加する */
-  async function aliceSendsRequest(addressee: string[]) {
-    const { fileId, sheetId, code } = await aliceInvitesAgent();
-    const alice = current as Headless;
-    const req = requestAdded('この章を要約して', addressee);
-    alice.record(fileId, sheetId, req.event);
-    alice.record(fileId, sheetId, sendRequest(req.node));
-    await alice.sync(fileId);
-    const c = await connectAgent();
-    await c.call('accept_invitation', { code });
-    return { c, fileId, sheetId, nodeId: req.nodeId };
-  }
-
-  it('🔴 自分宛ての依頼を list_requests で見つけ、answer_request で答えると、alice の手元で回答あり (完了基準 5)', async () => {
-    const { c, fileId, sheetId, nodeId } = await aliceSendsRequest([AGENT.did]);
-
-    const listed = (await c.call('list_requests')).text;
-    expect(listed).toContain(
-      `request ${nodeId} file ${fileId} sheet ${sheetId} (1 回目) from ${ALICE.did}`,
-    );
-    expect(listed).toContain('content "この章を要約して"');
-    expect((await c.call('read_file', { fileId })).text).toContain(
-      '# 応答を求める node: 送った・未回答 (1 回目)',
-    );
-
-    const answered = await c.call('answer_request', {
-      fileId,
-      sheetId,
-      nodeId,
-      content: '要約です',
-    });
-    expect(answered.isError).toBe(false);
-    // 答えたら、もう未回答の一覧には出ない
-    expect((await c.call('list_requests', { fileId })).text).toBe(
-      '(自分宛ての未回答の依頼は無い)',
-    );
-
-    const alice = await as(aliceDir, null);
-    await alice.sync(fileId);
-    const sheet = alice.read(fileId).sheets.find((s) => s.id === sheetId);
-    const req = sheet?.nodes.find((n) => n.id === nodeId);
-    if (!sheet || !req) throw new Error('依頼が無い');
-    expect(requestStatus(req, sheet.edges)).toBe('answered');
-    expect(sheet.nodes.map((n) => n.content)).toContain('要約です');
-  });
-
-  it('宛先が不特定 (空) なら届く', async () => {
-    const { c } = await aliceSendsRequest([]);
-    expect((await c.call('list_requests')).text).toContain('この章を要約して');
-  });
-
-  it('他の人宛ての依頼は一覧に出ない', async () => {
-    const { c } = await aliceSendsRequest(['did:plc:someone-else']);
-    expect((await c.call('list_requests')).text).toBe(
-      '(自分宛ての未回答の依頼は無い)',
-    );
-  });
-
-  it('agent も依頼を送れる: 宛先を参加者から選び、送る。自分が送った依頼は自分の一覧に出ない', async () => {
-    const { c, fileId, sheetId, nodeId } = await aliceSendsRequest([]);
-    const participants = (await c.call('list_participants', { fileId })).text;
-    expect(participants).toContain(ALICE.did);
-
-    await c.call('set_addressee', {
-      fileId,
-      sheetId,
-      nodeId,
-      dids: [ALICE.did, AGENT.did],
-    });
-    expect(
-      (await c.call('send_request', { fileId, sheetId, nodeId })).isError,
-    ).toBe(false);
-    // 最後に送ったのは agent なので、宛先に自分が入っていても出さない
-    expect((await c.call('list_requests', { fileId })).text).toBe(
-      '(自分宛ての未回答の依頼は無い)',
-    );
-    expect((await c.call('read_file', { fileId })).text).toContain(
-      `# 応答を求める node: 送った・未回答 (2 回目)・宛先 ${ALICE.did}, ${AGENT.did}`,
-    );
-  });
-
-  it('閉じた依頼には答えられず、理由を返す。開き直せば答えられる', async () => {
-    const { c, fileId, sheetId, nodeId } = await aliceSendsRequest([AGENT.did]);
-    await c.call('close_request', { fileId, sheetId, nodeId });
-    const failed = await c.call('answer_request', {
-      fileId,
-      sheetId,
-      nodeId,
-      content: 'x',
-    });
-    expect(failed).toEqual({
-      isError: true,
-      text: '閉じた依頼には答えられない',
-    });
-    await c.call('reopen_request', { fileId, sheetId, nodeId });
-    expect(
-      (
-        await c.call('answer_request', {
-          fileId,
-          sheetId,
-          nodeId,
-          content: 'x',
-        })
-      ).isError,
-    ).toBe(false);
   });
 });

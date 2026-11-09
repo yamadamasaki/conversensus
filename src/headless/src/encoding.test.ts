@@ -365,38 +365,14 @@ describe('encodeFile', () => {
     );
   });
 
-  test('応答を求める node には、状態・回数・宛先を注釈する (情報は property と答えの edge にある)', () => {
-    const file = {
-      id: FILE,
-      name: 'f',
-      sheets: [
-        {
-          id: SHEET,
-          name: 's',
-          nodes: [
-            {
-              id: CLAIM,
-              content: '要約して',
-              properties: {
-                'app.conversensus.request.addressee': ['did:plc:agent'],
-                'app.conversensus.request.sent': 2,
-              },
-            },
-            { id: GROUND, content: '前の答え' },
-          ],
-          edges: [
-            {
-              id: EDGE,
-              source: CLAIM,
-              target: GROUND,
-              properties: { 'app.conversensus.request.answers': 1 },
-            },
-          ],
-        },
-      ],
-    } as unknown as GraphFile;
-    expect(encodeFile(file)).toContain(
-      '# 応答を求める node: 送った・未回答 (2 回目)・宛先 did:plc:agent',
-    );
+  test('module の注釈は node の行の直後に `# ` を付けて出す (注釈が無ければ何も足さない)', () => {
+    const annotate = (node: { id: string }) =>
+      node.id === CLAIM ? ['module の注釈'] : [];
+    const text = encodeFile(example, () => [], annotate);
+    const lines = text.split('\n');
+    const at = lines.findIndex((l) => l.trim() === `node ${CLAIM}`);
+    expect(lines[at + 1]?.trim()).toBe('# module の注釈');
+    expect(text.match(/# module の注釈/g)).toHaveLength(1);
+    expect(encodeFile(example)).not.toContain('# module の注釈');
   });
 });

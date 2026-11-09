@@ -18,6 +18,10 @@ import { join } from 'node:path';
 import { passwordAuth } from '@conversensus/client/src/atproto/passwordAuth';
 import type { LiveChannel } from '@conversensus/client/src/sync/liveChannel';
 import {
+  REQUEST_HEADLESS_MODULE,
+  requestsForMe,
+} from '@conversensus/request/src/requestHeadless';
+import {
   type FileId,
   type NodeId,
   type SheetId,
@@ -65,7 +69,7 @@ export type Resident = {
 
 /** 依頼の一覧の 1 行を、起動する依頼にする */
 function jobsOf(headless: Headless, fileId: FileId): RequestJob[] {
-  return headless.requestsForMe(fileId).map((r) => ({
+  return requestsForMe(headless, fileId).map((r) => ({
     fileId,
     sheetId: r.sheet.id as SheetId,
     nodeId: r.node.id as NodeId,
@@ -216,7 +220,10 @@ if (import.meta.main) {
     auth: passwordAuth(args.pdsUrl),
   });
   const token = newToken();
-  const http = serveMcpHttp(headless, { token });
+  const http = serveMcpHttp(headless, {
+    token,
+    modules: [REQUEST_HEADLESS_MODULE],
+  });
   const mcpConfigPath = join(args.dataDir, MCP_CONFIG_FILE);
   writeMcpConfig(mcpConfigPath, http.url, token);
   const instructions = args.instructionsPath

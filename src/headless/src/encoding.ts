@@ -32,17 +32,13 @@
  */
 
 import {
-  addresseeOf,
   type GraphEdge,
   type GraphFile,
   type GraphNode,
   isKindProperty,
   kindPropertyOf,
   propertyCategory,
-  type RequestStatus,
-  requestStatus,
   type Sheet,
-  sentCountOf,
   type Template,
 } from '@conversensus/shared';
 
@@ -119,44 +115,23 @@ function kindDescriptionNotes(t: Template, depth: string): string[] {
     .map((k) => `${depth}#   ${value(k.label)}: ${value(k.description)}`);
 }
 
-/** 応答を求める node の状態の名前 (注釈用) */
-const REQUEST_STATUS_NOTE: Record<RequestStatus, string> = {
-  draft: '下書き (まだ送っていない)',
-  sent: '送った・未回答',
-  answered: '回答あり',
-  closed: '閉じた',
-};
-
-/**
- * 応答を求める node なら、状態と宛先の注釈 (agent 段 4 R6)。状態は導出なので注釈に置く —
- * 情報は property の行 (`sent`・`closed`・`addressee`) と答えの edge にある
- */
-function requestNote(
+/** node に添える注釈 (module が出す、計画 node-actions-request-module.md B3)。行頭の `# ` は付けない */
+export type AnnotateNode = (
   node: GraphNode,
   edges: readonly GraphEdge[],
-  depth: string,
-): string[] {
-  const addressee = addresseeOf(node);
-  if (addressee === undefined) return [];
-  const sent = sentCountOf(node);
-  const status = REQUEST_STATUS_NOTE[requestStatus(node, edges)];
-  const to =
-    addressee.length === 0 ? '指定なし (参加者全員)' : addressee.join(', ');
-  return [
-    `${depth}# 応答を求める node: ${status}${sent > 0 ? ` (${sent} 回目)` : ''}・宛先 ${to}`,
-  ];
-}
+) => string[];
 
 function nodeLines(
   node: GraphNode,
   layout: Record<string, unknown> | undefined,
   templates: readonly Template[],
   edges: readonly GraphEdge[],
+  annotate: AnnotateNode,
 ): string[] {
   const depth = INDENT.repeat(2);
   return [
     `${INDENT}node ${node.id}`,
-    ...requestNote(node, edges, depth),
+    ...annotate(node, edges).map((note) => `${depth}# ${note}`),
     `${depth}content ${value(node.content)}`,
     ...(node.label !== undefined ? [`${depth}label ${value(node.label)}`] : []),
     ...(node.nodeType ? [`${depth}type ${value(node.nodeType)}`] : []),
@@ -180,7 +155,11 @@ function edgeLines(
   ];
 }
 
-function sheetLines(sheet: Sheet, templates: readonly Template[]): string[] {
+function sheetLines(
+  sheet: Sheet,
+  templates: readonly Template[],
+  annotate: AnnotateNode,
+): string[] {
   const nodeLayouts = new Map(sheet.layouts?.map((l) => [l.nodeId, l]));
   const edgeLayouts = new Map(sheet.edgeLayouts?.map((l) => [l.edgeId, l]));
   // 対応する node・edge の無い layout も落とさない (欠けなく、のため)
@@ -205,7 +184,7 @@ function sheetLines(sheet: Sheet, templates: readonly Template[]): string[] {
     ]),
     ...propertyLines(sheet.properties, INDENT, templates),
     ...sheet.nodes.flatMap((n) =>
-      nodeLines(n, nodeLayouts.get(n.id), templates, sheet.edges),
+      nodeLines(n, nodeLayouts.get(n.id), templates, sheet.edges, annotate),
     ),
     ...sheet.edges.flatMap((e) =>
       edgeLines(e, edgeLayouts.get(e.id), templates),
@@ -215,10 +194,14 @@ function sheetLines(sheet: Sheet, templates: readonly Template[]): string[] {
   ];
 }
 
-/** File を完全な encoding に落とす */
+/** 注釈を添えない */
+const NO_NOTES: AnnotateNode = () => [];
+
+/** File を完全な encoding に落とす。`annotate` は node に添える module の注釈 */
 export function encodeFile(
   file: GraphFile,
   templatesOf: TemplatesOf = () => [],
+  annotate: AnnotateNode = NO_NOTES,
 ): string {
   return [
     `file ${file.id}`,
@@ -226,6 +209,6 @@ export function encodeFile(
     ...(file.description !== undefined
       ? [`${INDENT}description ${value(file.description)}`]
       : []),
-    ...file.sheets.flatMap((s) => sheetLines(s, templatesOf(s))),
+    ...file.sheets.flatMap((s) => sheetLines(s, templatesOf(s), annotate)),
   ].join('\n');
 }

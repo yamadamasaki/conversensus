@@ -29,6 +29,7 @@ import { connectMcp, idIn } from '@conversensus/headless/src/testing/mcpClient';
 import type { Did } from '@conversensus/shared';
 import { cleanup, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { REQUEST_HEADLESS_MODULE } from './requestHeadless';
 import {
   addRequestSheet,
   answerSelected,
@@ -124,7 +125,7 @@ describe('App 結合: 依頼を人間と headless の agent の間で (agent 段
 
       // agent (MCP): 自分宛ての依頼を見つけて答える。続けて alice への依頼を作って送る
       await asAgent(async (agent) => {
-        const mcp = await connectMcp(agent);
+        const mcp = await connectMcp(agent, [REQUEST_HEADLESS_MODULE]);
         try {
           const listed = (await mcp.call('list_requests')).text;
           const [, nodeId, , , , sheetId] =
@@ -201,7 +202,7 @@ describe('App 結合: 依頼を人間と headless の agent の間で (agent 段
 
       // agent (MCP): agent の依頼は回答あり
       await asAgent(async (agent) => {
-        const mcp = await connectMcp(agent);
+        const mcp = await connectMcp(agent, [REQUEST_HEADLESS_MODULE]);
         try {
           const encoding = (await mcp.call('read_file', { fileId })).text;
           expect(encoding.match(/# 応答を求める node: 回答あり/g)).toHaveLength(
@@ -254,7 +255,7 @@ describe('App 結合: 依頼を人間と headless の agent の間で (agent 段
           runner: {
             run: async (job) => {
               jobs.push(job);
-              const mcp = await connectMcp(agent);
+              const mcp = await connectMcp(agent, [REQUEST_HEADLESS_MODULE]);
               try {
                 const result = await mcp.call('answer_request', {
                   fileId: job.fileId,

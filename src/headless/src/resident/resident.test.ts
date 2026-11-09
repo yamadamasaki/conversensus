@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { sendRequest } from '@conversensus/request/src/requestEvents';
+import { REQUEST_HEADLESS_MODULE } from '@conversensus/request/src/requestHeadless';
 import {
   type FileId,
   type NodeId,
@@ -71,7 +72,7 @@ function answeringRunner(headless: Headless, jobs: RequestJob[]) {
   return {
     run: async (job: RequestJob) => {
       jobs.push(job);
-      const mcp = await connectMcp(headless);
+      const mcp = await connectMcp(headless, [REQUEST_HEADLESS_MODULE]);
       try {
         const result = await mcp.call('answer_request', {
           fileId: job.fileId,
