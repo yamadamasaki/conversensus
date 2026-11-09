@@ -38,6 +38,8 @@ export type FakePds = {
   release: (did: Did) => void;
   /** repo の中身を rkey 昇順で返す (テストの観測用) */
   records: (did: Did, collection: string) => StoredRecord[];
+  /** 出したセッション (access と refresh) をすべて失効させる。長く走る client の再ログインを試す */
+  expireSessions: () => void;
 };
 
 /** JWT の形をした値。agent は期限を読むので `exp` だけは意味のある値にする */
@@ -280,6 +282,10 @@ export function createFakePds(serviceUrl: string): FakePds {
   };
 
   return {
+    expireSessions: () => {
+      sessions.clear();
+      refreshTokens.clear();
+    },
     handles: (url) =>
       url.origin === origin && url.pathname.startsWith(XRPC_PREFIX),
     fetch: async (request) => {

@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { NSID } from '@conversensus/client/src/atproto/types';
+import type { SheetId } from '@conversensus/shared';
 import { Headless } from './headless';
+import { nodeAdded } from './testing/events';
 import {
   AGENT,
   createHeadlessWorld,
@@ -85,5 +88,51 @@ describe('Headless: 開く・ログイン・閉じる (H1)', () => {
     const headless = await open(world.newDataDir());
     await headless.signIn(AGENT.handle, AGENT.password);
     expect(world.unhandled).toEqual([]);
+  });
+});
+
+describe('Headless: ログインを保つ (段 5 S1)', () => {
+  it('セッションが生きていれば何もしない (接続も作り直さない)', async () => {
+    const headless = await open(world.newDataDir());
+    await headless.signIn(AGENT.handle, AGENT.password);
+    const fileId = await headless.createFile('f');
+    const clock = headless.clockOf(fileId);
+    expect(await headless.ensureSignedIn(AGENT.handle, AGENT.password)).toBe(
+      false,
+    );
+    expect(headless.did).toBe(AGENT.did);
+    expect(headless.clockOf(fileId)).toBe(clock);
+  });
+
+  it('🔴 PDS でセッションが失効したら、パスワードでログインし直し、同じ actor で書き続ける', async () => {
+    const headless = await open(world.newDataDir());
+    await headless.signIn(AGENT.handle, AGENT.password);
+    const actor = headless.actor;
+    const fileId = await headless.createFile('f');
+    const sheetId = headless.read(fileId).sheets[0]?.id as SheetId;
+    const clock = headless.clockOf(fileId);
+    await headless.sync(fileId);
+
+    world.pds.expireSessions();
+    expect(await headless.ensureSignedIn(AGENT.handle, AGENT.password)).toBe(
+      true,
+    );
+    expect(headless.actor).toBe(actor);
+    // 同じ actor なので発番器は作り直さない (作り直すと番号が戻る)
+    expect(headless.clockOf(fileId)).toBe(clock);
+
+    const before = world.pds.records(AGENT.did, NSID.batch).length;
+    headless.record(fileId, sheetId, nodeAdded('失効の後').event);
+    await headless.sync(fileId);
+    expect(world.pds.records(AGENT.did, NSID.batch).length).toBe(before + 1);
+  });
+
+  it('パスワードが違えば例外 (ログインし直せない)', async () => {
+    const headless = await open(world.newDataDir());
+    await headless.signIn(AGENT.handle, AGENT.password);
+    world.pds.expireSessions();
+    await expect(
+      headless.ensureSignedIn(AGENT.handle, 'wrong'),
+    ).rejects.toThrow();
   });
 });

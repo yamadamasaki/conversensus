@@ -1,8 +1,11 @@
 /**
- * パスワードによる認証 (step3 Phase 2 D7) — **App 結合テスト専用**
+ * パスワードによる認証 (step3 Phase 2 D7) — **App 結合テストと、常駐の agent (headless) 専用**
  *
- * 偽の PDS (`fakePds`) に `com.atproto.server.createSession` でログインする。本番と開発は
- * OAuth (`oauthAuth.ts`) で、ここは本番の bundle に入らない (`testing/appWorld.ts` だけが使う)。
+ * `com.atproto.server.createSession` でログインする。ブラウザの本番と開発は OAuth (`oauthAuth.ts`) で、
+ * ここはブラウザの本番の bundle に入らない (`testing/appWorld.ts` だけが使う)。
+ *
+ * 常駐の agent (agent 段 5、設計 A2') は **app password** をここに渡す。public client の OAuth は
+ * 最長 2 週間で同意し直しになるが、app password は取り消すまで失効しない。
  *
  * セッションは localStorage に置く。App 結合の「端末」は localStorage を控えて差し替えるので、
  * 端末を戻せばセッションも戻る。
