@@ -1084,6 +1084,14 @@ export default function App() {
     roster,
     atprotoSession !== null,
   );
+  /** node の操作の文脈 (計画 node-actions-request-module.md N2)。変わったときだけ作り直す */
+  const actionEnv = useMemo(
+    () => ({
+      me: atprotoSession?.did,
+      participants: requestParticipants,
+    }),
+    [atprotoSession?.did, requestParticipants],
+  );
   /**
    * timeline から開いた時点のタブと、開く前のタブ (利用者の指摘 2026-10-12: 見終わった後に戻る先が
    * 分からなくなる)。「元のグラフに戻る」で開く前のタブへ戻り、時点のタブは閉じる (利用者の決定)
@@ -1362,6 +1370,7 @@ export default function App() {
                 onControls={panels.setControls}
                 onSelectionChange={panels.setSelection}
                 onGroupAbilityChange={panels.setGroupAbility}
+                actionEnv={actionEnv}
               />
             </BlobOriginProvider>
           </ReadOnlyProvider>

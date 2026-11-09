@@ -223,6 +223,14 @@ export const ja = {
       'File の詳細の「アカウントに保存する」で保存してください',
     storageAtRiskSignedOut: 'ログインしてアカウントに保存してください',
   },
+  nodeActions: {
+    /** node のそば・右クリックのメニューの名前 (読み上げ) */
+    region: 'node の操作',
+    /** dialog の「実行」 */
+    run: '実行',
+    /** 宛先などの候補が 1 人もいない */
+    noActors: '選べる参加者がいない',
+  },
   common: {
     cancel: 'キャンセル',
     close: '閉じる',

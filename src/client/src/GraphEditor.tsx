@@ -87,6 +87,11 @@ import { ImageErrorProvider } from './images/imageErrorContext';
 import { NodeCreationContext } from './NodeCreationContext';
 import type { NodeTypeOption } from './NodeTypeMenu';
 import { NodeTypeMenu } from './NodeTypeMenu';
+import type { ActionEnv } from './nodeActions/flowContext';
+import { NodeActionBar } from './nodeActions/NodeActionBar';
+import { NodeActionDialog } from './nodeActions/NodeActionDialog';
+import { NodeActionMenu } from './nodeActions/NodeActionMenu';
+import { useNodeActions } from './nodeActions/useNodeActions';
 import { addablePropertyNames } from './property/propertyRows';
 import { useReadOnly } from './readOnlyContext';
 import { RequestActionError } from './request/requestEvents';
@@ -162,7 +167,15 @@ type Props = {
   onGroupAbilityChange?: (ability: GroupAbility) => void;
   /** map を出すか (ヘッダの on/off, #182)。既定は出す */
   showMap?: boolean;
+  /**
+   * node の操作の文脈 (計画 node-actions-request-module.md N2): 操作する人と、引数の候補 (File の参加者)。
+   * どの操作があるかは module が決める (`NodeActionsProvider`)。無ければ誰でもない・候補なし
+   */
+  actionEnv?: ActionEnv;
 };
+
+/** `actionEnv` が渡されないとき */
+const NO_ACTION_ENV: ActionEnv = { me: undefined, participants: [] };
 
 /**
  * 縮小の下限 (#250 無限キャンバス)。React Flow の既定は 0.5 で、大きなグラフは「全体を表示」でも
@@ -194,6 +207,7 @@ function GraphEditorInner({
   onSelectionChange,
   onGroupAbilityChange,
   showMap = true,
+  actionEnv = NO_ACTION_ENV,
 }: Props) {
   const t = useMessages();
   const { screenToFlowPosition, getNodes, getEdges, setCenter, fitView } =
@@ -569,6 +583,20 @@ function GraphEditorInner({
     },
     [propertyTarget, dispatch, getNodes, getEdges, setNodes],
   );
+
+  /**
+   * node の操作 (計画 N2): node のそば・右クリックのメニュー・引数の dialog。何が出るかは module が決め、
+   * 判断は `nodeActions/registry.ts` にある。見るだけの所 (`readOnly`) では何も出さない
+   */
+  const nodeActions = useNodeActions({
+    nodes,
+    edges,
+    getNodes,
+    getEdges,
+    env: actionEnv,
+    readOnly,
+    dispatch,
+  });
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: mount/unmount のみ (React key 変更による再マウント)
   useEffect(() => {
@@ -995,6 +1023,7 @@ function GraphEditorInner({
                 onPaneClick={onPaneClick}
                 onMoveStart={fitOnResize.onMoveStart}
                 onEdgeContextMenu={onEdgeContextMenu}
+                onNodeContextMenu={nodeActions.onNodeContextMenu}
                 zoomOnDoubleClick={false}
                 deleteKeyCode={null}
                 minZoom={MIN_ZOOM}
@@ -1027,6 +1056,13 @@ function GraphEditorInner({
                       {t.graph.emptyHintImage}
                     </p>
                   </div>
+                )}
+                {nodeActions.toolbar && (
+                  <NodeActionBar
+                    nodeId={nodeActions.toolbar.nodeId}
+                    actions={nodeActions.toolbar.actions}
+                    onPick={nodeActions.pick}
+                  />
                 )}
                 <Background />
                 <Controls />
@@ -1067,6 +1103,21 @@ function GraphEditorInner({
                 <EdgeContextMenu
                   contextMenu={contextMenu}
                   onSelect={setEdgePathType}
+                />
+              )}
+              {nodeActions.menu && (
+                <NodeActionMenu
+                  menu={nodeActions.menu}
+                  onPick={nodeActions.pick}
+                />
+              )}
+              {nodeActions.dialog && (
+                <NodeActionDialog
+                  action={nodeActions.dialog.found.action}
+                  initial={nodeActions.dialog.initial}
+                  participants={actionEnv.participants}
+                  onSubmit={nodeActions.submitDialog}
+                  onCancel={nodeActions.closeDialog}
                 />
               )}
               {imageError && (

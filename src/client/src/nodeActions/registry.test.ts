@@ -1,6 +1,7 @@
 import { describe, expect, mock, test } from 'bun:test';
 import type { Did, GraphNode } from '@conversensus/shared';
 import fc from 'fast-check';
+import type { GraphEvent } from '../events/GraphEvent';
 import type {
   ActionParam,
   LocalizedText,
@@ -20,6 +21,9 @@ const NODE = '11111111-1111-4111-8111-111111111111';
 const ALICE = 'did:plc:alice' as Did;
 const BOB = 'did:plc:bob' as Did;
 
+/** run が返す event (中身は見ない。同じものが返ることだけを見る) */
+const DUMMY_EVENT = { type: 'NODE_PROPERTIES_CHANGED' } as GraphEvent;
+
 const text = (s: string): LocalizedText => ({ ja: s, en: s });
 
 /** node の本文が token を含めば使える操作 (使えるかを本文だけで決め、生成器で引けるようにする) */
@@ -35,7 +39,7 @@ const ctxWith = (content: string): NodeActionContext => ({
 const tokenAction = (
   id: string,
   token: string,
-  run: NodeAction['run'] = () => [],
+  run: NodeAction['run'] = () => DUMMY_EVENT,
 ): NodeAction => ({
   id,
   label: text(id),
@@ -100,7 +104,7 @@ describe('使える操作 (性質)', () => {
         fc.boolean(),
         fc.nat(),
         (shape, content, readOnly, pick) => {
-          const run = mock(() => []);
+          const run = mock(() => DUMMY_EVENT);
           const modules = shape.map((m) => ({
             ...m,
             actions: m.actions.map((a) => ({ ...a, run })),
@@ -124,7 +128,7 @@ describe('使える操作 (性質)', () => {
               },
             );
           if (usable) {
-            expect(attempt()).toEqual([]);
+            expect(attempt()).toBe(DUMMY_EVENT);
             expect(run).toHaveBeenCalledTimes(1);
           } else {
             expect(attempt).toThrow(NodeActionError);

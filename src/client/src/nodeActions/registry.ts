@@ -164,7 +164,7 @@ export function validateArgs(
 }
 
 /**
- * 操作を実行して GraphEvent の列にする。**直前に確かめ直す**: 見るだけ・知らない操作・今は使えない・
+ * 操作を実行して GraphEvent にする。**直前に確かめ直す**: 見るだけ・知らない操作・今は使えない・
  * 引数が合わない、のどれでも `NodeActionError` (`run` は呼ばない)
  */
 export function runNodeAction(

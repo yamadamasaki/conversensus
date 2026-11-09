@@ -73,10 +73,11 @@ export type NodeAction = {
   /** dialog を開いたときの値 (多くは node の property から読む — 前に決めた値が入っている) */
   initial?: (ctx: NodeActionContext) => ActionArgs;
   /**
-   * 実行: GraphEvent の列にする。core はこの列を**まとめて** dispatch する (1 回の undo で戻る)。
-   * 引数は宣言どおりに確かめてから渡す (`runNodeAction`)
+   * 実行: GraphEvent **1 つ**にする。1 つの event は op の batch 1 つで、1 回の undo で戻る。
+   * 引数を property に書く操作は、引数と操作の印を 1 つの `NODE_PROPERTIES_CHANGED` にまとめる
+   * (分けると、undo が途中で止まり、届くのも別々になる)。引数は宣言どおりに確かめてから渡す (`runNodeAction`)
    */
-  run: (ctx: NodeActionContext, args: ActionArgs) => GraphEvent[];
+  run: (ctx: NodeActionContext, args: ActionArgs) => GraphEvent;
 };
 
 /** node の上に描く印の調子 */

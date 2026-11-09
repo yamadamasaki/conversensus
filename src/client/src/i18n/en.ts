@@ -225,6 +225,11 @@ export const en: Messages = {
       'Save them with "Save to account" in the File details',
     storageAtRiskSignedOut: 'Log in and save them to your account',
   },
+  nodeActions: {
+    region: 'Node actions',
+    run: 'Run',
+    noActors: 'No participants to choose from',
+  },
   common: {
     cancel: 'Cancel',
     close: 'Close',

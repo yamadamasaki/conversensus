@@ -59,7 +59,8 @@
   **引数の値は property に入る** (宛先なら `addressee`、答えの置き場所なら `answerTarget`)。
   次に dialog を開くと、前の値が入っている
 - 実行は今までどおり dispatch を通す (undo・redo できる)。property の書き込みと操作の op は
-  1 回の undo で戻るように、まとめて dispatch する
+  1 回の undo で戻るように、**1 つの GraphEvent にまとめる** (N2 で決めた。event の店は event 1 つを
+  undo 1 回として積み、複数の event をまとめて戻す仕組みを持たない)
 - **答え**は property ではない。答えは新しい node なので、答えの dialog の入力は本文である
 - 状態 (下書き・送った・回答あり・閉じた) は、今の印 (`RequestBadge`) のまま node の上に出す。
   property の欄からは依頼の区画を外す。システム・プロパティの生の値は #357 (read-only の property を
@@ -93,8 +94,8 @@ type NodeAction = {
   params?: readonly ActionParam[];
   /** 引数の初期値 (property から読む) */
   initial?: (ctx: NodeActionContext) => ActionArgs;
-  /** 実行: GraphEvent の列にする (今の requestEventFor に当たる) */
-  run: (ctx: NodeActionContext, args: ActionArgs) => GraphEvent[];
+  /** 実行: GraphEvent 1 つにする (今の requestEventFor に当たる。1 つ = op の batch 1 つ = undo 1 回) */
+  run: (ctx: NodeActionContext, args: ActionArgs) => GraphEvent;
 };
 
 /** 引数の型は小さく保つ: 参加者 (複数)・選択肢・本文 */
@@ -204,7 +205,7 @@ C は連合やライブラリ化 (#310) の後に考える。第三者のコー�
 | --- | --- | --- |
 | N0 | 済 | 設計 D6 (module が知る)・D7 (宛先などは「送る」の dialog で選ぶ)・D12 (ボタンは node のそばと右クリック) を改めた。名前を `app.conversensus.request.*` に移した (`REQUEST_PROPERTY_PREFIX`)。本体に同梱する module なので system の名前の下に置き、property の欄・検索・`set_property` からは見えないままにした。古い名前は読み替えない (データは開発用の PDS だけ) |
 | N1 | 済 | `client/src/nodeActions/` (`nodeAction.ts` の型・`registry.ts`)。module は宣言と純粋な関数だけで、React を持たない。文言は言語ごとの `LocalizedText` を module が持つ。鍵は `<module>/<action>`。`runNodeAction` は直前に確かめ直し、引数を宣言どおりに確かめる (宣言に無い名前は断る)。module の関数が投げてもその操作・印を無いものとして扱い、画面を落とさない。置き場所は client (GraphEvent が client にあり、headless も client を読むため)。性質 3 つは、壊し方 2 つで落ちることを確かめた |
-| N2 | | |
+| N2 | 済 | `useNodeActions` (選択・右クリック・dialog の state と実行)、`NodeActionBar` (`NodeToolbar`、`nodrag nopan` — 付けないと押しただけで canvas が動き出す)、`NodeActionMenu`、`NodeActionDialog` (宣言から描く・前の値・理由を中に出す)、`flowContext` (ゴーストを数えない)。module は `NodeActionsProvider` で降ろす (既定は module 無し)。`GraphEditor` は `actionEnv` (自分の DID・File の参加者) を App から受ける。**`run` は GraphEvent 1 つを返す形に改めた** (event の店に複数をまとめて戻す仕組みが無い)。App 結合は試験用の module で、選ぶと出る・押すと op-log・使えなくなった操作が消える・undo 1 回・dialog の前の値・右クリック・module 無しでは出ない。縮小が小さいときに出さない件 (§7) はまだ — N5 の実機で見る |
 | N3 | | |
 | N4 | | |
 | N5 | | |
