@@ -80,7 +80,7 @@
 | R4 | 済 | 右の欄の「依頼」の区画 (`RequestPanel`)、node の状態の印 (`RequestBadge`)、宛先の候補 (`useFileParticipants`、ログインしているときだけ名簿を読む)。答えると `NODES_PASTED` が選択を外すので、依頼を選んだままにする (App 結合で発見)。状態の規則は shared の `statusOf` 1 か所 |
 | R5 | 済 | `sync/requestArrival.ts` (受信の分岐点で、他の人が `sent` を増やした自分宛ての依頼を見つける)、右下の `RequestNotice` (開く = 検索と同じ道で開いて寄せる、既読は PDS)。**限り**: (1) 見つけるのは同期している File (前と背後のタブ) だけ — 開いていない File への依頼は、開くまで知らない (常駐・合図は段 5)。(2) 届いた依頼の通知は再読み込みで消え、出し直さない (受信の前後で回数が変わらないため)。自分宛ての未回答の一覧が要れば後で足す |
 | R6 | 済 | MCP の道具 7 つ (`list_requests`・`answer_request`・`send_request`・`close_request`・`reopen_request`・`set_addressee`・`list_participants`)。`list_requests` は自分が最後に送った依頼を除く (`senderOf`)。encoding に依頼の状態の注釈。App 結合で alice ↔ agent を両向きに一周 (**完了基準 1〜6 を満たす**) |
-| R7 | — | |
+| R7 | 済 | 開発用の PDS で、人間 → Claude Code・Claude Code → 人間の両向きに依頼を行き来した (利用者が確認、2026-11-09)。**完了基準 7 を満たす** — 段 4 の完了基準はすべて満たす |
 
 ## 5. 決めたこと
 
