@@ -174,11 +174,28 @@ export class Headless {
     return headless;
   }
 
-  /** ログインする。OAuth では `auth` の実装がブラウザでの同意を待つ (H4) */
+  /**
+   * ログインする。OAuth では `auth` の実装がブラウザでの同意を待つ (H4)。
+   * **同じ DID で入り直したときは接続を保つ** — actor (`did#deviceId`) が変わらないので、発番器と
+   * 同期のセッションはそのまま使える (PDS への要求は、そのつど今のセッションの Agent を引く)
+   */
   async signIn(handle: string, password?: string): Promise<Did> {
     const session = await login(handle, password);
-    this.connect(session.did);
+    if (this.connection?.did !== session.did) this.connect(session.did);
     return session.did;
+  }
+
+  /**
+   * ログインを保つ (常駐の agent、段 5 S1)。今のセッションが PDS で生きていれば何もしない。
+   * 戻せなければ (refresh も失効した) **パスワードでログインし直す**。app password は失効しないので、
+   * 人の手なしに続く (A2')
+   * @returns ログインし直したか
+   */
+  async ensureSignedIn(handle: string, password: string): Promise<boolean> {
+    const session = await resumeSession();
+    if (session && session.did === this.connection?.did) return false;
+    await this.signIn(handle, password);
+    return true;
   }
 
   /** ログインしている DID。していなければ例外 */

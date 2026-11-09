@@ -435,8 +435,55 @@ agent から人間へ:
 4. Claude Code に依頼の File を読ませると、状態の注釈が「回答あり」になっている
 
 - 依頼の通知が出るのは、同期している File (開いている・タブにある) だけ。開いていない File への依頼は、
-  開くまで知らない (常駐の受信は段 5)
+  開くまで知らない (agent の側は §5.8 の常駐が受け続ける)
 - 届いた依頼の通知は、再読み込みすると出直さない (既読にしていなくても)
+
+### 5.8 常駐の agent に依頼に答えさせる (agent 段 5)
+
+人が横で Claude Code を操作しなくても、送られた依頼に agent が答える。計画は `deepse/plans/agent-stage5-resident.md`。
+常駐のプロセス (`src/headless/src/resident/resident.ts`) が参加している File を同期し続け、自分宛ての依頼を
+見つけると `claude -p` を 1 依頼に 1 回起動する。起動された Claude Code は、常駐のプロセスが 127.0.0.1 で出す
+conversensus の MCP **だけ**を使って答える (組み込みの道具は使えない)。
+
+**app password を作る** (一度だけ。常駐は public client の OAuth の 2 週間の期限を避けて app password で入る):
+
+```bash
+PDS=http://localhost:3000
+printf 'agent.test のパスワード: '; read -s PW; echo   # zsh の read -p は coprocess の意味なので使わない
+JWT=$(curl -s -X POST $PDS/xrpc/com.atproto.server.createSession \
+  -H 'content-type: application/json' \
+  -d "{\"identifier\":\"agent.test\",\"password\":\"$PW\"}" | jq -r .accessJwt)
+curl -s -X POST $PDS/xrpc/com.atproto.server.createAppPassword \
+  -H "authorization: Bearer $JWT" -H 'content-type: application/json' \
+  -d '{"name":"resident"}' | jq -r .password     # 表示された xxxx-xxxx-xxxx-xxxx を控える
+unset PW JWT
+```
+
+**常駐を始める** (§5.6 の Claude Code の MCP server は**閉じておく** — 同じ置き場所は同時に開けない):
+
+```bash
+CONVERSENSUS_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx \
+  bun run src/headless/src/resident/resident.ts --handle agent.test
+```
+
+- 置き場所は §5.5 と同じ `~/.conversensus/agent` (同じ actor で続く)。`--data` で変えると別の端末になる
+- 起動すると `[resident] did:... として常駐する` と、出している MCP の URL が出る
+- 任意: `--model sonnet`・`--instructions <file>` (agent 全体の指示)・`--timeout <秒>` (1 依頼の上限、既定 600)・
+  `--poll <秒>` (流れに繋がっていないときのポーリング、既定 60)
+- 止めるのは Ctrl-C
+
+**確かめる**:
+
+1. App (alice) で、agent.test が参加している File に依頼の Sheet を作り、依頼を書いて宛先に `agent.test` を足し、
+   「送る」→「今すぐ同期」(§5.7 の 1〜3)
+2. 常駐の端末に `[resident] 依頼に答える: ...` と、`claude` の出力が出る (数十秒)
+3. App で「今すぐ同期」。答えの node が出て、依頼の印が「回答あり」になる
+4. 常駐を Ctrl-C で止めて起動し直しても、同じ依頼にもう一度答えない。App で「送る」(送り直す) と、また答える
+
+- 参加: 常駐の間は `cli.ts accept` を使えない。止めて accept してから起動し直す。起動し直さなくても、
+  参加した File は次のポーリングで見つける
+- 答えられなかった依頼 (claude が失敗した・時間切れ) には、もう一度は起動しない。送り直すと起動する
+- 起動した印は置き場所の `storage.json` にある。MCP の設定 (token を含む) は `resident-mcp.json` (持ち主だけが読める)
 
 ## 6. 2 台目 (device B) を同じマシンで動かす
 

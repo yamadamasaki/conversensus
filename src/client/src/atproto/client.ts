@@ -89,15 +89,19 @@ export async function login(
   }
 }
 
+/**
+ * 保存したセッションを戻す。**戻せなければ、前のログインの結果も捨てる** — 捨てないと、次の `login` が
+ * 失効したセッションを返し、ログインし直せない (常駐の agent が失効の後に入り直す、agent 段 5 S1)
+ */
 export async function resumeSession(): Promise<AtprotoSession | null> {
   try {
     current = await auth().resume();
-    return current?.session ?? null;
   } catch (error) {
     console.warn('[atproto] セッションを戻せなかった:', error);
     current = null;
-    return null;
   }
+  if (!current) loginPromise = null;
+  return current?.session ?? null;
 }
 
 export async function logout(): Promise<void> {
