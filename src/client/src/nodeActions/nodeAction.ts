@@ -12,7 +12,16 @@
  * するときも、読み込むのはデータと純粋な関数だけで済む。
  */
 
-import type { Did, GraphEdge, GraphNode, Sheet } from '@conversensus/shared';
+import type {
+  Batch,
+  Did,
+  FileId,
+  GraphEdge,
+  GraphNode,
+  NodeId,
+  Sheet,
+  SheetId,
+} from '@conversensus/shared';
 import type { GraphEvent } from '../events/GraphEvent';
 import type { Locale } from '../i18n/locale';
 
@@ -107,13 +116,49 @@ export type NodeBadgeContext = {
   outgoing: () => readonly GraphEdge[];
 };
 
-/** module: 操作と印をまとめたもの */
+/** 受信から知らせを見つけるときに module に渡すもの (受信の**前**に呼ぶ — 追記の後では前の状態が分からない) */
+export type NoticeDetectInput = {
+  fileId: FileId;
+  /** 受信前のローカル正典 (trunk) */
+  local: readonly Batch[];
+  /** 新しく届いた batch */
+  incoming: readonly Batch[];
+  /** 自分の DID */
+  viewer: Did;
+};
+
+/** module が受信から見つけた知らせ 1 つ (届いた依頼など)。「開く」とその node を選んで寄せる */
+export type ModuleNotice = {
+  /** 既読の鍵 (module の中で一意)。同じ鍵の知らせは 1 つにし、既読にすると他の端末でも出ない */
+  key: string;
+  fileId: FileId;
+  sheetId: SheetId;
+  nodeId: NodeId;
+  /** 誰の行為で届いたか */
+  from: Did;
+  /** 抜粋に出す本文 */
+  content: string;
+};
+
+/** 受信の知らせの宣言 */
+export type NoticeSource = {
+  /** 知らせの欄の名前 (読み上げ) */
+  region: LocalizedText;
+  /** 知らせ 1 つの見出し。`from` は送り手の表示名 */
+  heading: (from: string) => LocalizedText;
+  /** 受信から知らせを見つける (純粋な関数) */
+  detect: (input: NoticeDetectInput) => ModuleNotice[];
+};
+
+/** module: 操作と印と知らせをまとめたもの */
 export type NodeModule = {
   /** 全体で一意。操作は `<module>/<action>` で呼ぶ */
   id: string;
   actions: readonly NodeAction[];
   /** この node に印があれば返す */
   badge?: (ctx: NodeBadgeContext) => NodeBadge | undefined;
+  /** 受信から知らせを見つける */
+  notices?: NoticeSource;
 };
 
 /** 操作できない (使えない・引数が合わない・知らない操作)。画面は知らせ、MCP は理由を返す */

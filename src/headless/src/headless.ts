@@ -60,11 +60,11 @@ import {
   encodeParticipationCode,
 } from '@conversensus/client/src/sync/participationCode';
 import { collectParticipantBatches } from '@conversensus/client/src/sync/receiveParticipantBatches';
-import { senderOf } from '@conversensus/client/src/sync/requestArrival';
 import {
   createRosterSource,
   type RosterSource,
 } from '@conversensus/client/src/sync/rosterSource';
+import { senderOf } from '@conversensus/request/src/requestArrival';
 import {
   type Actor,
   type BatchId,

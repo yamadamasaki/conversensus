@@ -55,6 +55,13 @@ core は「node に操作がある」ことだけを知り、どんな操作が�
   - 印を持たない module
   - 印の関数が投げる module
 
+### 知らせ (例)
+
+- 知らせ (`NodeModule.notices`、計画 B1) は、知らせを持つ module の登録の順に集め、module の id を添える。
+  見つける関数が投げる module は飛ばす (受信を止めない)
+- 既読の鍵 (`noticeKeyOf`) は module の id を前に付けるので、module の間で重ならない
+- 知らせの欄の宣言は module の id で引ける (`noticeSource`)
+
 ### 引数の確かめ
 
 - (例) 宣言どおりの値はそのまま通る。足りない値は次のように扱う。

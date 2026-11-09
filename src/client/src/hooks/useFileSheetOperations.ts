@@ -42,6 +42,8 @@ import {
   resolveBlobOrigin,
 } from '../images/blobOrigins';
 import { subscribeLocalChanges } from '../local/localChanges';
+import type { NoticeDetectInput } from '../nodeActions/nodeAction';
+import type { ArrivedNotice } from '../nodeActions/registry';
 import type { PopupTarget } from '../SettingsPopup';
 import { didFromActor } from '../sync/actor';
 import { adoptLocalActors } from '../sync/adoptLocalActors';
@@ -68,7 +70,6 @@ import type { DetectedOverwrites } from '../sync/overwrites';
 import { recallOwnJudgmentPoint } from '../sync/ownJudgmentPoint';
 import { collectParticipantBatches } from '../sync/receiveParticipantBatches';
 import { reprojectAfterReceive } from '../sync/reprojectAfterReceive';
-import type { RequestArrival } from '../sync/requestArrival';
 import type { RosterSource } from '../sync/rosterSource';
 import { type FileSharing, fileSharing } from '../sync/rosterView';
 import { rejoinObligation } from '../sync/syncObligation';
@@ -169,10 +170,15 @@ interface UseFileSheetOperationsParams {
   /** 背後のタブの File に届いた fork (#260)。受け手はタブに印を付ける */
   onBackgroundForks?: (fileId: FileId, forks: readonly ForkMeta[]) => void;
   /**
-   * 自分宛てに送られた依頼が届いた (agent 段 4 R5)。**前の File でも背後のタブの File でも同じ口**で
+   * module の知らせ (届いた依頼など) が届いた (agent 段 4 R5)。**前の File でも背後のタブの File でも同じ口**で
    * 受ける — 依頼の通知は前に出ている File に限らない
    */
-  onRequestsArrived?: (requests: readonly RequestArrival[]) => void;
+  onNoticesArrived?: (notices: readonly ArrivedNotice[]) => void;
+  /**
+   * 受信から module の知らせを見つける (`NodeActionRegistry.detectNotices`、計画 node-actions-request-module.md B1)。
+   * **安定参照であること** (セッションの作り方に入る)
+   */
+  detectNotices?: (input: NoticeDetectInput) => ArrivedNotice[];
   deps?: FileSheetOpsDeps;
   /** ログインしている人の名前 (handle)。未ログインの編集を出し直すか訊くときに見せる (FPR 前 L-1) */
   accountLabel?: string;
@@ -212,7 +218,8 @@ export function useFileSheetOperations({
   onFileDeleted,
   onBackgroundConflicts,
   onBackgroundForks,
-  onRequestsArrived,
+  onNoticesArrived,
+  detectNotices,
   deps = defaultFileSheetOpsDeps,
   syncRecord: syncRecordOverride,
   remoteQueue = null,
@@ -550,8 +557,9 @@ export function useFileSheetOperations({
         fetchLocal: deps.fetchBatches,
         pollIntervalMs: SYNC_POLL_INTERVAL_MS,
         ...(live && { live }),
+        ...(detectNotices && { detectNotices }),
       }),
-    [remoteQueue, live, roster, actor, deps],
+    [remoteQueue, live, roster, actor, deps, detectNotices],
   );
   // 描画の中で渡す — 下の tap がこの描画で借りるので、作り方が先に要る。同じ作り方なら何もしない
   sessionPool.setFactory(sessionFactory);
@@ -582,7 +590,7 @@ export function useFileSheetOperations({
     onConflicts: handleConflicts,
     onOverwrites: handleOverwrites,
     onForksArrived: handleForksArrived,
-    onRequestsArrived: (_fileId, requests) => onRequestsArrived?.(requests),
+    onNoticesArrived: (_fileId, notices) => onNoticesArrived?.(notices),
     onSynced: handleSynced,
   });
   const syncRecord = syncRecordOverride ?? internalSyncRecord;
@@ -620,8 +628,7 @@ export function useFileSheetOperations({
             }),
           onOverwrites: handleOverwrites,
           onForksArrived: (fileId, forks) => onBackgroundForks?.(fileId, forks),
-          onRequestsArrived: (_fileId, requests) =>
-            onRequestsArrived?.(requests),
+          onNoticesArrived: (_fileId, notices) => onNoticesArrived?.(notices),
         });
       }
     },
@@ -630,7 +637,7 @@ export function useFileSheetOperations({
       handleOverwrites,
       onBackgroundConflicts,
       onBackgroundForks,
-      onRequestsArrived,
+      onNoticesArrived,
     ],
   );
 

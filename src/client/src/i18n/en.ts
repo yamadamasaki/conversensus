@@ -39,14 +39,9 @@ export const en: Messages = {
     unconfirmedConflict: 'There are conflicts you have not checked',
     pastSuffix: 'past',
   },
-  request: {
-    /** 届いた依頼の知らせ (段 B で依頼の module へ移す — 計画 node-actions-request-module.md §3.3) */
-    notice: {
-      region: 'Requests for you',
-      arrived: (from: string) => `${from} sent you a request`,
-      open: 'Open',
-      dismiss: (from: string) => `Dismiss the request from ${from}`,
-    },
+  notices: {
+    open: 'Open',
+    dismiss: (from: string) => `Dismiss the notice from ${from}`,
   },
   rightSidebar: {
     region: 'Details',

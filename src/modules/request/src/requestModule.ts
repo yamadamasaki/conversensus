@@ -36,6 +36,7 @@ import {
   requestStatus,
   sentCountOf,
 } from '@conversensus/shared';
+import { detectArrivedRequests } from './requestArrival';
 import {
   answerRequest,
   closeRequest,
@@ -188,6 +189,24 @@ export const REQUEST_MODULE: NodeModule = {
       run: (ctx) => reopenRequest(ctx.node),
     },
   ],
+  // 受信で自分宛てに送られた依頼を知らせる (agent 段 4 R5、設計 D11)。既読の鍵は node と送った回数 —
+  // 送り直したら、閉じた人にもまた知らせる (新しい答えが欲しくて送り直している、D12)
+  notices: {
+    region: { ja: '届いた依頼', en: 'Requests for you' },
+    heading: (from) => ({
+      ja: `${from} から依頼が届きました`,
+      en: `${from} sent you a request`,
+    }),
+    detect: (input) =>
+      detectArrivedRequests(input).map((a) => ({
+        key: `${a.nodeId}:${a.sent}`,
+        fileId: a.fileId,
+        sheetId: a.sheetId,
+        nodeId: a.nodeId,
+        from: a.from,
+        content: a.content,
+      })),
+  },
   badge: ({ node, outgoing }) => {
     if (!isRequestNode(node)) return undefined;
     // 出ていく edge を数えるのは応答を求める node のときだけ

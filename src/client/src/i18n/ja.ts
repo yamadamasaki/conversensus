@@ -40,14 +40,10 @@ export const ja = {
     unconfirmedConflict: '確かめていない競合があります',
     pastSuffix: '時点',
   },
-  request: {
-    /** 届いた依頼の知らせ (段 B で依頼の module へ移す — 計画 node-actions-request-module.md §3.3) */
-    notice: {
-      region: '届いた依頼',
-      arrived: (from: string) => `${from} から依頼が届きました`,
-      open: '開く',
-      dismiss: (from: string) => `${from} からの依頼の知らせを閉じる`,
-    },
+  notices: {
+    /** module の知らせ (届いた依頼など) を開く */
+    open: '開く',
+    dismiss: (from: string) => `${from} からの知らせを閉じる`,
   },
   rightSidebar: {
     region: '詳細',

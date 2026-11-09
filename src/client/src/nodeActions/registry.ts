@@ -15,16 +15,26 @@ import {
   type ActionArgs,
   type ActionArgValue,
   type ActionParam,
+  type ModuleNotice,
   type NodeAction,
   type NodeActionContext,
   NodeActionError,
   type NodeBadge,
   type NodeBadgeContext,
   type NodeModule,
+  type NoticeDetectInput,
+  type NoticeSource,
 } from './nodeAction';
 
 /** 操作の鍵 `<module>/<action>` の区切り */
 const KEY_SEPARATOR = '/';
+
+/** 知らせ 1 つ (どの module のものか)。既読の鍵は `noticeKeyOf` */
+export type ArrivedNotice = ModuleNotice & { moduleId: string };
+
+/** 既読の鍵: module の中の鍵に module の id を前に付ける (module の間で重ならない) */
+export const noticeKeyOf = (notice: ArrivedNotice): string =>
+  `${notice.moduleId}${KEY_SEPARATOR}${notice.key}`;
 
 /** 印 1 つ (どの module のものか) */
 export type ModuleBadge = { moduleId: string; badge: NodeBadge };
@@ -48,6 +58,10 @@ export type NodeActionRegistry = {
   badgesFor: (ctx: NodeBadgeContext) => ModuleBadge[];
   /** 鍵から操作を引く。知らなければ undefined */
   find: (key: string) => AvailableAction | undefined;
+  /** 受信から知らせを見つける (登録の順)。知らせを持つ module が無ければ空 */
+  detectNotices: (input: NoticeDetectInput) => ArrivedNotice[];
+  /** module の知らせの宣言 */
+  noticeSource: (moduleId: string) => NoticeSource | undefined;
 };
 
 export const actionKey = (moduleId: string, actionId: string): string =>
@@ -107,6 +121,17 @@ export function createNodeActionRegistry(
         return badge ? [{ moduleId: m.id, badge }] : [];
       }),
     find: (key) => byKey.get(key),
+    detectNotices: (input) =>
+      modules.flatMap((m) =>
+        m.notices
+          ? guarded(
+              `${m.id} の notices.detect`,
+              [],
+              () => m.notices?.detect(input) ?? [],
+            ).map((n) => ({ ...n, moduleId: m.id }))
+          : [],
+      ),
+    noticeSource: (moduleId) => modules.find((m) => m.id === moduleId)?.notices,
   };
 }
 

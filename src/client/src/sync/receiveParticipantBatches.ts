@@ -50,6 +50,8 @@ import {
   type Participation,
 } from '@conversensus/shared';
 import type { RemoteBatch } from '../atproto/types';
+import type { NoticeDetectInput } from '../nodeActions/nodeAction';
+import type { ArrivedNotice } from '../nodeActions/registry';
 import { type DetectedConflicts, detectIncomingConflicts } from './conflicts';
 import { detectArrivedForks } from './forkArrival';
 import {
@@ -58,7 +60,6 @@ import {
   NO_OVERWRITES,
 } from './overwrites';
 import { filterByParticipation } from './participationFilter';
-import { detectArrivedRequests, type RequestArrival } from './requestArrival';
 import { type ForkWriterDeps, writeForksForConflicts } from './writeForks';
 
 export type CollectParticipantDeps = {
@@ -78,6 +79,11 @@ export type ReceiveParticipantDeps = CollectParticipantDeps & {
   appendReceived: (fileId: FileId, batches: Batch[]) => Promise<number>;
   /** 取り込んだ batch を発番器に観測させる (Lamport の受信規則 + 因果の知識) */
   observeRemote: (batches: readonly Batch[]) => void;
+  /**
+   * 受信から module の知らせ (届いた依頼など) を見つける (計画 node-actions-request-module.md B1)。
+   * 省くと知らせは無い
+   */
+  detectNotices?: (input: NoticeDetectInput) => ArrivedNotice[];
 } & ForkWriterDeps;
 
 export type CollectParticipantResult = {
@@ -139,7 +145,8 @@ export type ReceiveParticipantResult = CollectParticipantResult & {
    */
   arrivedForks: ForkMeta[];
   /** この受信で自分宛てに送られた依頼 (agent 段 4 R5) */
-  arrivedRequests: RequestArrival[];
+  /** module が見つけた知らせ (届いた依頼など) */
+  arrivedNotices: ArrivedNotice[];
 };
 
 /**
@@ -251,7 +258,7 @@ export async function receiveParticipantBatches(
       overwrites: NO_OVERWRITES,
       forks: [],
       arrivedForks: [],
-      arrivedRequests: [],
+      arrivedNotices: [],
     };
 
   // **追記の前に検出する** (step2 Phase 3 T5)。分岐点は受信前の手元の状態なので、
@@ -291,13 +298,10 @@ export async function receiveParticipantBatches(
     written: forks,
   });
 
-  // **依頼の到着も同じ分岐点で採る** (agent 段 4 R5)。追記の後では受信前の送った回数が分からない
-  const arrivedRequests = detectArrivedRequests({
-    fileId,
-    local,
-    incoming,
-    viewer,
-  });
+  // **module の知らせ (届いた依頼など) も同じ分岐点で採る** (agent 段 4 R5)。追記の後では受信前の状態
+  // (送った回数など) が分からない
+  const arrivedNotices =
+    deps.detectNotices?.({ fileId, local, incoming, viewer }) ?? [];
 
   const appended = await deps.appendReceived(fileId, collected.batches);
 
@@ -313,6 +317,6 @@ export async function receiveParticipantBatches(
     overwrites,
     forks,
     arrivedForks,
-    arrivedRequests,
+    arrivedNotices,
   };
 }

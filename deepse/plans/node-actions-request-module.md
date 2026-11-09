@@ -265,7 +265,7 @@ C は連合やライブラリ化 (#310) の後に考える。第三者のコー�
 
 | | 状態 | メモ |
 | --- | --- | --- |
-| B1 | | |
+| B1 | 済 | `NodeModule.notices` (`NoticeSource`: 欄の名前・見出し・`detect`) と `ModuleNotice`。registry の `detectNotices` が module の順に集め、module の id を添える (既読の鍵 `noticeKeyOf` は `<module>/<鍵>`)。受信から App までの配線 (`receiveParticipantBatches` → `FileSession` → `useEventSyncTap`・`useFileSheetOperations` → `useNoticeInbox`) を `RequestArrival` から `ArrivedNotice` に替え、見つける関数は App が registry から渡す。`RequestNotice` は汎用の `ArrivedNotices` (module ごとに 1 つの欄)。依頼の到着の検出 (`requestArrival.ts`) と文言は module へ。辞書の `request.notice` は汎用の `notices` (開く・閉じる) に |
 | B2 | | |
 | B3 | | |
 | B4 | | |
