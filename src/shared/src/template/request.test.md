@@ -7,7 +7,7 @@
 ## なぜ
 
 依頼・相談の種類は core に入れず template で定義し、core が知る「応答を求める node」の印
-(`app.conversensus.addressee`) を**種類の既定値**として持たせる。種は「シートを追加 ▾」で File の template graph に
+(`app.conversensus.request.addressee`) を**種類の既定値**として持たせる。種は「シートを追加 ▾」で File の template graph に
 複製され、当てたシートはその複製から template を読み直す。**この道のどこかで既定値が落ちると、依頼 node を
 作っても応答を求める node にならない** (送る・状態・通知がすべて効かない)。
 

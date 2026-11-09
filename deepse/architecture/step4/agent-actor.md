@@ -3,6 +3,9 @@
 > 状態: **第三稿・ほぼ決定** (2026-11-08)。[レビュー 1](./agent-actor-review-1.md) と
 > [レビュー 2](./agent-actor-review-2.md) の回答を畳み込んだ。
 > 「決定」と書いたものは利用者の回答で決まったもの。「案」と書いたものは §6 の問いへの回答待ち。
+> **改訂 (2026-11-09)**: 段 5 の後、依頼を core から module へ切り出すことにした
+> ([計画](../../plans/node-actions-request-module.md))。D6 の「core が知るもの」、D7 の「誰が設定するか」、
+> D12 のボタンの置き場所を改めた。
 
 関連 issue: #350 (「依頼」node)、#349 (MCP)、#342 (異なる PDS 間の共同作業)、
 #348 (markdown との相互運用)、#310 (同期のライブラリ化)。
@@ -145,7 +148,7 @@ confidential client か) は段 5 で考える (A2')。
 
 ## 3. 側面 B: 依頼・相談 node
 
-### D6. 依頼・相談の種類は template で定義する。core が知るのは「応答を求める node」だけ — 決定 (B4、B9)
+### D6. 依頼・相談の種類は template で定義する。「応答を求める node」は依頼の module が知る — 決定 (B4、B9、2026-11-09 改訂)
 
 > **依頼・相談の種類は core に入れず、template graph で定義する。**
 > 他の actor への言語行為の種類はこれから増えるかもしれないからである (レビュー 1 B4)。
@@ -160,16 +163,23 @@ label は `node.setLabel` で各 node にも書かれるが、**表示のため�
 したがって多言語の問題は表示だけに出て、agent や通知の判定には影響しない。
 表示の i18n は #356 で扱う (#330 案 B「焼き込んだら引き直さない」の決定を改めることになる)。
 
-**core が知るもの**: 通知・状態・ボタン (D8、D11、D12) は、conversensus が node を読めないと
-作れない。そこで core は種類に依らない**「応答を求める node」**だけを知る。
-`app.conversensus.addressee` を持つ node がそれである。依頼・相談の template はこれらを既定値付きで持つ。
+**module が知るもの (2026-11-09 改訂)**: 通知・状態・ボタン (D8、D11、D12) は、conversensus が node を読めないと
+作れない。そこで種類に依らない**「応答を求める node」**を決め、`app.conversensus.request.addressee` を持つ
+node をそれとする。依頼・相談の template はこれらを既定値付きで持つ。
+
+第三稿ではこれを core が知るとしていた。改訂で、**依頼の module** が知ることにした。core が知るのは
+「node に操作がある」「node に印がある」という汎用の拡張点だけで、依頼はその最初の利用者になる
+([計画](../../plans/node-actions-request-module.md) §3.2)。将来プラグインにする道を開くためである。
+名前は module の名前空間 `app.conversensus.request.` に移した。本体に同梱する module なので、
+system の名前の下に置く (property の欄・検索・`set_property` からは見えず変えられない)。
+移したときには依頼のデータが開発用の PDS にしか無かったので、古い名前は読み替えない。
 
 | システム・プロパティ | 値 | 意味 | 書く人 |
 | --- | --- | --- | --- |
-| `app.conversensus.addressee` | `Did[]` (空 = 不特定) | 応答を求めている相手。これを持つことが「応答を求める node」の印 | 依頼した人 |
-| `app.conversensus.sent` | 整数 (送った回数) | 送った (D12) | 送った人 |
-| `app.conversensus.closed` | `boolean` | 閉じた | 閉じた人 |
-| `app.conversensus.answers` (edge に付ける) | 整数 (どの送信への答えか) | この edge は答えへのつながり | 答えた人 |
+| `app.conversensus.request.addressee` | `Did[]` (空 = 不特定) | 応答を求めている相手。これを持つことが「応答を求める node」の印 | 依頼した人 |
+| `app.conversensus.request.sent` | 整数 (送った回数) | 送った (D12) | 送った人 |
+| `app.conversensus.request.closed` | `boolean` | 閉じた | 閉じた人 |
+| `app.conversensus.request.answers` (edge に付ける) | 整数 (どの送信への答えか) | この edge は答えへのつながり | 答えた人 |
 
 - 将来どんな言語行為の種類が増えても、この 4 つは変わらない
 - agent と人間を区別しない (レビュー 1 D7)
@@ -187,10 +197,11 @@ template のふつうのプロパティ `answerTarget` (`.` を含まない名�
 
 - **`self` (依頼 node を答えで置き換える) は無し** (B2)。#350 の「この node の中身を書いて」は
   `linkedNode` で受ける
-- どの場合も、依頼 node から出る edge に `app.conversensus.answers` を付ける (D6)。
+- どの場合も、依頼 node から出る edge に `app.conversensus.request.answers` を付ける (D6)。
   答えが別の sheet・File にあっても、つながりは依頼のある sheet に残るので、状態を導出できる (D8)
 
-**誰が設定するか (レビュー 2 の問い)**: 依頼した人である。property の欄で選ぶ (既定は `linkedNode`)。
+**誰が設定するか (レビュー 2 の問い)**: 依頼した人である。「送る」の dialog で選ぶ (既定は `linkedNode`。
+2026-11-09 改訂、前は property の欄)。
 **本文に書いてもよい。**本文は、言語モデルの agent にとっては prompt に当たる。
 conversensus はどちらも読まず、強制もしないので、食い違ったときにどうするかは答える側の判断である。
 property は「選ぶだけで済む・人間にも一目で分かる」ために置き、本文は「それ以上の注文」を書く場所とする。
@@ -225,6 +236,8 @@ agent の側 (MCP の client や常駐の loop) が既定の指示を持つの�
 ### D12. 依頼は「評価」せず「送る」。送るのは依頼した人の行為である — 決定 (Q1・Q2、B9)
 
 **依頼 node に「送る」ボタンと「閉じる」ボタンを付ける** (Q1)。開き直す (閉じたのを戻す) こともできる。
+ボタンは選んだ node のそばと右クリックのメニューに出し、宛先などの引数は「送る」の dialog で決める
+(2026-11-09 改訂。段 4 では右の欄の区画に置いていた)。
 
 **いつ「実行」されるか (Q2)**: conversensus は依頼を**評価しない**。依頼した人が「送る」と、
 宛先に知らせが届き、宛先の actor (人間でも agent でも) が自分で答える。
@@ -296,6 +309,7 @@ File の全グラフを毎回 prompt に入れると、大きな File では収�
 | 種別プロパティ `kind` | 種類は template の種別プロパティ `<templateId>.kind` が既に持つ (D6) |
 | `answerTarget: self` | 使い道が少なく、依頼の本文が消える (B2) |
 | 「core が知るのは宛先だけ」(第二稿) | 送る・閉じる・状態の導出にも core が読む値が要る。種類に依らない 4 つにした (D6) |
+| 「core が知るのは応答を求める node だけ」(第三稿) | 依頼を module に切り出し、将来プラグインにするため。core は node の操作と印の拡張点だけを知る (D6、2026-11-09 改訂) |
 
 ## 6. 問い (第三稿で残ったもの — すべて回答済み)
 

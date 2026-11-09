@@ -1,15 +1,16 @@
 /**
  * 応答を求める node (agent 段 4 R1, 設計 agent-actor.md D6・D8)
  *
- * 依頼・相談の**種類**は template が決める (D6)。core が知るのは種類に依らない「応答を求める node」
- * だけで、それはシステム・プロパティ 4 つで表される:
+ * 依頼・相談の**種類**は template が決める (D6)。種類に依らない「応答を求める node」は、依頼の module の
+ * 名前空間 (`app.conversensus.request.`) のシステム・プロパティ 4 つで表される。このファイルは依頼の
+ * module へ移す予定である (計画 node-actions-request-module.md N3):
  *
  * | property | 付く所 | 値 | 意味 |
  * | --- | --- | --- | --- |
- * | `app.conversensus.addressee` | node | DID の配列 (空 = 不特定) | 応答を求めている相手。**これを持つことが印** |
- * | `app.conversensus.sent` | node | 整数 (送った回数) | 送った (D12) |
- * | `app.conversensus.closed` | node | boolean | 閉じた |
- * | `app.conversensus.answers` | edge | 整数 (どの送信への答えか) | この edge は答えへのつながり |
+ * | `app.conversensus.request.addressee` | node | DID の配列 (空 = 不特定) | 応答を求めている相手。**これを持つことが印** |
+ * | `app.conversensus.request.sent` | node | 整数 (送った回数) | 送った (D12) |
+ * | `app.conversensus.request.closed` | node | boolean | 閉じた |
+ * | `app.conversensus.request.answers` | edge | 整数 (どの送信への答えか) | この edge は答えへのつながり |
  *
  * **状態は保存せず導出する** (D8)。「送った」「閉じた」は依頼した人の行為なので op に残り、
  * 「回答あり」は答えの edge から導く。
@@ -22,14 +23,19 @@ import type { Did, GraphEdge, GraphFile, GraphNode, Sheet } from '../schemas';
 import { SYSTEM_PROPERTY_PREFIX } from './properties';
 import { sheetKindOf, TEMPLATE_SHEET_KIND } from './sheetKind';
 
+/**
+ * 依頼の module の名前空間。本体に同梱する module なので system の名前 (`app.conversensus.`) の下に置く
+ * (property の欄・検索・`set_property` からは見えず変えられない — 変えるのは依頼の操作だけ)
+ */
+export const REQUEST_PROPERTY_PREFIX = `${SYSTEM_PROPERTY_PREFIX}request.`;
 /** 応答を求めている相手 (DID の配列。空 = 不特定)。これを持つ node が「応答を求める node」 */
-export const ADDRESSEE_PROPERTY = `${SYSTEM_PROPERTY_PREFIX}addressee`;
+export const ADDRESSEE_PROPERTY = `${REQUEST_PROPERTY_PREFIX}addressee`;
 /** 送った回数 */
-export const SENT_PROPERTY = `${SYSTEM_PROPERTY_PREFIX}sent`;
+export const SENT_PROPERTY = `${REQUEST_PROPERTY_PREFIX}sent`;
 /** 閉じたか */
-export const CLOSED_PROPERTY = `${SYSTEM_PROPERTY_PREFIX}closed`;
+export const CLOSED_PROPERTY = `${REQUEST_PROPERTY_PREFIX}closed`;
 /** (edge) どの送信への答えか */
-export const ANSWERS_PROPERTY = `${SYSTEM_PROPERTY_PREFIX}answers`;
+export const ANSWERS_PROPERTY = `${REQUEST_PROPERTY_PREFIX}answers`;
 
 /**
  * 答えを置く場所 (D7)。template のふつうの property (名前に `.` を含まない)。

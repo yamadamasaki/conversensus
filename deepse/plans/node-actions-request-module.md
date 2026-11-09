@@ -2,7 +2,7 @@
 
 > 設計: [agent-actor.md](../architecture/step4/agent-actor.md) D6・D7・D8・D11・D12。
 > 前の段: [agent-stage4-request.md](agent-stage4-request.md) (PR #361)、[agent-stage5-resident.md](agent-stage5-resident.md) (PR #362)。
-> branch: `docs/node-actions-plan` (この草案)。実装は決まってから別の branch で行う。
+> branch: `step/node-actions` (計画の草案は `docs/node-actions-plan` で書き、そのまま引き継いだ)。
 > 状態: **草案**。§5 の問い 4 つは利用者が答えた (2026-11-09、すべて推奨案)。
 
 ## 1. 目的
@@ -197,6 +197,18 @@ C は連合やライブラリ化 (#310) の後に考える。第三者のコー�
 | N4 | **向きの確かめ**: core が module を import しないことを確かめる。core に残る依頼の知識を一覧にする (段 B へ) | 試験か lint |
 | N5 | 段 4・段 5 の App 結合を新しい画面で通す。`user-test-environment.md` の手順を直す | App 結合 (完了基準 5) |
 | N6 | 開発用の PDS で手で確かめる | 完了基準 6 (人間が確かめる) |
+
+### 6.1 進捗
+
+| | 状態 | メモ |
+| --- | --- | --- |
+| N0 | 済 | 設計 D6 (module が知る)・D7 (宛先などは「送る」の dialog で選ぶ)・D12 (ボタンは node のそばと右クリック) を改めた。名前を `app.conversensus.request.*` に移した (`REQUEST_PROPERTY_PREFIX`)。本体に同梱する module なので system の名前の下に置き、property の欄・検索・`set_property` からは見えないままにした。古い名前は読み替えない (データは開発用の PDS だけ) |
+| N1 | | |
+| N2 | | |
+| N3 | | |
+| N4 | | |
+| N5 | | |
+| N6 | | |
 
 ## 7. 気になること
 
