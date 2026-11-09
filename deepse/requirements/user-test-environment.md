@@ -480,8 +480,19 @@ CONVERSENSUS_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx \
 3. App で「今すぐ同期」。答えの node が出て、依頼の印が「回答あり」になる
 4. 常駐を Ctrl-C で止めて起動し直しても、同じ依頼にもう一度答えない。App で node の上の「送り直す」を実行すると、また答える
 
-- 参加: 常駐の間は `cli.ts accept` を使えない。止めて accept してから起動し直す。起動し直さなくても、
-  参加した File は次のポーリングで見つける
+- 参加: 常駐と `cli.ts` は同じ置き場所を開くので、**常駐の間は `cli.ts accept` を使えない**
+  (「この置き場所 (…) は別のプロセス (pid …) が使っている」で止まり、何も書かない)。参加させる方法は 2 つ:
+  - **止めて参加する**: 常駐を Ctrl-C で止め、`bun run src/headless/src/cli.ts accept <参加コード>` してから
+    常駐を起動し直す。起動するときに参加している File を見直すので、新しい File もすぐ見張る
+  - **止めずに参加する**: 常駐が出している MCP の口に Claude Code をつなぐ。つなぎ方 (URL と token) は
+    置き場所の `resident-mcp.json` にある
+    ```sh
+    claude --mcp-config ~/.conversensus/agent/resident-mcp.json   # --data を替えたらその置き場所
+    ```
+    起動した Claude Code に「参加コード `<参加コード>` で conversensus の File に参加して」と頼む
+    (`accept_invitation`)。書くのは常駐が開いている置き場所なので取り合わない。新しい File は常駐の次の
+    ポーリング (既定 60 秒、`--poll`) で見張りに入る。`resident-mcp.json` と token は常駐を起動するたびに
+    作り直すので、この方法は常駐が動いている間だけ使える
 - 答えられなかった依頼 (claude が失敗した・時間切れ) には、もう一度は起動しない。送り直すと起動する
 - 起動した印は置き場所の `storage.json` にある。MCP の設定 (token を含む) は `resident-mcp.json` (持ち主だけが読める)
 
