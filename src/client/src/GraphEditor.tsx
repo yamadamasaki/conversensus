@@ -72,7 +72,11 @@ import {
 } from './graphTransform';
 import { useClipboard } from './hooks/useClipboard';
 import { useEdgeContextMenu } from './hooks/useEdgeContextMenu';
-import { type UndoState, useEventStore } from './hooks/useEventStore';
+import {
+  type DispatchOptions,
+  type UndoState,
+  useEventStore,
+} from './hooks/useEventStore';
 import { useFitOnResize } from './hooks/useFitOnResize';
 import {
   type GroupAbility,
@@ -494,10 +498,10 @@ function GraphEditorInner({
   const transformEventRef = useRef(transformEvent);
   transformEventRef.current = transformEvent;
   const dispatch = useCallback(
-    (event: GraphEvent) => {
+    (event: GraphEvent, options?: DispatchOptions) => {
       const transform = transformEventRef.current;
       const rest = transform ? transform(event) : event;
-      if (rest) storeDispatch(rest);
+      if (rest) storeDispatch(rest, options);
     },
     [storeDispatch],
   );

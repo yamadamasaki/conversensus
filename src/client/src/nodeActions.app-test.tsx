@@ -70,6 +70,21 @@ const TEST_MODULE: NodeModule = {
   ],
 };
 
+/** 相手に届く行為の代わり: undo で戻せない操作 (`undoable: false`) */
+const STAMP = 'test.nodeActions.stamp';
+const STAMP_MODULE: NodeModule = {
+  id: 'stamp',
+  actions: [
+    {
+      id: 'stamp',
+      label: text('判を押す'),
+      undoable: false,
+      available: (ctx) => ctx.node.properties?.[STAMP] !== true,
+      run: (ctx) => withProperty(ctx, STAMP, true),
+    },
+  ],
+};
+
 let world: AppWorld;
 beforeEach(async () => {
   world = await createAppWorld();
@@ -187,6 +202,35 @@ describe('App 結合: node の操作 (計画 node-actions-request-module.md N2)'
       WIRING_TIMEOUT,
     );
     expect(screen.queryByRole('menu', { name: 'node の操作' })).toBeNull();
+  });
+
+  test('undo で戻せない操作は undo に積まれず、undo はその前の操作を戻す', async () => {
+    const user = await fileWithOneNode([TEST_MODULE, STAMP_MODULE]);
+    selectFirstNode();
+    await user.click(
+      await screen.findByRole('button', { name: '印を付ける' }, WIRING_TIMEOUT),
+    );
+    await waitFor(
+      () => expect(storedProperties()[MARK]).toBe(true),
+      WIRING_TIMEOUT,
+    );
+    await user.click(await screen.findByRole('button', { name: '判を押す' }));
+    await waitFor(
+      () => expect(storedProperties()[STAMP]).toBe(true),
+      WIRING_TIMEOUT,
+    );
+
+    await user.click(
+      within(screen.getByRole('toolbar', { name: 'グラフの操作' })).getByRole(
+        'button',
+        { name: '元に戻す' },
+      ),
+    );
+    await waitFor(
+      () => expect(storedProperties()[MARK]).toBeUndefined(),
+      WIRING_TIMEOUT,
+    );
+    expect(storedProperties()[STAMP]).toBe(true);
   });
 
   test('module が登録されていなければ、選んでも右クリックしても何も出ない', async () => {

@@ -70,6 +70,11 @@ export type NodeAction = {
   label: LocalizedText;
   /** この node に今使えるか。使えなければ出さない (押せるのに効かない形を作らない) */
   available: (ctx: NodeActionContext) => boolean;
+  /**
+   * undo で戻せるか (既定は戻せる)。**相手に届く行為** (依頼を送るなど) は false にする — 届いて答えが
+   * 返った後に手元だけ巻き戻すと、相手の答えと食い違う。やめたいときは別の操作 (閉じる) で表す
+   */
+  undoable?: boolean;
   /** 引数。無ければ押してすぐ実行する。あれば dialog で決めてから実行する */
   params?: readonly ActionParam[];
   /** dialog を開いたときの値 (多くは node の property から読む — 前に決めた値が入っている) */

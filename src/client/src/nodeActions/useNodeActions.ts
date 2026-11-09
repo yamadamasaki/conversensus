@@ -13,6 +13,7 @@ import type { Edge, Node } from '@xyflow/react';
 import type { MouseEvent } from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { GraphEvent } from '../events/GraphEvent';
+import type { DispatchOptions } from '../hooks/useEventStore';
 import { useLocale } from '../i18n/messages';
 import { type ActionEnv, actionContextOf } from './flowContext';
 import { type ActionArgs, NodeActionError } from './nodeAction';
@@ -47,7 +48,7 @@ type Deps = {
   getEdges: () => Edge[];
   env: ActionEnv;
   readOnly: boolean;
-  dispatch: (event: GraphEvent) => void;
+  dispatch: (event: GraphEvent, options?: DispatchOptions) => void;
   /** 選ぶ (実行の後に対象の node を選び直す) */
   select: (ids: readonly string[]) => void;
 };
@@ -92,7 +93,11 @@ export function useNodeActions({
       const ctx = actionContextOf(nodeId, getNodes(), getEdges(), ctxEnv);
       if (!ctx) return `node ${nodeId} が無い`;
       try {
-        dispatch(runNodeAction(registry, key, ctx, args, { readOnly }));
+        const event = runNodeAction(registry, key, ctx, args, { readOnly });
+        // 相手に届く行為は undo に積まない (`NodeAction.undoable`)
+        dispatch(event, {
+          undoable: registry.find(key)?.action.undoable !== false,
+        });
         // node を足す操作 (依頼の「答える」など) は貼り付けと同じく選択を外す。対象の node を選んだままにして、
         // 続けて操作できるようにする
         select([nodeId]);

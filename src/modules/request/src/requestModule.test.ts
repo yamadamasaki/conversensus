@@ -122,6 +122,19 @@ describe('出る操作 (状態ごと)', () => {
 });
 
 describe('送る', () => {
+  test('送る・送り直すは undo で戻せない (相手に届く行為)。他の操作は戻せる', () => {
+    const undoable = Object.fromEntries(
+      REQUEST_MODULE.actions.map((a) => [a.id, a.undoable !== false]),
+    );
+    expect(undoable).toEqual({
+      send: false,
+      resend: false,
+      answer: true,
+      close: true,
+      reopen: true,
+    });
+  });
+
   test('dialog の初めの値は今の宛先と答えの置き場所 (無ければ linkedNode)', () => {
     const send = registry.find('request/send');
     expect(send?.action.initial?.(ctxOf(DRAFT))).toEqual({

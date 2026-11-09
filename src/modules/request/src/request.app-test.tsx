@@ -164,6 +164,35 @@ describe('App 結合: 依頼の操作 (agent 段 4 R4、計画 node-actions-requ
   );
 
   test(
+    '送ったことは undo で戻らない: 答えた後の undo は答えだけを戻し、次の undo は送信を飛ばして node を作ったことを戻す',
+    async () => {
+      await world.activate('solo');
+      renderAppWithRequests();
+      const user = userEvent.setup();
+      await createFile(user, FILE_NAME);
+      await oneSelectedRequest(user);
+      await sendSelected(user);
+      await answerSelected(user, '戻す答え');
+      await waitFor(() => expect(renderedNodeCount()).toBe(2), WIRING_TIMEOUT);
+      const undo = () =>
+        user.click(
+          within(
+            screen.getByRole('toolbar', { name: 'グラフの操作' }),
+          ).getByRole('button', { name: '元に戻す' }),
+        );
+
+      // 答えは手元の編集なので戻せる
+      await undo();
+      await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+      await waitFor(() => expect(requestBadge()).toBe('sent'), WIRING_TIMEOUT);
+      // 送ったことは undo に積まれていない (相手に届く行為)。次の undo はその前の「node を作った」を戻す
+      await undo();
+      await waitFor(() => expect(renderedNodeCount()).toBe(0), WIRING_TIMEOUT);
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
     '送り直すと、前の答えでは回答ありにならない',
     async () => {
       await world.activate('solo');

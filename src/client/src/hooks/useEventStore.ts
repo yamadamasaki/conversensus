@@ -8,6 +8,15 @@ import { withParentFit } from '../graph/parentFit';
 
 const MAX_UNDO_STACK = 50;
 
+/** dispatch の注文 */
+export type DispatchOptions = {
+  /**
+   * false なら undo に積まない (既定は積む)。**相手に届く行為** (依頼を送るなど) は、届いた後に手元だけ
+   * 巻き戻すと、相手の答えと食い違う。取り消せない行為として記録だけする
+   */
+  undoable?: boolean;
+};
+
 export type UndoState = { undoStack: GraphEvent[]; redoStack: GraphEvent[] };
 
 export function useEventStore(
@@ -19,7 +28,7 @@ export function useEventStore(
   // dispatch/undo/redo で eventLog に積まれた event ごとに呼ばれる。
   onEvent?: (event: GraphEvent) => void,
 ): {
-  dispatch: (event: GraphEvent) => void;
+  dispatch: (event: GraphEvent, options?: DispatchOptions) => void;
   undo: () => void;
   redo: () => void;
   canUndo: boolean;
@@ -46,7 +55,7 @@ export function useEventStore(
   }, []);
 
   const dispatch = useCallback(
-    (dispatched: GraphEvent) => {
+    (dispatched: GraphEvent, options: DispatchOptions = {}) => {
       const { nodes: currentNodes, edges: currentEdges } = stateRef.current;
       // 親 group を広げた分を載せる (#250)。op-log にも undo にも同じ姿が入る
       const event = withParentFit(dispatched, currentNodes, currentEdges);
@@ -61,13 +70,15 @@ export function useEventStore(
       setEdges(newEdges);
       eventLogRef.current = [...eventLogRef.current, event];
       onEventRef.current?.(event);
+      // undo に積まない行為でも、redo は捨てる (新しい行為の後に前の流れをやり直さない)
+      redoStackRef.current = [];
+      setCanRedo(false);
+      if (options.undoable === false) return;
       undoStackRef.current = [
         ...undoStackRef.current.slice(-(MAX_UNDO_STACK - 1)),
         inverse,
       ];
-      redoStackRef.current = [];
       setCanUndo(true);
-      setCanRedo(false);
     },
     [setNodes, setEdges],
   );

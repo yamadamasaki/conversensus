@@ -13,6 +13,8 @@
  * | 閉じる | 送った・回答あり | なし |
  * | 開き直す | 閉じた | なし |
  *
+ * 「送る」「送り直す」は undo で戻せない (相手に届く行為。やめるなら「閉じる」)。
+ *
  * 宛先だけを変える操作は持たない (計画 §3.1)。宛先は送るときに決めるもので、送らずに変えても誰にも届かない。
  */
 
@@ -136,6 +138,8 @@ export const REQUEST_MODULE: NodeModule = {
   actions: [
     {
       id: 'send',
+      // 送るのは相手に届く行為。届いて答えが返った後に手元だけ巻き戻さない (やめるなら閉じる)
+      undoable: false,
       label: { ja: '送る', en: 'Send' },
       available: statusIs('draft'),
       params: SEND_PARAMS,
@@ -144,6 +148,8 @@ export const REQUEST_MODULE: NodeModule = {
     },
     {
       id: 'resend',
+      // 送るのは相手に届く行為。届いて答えが返った後に手元だけ巻き戻さない (やめるなら閉じる)
+      undoable: false,
       label: { ja: '送り直す', en: 'Send again' },
       available: statusIs('sent', 'answered'),
       params: SEND_PARAMS,
