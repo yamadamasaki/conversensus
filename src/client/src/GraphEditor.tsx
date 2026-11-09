@@ -72,7 +72,11 @@ import {
 } from './graphTransform';
 import { useClipboard } from './hooks/useClipboard';
 import { useEdgeContextMenu } from './hooks/useEdgeContextMenu';
-import { type UndoState, useEventStore } from './hooks/useEventStore';
+import {
+  type DispatchOptions,
+  type UndoState,
+  useEventStore,
+} from './hooks/useEventStore';
 import { useFitOnResize } from './hooks/useFitOnResize';
 import {
   type GroupAbility,
@@ -87,14 +91,13 @@ import { ImageErrorProvider } from './images/imageErrorContext';
 import { NodeCreationContext } from './NodeCreationContext';
 import type { NodeTypeOption } from './NodeTypeMenu';
 import { NodeTypeMenu } from './NodeTypeMenu';
+import type { ActionEnv } from './nodeActions/flowContext';
+import { NodeActionBar } from './nodeActions/NodeActionBar';
+import { NodeActionDialog } from './nodeActions/NodeActionDialog';
+import { NodeActionMenu } from './nodeActions/NodeActionMenu';
+import { useNodeActions } from './nodeActions/useNodeActions';
 import { addablePropertyNames } from './property/propertyRows';
 import { useReadOnly } from './readOnlyContext';
-import { RequestActionError } from './request/requestEvents';
-import {
-  type RequestAction,
-  requestEventFor,
-  requestTargetOf,
-} from './request/requestTarget';
 import type { SearchHit } from './search/searchSheet';
 
 /** 検索結果から要素へ寄せるときの拡大率 (step2 Phase 7) */
@@ -162,7 +165,15 @@ type Props = {
   onGroupAbilityChange?: (ability: GroupAbility) => void;
   /** map を出すか (ヘッダの on/off, #182)。既定は出す */
   showMap?: boolean;
+  /**
+   * node の操作の文脈 (計画 node-actions-request-module.md N2): 操作する人と、引数の候補 (File の参加者)。
+   * どの操作があるかは module が決める (`NodeActionsProvider`)。無ければ誰でもない・候補なし
+   */
+  actionEnv?: ActionEnv;
 };
+
+/** `actionEnv` が渡されないとき */
+const NO_ACTION_ENV: ActionEnv = { me: undefined, participants: [] };
 
 /**
  * 縮小の下限 (#250 無限キャンバス)。React Flow の既定は 0.5 で、大きなグラフは「全体を表示」でも
@@ -194,6 +205,7 @@ function GraphEditorInner({
   onSelectionChange,
   onGroupAbilityChange,
   showMap = true,
+  actionEnv = NO_ACTION_ENV,
 }: Props) {
   const t = useMessages();
   const { screenToFlowPosition, getNodes, getEdges, setCenter, fitView } =
@@ -267,7 +279,6 @@ function GraphEditorInner({
   const propertyTarget = useMemo((): PropertyTarget | undefined => {
     const node = nodes.find((n) => n.selected && !n.data?.ghost);
     if (node) {
-      const request = requestTargetOf(node, edges);
       return {
         kind: 'node',
         id: node.id,
@@ -277,7 +288,6 @@ function GraphEditorInner({
           | Record<string, unknown>
           | undefined,
         addable: [],
-        ...(request && { request }),
       };
     }
     const edge = edges.find((e) => e.selected && !e.data?.ghost);
@@ -488,10 +498,10 @@ function GraphEditorInner({
   const transformEventRef = useRef(transformEvent);
   transformEventRef.current = transformEvent;
   const dispatch = useCallback(
-    (event: GraphEvent) => {
+    (event: GraphEvent, options?: DispatchOptions) => {
       const transform = transformEventRef.current;
       const rest = transform ? transform(event) : event;
-      if (rest) storeDispatch(rest);
+      if (rest) storeDispatch(rest, options);
     },
     [storeDispatch],
   );
@@ -535,39 +545,6 @@ function GraphEditorInner({
       );
     },
     [propertyTarget, dispatch],
-  );
-
-  /**
-   * 右の欄の「依頼」の区画のボタン (agent 段 4 R4)。選ばれている応答を求める node に効く。
-   * できない操作は区画がボタンを出さないので、ここで弾かれたら (直前に状態が変わった) 何もしない
-   */
-  const applyRequestAction = useCallback(
-    (action: RequestAction) => {
-      if (propertyTarget?.kind !== 'node' || !propertyTarget.request) return;
-      const requestId = propertyTarget.id;
-      try {
-        dispatch(
-          requestEventFor(
-            action,
-            requestId,
-            getNodes(),
-            getEdges(),
-            messages().request.answerEdgeLabel,
-          ),
-        );
-        // 答えは node と edge をまとめて足す event (`NODES_PASTED`) で書くので、貼り付けと同じく
-        // 選択が外れる。依頼を選んだままにして、区画で続けて操作できるようにする
-        if (action.kind === 'answer') {
-          setNodes((ns) =>
-            ns.map((n) => ({ ...n, selected: n.id === requestId })),
-          );
-        }
-      } catch (error) {
-        if (!(error instanceof RequestActionError)) throw error;
-        console.warn('[request] 操作できなかった:', error.message);
-      }
-    },
-    [propertyTarget, dispatch, getNodes, getEdges, setNodes],
   );
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: mount/unmount のみ (React key 変更による再マウント)
@@ -915,6 +892,21 @@ function GraphEditorInner({
     [setNodes, setEdges],
   );
 
+  /**
+   * node の操作 (計画 N2): node のそば・右クリックのメニュー・引数の dialog。何が出るかは module が決め、
+   * 判断は `nodeActions/registry.ts` にある。見るだけの所 (`readOnly`) では何も出さない
+   */
+  const nodeActions = useNodeActions({
+    nodes,
+    edges,
+    getNodes,
+    getEdges,
+    env: actionEnv,
+    readOnly,
+    dispatch,
+    select: selectIds,
+  });
+
   const handleExportPng = useCallback(() => {
     void exportPng(getNodes(), fileNameRef.current, sheetRef.current.name);
   }, [getNodes]);
@@ -929,7 +921,6 @@ function GraphEditorInner({
     handleExportPng,
     handleReveal,
     applyPropertyChange,
-    applyRequestAction,
     selectIds,
     dispatch,
   };
@@ -948,7 +939,6 @@ function GraphEditorInner({
       setProperty: (name, value) =>
         latestRef.current.applyPropertyChange(name, value),
       select: (ids) => latestRef.current.selectIds(ids),
-      request: (action) => latestRef.current.applyRequestAction(action),
       apply: (events) => {
         for (const event of events) latestRef.current.dispatch(event);
       },
@@ -995,6 +985,7 @@ function GraphEditorInner({
                 onPaneClick={onPaneClick}
                 onMoveStart={fitOnResize.onMoveStart}
                 onEdgeContextMenu={onEdgeContextMenu}
+                onNodeContextMenu={nodeActions.onNodeContextMenu}
                 zoomOnDoubleClick={false}
                 deleteKeyCode={null}
                 minZoom={MIN_ZOOM}
@@ -1027,6 +1018,13 @@ function GraphEditorInner({
                       {t.graph.emptyHintImage}
                     </p>
                   </div>
+                )}
+                {nodeActions.toolbar && (
+                  <NodeActionBar
+                    nodeId={nodeActions.toolbar.nodeId}
+                    actions={nodeActions.toolbar.actions}
+                    onPick={nodeActions.pick}
+                  />
                 )}
                 <Background />
                 <Controls />
@@ -1067,6 +1065,21 @@ function GraphEditorInner({
                 <EdgeContextMenu
                   contextMenu={contextMenu}
                   onSelect={setEdgePathType}
+                />
+              )}
+              {nodeActions.menu && (
+                <NodeActionMenu
+                  menu={nodeActions.menu}
+                  onPick={nodeActions.pick}
+                />
+              )}
+              {nodeActions.dialog && (
+                <NodeActionDialog
+                  action={nodeActions.dialog.found.action}
+                  initial={nodeActions.dialog.initial}
+                  participants={actionEnv.participants}
+                  onSubmit={nodeActions.submitDialog}
+                  onCancel={nodeActions.closeDialog}
                 />
               )}
               {imageError && (

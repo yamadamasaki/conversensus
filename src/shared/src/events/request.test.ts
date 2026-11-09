@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import fc from 'fast-check';
 import type { GraphEdge, GraphFile, GraphNode, Sheet } from '../schemas';
+import { propertyCategory } from './properties';
 import {
   ADDRESSEE_PROPERTY,
   ANSWERS_PROPERTY,
@@ -9,6 +10,7 @@ import {
   CLOSED_PROPERTY,
   isAddressedTo,
   isRequestNode,
+  REQUEST_PROPERTY_PREFIX,
   requestStatus,
   requestsInFile,
   SENT_PROPERTY,
@@ -202,5 +204,19 @@ describe('requestsInFile', () => {
     expect(
       found.map((r): string[] => [r.sheet.id, r.node.id, r.status]),
     ).toEqual([[plain.id, REQ, 'sent']]);
+  });
+});
+
+describe('名前空間', () => {
+  test('4 つのシステム・プロパティは依頼の module の名前空間にあり、system として扱われる', () => {
+    for (const name of [
+      ADDRESSEE_PROPERTY,
+      SENT_PROPERTY,
+      CLOSED_PROPERTY,
+      ANSWERS_PROPERTY,
+    ]) {
+      expect(name.startsWith(REQUEST_PROPERTY_PREFIX)).toBe(true);
+      expect(propertyCategory(name)).toBe('system');
+    }
   });
 });

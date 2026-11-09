@@ -24,7 +24,7 @@ import {
   reopenRequest,
   sendRequest,
   setAddressee,
-} from '@conversensus/client/src/request/requestEvents';
+} from '@conversensus/request/src/requestEvents';
 import {
   type Did,
   type FileId,

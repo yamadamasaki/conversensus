@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { sendRequest } from '@conversensus/client/src/request/requestEvents';
+import { sendRequest } from '@conversensus/request/src/requestEvents';
 import type { FileId, SheetId } from '@conversensus/shared';
 import { requestStatus } from '@conversensus/shared';
 import { Headless } from './headless';
