@@ -3,7 +3,7 @@
 > 設計: [agent-actor.md](../architecture/step4/agent-actor.md) D6・D7・D8・D11・D12。
 > 前の段: [agent-stage4-request.md](agent-stage4-request.md) (PR #361)、[agent-stage5-resident.md](agent-stage5-resident.md) (PR #362)。
 > branch: `docs/node-actions-plan` (この草案)。実装は決まってから別の branch で行う。
-> 状態: **草案**。§5 の問いへの答えを待っている。
+> 状態: **草案**。§5 の問い 4 つは利用者が答えた (2026-11-09、すべて推奨案)。
 
 ## 1. 目的
 
@@ -146,7 +146,14 @@ C は連合やライブラリ化 (#310) の後に考える。第三者のコー�
 `answerTarget` の `newSheet`・`newFile` (選択肢には出すが、選べるのは今までどおり `linkedNode` だけ)、
 操作のキーボード・ショートカット。
 
-## 5. 問い (決めてほしいこと)
+## 5. 問い
+
+**決めたこと (利用者 2026-11-09、すべて推奨案)**:
+
+- Q1: 選んだ node の上に `NodeToolbar`、同じ操作を右クリックのメニューにも出す
+- Q2: module は引数を宣言し、core が dialog を描く
+- Q3: システム・プロパティを module の名前空間 (`app.conversensus.request.*`) へ移す
+- Q4: 新しい workspace の package `src/modules/request` (`@conversensus/request`)
 
 ### Q1. 操作をどこに出すか
 
@@ -179,7 +186,7 @@ C は連合やライブラリ化 (#310) の後に考える。第三者のコー�
 | **a (推奨)** | 新しい workspace の package `src/modules/request` (`@conversensus/request`)。core の package は依存に持たない | **向きを package の依存で強制できる** (core から import すると解決できない)。段 C の形に近い | package を 1 つ足す (tsconfig・試験の設定) |
 | b | 各 package の中の directory (`client/src/modules/request` など) + lint の import 制限 | 足すものが少ない | 向きを lint の規則で守ることになる。module が 3 か所に割れる |
 
-## 6. スライス (段 A、案。§5 の答えで変わる)
+## 6. スライス (段 A)
 
 | | 内容 | 確かめ方 |
 | --- | --- | --- |
