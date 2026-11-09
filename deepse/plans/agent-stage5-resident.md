@@ -67,4 +67,4 @@ agent が**常駐**し、自分宛てに送られた依頼に、人が横にい�
 | S4 | 済 | `resident/httpMcp.ts` (127.0.0.1・token・要求ごとに stateless)。**happy-dom が `Response` を差し替え、`Bun.serve` が読めない**ので、試験は DOM の無い子のプロセスで走らせる (`httpMcp.domfree-test.ts`)。`headlessWorld` は 127.0.0.1 を本物に通す |
 | S5 | 済 | `resident/claudeRunner.ts`。組み込みの道具なし (`--tools ""`)・`--strict-mcp-config`・`--allowedTools mcp__conversensus`・`--permission-mode dontAsk`・`--no-session-persistence`。MCP の設定は持ち主だけが読める file (token を `ps` に出さない)。作業 directory は置き場所 (repo の CLAUDE.md を読ませない)。時間切れで止める。試験は偽の `claude` (`testing/fakeClaude.ts`) |
 | S6 | 済 | `resident/resident.ts` (`startResident` と入口)。見つけ直しのたびにログインを確かめる。App 結合: alice が画面で送る → 常駐 (偽の言語モデルが MCP の道具で答える) → alice の画面で回答あり (**完了基準 5**) |
-| S7 | — | |
+| S7 | 済 | 開発用の PDS で、人間が送った依頼に常駐の agent (本物の `claude -p`) が答えた (利用者が確認、2026-11-09)。**完了基準 6 を満たす** — 段 5 の完了基準はすべて満たす。手順の `read -s -p` が zsh で動かなかった (`-p` は coprocess) のを直した |

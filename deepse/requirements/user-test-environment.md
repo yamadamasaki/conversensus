@@ -449,7 +449,7 @@ conversensus の MCP **だけ**を使って答える (組み込みの道具は�
 
 ```bash
 PDS=http://localhost:3000
-read -s -p 'agent.test のパスワード: ' PW; echo
+printf 'agent.test のパスワード: '; read -s PW; echo   # zsh の read -p は coprocess の意味なので使わない
 JWT=$(curl -s -X POST $PDS/xrpc/com.atproto.server.createSession \
   -H 'content-type: application/json' \
   -d "{\"identifier\":\"agent.test\",\"password\":\"$PW\"}" | jq -r .accessJwt)
