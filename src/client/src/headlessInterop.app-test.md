@@ -30,14 +30,6 @@ App 結合の世界 (`testing/appWorld.ts`) の中で、端末の切り替えと
   node と edge を足す → alice が同期すると、**agent の node と書き換えた本文が alice の画面に描かれる**。
   edge は描かれたかを画面で見ない (React Flow の edge は happy-dom で測れない)。edge が届くことは
   `mcp.test.ts` が見ている
-- 🔴 **依頼を行き来する** (agent 段 4 完了基準 6): alice (App) が File を作って agent を招き、agent が参加する →
-  alice が依頼の Sheet で依頼を作り、宛先に agent を名簿から選んで送る → agent (MCP) が `list_requests` で
-  見つけて `answer_request` で答え、続けて依頼の種類 (encoding の template の注釈から id を引く) で node を作り、
-  宛先に alice を置いて送る → alice が同期すると agent の答えが描かれ、右下に「agent.test から依頼が届きました」
-  が出る。開いて区画で答える → agent が読むと、**2 つの依頼がどちらも回答あり**
-- 🔴 **常駐の agent** (agent 段 5 完了基準 5): alice (App) が依頼を作り、宛先に agent を選んで送る →
-  **誰も MCP を操作せず**、常駐の agent (`startResident`) を始めるだけ。常駐は同期して依頼を見つけ、言語モデルを
-  1 回起動する → alice が同期すると答えが描かれ、依頼の印が回答あり。
-  言語モデルは偽物で、本物の `claude -p` と同じく MCP の道具 (`answer_request`) で答える。HTTP の口は通さない
-  (happy-dom の `Response` では `Bun.serve` が答えられない — `resident/httpMcp.test.md`)。流れの合図も
-  通さず、始めたときの同期で見つける (合図は `resident/watch.test.ts`・`liveSocket.test.ts` が見る)
+依頼を人間と agent の間で行き来する試験 (agent 段 4 完了基準 6・段 5 完了基準 5) は、依頼の module に移した
+(`src/modules/request/src/agentRequest.app-test.tsx`)。依頼は core から切り出したので (計画
+node-actions-request-module.md N3)、依頼の操作を使う試験は module の側に置く。

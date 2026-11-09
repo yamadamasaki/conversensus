@@ -41,26 +41,7 @@ export const ja = {
     pastSuffix: '時点',
   },
   request: {
-    region: '依頼',
-    heading: '依頼',
-    status: {
-      draft: '下書き',
-      sent: '送った・未回答',
-      answered: '回答あり',
-      closed: '閉じた',
-    },
-    sentCount: (n: number) => `${n} 回目`,
-    addressee: '宛先',
-    anyone: '指定なし (参加者全員)',
-    addAddressee: '宛先を足す',
-    removeAddressee: (label: string) => `${label} を宛先から外す`,
-    send: '送る',
-    resend: '送り直す',
-    close: '閉じる',
-    reopen: '開き直す',
-    answerPlaceholder: '答えを書く',
-    answer: '答える',
-    answerEdgeLabel: '答え',
+    /** 届いた依頼の知らせ (段 B で依頼の module へ移す — 計画 node-actions-request-module.md §3.3) */
     notice: {
       region: '届いた依頼',
       arrived: (from: string) => `${from} から依頼が届きました`,

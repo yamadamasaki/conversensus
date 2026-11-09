@@ -40,26 +40,7 @@ export const en: Messages = {
     pastSuffix: 'past',
   },
   request: {
-    region: 'Request',
-    heading: 'Request',
-    status: {
-      draft: 'Draft',
-      sent: 'Sent, no answer yet',
-      answered: 'Answered',
-      closed: 'Closed',
-    },
-    sentCount: (n: number) => `sent ${n}×`,
-    addressee: 'Addressee',
-    anyone: 'Anyone (all participants)',
-    addAddressee: 'Add an addressee',
-    removeAddressee: (label: string) => `Remove ${label} from the addressees`,
-    send: 'Send',
-    resend: 'Send again',
-    close: 'Close',
-    reopen: 'Reopen',
-    answerPlaceholder: 'Write an answer',
-    answer: 'Answer',
-    answerEdgeLabel: 'answer',
+    /** 届いた依頼の知らせ (段 B で依頼の module へ移す — 計画 node-actions-request-module.md §3.3) */
     notice: {
       region: 'Requests for you',
       arrived: (from: string) => `${from} sent you a request`,

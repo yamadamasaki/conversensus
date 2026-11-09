@@ -420,8 +420,8 @@ Claude Code を起動し直す** (道具の一覧は起動時に読む)。
 1. App で File を開き、「template 付きで Sheet を追加」→「+ 依頼・相談 を追加」→「+ Sheet を追加」で
    「依頼・相談」に印を付けて Sheet を作る
 2. その Sheet をダブルクリックして「依頼」の node を作り、本文に頼みたいことを書く
-3. node を選び、右サイドバー (畳まれていれば広げる) の「依頼」の区画で、宛先に `agent.test` を足して「送る」。
-   「今すぐ同期」
+3. node を選ぶと、node の上に操作が出る (右クリックのメニューにも同じものが出る)。「送る」を押し、dialog で
+   宛先の `agent.test` に印を付けて「実行」。「今すぐ同期」
 4. Claude Code に「conversensus の自分宛ての依頼を見て、答えて」と頼む (`list_requests` → `read_file` →
    `answer_request`)
 5. App で「今すぐ同期」。依頼の右に答えの node が出て、依頼の印が「回答あり」になる
@@ -431,7 +431,7 @@ agent から人間へ:
 1. Claude Code に「さっきの Sheet に、alice への依頼を作って送って」と頼む (依頼の種類で `add_node` →
    `set_addressee` → `send_request`)
 2. App で「今すぐ同期」。右下に「agent.test から依頼が届きました」が出る。「開く」で依頼が選ばれる
-3. 右の欄の「依頼」の区画で答えを書いて「答える」→「今すぐ同期」
+3. node の上の「答える」を押し、dialog に答えを書いて「実行」→「今すぐ同期」
 4. Claude Code に依頼の File を読ませると、状態の注釈が「回答あり」になっている
 
 - 依頼の通知が出るのは、同期している File (開いている・タブにある) だけ。開いていない File への依頼は、
@@ -474,11 +474,11 @@ CONVERSENSUS_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx \
 
 **確かめる**:
 
-1. App (alice) で、agent.test が参加している File に依頼の Sheet を作り、依頼を書いて宛先に `agent.test` を足し、
-   「送る」→「今すぐ同期」(§5.7 の 1〜3)
+1. App (alice) で、agent.test が参加している File に依頼の Sheet を作り、依頼を書いて、node の上の「送る」の
+   dialog で宛先に `agent.test` を選んで「実行」→「今すぐ同期」(§5.7 の 1〜3)
 2. 常駐の端末に `[resident] 依頼に答える: ...` と、`claude` の出力が出る (数十秒)
 3. App で「今すぐ同期」。答えの node が出て、依頼の印が「回答あり」になる
-4. 常駐を Ctrl-C で止めて起動し直しても、同じ依頼にもう一度答えない。App で「送る」(送り直す) と、また答える
+4. 常駐を Ctrl-C で止めて起動し直しても、同じ依頼にもう一度答えない。App で node の上の「送り直す」を実行すると、また答える
 
 - 参加: 常駐の間は `cli.ts accept` を使えない。止めて accept してから起動し直す。起動し直さなくても、
   参加した File は次のポーリングで見つける

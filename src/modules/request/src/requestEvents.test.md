@@ -7,13 +7,15 @@
 
 ## なぜ
 
-system の property (`sent`・`closed`・`addressee`・`answers`) を書く口はここだけで、画面の「依頼」の区画と
-MCP の専用の道具の両方が使う。ここが間違うと、送ったのに状態が下書きのまま・答えたのに未回答、になる。
+system の property (`sent`・`closed`・`addressee`・`answers`) を書く口はここだけで、画面 (依頼の module の
+操作、`requestModule.ts`) と MCP の専用の道具の両方が使う。ここが間違うと、送ったのに状態が下書きのまま・答えたのに未回答、になる。
 答えは node と edge を**1 つの batch**で書かないと、edge が届く前の間、答えの無い node が宙に浮く。
 
 ## どのように
 
-- **操作 → op**: 送ると `sent` が 1 増える / 閉じると `closed = true`、開き直すと `closed` を消す /
+- **操作 → op**: 送ると `sent` が 1 増える / 宛先・答えの置き場所を渡して送ると、送った回数と**同じ 1 つの event**
+  に書く (dialog の引数と送ることを 1 回の undo で戻し、別々に届かないように。宛先の重なりは 1 つに。値の変わらない
+  答えの置き場所は op にならない) / 閉じると `closed = true`、開き直すと `closed` を消す /
   宛先を変える (重なりは 1 つに) / 答えるは `node.add`・`node.setLayout`・`edge.add` の 1 batch で、edge に
   `answers` = 今の送った回数
 - **できないこと**: 応答を求める node でなければ何もできない / 閉じた依頼は送れず答えられない /

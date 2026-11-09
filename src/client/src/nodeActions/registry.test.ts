@@ -34,6 +34,7 @@ const ctxWith = (content: string): NodeActionContext => ({
   sheet: { id: '', name: '', nodes: [], edges: [], layouts: [] } as never,
   me: ALICE,
   participants: [],
+  locale: 'ja',
 });
 
 const tokenAction = (
@@ -209,7 +210,7 @@ describe('印', () => {
         {
           id: 'first',
           actions: [],
-          badge: () => ({ text: text('1'), tone: 'muted' }),
+          badge: () => ({ text: text('1'), tone: 'muted', value: 'one' }),
         },
         { id: 'none', actions: [], badge: () => undefined },
         { id: 'noBadge', actions: [] },
@@ -223,12 +224,17 @@ describe('印', () => {
         {
           id: 'last',
           actions: [],
-          badge: () => ({ text: text('2'), tone: 'primary' }),
+          badge: () => ({ text: text('2'), tone: 'primary', value: 'two' }),
         },
       ]);
-      expect(registry.badgesFor(ctxWith('')).map((b) => b.text.ja)).toEqual([
-        '1',
-        '2',
+      const node = ctxWith('').node;
+      expect(
+        registry
+          .badgesFor({ node, outgoing: () => [] })
+          .map((b) => [b.moduleId, b.badge.value]),
+      ).toEqual([
+        ['first', 'one'],
+        ['last', 'two'],
       ]);
     } finally {
       console.warn = original;

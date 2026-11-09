@@ -1828,8 +1828,6 @@ export default function App() {
             readOnly={readOnly}
             pane={rightPane}
             onPaneChange={setRightPane}
-            participants={requestParticipants}
-            onRequestAction={(action) => panels.controls?.request(action)}
             timeline={
               <TimelinePanel
                 place={

@@ -8,6 +8,7 @@
 import type { Did, Sheet } from '@conversensus/shared';
 import type { Edge, Node } from '@xyflow/react';
 import { fromFlowEdges, fromFlowNodes } from '../graphTransform';
+import type { Locale } from '../i18n/locale';
 import type { ActionActor, NodeActionContext } from './nodeAction';
 
 /** 操作する人と、引数の候補 (画面の外 = App が持つもの) */
@@ -15,6 +16,9 @@ export type ActionEnv = {
   me: Did | undefined;
   participants: readonly ActionActor[];
 };
+
+/** 文脈を作るのに要るもの: App から来るものと、今の言語 */
+export type ContextEnv = ActionEnv & { locale: Locale };
 
 const live = <T extends { data?: Record<string, unknown> }>(
   items: readonly T[],
@@ -41,10 +45,16 @@ export function actionContextOf(
   nodeId: string,
   nodes: readonly Node[],
   edges: readonly Edge[],
-  env: ActionEnv,
+  env: ContextEnv,
 ): NodeActionContext | undefined {
   const sheet = sheetOfFlow(nodes, edges);
   const node = sheet.nodes.find((n) => n.id === nodeId);
   if (!node) return undefined;
-  return { node, sheet, me: env.me, participants: env.participants };
+  return {
+    node,
+    sheet,
+    me: env.me,
+    participants: env.participants,
+    locale: env.locale,
+  };
 }

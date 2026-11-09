@@ -25,7 +25,11 @@ const edges = [
   flowEdge('44444444-4444-4444-8444-444444444444'),
   flowEdge('55555555-5555-4555-8555-555555555555', true),
 ];
-const env = { me: ME, participants: [{ did: ME, label: 'me' }] };
+const env = {
+  me: ME,
+  participants: [{ did: ME, label: 'me' }],
+  locale: 'ja' as const,
+};
 
 describe('flowContext', () => {
   test('Sheet の形にするとき、ゴーストの node と edge は数えない', () => {

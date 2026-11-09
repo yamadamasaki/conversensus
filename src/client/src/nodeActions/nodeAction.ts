@@ -12,7 +12,7 @@
  * するときも、読み込むのはデータと純粋な関数だけで済む。
  */
 
-import type { Did, GraphNode, Sheet } from '@conversensus/shared';
+import type { Did, GraphEdge, GraphNode, Sheet } from '@conversensus/shared';
 import type { GraphEvent } from '../events/GraphEvent';
 import type { Locale } from '../i18n/locale';
 
@@ -32,6 +32,8 @@ export type NodeActionContext = {
   me: Did | undefined;
   /** 開いている File の参加者 */
   participants: readonly ActionActor[];
+  /** 操作する人の言語。操作が書く文言 (依頼の答えの edge の「答え」など) をこの言語にする */
+  locale: Locale;
 };
 
 /**
@@ -83,8 +85,22 @@ export type NodeAction = {
 /** node の上に描く印の調子 */
 export type BadgeTone = 'muted' | 'normal' | 'primary';
 
-/** node の上に描く印 (状態など)。文言と調子だけを返し、描くのは core */
-export type NodeBadge = { text: LocalizedText; tone: BadgeTone };
+/**
+ * node の上に描く印 (状態など)。文言と調子だけを返し、描くのは core。`value` は機械が読む値
+ * (`data-badge-value` に出す。試験と、将来の絞り込みのため)
+ */
+export type NodeBadge = { text: LocalizedText; tone: BadgeTone; value: string };
+
+/**
+ * 印を決めるときに module に渡すもの。**すべての node について、canvas が変わるたびに**呼ばれるので、
+ * Sheet 全体ではなく node だけを渡し、出ていく edge は要るときにだけ引く (`outgoing`)。印を持たない
+ * node は property を見るだけで済ませる
+ */
+export type NodeBadgeContext = {
+  node: GraphNode;
+  /** この node から出ている edge (ゴーストを除く)。引いたときにだけ数える */
+  outgoing: () => readonly GraphEdge[];
+};
 
 /** module: 操作と印をまとめたもの */
 export type NodeModule = {
@@ -92,7 +108,7 @@ export type NodeModule = {
   id: string;
   actions: readonly NodeAction[];
   /** この node に印があれば返す */
-  badge?: (ctx: NodeActionContext) => NodeBadge | undefined;
+  badge?: (ctx: NodeBadgeContext) => NodeBadge | undefined;
 };
 
 /** 操作できない (使えない・引数が合わない・知らない操作)。画面は知らせ、MCP は理由を返す */

@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'bun:test';
+import type { GraphEvent } from '@conversensus/client/src/events/GraphEvent';
+import { graphEventToOps } from '@conversensus/client/src/events/toUnified';
 import {
   ADDRESSEE_PROPERTY,
   ANSWERS_PROPERTY,
@@ -9,8 +11,6 @@ import {
   type Sheet,
 } from '@conversensus/shared';
 import fc from 'fast-check';
-import type { GraphEvent } from '../events/GraphEvent';
-import { graphEventToOps } from '../events/toUnified';
 import {
   answerPlacement,
   answerRequest,
@@ -85,6 +85,28 @@ describe('操作 → op', () => {
         value: 3,
       },
     ]);
+  });
+
+  test('宛先・答えの置き場所を渡して送ると、送った回数と同じ 1 つの event に書く (宛先の重なりは 1 つに)', () => {
+    const ops = graphEventToOps(
+      sendRequest(requestNode({ [SENT_PROPERTY]: 1 }), {
+        addressee: [ALICE, AGENT, ALICE],
+        answerTarget: 'linkedNode',
+      }),
+    );
+    expect(ops).toHaveLength(2);
+    expect(ops).toContainEqual({
+      kind: 'node.setProperty',
+      target: REQ as never,
+      name: ADDRESSEE_PROPERTY,
+      value: [ALICE, AGENT],
+    });
+    expect(ops).toContainEqual({
+      kind: 'node.setProperty',
+      target: REQ as never,
+      name: SENT_PROPERTY,
+      value: 2,
+    });
   });
 
   test('閉じると closed = true、開き直すと closed を消す', () => {

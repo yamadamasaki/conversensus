@@ -88,8 +88,6 @@ describe('en で描く (#50)', () => {
         pane="property"
         onPaneChange={noop}
         timeline={null}
-        participants={[]}
-        onRequestAction={noop}
       />,
     );
     expect(

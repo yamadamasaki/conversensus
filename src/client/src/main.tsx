@@ -1,6 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import './index.css';
+import { REQUEST_MODULE } from '@conversensus/request/src/requestModule';
 import App from './App.tsx';
 import { setLocalBackend } from './api';
 import { PDS_URL, setAuthBackend } from './atproto/client';
@@ -11,8 +12,16 @@ import { browserEraseDeps, eraseIfRequested } from './local/eraseDevice';
 import { broadcastingBackend } from './local/localChanges';
 import { requestPersistence } from './local/storagePersistence';
 import { startWorkerBackend } from './local/workerBackend';
+import { createNodeActionRegistry } from './nodeActions/registry';
+import { NodeActionsProvider } from './nodeActions/registryContext';
 import { Erased, Starting, StorageUnavailable } from './StorageUnavailable';
 import { setClaimedDeviceId } from './sync/actor';
+
+/**
+ * node の操作を持つ module (計画 node-actions-request-module.md §3.2)。**どの module を使うかを決めるのは
+ * ここだけ**で、core (この package の他の所) は module を import しない
+ */
+const NODE_ACTIONS = createNodeActionRegistry([REQUEST_MODULE]);
 
 /** Web Locks で deviceId を借りる。使えない環境では null (従来の端末に 1 つの id を使う) */
 async function claimTabDeviceId(): Promise<string | null> {
@@ -90,7 +99,9 @@ async function startApp(): Promise<void> {
       <StrictMode>
         {/* 部分の境界 (グラフ・サイドバー) をすり抜けたものの最後の受け (#290) */}
         <ErrorBoundary label={BOUNDARY_LABELS.app}>
-          <App />
+          <NodeActionsProvider registry={NODE_ACTIONS}>
+            <App />
+          </NodeActionsProvider>
         </ErrorBoundary>
       </StrictMode>,
     );

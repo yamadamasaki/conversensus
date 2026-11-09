@@ -12,12 +12,9 @@ import { color, font, radius } from './theme';
 
 import type { ReactNode } from 'react';
 import type { PropertyTarget } from './graph/editorControls';
-import type { Participant } from './hooks/useFileParticipants';
 import { useMessages } from './i18n/messages';
 import { PropertyEditor } from './PropertyEditor';
 import { propertyRows } from './property/propertyRows';
-import { RequestPanel } from './RequestPanel';
-import type { RequestAction } from './request/requestTarget';
 
 /** 右サイドバーに出す pane */
 export type RightSidebarPane = 'property' | 'timeline';
@@ -32,10 +29,6 @@ type Props = {
   onPaneChange: (pane: RightSidebarPane) => void;
   /** timeline view の中身 (#73) */
   timeline: ReactNode;
-  /** 依頼の宛先の候補 (開いている File の参加者、agent 段 4) */
-  participants: readonly Participant[];
-  /** 「依頼」の区画のボタン */
-  onRequestAction: (action: RequestAction) => void;
 };
 
 export function RightSidebar({
@@ -45,8 +38,6 @@ export function RightSidebar({
   pane,
   onPaneChange,
   timeline,
-  participants,
-  onRequestAction,
 }: Props) {
   const t = useMessages();
   return (
@@ -93,28 +84,16 @@ export function RightSidebar({
       {pane === 'timeline' ? (
         timeline
       ) : selection ? (
-        <>
-          {selection.request && (
-            <RequestPanel
-              // 別の依頼を選んだら、書きかけの答えを持ち越さない
-              key={selection.id}
-              request={selection.request}
-              participants={participants}
-              onAction={onRequestAction}
-              readOnly={readOnly}
-            />
-          )}
-          <PropertyEditor
-            placement="docked"
-            label={t.rightSidebar.propertyRegion}
-            title={selection.title}
-            rows={propertyRows(selection.properties)}
-            addable={selection.addable}
-            onSet={onSetProperty}
-            onRemove={(name) => onSetProperty(name, undefined)}
-            readOnly={readOnly}
-          />
-        </>
+        <PropertyEditor
+          placement="docked"
+          label={t.rightSidebar.propertyRegion}
+          title={selection.title}
+          rows={propertyRows(selection.properties)}
+          addable={selection.addable}
+          onSet={onSetProperty}
+          onRemove={(name) => onSetProperty(name, undefined)}
+          readOnly={readOnly}
+        />
       ) : (
         // 仕様は「選択されていないときにはグラフ全体」の詳細を出す。シートのプロパティを
         // 書く op がまだ無いので、いまは選んでいないことだけを言う

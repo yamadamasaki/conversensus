@@ -19,11 +19,15 @@ import {
   type NodeActionContext,
   NodeActionError,
   type NodeBadge,
+  type NodeBadgeContext,
   type NodeModule,
 } from './nodeAction';
 
 /** 操作の鍵 `<module>/<action>` の区切り */
 const KEY_SEPARATOR = '/';
+
+/** 印 1 つ (どの module のものか) */
+export type ModuleBadge = { moduleId: string; badge: NodeBadge };
 
 /** 使える操作 1 つ (どの module のものか) */
 export type AvailableAction = {
@@ -41,7 +45,7 @@ export type NodeActionRegistry = {
     options: { readOnly: boolean },
   ) => AvailableAction[];
   /** この node に描く印 (登録の順) */
-  badgesFor: (ctx: NodeActionContext) => NodeBadge[];
+  badgesFor: (ctx: NodeBadgeContext) => ModuleBadge[];
   /** 鍵から操作を引く。知らなければ undefined */
   find: (key: string) => AvailableAction | undefined;
 };
@@ -100,7 +104,7 @@ export function createNodeActionRegistry(
         const badge = guarded(`${m.id} の badge`, undefined, () =>
           m.badge?.(ctx),
         );
-        return badge ? [badge] : [];
+        return badge ? [{ moduleId: m.id, badge }] : [];
       }),
     find: (key) => byKey.get(key),
   };

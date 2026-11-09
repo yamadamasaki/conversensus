@@ -13,6 +13,7 @@ import type { Edge, Node } from '@xyflow/react';
 import type { MouseEvent } from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { GraphEvent } from '../events/GraphEvent';
+import { useLocale } from '../i18n/messages';
 import { type ActionEnv, actionContextOf } from './flowContext';
 import { type ActionArgs, NodeActionError } from './nodeAction';
 import { type AvailableAction, runNodeAction } from './registry';
@@ -47,6 +48,8 @@ type Deps = {
   env: ActionEnv;
   readOnly: boolean;
   dispatch: (event: GraphEvent) => void;
+  /** 選ぶ (実行の後に対象の node を選び直す) */
+  select: (ids: readonly string[]) => void;
 };
 
 export function useNodeActions({
@@ -57,17 +60,21 @@ export function useNodeActions({
   env,
   readOnly,
   dispatch,
+  select,
 }: Deps) {
   const registry = useNodeActionRegistry();
+  const locale = useLocale();
+  // 操作が書く文言は、操作する人の言語にする
+  const ctxEnv = useMemo(() => ({ ...env, locale }), [env, locale]);
   const [menu, setMenu] = useState<NodeActionMenuState | null>(null);
   const [dialog, setDialog] = useState<NodeActionDialogState | null>(null);
 
   const actionsOf = useCallback(
     (nodeId: string, ns: readonly Node[], es: readonly Edge[]) => {
-      const ctx = actionContextOf(nodeId, ns, es, env);
+      const ctx = actionContextOf(nodeId, ns, es, ctxEnv);
       return ctx ? registry.actionsFor(ctx, { readOnly }) : [];
     },
-    [registry, env, readOnly],
+    [registry, ctxEnv, readOnly],
   );
 
   /** node のそばに出す操作: 1 つだけ選んでいる、ゴーストでない node について */
@@ -82,17 +89,20 @@ export function useNodeActions({
   /** 実行する。できなければ理由を返す */
   const execute = useCallback(
     (nodeId: string, key: string, args: ActionArgs): string | undefined => {
-      const ctx = actionContextOf(nodeId, getNodes(), getEdges(), env);
+      const ctx = actionContextOf(nodeId, getNodes(), getEdges(), ctxEnv);
       if (!ctx) return `node ${nodeId} が無い`;
       try {
         dispatch(runNodeAction(registry, key, ctx, args, { readOnly }));
+        // node を足す操作 (依頼の「答える」など) は貼り付けと同じく選択を外す。対象の node を選んだままにして、
+        // 続けて操作できるようにする
+        select([nodeId]);
         return undefined;
       } catch (error) {
         if (!(error instanceof NodeActionError)) throw error;
         return error.message;
       }
     },
-    [registry, env, readOnly, dispatch, getNodes, getEdges],
+    [registry, ctxEnv, readOnly, dispatch, select, getNodes, getEdges],
   );
 
   /** 操作を押した: 引数が無ければすぐ実行、あれば dialog を開く */
@@ -106,7 +116,7 @@ export function useNodeActions({
         if (reason) console.warn('[nodeActions] 実行できなかった:', reason);
         return;
       }
-      const ctx = actionContextOf(nodeId, getNodes(), getEdges(), env);
+      const ctx = actionContextOf(nodeId, getNodes(), getEdges(), ctxEnv);
       if (!ctx) return;
       setDialog({
         nodeId,
@@ -114,7 +124,7 @@ export function useNodeActions({
         initial: found.action.initial?.(ctx) ?? {},
       });
     },
-    [execute, env, getNodes, getEdges],
+    [execute, ctxEnv, getNodes, getEdges],
   );
 
   const onNodeContextMenu = useCallback(

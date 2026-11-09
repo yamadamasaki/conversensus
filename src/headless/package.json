@@ -8,6 +8,7 @@
     "@atproto/jwk-jose": "0.2.4",
     "@atproto/oauth-client": "0.8.10",
     "@conversensus/client": "workspace:*",
+    "@conversensus/request": "workspace:*",
     "@conversensus/shared": "workspace:*",
     "@modelcontextprotocol/sdk": "1.32.2",
     "zod": "^3.25.0"
