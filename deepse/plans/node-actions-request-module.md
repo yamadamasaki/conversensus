@@ -3,7 +3,7 @@
 > 設計: [agent-actor.md](../architecture/step4/agent-actor.md) D6・D7・D8・D11・D12。
 > 前の段: [agent-stage4-request.md](agent-stage4-request.md) (PR #361)、[agent-stage5-resident.md](agent-stage5-resident.md) (PR #362)。
 > branch: `step/node-actions` (計画の草案は `docs/node-actions-plan` で書き、そのまま引き継いだ)。
-> 状態: **草案**。§5 の問い 4 つは利用者が答えた (2026-11-09、すべて推奨案)。
+> 状態: **段 A 完了** (2026-11-09)。§5 の問い 4 つは利用者が答えた (すべて推奨案)。段 B (通知・MCP・常駐の口) は次。
 
 ## 1. 目的
 
@@ -209,7 +209,7 @@ C は連合やライブラリ化 (#310) の後に考える。第三者のコー�
 | N3 | 済 | package `src/modules/request` (`@conversensus/request`)。`requestModule.ts` (送る・送り直す・答える・閉じる・開き直す と印) と、client から移した `requestEvents.ts`。「送る」は宛先・答えの置き場所・送った回数を 1 つの event に書く (`sendRequest` の options)。`RequestActionError` は `NodeActionError` の一つにした (dialog に理由が出る)。右の欄の区画 (`RequestPanel`)・`RequestBadge`・`requestTarget`・`GraphEditorControls.request` を外した。印は core の `NodeBadges` が描く (印を持つ module が無ければ store を読まない)。**拡張点を 2 つ改めた**: 文脈に操作する人の言語 (`locale`、答えの edge の label に要る)、印の文脈は node と出ていく edge を引く関数だけ (すべての node について呼ばれるので)。実行の後に対象の node を選び直す (答えると選択が外れていた)。module の登録は `main.tsx` だけ。依頼の App 結合 (`request.app-test`、`headlessInterop` の依頼の 2 本 → `agentRequest.app-test`) は module へ移し、node のそばの操作と dialog で書き直した。client の package は入口のために `@conversensus/request` を依存に持つ — 向きは N4 で lint が守る |
 | N4 | 済 | biome の `noRestrictedImports` を shared と client に掛け (`overrides`)、`@conversensus/request`・`@conversensus/request/**`・相対の `**/modules/**` を断る。`src/client/src/main.tsx` だけを外す。headless は module を使う側 (入口と同じ) なので掛けない。わざと違反する file を client と shared に置き、package 名でも相対の道でも lint が落ちること、入口と headless は通ることを確かめた。段 A を終えても core に残る依頼の知識 (段 B へ): shared の `events/request.ts` (システム・プロパティと状態の導出)・`template/request.ts` と種の登録・`seedLocale.ts`、client の `sync/requestArrival.ts`・`RequestNotice.tsx`・`hooks/useNoticeInbox.ts`・`notices/noticeKeys.ts`・辞書の `request.notice`、headless の `requestsForMe`・`mcp.ts` の依頼の道具・`encoding.ts` の注釈・`resident/` |
 | N5 | 済 | N3 と一緒に済ませた: 段 4・段 5 の App 結合 (1 人の一周・2 人の通知・agent との行き来・常駐の agent) を node のそばの操作と dialog で書き直して module へ移し、すべて通る。`user-test-environment.md` §5.7・§5.8 の手順を node のそばの操作に直した |
-| N6 | 実機で一部確認 | 利用者が開発用の環境で確かめた (2026-11-09): node の上の操作は隣の node や edge の取っ手と重ならない。縮小しても操作の大きさは変わらない (`NodeToolbar` は拡大縮小の外に描く。読めて押せるので、このままにする — §7 の「縮小が小さいときに出さない」は要らない)。押しても canvas や node は動かない。**見つかったこと**: 答えを受け取った後に undo すると、手元の「送る」だけが戻り、届いた答えが前の送信への答えになって回答ありから外れた。→ 操作に `undoable` を足し、「送る」「送り直す」を undo に積まないようにした (相手に届く行為。やめるなら閉じる)。event の店に「記録するが undo に積まない」口 (`DispatchOptions`) を足した。undo は送信を飛ばしてその前の操作を戻す (node を作ったことなど)。常駐の間に File に参加する手順を `user-test-environment.md` §5.8 に書いた |
+| N6 | 済 | 利用者が開発用の環境で確かめた (2026-11-09)。直した後の undo (答えが届いた後でも回答ありが減らない) も確かめた。**段 A の完了基準はすべて満たす**: node の上の操作は隣の node や edge の取っ手と重ならない。縮小しても操作の大きさは変わらない (`NodeToolbar` は拡大縮小の外に描く。読めて押せるので、このままにする — §7 の「縮小が小さいときに出さない」は要らない)。押しても canvas や node は動かない。**見つかったこと**: 答えを受け取った後に undo すると、手元の「送る」だけが戻り、届いた答えが前の送信への答えになって回答ありから外れた。→ 操作に `undoable` を足し、「送る」「送り直す」を undo に積まないようにした (相手に届く行為。やめるなら閉じる)。event の店に「記録するが undo に積まない」口 (`DispatchOptions`) を足した。undo は送信を飛ばしてその前の操作を戻す (node を作ったことなど)。常駐の間に File に参加する手順を `user-test-environment.md` §5.8 に書いた |
 
 ## 7. 気になること
 
