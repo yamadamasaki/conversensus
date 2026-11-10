@@ -127,6 +127,7 @@ import {
   type Tab,
   tabAddress,
 } from './tabs/tabs';
+import { applicableTemplateGraphs } from './templateApply';
 import { color, font, radius, shadow } from './theme';
 import { TimelinePanel } from './timeline/TimelinePanel';
 import { Button } from './ui/Button';
@@ -602,6 +603,14 @@ export default function App() {
    * 編集が漏れないよう、書き込みが落ち切ってから読む
    */
   const { trunkSettled } = fileOps;
+  /** 当てる template graph の切断面: 書き込みが落ち切ってから、手元の trunk の op-log の vector */
+  const currentCut = useCallback(
+    async (fileId: FileId) => {
+      await trunkSettled();
+      return heldMaxima(await fetchBatches(fileId));
+    },
+    [trunkSettled],
+  );
   const applyTemplateGraphs = useCallback(
     async (templateSheetIds: string[]) => {
       setTemplateDialogOpen(false);
@@ -611,8 +620,7 @@ export default function App() {
         addSheet();
         return;
       }
-      await trunkSettled();
-      const at = heldMaxima(await fetchBatches(fileId));
+      const at = await currentCut(fileId);
       addSheet({
         templateIds: templateSheetIds.map((sheet) => ({
           sheet: sheet as SheetId,
@@ -620,7 +628,27 @@ export default function App() {
         })),
       });
     },
-    [fileOps.activeFile?.id, addSheet, trunkSettled],
+    [fileOps.activeFile?.id, addSheet, currentCut],
+  );
+
+  /**
+   * 既にあるシートに template graph を後から当てる (#355)。sheet の「…」から開く。切断面の取り方は
+   * シートを足すときと同じ
+   */
+  const [applyTarget, setApplyTarget] = useState<SheetId | null>(null);
+  const applyTargetSheet = fileOps.activeFile?.sheets.find(
+    (s) => s.id === applyTarget,
+  );
+  const { handleApplyTemplates } = fileOps;
+  const applyTemplateGraphsTo = useCallback(
+    async (sheetId: SheetId, templateSheetIds: string[]) => {
+      setApplyTarget(null);
+      const fileId = fileOps.activeFile?.id;
+      if (!fileId || templateSheetIds.length === 0) return;
+      const at = await currentCut(fileId);
+      handleApplyTemplates(sheetId, templateSheetIds as SheetId[], at);
+    },
+    [fileOps.activeFile?.id, currentCut, handleApplyTemplates],
   );
 
   /** 特殊なグラフのシート (template graph・metagraph) を足す */
@@ -1543,6 +1571,7 @@ export default function App() {
             }
             onSaveSheetSettings={fileOps.handleSaveSheetSettings}
             onDeleteSheet={fileOps.handleDeleteSheet}
+            onApplyTemplate={setApplyTarget}
             sheetBranches={branchOps.sheetBranches}
             activeBranchId={branchOps.activeBranch?.id ?? null}
             onSelectBranch={(sheetId, selected, options) =>
@@ -1898,6 +1927,19 @@ export default function App() {
           templateGraphs={templateGraphs}
           onSubmit={(selected) => void applyTemplateGraphs(selected)}
           onCancel={() => setTemplateDialogOpen(false)}
+        />
+      )}
+      {applyTargetSheet && fileOps.activeFile && (
+        <TemplateApplyDialog
+          mode="apply"
+          templateGraphs={applicableTemplateGraphs(
+            fileOps.activeFile.sheets,
+            applyTargetSheet,
+          )}
+          onSubmit={(selected) =>
+            void applyTemplateGraphsTo(applyTargetSheet.id as SheetId, selected)
+          }
+          onCancel={() => setApplyTarget(null)}
         />
       )}
       {branchOps.commitDialogOpen && (

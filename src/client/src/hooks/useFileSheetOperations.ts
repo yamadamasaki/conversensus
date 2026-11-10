@@ -1,5 +1,7 @@
 import {
   type Actor,
+  appliedTemplatePropertyOf,
+  appliedTemplateValueOf,
   type Batch,
   type BlobCid,
   CausalClock,
@@ -17,6 +19,7 @@ import {
   participationGenesisBatch,
   projectFile,
   type SheetId,
+  type VersionVector,
 } from '@conversensus/shared';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -938,6 +941,45 @@ export function useFileSheetOperations({
     [activeFile, updateFileState, syncRecord],
   );
 
+  /**
+   * 既にある Sheet に template graph を後から当てる (#355)。template graph ごとに 1 つの Sheet の
+   * プロパティを置く (`appliedTemplatePropertyOf`)。切断面 `at` は呼ぶ側が取る (書き込みが落ち切ってから
+   * 手元の trunk の vector)。作るときと同じく undo の対象にしない (sheet の op は undo を通らない)
+   */
+  const handleApplyTemplates = useCallback(
+    (
+      sheetId: SheetId,
+      templateSheetIds: readonly SheetId[],
+      at: VersionVector,
+    ) => {
+      if (!activeFile || templateSheetIds.length === 0) return;
+      const added = Object.fromEntries(
+        templateSheetIds.map((t) => [
+          appliedTemplatePropertyOf(t),
+          appliedTemplateValueOf(at),
+        ]),
+      );
+      for (const [name, value] of Object.entries(added)) {
+        syncRecord({
+          ...makeEventBase('file'),
+          type: 'SHEET_PROPERTY_CHANGED',
+          sheetId,
+          name,
+          value,
+        });
+      }
+      updateFileState({
+        ...activeFile,
+        sheets: activeFile.sheets.map((s) =>
+          s.id === sheetId
+            ? { ...s, properties: { ...s.properties, ...added } }
+            : s,
+        ),
+      });
+    },
+    [activeFile, updateFileState, syncRecord],
+  );
+
   const handleDeleteSheet = useCallback(
     async (sheetId: string) => {
       if (!activeFile) return;
@@ -1295,6 +1337,7 @@ export function useFileSheetOperations({
     handleSaveFileSettings,
     handleDeleteFile,
     handleSaveSheetSettings,
+    handleApplyTemplates,
     handleDeleteSheet,
     handleImportFile,
     handleExportFile,

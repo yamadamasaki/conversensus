@@ -59,6 +59,7 @@ import { SyncStatusIndicator } from './SyncStatusIndicator';
 import { NameHighlight } from './search/NameHighlight';
 import { filterByName } from './search/nameFilter';
 import type { FileSharing } from './sync/rosterView';
+import { applicableTemplateGraphs } from './templateApply';
 import { color, font, radius } from './theme';
 import { Button, ICON_SIZE_SM, IconButton } from './ui/Button';
 
@@ -161,6 +162,8 @@ type Props = {
   onSaveToAccount?: (fileId: FileId) => void;
   onSaveSheetSettings: (sheetId: string, name: string, desc: string) => void;
   onDeleteSheet: (sheetId: string) => void;
+  /** 既にあるシートに template を後から当てるダイアログを開く (#355) */
+  onApplyTemplate: (sheetId: SheetId) => void;
   onSelectBranch: (
     sheetId: SheetId,
     branch: BranchMeta | null,
@@ -234,6 +237,7 @@ export function Sidebar({
   onSaveToAccount,
   onSaveSheetSettings,
   onDeleteSheet,
+  onApplyTemplate,
   onSelectBranch,
   onCreateBranch,
   onMergeBranch,
@@ -632,6 +636,14 @@ export function Sidebar({
                         onDelete={() => onDeleteSheet(s.id)}
                         onClose={() => onSetPopupTarget(null)}
                         deleteLabel={t.sidebar.deleteSheet}
+                        // 当てられる template graph が無ければ出さない (#355)
+                        {...(applicableTemplateGraphs(fileData.sheets, s)
+                          .length > 0 && {
+                          onApplyTemplate: () => {
+                            onSetPopupTarget(null);
+                            onApplyTemplate(s.id as SheetId);
+                          },
+                        })}
                       />
                     )}
                   </div>

@@ -138,6 +138,28 @@ describe('SettingsPopup', () => {
     expect(mockOnDelete).toHaveBeenCalledTimes(1);
   });
 
+  it('template を当てる口は、渡したときだけ出て、押すと呼ばれる (#355)', () => {
+    renderPopup();
+    expect(screen.queryByRole('button', { name: 'template を当てる' })).toBe(
+      null,
+    );
+    cleanup();
+    const onApplyTemplate = mock(() => {});
+    render(
+      <SettingsPopup
+        name="Sheet 1"
+        description=""
+        onSave={mockOnSave}
+        onDelete={mockOnDelete}
+        onClose={mockOnClose}
+        deleteLabel="削除"
+        onApplyTemplate={onApplyTemplate}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'template を当てる' }));
+    expect(onApplyTemplate).toHaveBeenCalledTimes(1);
+  });
+
   it('ポップアップ外のクリックで保存せずに onClose が呼ばれる (ANA-126)', () => {
     // 以前は「保存して閉じる」だった。破棄のつもりで外をクリックしたユーザーの操作が
     // 保存に化けるのを止め、Escape と揃える (保存 = ボタン / Enter, 破棄 = 外 / Escape)。

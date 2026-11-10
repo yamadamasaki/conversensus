@@ -1031,6 +1031,94 @@ describe('App 結合: template graph (step3 Phase 4 S4-1b)', () => {
   });
 });
 
+describe('App 結合: 既にあるシートに template を後から当てる (#355)', () => {
+  /**
+   * サイドバーの、そのシートの行の「詳細」(…) を開く。行は本文がシートの名前に一致するボタンで探す
+   * (template graph の行は種別の印の分だけ accessible name がずれる)
+   */
+  async function openSheetDetails(
+    user: ReturnType<typeof userEvent.setup>,
+    name: string,
+  ) {
+    const row = screen
+      .getAllByRole('button')
+      .find((b) => b.textContent === name)?.parentElement;
+    if (!row) throw new Error(`シート「${name}」の行が無い`);
+    await user.click(within(row).getByRole('button', { name: '詳細' }));
+  }
+
+  test('sheet の「…」から Toulmin model を当てると、そのシートで Toulmin の種類を使える。当てた後は入口が消える', async () => {
+    await world.activate('solo');
+    render(<App />);
+    const user = userEvent.setup();
+    await createFile(user, FILE_NAME);
+
+    // template graph が無いうちは入口を出さない
+    await openSheetDetails(user, 'Sheet 1');
+    expect(
+      screen.queryByRole('button', { name: 'template を当てる' }) === null,
+    ).toBe(true);
+    await user.keyboard('{Escape}');
+
+    await user.click(
+      screen.getByRole('button', { name: 'template 付きで Sheet を追加' }),
+    );
+    await user.click(
+      screen.getByRole('button', { name: '+ Toulmin model を追加' }),
+    );
+    await waitFor(() => expect(renderedNodeCount()).toBe(5), WIRING_TIMEOUT);
+
+    // template graph のシート自身には当てない
+    await openSheetDetails(user, 'Toulmin model');
+    expect(
+      screen.queryByRole('button', { name: 'template を当てる' }) === null,
+    ).toBe(true);
+    await user.keyboard('{Escape}');
+
+    // 既にある Sheet 1 を開き、「…」から当てる
+    await user.click(screen.getByRole('button', { name: 'Sheet 1' }));
+    await waitFor(() => expect(renderedNodeCount()).toBe(0), WIRING_TIMEOUT);
+    await openSheetDetails(user, 'Sheet 1');
+    await user.click(screen.getByRole('button', { name: 'template を当てる' }));
+    const dialog = await screen.findByRole('dialog', {
+      name: 'template を当てる',
+    });
+    const submit = within(dialog).getByRole('button', { name: '当てる' });
+    // 何も選ばなければ当てられない
+    expect((submit as HTMLButtonElement).disabled).toBe(true);
+    await user.click(
+      within(dialog).getByRole('checkbox', { name: 'Toulmin model' }),
+    );
+    await user.click(submit);
+
+    // 種類のメニューに Toulmin の「主張」が出て、作った node は種別を持つ
+    await addNode(user, '主張');
+    const store = world.localStore();
+    const fileId = store.listFiles()[0]?.id as FileId;
+    await waitFor(() => {
+      const file = projectFile(store.getBatches(fileId), fileId);
+      const toulmin = file.sheets.find(
+        (s) => sheetKindOf(s) === TEMPLATE_SHEET_KIND,
+      );
+      const sheet1 = file.sheets.find((s) => s.name === 'Sheet 1');
+      const claim = toulmin?.nodes.find((n) => n.label === '主張');
+      const node = sheet1?.nodes[0];
+      // 作るときの template は無く、後から当てたものだけがある
+      expect(sheet1?.templateIds).toBeUndefined();
+      expect(node?.label).toBe('主張');
+      expect(
+        node?.properties?.[kindPropertyOf(templateIdOf(toulmin?.id ?? ''))],
+      ).toBe(claim?.id);
+    }, WIRING_TIMEOUT);
+
+    // 当たっているものは候補に出ないので、当てられるものが無くなった Sheet 1 には入口が無い
+    await openSheetDetails(user, 'Sheet 1');
+    expect(
+      screen.queryByRole('button', { name: 'template を当てる' }) === null,
+    ).toBe(true);
+  });
+});
+
 describe('App 結合: metagraph (step3 Phase 4 S4-2b)', () => {
   /** graph node (導出 node) の DOM。本文 (= シートの名前) で探す */
   const graphNode = (name: string) => {
