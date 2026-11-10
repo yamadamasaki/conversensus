@@ -14,8 +14,9 @@ agent は graph をこのテキストで読み、書く道具に node・edge の
 
 - **例**: id・本文・label・layout が行に出る / 改行を含む本文が 1 行に収まる (JSON の文字列) /
   template を渡すと種別の一覧・種別の名前・種別の説明 (種類ごとの指示、D13) を注釈に出す /
-  template を引けない種別プロパティ・system の property に注釈が付く / 応答を求める node には状態・
-  回数・宛先を注釈する (状態は導出なので注釈。前の送信への答えしか無ければ未回答、agent 段 4) /
+  template を引けない種別プロパティ・system の property に注釈が付く / module の注釈 (依頼の状態など、
+  `AnnotateNode`) は node の行の直後に `# ` を付けて出し、無ければ何も足さない (依頼の注釈そのものは依頼の
+  module の `requestHeadless.test.ts` が見る、計画 node-actions-request-module.md B3) /
   例が読み戻せる
 - **性質**: どんな File も、**注釈 (`#` の行) を除いた行から欠けなく復元できる**。「欠けない」は
   全称命題なので性質で書く

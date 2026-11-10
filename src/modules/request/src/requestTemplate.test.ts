@@ -1,17 +1,22 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  type GraphNode,
+  kindPropertyOf,
+  localizeSeed,
+  SHEET_KIND_PROPERTY,
+  type Sheet,
+  TEMPLATE_SHEET_KIND,
+  type TemplateId,
+  templateFromSheet,
+  templateGraphOf,
+} from '@conversensus/shared';
+import {
   ADDRESSEE_PROPERTY,
   ANSWER_TARGET_PROPERTY,
   isRequestNode,
   requestStatus,
-} from '../events/request';
-import { SHEET_KIND_PROPERTY, TEMPLATE_SHEET_KIND } from '../events/sheetKind';
-import type { GraphNode, Sheet, TemplateId } from '../schemas';
-import { templateFromSheet } from './fromSheet';
-import { kindPropertyOf } from './kind';
-import { REQUEST_TEMPLATE } from './request';
-import { templateGraphOf } from './seed';
-import { localizeSeed } from './seedLocale';
+} from './requestNode';
+import { REQUEST_SEED, REQUEST_TEMPLATE } from './requestTemplate';
 
 /** 種を File の template graph に複製し、そこから template を読み直す (「シートを追加 ▾」と同じ道) */
 function copiedTemplate() {
@@ -60,14 +65,30 @@ describe('依頼・相談の種 (R2)', () => {
   });
 
   test('en に訳すと名前と種類名が英語になり、既定値は変わらない', () => {
-    const en = localizeSeed(REQUEST_TEMPLATE, 'en');
+    const en = localizeSeed(REQUEST_SEED, 'en');
     expect(en.name).toBe('Request / Consultation');
     expect(en.nodeKinds.map((k) => k.label)).toEqual([
       'Request',
       'Consultation',
     ]);
+    // 説明も訳されている (日本語の字が残らない)。core の種は seedLocale.test.ts がまとめて見る
+    for (const kind of en.nodeKinds) {
+      expect(kind.description ?? '').not.toMatch(/[぀-ヿ一-鿿]/);
+    }
     expect(en.nodeKinds.map((k) => k.defaults)).toEqual(
       REQUEST_TEMPLATE.nodeKinds.map((k) => k.defaults),
     );
+  });
+});
+
+describe('依頼・相談の種の並べ方', () => {
+  test('種は template graph になり、種類の置き場所は重ならない', () => {
+    const { layouts } = templateGraphOf(
+      REQUEST_SEED.template,
+      () => crypto.randomUUID(),
+      REQUEST_SEED.placement,
+    );
+    const spots = new Set(layouts.map((l) => `${l.x},${l.y}`));
+    expect(spots.size).toBe(layouts.length);
   });
 });

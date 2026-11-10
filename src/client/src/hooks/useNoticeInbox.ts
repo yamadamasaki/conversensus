@@ -13,13 +13,13 @@
 import type { Did, FileId, ForkMeta } from '@conversensus/shared';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { pdsNoticeDismissalStore } from '../atproto/noticeDismissalStore';
+import { type ArrivedNotice, noticeKeyOf } from '../nodeActions/registry';
 import { loadNotices, saveNotices } from '../notices/noticeCache';
 import { NoticeDismissals } from '../notices/noticeDismissals';
 import {
   conflictNoticeKeyOf,
   forkNoticeKeyOf,
   overwriteNoticeKeyOf,
-  requestNoticeKeyOf,
 } from '../notices/noticeKeys';
 import {
   addPending,
@@ -35,7 +35,6 @@ import {
   NO_OVERWRITE_NOTICE,
   type OverwriteNoticeState,
 } from '../sync/overwrites';
-import type { RequestArrival } from '../sync/requestArrival';
 import { safeLocalStorage } from '../sync/safeStorage';
 import type { ConflictNoticeState } from './useBranchOperations';
 
@@ -192,27 +191,27 @@ export function useNoticeInbox(did: Did | null) {
     }
   }, []);
 
-  // --- 届いた依頼 (agent 段 4 R5) ---
+  // --- module の知らせ (届いた依頼など、agent 段 4 R5・計画 node-actions-request-module.md B1) ---
 
   /**
-   * 自分宛てに送られた依頼。**前に出ている File に限らない** — 依頼は誰かが答えを待っている。
-   * 受信のたびに溜め、同じ依頼の同じ送信 (鍵) は 1 つにする。既読は他の端末にも効く
+   * module が受信から見つけた知らせ。**前に出ている File に限らない** — 依頼は誰かが答えを待っている。
+   * 受信のたびに溜め、同じ鍵 (`noticeKeyOf`) は 1 つにする。既読は他の端末にも効く
    */
-  const [arrivedRequests, setArrivedRequests] = useState<
-    readonly RequestArrival[]
+  const [arrivedNotices, setArrivedNotices] = useState<
+    readonly ArrivedNotice[]
   >([]);
-  const handleRequestsArrived = useCallback(
-    (requests: readonly RequestArrival[]) => {
-      for (const fileId of new Set(requests.map((r) => r.fileId))) {
+  const handleNoticesArrived = useCallback(
+    (notices: readonly ArrivedNotice[]) => {
+      for (const fileId of new Set(notices.map((n) => n.fileId))) {
         void dismissalsRef.current.dismissedIn(fileId).then((dismissed) => {
-          const fresh = requests.filter(
-            (r) => r.fileId === fileId && !dismissed.has(requestNoticeKeyOf(r)),
+          const fresh = notices.filter(
+            (n) => n.fileId === fileId && !dismissed.has(noticeKeyOf(n)),
           );
-          setArrivedRequests((prev) => {
-            const known = new Set(prev.map(requestNoticeKeyOf));
+          setArrivedNotices((prev) => {
+            const known = new Set(prev.map(noticeKeyOf));
             return [
               ...prev,
-              ...fresh.filter((r) => !known.has(requestNoticeKeyOf(r))),
+              ...fresh.filter((n) => !known.has(noticeKeyOf(n))),
             ];
           });
         });
@@ -220,14 +219,12 @@ export function useNoticeInbox(did: Did | null) {
     },
     [],
   );
-  /** 届いた依頼の通知を 1 つ閉じる (既読にする) */
-  const dismissRequest = useCallback(
-    (arrival: RequestArrival) => {
-      const key = requestNoticeKeyOf(arrival);
-      void dismissals.dismiss(arrival.fileId, [key]);
-      setArrivedRequests((prev) =>
-        prev.filter((r) => requestNoticeKeyOf(r) !== key),
-      );
+  /** 知らせを 1 つ閉じる (既読にする) */
+  const dismissNotice = useCallback(
+    (notice: ArrivedNotice) => {
+      const key = noticeKeyOf(notice);
+      void dismissals.dismiss(notice.fileId, [key]);
+      setArrivedNotices((prev) => prev.filter((n) => noticeKeyOf(n) !== key));
     },
     [dismissals],
   );
@@ -459,7 +456,7 @@ export function useNoticeInbox(did: Did | null) {
   /** File を削除したら、その File の既読を消す (#259) */
   const forgetFile = useCallback((fileId: FileId) => {
     setPending((prev) => takePending(prev, fileId)[1]);
-    setArrivedRequests((prev) => prev.filter((r) => r.fileId !== fileId));
+    setArrivedNotices((prev) => prev.filter((n) => n.fileId !== fileId));
     setForkMarked((prev) => {
       const next = new Set(prev);
       next.delete(fileId);
@@ -482,8 +479,8 @@ export function useNoticeInbox(did: Did | null) {
     dismissOverwrites,
     arrivedForks,
     handleForksArrived,
-    arrivedRequests,
-    handleRequestsArrived,
-    dismissRequest,
+    arrivedNotices,
+    handleNoticesArrived,
+    dismissNotice,
   };
 }

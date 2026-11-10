@@ -1,9 +1,10 @@
 /**
- * 依頼ごとに `claude -p` を起動する (agent 段 5 S5、計画 F7・F8)
+ * 仕事ごとに `claude -p` を起動する (agent 段 5 S5、計画 F7・F8)
  *
  * 起動された Claude Code は、常駐のプロセスが HTTP で出す conversensus の MCP (S4) **だけ**を使って
- * File を読み、`answer_request` で答える。常駐の側は答えを読まない — 書いたものは MCP を通して
- * 同じ `Headless` に入り、次の同期で依頼した人に届く。
+ * 読み書きする。何を頼むか (prompt) は module が決める (依頼の module なら「read_file で読み、
+ * `answer_request` で答える」、計画 node-actions-request-module.md B4)。常駐の側は答えを読まない —
+ * 書いたものは MCP を通して同じ `Headless` に入り、次の同期で届く。
  *
  * ## 使わせる道具を絞る (完了基準 4)
  *
@@ -21,11 +22,10 @@
  *
  * - agent 全体 (operator): 任意の file を `--append-system-prompt` で渡す
  * - 種類ごと: template の種類の説明。`read_file` の encoding に出るので、ここでは運ばない
- * - 依頼ごと: 依頼の本文。prompt に引くが、正は `read_file` で読む File の中である
+ * - 依頼ごと: 依頼の本文。module が prompt に引くが、正は `read_file` で読む File の中である
  */
 
 import { chmodSync, writeFileSync } from 'node:fs';
-import type { AgentRunner, RequestJob } from './dispatch';
 
 /** MCP の設定での conversensus の名前。道具の名前は `mcp__<これ>__<道具>` になる */
 export const MCP_SERVER_NAME = 'conversensus';
@@ -50,26 +50,16 @@ export function writeMcpConfig(path: string, url: string, token: string): void {
   chmodSync(path, OWNER_ONLY);
 }
 
-/** 依頼 1 つへの prompt */
-export function promptFor(job: RequestJob): string {
-  return [
-    'あなたは conversensus という共同編集のグラフに参加している agent です。',
-    'あなた宛てに依頼が送られてきました。conversensus の MCP の道具だけを使って答えてください。',
-    '',
-    `- File: ${job.fileId}`,
-    `- Sheet: ${job.sheetId}`,
-    `- 依頼の node: ${job.nodeId} (${job.sent} 回目の送信)`,
-    '',
-    '依頼の本文 (正は File の中です):',
-    '```',
-    job.content,
-    '```',
-    '',
-    '手順:',
-    '1. read_file でこの File を読み、依頼の前後の文脈と、依頼の種類の説明 (種類ごとの指示) を確かめる',
-    '2. answer_request で答えを書く (答えは新しい node になり、依頼から edge が張られる)',
-    '3. 答えられないときは、答えられない理由を答えとして書く',
-  ].join('\n');
+/** 言語モデルに頼む仕事 1 つ。何を頼むか (prompt) は module が決める (依頼に答える、など) */
+export type AgentTask = {
+  /** log と失敗の理由に出す名前 (依頼の node など) */
+  label: string;
+  prompt: string;
+};
+
+/** 言語モデルを起動する口 (既定は `claude -p`。試験では偽物) */
+export interface AgentRunner {
+  run(task: AgentTask): Promise<void>;
 }
 
 export type ClaudeRunnerOptions = {
@@ -86,12 +76,12 @@ export type ClaudeRunnerOptions = {
   /** 起動したプロセスの環境変数。既定は常駐のプロセスのもの (Claude Code のログインは HOME の下にある) */
   env?: Record<string, string | undefined>;
   /** 起動したプロセスの出力 (log に残す) */
-  onOutput?: (job: RequestJob, text: string) => void;
+  onOutput?: (task: AgentTask, text: string) => void;
 };
 
 /** `claude` に渡す引数 */
 export function claudeArgs(
-  job: RequestJob,
+  task: AgentTask,
   options: Pick<
     ClaudeRunnerOptions,
     'mcpConfigPath' | 'instructions' | 'model'
@@ -99,7 +89,7 @@ export function claudeArgs(
 ): string[] {
   return [
     '-p',
-    promptFor(job),
+    task.prompt,
     '--tools',
     '',
     '--mcp-config',
@@ -124,8 +114,8 @@ export function claudeRunner(options: ClaudeRunnerOptions): AgentRunner {
   const command = options.command ?? ['claude'];
   const timeoutMs = options.timeoutMs ?? DEFAULT_RUN_TIMEOUT_MS;
   return {
-    async run(job) {
-      const child = Bun.spawn([...command, ...claudeArgs(job, options)], {
+    async run(task) {
+      const child = Bun.spawn([...command, ...claudeArgs(task, options)], {
         cwd: options.cwd,
         env: options.env ?? process.env,
         stdin: 'ignore',
@@ -138,10 +128,10 @@ export function claudeRunner(options: ClaudeRunnerOptions): AgentRunner {
         Bun.readableStreamToText(child.stdout),
         Bun.readableStreamToText(child.stderr),
       ]).finally(() => clearTimeout(timer));
-      options.onOutput?.(job, stdout + stderr);
+      options.onOutput?.(task, stdout + stderr);
       if (child.signalCode !== null) {
         throw new AgentRunError(
-          `時間切れで止めた (${timeoutMs} ms): ${job.nodeId}`,
+          `時間切れで止めた (${timeoutMs} ms): ${task.label}`,
         );
       }
       if (code !== 0) {

@@ -16,7 +16,8 @@
 import { timingSafeEqual } from 'node:crypto';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import type { Headless } from '../headless';
-import { createMcpServer } from '../mcp';
+import type { HeadlessModule } from '../headlessModule';
+import { createMcpServer } from '../mcpServer';
 
 /** MCP を出す path */
 export const MCP_PATH = '/mcp';
@@ -47,7 +48,12 @@ export type HttpMcp = {
 
 export function serveMcpHttp(
   headless: Headless,
-  options: { token: string; port?: number },
+  options: {
+    token: string;
+    port?: number;
+    /** 出す MCP に足す module (依頼の道具など)。入口が決める */
+    modules?: readonly HeadlessModule[];
+  },
 ): HttpMcp {
   const server = Bun.serve({
     hostname: LOOPBACK_HOST,
@@ -63,7 +69,7 @@ export function serveMcpHttp(
       if (!sameToken(given, options.token)) {
         return new Response('unauthorized', { status: 401 });
       }
-      const mcp = createMcpServer(headless);
+      const mcp = createMcpServer(headless, options.modules);
       const transport = new WebStandardStreamableHTTPServerTransport({
         sessionIdGenerator: undefined,
         enableJsonResponse: true,

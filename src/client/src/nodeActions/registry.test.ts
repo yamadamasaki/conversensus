@@ -13,6 +13,7 @@ import { NodeActionError } from './nodeAction';
 import {
   actionKey,
   createNodeActionRegistry,
+  noticeKeyOf,
   runNodeAction,
   validateArgs,
 } from './registry';
@@ -299,5 +300,78 @@ describe('引数の確かめ', () => {
         },
       ),
     );
+  });
+});
+
+describe('種', () => {
+  test('module の種を登録の順に並べる (種を持たない module は何も足さない)', () => {
+    const seed = (id: string) =>
+      ({ template: { id, name: id, nodeKinds: [], edgeKinds: [] } }) as never;
+    const registry = createNodeActionRegistry([
+      { id: 'a', actions: [], seeds: [seed('a1'), seed('a2')] },
+      { id: 'none', actions: [] },
+      { id: 'b', actions: [], seeds: [seed('b1')] },
+    ]);
+    expect(registry.seeds.map((s) => String(s.template.id))).toEqual([
+      'a1',
+      'a2',
+      'b1',
+    ]);
+  });
+});
+
+describe('知らせ', () => {
+  const input = {
+    fileId: '11111111-1111-4111-8111-111111111111' as never,
+    local: [],
+    incoming: [],
+    viewer: ALICE,
+  };
+  const noticeOf = (key: string) => ({
+    key,
+    fileId: input.fileId,
+    sheetId: '22222222-2222-4222-8222-222222222222' as never,
+    nodeId: NODE as never,
+    from: BOB,
+    content: key,
+  });
+
+  test('知らせを持つ module の登録の順に集め、module の id を添える。投げる module は飛ばす', () => {
+    const original = console.warn;
+    console.warn = () => {};
+    try {
+      const source = (keys: string[]) => ({
+        region: text('r'),
+        heading: () => text('h'),
+        detect: () => keys.map(noticeOf),
+      });
+      const registry = createNodeActionRegistry([
+        { id: 'a', actions: [], notices: source(['1', '2']) },
+        { id: 'quiet', actions: [] },
+        {
+          id: 'boom',
+          actions: [],
+          notices: {
+            ...source([]),
+            detect: () => {
+              throw new Error('boom');
+            },
+          },
+        },
+        { id: 'b', actions: [], notices: source(['1']) },
+      ]);
+      const found = registry.detectNotices(input);
+      expect(found.map((n) => [n.moduleId, n.key])).toEqual([
+        ['a', '1'],
+        ['a', '2'],
+        ['b', '1'],
+      ]);
+      // 既読の鍵は module の間で重ならない
+      expect(new Set(found.map(noticeKeyOf)).size).toBe(3);
+      expect(registry.noticeSource('a')?.region.ja).toBe('r');
+      expect(registry.noticeSource('quiet')).toBeUndefined();
+    } finally {
+      console.warn = original;
+    }
   });
 });

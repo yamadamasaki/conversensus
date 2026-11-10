@@ -35,7 +35,9 @@
 			"includes": [
 				"src/shared/**",
 				"src/client/**",
-				"!src/client/src/main.tsx"
+				"!src/client/src/main.tsx",
+				"src/headless/**",
+				"!src/headless/src/mcp.ts"
 			],
 			"linter": {
 				"rules": {
@@ -50,7 +52,7 @@
 											"@conversensus/request/**",
 											"**/modules/**"
 										],
-										"message": "core (shared・client) は module を import しない。module を使うかはアプリの入口 (src/client/src/main.tsx) が決める (計画 node-actions-request-module.md §3.2・N4)"
+										"message": "core (shared・client・headless) は module を import しない。module を使うかは入口 (src/client/src/main.tsx・src/headless/src/mcp.ts) が決める (計画 node-actions-request-module.md §3.2・N4・B4)"
 									}
 								]
 							}

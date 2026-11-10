@@ -1,7 +1,14 @@
 import { describe, expect, test } from 'bun:test';
+import {
+  type GraphEdge,
+  type GraphFile,
+  type GraphNode,
+  propertyCategory,
+  SHEET_KIND_PROPERTY,
+  type Sheet,
+  TEMPLATE_SHEET_KIND,
+} from '@conversensus/shared';
 import fc from 'fast-check';
-import type { GraphEdge, GraphFile, GraphNode, Sheet } from '../schemas';
-import { propertyCategory } from './properties';
 import {
   ADDRESSEE_PROPERTY,
   ANSWERS_PROPERTY,
@@ -15,8 +22,7 @@ import {
   requestsInFile,
   SENT_PROPERTY,
   sentCountOf,
-} from './request';
-import { SHEET_KIND_PROPERTY, TEMPLATE_SHEET_KIND } from './sheetKind';
+} from './requestNode';
 
 const REQ = '11111111-1111-4111-8111-111111111111';
 const ANSWER = '22222222-2222-4222-8222-222222222222';

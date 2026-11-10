@@ -1,13 +1,13 @@
 import { describe, expect, test } from 'bun:test';
+import { createNodeActionRegistry } from '@conversensus/client/src/nodeActions/registry';
+import type { Batch, FileId, Op } from '@conversensus/shared';
+import { detectArrivedRequests, senderOf } from './requestArrival';
+import { REQUEST_MODULE } from './requestModule';
 import {
   ADDRESSEE_PROPERTY,
-  type Batch,
   CLOSED_PROPERTY,
-  type FileId,
-  type Op,
   SENT_PROPERTY,
-} from '@conversensus/shared';
-import { detectArrivedRequests, senderOf } from './requestArrival';
+} from './requestNode';
 
 const FILE = '11111111-1111-4111-8111-111111111111' as FileId;
 const SHEET = '22222222-2222-4222-8222-222222222222';
@@ -145,5 +145,35 @@ describe('senderOf', () => {
     expect(
       senderOf([...local, setProp(ALICE, 'priority', 'x')], REQ),
     ).toBeUndefined();
+  });
+});
+
+describe('依頼の module の知らせ (計画 node-actions-request-module.md B1)', () => {
+  test('届いた依頼を知らせにする。既読の鍵は module・node・送った回数 (送り直すとまた知らせる)', () => {
+    const registry = createNodeActionRegistry([REQUEST_MODULE]);
+    const first = registry.detectNotices({
+      fileId: FILE,
+      local: made([AGENT]),
+      incoming: [setProp(ALICE, SENT_PROPERTY, 1)],
+      viewer: AGENT,
+    });
+    expect(first).toEqual([
+      {
+        moduleId: 'request',
+        key: `${REQ}:1`,
+        fileId: FILE,
+        sheetId: SHEET as never,
+        nodeId: REQ as never,
+        from: ALICE as never,
+        content: '要約して',
+      },
+    ]);
+    const again = registry.detectNotices({
+      fileId: FILE,
+      local: [...made([AGENT]), setProp(ALICE, SENT_PROPERTY, 1)],
+      incoming: [setProp(ALICE, SENT_PROPERTY, 2)],
+      viewer: AGENT,
+    });
+    expect(again.map((n) => n.key)).toEqual([`${REQ}:2`]);
   });
 });

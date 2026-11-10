@@ -7,12 +7,11 @@ import {
   type GraphFile,
   type GraphFileListItem,
   METAGRAPH_SHEET_KIND,
-  SEED_TEMPLATES,
   type SheetId,
   type SheetKind,
   sheetKindOf,
   TEMPLATE_SHEET_KIND,
-  type Template,
+  type TemplateSeed,
 } from '@conversensus/shared';
 import {
   ChevronDown,
@@ -145,8 +144,10 @@ type Props = {
   /** template を当てずに作るなら省略する (Phase 5 D1: 紐づけは作成時のみ) */
   /** シートを足す。File に template graph があれば、当てるものを選ばせるのは App */
   onAddSheet: () => void;
-  /** template graph の種 (`SEED_TEMPLATES`) を File に複製する (step3 Phase 4 Q1) */
-  onAddSeedTemplate: (seed: Template) => void;
+  /** 「シートを追加 ▾」に並べる template graph の種 (core の種と module の種、計画 node-actions-request-module.md B2) */
+  seeds: readonly TemplateSeed[];
+  /** template graph の種を File に複製する (step3 Phase 4 Q1) */
+  onAddSeedTemplate: (seed: TemplateSeed) => void;
   /** 特殊なグラフのシートを足す (step3 Phase 4)。`kind` はシートの種別 */
   onAddKindSheet: (kind: SheetKind) => void;
   onSetPopupTarget: (target: PopupTarget | null) => void;
@@ -224,6 +225,7 @@ export function Sidebar({
   onOpenGlobalSearch,
   onAddSheet,
   onAddKindSheet,
+  seeds,
   onAddSeedTemplate,
   onSetPopupTarget,
   onSaveFileSettings,
@@ -884,17 +886,17 @@ export function Sidebar({
               ))}
             {templateMenuFileId === f.id &&
               // 種を File の template graph に複製する (step3 Phase 4 Q1)
-              SEED_TEMPLATES.map((template) => (
-                <li key={template.id}>
+              seeds.map((seed) => (
+                <li key={seed.template.id}>
                   <button
                     type="button"
                     onClick={() => {
                       setTemplateMenuFileId(null);
-                      onAddSeedTemplate(template);
+                      onAddSeedTemplate(seed);
                     }}
                     style={MENU_ITEM}
                   >
-                    {t.sidebar.addTemplate(template.name)}
+                    {t.sidebar.addTemplate(seed.template.name)}
                   </button>
                 </li>
               ))}

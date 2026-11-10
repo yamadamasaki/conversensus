@@ -17,25 +17,27 @@ import {
 } from '@conversensus/client/src/events/GraphEvent';
 import { NodeActionError } from '@conversensus/client/src/nodeActions/nodeAction';
 import { DEFAULT_NODE_STYLE } from '@conversensus/client/src/nodeGeometry';
+import type {
+  Did,
+  EdgeId,
+  GraphEdge,
+  GraphNode,
+  NodeId,
+  NodeLayout,
+  Sheet,
+} from '@conversensus/shared';
 import {
   ADDRESSEE_PROPERTY,
   ANSWER_TARGET_PROPERTY,
   ANSWERS_PROPERTY,
   answersOf,
   CLOSED_PROPERTY,
-  type Did,
-  type EdgeId,
-  type GraphEdge,
-  type GraphNode,
   isClosed,
   isRequestNode,
-  type NodeId,
-  type NodeLayout,
   requestStatus,
   SENT_PROPERTY,
-  type Sheet,
   sentCountOf,
-} from '@conversensus/shared';
+} from './requestNode';
 
 /** 依頼と答えの間の横の空き */
 const ANSWER_GAP_X = 80;

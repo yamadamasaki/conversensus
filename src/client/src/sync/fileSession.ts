@@ -32,6 +32,8 @@ import type { RemoteSyncQueue } from '../atproto/remoteSyncQueue';
 import { LIVE_SYNC_POLL_INTERVAL_MS } from '../config';
 import type { GraphEvent } from '../events/GraphEvent';
 import { subscribeLocalChanges } from '../local/localChanges';
+import type { NoticeDetectInput } from '../nodeActions/nodeAction';
+import type { ArrivedNotice } from '../nodeActions/registry';
 import { branchMetaRecorder, readBranchMeta } from './branchMetaLog';
 import type { DetectedConflicts } from './conflicts';
 import { EventSyncTap } from './eventSyncTap';
@@ -43,7 +45,6 @@ import {
   receiveParticipantBatches,
 } from './receiveParticipantBatches';
 import { receiveRemoteBatches } from './receiveRemoteBatches';
-import type { RequestArrival } from './requestArrival';
 import type { RosterSource } from './rosterSource';
 import type { SyncProvider } from './syncProvider';
 import type { ForkWriterDeps } from './writeForks';
@@ -108,8 +109,8 @@ export type FileSessionListeners = {
   ) => void;
   onOverwrites?: (fileId: FileId, detected: DetectedOverwrites) => void;
   onForksArrived?: (fileId: FileId, forks: ForkMeta[]) => void;
-  /** 自分宛てに送られた依頼が届いた (agent 段 4 R5) */
-  onRequestsArrived?: (fileId: FileId, requests: RequestArrival[]) => void;
+  /** module の知らせ (届いた依頼など) が届いた (agent 段 4 R5、計画 node-actions-request-module.md B1) */
+  onNoticesArrived?: (fileId: FileId, notices: ArrivedNotice[]) => void;
   onSynced?: (fileId: FileId, tap: TapHandle) => void;
   onLocalChanged?: (fileId: FileId, tap: TapHandle) => void;
 };
@@ -131,6 +132,8 @@ export type FileSessionDeps = {
   fetchLocal: (fileId: FileId) => Promise<Batch[]>;
   /** fork の器。省略するとこのセッションの tap で trunk の op-log に書く (T7-1) */
   forkDeps?: ForkWriterDeps;
+  /** 受信から module の知らせを見つける (`NodeActionRegistry.detectNotices`)。省くと知らせは無い */
+  detectNotices?: (input: NoticeDetectInput) => ArrivedNotice[];
   /** 定期同期の間隔 (ミリ秒) */
   pollIntervalMs: number;
   /**
@@ -371,6 +374,9 @@ export class FileSession {
           remoteQueue.pullRemoteForFile(id, repo),
         fetchLocal,
         ...this.forkDeps,
+        ...(this.deps.detectNotices && {
+          detectNotices: this.deps.detectNotices,
+        }),
         appendReceived,
         observeRemote: (batches) => tap.observeRemote(batches),
       },
@@ -393,8 +399,8 @@ export class FileSession {
     if (others.arrivedForks.length > 0) {
       this.listeners.onForksArrived?.(fileId, others.arrivedForks);
     }
-    if (others.arrivedRequests.length > 0) {
-      this.listeners.onRequestsArrived?.(fileId, others.arrivedRequests);
+    if (others.arrivedNotices.length > 0) {
+      this.listeners.onNoticesArrived?.(fileId, others.arrivedNotices);
     }
     if (others.readRepos.length > 0 || others.outsidePeriod > 0) {
       console.info(

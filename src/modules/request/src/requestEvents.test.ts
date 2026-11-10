@@ -1,15 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { GraphEvent } from '@conversensus/client/src/events/GraphEvent';
 import { graphEventToOps } from '@conversensus/client/src/events/toUnified';
-import {
-  ADDRESSEE_PROPERTY,
-  ANSWERS_PROPERTY,
-  CLOSED_PROPERTY,
-  type GraphNode,
-  requestStatus,
-  SENT_PROPERTY,
-  type Sheet,
-} from '@conversensus/shared';
+import type { GraphNode, Sheet } from '@conversensus/shared';
 import fc from 'fast-check';
 import {
   answerPlacement,
@@ -20,6 +12,13 @@ import {
   sendRequest,
   setAddressee,
 } from './requestEvents';
+import {
+  ADDRESSEE_PROPERTY,
+  ANSWERS_PROPERTY,
+  CLOSED_PROPERTY,
+  requestStatus,
+  SENT_PROPERTY,
+} from './requestNode';
 
 const REQ = '11111111-1111-4111-8111-111111111111';
 const PLAIN = '22222222-2222-4222-8222-222222222222';

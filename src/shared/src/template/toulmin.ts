@@ -1,11 +1,12 @@
 import type { KindPlacement } from './seed';
+import type { TemplateSeed } from './seedLocale';
 import { type Template, TemplateSchema } from './types';
 
 /**
  * toulmin model の template の**表** (step3 Phase 4 S4-1c で役目が変わった)。
  *
  * step2 ではこれを作り込みの template として直接引いていた。step3 では **template graph の種**
- * (`SEED_TEMPLATES`) で、「Toulmin model を追加」がこれを File の template graph に複製する
+ * (`CORE_SEEDS`) で、「Toulmin model を追加」がこれを File の template graph に複製する
  * (`templateGraphOf`)。当てたシートが参照するのは複製された template graph の方である。
  *
  * `TemplateSchema.parse` を通しているのは形式だけの理由ではない — `from` / `to` の
@@ -75,4 +76,43 @@ export const TOULMIN_PLACEMENT: KindPlacement = {
   warrant: { x: 240, y: 200 },
   rebuttal: { x: 720, y: 200 },
   backing: { x: 240, y: 400 },
+};
+
+/** Toulmin の種 (core の種)。訳は表の言語 (日本語) 以外 */
+export const TOULMIN_SEED: TemplateSeed = {
+  template: TOULMIN_TEMPLATE,
+  placement: TOULMIN_PLACEMENT,
+  translations: {
+    en: {
+      nodeKinds: {
+        claim: {
+          label: 'Claim',
+          description: 'The conclusion being argued for',
+        },
+        data: {
+          label: 'Data',
+          description: 'The facts on which the claim rests',
+        },
+        warrant: {
+          label: 'Warrant',
+          description: 'Why the data supports the claim',
+        },
+        rebuttal: {
+          label: 'Rebuttal',
+          description: 'When the claim or the warrant does not hold',
+        },
+        backing: {
+          label: 'Backing',
+          description: 'What supports the warrant itself',
+        },
+      },
+      edgeKinds: {
+        supports: { label: 'supports' },
+        validates: { label: 'justifies' },
+        strengthens: { label: 'backs' },
+        undermines: { label: 'rebuts' },
+        challenges: { label: 'challenges' },
+      },
+    },
+  },
 };

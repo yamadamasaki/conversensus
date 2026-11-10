@@ -3,6 +3,7 @@ import {
   BRANCH_STATUS,
   type BranchId,
   type BranchMeta,
+  CORE_SEEDS,
   DERIVED_FROM_SHEET_PROPERTY,
   type Did,
   derivedNodeIdOf,
@@ -20,22 +21,22 @@ import {
   type PropertyName,
   placeDerivedNodes,
   refreshDerivedNodes,
-  SEED_PLACEMENTS,
   SHEET_KIND_PROPERTY,
   type Sheet,
   type SheetId,
   type SheetKind,
   sheetKindOf,
   TEMPLATE_SHEET_KIND,
-  type Template,
   type TemplateGraphContent,
   type TemplateRef,
+  type TemplateSeed,
   templateGraphOf,
 } from '@conversensus/shared';
 import { FilePlus, Files, FileUp, PanelLeft, UserPlus } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AcceptInvitationDialog } from './AcceptInvitationDialog';
 import { AlertDialog } from './AlertDialog';
+import { ArrivedNotices } from './ArrivedNotices';
 import { AtprotoLoginDialog } from './AtprotoLoginDialog';
 import { fetchBatches, searchFiles } from './api';
 import { authNeedsPassword } from './atproto/client';
@@ -89,6 +90,7 @@ import { compactHeader } from './layout/viewportTier';
 import { useViewLink } from './links/useViewLink';
 import { viewUrl } from './links/viewLink';
 import { otherTabsOpen, requestErase } from './local/eraseDevice';
+import { useNodeActionRegistry } from './nodeActions/registryContext';
 import { OverwriteNotice } from './OverwriteNotice';
 import { PaneFrame } from './PaneFrame';
 import { ParticipateDialog } from './ParticipateDialog';
@@ -96,7 +98,6 @@ import { ParticipationHistoryDialog } from './ParticipationHistoryDialog';
 import { PassivePane } from './PassivePane';
 import { PropertyEditor } from './PropertyEditor';
 import { propertyRows } from './property/propertyRows';
-import { RequestNotice } from './RequestNotice';
 import { RightSidebar, type RightSidebarPane } from './RightSidebar';
 import { ReadOnlyProvider } from './readOnlyContext';
 import { SearchPanel } from './SearchPanel';
@@ -189,29 +190,31 @@ export default function App() {
     dismissOverwrites,
     arrivedForks,
     handleForksArrived,
-    arrivedRequests,
-    handleRequestsArrived,
-    dismissRequest,
+    arrivedNotices,
+    handleNoticesArrived,
+    dismissNotice,
   } = useNoticeInbox(atprotoSession?.did ?? null);
+  /** 登録された module (どの module を使うかは入口 `main.tsx` が決める) */
+  const nodeActionRegistry = useNodeActionRegistry();
   /**
-   * 届いた依頼の送り手の表示名 (agent 段 4 R5)。名簿のダイアログの `labelOf` は開いている間だけの
+   * 知らせ (届いた依頼など) の送り手の表示名 (agent 段 4 R5)。名簿のダイアログの `labelOf` は開いている間だけの
    * ものなので、届いた送り手の分をここで引く
    */
-  const [requestFromLabel, setRequestFromLabel] = useState<
-    (did: Did) => string
-  >(() => (did: Did) => did);
+  const [noticeFromLabel, setNoticeFromLabel] = useState<(did: Did) => string>(
+    () => (did: Did) => did,
+  );
   useEffect(() => {
-    if (arrivedRequests.length === 0) return;
+    if (arrivedNotices.length === 0) return;
     let cancelled = false;
     void handleLabels
-      .resolve(arrivedRequests.map((r) => r.from))
+      .resolve(arrivedNotices.map((n) => n.from))
       .then((labelOf) => {
-        if (!cancelled) setRequestFromLabel(() => labelOf);
+        if (!cancelled) setNoticeFromLabel(() => labelOf);
       });
     return () => {
       cancelled = true;
     };
-  }, [arrivedRequests]);
+  }, [arrivedNotices]);
   /** 上書きの報告の対象名。競合と同じ「分岐点での名前」から引く */
   const overwriteLabelOf = useCallback(
     (target: string) => overwriteNotice.labels.get(target) ?? target,
@@ -319,7 +322,8 @@ export default function App() {
     setConflictNotice: showConflicts,
     onOverwrites: handleOverwrites,
     onForksArrived: handleForksArrived,
-    onRequestsArrived: handleRequestsArrived,
+    onNoticesArrived: handleNoticesArrived,
+    detectNotices: nodeActionRegistry.detectNotices,
     onFileDeleted: forgetFile,
     onBackgroundConflicts: noteBackgroundConflicts,
     onBackgroundForks: noteBackgroundForks,
@@ -567,20 +571,22 @@ export default function App() {
     else addSheet();
   }, [addSheet, templateGraphs.length]);
 
+  /** 「シートを追加 ▾」の種: core の種と、module が出す種 (計画 node-actions-request-module.md B2) */
+  const seeds = useMemo(
+    () => [...CORE_SEEDS, ...nodeActionRegistry.seeds],
+    [nodeActionRegistry],
+  );
+
   /** template graph の種を File に複製する (Q1)。複製した template graph はふつうの template graph */
   // 種の種類名は利用者の言語で焼き込む (#330)。焼き込んだ後はふつうの利用者のデータ
   const locale = useLocale();
   const handleAddSeedTemplate = useCallback(
-    (seed: Template) => {
+    (seed: TemplateSeed) => {
       const localized = localizeSeed(seed, locale);
       return addSheet({
         name: localized.name,
         properties: { [SHEET_KIND_PROPERTY]: TEMPLATE_SHEET_KIND },
-        content: templateGraphOf(
-          localized,
-          generateId,
-          SEED_PLACEMENTS[seed.id],
-        ),
+        content: templateGraphOf(localized, generateId, seed.placement),
       });
     },
     [addSheet, locale],
@@ -1496,6 +1502,7 @@ export default function App() {
             onOpenGlobalSearch={() => setGlobalSearchOpen(true)}
             onAddSheet={handleAddSheet}
             onAddKindSheet={handleAddKindSheet}
+            seeds={seeds}
             onAddSeedTemplate={handleAddSeedTemplate}
             onSetPopupTarget={fileOps.setPopupTarget}
             onSaveFileSettings={fileOps.handleSaveFileSettings}
@@ -1925,9 +1932,9 @@ export default function App() {
           onOpenMerger={handleOpenMerger}
           onClose={closeConflictNotice}
         />
-        <RequestNotice
-          arrivals={arrivedRequests}
-          labelOf={requestFromLabel}
+        <ArrivedNotices
+          notices={arrivedNotices}
+          labelOf={noticeFromLabel}
           onOpen={(arrival) => {
             // 検索の結果と同じ道で開いて寄せる (Sheet が画面に出てから node へ寄せる)
             openSearchHit(arrival);
@@ -1943,9 +1950,9 @@ export default function App() {
               matchStart: 0,
               matchLength: 0,
             });
-            dismissRequest(arrival);
+            dismissNotice(arrival);
           }}
-          onDismiss={dismissRequest}
+          onDismiss={dismissNotice}
         />
         <OverwriteNotice
           reports={overwriteNotice.reports}

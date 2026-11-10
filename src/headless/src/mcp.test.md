@@ -15,7 +15,7 @@ agent (Claude Code など) が conversensus に触れる入口はここだけに
 
 ## どのように
 
-- 道具の一覧に、読む道具と書く道具がそろって並ぶ
+- 道具の一覧に、読む道具と書く道具がそろって並ぶ。module を渡さなければ module の道具 (依頼の道具など) は無い
 - **一周**: alice (headless) が File を作って招待 → agent が MCP で参加 (`accept_invitation`) →
   一覧 (`list_files`) → 読む (`read_file` の encoding に alice の node が出る) → node と edge を足す →
   alice が同期すると、agent の node と edge が見える
@@ -27,15 +27,8 @@ agent (Claude Code など) が conversensus に触れる入口はここだけに
 - ログインしていなければ、道具はそう返す
 - 起動の引数: `--data`・`--pds` を読み、無ければ既定。知らない引数・値の無い引数は断る
 
-### 依頼 (agent 段 4 R6)
+### module の道具
 
-alice (headless) が宛先つきの依頼 node を作って送り (種別プロパティは持たせない — 状態と通知は種類に
-依らない)、agent が MCP で参加する。
-
-- 🔴 `list_requests` が自分宛ての未回答の依頼を、何回目か・送った人・本文つきで出す。`read_file` の
-  encoding にも状態の注釈が出る → `answer_request` で答えると一覧から消え、alice が同期すると回答あり
-  (完了基準 5)
-- 宛先が不特定 (空) なら届く。他の人宛ての依頼は一覧に出ない
-- agent も依頼を送れる: `list_participants` で DID を引き、`set_addressee` で宛先を置き換え、`send_request`
-  で送る。**最後に送ったのが自分なら、宛先に自分が入っていても自分の一覧に出さない**
-- 閉じた依頼には答えられず、理由を `isError` で返す。開き直せば答えられる
+`createMcpServer` は module (`HeadlessModule`) の説明・道具・注釈を足す。module を渡さなければ module の道具は
+無い (上の「道具の一覧」)。依頼の道具の試験は依頼の module に移した (`src/modules/request/src/requestHeadless.test.ts`、
+計画 node-actions-request-module.md B3)。stdio の入口 (`mcp.ts`) が依頼の module を渡す。

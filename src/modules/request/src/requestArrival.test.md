@@ -20,3 +20,12 @@ batch を手で組んで検証する。
 - `sent` を書いた op が無ければ何も返さない (関係の無い受信で File を畳まない)
 - 依頼ではない node の `sent` は数えない
 - `senderOf`: 最後に `sent` を書いた人 (MCP の `list_requests` が、自分が送った依頼を除くのに使う)。送っていなければ undefined、他の property の op は数えない
+
+## 依頼の module の知らせ (計画 node-actions-request-module.md B1)
+
+このファイルは client (`src/client/src/sync/`) から依頼の module に移した。core は受信から知らせを見つける口
+(`NodeModule.notices`) だけを持ち、依頼の到着を見つけるのは module である。
+
+- (例) 依頼の module を登録した registry の `detectNotices` は、届いた依頼を知らせにする。既読の鍵は
+  node と送った回数 (`<node>:<回数>`、core が module の id を前に付ける)。送り直すと鍵が変わるので、また知らせる
+

@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import fc from 'fast-check';
 import type { Sheet, SheetId } from '../schemas';
 import { templateFromSheet, templateIdOf } from './fromSheet';
-import { SEED_PLACEMENTS, SEED_TEMPLATES } from './registry';
+import { CORE_SEEDS } from './registry';
 import { templateGraphOf } from './seed';
 import { TOULMIN_PLACEMENT, TOULMIN_TEMPLATE } from './toulmin';
 import { ANY_NODE_KIND, type Template, TemplateSchema } from './types';
@@ -126,11 +126,12 @@ describe('templateGraphOf: 例', () => {
   });
 
   test('すべての種は schema を通る template graph になる (置き場所は重ならない)', () => {
-    for (const seed of SEED_TEMPLATES) {
+    // module の種 (依頼・相談) は module の試験が同じことを見る (requestTemplate.test.ts)
+    for (const seed of CORE_SEEDS) {
       const { layouts } = templateGraphOf(
-        seed,
+        seed.template,
         idSource(),
-        SEED_PLACEMENTS[seed.id],
+        seed.placement,
       );
       const spots = new Set(layouts.map((l) => `${l.x},${l.y}`));
       expect(spots.size).toBe(layouts.length);

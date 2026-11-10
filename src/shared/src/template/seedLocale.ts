@@ -9,86 +9,43 @@
  * **id は変えない。**種類の id (`claim` など) は template graph を複製した後の参照に使われない (複製した node の
  * id が種類になる) が、種の表の綴りの照合 (`TemplateSchema`) と並べ方 (`KindPlacement`) は id で引く。
  *
- * 種の表は日本語で書いてある (`toulmin.ts`)。ここには**それ以外の言語**だけを置き、無い言語・無い要素は表のまま
+ * 種の表は日本語で書いてある (`toulmin.ts`)。**それ以外の言語**の訳は種ごとに持つ (`TemplateSeed.translations`)。
+ * 無い言語・無い要素は表のまま
  */
 
-import { REQUEST_TEMPLATE } from './request';
-import { TOULMIN_TEMPLATE } from './toulmin';
+import type { KindPlacement } from './seed';
 import type { Template } from './types';
 
 /** 種を訳す先の言語。client の `Locale` と同じ綴り (shared は client を知らないので文字列で受ける) */
 export type SeedLocale = string;
 
-type SeedTranslation = {
+/** 1 つの言語への訳 (表の言語以外)。無い要素は表のまま */
+export type SeedTranslation = {
   name?: string;
   nodeKinds: Readonly<Record<string, { label: string; description?: string }>>;
   edgeKinds: Readonly<Record<string, { label: string }>>;
 };
 
-const TRANSLATIONS: Readonly<
-  Record<string, Readonly<Record<SeedLocale, SeedTranslation>>>
-> = {
-  [REQUEST_TEMPLATE.id]: {
-    en: {
-      name: 'Request / Consultation',
-      nodeKinds: {
-        request: {
-          label: 'Request',
-          description:
-            'Ask the addressee to do what the body says. Write the answer in a new node and draw an edge from the request to it',
-        },
-        consultation: {
-          label: 'Consultation',
-          description:
-            'Ask the addressee for an opinion on the body. Write the answer in a new node and draw an edge from the consultation to it',
-        },
-      },
-      edgeKinds: {},
-    },
-  },
-  [TOULMIN_TEMPLATE.id]: {
-    en: {
-      nodeKinds: {
-        claim: {
-          label: 'Claim',
-          description: 'The conclusion being argued for',
-        },
-        data: {
-          label: 'Data',
-          description: 'The facts on which the claim rests',
-        },
-        warrant: {
-          label: 'Warrant',
-          description: 'Why the data supports the claim',
-        },
-        rebuttal: {
-          label: 'Rebuttal',
-          description: 'When the claim or the warrant does not hold',
-        },
-        backing: {
-          label: 'Backing',
-          description: 'What supports the warrant itself',
-        },
-      },
-      edgeKinds: {
-        supports: { label: 'supports' },
-        validates: { label: 'justifies' },
-        strengthens: { label: 'backs' },
-        undermines: { label: 'rebuts' },
-        challenges: { label: 'challenges' },
-      },
-    },
-  },
+/**
+ * 種 1 つ: template の表と、並べ方 (#256) と、表の言語以外の訳 (#330)。core の種 (`CORE_SEEDS`) と、
+ * module が出す種 (計画 node-actions-request-module.md B2) が同じ形をとる
+ */
+export type TemplateSeed = {
+  template: Template;
+  /** 種類の並べ方。無ければ格子に並べる (`templateGraphOf`) */
+  placement?: KindPlacement;
+  translations?: Readonly<Record<SeedLocale, SeedTranslation>>;
 };
 
 /** 種をその言語の名前にする。訳の無い言語・要素は表のまま */
-export function localizeSeed(seed: Template, locale: SeedLocale): Template {
-  const tr = TRANSLATIONS[seed.id]?.[locale];
-  if (!tr) return seed;
+export function localizeSeed(seed: TemplateSeed, locale: SeedLocale): Template {
+  const base = seed.template;
+  const tr = seed.translations?.[locale];
+  if (!tr) return base;
   return {
-    ...seed,
+    ...base,
     ...(tr.name !== undefined && { name: tr.name }),
-    nodeKinds: seed.nodeKinds.map((kind) => {
+    nodeKinds: base.nodeKinds.map((kind) => {
       const t = tr.nodeKinds[kind.id];
       return t
         ? {
@@ -98,7 +55,7 @@ export function localizeSeed(seed: Template, locale: SeedLocale): Template {
           }
         : kind;
     }),
-    edgeKinds: seed.edgeKinds.map((kind) => {
+    edgeKinds: base.edgeKinds.map((kind) => {
       const t = tr.edgeKinds[kind.id];
       return t ? { ...kind, label: t.label } : kind;
     }),

@@ -2,7 +2,7 @@
 
 ## 何を
 
-`templateGraphOf` — template の表 (種, `SEED_TEMPLATES`) を template graph の中身 (node・edge・置き場所) に
+`templateGraphOf` — template の表 (種, `CORE_SEEDS` と module の種) を template graph の中身 (node・edge・置き場所) に
 する (step3 Phase 4 S4-1c)。「Toulmin model を追加」が File に複製するのに使う。
 
 ## なぜ

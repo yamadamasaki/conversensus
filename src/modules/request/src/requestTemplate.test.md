@@ -1,4 +1,4 @@
-# request.test.ts (template) — 依頼・相談の種のテスト仕様
+# requestTemplate.test.ts — 依頼・相談の種のテスト仕様
 
 ## 何を
 
@@ -20,4 +20,6 @@
   種類の既定値に宛先 (空) と答えの場所 (`linkedNode`) が残る
 - その種類で作った node (既定値 + 種別プロパティ、画面と同じ作り方) は、作った時から応答を求める node で、
   状態は下書き
-- en に訳すと名前と種類名が英語になり、既定値は変わらない (訳すのは表示だけ)
+- en に訳すと名前と種類名と説明が英語になり (日本語の字が残らない)、既定値は変わらない (訳すのは表示だけ)。訳は種が持つ (`REQUEST_SEED.translations`)
+
+もとは shared の `template/request.test.ts`。依頼を core から module へ切り出したとき (計画 node-actions-request-module.md B5) に移した。種の並べ方 (種類の置き場所が重ならない) もここで見る (core の種は `seed.test.ts`)。

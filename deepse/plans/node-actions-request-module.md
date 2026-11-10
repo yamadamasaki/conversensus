@@ -3,7 +3,7 @@
 > 設計: [agent-actor.md](../architecture/step4/agent-actor.md) D6・D7・D8・D11・D12。
 > 前の段: [agent-stage4-request.md](agent-stage4-request.md) (PR #361)、[agent-stage5-resident.md](agent-stage5-resident.md) (PR #362)。
 > branch: `step/node-actions` (計画の草案は `docs/node-actions-plan` で書き、そのまま引き継いだ)。
-> 状態: **段 A 完了** (2026-11-09)。§5 の問い 4 つは利用者が答えた (すべて推奨案)。段 B (通知・MCP・常駐の口) は次。
+> 状態: **段 A・段 B 完了** (2026-11-10)。§5 の問い 4 つは利用者が答えた (すべて推奨案)。段 C (repo の外から読み込むプラグイン) は後に回す。
 
 ## 1. 目的
 
@@ -220,3 +220,54 @@ C は連合やライブラリ化 (#310) の後に考える。第三者のコー�
   宛先だけを決めて残す手段は無くなる。困るなら「保存だけ」のボタンを dialog に足す
 - **文言の持ち主**: 今 `t.request` は core の辞書にある。module が自分の文言を持つ形にする。
   i18n の型付きの辞書 (#50) の構えを module にも効かせる方法は N1 で決める
+
+## 8. 段 B: core に残った依頼の知識を外す
+
+> branch: `step/node-actions-b`。段 A は PR #363 で merge 済。利用者の決定 (2026-11-09): **段 B まで行い、段 C
+> (repo の外から読み込むプラグイン) は後に回す**。その後は agent の宣言 (D2) と #354〜#357 に戻る。
+
+### 8.1 目標と完了基準
+
+段 A の N4 の行に並べた「core に残る依頼の知識」を、それぞれ core の汎用の口に置き換え、依頼の module から入れる。
+
+1. shared・client (入口 `main.tsx` を除く) に依頼の知識が無い。`events/request.ts`・`template/request.ts` は module にあり、
+   lint (N4 の規則) がそれを守る
+2. **通知の口**: 受信から知らせを作るのは module (`NodeModule.notices`)。core は知らせを並べ、開く・閉じる・既読を持つ
+3. **種の口**: template の種 (依頼・相談) は module が出す (`NodeModule.seeds`)。core の種 (Toulmin) と並ぶ
+4. **headless の口**: MCP の道具・`read_file` の注釈・常駐の振る舞いは module が出す (`HeadlessModule`)。headless の
+   library は module を import せず、入口 (`mcp.ts`・`resident/resident.ts`) だけが選ぶ。**起動の command は変えない**
+5. 段 A・段 5 の試験がすべて通り、開発用の環境で依頼の一周 (人間どうし・agent・常駐) が今までどおり動く
+
+**非目標**: 段 C、依頼以外の機能の module 化 (Toulmin の種は core に残す)。
+
+### 8.2 方針
+
+- 通知は今の配線 (`receiveParticipantBatches` → `fileSession` → `useEventSyncTap` → `useFileSheetOperations` →
+  `useNoticeInbox` → `RequestNotice`) を、依頼の型 (`RequestArrival`) から汎用の型 (`ModuleNotice`) に替える。
+  見つける関数 (module の `notices.detect`) は App が registry から渡す
+- headless は host (アプリの入口と同じ立場) だが、library と入口を分ける。library (`mcpServer.ts`・常駐の汎用の部分) は
+  module を知らず、入口だけが module を選ぶ。lint の規則を headless の library にも掛ける
+- 常駐の振る舞いのうち依頼に固有のもの (依頼を数える `dispatch`・`claude -p` に渡す prompt・`requestsForMe`) は module へ。
+  汎用のもの (同期し続ける `watch`・流れ・HTTP の MCP・`claude -p` の起動) は headless に残す
+
+### 8.3 スライス
+
+| | 内容 | 確かめ方 |
+| --- | --- | --- |
+| B1 | **通知の口** (client): `ModuleNotice`・`notices.detect`。依頼の到着の検出と文言を module へ。通知の欄を汎用にする | 単体 (検出は module へ移す)・App 結合 (依頼が届く) |
+| B2 | **種の口**: `NodeModule.seeds` (種・並べ方・訳)。Sidebar・App は registry の種と core の種を並べる | 単体・App 結合 (「+ 依頼・相談 を追加」) |
+| B3 | **headless の口**: `HeadlessModule` (MCP の説明・道具・node の注釈)。`createMcpServer` を `mcpServer.ts` へ分け、入口 `mcp.ts` が依頼の module を渡す。依頼の道具と注釈と `requestsForMe` を module へ | 単体 (MCP の試験を module へ) |
+| B4 | **常駐**: 依頼に固有の部分 (`dispatch`・prompt) を module へ。`startResident` は汎用の「同期したら module に知らせる」にし、入口 `resident.ts` が依頼の module をつなぐ | 単体・App 結合 (常駐の agent) |
+| B5 | **shared の依頼を module へ**: `events/request.ts`・`template/request.ts` (と訳) を移す。lint が core を守る | lint・typecheck・全試験 |
+| B6 | 開発用の環境で、依頼の一周を手で確かめる | 利用者 |
+
+### 8.4 進捗
+
+| | 状態 | メモ |
+| --- | --- | --- |
+| B1 | 済 | `NodeModule.notices` (`NoticeSource`: 欄の名前・見出し・`detect`) と `ModuleNotice`。registry の `detectNotices` が module の順に集め、module の id を添える (既読の鍵 `noticeKeyOf` は `<module>/<鍵>`)。受信から App までの配線 (`receiveParticipantBatches` → `FileSession` → `useEventSyncTap`・`useFileSheetOperations` → `useNoticeInbox`) を `RequestArrival` から `ArrivedNotice` に替え、見つける関数は App が registry から渡す。`RequestNotice` は汎用の `ArrivedNotices` (module ごとに 1 つの欄)。依頼の到着の検出 (`requestArrival.ts`) と文言は module へ。辞書の `request.notice` は汎用の `notices` (開く・閉じる) に |
+| B2 | 済 | 種は `TemplateSeed` (template・並べ方・訳) にまとめ、訳は種ごとに持つ (`seedLocale.ts` の表を外した)。core の種は `CORE_SEEDS` (Toulmin だけ)、module の種は `NodeModule.seeds` で registry の `seeds` に集まる。Sidebar は App から種を受け取る。依頼・相談の種 (`REQUEST_SEED`) は依頼の module が出す (表はまだ shared、B5 で移す)。試験の道具 `addRequestSheet` も module の `requestDriver` へ |
+| B3 | 済 | `HeadlessModule` (説明・`registerTools`・`annotateNode`) と `McpKit` (server と共通の流れ: `write`・`guarded`・`where`)。`mcp.ts` を library `mcpServer.ts` (`createMcpServer(headless, modules)`) と入口 `mcp.ts` (依頼の module を選ぶ、起動の command は同じ) に分けた。`encodeFile` は node の注釈を module から受ける (`AnnotateNode`)。`Headless.requestsForMe` を外し、汎用の `batches` を足した。依頼の道具・注釈・`requestsForMe` は module の `requestHeadless.ts` へ、その試験も module へ。HTTP の MCP (`serveMcpHttp`) と試験の `connectMcp` は module を受ける。常駐は B4 までの間、module を直接使う |
+| B4 | 済 | 常駐の loop を汎用の `startResident.ts` (同期し終えるたびに `ResidentWorker` に知らせる) にし、入口 `resident.ts` は `HEADLESS_MODULES` (stdio の入口 `mcp.ts` と同じ) の `resident` から worker を作る (起動の command は同じ)。`claudeRunner` は汎用の `AgentTask` (label と prompt) を起動する。依頼に固有のもの — `dispatch` (`requestDispatch.ts`、口は `JobRunner`)・`promptFor`・`jobsOf` — は module の `requestResident.ts` へ、試験も。lint の規則を headless にも掛け、入口 `mcp.ts` だけを外した (常駐の入口は `mcp.ts` の一覧を使うので module を直に import しない) |
+| B5 | 済 | shared の `events/request.ts` を module の `requestNode.ts`、`template/request.ts` を `requestTemplate.ts` へ移し (試験も)、shared の index から外した。module の中の import は `requestNode` を指すように書き換えた。試験の道具 `requestAdded` も headless から module へ。core (shared・client・headless) のコードに依頼の識別子 (`app.conversensus.request`・`ADDRESSEE_PROPERTY`・`requestStatus` など) が残っていないことを grep で確かめ、lint が import の向きを守る。本番ビルドも通る |
+| B6 | 済 | 利用者が開発用の環境で確かめた (2026-11-10): 依頼の種・人間どうしの送受と通知・Claude Code (stdio の MCP) からの答え・常駐の agent。**段 B の完了基準はすべて満たす** |

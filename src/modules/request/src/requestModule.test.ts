@@ -6,19 +6,16 @@ import {
   createNodeActionRegistry,
   runNodeAction,
 } from '@conversensus/client/src/nodeActions/registry';
+import type { Did, GraphEdge, GraphNode, Sheet } from '@conversensus/shared';
+import fc from 'fast-check';
+import { REQUEST_MODULE } from './requestModule';
 import {
   ADDRESSEE_PROPERTY,
   ANSWER_TARGET_PROPERTY,
   ANSWERS_PROPERTY,
   CLOSED_PROPERTY,
-  type Did,
-  type GraphEdge,
-  type GraphNode,
   SENT_PROPERTY,
-  type Sheet,
-} from '@conversensus/shared';
-import fc from 'fast-check';
-import { REQUEST_MODULE } from './requestModule';
+} from './requestNode';
 
 const REQ = '11111111-1111-4111-8111-111111111111';
 const ANSWER = '22222222-2222-4222-8222-222222222222';
@@ -202,6 +199,14 @@ describe('答える', () => {
         { readOnly: false },
       ),
     ).toThrow(NodeActionError);
+  });
+});
+
+describe('種', () => {
+  test('「シートを追加 ▾」に依頼・相談の種を出す', () => {
+    expect(registry.seeds.map((s) => String(s.template.id))).toEqual([
+      'jp.co.metabolics.request',
+    ]);
   });
 });
 

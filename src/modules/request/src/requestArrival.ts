@@ -22,14 +22,16 @@ import {
   type Did,
   didFromActor,
   type FileId,
-  isAddressedTo,
   type NodeId,
   projectFile,
+  type SheetId,
+} from '@conversensus/shared';
+import {
+  isAddressedTo,
   requestsInFile,
   SENT_PROPERTY,
-  type SheetId,
   sentCountOf,
-} from '@conversensus/shared';
+} from './requestNode';
 
 /** 届いた依頼 1 つ */
 export type RequestArrival = {

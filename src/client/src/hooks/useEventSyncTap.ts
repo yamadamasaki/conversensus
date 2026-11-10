@@ -26,6 +26,7 @@ import { fetchBatches, pushReceivedBatches } from '../api';
 import type { RemoteSyncQueue } from '../atproto/remoteSyncQueue';
 import { SYNC_POLL_INTERVAL_MS } from '../config';
 import type { GraphEvent } from '../events/GraphEvent';
+import type { ArrivedNotice } from '../nodeActions/registry';
 import type { DetectedConflicts } from '../sync/conflicts';
 import {
   FileSession,
@@ -36,7 +37,6 @@ import {
 import type { FileSessionPool } from '../sync/fileSessionPool';
 import type { LiveSignal } from '../sync/liveChannel';
 import type { DetectedOverwrites } from '../sync/overwrites';
-import type { RequestArrival } from '../sync/requestArrival';
 import type { RosterSource } from '../sync/rosterSource';
 import type { SyncProvider } from '../sync/syncProvider';
 import type { ForkWriterDeps } from '../sync/writeForks';
@@ -169,8 +169,8 @@ export type UseEventSyncTapOptions = {
    * **安定参照であること**。
    */
   onForksArrived?: (fileId: FileId, forks: ForkMeta[]) => void;
-  /** 自分宛てに送られた依頼が届いた (agent 段 4 R5) */
-  onRequestsArrived?: (fileId: FileId, requests: RequestArrival[]) => void;
+  /** module の知らせ (届いた依頼など) が届いた (agent 段 4 R5) */
+  onNoticesArrived?: (fileId: FileId, notices: ArrivedNotice[]) => void;
   /**
    * 受信のサイクルが**最後まで走った**ことの合図 (step2 Phase 2 S6)。
    *
@@ -244,7 +244,7 @@ export function useEventSyncTap(
     onConflicts,
     onOverwrites,
     onForksArrived,
-    onRequestsArrived,
+    onNoticesArrived,
     onSynced,
     onLocalChanged,
   }: UseEventSyncTapOptions,
@@ -323,7 +323,7 @@ export function useEventSyncTap(
     onConflicts,
     onOverwrites,
     onForksArrived,
-    onRequestsArrived,
+    onNoticesArrived,
     onSynced,
     onLocalChanged,
   };

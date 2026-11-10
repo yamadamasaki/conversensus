@@ -1,7 +1,7 @@
 /**
  * template の表 → template graph (step3 Phase 4 S4-1c)
  *
- * 種 (`SEED_TEMPLATES`) を File に複製するときに使う。`templateFromSheet` の逆向きで、
+ * 種 (`CORE_SEEDS` と module の種) を File に複製するときに使う。`templateFromSheet` の逆向きで、
  * **往復すると同じ種類に戻る** (性質テストで固める):
  *
  * - node の種類 → label = 種類名、本文 = 説明、property = 既定値 の node
