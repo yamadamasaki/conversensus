@@ -1,5 +1,6 @@
 import {
   addressKey,
+  appliedTemplateRefs,
   BRANCH_STATUS,
   type BranchId,
   type BranchMeta,
@@ -964,10 +965,10 @@ export default function App() {
     ],
   );
   // 描いているシートに当てた template の実体 (step3 Phase 4 S4-1b)。template graph の切断面は
-  // op-log を読んで解決する
+  // op-log を読んで解決する。作るときに当てたものと後から当てたもの (#355) の両方
   const viewTemplates = useResolvedTemplates(
     fileOps.activeFile?.id ?? null,
-    viewSheet?.templateIds,
+    viewSheet ? appliedTemplateRefs(viewSheet) : undefined,
   );
   // 左右のサイドバーの幅と開閉 (S3-4b)。端末ごとの好みなので localStorage に置く
   // 画面の幅の段 (visual language §9.2)。狭い段ではサイドバーを重ね、ヘッダを記号だけにする

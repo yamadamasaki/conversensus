@@ -21,6 +21,10 @@ repo に出ることを確かめる。
 - 本文の書き換え (`NODE_CONTENT_CHANGED`) も往復する
 - 開き直した agent が書いても、点 `(actor, seq)` が前の起動と重ならない。発番器が手元の op-log
   と覚えた判断の点から戻るため (#261 の窓 1)
+- 既にある Sheet に後から当てた template (#355) の種別が、encoding の注釈に出る。template graph を作って
+  種類を置いただけでは出ず、最初の Sheet に今の切断面で当てると出る。headless が template を読む所
+  (`encode` と書く道具の Sheet の解決) は、作るときのものと後から当てたものを合わせて読む
+  (`appliedTemplateRefs`)。読む所を `sheet.templateIds` に戻すとこのテストが落ちる
 
 ### 観察: genesis は参加者の repo にも出る
 

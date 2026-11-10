@@ -32,6 +32,7 @@
  */
 
 import {
+  appliedTemplateSheetOf,
   type GraphEdge,
   type GraphFile,
   type GraphNode,
@@ -40,6 +41,7 @@ import {
   propertyCategory,
   type Sheet,
   type Template,
+  templateIdOf,
 } from '@conversensus/shared';
 
 /** sheet に当たっている template の実体 (種別の名前を引くため)。解決は呼ぶ側が持つ */
@@ -85,6 +87,14 @@ function noteOf(
       if (kind) return `種別: ${value(kind.label)} (template ${value(t.name)})`;
     }
     return '種別 (template を引けない)';
+  }
+  // 後から当てた template (#355)。種別の一覧は sheet の注釈に出ている
+  const applied = appliedTemplateSheetOf(name);
+  if (applied !== undefined) {
+    const t = templates.find((t) => t.id === templateIdOf(applied));
+    return t
+      ? `後から当てた template ${value(t.name)}`
+      : '後から当てた template (引けない)';
   }
   return CATEGORY_NOTE[propertyCategory(name)];
 }
