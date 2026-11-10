@@ -2,7 +2,8 @@
 
 ## 何を
 
-`remapKindProperties` (種別の property の名前と値) と `remapTemplateRefs` (Sheet の `templateIds`) を検証する (#327)。
+`remapKindProperties` (種別の property の名前と値)・`remapTemplateRefs` (Sheet の `templateIds`)・
+`remapAppliedTemplates` (後から当てた template の Sheet のプロパティ、#355) を検証する (#327)。
 
 ## なぜ
 
@@ -19,5 +20,7 @@ actor を指したままでは取り込んだ File の genesis を含まず、te
 - **値が要素の id に当たらなければ名前だけ付け替える。**値を勝手に消すと、利用者が書いたものが失われる
 - **`{sheet, at}` は新しい Sheet と genesis の切断面へ**
 - **作り込みの id はそのまま。**解決はされない (Q1) が、書かれたものを import で消す理由は無い
+- **後から当てた template (#355) は、プロパティ名の Sheet の id を新しい Sheet へ、値の切断面を genesis へ。**
+  理由は `{sheet, at}` と同じ。ほかのプロパティと、取り込んだ File に無い Sheet を指すものは触らない
 
 File を丸ごと取り込んで template が解決できることは `localStore.test.ts` (importFile) が見る。

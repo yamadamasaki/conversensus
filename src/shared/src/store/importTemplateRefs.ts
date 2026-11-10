@@ -7,6 +7,8 @@
  * 1. Sheet の `templateIds` の `{ sheet, at }` — template graph の Sheet の id と、当てた時点の切断面
  * 2. 種別の property の**名前** `template.<template graph の Sheet の id>.kind` (`templateIdOf`・`kindPropertyOf`)
  * 3. 種別の property の**値** — template graph の node / edge の id (`templateFromSheet`)
+ * 4. 後から当てた template (#355) の Sheet のプロパティ `app.conversensus.appliedTemplate.<template graph の
+ *    Sheet の id>` = `{ at }` — 1 と同じく、名前の Sheet の id と、値の切断面
  *
  * **切断面は genesis 全体にする。**import した File の中身はすべて genesis の batch で、元の切断面は
  * 元の File の actor を指すので何も含まない (template graph の Sheet が「まだ無い」と読まれ、template が
@@ -16,6 +18,11 @@
 
 import { GENESIS_ACTOR } from '../events/unified';
 import type { GraphFile, SheetId, TemplateRef } from '../schemas';
+import {
+  APPLIED_TEMPLATE_PROPERTY_PREFIX,
+  appliedTemplatePropertyOf,
+  appliedTemplateValueOf,
+} from '../template/applied';
 import { templateIdOf } from '../template/fromSheet';
 import { kindPropertyOf } from '../template/kind';
 
@@ -60,6 +67,30 @@ export function remapTemplateRefs(
   );
 }
 
+/**
+ * 後から当てた template (#355) の Sheet のプロパティを新しい Sheet へ付け替える。切断面は `templateIds` と
+ * 同じく genesis の `genesisSeq` 番まで。後から当てた template のものでないプロパティ、取り込んだ File に無い
+ * Sheet を指すものはそのまま
+ */
+export function remapAppliedTemplates(
+  properties: Readonly<Record<string, unknown>>,
+  ids: ImportIdMaps,
+  genesisSeq: number,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(properties).map(([name, value]) => {
+      const to = name.startsWith(APPLIED_TEMPLATE_PROPERTY_PREFIX)
+        ? ids.sheet.get(name.slice(APPLIED_TEMPLATE_PROPERTY_PREFIX.length))
+        : undefined;
+      if (to === undefined) return [name, value];
+      return [
+        appliedTemplatePropertyOf(to),
+        appliedTemplateValueOf({ [GENESIS_ACTOR]: genesisSeq }),
+      ];
+    }),
+  );
+}
+
 /** File の中の template への参照をすべて付け替える (要素の id そのものは付け替え済みとする) */
 export function remapTemplateReferences(
   file: GraphFile,
@@ -78,6 +109,9 @@ export function remapTemplateReferences(
       ...sheet,
       ...(sheet.templateIds && {
         templateIds: remapTemplateRefs(sheet.templateIds, ids, genesisSeq),
+      }),
+      ...(sheet.properties && {
+        properties: remapAppliedTemplates(sheet.properties, ids, genesisSeq),
       }),
       nodes: sheet.nodes.map(remap),
       edges: sheet.edges.map(remap),
