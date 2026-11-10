@@ -83,3 +83,12 @@ sheet の「…」(設定のポップアップ) に「template を当てる」�
 - Q3 外すことは今回は非目標 (プロパティを消せば外れる形にしておく)
 
 ### 4.1 進捗
+
+| | 状態 | メモ |
+| --- | --- | --- |
+| T1 | 済 | shared の `template/applied.ts`。プロパティ名は `app.conversensus.appliedTemplate.<id>` にした (`app.conversensus.template` は template graph の種別の値として既にあり、取り違えやすいため)。性質 2 つは、並べる所と重なりを除く所を壊すと落ちることを確かめた |
+| T2 | 済 | 画面 (`useResolvedTemplates` に渡す参照)・headless (`encode`・書く道具の Sheet の解決) を `appliedTemplateRefs` に替えた。encoding の `template-ref` の行は作るときのもののまま (注釈を除いた行から元に戻せる性質のため。後から当てたものは `prop` の行に出る) とし、そのプロパティに template の名前を注釈する |
+| T3 | 済 | `remapAppliedTemplates`。File を丸ごと取り込んで後から当てた template が解決できることも `localStore.test.ts` で見る |
+| T4 | 済 | `applicableTemplateGraphs` (入口とダイアログが同じ答えを使う)、`handleApplyTemplates` (template graph ごとに `SHEET_PROPERTY_CHANGED`)、`TemplateApplyDialog` の `apply` の形、`SettingsPopup` の口。切断面の取り方はシートを足すときと共用 (`currentCut`) |
+| T5 | 手順を書いた | `user-test-environment.md` §5.11。利用者の確認待ち |
+

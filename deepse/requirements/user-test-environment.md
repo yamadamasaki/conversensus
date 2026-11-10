@@ -537,6 +537,25 @@ bun run src/headless/src/cli.ts profile      # 今の宣言と裏付けを出す
 - 作者は op-log から導く。同期して op が届けば増える
 - agent の宣言は参加者一覧と同じ入れ物で覚える。参加者一覧で認めた後は、一覧を閉じて開き直すと avatar の縁も変わる
 
+### 5.11 既にある Sheet に template を後から当てる (#355)
+
+作るときにしか当てられなかった template を、既にある Sheet にも後から当てる。計画は `deepse/plans/apply-template-355.md`。
+
+**確かめる**:
+
+1. alice (5173) で File を作る (または既にある File を開く)。Sheet 1 の「…」に「template を当てる」が**無い**
+   (File に template graph がまだ無い)
+2. 「template 付きで Sheet を追加 ▾」から「+ 依頼・相談を追加」で template graph を作る。その template graph の
+   シートの「…」にも「template を当てる」は無い
+3. Sheet 1 を開き、「…」→「template を当てる」。ダイアログで「依頼・相談」を選び「当てる」(何も選ばないうちは押せない)
+4. Sheet 1 で node を足すと、種類のメニューに「依頼」「相談」が出る。「依頼」で作り、node のそばの「送る」で
+   bob か agent に送れる (§5.7・5.8)。前からある node の種類は変わらない
+5. Sheet 1 の「…」をもう一度開くと、当てられる template graph が無いので「template を当てる」が出ない
+6. bob (5174) で同期すると、bob の画面の Sheet 1 でも「依頼」「相談」を選べる
+
+- 当てた後で template graph を編集しても、当てた Sheet の種類はそのときの姿のまま (作るときに当てたものと同じ規則)
+- 外す口は今は無い
+
 ## 6. 2 台目 (device B) を同じマシンで動かす
 
 remote 同期の検証では, 「別端末が PDS 経由で受け取れるか」を見たいことがある. step3 Phase 2
