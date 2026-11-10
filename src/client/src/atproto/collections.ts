@@ -15,7 +15,14 @@
  *     **自分の repo だけを読む** — 他の actor の整理や既読を読む理由が無い
  */
 
-import type { AtUri, Did, FileId, Rkey } from '@conversensus/shared';
+import {
+  AGENT_PROFILE_RKEY,
+  type AgentProfile,
+  type AtUri,
+  type Did,
+  type FileId,
+  type Rkey,
+} from '@conversensus/shared';
 import { batchRkeyFileCursor, batchRkeyPrefix } from './batchRkey';
 import { currentDid, getAgent } from './client';
 import {
@@ -272,5 +279,55 @@ export const filePlacements = {
   },
   delete(fileId: FileId) {
     return deleteRecord(NSID.filePlacement, fileId);
+  },
+};
+
+/**
+ * 読んでみて、無ければ undefined (agent の宣言のように、無いのが普通の record)。**読めない理由は区別しない** —
+ * 表示にだけ使うので、読めなければ「無い」として出す
+ */
+async function getRecordIfAny(
+  collection: string,
+  rkey: Rkey,
+  read: ReadRepo,
+): Promise<unknown> {
+  try {
+    return (await getRecord(collection, rkey, read)).value;
+  } catch {
+    return undefined;
+  }
+}
+
+/** agent の宣言と operator の裏付け (設計 agent-actor.md D2)。形の検証は `agentDeclarationOf` がする */
+export const agentRecords = {
+  /** 自分 (agent) の宣言を書く (置き換える) */
+  putProfile(profile: AgentProfile): Promise<RecordResult> {
+    return putRecord(NSID.agentProfile, AGENT_PROFILE_RKEY as Rkey, {
+      $type: NSID.agentProfile,
+      ...profile,
+    });
+  },
+  /** `did` の宣言 (無ければ undefined) */
+  getProfile(did: Did): Promise<unknown> {
+    return getRecordIfAny(NSID.agentProfile, AGENT_PROFILE_RKEY as Rkey, {
+      repo: did,
+    });
+  },
+  /** 自分 (operator) が `agent` を自分の agent と認める */
+  putOperated(agent: Did): Promise<RecordResult> {
+    return putRecord(NSID.operatedAgent, agent as Rkey, {
+      $type: NSID.operatedAgent,
+      agent,
+    });
+  },
+  /** 認めるのをやめる */
+  deleteOperated(agent: Did): Promise<void> {
+    return deleteRecord(NSID.operatedAgent, agent as Rkey);
+  },
+  /** `operator` の repo の、`agent` への裏付け (無ければ undefined) */
+  getOperated(operator: Did, agent: Did): Promise<unknown> {
+    return getRecordIfAny(NSID.operatedAgent, agent as Rkey, {
+      repo: operator,
+    });
   },
 };

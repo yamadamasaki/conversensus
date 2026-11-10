@@ -51,7 +51,7 @@ agent の振舞いを宣言で変えること。
 
 | | 状態 | メモ |
 | --- | --- | --- |
-| A1 | | |
+| A1 | 済 | shared の `events/agentDeclaration.ts` (`AgentProfileSchema`・`OperatedAgentSchema`・`agentDeclarationOf`)。client の NSID 2 つと `agentRecords` (書く・読む・消す。読めなければ undefined)。性質は「裏付けあり ⇔ 互いを指す」 |
 | A2 | | |
 | A3 | | |
 | A4 | | |
