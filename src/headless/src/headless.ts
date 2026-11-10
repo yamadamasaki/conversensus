@@ -22,6 +22,7 @@
 
 import { join } from 'node:path';
 import { setLocalBackend } from '@conversensus/client/src/api';
+import { readAgentDeclaration } from '@conversensus/client/src/atproto/agentDeclarations';
 import { AtprotoSyncProvider } from '@conversensus/client/src/atproto/atprotoSyncProvider';
 import type { AuthBackend } from '@conversensus/client/src/atproto/auth';
 import {
@@ -30,8 +31,14 @@ import {
   resumeSession,
   setAuthBackend,
 } from '@conversensus/client/src/atproto/client';
-import { batches } from '@conversensus/client/src/atproto/collections';
-import { handleLabels } from '@conversensus/client/src/atproto/identity';
+import {
+  agentRecords,
+  batches,
+} from '@conversensus/client/src/atproto/collections';
+import {
+  handleLabels,
+  resolveHandle,
+} from '@conversensus/client/src/atproto/identity';
 import {
   listJudgmentFileIds,
   loadRoster,
@@ -66,6 +73,8 @@ import {
 } from '@conversensus/client/src/sync/rosterSource';
 import {
   type Actor,
+  type AgentDeclaration,
+  type AgentProfile,
   type Batch,
   type BatchId,
   CausalClock,
@@ -260,6 +269,38 @@ export class Headless {
     const dids = [...participation.participating];
     const labelOf = await handleLabels.resolve(dids);
     return dids.map((did) => ({ did, handle: labelOf(did) }));
+  }
+
+  /**
+   * 自分が agent であると宣言する (設計 agent-actor.md D2)。operator はハンドル名か DID で受ける。
+   * 宣言を置き換える (前の宣言は残らない)。operator が App の参加者一覧で認めると「裏付けあり」になる
+   */
+  async declareAgent(profile: {
+    operator: string;
+    model?: string;
+    description?: string;
+  }): Promise<AgentProfile> {
+    this.requireConnection();
+    const operator = profile.operator.startsWith('did:')
+      ? (profile.operator as Did)
+      : await resolveHandle(profile.operator);
+    if (!operator) {
+      throw new ToolError(`operator が見つからない: ${profile.operator}`);
+    }
+    const declared: AgentProfile = {
+      operator,
+      ...(profile.model !== undefined && { model: profile.model }),
+      ...(profile.description !== undefined && {
+        description: profile.description,
+      }),
+    };
+    await agentRecords.putProfile(declared);
+    return declared;
+  }
+
+  /** DID が agent であるか (宣言と、operator の裏付け)。省けば自分 */
+  agentDeclaration(did?: Did): Promise<AgentDeclaration> {
+    return readAgentDeclaration(did ?? this.requireConnection().did);
   }
 
   /** File の trunk の op-log (手元の正典)。module が自分の規則で読む (依頼を送った人など) */

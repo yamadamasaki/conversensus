@@ -52,6 +52,6 @@ agent の振舞いを宣言で変えること。
 | | 状態 | メモ |
 | --- | --- | --- |
 | A1 | 済 | shared の `events/agentDeclaration.ts` (`AgentProfileSchema`・`OperatedAgentSchema`・`agentDeclarationOf`)。client の NSID 2 つと `agentRecords` (書く・読む・消す。読めなければ undefined)。性質は「裏付けあり ⇔ 互いを指す」 |
-| A2 | | |
+| A2 | 済 | `Headless.declareAgent` (operator はハンドル名か DID) と `agentDeclaration`。client の `readAgentDeclaration` (宣言の operator の repo からだけ裏付けを読む) と、覚えておく入れ物 `createAgentDeclarationCache`。CLI `profile [<operator>] [--model] [--description]`、`whoami` にも宣言を出す |
 | A3 | | |
 | A4 | | |

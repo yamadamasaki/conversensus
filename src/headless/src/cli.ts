@@ -20,6 +20,7 @@ import { mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import {
+  type AgentDeclaration,
   type FileId,
   FileIdSchema,
   type NodeId,
@@ -42,7 +43,14 @@ export type Command =
   | { kind: 'accept'; code: string }
   | { kind: 'files' }
   | { kind: 'show'; fileId: FileId }
-  | { kind: 'add'; fileId: FileId; content: string };
+  | { kind: 'add'; fileId: FileId; content: string }
+  | {
+      kind: 'profile';
+      /** 書くときの operator (ハンドル名か DID)。無ければ今の宣言を出す */
+      operator?: string;
+      model?: string;
+      description?: string;
+    };
 
 export type Parsed = {
   command: Command;
@@ -59,7 +67,10 @@ export const USAGE = `使い方: cli.ts [--data <dir>] [--pds <url>] [--no-open]
   accept <code>         参加コードで File に参加する
   files                 手元に無い File を見つけて、一覧を出す
   show <fileId>         File を同期して、Sheet ごとの node を出す
-  add <fileId> <text>   File の最初の Sheet に node を足して送る`;
+  add <fileId> <text>   File の最初の Sheet に node を足して送る
+  profile [<operator>] [--model <m>] [--description <d>]
+                        agent であると宣言する (operator はハンドル名か DID)。
+                        operator を省くと今の宣言と裏付けを出す`;
 
 /** File の id を検める (branded UUID。境界で検証する規約) */
 function fileIdOf(value: string | undefined): FileId {
@@ -73,6 +84,8 @@ export function parseArgs(argv: readonly string[]): Parsed {
   let dataDir = DEFAULT_DATA_DIR;
   let pdsUrl = DEFAULT_PDS_URL;
   let open = true;
+  /** `profile` の選択肢 */
+  const profileOptions: { model?: string; description?: string } = {};
   const rest: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i] as string;
@@ -81,6 +94,11 @@ export function parseArgs(argv: readonly string[]): Parsed {
       if (value === undefined) throw new Error(`${arg} の値が無い`);
       if (arg === '--data') dataDir = value;
       else pdsUrl = value;
+      i++;
+    } else if (arg === '--model' || arg === '--description') {
+      const value = argv[i + 1];
+      if (value === undefined) throw new Error(`${arg} の値が無い`);
+      profileOptions[arg === '--model' ? 'model' : 'description'] = value;
       i++;
     } else if (arg === '--no-open') {
       open = false;
@@ -117,8 +135,24 @@ export function parseArgs(argv: readonly string[]): Parsed {
       command = { kind: 'add', fileId: fileIdOf(fileId), content };
       break;
     }
+    case 'profile': {
+      if (params.length > 1) throw new Error('profile は引数を 0 か 1 つ取る');
+      const [operator] = params;
+      if (operator === undefined && Object.keys(profileOptions).length > 0) {
+        throw new Error('--model・--description は operator と一緒に渡す');
+      }
+      command = {
+        kind: 'profile',
+        ...(operator !== undefined && { operator }),
+        ...profileOptions,
+      };
+      break;
+    }
     default:
       throw new Error(name ? `知らないコマンド: ${name}` : 'コマンドが無い');
+  }
+  if (command.kind !== 'profile' && Object.keys(profileOptions).length > 0) {
+    throw new Error('--model・--description は profile だけが取る');
   }
   return { command, dataDir, pdsUrl, open };
 }
@@ -132,6 +166,23 @@ function describe(headless: Headless, fileId: FileId): string {
     for (const node of sheet.nodes) lines.push(`    - ${node.content}`);
   }
   return lines.join('\n');
+}
+
+/** agent の宣言を 1 行で */
+export function describeDeclaration(declaration: AgentDeclaration): string {
+  if (declaration.status === 'none') return 'agent の宣言: なし';
+  const state =
+    declaration.status === 'verified'
+      ? '裏付けあり'
+      : '名乗りのみ (operator がまだ App で認めていない)';
+  return [
+    `agent の宣言: ${state}`,
+    `  operator ${declaration.operator}`,
+    ...(declaration.model ? [`  model ${declaration.model}`] : []),
+    ...(declaration.description
+      ? [`  description ${declaration.description}`]
+      : []),
+  ].join('\n');
 }
 
 async function run(parsed: Parsed): Promise<string> {
@@ -156,7 +207,21 @@ async function run(parsed: Parsed): Promise<string> {
         await headless.signOutAndClose();
         return 'ログアウトした';
       case 'whoami':
-        return `${headless.did} (${headless.actor})`;
+        return `${headless.did} (${headless.actor})\n${describeDeclaration(
+          await headless.agentDeclaration(),
+        )}`;
+      case 'profile': {
+        if (command.operator !== undefined) {
+          await headless.declareAgent({
+            operator: command.operator,
+            ...(command.model !== undefined && { model: command.model }),
+            ...(command.description !== undefined && {
+              description: command.description,
+            }),
+          });
+        }
+        return describeDeclaration(await headless.agentDeclaration());
+      }
       case 'accept': {
         const fileId = await headless.accept(command.code);
         return `参加した: ${describe(headless, fileId)}`;
