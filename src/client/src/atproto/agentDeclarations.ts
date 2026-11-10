@@ -31,6 +31,8 @@ export type AgentDeclarationCache = {
   get: (did: Did) => Promise<AgentDeclaration>;
   /** 忘れる (認めた・取り消した後に読み直すため) */
   forget: (did: Did) => void;
+  /** すべて忘れる (一覧を開き直したときに、その間の宣言の変化を拾うため) */
+  clear: () => void;
 };
 
 /** 読んだ宣言を DID ごとに覚えておく (同じ DID を何度も読まない。読んでいる最中のものも重ねない) */
@@ -49,6 +51,9 @@ export function createAgentDeclarationCache(
     },
     forget: (did) => {
       known.delete(did);
+    },
+    clear: () => {
+      known.clear();
     },
   };
 }

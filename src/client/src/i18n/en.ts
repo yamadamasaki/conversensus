@@ -269,6 +269,14 @@ export const en: Messages = {
       actions: 'Actions',
     },
     historyOf: (name: string) => `Participation history of ${name}`,
+    agent: {
+      verified: 'agent (verified)',
+      claimed: 'agent (self-declared)',
+      operator: (name: string) => `operator: ${name}`,
+      model: (name: string) => `model: ${name}`,
+      acknowledge: 'Acknowledge as my agent',
+      unacknowledge: 'Stop acknowledging',
+    },
     copied: 'Copied',
     copyCode: 'Copy code',
     handles: 'Handles',
@@ -473,6 +481,8 @@ export const en: Messages = {
     },
   },
   app: {
+    agentAcknowledgeFailed:
+      'Could not acknowledge the agent. Check that you are signed in and online, and try again',
     emptyFilesTitle: 'No Files',
     emptyFilesNote:
       'A File bundles Sheets (graphs). Create a new one, import a .conversensus file, or join a collaboration with a participation code you received.',

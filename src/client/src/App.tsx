@@ -58,6 +58,7 @@ import { alignToPane } from './graph/alignToPane';
 import { splitMetagraphEvent } from './graph/metagraphEvents';
 import { logoutFlow } from './hooks/logoutFlow';
 import { useActor } from './hooks/useActor';
+import { useAgentDeclarations } from './hooks/useAgentDeclarations';
 import { useAtprotoSession } from './hooks/useAtprotoSession';
 import {
   BRANCH_DIFF_STATE,
@@ -649,6 +650,11 @@ export default function App() {
     // **同期サイクルと同じ供給元**を渡す (step2 Phase 2 S1)
     roster,
   });
+  /** 参加者一覧に出す agent の宣言 (設計 agent-actor.md D2)。一覧が開いている間だけ読む */
+  const agentDeclarations = useAgentDeclarations(
+    invitationFileId ? participation.state.rows.map((r) => r.did) : [],
+    atprotoSession !== null,
+  );
 
   // は撤去した。リモートのファイル発見は `useFileSheetOperations` 内の
   // `discoverRemoteFiles` (op-log 経路) に一本化されている (設計 §3.8)。
@@ -1563,6 +1569,14 @@ export default function App() {
           }
           onAction={(action, did) =>
             participation.act(invitationFileId, action, did)
+          }
+          agentOf={agentDeclarations.declarationOf}
+          {...(atprotoSession && { me: atprotoSession.did })}
+          onAcknowledgeAgent={(agent, yes) =>
+            void agentDeclarations.acknowledge(agent, yes).catch((error) => {
+              console.warn('[agent] 認められなかった:', error);
+              void showAlert(messages().app.agentAcknowledgeFailed);
+            })
           }
           onClose={() => {
             setInvitationFileId(null);

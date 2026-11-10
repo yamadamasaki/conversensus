@@ -1,4 +1,4 @@
-import type { Did } from '@conversensus/shared';
+import type { AgentDeclaration, Did } from '@conversensus/shared';
 import { Check, Copy, History } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { useMessages } from './i18n/messages';
@@ -80,6 +80,14 @@ type Props = {
   /** 参加依頼を出す。**複数まとめて渡す** (`,` 区切りの入力) */
   onGenerate: (handles: string[]) => void;
   onAction: (action: RosterAction, did: Did) => void;
+  /**
+   * 参加者の agent の宣言 (設計 agent-actor.md D2)。まだ読めていなければ undefined。省けば印を出さない
+   */
+  agentOf?: (did: Did) => AgentDeclaration | undefined;
+  /** 自分の DID。自分を operator と名乗る agent の行に「認める」を出すのに使う */
+  me?: Did;
+  /** 自分の agent と認める (true) / やめる (false) */
+  onAcknowledgeAgent?: (agent: Did, yes: boolean) => void;
   onClose: () => void;
   busy?: boolean;
   error?: string | null;
@@ -95,6 +103,9 @@ export function InvitationDialog({
   codeFor,
   onGenerate,
   onAction,
+  agentOf,
+  me,
+  onAcknowledgeAgent,
   onClose,
   busy = false,
   error = null,
@@ -207,7 +218,19 @@ export function InvitationDialog({
               key={row.did}
               style={{ borderTop: `1px solid ${color.borderSubtle}` }}
             >
-              <td style={ID_CELL}>{labelOf(row.did)}</td>
+              <td style={ID_CELL}>
+                {labelOf(row.did)}
+                <AgentNote
+                  declaration={agentOf?.(row.did)}
+                  labelOf={labelOf}
+                  isMine={(d) => d.operator === me}
+                  onAcknowledge={
+                    onAcknowledgeAgent
+                      ? (yes) => onAcknowledgeAgent(row.did, yes)
+                      : undefined
+                  }
+                />
+              </td>
               <td style={ID_CELL}>
                 {row.inviter ? labelOf(row.inviter) : '—'}
               </td>
@@ -311,5 +334,57 @@ export function InvitationDialog({
         <Button onClick={onClose}>{t.common.close}</Button>
       </DialogActions>
     </Dialog>
+  );
+}
+
+/**
+ * 参加者の行の agent の印 (設計 agent-actor.md D2)。宣言と裏付けが互いを指していれば「裏付けあり」、宣言だけなら
+ * 「名乗りのみ」。operator と model も出す。自分を operator と名乗る agent には「認める」/「認めるのをやめる」
+ */
+function AgentNote({
+  declaration,
+  labelOf,
+  isMine,
+  onAcknowledge,
+}: {
+  declaration: AgentDeclaration | undefined;
+  labelOf: (did: Did) => string;
+  isMine: (d: Exclude<AgentDeclaration, { status: 'none' }>) => boolean;
+  onAcknowledge?: (yes: boolean) => void;
+}) {
+  const t = useMessages();
+  if (!declaration || declaration.status === 'none') return null;
+  const verified = declaration.status === 'verified';
+  return (
+    <div
+      data-agent-status={declaration.status}
+      style={{ fontSize: font.caption, color: color.textMuted }}
+    >
+      <span
+        style={{
+          color: verified ? color.primary : color.textMuted,
+          border: `1px solid ${color.border}`,
+          borderRadius: radius.sm,
+          padding: '0 4px',
+          marginRight: space[1],
+        }}
+      >
+        {verified ? t.invitation.agent.verified : t.invitation.agent.claimed}
+      </span>
+      {t.invitation.agent.operator(labelOf(declaration.operator as Did))}
+      {declaration.model && ` · ${t.invitation.agent.model(declaration.model)}`}
+      {onAcknowledge && isMine(declaration) && (
+        <div style={{ marginTop: space[1] }}>
+          <Button
+            className="cs-btn--sm"
+            onClick={() => onAcknowledge(!verified)}
+          >
+            {verified
+              ? t.invitation.agent.unacknowledge
+              : t.invitation.agent.acknowledge}
+          </Button>
+        </div>
+      )}
+    </div>
   );
 }

@@ -53,5 +53,5 @@ agent の振舞いを宣言で変えること。
 | --- | --- | --- |
 | A1 | 済 | shared の `events/agentDeclaration.ts` (`AgentProfileSchema`・`OperatedAgentSchema`・`agentDeclarationOf`)。client の NSID 2 つと `agentRecords` (書く・読む・消す。読めなければ undefined)。性質は「裏付けあり ⇔ 互いを指す」 |
 | A2 | 済 | `Headless.declareAgent` (operator はハンドル名か DID) と `agentDeclaration`。client の `readAgentDeclaration` (宣言の operator の repo からだけ裏付けを読む) と、覚えておく入れ物 `createAgentDeclarationCache`。CLI `profile [<operator>] [--model] [--description]`、`whoami` にも宣言を出す |
-| A3 | | |
+| A3 | 済 | `useAgentDeclarations` (参加者一覧が開いている間だけ読む。認めた・やめたときは忘れて読み直す)。参加者一覧 (`InvitationDialog`) の参加者の欄に印 (名乗りのみ / 裏付けあり)・operator・model、自分を operator と名乗る agent に「自分の agent と認める」/「認めるのをやめる」。**一覧を閉じたら覚えた宣言をすべて忘れる** (覚えたままだと、開いた後に agent が書いた宣言が再読み込みまで出なかった。全試験を 1 つのプロセスで走らせたときに、前の試験が覚えた「agent ではない」が残って見つかった)。失敗したら知らせる。App 結合で agent の宣言 → 名乗りのみ → 認める → 裏付けあり → やめる を一周 |
 | A4 | | |

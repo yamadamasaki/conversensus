@@ -27,4 +27,13 @@ describe('createAgentDeclarationCache', () => {
     await cache.get(AGENT);
     expect(read).toHaveBeenCalledTimes(2);
   });
+
+  test('すべて忘れると、どの DID も読み直す (一覧を開き直したとき)', async () => {
+    const read = mock(async (_: Did) => CLAIMED);
+    const cache = createAgentDeclarationCache(read);
+    await cache.get(AGENT);
+    cache.clear();
+    await cache.get(AGENT);
+    expect(read).toHaveBeenCalledTimes(2);
+  });
 });

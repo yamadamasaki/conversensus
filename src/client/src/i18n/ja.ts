@@ -273,6 +273,15 @@ export const ja = {
       actions: '操作',
     },
     historyOf: (name: string) => `${name} の参加履歴`,
+    /** agent の宣言 (設計 agent-actor.md D2) */
+    agent: {
+      verified: 'agent (裏付けあり)',
+      claimed: 'agent (名乗りのみ)',
+      operator: (name: string) => `operator: ${name}`,
+      model: (name: string) => `model: ${name}`,
+      acknowledge: '自分の agent と認める',
+      unacknowledge: '認めるのをやめる',
+    },
     copied: 'コピーした',
     copyCode: 'コードをコピー',
     handles: 'ハンドル名',
@@ -468,6 +477,8 @@ export const ja = {
     },
   },
   app: {
+    agentAcknowledgeFailed:
+      'agent を認められなかった。ログインと接続を確かめて、もう一度試してほしい',
     emptyFilesTitle: 'File がありません',
     emptyFilesNote:
       'File は Sheet (グラフ) を束ねる単位です。新しく作るか、.conversensus を import するか、受け取った参加コードで共同作業に加わってください。',
