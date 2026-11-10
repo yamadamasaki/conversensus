@@ -45,4 +45,4 @@
 | W2 | 済 | `useElementAuthors` (trunk と見ている branch の op-log を読み、正典が変わったら読み直す。作者のハンドル名と agent の宣言も引く)、`AuthorsProvider`/`useAuthorsView` (React Flow が描く部品へ降ろす)。agent の宣言の入れ物は参加者一覧と同じもの (`agentDeclarationCache`) にした — 一覧で認めた結果が avatar にも効く |
 | W3 | 済 | `AuthorAvatars` (頭文字の丸・DID の色・agent は bot の印で裏付けありは実線・名乗りのみは点線の縁・`MAX_STACKED` = 3 人まで重ねて「+n」・hover と focus で広げてハンドル名)。node は右下の角 (`EditableNode`・`ImageNode`。左上は種別の label が浮くため)、edge は選んだときに label の下 (`EditableLabelEdge`)。App は開いている File と見ている branch の作者を context で降ろす |
 | W4 | 済 | ヘッダの「書いた人」(map の隣、畳む順にも入れた)。既定は on、端末に覚える (`AUTHORS_VISIBLE_STORAGE_KEY`)。消している間も op-log は読み続ける (出し直したときにすぐ描ける) |
-| W5 | 手順を書いた | `user-test-environment.md` §5.10。利用者の確認待ち |
+| W5 | 済 | `user-test-environment.md` §5.10。利用者が開発用の環境で avatar が出ることを確かめた (2026-11-10)。**完了基準はすべて満たす** |
