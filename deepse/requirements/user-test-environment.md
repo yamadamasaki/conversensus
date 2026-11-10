@@ -496,6 +496,29 @@ CONVERSENSUS_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx \
 - 答えられなかった依頼 (claude が失敗した・時間切れ) には、もう一度は起動しない。送り直すと起動する
 - 起動した印は置き場所の `storage.json` にある。MCP の設定 (token を含む) は `resident-mcp.json` (持ち主だけが読める)
 
+### 5.9 agent であることを宣言し、operator が認める (agent の宣言、設計 D2)
+
+DID が agent であり誰のものかを、agent の宣言と operator (人間) の裏付けで示す。表示にだけ使う。
+計画は `deepse/plans/agent-d2-declaration.md`。
+
+```bash
+# agent が自分の repo に宣言を書く (operator はハンドル名か DID。model・説明は任意)
+bun run src/headless/src/cli.ts profile alice.test --model claude --description "要約を手伝う"
+bun run src/headless/src/cli.ts profile      # 今の宣言と裏付けを出す (whoami にも出る)
+```
+
+**確かめる**:
+
+1. App (alice) で、agent.test が参加している (または参加を依頼した) File の参加者一覧を開く。agent.test の行に
+   「agent (名乗りのみ)」と operator・model が出る
+2. 「自分の agent と認める」を押すと「agent (裏付けあり)」になる。`cli.ts profile` でも「裏付けあり」と出る
+3. 「認めるのをやめる」を押すと「名乗りのみ」に戻る
+4. bob など operator でない人の参加者一覧では、印は出るが「認める」は出ない
+
+- 宣言は一覧を開くたびに読み直す (開いている間に宣言を書き換えたら、閉じて開き直す)
+- 常駐 (§5.8) の間は `cli.ts` が置き場所を開けない。止めて `profile` を書くか、常駐の MCP の口は使えない
+  (宣言を書く道具は MCP に無い)
+
 ## 6. 2 台目 (device B) を同じマシンで動かす
 
 remote 同期の検証では, 「別端末が PDS 経由で受け取れるか」を見たいことがある. step3 Phase 2
