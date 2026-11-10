@@ -159,6 +159,40 @@ describe('1 パスで止める', () => {
   });
 });
 
+describe('同じ招待者に招かれた別の参加者 (実機で発覚、2026-11-10)', () => {
+  // A (創設者) が C (agent) を招き、C が承認した。後から A が B を招き、B が承認した。
+  // B を起点にすると、1 パスでは A の repo までしか読まないので C の承認が見えない。
+  // 同期のサイクルは毎回起点から読み直すので、**次のサイクルでも追いつかない**
+  const repos = () =>
+    makeDeps({
+      [A]: [
+        jb(A, 1, [genesis()]),
+        jb(A, 2, [invite(C)]),
+        jb(A, 4, [invite(B)]),
+      ],
+      [B]: [jb(B, 5, [accept()])],
+      [C]: [jb(C, 3, [accept()])],
+    });
+
+  test('1 パスでは C は依頼中のまま (何度読み直しても同じ)', async () => {
+    for (let cycle = 0; cycle < 3; cycle++) {
+      const r = await readRoster(repos(), { fileId: FILE, seed: B });
+      expect([...r.participation.invited.keys()]).toEqual([C]);
+    }
+  });
+
+  test('収束するまで広げると、C の承認が見えて参加者になる', async () => {
+    const deps = repos();
+    const r = await readRoster(deps, {
+      fileId: FILE,
+      seed: B,
+      passes: 'converge',
+    });
+    expect([...r.participation.participating].sort()).toEqual([A, B, C].sort());
+    expect(deps.reads.sort()).toEqual([A, B, C].sort());
+  });
+});
+
 describe('招待された側の起点', () => {
   test('自分の repo には承認しか無いので、承認が指す招待者を辿る', async () => {
     // **実機で発覚した穴。**起点を自分自身にすると、bob の repo には accept しか無く

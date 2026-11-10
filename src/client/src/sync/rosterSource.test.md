@@ -78,3 +78,6 @@ Phase 1 では名簿を読むのはダイアログだけだったので、読み
 
 - **名簿の中身** — `readRoster.test.ts` / `participation.test.ts` の担当である。
 - **実 PDS の応答** — この層は `loadRoster` を注入で受けるので、PDS を知らない。
+
+- 読みは**収束するまで広げる** (`passes: 'converge'`)。自分を招いた人とは別の人が招いた参加者の承認も見えるように
+  (2026-11-10 実機で発覚。経緯は `readRoster.test.md` の「同じ招待者に招かれた別の参加者」)
