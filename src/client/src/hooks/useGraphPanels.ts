@@ -24,12 +24,24 @@ import { type GroupAbility, NO_GROUP_ABILITY } from './useGroupNodes';
 /** map の on/off を覚えておく所 (#182)。端末ごと */
 export const MAP_VISIBLE_STORAGE_KEY = 'conversensus.mapVisible';
 
+/** 書いた人の avatar の on/off を覚えておく所 (#354)。端末ごと */
+export const AUTHORS_VISIBLE_STORAGE_KEY = 'conversensus.authorsVisible';
+
 /** 既定は出す。消したことだけを覚える */
-function restoreMapVisible(): boolean {
+function restoreVisible(key: string): boolean {
   try {
-    return safeLocalStorage()?.getItem(MAP_VISIBLE_STORAGE_KEY) !== 'false';
+    return safeLocalStorage()?.getItem(key) !== 'false';
   } catch {
     return true;
+  }
+}
+
+/** on/off を端末に覚える (覚えられなくても切り替えは効く。再読み込みで出す側に戻るだけである) */
+function rememberVisible(key: string, visible: boolean): void {
+  try {
+    safeLocalStorage()?.setItem(key, String(visible));
+  } catch {
+    // 覚えられなくてもよい
   }
 }
 
@@ -41,7 +53,16 @@ export function useGraphPanels(viewKey: string | null) {
   const [propertyOpen, setPropertyOpen] = useState(false);
   // map の on/off は property editor と同じくヘッダのオプションで、view をまたいで保つ。
   // 再読み込みの後も保つ (#182)
-  const [mapOpen, setMapOpen] = useState(restoreMapVisible);
+  const [mapOpen, setMapOpen] = useState(() =>
+    restoreVisible(MAP_VISIBLE_STORAGE_KEY),
+  );
+  // 書いた人の avatar の on/off (#354) も同じく、view をまたいで端末に保つ
+  const [authorsOpen, setAuthorsOpen] = useState(() =>
+    restoreVisible(AUTHORS_VISIBLE_STORAGE_KEY),
+  );
+  useEffect(() => {
+    rememberVisible(AUTHORS_VISIBLE_STORAGE_KEY, authorsOpen);
+  }, [authorsOpen]);
   useEffect(() => {
     try {
       safeLocalStorage()?.setItem(MAP_VISIBLE_STORAGE_KEY, String(mapOpen));
@@ -90,6 +111,8 @@ export function useGraphPanels(viewKey: string | null) {
     closeProperty: useCallback(() => setPropertyOpen(false), []),
     mapOpen,
     toggleMap: useCallback(() => setMapOpen((open) => !open), []),
+    authorsOpen,
+    toggleAuthors: useCallback(() => setAuthorsOpen((open) => !open), []),
     searchOpen,
     toggleSearch: useCallback(() => {
       if (searchOpen) closeSearch();

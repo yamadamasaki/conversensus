@@ -16,6 +16,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useEventDispatch } from './EventDispatchContext';
 import { makeEventBase } from './events/GraphEvent';
+import { AuthorAvatars, NODE_AVATAR_CORNER } from './graph/AuthorAvatars';
 import { DiffMark } from './graph/DiffMark';
 import { useGraphNodeHandlers } from './graph/graphNodeContext';
 import { FloatingNodeLabel, NodeLabel } from './graph/NodeLabel';
@@ -216,6 +217,8 @@ export function EditableNode({ id, data, selected }: NodeProps) {
       />
       <Handle type="source" position={Position.Top} id="source-top" />
       {!label && <FloatingNodeLabel>{labelSlot}</FloatingNodeLabel>}
+      {/* 書いた人 (#354)。右下の角に重ねる (左上は種別の label が浮く) */}
+      <AuthorAvatars elementId={id} style={NODE_AVATAR_CORNER} />
       {diffType && <DiffMark diffType={diffType} />}
       {/* biome-ignore lint/a11y/noStaticElementInteractions: ノードコンテナはダブルクリックで編集を開始する */}
       <div

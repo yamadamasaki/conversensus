@@ -14,6 +14,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useEventDispatch } from './EventDispatchContext';
 import { makeEventBase } from './events/GraphEvent';
+import { AuthorAvatars, NODE_AVATAR_CORNER } from './graph/AuthorAvatars';
 import { DiffMark } from './graph/DiffMark';
 import { FloatingNodeLabel, NodeLabel } from './graph/NodeLabel';
 import { useInlineEdit } from './hooks/useInlineEdit';
@@ -361,6 +362,8 @@ export function ImageNode({ id, data, selected }: NodeProps) {
         onResizeEnd={onResizeEnd}
       />
       <Handle type="source" position={Position.Top} id="source-top" />
+      {/* 書いた人 (#354)。右下の角に重ねる */}
+      <AuthorAvatars elementId={id} style={NODE_AVATAR_CORNER} />
       <FloatingNodeLabel>
         <NodeLabel
           nodeId={id}

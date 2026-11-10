@@ -29,6 +29,7 @@ import {
   Search,
   Undo2,
   Ungroup,
+  Users,
 } from 'lucide-react';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import type { GraphEditorControls } from './graph/editorControls';
@@ -86,6 +87,9 @@ type Props = {
   /** map の on/off (#182)。渡さなければ出さない */
   mapOpen?: boolean;
   onToggleMap?: () => void;
+  /** 書いた人の avatar の on/off (#354)。渡さなければ出さない */
+  authorsOpen?: boolean;
+  onToggleAuthors?: () => void;
   branch: HeaderBranch | null;
   /**
    * 並べられるもの (multiple モードの開発用の入口, S3-5 / Q6)。開いている他のタブのアドレスで、
@@ -355,6 +359,8 @@ export function GraphHeader({
   onToggleProperty,
   mapOpen,
   onToggleMap,
+  authorsOpen,
+  onToggleAuthors,
   branch,
   paneCandidates,
   onCopyLink,
@@ -375,6 +381,7 @@ export function GraphHeader({
     branch?.merged,
     branch?.pendingCount,
     Boolean(onToggleMap),
+    Boolean(onToggleAuthors),
     Boolean(onCopyLink),
   ].join('|');
   const level = useFoldLevel(
@@ -390,6 +397,7 @@ export function GraphHeader({
     (c) =>
       folded.has(c) &&
       (c !== 'map' || onToggleMap) &&
+      (c !== 'authors' || onToggleAuthors) &&
       (c !== 'link' || onCopyLink),
   );
   const closeMenu = () => setMoreOpen(false);
@@ -428,7 +436,9 @@ export function GraphHeader({
         onClick={onToggleProperty}
         aria-pressed={propertyOpen}
         style={
-          onToggleMap && shows('map') ? undefined : { marginRight: GROUP_GAP }
+          (onToggleMap && shows('map')) || (onToggleAuthors && shows('authors'))
+            ? undefined
+            : { marginRight: GROUP_GAP }
         }
       />
       {onToggleMap && shows('map') && (
@@ -437,6 +447,19 @@ export function GraphHeader({
           label={t.header.map}
           onClick={onToggleMap}
           aria-pressed={mapOpen ?? false}
+          style={
+            onToggleAuthors && shows('authors')
+              ? undefined
+              : { marginRight: GROUP_GAP }
+          }
+        />
+      )}
+      {onToggleAuthors && shows('authors') && (
+        <IconButton
+          icon={Users}
+          label={t.header.authors}
+          onClick={onToggleAuthors}
+          aria-pressed={authorsOpen ?? false}
           style={{ marginRight: GROUP_GAP }}
         />
       )}
@@ -504,6 +527,8 @@ export function GraphHeader({
                   onToggleSearch={onToggleSearch}
                   mapOpen={mapOpen ?? false}
                   onToggleMap={onToggleMap}
+                  authorsOpen={authorsOpen ?? false}
+                  onToggleAuthors={onToggleAuthors}
                   onCopyLink={onCopyLink}
                   onDone={closeMenu}
                 />
@@ -596,6 +621,8 @@ function FoldedItem({
   onToggleSearch,
   mapOpen,
   onToggleMap,
+  authorsOpen,
+  onToggleAuthors,
   onCopyLink,
   onDone,
 }: {
@@ -607,6 +634,8 @@ function FoldedItem({
   onToggleSearch: () => void;
   mapOpen: boolean;
   onToggleMap?: () => void;
+  authorsOpen: boolean;
+  onToggleAuthors?: () => void;
   onCopyLink?: () => Promise<void>;
   onDone: () => void;
 }) {
@@ -662,6 +691,12 @@ function FoldedItem({
     case 'map':
       return onToggleMap
         ? item(MapIcon, t.header.map, onToggleMap, { checked: mapOpen })
+        : null;
+    case 'authors':
+      return onToggleAuthors
+        ? item(Users, t.header.authors, onToggleAuthors, {
+            checked: authorsOpen,
+          })
         : null;
     case 'link':
       return onCopyLink

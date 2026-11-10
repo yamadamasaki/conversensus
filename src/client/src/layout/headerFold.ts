@@ -17,6 +17,7 @@
 export const HEADER_FOLD_ORDER = [
   'png',
   'map',
+  'authors',
   'link',
   'group',
   'search',
