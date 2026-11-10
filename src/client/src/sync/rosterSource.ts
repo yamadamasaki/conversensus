@@ -68,12 +68,21 @@ export function createRosterSource(deps: RosterSourceDeps): RosterSource {
   /** 進行中の読み。File ごとに最新の 1 本を持つ */
   const inFlight = new Map<FileId, Promise<ReadRosterResult>>();
 
+  /**
+   * **収束するまで広げる** (2026-11-10 実機で発覚)。1 パスで止めると、自分を招いた人とは別の人が招いた参加者
+   * (自分から 2 ホップ先) の承認が見えない。同期のサイクルは毎回自分を起点に読み直すので、
+   * 次のサイクルでも追いつかない — その参加者は依頼中のままで、その人の repo は読まれず、書いたものも届かない。
+   * 読む repo は上限 (`MAX_ROSTER_REPOS`) で抑えてあり、同じ repo は 2 度読まない
+   */
+  const options = (fileId: FileId) =>
+    ({ fileId, seed: deps.viewer, passes: 'converge' }) as const;
+
   const readOnce = async (fileId: FileId): Promise<ReadRosterResult> => {
-    let result = await deps.loadRoster({ fileId, seed: deps.viewer });
+    let result = await deps.loadRoster(options(fileId));
     // 起点が無ければ置いてから畳み直す。置けなければ (自分だけの File でなければ)
     // そのまま — 起点は他の参加者の repo にあるはずで、そちらから見える
     if (await deps.ensureOwnGenesis(fileId, result.batches))
-      result = await deps.loadRoster({ fileId, seed: deps.viewer });
+      result = await deps.loadRoster(options(fileId));
     return result;
   };
 

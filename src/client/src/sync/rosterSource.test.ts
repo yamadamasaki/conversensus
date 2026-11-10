@@ -67,7 +67,20 @@ describe('createRosterSource', () => {
         viewer: ME,
       });
       await source.read(FILE);
-      expect(load.calls).toEqual([{ fileId: FILE, seed: ME }]);
+      expect(load.calls).toEqual([
+        { fileId: FILE, seed: ME, passes: 'converge' },
+      ]);
+    });
+
+    it('収束するまで広げて読む (自分を招いた人とは別の人が招いた参加者の承認も見えるように)', async () => {
+      const load = fakeLoad();
+      const source = createRosterSource({
+        loadRoster: load.fn,
+        ensureOwnGenesis: noGenesisRepair,
+        viewer: ME,
+      });
+      await source.read(FILE);
+      expect(load.calls.every((c) => c.passes === 'converge')).toBe(true);
     });
 
     it('起点を置いたら読み直す (置く前の名簿は依頼を捨てている)', async () => {
