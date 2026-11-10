@@ -3,7 +3,7 @@
 > 設計: [agent-actor.md](../architecture/step4/agent-actor.md) D6・D7・D8・D11・D12。
 > 前の段: [agent-stage4-request.md](agent-stage4-request.md) (PR #361)、[agent-stage5-resident.md](agent-stage5-resident.md) (PR #362)。
 > branch: `step/node-actions` (計画の草案は `docs/node-actions-plan` で書き、そのまま引き継いだ)。
-> 状態: **段 A 完了** (2026-11-09)。§5 の問い 4 つは利用者が答えた (すべて推奨案)。段 B (通知・MCP・常駐の口) は次。
+> 状態: **段 A・段 B 完了** (2026-11-10)。§5 の問い 4 つは利用者が答えた (すべて推奨案)。段 C (repo の外から読み込むプラグイン) は後に回す。
 
 ## 1. 目的
 
@@ -270,4 +270,4 @@ C は連合やライブラリ化 (#310) の後に考える。第三者のコー�
 | B3 | 済 | `HeadlessModule` (説明・`registerTools`・`annotateNode`) と `McpKit` (server と共通の流れ: `write`・`guarded`・`where`)。`mcp.ts` を library `mcpServer.ts` (`createMcpServer(headless, modules)`) と入口 `mcp.ts` (依頼の module を選ぶ、起動の command は同じ) に分けた。`encodeFile` は node の注釈を module から受ける (`AnnotateNode`)。`Headless.requestsForMe` を外し、汎用の `batches` を足した。依頼の道具・注釈・`requestsForMe` は module の `requestHeadless.ts` へ、その試験も module へ。HTTP の MCP (`serveMcpHttp`) と試験の `connectMcp` は module を受ける。常駐は B4 までの間、module を直接使う |
 | B4 | 済 | 常駐の loop を汎用の `startResident.ts` (同期し終えるたびに `ResidentWorker` に知らせる) にし、入口 `resident.ts` は `HEADLESS_MODULES` (stdio の入口 `mcp.ts` と同じ) の `resident` から worker を作る (起動の command は同じ)。`claudeRunner` は汎用の `AgentTask` (label と prompt) を起動する。依頼に固有のもの — `dispatch` (`requestDispatch.ts`、口は `JobRunner`)・`promptFor`・`jobsOf` — は module の `requestResident.ts` へ、試験も。lint の規則を headless にも掛け、入口 `mcp.ts` だけを外した (常駐の入口は `mcp.ts` の一覧を使うので module を直に import しない) |
 | B5 | 済 | shared の `events/request.ts` を module の `requestNode.ts`、`template/request.ts` を `requestTemplate.ts` へ移し (試験も)、shared の index から外した。module の中の import は `requestNode` を指すように書き換えた。試験の道具 `requestAdded` も headless から module へ。core (shared・client・headless) のコードに依頼の識別子 (`app.conversensus.request`・`ADDRESSEE_PROPERTY`・`requestStatus` など) が残っていないことを grep で確かめ、lint が import の向きを守る。本番ビルドも通る |
-| B6 | | |
+| B6 | 済 | 利用者が開発用の環境で確かめた (2026-11-10): 依頼の種・人間どうしの送受と通知・Claude Code (stdio の MCP) からの答え・常駐の agent。**段 B の完了基準はすべて満たす** |
