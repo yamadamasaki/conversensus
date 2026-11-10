@@ -57,3 +57,9 @@ export function createAgentDeclarationCache(
     },
   };
 }
+
+/**
+ * 画面で共有する入れ物。参加者一覧 (`useAgentDeclarations`) と書いた人の avatar (`useElementAuthors`) が同じものを
+ * 見るので、一覧で認めた・やめた結果が avatar にも効く (一覧を閉じるとすべて忘れ、次に読み直す)
+ */
+export const agentDeclarationCache = createAgentDeclarationCache();

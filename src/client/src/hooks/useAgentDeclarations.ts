@@ -8,11 +8,8 @@
 
 import type { AgentDeclaration, Did } from '@conversensus/shared';
 import { useCallback, useEffect, useState } from 'react';
-import { createAgentDeclarationCache } from '../atproto/agentDeclarations';
+import { agentDeclarationCache as cache } from '../atproto/agentDeclarations';
 import { agentRecords } from '../atproto/collections';
-
-/** 一覧が開いている間に読んだ宣言 */
-const cache = createAgentDeclarationCache();
 
 export function useAgentDeclarations(
   dids: readonly Did[],
