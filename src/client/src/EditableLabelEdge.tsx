@@ -17,6 +17,7 @@ import {
 import { useCallback, useRef } from 'react';
 import { useEventDispatch } from './EventDispatchContext';
 import { makeEventBase } from './events/GraphEvent';
+import { AuthorAvatars, EDGE_AVATAR_OFFSET_Y } from './graph/AuthorAvatars';
 import { facingAnchors, type Rect } from './graph/facingSides';
 import { DEFAULT_EDGE_PATH_TYPE } from './graphTransform';
 import { useInlineEdit } from './hooks/useInlineEdit';
@@ -72,6 +73,7 @@ export function EditableLabelEdge({
   markerEnd,
   style,
   data,
+  selected,
 }: EdgeProps) {
   const { setEdges } = useReactFlow();
   const { dispatch, setDragging } = useEventDispatch();
@@ -309,6 +311,19 @@ export function EditableLabelEdge({
             )
           )}
         </button>
+        {/* 書いた人 (#354)。edge は線の上が狭いので、選んだときだけ label の下に出す */}
+        {selected && (
+          <div
+            style={{
+              position: 'absolute',
+              transform: `translate(-50%, 0) translate(${labelX + offsetX}px,${labelY + offsetY + EDGE_AVATAR_OFFSET_Y}px)`,
+              pointerEvents: 'all',
+            }}
+            className="nodrag nopan"
+          >
+            <AuthorAvatars elementId={id} style={{ position: 'relative' }} />
+          </div>
+        )}
       </EdgeLabelRenderer>
     </>
   );

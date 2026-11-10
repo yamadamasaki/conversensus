@@ -55,6 +55,7 @@ import { GraphHeader, type HeaderBranch } from './GraphHeader';
 import type { PreviewMarks } from './GraphPreview';
 import { highlightMarks } from './GraphPreview';
 import { alignToPane } from './graph/alignToPane';
+import { AuthorsProvider } from './graph/authorsContext';
 import { splitMetagraphEvent } from './graph/metagraphEvents';
 import { logoutFlow } from './hooks/logoutFlow';
 import { useActor } from './hooks/useActor';
@@ -65,6 +66,7 @@ import {
   useBranchOperations,
 } from './hooks/useBranchOperations';
 import { useChangeCounter } from './hooks/useChangeCounter';
+import { useElementAuthors } from './hooks/useElementAuthors';
 import type { UndoState } from './hooks/useEventStore';
 import { useFileParticipants } from './hooks/useFileParticipants';
 import { useFileSheetOperations } from './hooks/useFileSheetOperations';
@@ -742,6 +744,23 @@ export default function App() {
    * 再 seed の契機 (`receiveEpoch`) も同じ分かれ目で切り替える
    */
   const viewingBranch = !branchOps.isTrunk && branchOps.branchSheet !== null;
+  /**
+   * 書いた人 (#354)。開いている File の trunk と、見ている branch の op-log から導く。ヘッダで消していれば
+   * 部品へ降ろさない (op-log は読み続ける — 出し直したときにすぐ描ける)
+   */
+  const authorFileIds = useMemo(
+    () =>
+      openFileId
+        ? [
+            openFileId,
+            ...(viewingBranch && branchOps.activeBranch
+              ? [branchOps.activeBranch.branchFileId]
+              : []),
+          ]
+        : [],
+    [openFileId, viewingBranch, branchOps.activeBranch],
+  );
+  const authorsView = useElementAuthors(authorFileIds, atprotoSession !== null);
   const shownSheet = viewingBranch
     ? branchOps.branchSheet
     : fileOps.activeSheet;
@@ -1328,62 +1347,64 @@ export default function App() {
         >
           <ReadOnlyProvider value={readOnly}>
             <BlobOriginProvider value={fileOps.originOf}>
-              <GraphEditor
-                key={addressKey(viewAddress)}
-                graphKey={addressKey(viewAddress)}
-                undoStateMap={undoStateMapRef}
-                showMap={panels.mapOpen}
-                sheet={editorSheet ?? viewSheet}
-                fileId={fileOps.activeFile.id}
-                fileName={fileOps.activeFile.name}
-                onSheetChange={
-                  isMergerResult
-                    ? // merger の後の姿は「trunk + branch」なので branch 自身の表示に戻さない。
-                      // 編集そのものは branch の tap が op-log に積む
-                      ignoreSheetChange
-                    : viewingBranch
-                      ? branchOps.onBranchSheetChange
-                      : handleSheetChange
-                }
-                // branch 表示中の編集は branch 専用 op-log へ (p5-4)。trunk 用の tap に
-                // 流すと branch の編集が trunk のログに混ざる。
-                syncRecord={branchOps.branchSyncRecord ?? fileOps.syncRecord}
-                addedNodeIds={
-                  mergerResultMarks?.addedNodes ?? branchOps.addedNodeIds
-                }
-                updatedNodeIds={
-                  mergerResultMarks?.updatedNodes ?? branchOps.updatedNodeIds
-                }
-                addedEdgeIds={
-                  mergerResultMarks?.addedEdges ?? branchOps.addedEdgeIds
-                }
-                updatedEdgeIds={
-                  mergerResultMarks?.updatedEdges ?? branchOps.updatedEdgeIds
-                }
-                deletedNodes={branchOps.deletedNodes}
-                deletedEdges={branchOps.deletedEdges}
-                deletedNodeLayouts={branchOps.deletedNodeLayouts}
-                deletedEdgeLayouts={branchOps.deletedEdgeLayouts}
-                // 受信による差し替えの契機。描いている方 (trunk / branch) の受信だけを見る —
-                // branch を開いている間の trunk の受信は branch の画面を変えない
-                receiveEpoch={
-                  (viewingBranch
-                    ? branchOps.branchReceiveEpoch
-                    : fileOps.receiveEpoch) +
-                  metagraphEpoch +
-                  // merge 先が進んだら merge 後を seed し直す (O3)。自分の解決の編集では変わらない
-                  (isMergerResult ? (merger?.trunkVersion ?? 0) : 0)
-                }
-                {...(isMetagraphView && {
-                  transformEvent: metagraphTransform,
-                  graphNodes: metagraphGraphNodes,
-                })}
-                templates={viewTemplates}
-                onControls={panels.setControls}
-                onSelectionChange={panels.setSelection}
-                onGroupAbilityChange={panels.setGroupAbility}
-                actionEnv={actionEnv}
-              />
+              <AuthorsProvider value={panels.authorsOpen ? authorsView : null}>
+                <GraphEditor
+                  key={addressKey(viewAddress)}
+                  graphKey={addressKey(viewAddress)}
+                  undoStateMap={undoStateMapRef}
+                  showMap={panels.mapOpen}
+                  sheet={editorSheet ?? viewSheet}
+                  fileId={fileOps.activeFile.id}
+                  fileName={fileOps.activeFile.name}
+                  onSheetChange={
+                    isMergerResult
+                      ? // merger の後の姿は「trunk + branch」なので branch 自身の表示に戻さない。
+                        // 編集そのものは branch の tap が op-log に積む
+                        ignoreSheetChange
+                      : viewingBranch
+                        ? branchOps.onBranchSheetChange
+                        : handleSheetChange
+                  }
+                  // branch 表示中の編集は branch 専用 op-log へ (p5-4)。trunk 用の tap に
+                  // 流すと branch の編集が trunk のログに混ざる。
+                  syncRecord={branchOps.branchSyncRecord ?? fileOps.syncRecord}
+                  addedNodeIds={
+                    mergerResultMarks?.addedNodes ?? branchOps.addedNodeIds
+                  }
+                  updatedNodeIds={
+                    mergerResultMarks?.updatedNodes ?? branchOps.updatedNodeIds
+                  }
+                  addedEdgeIds={
+                    mergerResultMarks?.addedEdges ?? branchOps.addedEdgeIds
+                  }
+                  updatedEdgeIds={
+                    mergerResultMarks?.updatedEdges ?? branchOps.updatedEdgeIds
+                  }
+                  deletedNodes={branchOps.deletedNodes}
+                  deletedEdges={branchOps.deletedEdges}
+                  deletedNodeLayouts={branchOps.deletedNodeLayouts}
+                  deletedEdgeLayouts={branchOps.deletedEdgeLayouts}
+                  // 受信による差し替えの契機。描いている方 (trunk / branch) の受信だけを見る —
+                  // branch を開いている間の trunk の受信は branch の画面を変えない
+                  receiveEpoch={
+                    (viewingBranch
+                      ? branchOps.branchReceiveEpoch
+                      : fileOps.receiveEpoch) +
+                    metagraphEpoch +
+                    // merge 先が進んだら merge 後を seed し直す (O3)。自分の解決の編集では変わらない
+                    (isMergerResult ? (merger?.trunkVersion ?? 0) : 0)
+                  }
+                  {...(isMetagraphView && {
+                    transformEvent: metagraphTransform,
+                    graphNodes: metagraphGraphNodes,
+                  })}
+                  templates={viewTemplates}
+                  onControls={panels.setControls}
+                  onSelectionChange={panels.setSelection}
+                  onGroupAbilityChange={panels.setGroupAbility}
+                  actionEnv={actionEnv}
+                />
+              </AuthorsProvider>
             </BlobOriginProvider>
           </ReadOnlyProvider>
         </ErrorBoundary>
@@ -1672,6 +1693,8 @@ export default function App() {
             onToggleProperty={panels.toggleProperty}
             mapOpen={panels.mapOpen}
             onToggleMap={panels.toggleMap}
+            authorsOpen={panels.authorsOpen}
+            onToggleAuthors={panels.toggleAuthors}
             branch={pastView ? null : headerBranch}
             paneCandidates={paneCandidates}
             onCopyLink={copyViewLink}

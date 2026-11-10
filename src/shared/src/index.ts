@@ -5,6 +5,7 @@ export * from './blob';
 export * from './events/address';
 export * from './events/agentDeclaration';
 export * from './events/applicability';
+export * from './events/authors';
 export * from './events/branchFold';
 export * from './events/branchLog';
 export * from './events/cascade';

@@ -21,6 +21,7 @@ export const en: Messages = {
     search: 'Search this Sheet',
     property: 'property',
     map: 'map',
+    authors: 'Authors',
     undo: 'Undo',
     redo: 'Redo',
     group: 'Group',
@@ -38,6 +39,12 @@ export const en: Messages = {
     close: (label: string) => `Close ${label}`,
     unconfirmedConflict: 'There are conflicts you have not checked',
     pastSuffix: 'past',
+  },
+  authors: {
+    region: (names: string) => `Written by: ${names}`,
+    agentVerified: (name: string) => `${name} (agent, verified)`,
+    agentClaimed: (name: string) => `${name} (agent, self-declared)`,
+    more: (n: number) => `${n} more`,
   },
   notices: {
     open: 'Open',

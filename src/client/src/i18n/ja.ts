@@ -22,6 +22,8 @@ export const ja = {
     search: 'この Sheet を検索',
     property: 'property',
     map: 'map',
+    /** 書いた人の avatar の on/off (#354) */
+    authors: '書いた人',
     undo: '元に戻す',
     redo: 'やり直す',
     group: 'group にまとめる',
@@ -39,6 +41,13 @@ export const ja = {
     close: (label: string) => `${label} を閉じる`,
     unconfirmedConflict: '確かめていない競合があります',
     pastSuffix: '時点',
+  },
+  authors: {
+    /** 書いた人の avatar の並び (読み上げ) */
+    region: (names: string) => `書いた人: ${names}`,
+    agentVerified: (name: string) => `${name} (agent・裏付けあり)`,
+    agentClaimed: (name: string) => `${name} (agent・名乗りのみ)`,
+    more: (n: number) => `ほか ${n} 人`,
   },
   notices: {
     /** module の知らせ (届いた依頼など) を開く */
