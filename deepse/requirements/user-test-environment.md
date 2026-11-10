@@ -545,7 +545,7 @@ bun run src/headless/src/cli.ts profile      # 今の宣言と裏付けを出す
 
 1. alice (5173) で File を作る (または既にある File を開く)。Sheet 1 の「…」に「template を当てる」が**無い**
    (File に template graph がまだ無い)
-2. 「template 付きで Sheet を追加 ▾」から「+ 依頼・相談を追加」で template graph を作る。その template graph の
+2. 「template 付きで Sheet を追加 ▾」から「+ 依頼・相談 を追加」で template graph を作る。その template graph の
    シートの「…」にも「template を当てる」は無い
 3. Sheet 1 を開き、「…」→「template を当てる」。ダイアログで「依頼・相談」を選び「当てる」(何も選ばないうちは押せない)
 4. Sheet 1 で node を足すと、種類のメニューに「依頼」「相談」が出る。「依頼」で作り、node のそばの「送る」で
