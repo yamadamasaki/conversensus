@@ -212,3 +212,59 @@ describe('エラー', () => {
     );
   });
 });
+
+describe('agent の印 (設計 agent-actor.md D2)', () => {
+  /** B は A を operator と名乗る agent */
+  const claimed = (did: string) =>
+    did === B
+      ? ({ status: 'claimed', operator: A, model: 'claude' } as const)
+      : ({ status: 'none' } as const);
+  const verified = (did: string) =>
+    did === B ? ({ status: 'verified', operator: A } as const) : undefined;
+
+  it('agent の行に、名乗りのみ / 裏付けあり と operator・model を出す。agent でない行・まだ読めていない行には出さない', () => {
+    setup({ agentOf: claimed });
+    const marks = document.querySelectorAll('[data-agent-status]');
+    expect(marks).toHaveLength(1);
+    expect(marks[0]?.getAttribute('data-agent-status')).toBe('claimed');
+    expect(marks[0]?.textContent).toContain('agent (名乗りのみ)');
+    expect(marks[0]?.textContent).toContain('operator: alice.test');
+    expect(marks[0]?.textContent).toContain('model: claude');
+    cleanup();
+    setup({ agentOf: verified });
+    expect(
+      document.querySelector('[data-agent-status]')?.textContent,
+    ).toContain('agent (裏付けあり)');
+  });
+
+  it('自分を operator と名乗る agent にだけ「認める」を出し、押すとその agent を認める。裏付けがあれば「やめる」', () => {
+    const acks: Array<[string, boolean]> = [];
+    setup({
+      agentOf: claimed,
+      me: A,
+      onAcknowledgeAgent: (did, yes) => acks.push([did, yes]),
+    });
+    fireEvent.click(
+      screen.getByRole('button', { name: '自分の agent と認める' }),
+    );
+    expect(acks).toEqual([[B, true]]);
+    cleanup();
+    setup({
+      agentOf: verified,
+      me: A,
+      onAcknowledgeAgent: (did, yes) => acks.push([did, yes]),
+    });
+    fireEvent.click(screen.getByRole('button', { name: '認めるのをやめる' }));
+    expect(acks).toEqual([
+      [B, true],
+      [B, false],
+    ]);
+  });
+
+  it('operator でない人には「認める」を出さない', () => {
+    setup({ agentOf: claimed, me: B, onAcknowledgeAgent: noop });
+    expect(
+      screen.queryByRole('button', { name: '自分の agent と認める' }),
+    ).toBeNull();
+  });
+});

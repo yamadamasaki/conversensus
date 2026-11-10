@@ -90,3 +90,11 @@
 `Record<RosterAction, number>` にして型が網羅を強制しているが、**描画まで通ることは
 型では見られない**ので、`reopen` を押して action が返ることを 1 件だけ置く。
 
+### agent の印 (設計 agent-actor.md D2、計画 agent-d2-declaration.md A3)
+
+- agent の行に「agent (名乗りのみ)」/「agent (裏付けあり)」と、operator (ハンドル名)・model を出す。agent でない行・
+  まだ宣言が読めていない行には出さない
+- 自分を operator と名乗る agent にだけ「自分の agent と認める」を出し、押すとその agent を認める。裏付けがあれば
+  「認めるのをやめる」を出し、押すとやめる
+- operator でない人には「認める」を出さない (他人の agent を認めても、宣言の operator の repo ではないので裏付けにならない)
+

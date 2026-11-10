@@ -50,6 +50,12 @@ export const NSID = {
   folder: 'app.conversensus.v2.folder',
   /** File の置き場 (step3 Phase 6)。1 File 1 record (rkey = FileId) */
   filePlacement: 'app.conversensus.v2.filePlacement',
+  /**
+   * agent の宣言 (設計 agent-actor.md D2)。agent の repo に 1 つ (rkey = `self`)。operator・model・説明
+   */
+  agentProfile: 'app.conversensus.v2.agentProfile',
+  /** operator の裏付け (D2)。operator の repo に、自分の agent 1 つにつき 1 つ (rkey = agent の DID) */
+  operatedAgent: 'app.conversensus.v2.operatedAgent',
 } as const;
 
 export type RecordResult = { uri: AtUri; cid: string };
