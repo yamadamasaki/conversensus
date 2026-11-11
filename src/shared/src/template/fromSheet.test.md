@@ -34,7 +34,8 @@
 
 ### 例
 
-- 表示名・説明 (本文)・既定値。**種別プロパティは既定値に入れない** (template graph 自身が別の template を
+- 表示名・説明 (本文)・既定値。言語ごとの名前・説明 (#356) の読み方は `kindLocale.test.md` で見る。
+  **種別プロパティは既定値に入れない** (template graph 自身が別の template を
   当てられていても、その種別を適用先に持ち込まない)
 - label の無い node 同士の edge は説明書き、label のある node との edge は「任意」の端を持つ
 - template id は template graph の sheet から作り、種別プロパティの名前空間になる (`template.<SheetId>.kind`, Q2)

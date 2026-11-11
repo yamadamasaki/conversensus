@@ -4,8 +4,8 @@
  * 種 (`CORE_SEEDS` と module の種) を File に複製するときに使う。`templateFromSheet` の逆向きで、
  * **往復すると同じ種類に戻る** (性質テストで固める):
  *
- * - node の種類 → label = 種類名、本文 = 説明、property = 既定値 の node
- * - edge の種類 → 端の種類の node どうしを繋ぐ edge (label = 種類名、property = 既定値)。端が複数なら
+ * - node の種類 → label = 種類名、本文 = 説明、property = 既定値と言語ごとの名前・説明 (#356) の node
+ * - edge の種類 → 端の種類の node どうしを繋ぐ edge (label = 種類名、property = 既定値と言語ごとの名前)。端が複数なら
  *   組ごとに 1 本。端が「任意」なら、label の無い node (「任意の node」) を 1 つ置いてそこへ繋ぐ
  *
  * 置き場所は格子にする (種類の並びの順)。利用者が後で動かす。種が並べ方を持つ (`KindPlacement`)
@@ -20,6 +20,11 @@ import type {
   NodeId,
   NodeLayout,
 } from '../schemas';
+import {
+  KIND_DESCRIPTION_PROPERTY_PREFIX,
+  KIND_LABEL_PROPERTY_PREFIX,
+  translationProperties,
+} from './kindLocale';
 import { ANY_NODE_KIND, type Template } from './types';
 
 export type TemplateGraphContent = {
@@ -54,13 +59,19 @@ export function templateGraphOf(
     const id = newId() as NodeId;
     idOfKind.set(kind.id, id);
     kindOfNode.set(id, kind.id);
+    const properties = {
+      ...kind.defaults,
+      ...translationProperties(kind.labels, KIND_LABEL_PROPERTY_PREFIX),
+      ...translationProperties(
+        kind.descriptions,
+        KIND_DESCRIPTION_PROPERTY_PREFIX,
+      ),
+    };
     nodes.push({
       id,
       content: kind.description ?? '',
       label: kind.label,
-      ...(Object.keys(kind.defaults).length > 0 && {
-        properties: { ...kind.defaults },
-      }),
+      ...(Object.keys(properties).length > 0 && { properties }),
     });
   }
   const anyEnd = () => {
@@ -77,6 +88,10 @@ export function templateGraphOf(
 
   const edges: GraphEdge[] = [];
   for (const kind of template.edgeKinds) {
+    const properties = {
+      ...kind.defaults,
+      ...translationProperties(kind.labels, KIND_LABEL_PROPERTY_PREFIX),
+    };
     for (const from of kind.from) {
       for (const to of kind.to) {
         edges.push({
@@ -84,8 +99,8 @@ export function templateGraphOf(
           source: endOf(from),
           target: endOf(to),
           ...(kind.label !== '' && { label: kind.label }),
-          ...(Object.keys(kind.defaults).length > 0 && {
-            properties: { ...kind.defaults },
+          ...(Object.keys(properties).length > 0 && {
+            properties: { ...properties },
           }),
         });
       }

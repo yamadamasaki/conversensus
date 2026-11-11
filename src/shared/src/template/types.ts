@@ -22,6 +22,12 @@ export const ANY_NODE_KIND = '*' as NodeKindId;
 const DefaultsSchema = z.record(PropertyNameSchema, z.unknown()).default({});
 
 /**
+ * 言語ごとの名前・説明 (#356)。キーは言語 (client の `Locale` と同じ綴り)。template graph では種類の node・edge の
+ * property (`label:<言語>`・`description:<言語>`、`kindLocale.ts`) に置く
+ */
+const TranslationsSchema = z.record(z.string(), z.string()).optional();
+
+/**
  * node の種別。**同一性は `id` であって `label` ではない。**
  *
  * op に載るのは `label` (人が読む文字列) だが、接続規則を label で書くと
@@ -32,6 +38,10 @@ export const NodeKindSchema = z.object({
   /** ノードに書かれる種別名。`node.setLabel` の値になる */
   label: z.string().min(1),
   description: z.string().optional(),
+  /** 言語ごとの名前 (#356)。無い言語では `label` */
+  labels: TranslationsSchema,
+  /** 言語ごとの説明 (#356)。無い言語では `description` */
+  descriptions: TranslationsSchema,
   defaults: DefaultsSchema,
 });
 export type NodeKind = z.infer<typeof NodeKindSchema>;
@@ -44,6 +54,8 @@ export const EdgeKindSchema = z.object({
    * edge を種別の node の間に引いたものは「この組は繋いでよい」だけを表す (step3 Phase 4)
    */
   label: z.string(),
+  /** 言語ごとの名前 (#356)。無い言語では `label` */
+  labels: TranslationsSchema,
   from: z.array(NodeKindIdSchema).min(1),
   to: z.array(NodeKindIdSchema).min(1),
   /**
