@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test';
-import { nodeKindsOf, TOULMIN_TEMPLATE } from '@conversensus/shared';
+import {
+  multilingualSeed,
+  nodeKindsOf,
+  TOULMIN_SEED,
+  TOULMIN_TEMPLATE,
+} from '@conversensus/shared';
+import { setLocale } from './i18n/locale';
 
 const { render, screen, fireEvent, cleanup } = await import(
   '@testing-library/react'
@@ -9,7 +15,10 @@ const { NodeTypeMenu } = await import('./NodeTypeMenu');
 const KINDS = nodeKindsOf([TOULMIN_TEMPLATE]);
 const POS = { x: 0, y: 0 };
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  setLocale('ja');
+});
 
 describe('NodeTypeMenu', () => {
   it('template が当たっていなければ「種別」の段そのものが無い', () => {
@@ -71,5 +80,25 @@ describe('NodeTypeMenu', () => {
     expect(screen.getByText('論拠').getAttribute('title')).toBe(
       'データが主張を支える理由づけ',
     );
+  });
+
+  it('種類の名前と説明は見る人の言語で出す (#356)。訳の無い言語では template graph の名前', () => {
+    // 日本語の参加者が複製した Toulmin (名前は日本語、訳に英語を持つ)
+    const kinds = nodeKindsOf([multilingualSeed(TOULMIN_SEED, 'ja')]);
+    setLocale('en');
+    render(
+      <NodeTypeMenu position={POS} nodeKinds={kinds} onSelect={() => {}} />,
+    );
+    expect(screen.getByText('Claim').getAttribute('title')).toBe(
+      'The conclusion being argued for',
+    );
+    expect(screen.queryByText('主張')).toBeNull();
+    cleanup();
+
+    setLocale('ja');
+    render(
+      <NodeTypeMenu position={POS} nodeKinds={kinds} onSelect={() => {}} />,
+    );
+    expect(screen.getByText('主張')).toBeDefined();
   });
 });

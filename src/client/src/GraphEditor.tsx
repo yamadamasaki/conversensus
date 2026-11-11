@@ -10,6 +10,7 @@ import type {
 } from '@conversensus/shared';
 import {
   DERIVED_FROM_SHEET_PROPERTY,
+  displayKindLabel,
   type EdgeKindRef,
   kindPropertyOf,
   nodeKindsOf,
@@ -55,6 +56,7 @@ import {
   FLOW_NODE_TYPES,
 } from './graph/flowTypes';
 import { GraphNodeProvider } from './graph/graphNodeContext';
+import { type KindLabelOf, KindLabelProvider } from './graph/kindLabelContext';
 import {
   canConnectByTemplate,
   canReconnectByTemplate,
@@ -86,7 +88,7 @@ import {
 import { useImageIntake } from './hooks/useImageIntake';
 import { useNodeDragTracking } from './hooks/useNodeDragTracking';
 import { useNodeTypeMenu } from './hooks/useNodeTypeMenu';
-import { messages, useMessages } from './i18n/messages';
+import { messages, useLocale, useMessages } from './i18n/messages';
 import { ImageErrorProvider } from './images/imageErrorContext';
 import { NodeCreationContext } from './NodeCreationContext';
 import type { NodeTypeOption } from './NodeTypeMenu';
@@ -217,6 +219,13 @@ function GraphEditorInner({
   const readOnly = useReadOnly();
 
   const nodeKinds = useMemo(() => nodeKindsOf(templates), [templates]);
+  /** 種類の名前を見る人の言語で表示する (#356)。node・edge の部品へは context で渡す */
+  const locale = useLocale();
+  const kindLabelOf = useCallback<KindLabelOf>(
+    (element, properties, label) =>
+      displayKindLabel(templates, element, properties, label, locale),
+    [templates, locale],
+  );
 
   const ghostDeletedNodeIds = useMemo(
     () => new Set((deletedNodes ?? []).map((n) => n.id)),
@@ -953,142 +962,144 @@ function GraphEditorInner({
       <ImageErrorProvider value={setImageError}>
         <NodeCreationContext.Provider value={{ openNodeTypeMenu }}>
           <GraphNodeProvider value={graphNodeHandlers}>
-            {/* biome-ignore lint/a11y/noStaticElementInteractions: drop target wrapper */}
-            <div
-              ref={fitOnResize.containerRef}
-              style={{ width: '100%', height: '100%' }}
-              onDragOver={handleDragOver}
-              onDrop={handleDrop}
-            >
-              <ReactFlow
-                nodes={nodes}
-                edges={edges}
-                nodeTypes={FLOW_NODE_TYPES}
-                edgeTypes={FLOW_EDGE_TYPES}
-                onNodesChange={handleNodesChange}
-                onEdgesChange={handleEdgesChange}
-                connectionMode={FLOW_CONNECTION_MODE}
-                onConnect={onConnect}
-                onConnectEnd={onConnectEnd}
-                isValidConnection={isValidConnection}
-                onReconnect={onReconnect}
-                onReconnectStart={onReconnectStart}
-                onReconnectEnd={onReconnectEnd}
-                onNodeDragStart={onNodeDragStart}
-                onNodeDrag={onNodeDrag}
-                onNodeDragStop={onNodeDragStop}
-                // 読み取り専用のときは動かす・繋ぐ・繋ぎ替えるを止める
-                // (step2 Phase 2 S6)。**選択と拡大縮小は残す** — 読むための操作である
-                nodesDraggable={!readOnly}
-                nodesConnectable={!readOnly}
-                edgesReconnectable={!readOnly}
-                onPaneClick={onPaneClick}
-                onMoveStart={fitOnResize.onMoveStart}
-                onEdgeContextMenu={onEdgeContextMenu}
-                onNodeContextMenu={nodeActions.onNodeContextMenu}
-                zoomOnDoubleClick={false}
-                deleteKeyCode={null}
-                minZoom={MIN_ZOOM}
-                fitView
+            <KindLabelProvider value={kindLabelOf}>
+              {/* biome-ignore lint/a11y/noStaticElementInteractions: drop target wrapper */}
+              <div
+                ref={fitOnResize.containerRef}
+                style={{ width: '100%', height: '100%' }}
+                onDragOver={handleDragOver}
+                onDrop={handleDrop}
               >
-                {readOnly && (
-                  <Panel position="top-center">
-                    {/* **なぜ編集できないかを出す。**出さないと「動かない」に見える */}
-                    <div
-                      role="status"
-                      style={{
-                        background: color.warningBg,
-                        border: `1px solid ${color.warning}`,
-                        color: color.warningText,
-                        borderRadius: radius.sm,
-                        padding: '4px 10px',
-                        fontSize: font.body,
-                      }}
-                    >
-                      {t.graph.readOnlyCatchingUp}
+                <ReactFlow
+                  nodes={nodes}
+                  edges={edges}
+                  nodeTypes={FLOW_NODE_TYPES}
+                  edgeTypes={FLOW_EDGE_TYPES}
+                  onNodesChange={handleNodesChange}
+                  onEdgesChange={handleEdgesChange}
+                  connectionMode={FLOW_CONNECTION_MODE}
+                  onConnect={onConnect}
+                  onConnectEnd={onConnectEnd}
+                  isValidConnection={isValidConnection}
+                  onReconnect={onReconnect}
+                  onReconnectStart={onReconnectStart}
+                  onReconnectEnd={onReconnectEnd}
+                  onNodeDragStart={onNodeDragStart}
+                  onNodeDrag={onNodeDrag}
+                  onNodeDragStop={onNodeDragStop}
+                  // 読み取り専用のときは動かす・繋ぐ・繋ぎ替えるを止める
+                  // (step2 Phase 2 S6)。**選択と拡大縮小は残す** — 読むための操作である
+                  nodesDraggable={!readOnly}
+                  nodesConnectable={!readOnly}
+                  edgesReconnectable={!readOnly}
+                  onPaneClick={onPaneClick}
+                  onMoveStart={fitOnResize.onMoveStart}
+                  onEdgeContextMenu={onEdgeContextMenu}
+                  onNodeContextMenu={nodeActions.onNodeContextMenu}
+                  zoomOnDoubleClick={false}
+                  deleteKeyCode={null}
+                  minZoom={MIN_ZOOM}
+                  fitView
+                >
+                  {readOnly && (
+                    <Panel position="top-center">
+                      {/* **なぜ編集できないかを出す。**出さないと「動かない」に見える */}
+                      <div
+                        role="status"
+                        style={{
+                          background: color.warningBg,
+                          border: `1px solid ${color.warning}`,
+                          color: color.warningText,
+                          borderRadius: radius.sm,
+                          padding: '4px 10px',
+                          fontSize: font.body,
+                        }}
+                      >
+                        {t.graph.readOnlyCatchingUp}
+                      </div>
+                    </Panel>
+                  )}
+                  {nodes.length === 0 && !readOnly && (
+                    // 空の Sheet (visual language §9.1, #279): 何をすれば node ができるかを言う。
+                    // 押す操作を邪魔しないよう、ポインタは下の pane へ通す
+                    <div aria-live="polite" style={EMPTY_SHEET_HINT}>
+                      <p style={{ margin: 0 }}>{t.graph.emptyHint}</p>
+                      <p style={{ margin: 0, fontSize: font.caption }}>
+                        {t.graph.emptyHintImage}
+                      </p>
                     </div>
-                  </Panel>
+                  )}
+                  {nodeActions.toolbar && (
+                    <NodeActionBar
+                      nodeId={nodeActions.toolbar.nodeId}
+                      actions={nodeActions.toolbar.actions}
+                      onPick={nodeActions.pick}
+                    />
+                  )}
+                  <Background />
+                  <Controls />
+                  {/* map で見る範囲を動かす・拡大縮小する (#182) */}
+                  {showMap && <MiniMap pannable zoomable />}
+                </ReactFlow>
+                {nodeTypeMenu && (
+                  <NodeTypeMenu
+                    position={nodeTypeMenu.screenPos}
+                    nodeKinds={nodeKinds}
+                    graphNodeOption={graphNodes !== undefined}
+                    onSelect={(nodeType, kind) => {
+                      if (nodeType === 'graph') {
+                        graphNodes?.onAdd(nodeTypeMenu.position);
+                        clearNodeTypeMenu();
+                        return;
+                      }
+                      addNode(
+                        nodeTypeMenu.position,
+                        nodeType,
+                        undefined,
+                        kind,
+                        nodeTypeMenu.containerId,
+                      );
+                      clearNodeTypeMenu();
+                    }}
+                  />
                 )}
-                {nodes.length === 0 && !readOnly && (
-                  // 空の Sheet (visual language §9.1, #279): 何をすれば node ができるかを言う。
-                  // 押す操作を邪魔しないよう、ポインタは下の pane へ通す
-                  <div aria-live="polite" style={EMPTY_SHEET_HINT}>
-                    <p style={{ margin: 0 }}>{t.graph.emptyHint}</p>
-                    <p style={{ margin: 0, fontSize: font.caption }}>
-                      {t.graph.emptyHintImage}
-                    </p>
-                  </div>
+                {pendingEdge?.position && (
+                  <EdgeKindMenu
+                    position={pendingEdge.position}
+                    candidates={pendingEdge.candidates}
+                    templates={templates}
+                    onSelect={resolvePendingEdge}
+                  />
                 )}
-                {nodeActions.toolbar && (
-                  <NodeActionBar
-                    nodeId={nodeActions.toolbar.nodeId}
-                    actions={nodeActions.toolbar.actions}
+                {contextMenu && (
+                  <EdgeContextMenu
+                    contextMenu={contextMenu}
+                    onSelect={setEdgePathType}
+                  />
+                )}
+                {nodeActions.menu && (
+                  <NodeActionMenu
+                    menu={nodeActions.menu}
                     onPick={nodeActions.pick}
                   />
                 )}
-                <Background />
-                <Controls />
-                {/* map で見る範囲を動かす・拡大縮小する (#182) */}
-                {showMap && <MiniMap pannable zoomable />}
-              </ReactFlow>
-              {nodeTypeMenu && (
-                <NodeTypeMenu
-                  position={nodeTypeMenu.screenPos}
-                  nodeKinds={nodeKinds}
-                  graphNodeOption={graphNodes !== undefined}
-                  onSelect={(nodeType, kind) => {
-                    if (nodeType === 'graph') {
-                      graphNodes?.onAdd(nodeTypeMenu.position);
-                      clearNodeTypeMenu();
-                      return;
-                    }
-                    addNode(
-                      nodeTypeMenu.position,
-                      nodeType,
-                      undefined,
-                      kind,
-                      nodeTypeMenu.containerId,
-                    );
-                    clearNodeTypeMenu();
-                  }}
-                />
-              )}
-              {pendingEdge?.position && (
-                <EdgeKindMenu
-                  position={pendingEdge.position}
-                  candidates={pendingEdge.candidates}
-                  templates={templates}
-                  onSelect={resolvePendingEdge}
-                />
-              )}
-              {contextMenu && (
-                <EdgeContextMenu
-                  contextMenu={contextMenu}
-                  onSelect={setEdgePathType}
-                />
-              )}
-              {nodeActions.menu && (
-                <NodeActionMenu
-                  menu={nodeActions.menu}
-                  onPick={nodeActions.pick}
-                />
-              )}
-              {nodeActions.dialog && (
-                <NodeActionDialog
-                  action={nodeActions.dialog.found.action}
-                  initial={nodeActions.dialog.initial}
-                  participants={actionEnv.participants}
-                  onSubmit={nodeActions.submitDialog}
-                  onCancel={nodeActions.closeDialog}
-                />
-              )}
-              {imageError && (
-                <AlertDialog
-                  message={imageError}
-                  onClose={() => setImageError(null)}
-                />
-              )}
-            </div>
+                {nodeActions.dialog && (
+                  <NodeActionDialog
+                    action={nodeActions.dialog.found.action}
+                    initial={nodeActions.dialog.initial}
+                    participants={actionEnv.participants}
+                    onSubmit={nodeActions.submitDialog}
+                    onCancel={nodeActions.closeDialog}
+                  />
+                )}
+                {imageError && (
+                  <AlertDialog
+                    message={imageError}
+                    onClose={() => setImageError(null)}
+                  />
+                )}
+              </div>
+            </KindLabelProvider>
           </GraphNodeProvider>
         </NodeCreationContext.Provider>
       </ImageErrorProvider>

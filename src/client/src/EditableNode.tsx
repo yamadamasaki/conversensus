@@ -203,6 +203,7 @@ export function EditableNode({ id, data, selected }: NodeProps) {
       label={label}
       selected={selected}
       locked={labelLocked}
+      properties={data.properties as Record<string, unknown> | undefined}
     />
   );
 

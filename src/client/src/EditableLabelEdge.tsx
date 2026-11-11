@@ -19,6 +19,7 @@ import { useEventDispatch } from './EventDispatchContext';
 import { makeEventBase } from './events/GraphEvent';
 import { AuthorAvatars, EDGE_AVATAR_OFFSET_Y } from './graph/AuthorAvatars';
 import { facingAnchors, type Rect } from './graph/facingSides';
+import { useKindLabel } from './graph/kindLabelContext';
 import { DEFAULT_EDGE_PATH_TYPE } from './graphTransform';
 import { useInlineEdit } from './hooks/useInlineEdit';
 import { color, font, radius } from './theme';
@@ -115,6 +116,12 @@ export function EditableLabelEdge({
    */
   const fromTemplate = hasTemplateKind(
     data?.properties as Record<string, unknown> | undefined,
+  );
+  /** 表示する label。種類の名前は見る人の言語にする (#356)。編集は生の label を扱う */
+  const shownLabel = useKindLabel()(
+    'edge',
+    data?.properties as Record<string, unknown> | undefined,
+    String(label ?? ''),
   );
 
   const {
@@ -306,7 +313,7 @@ export function EditableLabelEdge({
                   cursor: 'grab',
                 }}
               >
-                {label}
+                {shownLabel}
               </span>
             )
           )}

@@ -16,8 +16,8 @@ import {
   heldMaxima,
   isFork,
   isReadOnlyCut,
-  localizeSeed,
   METAGRAPH_SHEET_KIND,
+  multilingualSeed,
   type NodeId,
   type PropertyName,
   placeDerivedNodes,
@@ -583,11 +583,11 @@ export default function App() {
   );
 
   /** template graph の種を File に複製する (Q1)。複製した template graph はふつうの template graph */
-  // 種の種類名は利用者の言語で焼き込む (#330)。焼き込んだ後はふつうの利用者のデータ
+  // 種の種類名は利用者の言語で書き、種が持つすべての言語の訳も入れる (#330・#356)
   const locale = useLocale();
   const handleAddSeedTemplate = useCallback(
     (seed: TemplateSeed) => {
-      const localized = localizeSeed(seed, locale);
+      const localized = multilingualSeed(seed, locale);
       return addSheet({
         name: localized.name,
         properties: { [SHEET_KIND_PROPERTY]: TEMPLATE_SHEET_KIND },

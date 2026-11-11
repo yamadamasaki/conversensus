@@ -556,6 +556,26 @@ bun run src/headless/src/cli.ts profile      # 今の宣言と裏付けを出す
 - 当てた後で template graph を編集しても、当てた Sheet の種類はそのときの姿のまま (作るときに当てたものと同じ規則)
 - 外す口は今は無い
 
+### 5.12 template の種類の名前を見る人の言語で出す (#356)
+
+template graph の種類の node・edge に言語ごとの名前 (`label:<言語>`) と説明 (`description:<言語>`) を property で持たせ、
+当てたシートでは見る人の言語で出す。保存される label は変わらない。計画は `deepse/plans/kind-i18n-356.md`。
+
+**確かめる**:
+
+1. alice (5173) を日本語にして File を作り、「template 付きで Sheet を追加 ▾」→「+ Toulmin model を追加」。
+   template graph の「主張」の node の property に `label:ja` = 主張、`label:en` = Claim などが入っている
+2. Toulmin model を当てた Sheet を足し、「主張」と「データ」の node を作って「支える」で繋ぐ
+3. bob (5174) を英語にして同じ File を開く (参加・同期は §5.1 など)。同じ node が「Claim」「Data」、edge が
+   「supports」と出る。node を足すときの種類のメニューも英語
+4. alice の画面は日本語のまま「主張」「データ」「支える」
+5. 自分で作った template graph に訳を足す: alice で「+ template graph」を作り、label「問い」の node に property
+   `label:en` = Question を足す。それを当てた Sheet で「問い」の node を作ると、bob には「Question」と出る
+
+- 訳の無い言語では template graph の名前のまま出る
+- template の名前 (メニューの見出し) と agent に渡す encoding は訳さない (今回の範囲外)
+- 前から File にある Toulmin (訳を持たずに複製したもの) は、property を足すまで訳されない
+
 ## 6. 2 台目 (device B) を同じマシンで動かす
 
 remote 同期の検証では, 「別端末が PDS 経由で受け取れるか」を見たいことがある. step3 Phase 2

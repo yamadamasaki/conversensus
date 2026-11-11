@@ -12,7 +12,8 @@
  * - **少なくとも一方の端に label がある edge** = edge の種類。label の無い端は「任意」
  *   (`ANY_NODE_KIND`: 適用先でこの template の種別を持たない node)
  * - **label の無い node 同士の edge と、label の無い node** = 使い方の説明書き。種類にしない
- * - 種類になった node / edge の property = 適用先の既定値 (種別プロパティそのものは除く)
+ * - 種類になった node / edge の property = 適用先の既定値 (種別プロパティそのものと、言語ごとの名前・説明は除く)
+ * - `label:<言語>`・`description:<言語>` の property = 言語ごとの名前・説明 (#356、`kindLocale.ts`)
  */
 
 import { projectAddress } from '../events/address';
@@ -27,6 +28,12 @@ import type {
   TemplateRef,
 } from '../schemas';
 import { isKindProperty } from './kind';
+import {
+  isKindTranslationProperty,
+  KIND_DESCRIPTION_PROPERTY_PREFIX,
+  KIND_LABEL_PROPERTY_PREFIX,
+  translationsIn,
+} from './kindLocale';
 import {
   ANY_NODE_KIND,
   type EdgeKindId,
@@ -44,13 +51,33 @@ export function templateIdOf(templateSheetId: string): TemplateId {
   return `template.${templateSheetId}` as TemplateId;
 }
 
-/** 種別プロパティを除いた property (既定値にするもの) */
+/**
+ * 種別プロパティと訳を除いた property (既定値にするもの)。訳を残すと、当てたシートの node ごとに訳が
+ * 複製される (#356)
+ */
 function defaultsOf(
   properties: Record<PropertyName, unknown> | undefined,
 ): Record<PropertyName, unknown> {
   return Object.fromEntries(
-    Object.entries(properties ?? {}).filter(([name]) => !isKindProperty(name)),
+    Object.entries(properties ?? {}).filter(
+      ([name]) => !isKindProperty(name) && !isKindTranslationProperty(name),
+    ),
   );
+}
+
+/** 言語ごとの名前・説明 (#356)。無いものは載せない */
+function translationsOf(
+  properties: Record<PropertyName, unknown> | undefined,
+  withDescriptions: boolean,
+) {
+  const labels = translationsIn(properties, KIND_LABEL_PROPERTY_PREFIX);
+  const descriptions = withDescriptions
+    ? translationsIn(properties, KIND_DESCRIPTION_PROPERTY_PREFIX)
+    : undefined;
+  return {
+    ...(labels && { labels }),
+    ...(descriptions && { descriptions }),
+  };
 }
 
 const labelOf = (element: GraphNode | GraphEdge): string =>
@@ -73,6 +100,7 @@ export function templateFromSheet(
       id: n.id as string as NodeKindId,
       label: labelOf(n),
       ...(n.content.trim() !== '' && { description: n.content }),
+      ...translationsOf(n.properties, true),
       defaults: defaultsOf(n.properties),
     })),
     edgeKinds: sheet.edges
@@ -80,6 +108,7 @@ export function templateFromSheet(
       .map((e) => ({
         id: e.id as string as EdgeKindId,
         label: labelOf(e),
+        ...translationsOf(e.properties, false),
         from: [endOf(e.source)],
         to: [endOf(e.target)],
         properties: Object.keys(defaultsOf(e.properties)),

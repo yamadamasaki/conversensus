@@ -35,3 +35,6 @@ template が言う「種類」は*意味*の種類 (主張 / データ / …) �
 - **種別の説明を `title` に出す**: 「主張」「論拠」「裏付け」の 5 語だけでは、
   toulmin を知らない人に区別がつかない。説明は `NodeKind.description` にあるので、
   持っている情報を捨てない。
+- **種類の名前と説明は見る人の言語で出す** (#356): 日本語で複製した Toulmin (`multilingualSeed`) を en で開くと
+  「Claim」と英語の説明が出て「主張」は出ない。ja では「主張」。訳は template graph の property から来るので、
+  メニューが `kindLabelIn`・`kindDescriptionIn` を通らないと、言語の違う参加者が読めない名前を見る

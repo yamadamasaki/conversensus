@@ -28,6 +28,7 @@ export * from './template/applied';
 export * from './template/fold';
 export * from './template/fromSheet';
 export * from './template/kind';
+export * from './template/kindLocale';
 export * from './template/registry';
 export * from './template/seed';
 export * from './template/seedLocale';

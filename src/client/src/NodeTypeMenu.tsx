@@ -1,5 +1,9 @@
-import type { NodeKindRef } from '@conversensus/shared';
-import { useMessages } from './i18n/messages';
+import {
+  kindDescriptionIn,
+  kindLabelIn,
+  type NodeKindRef,
+} from '@conversensus/shared';
+import { useLocale, useMessages } from './i18n/messages';
 import { color, font, radius, shadow } from './theme';
 import { DIALOG_Z_INDEX } from './ui/Dialog';
 
@@ -73,6 +77,7 @@ export function NodeTypeMenu({
   graphNodeOption = false,
 }: Props) {
   const t = useMessages();
+  const locale = useLocale();
   return (
     <div
       data-node-type-menu
@@ -119,11 +124,11 @@ export function NodeTypeMenu({
             <button
               key={`${ref.templateId}/${ref.kind.id}`}
               type="button"
-              title={ref.kind.description}
+              title={kindDescriptionIn(ref.kind, locale)}
               onClick={() => onSelect('markdown', ref)}
               style={ITEM}
             >
-              {ref.kind.label}
+              {kindLabelIn(ref.kind, locale)}
             </button>
           ))}
         </>

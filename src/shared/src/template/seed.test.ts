@@ -33,13 +33,27 @@ function shape(t: Template) {
       : (t.nodeKinds.find((k) => k.id === id)?.label ?? '?');
   return {
     nodes: t.nodeKinds
-      .map((k) => JSON.stringify([k.label, k.description ?? '', k.defaults]))
+      .map((k) =>
+        JSON.stringify([
+          k.label,
+          k.description ?? '',
+          k.labels ?? {},
+          k.descriptions ?? {},
+          k.defaults,
+        ]),
+      )
       .sort(),
     edges: t.edgeKinds
       .flatMap((k) =>
         k.from.flatMap((f) =>
           k.to.map((to) =>
-            JSON.stringify([k.label, nameOf(f), nameOf(to), k.defaults]),
+            JSON.stringify([
+              k.label,
+              k.labels ?? {},
+              nameOf(f),
+              nameOf(to),
+              k.defaults,
+            ]),
           ),
         ),
       )
@@ -63,11 +77,17 @@ const arbTemplate: fc.Arbitrary<Template> = fc
         to: fc.nat({ max: 4 }),
         label: fc.constantFrom('', '支える', '切り崩す'),
         withDefault: fc.boolean(),
+        translated: fc.boolean(),
       }),
       { maxLength: 5 },
     ),
+    /** 種類ごとに訳 (#356) を付けるか: 無し / 名前だけ / 名前と説明 */
+    translated: fc.array(fc.constantFrom('none', 'label', 'both'), {
+      minLength: 4,
+      maxLength: 4,
+    }),
   })
-  .map(({ kinds, edges }) => {
+  .map(({ kinds, edges, translated }) => {
     // 端の番号が種類の数以上なら「任意」にする (任意の端を引くため)
     const end = (i: number) => (i < kinds.length ? `k${i}` : ANY_NODE_KIND);
     return TemplateSchema.parse({
@@ -77,6 +97,12 @@ const arbTemplate: fc.Arbitrary<Template> = fc
         id: `k${i}`,
         label,
         ...(i % 2 === 0 && { description: `${label} の説明` }),
+        ...(translated[i] !== 'none' && {
+          labels: { en: `${label}-en`, fr: `${label}-fr` },
+        }),
+        ...(translated[i] === 'both' && {
+          descriptions: { en: `${label} (en)` },
+        }),
       })),
       // 両端とも任意の edge は種類にならない (template graph の説明書きと同じ) ので引かない
       edgeKinds: edges
@@ -86,6 +112,7 @@ const arbTemplate: fc.Arbitrary<Template> = fc
         .map((e, i) => ({
           id: `e${i}`,
           label: e.label,
+          ...(e.translated && { labels: { en: `${e.label}-en` } }),
           from: [end(e.from)],
           to: [end(e.to)],
           ...(e.withDefault && {
@@ -97,7 +124,7 @@ const arbTemplate: fc.Arbitrary<Template> = fc
   });
 
 describe('templateGraphOf: 性質', () => {
-  test('種 → template graph → 読み替え で、同じ種類に戻る (名前・説明・端・既定値)', () => {
+  test('種 → template graph → 読み替え で、同じ種類に戻る (名前・説明・言語ごとの名前と説明・端・既定値)', () => {
     fc.assert(
       fc.property(arbTemplate, (template) => {
         expect(shape(roundTrip(template))).toEqual(shape(template));

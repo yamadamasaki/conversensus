@@ -322,6 +322,22 @@ template graph の中身は、React Flow の中の文字の入力を避けて、
 変異で確かめたこと: `GraphEditor` に解決した template を渡さない変異と、既定値を書かない変異で 1 件目が、
 種の中身を積まない変異で 2 件目が落ちる。
 
+## 種類の名前を見る人の言語で出す (#356)
+
+### なぜ
+
+訳は template graph の property から `Template` に読まれ (`templateFromSheet`)、`GraphEditor` が見る人の言語と
+合わせて context で node の部品へ渡し、label を描く所 (`NodeLabel`) が使う。どこかが配線されていなくても画面は
+普通に描かれる (template graph の名前が出るだけ) ので、言語を切り替えて描かれた label を見る。
+
+### テストケース
+
+- **日本語で複製した Toulmin の「主張」は、英語の参加者には Claim と出る。保存されている label は変わらない**:
+  ja で Toulmin model を追加し、当てたシートで「主張」を作る → node の label は「主張」と描かれる → 言語を en に
+  切り替えると「Claim」と描かれる → op-log の label は「主張」のまま (訳すのは表示だけ)
+
+変異で確かめたこと: `NodeLabel` が訳さずに label を描く変異で落ちる。
+
 ## 既にあるシートに template を後から当てる (#355)
 
 ### なぜ
