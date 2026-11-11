@@ -9,6 +9,7 @@ const { render, screen, fireEvent, cleanup } = await import(
   '@testing-library/react'
 );
 const { EdgeKindMenu } = await import('./EdgeKindMenu');
+const { setLocale } = await import('./i18n/locale');
 
 /** 同じ組 (データ → 主張) に 2 つの種類を持つ template と、別の template */
 const ARGUMENT: Template = TemplateSchema.parse({
@@ -19,7 +20,13 @@ const ARGUMENT: Template = TemplateSchema.parse({
     { id: 'claim', label: '主張' },
   ],
   edgeKinds: [
-    { id: 'supports', label: '支える', from: ['data'], to: ['claim'] },
+    {
+      id: 'supports',
+      label: '支える',
+      labels: { en: 'supports' },
+      from: ['data'],
+      to: ['claim'],
+    },
     { id: 'plain', label: '', from: ['data'], to: ['claim'] },
   ],
 });
@@ -35,7 +42,10 @@ const candidates: EdgeKindRef[] = [
   { templateId: OTHER.id, kind: OTHER.edgeKinds[0] as never },
 ];
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  setLocale('ja');
+});
 
 function renderMenu() {
   const onSelect = mock((_: EdgeKindRef | undefined) => {});
@@ -78,5 +88,13 @@ describe('EdgeKindMenu (step3 Phase 4 Q8)', () => {
       undefined,
       undefined,
     ]);
+  });
+
+  it('種類の名前は見る人の言語で出す。訳の無い種類は template graph の名前 (#356)', () => {
+    setLocale('en');
+    renderMenu();
+    expect(screen.getByText('supports')).toBeDefined();
+    expect(screen.queryByText('支える')).toBeNull();
+    expect(screen.getByText('引き起こす')).toBeDefined();
   });
 });

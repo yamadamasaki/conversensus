@@ -36,6 +36,7 @@ const { render, screen, fireEvent, cleanup } = await import(
   '@testing-library/react'
 );
 const { EditableLabelEdge } = await import('./EditableLabelEdge');
+const { KindLabelProvider } = await import('./graph/kindLabelContext');
 
 // EdgeProps の最小スタブ
 // biome-ignore lint/suspicious/noExplicitAny: テスト用 EdgeProps スタブ
@@ -107,6 +108,24 @@ describe('EditableLabelEdge', () => {
       fireEvent.dblClick(screen.getByText('支える'));
 
       expect(screen.queryByRole('textbox')).toBeNull();
+    });
+
+    it('label は context の訳で出す (#356)。種類を持つことと元の label を渡す', () => {
+      const seen: unknown[] = [];
+      render(
+        <KindLabelProvider
+          value={(element, properties, label) => {
+            seen.push([element, properties, label]);
+            return 'supports';
+          }}
+        >
+          <EditableLabelEdge {...fromTemplate()} />
+        </KindLabelProvider>,
+      );
+
+      expect(screen.getByText('supports')).toBeDefined();
+      expect(screen.queryByText('支える')).toBeNull();
+      expect(seen[0]).toEqual(['edge', { [KIND]: 'supports' }, '支える']);
     });
 
     it('エッジの線をダブルクリックしても編集に入らない', () => {

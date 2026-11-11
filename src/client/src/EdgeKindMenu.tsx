@@ -7,9 +7,13 @@ import { color, font, radius, shadow } from './theme';
  * 候補は template ごとにまとめて並べる (仕様: 種類は template ごとにまとまって表示されるとよい)
  */
 
-import type { EdgeKindRef, Template } from '@conversensus/shared';
+import {
+  type EdgeKindRef,
+  kindLabelIn,
+  type Template,
+} from '@conversensus/shared';
 import { useEffect } from 'react';
-import { useMessages } from './i18n/messages';
+import { useLocale, useMessages } from './i18n/messages';
 import { FLOATING_UI_Z_INDEX } from './SettingsPopup';
 
 type Props = {
@@ -26,6 +30,7 @@ export function EdgeKindMenu({
   onSelect,
 }: Props) {
   const t = useMessages();
+  const locale = useLocale();
   // Escape で閉じる = 種類無しで繋ぐ
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -75,7 +80,8 @@ export function EdgeKindMenu({
             >
               {
                 // label の無い種類 (「この組は繋いでよい」だけを表す) の見せ方
-                ref.kind.label || t.graph.unnamedKind
+                // 名前は見る人の言語で (#356)
+                kindLabelIn(ref.kind, locale) || t.graph.unnamedKind
               }
             </button>
           ))}

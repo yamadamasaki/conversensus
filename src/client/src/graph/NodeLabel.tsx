@@ -16,6 +16,7 @@ import { useEventDispatch } from '../EventDispatchContext';
 import { makeEventBase } from '../events/GraphEvent';
 import { useInlineEdit } from '../hooks/useInlineEdit';
 import { color, font, radius } from '../theme';
+import { useKindLabel } from './kindLabelContext';
 
 /** label の見た目。空のとき (label を付ける口) は破線の枠だけにする */
 function chipStyle(label: string, editable: boolean): CSSProperties {
@@ -50,11 +51,21 @@ type Props = {
   selected: boolean;
   /** 変更できないか (template の種別・読み取り専用の画面・graph node) */
   locked: boolean;
+  /** node の property。種類の名前を見る人の言語で表示するのに使う (#356) */
+  properties?: Readonly<Record<string, unknown>>;
 };
 
 /** label の口。出すものが無ければ null */
-export function NodeLabel({ nodeId, label, selected, locked }: Props) {
+export function NodeLabel({
+  nodeId,
+  label,
+  selected,
+  locked,
+  properties,
+}: Props) {
   const { dispatch } = useEventDispatch();
+  // 表示だけを見る人の言語にする (#356)。編集は生の label を扱う
+  const shown = useKindLabel()('node', properties, label);
   const edit = useInlineEdit(label, (value) => {
     if (value === label) return;
     dispatch({
@@ -97,8 +108,8 @@ export function NodeLabel({ nodeId, label, selected, locked }: Props) {
   if (!label && (!selected || locked)) return null;
   if (locked)
     return (
-      <div data-node-label style={chipStyle(label, false)}>
-        {label}
+      <div data-node-label style={chipStyle(shown, false)}>
+        {shown}
       </div>
     );
   return (
@@ -116,7 +127,7 @@ export function NodeLabel({ nodeId, label, selected, locked }: Props) {
       }}
       style={chipStyle(label, true)}
     >
-      {label || EMPTY_LABEL_SLOT}
+      {shown || EMPTY_LABEL_SLOT}
     </button>
   );
 }

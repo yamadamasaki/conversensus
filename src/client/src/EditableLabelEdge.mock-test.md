@@ -41,3 +41,9 @@
 `mock.module` はプロセス全体に効き、取り消せないので、このファイルは `*.mock-test.tsx` として他のテストと別の
 プロセスで走らせる (`bun run test:mock`)。`@xyflow/react` は本物を再エクスポートして差分だけを替える — 名前が欠けると、
 この部品が間接に読むモジュールの読み込みが壊れる (単独で走らせると `MarkerType` が見つからずに落ちていた)。
+
+## 種類の名前を見る人の言語で出す (#356)
+
+- **label は context (`KindLabelProvider`) の訳で出す**。context には edge であること・edge の property・元の label を
+  渡す。訳すかどうか (種類の名前か、書き換えた label か) は shared の `displayKindLabel` が決める
+  (`kindLocale.test.md`)。ここでは部品が context を通して描くことと、渡すものを固める

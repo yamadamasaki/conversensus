@@ -22,6 +22,7 @@ import {
 import userEvent from '@testing-library/user-event';
 import App from './App';
 import { NSID } from './atproto/types';
+import { setLocale } from './i18n/locale';
 import { LOCAL_CHANGES_CHANNEL } from './local/localChanges';
 import {
   requestPersistence,
@@ -1028,6 +1029,51 @@ describe('App 結合: template graph (step3 Phase 4 S4-1b)', () => {
         node?.properties?.[kindPropertyOf(templateIdOf(toulmin?.id ?? ''))],
       ).toBe(claim?.id);
     }, WIRING_TIMEOUT);
+  });
+});
+
+describe('App 結合: 種類の名前を見る人の言語で出す (#356)', () => {
+  afterEach(() => setLocale('ja'));
+
+  test('日本語で複製した Toulmin の「主張」は、英語の参加者には Claim と出る。保存されている label は変わらない', async () => {
+    await world.activate('solo');
+    render(<App />);
+    const user = userEvent.setup();
+    await createFile(user, FILE_NAME);
+
+    await user.click(
+      screen.getByRole('button', { name: 'template 付きで Sheet を追加' }),
+    );
+    await user.click(
+      screen.getByRole('button', { name: '+ Toulmin model を追加' }),
+    );
+    await waitFor(() => expect(renderedNodeCount()).toBe(5), WIRING_TIMEOUT);
+    await user.click(screen.getByText('+ Sheet を追加'));
+    const dialog = await screen.findByRole('dialog', { name: 'Sheet を追加' });
+    await user.click(
+      within(dialog).getByRole('checkbox', { name: 'Toulmin model' }),
+    );
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Sheet を追加' }),
+    );
+    await waitFor(() => expect(renderedNodeCount()).toBe(0), WIRING_TIMEOUT);
+    await addNode(user, '主張');
+
+    const chip = () =>
+      document.querySelector('.react-flow__node [data-node-label]')
+        ?.textContent;
+    await waitFor(() => expect(chip()).toBe('主張'), WIRING_TIMEOUT);
+
+    act(() => setLocale('en'));
+    await waitFor(() => expect(chip()).toBe('Claim'), WIRING_TIMEOUT);
+
+    // 訳すのは表示だけ。op-log の label は種類の名前 (複製した人の言語) のまま
+    const store = world.localStore();
+    const fileId = store.listFiles()[0]?.id as FileId;
+    const applied = projectFile(store.getBatches(fileId), fileId).sheets.find(
+      (s) => s.templateIds?.length,
+    );
+    expect(applied?.nodes[0]?.label).toBe('主張');
   });
 });
 
