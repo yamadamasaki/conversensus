@@ -5,6 +5,11 @@ const { render, screen, fireEvent, cleanup } = await import(
   '@testing-library/react'
 );
 const { PropertyEditor } = await import('./PropertyEditor');
+const {
+  getShowReadOnlyProperties,
+  SHOW_READ_ONLY_PROPERTIES_STORAGE_KEY,
+  setShowReadOnlyProperties,
+} = await import('./property/readOnlyToggle');
 
 const onSet = mock((_name: string, _value: unknown) => {});
 const onRemove = mock((_name: string) => {});
@@ -12,6 +17,7 @@ const onClose = mock(() => {});
 
 afterEach(() => {
   cleanup();
+  setShowReadOnlyProperties(false);
   onSet.mockClear();
   onRemove.mockClear();
   onClose.mockClear();
@@ -244,5 +250,56 @@ describe('その他', () => {
     expect((screen.getByLabelText('期限 の値') as HTMLInputElement).value).toBe(
       '2027-01-01',
     );
+  });
+});
+
+describe('読み取り専用も表示 (#357)', () => {
+  it('既定は off で、押すと on になり端末に覚える。もう一度押すと off に戻り、覚えたものも消す', () => {
+    show();
+    const toggle = screen.getByLabelText(
+      '読み取り専用も表示',
+    ) as HTMLInputElement;
+    expect(toggle.checked).toBe(false);
+
+    fireEvent.click(toggle);
+    expect(getShowReadOnlyProperties()).toBe(true);
+    expect(toggle.checked).toBe(true);
+    expect(localStorage.getItem(SHOW_READ_ONLY_PROPERTIES_STORAGE_KEY)).toBe(
+      'true',
+    );
+
+    fireEvent.click(toggle);
+    expect(getShowReadOnlyProperties()).toBe(false);
+    expect(
+      localStorage.getItem(SHOW_READ_ONLY_PROPERTIES_STORAGE_KEY),
+    ).toBeNull();
+  });
+
+  it('同じ画面の 2 つの欄 (merger) は、どちらで切り替えても揃う', () => {
+    show({ label: 'a' });
+    show({ label: 'b' });
+    const [a, b] = screen.getAllByLabelText(
+      '読み取り専用も表示',
+    ) as HTMLInputElement[];
+    if (!a || !b) throw new Error('欄が 2 つ無い');
+    fireEvent.click(a);
+    expect(b.checked).toBe(true);
+  });
+
+  it('system の行は入力欄にならず、アプリが付けた値だと言う', () => {
+    show({
+      rows: [
+        row({
+          name: 'app.conversensus.request.addressee',
+          value: ['did:plc:a'],
+          type: 'array',
+          readOnly: 'system',
+        }),
+      ],
+    });
+    expect(
+      screen.queryByLabelText('app.conversensus.request.addressee の値'),
+    ).toBeNull();
+    expect(screen.getByText('アプリが付けた値で、変更できません')).toBeTruthy();
   });
 });

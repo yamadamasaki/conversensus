@@ -5,6 +5,7 @@ import {
   TemplateSchema,
   TOULMIN_TEMPLATE,
 } from '@conversensus/shared';
+import fc from 'fast-check';
 import { addablePropertyNames, propertyRows } from './propertyRows';
 
 const KIND = 'jp.co.metabolics.toulmin.kind';
@@ -55,7 +56,66 @@ const OTHER_DECL: Template = TemplateSchema.parse({
 });
 const OTHER_KIND = 'jp.co.example.other.kind';
 
-describe('system は行にしない', () => {
+describe('読み取り専用の property を出すか (#357)', () => {
+  /** 名前の小さなプール: system・種別・ほかの extension・custom を 2 つずつ */
+  const NAMES = [
+    `${SYSTEM_PROPERTY_PREFIX}imageUrl`,
+    `${SYSTEM_PROPERTY_PREFIX}request.addressee`,
+    KIND,
+    DECL_KIND,
+    'jp.co.metabolics.toulmin.備考',
+    'com.example.weight',
+    '期限',
+    'owner',
+  ];
+  const READ_ONLY_BY_RULE = new Set(NAMES.slice(0, 4));
+  const arbProperties = fc.dictionary(
+    fc.constantFrom(...NAMES),
+    fc.oneof(fc.string(), fc.integer(), fc.constant(['甲']), fc.constant({})),
+  );
+
+  it('性質: off では system と種別だけが消え、on ではすべて出て、system と種別は理由つきで読み取り専用', () => {
+    fc.assert(
+      fc.property(arbProperties, (properties) => {
+        const names = Object.keys(properties).sort();
+        const off = propertyRows(properties).map((r) => r.name);
+        expect(off.sort()).toEqual(
+          names.filter((n) => !READ_ONLY_BY_RULE.has(n)),
+        );
+        const on = propertyRows(properties, true);
+        expect(on.map((r) => r.name).sort()).toEqual(names);
+        for (const row of on) {
+          if (row.name.startsWith(SYSTEM_PROPERTY_PREFIX))
+            expect(row.readOnly).toBe('system');
+          else if (row.name.endsWith('.kind'))
+            expect(row.readOnly).toBe('templateKind');
+        }
+      }),
+    );
+  });
+
+  it('system の型は値の形から出す (アプリのコードが書く値なので、形がそのまま宣言である)', () => {
+    const rows = propertyRows(
+      {
+        [`${SYSTEM_PROPERTY_PREFIX}image`]: { cid: 'x' },
+        [`${SYSTEM_PROPERTY_PREFIX}request.addressee`]: ['did:plc:a'],
+        [`${SYSTEM_PROPERTY_PREFIX}request.sent`]: 3,
+        [`${SYSTEM_PROPERTY_PREFIX}request.closed`]: true,
+        [`${SYSTEM_PROPERTY_PREFIX}sheetKind`]: 'x',
+      },
+      true,
+    );
+    expect(Object.fromEntries(rows.map((r) => [r.name, r.type]))).toEqual({
+      [`${SYSTEM_PROPERTY_PREFIX}image`]: 'object',
+      [`${SYSTEM_PROPERTY_PREFIX}request.addressee`]: 'array',
+      [`${SYSTEM_PROPERTY_PREFIX}request.sent`]: 'number',
+      [`${SYSTEM_PROPERTY_PREFIX}request.closed`]: 'boolean',
+      [`${SYSTEM_PROPERTY_PREFIX}sheetKind`]: 'string',
+    });
+  });
+});
+
+describe('既定 (off) では system は行にしない', () => {
   it('app.conversensus.* は出ない', () => {
     // 仕様の表: system は「見えない, 追加/変更/削除できない」
     const rows = propertyRows({
@@ -75,9 +135,9 @@ describe('system は行にしない', () => {
 });
 
 describe('extension は出すが、種別だけは編集させない', () => {
-  it('*.kind は見えるが編集できない', () => {
+  it('*.kind は読み取り専用の表示 (#357) で見えるが編集できない', () => {
     // toulmin node / edge の種類は作成時に決まり変更できない (仕様 OnMutation)
-    const rows = propertyRows({ [KIND]: 'claim' });
+    const rows = propertyRows({ [KIND]: 'claim' }, true);
     expect(rows).toHaveLength(1);
     expect(rows[0].readOnly).toBe('templateKind');
   });
@@ -94,7 +154,7 @@ describe('extension は出すが、種別だけは編集させない', () => {
 
   it('判定に template を渡していない — 知らない template の種別でも効く', () => {
     // isKindProperty は語尾だけを見る。描画側に template を配るより漏れない
-    const rows = propertyRows({ 'com.unknown.vendor.kind': 'x' });
+    const rows = propertyRows({ 'com.unknown.vendor.kind': 'x' }, true);
     expect(rows[0].readOnly).toBe('templateKind');
   });
 });
@@ -119,7 +179,7 @@ describe('構造を持つ値は編集させない', () => {
   it('権限が先、能力が後 — 種別が構造体でも templateKind を出す', () => {
     // op-log が壊れている場合でも、画面の説明としては
     // 「変更できない種別です」の方が正しい
-    const rows = propertyRows({ 'jp.co.x.kind': ['壊れている'] });
+    const rows = propertyRows({ 'jp.co.x.kind': ['壊れている'] }, true);
     expect(rows[0].readOnly).toBe('templateKind');
   });
 });

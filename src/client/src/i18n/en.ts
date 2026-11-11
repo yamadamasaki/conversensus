@@ -471,6 +471,7 @@ export const en: Messages = {
   property: {
     close: 'Close property',
     none: 'No properties',
+    showReadOnly: 'Show read-only',
     newName: 'Name of the property to add',
     newNamePlaceholder: 'Name',
     newValue: 'Value of the property to add',
@@ -480,6 +481,7 @@ export const en: Messages = {
     remove: (name: string) => `Delete ${name}`,
     readOnly: {
       templateKind: 'The kind is fixed at creation and cannot be changed',
+      system: 'Set by the app and cannot be changed',
       structuredValue: 'Structured values cannot be edited here',
     },
     types: {

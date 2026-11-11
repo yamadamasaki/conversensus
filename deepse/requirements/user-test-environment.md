@@ -576,6 +576,23 @@ template graph の種類の node・edge に言語ごとの名前 (`label:<言語
 - template の名前 (メニューの見出し) と agent に渡す encoding は訳さない (今回の範囲外)
 - 前から File にある Toulmin (訳を持たずに複製したもの) は、property を足すまで訳されない
 
+### 5.13 property の欄で読み取り専用の property を表示する (#357)
+
+アプリや template が要素に付けた読み取り専用の property を、選べば property の欄に出す。計画は
+`deepse/plans/readonly-properties-357.md`。
+
+**確かめる**:
+
+1. Toulmin model を当てた Sheet で「主張」の node を選び、property の欄を開く。種別 (`template.<id>.kind`) は**出ない**
+2. 欄の見出しの「読み取り専用も表示」を入れると、種別が「種別は作成時に決まり、変更できません」と出る
+3. 依頼の node (§5.7) を選ぶと、`app.conversensus.request.addressee` などが「アプリが付けた値で、変更できません」と出る。
+   入力欄にはならない
+4. 再読み込みしても入れたまま。外すと元に戻る
+5. merger で 2 つの欄が出ているとき、片方で切り替えるともう片方も揃う
+
+- ほかの参加者の画面には関わらない (端末ごとの好み)
+- 検索は今までどおり system を探さない
+
 ## 6. 2 台目 (device B) を同じマシンで動かす
 
 remote 同期の検証では, 「別端末が PDS 経由で受け取れるか」を見たいことがある. step3 Phase 2
