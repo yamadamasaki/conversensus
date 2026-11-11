@@ -24,4 +24,4 @@
 | | 状態 | メモ |
 | --- | --- | --- |
 | 実装 | 済 | `property/readOnlyToggle.ts` (端末に覚える 1 か所の状態)、`propertyRows` の第 2 引数、`PropertyEditor` の見出しのトグル。system の型は値の形から出す |
-| 確認 | 手順を書いた | `user-test-environment.md` §5.13。利用者の確認待ち |
+| 確認 | 済 | `user-test-environment.md` §5.13。利用者が確認した (2026-11-11) |
