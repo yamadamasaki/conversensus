@@ -53,10 +53,7 @@ The Toulmin model is a base graph (schema) for logical argument and analysis of 
 	<figcaption>The Toulmin model</figcaption>
 </figure>
 
-On a Toulmin model Sheet, you can create nodes that follow the schema above and connect them with edges that follow the schema. The labels of nodes that follow the schema (such as "主張", the claim) are decided by the template and cannot be changed. You can also create any nodes outside the schema, label them freely, and connect them with edges.
-
-> [!NOTE]
-> For now, the kinds of the Toulmin model (claim, data, warrant, rebuttal, backing, and the edges between them) are shown in Japanese even in the English version, as in the figure above.
+On a Toulmin model Sheet, you can create nodes that follow the schema above and connect them with edges that follow the schema. The labels of nodes that follow the schema (such as "Claim") are decided by the template and cannot be changed (labels are shown in the viewer's language; see "Keeping names per language" under "template graph"). You can also create any nodes outside the schema, label them freely, and connect them with edges.
 
 For example, if you have a graph on some theme, and you carried out several arguments about it each in its own Toulmin model, it is a good idea to describe the relations between them on a metagraph.
 
@@ -71,6 +68,28 @@ In fact, the Toulmin model is also defined with a template graph.
 We will not go into details here, but if you look at the Toulmin model's template, you will see that the structure of the graph is defined in a straightforward way.
 
 You can also make template graphs yourself. Choose "+ template graph" from the ▾ next to "+ Add Sheet", and draw a graph on the Sheet you made; it becomes the template as it is. Nodes with a label become kinds of nodes, and nodes without a label become explanatory notes.
+
+### Applying a template afterwards
+
+You can apply a template not only when you create a Sheet but also later, to a Sheet that already exists. Choose "Apply template" from the "…" of the Sheet, choose the template graph you want, and press "Apply" (it cannot be pressed until you choose one). From then on, the kinds of that template are added to the kind menu when you create a node in that Sheet.
+
+<figure>
+	<img src="../images/en/graph_kata-template-apply-later.webp" alt="Applying a template to an existing Sheet">
+	<figcaption>Applying a template to an existing Sheet</figcaption>
+</figure>
+
+- The kinds of nodes already in that Sheet do not change
+- If you edit the template graph after applying it, the Sheet keeps the template as it was when you applied it
+- There is no way yet to remove an applied template
+- "Apply template" is not shown when the File has no template graph to apply (those already applied are excluded), or when the Sheet is itself a template graph
+
+### Keeping names per language
+
+The kinds (nodes and edges) of a template graph can have a name and a description for each language. Write them in the properties of the kind's node, such as `label:ja` = 主張 and `label:en` = Claim (descriptions are `description:ja` / `description:en`). In a Sheet that has the template applied, they are shown in the viewer's language. For example, a Toulmin model Sheet looks like "主張", "データ", "支える" to someone using Japanese, and "Claim", "Data", "supports" to someone using English. The kind menu works the same way.
+
+- If there is no translation in the viewer's language, the name written in the template graph is shown as it is
+- Only the display changes; what is stored does not
+- A Toulmin model that was already in a File has no translations, so it stays in Japanese until you add the properties. One added with "+ Add Toulmin model" now has Japanese and English names
 
 ---
 
@@ -90,6 +109,8 @@ You can also make template graphs yourself. Choose "+ template graph" from the �
 - template graph
   - define, as a graph, a type of graph in which the kinds of nodes/edges and the relations between nodes are fixed in advance
   - create Sheets based on that type
+  - apply a template afterwards to a Sheet that already exists
+  - keep the name and description of each kind per language (shown in the viewer's language)
   - make a template graph that extends or changes an existing one
 - Toulmin model
   - serves as a sample template graph

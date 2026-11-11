@@ -145,6 +145,33 @@ export async function openSheet(page: Page, fileName: string, sheet: string) {
   await exact.or(byText).first().click();
 }
 
+/**
+ * Sheet の「…」から「template を当てる」の dialog を開く (#355)。Sheet のボタンと「…」は兄弟なので、
+ * Sheet のボタンの親から「…」を引く
+ */
+export async function openApplyTemplate(
+  page: Page,
+  fileName: string,
+  sheet: string,
+): Promise<Locator> {
+  const sheetButton = fileItem(page, fileName)
+    .getByRole('button')
+    .filter({ hasText: new RegExp(`^${escapeRegExp(sheet)}$`) })
+    .first();
+  await sheetButton
+    .locator('xpath=..')
+    .getByRole('button', { name: t.sidebar.details })
+    .click();
+  await page
+    .getByRole('button', { name: t.settings.applyTemplate, exact: true })
+    .click();
+  const dialog = page.getByRole('dialog', {
+    name: t.templateApply.applyTitle,
+  });
+  await dialog.waitFor();
+  return dialog;
+}
+
 /** 本文で node を引く */
 export function nodeWith(page: Page, text: string): Locator {
   return page.locator(NODE).filter({ hasText: text }).first();

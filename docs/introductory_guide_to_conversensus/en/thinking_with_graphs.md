@@ -60,11 +60,15 @@ Multiple selection, deletion, copy/paste, and so on work as in an ordinary OS.
 
 A node can have a label. When you select a node, a "label" slot appears on its top edge; click it to enter a label. You can change the label later (but labels decided by a template cannot be changed).
 
+At the bottom right of a node, avatars of the people who wrote it overlap (a circle with the person's initial). The first is the person who created the node; the rest follow in the order of who wrote last. Hover over an avatar and it expands to list the handles. Moving or resizing a node does not count as writing it. A node written by an agent gets a bot mark instead of an initial (see "Together with agents" in "Interacting through graphs").
+
 ### edge
 
 The white circles at the middle of each side of a node are the points for connecting nodes with edges. Drag from a connection point of one node and drop on a connection point of another node (or the same node), and the nodes are connected with a direction.
 
 Double-click an edge to give it a label. As with node labels, you can change it later.
+
+When you select an edge, the person who wrote it is shown below its label (it is not shown while the edge is not selected).
 
 Right-click an edge to choose the kind of line.
 
@@ -81,6 +85,7 @@ The header shows basic information such as the name of the graph on the left, an
   - search this Sheet
   - show properties (right sidebar)
   - show the map (bottom right of the graph)
+  - show/hide who wrote what (avatars)
   - undo/redo
   - group/ungroup
   - export as PNG
@@ -89,6 +94,13 @@ The header shows basic information such as the name of the graph on the left, an
 ## Right sidebar
 
 The right sidebar shows the properties of the node/edge selected in the graph, and the change history (timeline).
+
+Read-only properties that the app or a template put on an element (such as the kind of a node) are normally not shown. Turn on "Show read-only" in the heading of the property pane, and they appear together with the reason they cannot be changed. This setting belongs to your device only and does not affect other participants' screens. It is remembered after a reload.
+
+<figure>
+	<img src="../images/en/thinking_with_graphs-readonly-properties.webp" alt="Read-only properties">
+	<figcaption>Read-only properties</figcaption>
+</figure>
 
 ## Bottom left of the graph
 
@@ -111,6 +123,7 @@ At the bottom left of the graph are buttons to zoom in/out and to fit the view t
   - add/delete nodes and edges
   - group/ungroup the selected nodes
   - show the map
+  - show or hide who wrote each node/edge (avatars)
   - zoom in/out
   - fit the view to where nodes and edges are
   - temporarily make it uneditable (the button at the bottom left)
@@ -124,6 +137,8 @@ At the bottom left of the graph are buttons to zoom in/out and to fit the view t
   - put into/take out of an existing group node
   - show properties
   - show the change history
+  - see who wrote it (avatars)
+  - show read-only properties too
 - edge
   - add/change a label
   - change the connected nodes
