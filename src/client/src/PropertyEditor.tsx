@@ -31,6 +31,10 @@ import { ICON_SIZE_SM } from './ui/Button';
 import { useEffect, useRef, useState } from 'react';
 import { messages, useMessages } from './i18n/messages';
 import type { PropertyRow } from './property/propertyRows';
+import {
+  setShowReadOnlyProperties,
+  useShowReadOnlyProperties,
+} from './property/readOnlyToggle';
 import { FLOATING_UI_Z_INDEX } from './SettingsPopup';
 
 /** 検索窓 (800) より下、画面上の浮遊 UI と同じ層 */
@@ -100,6 +104,7 @@ export function PropertyEditor({
   label = 'property',
 }: Props) {
   const t = useMessages();
+  const showReadOnly = useShowReadOnlyProperties();
   const [newName, setNewName] = useState('');
   const [newValue, setNewValue] = useState('');
 
@@ -149,6 +154,26 @@ export function PropertyEditor({
         >
           {title}
         </strong>
+        {/* 読み取り専用の property (system と種別) も出すか (#357)。端末に覚え、どの欄にも効く */}
+        <label
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4,
+            marginLeft: 'auto',
+            color: color.textMuted,
+            fontSize: font.caption,
+            whiteSpace: 'nowrap',
+            flexShrink: 0,
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={showReadOnly}
+            onChange={(e) => setShowReadOnlyProperties(e.target.checked)}
+          />
+          {t.property.showReadOnly}
+        </label>
         {onClose && (
           <button
             type="button"

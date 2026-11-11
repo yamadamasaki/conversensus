@@ -15,6 +15,7 @@ import type { PropertyTarget } from './graph/editorControls';
 import { useMessages } from './i18n/messages';
 import { PropertyEditor } from './PropertyEditor';
 import { propertyRows } from './property/propertyRows';
+import { useShowReadOnlyProperties } from './property/readOnlyToggle';
 
 /** 右サイドバーに出す pane */
 export type RightSidebarPane = 'property' | 'timeline';
@@ -40,6 +41,8 @@ export function RightSidebar({
   timeline,
 }: Props) {
   const t = useMessages();
+  /** 読み取り専用の property も出すか (#357、端末に覚える) */
+  const showReadOnly = useShowReadOnlyProperties();
   return (
     <aside
       aria-label={t.rightSidebar.region}
@@ -88,7 +91,7 @@ export function RightSidebar({
           placement="docked"
           label={t.rightSidebar.propertyRegion}
           title={selection.title}
-          rows={propertyRows(selection.properties)}
+          rows={propertyRows(selection.properties, showReadOnly)}
           addable={selection.addable}
           onSet={onSetProperty}
           onRemove={(name) => onSetProperty(name, undefined)}

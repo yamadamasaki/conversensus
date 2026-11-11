@@ -102,6 +102,7 @@ import { ParticipationHistoryDialog } from './ParticipationHistoryDialog';
 import { PassivePane } from './PassivePane';
 import { PropertyEditor } from './PropertyEditor';
 import { propertyRows } from './property/propertyRows';
+import { useShowReadOnlyProperties } from './property/readOnlyToggle';
 import { RightSidebar, type RightSidebarPane } from './RightSidebar';
 import { ReadOnlyProvider } from './readOnlyContext';
 import { SearchPanel } from './SearchPanel';
@@ -155,6 +156,8 @@ const ignoreSheetChange = () => {};
 export default function App() {
   // 画面の言語を購読する。替えたら App ごと描き直し、子の文言も新しい言語になる (#50)
   const t = useMessages();
+  /** 読み取り専用の property も出すか (#357、端末に覚える) */
+  const showReadOnly = useShowReadOnlyProperties();
   // Dialog state (UI only)
   const [confirmState, setConfirmState] = useState<{
     message: string;
@@ -1498,7 +1501,7 @@ export default function App() {
       {viewAddress && panels.propertyOpen && panels.selection && (
         <PropertyEditor
           title={panels.selection.title}
-          rows={propertyRows(panels.selection.properties)}
+          rows={propertyRows(panels.selection.properties, showReadOnly)}
           addable={panels.selection.addable}
           onSet={(name, value) => panels.controls?.setProperty(name, value)}
           onRemove={(name) => panels.controls?.setProperty(name, undefined)}

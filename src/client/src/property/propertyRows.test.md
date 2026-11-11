@@ -25,7 +25,20 @@
 
 ## どのように
 
-### system は行にしない
+### 読み取り専用の property を出すか (#357)
+
+**透明性のため**に、利用者が選べば system と template の種別も読み取り専用で出す (既定は出さない)。
+
+- 性質 (fast-check): off では system と種別**だけ**が消え、on ではすべての名前が出て、system には `system`、
+  種別には `templateKind` の理由が付く。名前は system・種別・ほかの extension・custom を 2 つずつの小さなプールから、
+  値は文字列・数・配列・構造体から引く (理由の取り違え、「権限が先、能力が後」も同時に見るため)
+- 例: system の型は値の形から出す。system は**アプリのコードが書く**ので、値の形がそのままコードの宣言である
+  (custom の「値から推論しない」とは事情が違う)
+- 検索は変えない。on でも system は探さない (`searchSheet.ts`)
+
+変異で確かめた: off で種別を隠す所を外すと性質が、トグルを無視すると 5 つが、system の型の配列を外すと例が落ちる。
+
+### 既定 (off) では system は行にしない
 
 仕様の表の 1 行目そのもの。`app.conversensus.image` / `app.conversensus.imageUrl` が
 実在する (画像)。**判定は `propertyCategory` に委ねている**ので、ここで見るのは
@@ -37,7 +50,7 @@
 
 ### extension は行にするが、種別だけは編集させない
 
-- `jp.co.metabolics.toulmin.kind` は**見えるが編集できない** (仕様 OnMutation:
+- `jp.co.metabolics.toulmin.kind` は読み取り専用の表示 (#357) で**見えるが編集できない** (仕様 OnMutation:
   toulmin node / edge の種類は作成時に決まり変更できない)
 - 同じ extension でも `.kind` で終わらないものは**編集できる**。仕様は extension を
   「見える/見えないが混在」とし、既定は見える側である

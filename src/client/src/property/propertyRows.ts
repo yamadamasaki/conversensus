@@ -38,6 +38,8 @@ import {
 export type ReadOnlyReason =
   /** template が付けた種別。作成時に決まり変更できない (仕様 OnMutation) */
   | 'templateKind'
+  /** アプリ (system、`app.conversensus.*`) が付けた値。読み取り専用の表示を選んだときだけ出る (#357) */
+  | 'system'
   /**
    * 配列・構造体。**編集の仕方が決まっていない** — 文字列欄で直させると、区切りの
    * 解釈規則をここで発明することになり、`['甲','乙']` と `['甲, 乙']` を分けられない。
@@ -62,14 +64,27 @@ export type PropertyRow = {
 };
 
 /**
- * 行にしないプロパティか。
+ * 読み取り専用の表示 (#357) を選んだときだけ出すプロパティか: system と template の種別。
  *
- * **system は出さない** (仕様の表: 「見えない, 追加/変更/削除できない」)。
- * 検索が system を除くのと同じ規則で、**画面に出ないものだけが検索にも出ない**ことを
- * 揃えている (`searchSheet.ts`)。
+ * **ふだんは system を出さない** (仕様の表: 「見えない, 追加/変更/削除できない」)。検索が system を除くのと
+ * 同じ規則である (`searchSheet.ts`)。#357 で、透明性のために利用者が選べば読み取り専用で出せるようにした。
+ * 種別 (値は種類の node の id) も、編集できず読んでも意味の取りにくい値なので、同じ表示の側に置く。
+ * 検索は今までどおり (選んでも system は探さない)
  */
-function hidden(name: string): boolean {
-  return propertyCategory(name) === 'system';
+function readOnlyByRule(name: string): boolean {
+  return propertyCategory(name) === 'system' || isKindProperty(name);
+}
+
+/**
+ * system の値の型。system は**アプリのコードが書く**ので、値の形がそのままコードの宣言である
+ * (custom と違い、値から読むのが推測にならない)
+ */
+function systemTypeOf(value: unknown): PropertyType {
+  if (Array.isArray(value)) return 'array';
+  if (value !== null && typeof value === 'object') return 'object';
+  if (typeof value === 'number') return 'number';
+  if (typeof value === 'boolean') return 'boolean';
+  return 'string';
 }
 
 /**
@@ -96,10 +111,16 @@ function byName(a: PropertyRow, b: PropertyRow): number {
  */
 export function propertyRows(
   properties: Readonly<Record<string, unknown>> | undefined,
+  /** 読み取り専用の property (system と種別) も出すか (#357)。既定は出さない */
+  showReadOnly = false,
 ): PropertyRow[] {
   const rows: PropertyRow[] = [];
   for (const [name, value] of Object.entries(properties ?? {})) {
-    if (hidden(name)) continue;
+    if (readOnlyByRule(name) && !showReadOnly) continue;
+    if (propertyCategory(name) === 'system') {
+      rows.push({ name, value, type: systemTypeOf(value), readOnly: 'system' });
+      continue;
+    }
     const readOnly = readOnlyReasonOf(name, value);
     // **型は宣言から来る。**step2 に宣言の仕組みは無く、編集できるプロパティは
     // すべて custom なので文字列である。**推測ではなく事実** — 値が文字列だからである

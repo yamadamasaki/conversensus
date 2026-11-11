@@ -469,6 +469,7 @@ export const ja = {
   property: {
     close: 'property を閉じる',
     none: 'property はありません',
+    showReadOnly: '読み取り専用も表示',
     newName: '追加する property の名前',
     newNamePlaceholder: '名前',
     newValue: '追加する property の値',
@@ -478,6 +479,7 @@ export const ja = {
     remove: (name: string) => `${name} を削除`,
     readOnly: {
       templateKind: '種別は作成時に決まり、変更できません',
+      system: 'アプリが付けた値で、変更できません',
       structuredValue: '構造を持つ値はこの画面では編集できません',
     },
     types: {
