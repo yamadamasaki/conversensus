@@ -147,10 +147,10 @@ agent の印は撮っていない (図のための agent の宣言を用意す�
 
 ### 撮っていて見つけたもの
 
-- **依頼の宛先の候補が、File を開いたときにしか読まれない** (`useFileParticipants` は fileId が変わるときだけ名簿を
+- **依頼の宛先の候補が、File を開いたときにしか読まれない** (#381) (`useFileParticipants` は fileId が変わるときだけ名簿を
   読む)。File を開いた後で参加した人は、開き直すまで宛先に出ない。撮影は送る前に再読み込みして避けている
-- **import した場面の書き手 `genesis` を DID として PDS に読みに行く** (`describeRepo?repo=genesis`、
+- **import した場面の書き手 `genesis` を DID として PDS に読みに行く** (#382) (`describeRepo?repo=genesis`、
   agent の宣言の `getRecord`。どちらも 400)。画面では import した node すべてに「G」の avatar が付く
-- 人のアカウントの agent の宣言を読むと 400 (RecordNotFound) になり、コンソールに「Failed to load resource」が出る。
+- 人のアカウントの agent の宣言を読むと 400 (RecordNotFound) になり (#383)、コンソールに「Failed to load resource」が出る。
   宣言が無いのは正常なので、問題として数えない (`05-interact` の `expectedFailures`)
-- 読み取り専用で出す種別の property は、名前も値も id のまま (`template.<id>.kind` = `<uuid>`) で、人には読めない
+- 読み取り専用で出す種別の property は、名前も値も id のまま (#384) (`template.<id>.kind` = `<uuid>`) で、人には読めない
