@@ -97,6 +97,11 @@ header 部分には, 左側にはグラフの名前などの基本情報, 右側
 
 アプリや template が付けた, 変更できない property (node の種類など) は, ふだんは出ません. property の欄の見出しにある「読み取り専用も表示」を入れると, 変更できない理由とともに出ます. この設定はあなたの端末だけのもので, 他の参加者の画面には関わりません. 再読み込みしても覚えています.
 
+<figure>
+	<img src="../images/ja/thinking_with_graphs-readonly-properties.webp" alt="読み取り専用の property">
+	<figcaption>読み取り専用の property</figcaption>
+</figure>
+
 ## グラフの左下
 
 グラフの左下には, 表示範囲の拡大/縮小, node/edge が存在する範囲の最大表示 (fit) のボタンが並び, その下に, グラフを一時的に編集不可にするボタンがあります. 誤ってグラフを動かしたくないときに使います.

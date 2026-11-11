@@ -73,6 +73,11 @@ template graph は, 自分で作ることもできます. 「+ Sheet を追加�
 
 template は, Sheet を作るときだけでなく, すでにある Sheet に後から当てることもできます. Sheet の「…」から「template を当てる」を選び, 当てたい template graph を選んで「当てる」を押します (何も選ばないうちは押せません). 以後その Sheet で node を作るときの種類のメニューに, その template の種類が加わります.
 
+<figure>
+	<img src="../images/ja/graph_kata-template-apply-later.webp" alt="すでにある Sheet に template を当てる">
+	<figcaption>すでにある Sheet に template を当てる</figcaption>
+</figure>
+
 - その Sheet にすでにある node の種類は変わりません
 - 当てた後で template graph を編集しても, 当てた Sheet には当てたときの姿のままです
 - 当てた template を外す操作は, 今はありません

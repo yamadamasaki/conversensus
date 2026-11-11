@@ -80,6 +80,13 @@ Something you want someone (a person or an agent) to respond to can be sent as a
 1. The addressee sees "(name) sent you a request" at the bottom right. Press "Open" and that request is selected
 1. Press "Answer" and write the answer, and an answer node is connected to the right of the request and the request's mark becomes "Answered"
 
+<figure>
+	<img src="../images/en/interact_with_graphs-request-send.webp" alt="Sending a request">
+	<img src="../images/en/interact_with_graphs-request-arrived.webp" alt="A request that arrived">
+	<img src="../images/en/interact_with_graphs-request-answered.webp" alt="An answered request">
+	<figcaption>Sending, receiving, and answering a request</figcaption>
+</figure>
+
 The state of a request (unanswered, answered, and so on) is worked out from whether an answer node exists; it is not stored separately. A request can also be closed ("Close") or sent again ("Send again"). If you cannot answer, write the reason as your answer.
 
 Notices of requests appear only for Files that are in sync (Files that are open or in a tab). A request to a File that is not open is unknown until you open it.

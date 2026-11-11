@@ -71,7 +71,12 @@ You can also make template graphs yourself. Choose "+ template graph" from the �
 
 ### Applying a template afterwards
 
-You can apply a template not only when you create a Sheet but also later, to a Sheet that already exists. Choose "Apply template" from the "…" of the Sheet, choose the template graph you want, and press the apply button (it cannot be pressed until you choose one). From then on, the kinds of that template are added to the kind menu when you create a node in that Sheet.
+You can apply a template not only when you create a Sheet but also later, to a Sheet that already exists. Choose "Apply template" from the "…" of the Sheet, choose the template graph you want, and press "Apply" (it cannot be pressed until you choose one). From then on, the kinds of that template are added to the kind menu when you create a node in that Sheet.
+
+<figure>
+	<img src="../images/en/graph_kata-template-apply-later.webp" alt="Applying a template to an existing Sheet">
+	<figcaption>Applying a template to an existing Sheet</figcaption>
+</figure>
 
 - The kinds of nodes already in that Sheet do not change
 - If you edit the template graph after applying it, the Sheet keeps the template as it was when you applied it

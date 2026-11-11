@@ -59,6 +59,10 @@ const TEXT = {
     taroClaim:
       '社会が個人に干渉してよいのは, **他者への危害**を防ぐ場合だけである',
     applies: '当てはめる',
+    request:
+      'ミルは世論による縛りにも危害原理を当てはめているだろうか? 第 1 章から根拠を探してほしい',
+    answer:
+      '当てはめている. 第 1 章は「多数者の専制」として, 法律だけでなく世論への備えも説いている',
   },
   en: {
     file: 'Reading On Liberty',
@@ -104,6 +108,10 @@ const TEXT = {
     taroClaim:
       'Society may interfere with an individual only in order to prevent **harm to others**',
     applies: 'applies',
+    request:
+      'Does Mill apply the harm principle to the constraint of public opinion too? Please find grounds in Ch. 1',
+    answer:
+      'Yes. Under "the tyranny of the majority", Ch. 1 guards against public opinion as well as law',
   },
 } as const;
 

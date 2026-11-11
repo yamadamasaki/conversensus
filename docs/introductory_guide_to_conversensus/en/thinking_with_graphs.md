@@ -97,6 +97,11 @@ The right sidebar shows the properties of the node/edge selected in the graph, a
 
 Read-only properties that the app or a template put on an element (such as the kind of a node) are normally not shown. Turn on "Show read-only" in the heading of the property pane, and they appear together with the reason they cannot be changed. This setting belongs to your device only and does not affect other participants' screens. It is remembered after a reload.
 
+<figure>
+	<img src="../images/en/thinking_with_graphs-readonly-properties.webp" alt="Read-only properties">
+	<figcaption>Read-only properties</figcaption>
+</figure>
+
 ## Bottom left of the graph
 
 At the bottom left of the graph are buttons to zoom in/out and to fit the view to where nodes and edges are, and below them a button that temporarily makes the graph uneditable. Use it when you do not want to move the graph by accident.

@@ -80,6 +80,13 @@ agent であることは, agent 自身が名乗るものです. その agent が
 1. 宛先の人には, 右下に「○○から依頼が届きました」と出ます. 「開く」を押すと, その依頼が選ばれます
 1. 「答える」を押して答えを書くと, 依頼の右に答えの node がつながり, 依頼の印が「回答あり」になります
 
+<figure>
+	<img src="../images/ja/interact_with_graphs-request-send.webp" alt="依頼を送る">
+	<img src="../images/ja/interact_with_graphs-request-arrived.webp" alt="届いた依頼">
+	<img src="../images/ja/interact_with_graphs-request-answered.webp" alt="答えのついた依頼">
+	<figcaption>依頼を送り, 届き, 答える</figcaption>
+</figure>
+
 依頼の状態 (未回答, 回答あり など) は, 答えの node があるかどうかから求めたもので, 別に保存されているわけではありません. 依頼は「閉じる」ことも, 「送り直す」こともできます. 答えられないときは, その理由を答えとして書いてください.
 
 依頼の通知が出るのは, 同期している File (開いている, またはタブにある File) だけです. 開いていない File への依頼は, 開くまで知りません.
