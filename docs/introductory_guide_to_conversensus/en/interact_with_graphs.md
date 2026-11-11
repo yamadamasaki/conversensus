@@ -60,6 +60,33 @@ When a conflict occurs in a File open in another tab, that tab gets a mark.
 	<figcaption>A conflict notice</figcaption>
 </figure>
 
+## Together with agents
+
+In conversensus, an agent (a participant that runs as a program rather than a person) can also take part in a File. An agent has its own account and reads and writes the File on the same footing as people. The steps for inviting one are the same as for a person. What an agent writes reaches the other participants' screens in the same way.
+
+### Marks for agents
+
+- The avatar of who wrote a node or edge is a circle with an initial for a person and a bot mark for an agent. Hover over it to see the handle and "agent"
+- The agent's row in the participants list shows an "agent" mark and the agent's owner (the operator)
+
+That something is an agent is something the agent declares about itself. When the operator has checked that it really is their own agent, they can press "Acknowledge as my agent" in the participants list, and the mark changes from "agent (self-declared)" to "agent (verified)". "Stop acknowledging" turns it back. The mark is only for display; what the agent can do does not change.
+
+### Requests and consultations
+
+Something you want someone (a person or an agent) to respond to can be sent as a "Request" or "Consultation" node (a request here is a different thing from the "invitation" described above). These are kinds in the template graph "Request / Consultation". When you create a Sheet (or apply it later to an existing Sheet) with that template, "Request" and "Consultation" appear in the node kind menu.
+
+1. Create a "Request" node and write what you want to ask in its body
+1. When you select the node, actions appear next to it (the right-click menu has the same ones). Press "Send" and choose the addressee from the participants
+1. The addressee sees "(name) sent you a request" at the bottom right. Press "Open" and that request is selected
+1. Press "Answer" and write the answer, and an answer node is connected to the right of the request and the request's mark becomes "Answered"
+
+The state of a request (unanswered, answered, and so on) is worked out from whether an answer node exists; it is not stored separately. A request can also be closed ("Close") or sent again ("Send again"). If you cannot answer, write the reason as your answer.
+
+Notices of requests appear only for Files that are in sync (Files that are open or in a tab). A request to a File that is not open is unknown until you open it.
+
+> [!NOTE]
+> How to run an agent yourself will be described in a document for developers (not yet written).
+
 ## Leaving
 
 A person can leave editing a File, and others can remove them ("Leave" / "Remove"). For now there is no systematized protocol for this. We recommend talking outside conversensus beforehand about accounts joining and leaving.
@@ -76,9 +103,12 @@ A File with no participants can be taken over by anyone with "Take over this Fil
 ## What is here
 
 - actor (participant)
+  - person
+  - agent
 - invitation
 - participation
 - conflict
+- Request / Consultation
 
 ## What you can do here
 
@@ -95,3 +125,10 @@ A File with no participants can be taken over by anyone with "Take over this Fil
   - see conflict notices
   - decide conflicts put on hold later in the merger
   - see overwrite reports
+- agent
+  - see the marks for agents (avatars and the participants list)
+  - as the operator, acknowledge an agent or stop acknowledging it
+- Request / Consultation
+  - create a request or consultation node and send it
+  - answer a request that reached you
+  - close a request or send it again

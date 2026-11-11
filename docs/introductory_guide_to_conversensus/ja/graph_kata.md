@@ -53,7 +53,7 @@ Toulmin モデルとは, ある問題に関する論理的な議論や分析を�
 	<figcaption>toulmin モデル</figcaption>
 </figure>
 
-Toulmin model の Sheet では, 上記の図式に従った node を作成し, その間を図式に従った edge で結ぶことができます. 図式に従った node のラベル (「主張」など) は template が決めたもので, 変えることはできません. 図式以外の任意の node を作り, 自由にラベルを付け, edge で結ぶこともできます.
+Toulmin model の Sheet では, 上記の図式に従った node を作成し, その間を図式に従った edge で結ぶことができます. 図式に従った node のラベル (「主張」など) は template が決めたもので, 変えることはできません (ラベルは, 見る人の言語で表示されます. 詳しくは「template graph」の「種類の名前を言語ごとに持つ」を見てください). 図式以外の任意の node を作り, 自由にラベルを付け, edge で結ぶこともできます.
 
 例えば, あるテーマのグラフがあり, そのグラフに関するいくつかの議論をそれぞれの Toulmin モデルで行ったならば, それらの間の関係を metagraph 上に記述しておくとよいでしょう.
 
@@ -68,6 +68,23 @@ template graph は, グラフ上に描ける node の種類や node の種類に
 詳細はここには書きませんが, Toulmin model のテンプレートを見ると, グラフの構造が素直に定義できているのが分かると思います.
 
 template graph は, 自分で作ることもできます. 「+ Sheet を追加」の横の ▾ から「+ template graph」を選んで作った Sheet にグラフを描くと, それがそのまま template になります. ラベルのある node は node の種類になり, ラベルのない node は説明書きになります.
+
+### 作った後で当てる
+
+template は, Sheet を作るときだけでなく, すでにある Sheet に後から当てることもできます. Sheet の「…」から「template を当てる」を選び, 当てたい template graph を選んで「当てる」を押します (何も選ばないうちは押せません). 以後その Sheet で node を作るときの種類のメニューに, その template の種類が加わります.
+
+- その Sheet にすでにある node の種類は変わりません
+- 当てた後で template graph を編集しても, 当てた Sheet には当てたときの姿のままです
+- 当てた template を外す操作は, 今はありません
+- File に当てられる template graph がないとき (すでに当てたものを除きます) や, その Sheet 自身が template graph のときは,「template を当てる」は出ません
+
+### 種類の名前を言語ごとに持つ
+
+template graph の種類 (node や edge) には, 言語ごとの名前と説明を持たせることができます. 種類の node の property に, `label:ja` = 主張, `label:en` = Claim のように書きます (説明は `description:ja` / `description:en`). その template を当てた Sheet では, 見る人の言語で表示されます. 例えば Toulmin model の Sheet は, 日本語の人には「主張」「データ」「支える」, 英語の人には「Claim」「Data」「supports」と見えます. 種類のメニューも同じです.
+
+- 見る人の言語の訳がないときは, template graph に書いた名前のまま表示されます
+- 変わるのは表示だけで, 保存されるものは変わりません
+- 以前から File にある Toulmin model は訳を持っていないので, property を足すまでは日本語のままです. 新しく「+ Toulmin model を追加」したものは, 日本語と英語の訳を持っています
 
 ---
 
@@ -87,6 +104,8 @@ template graph は, 自分で作ることもできます. 「+ Sheet を追加�
 - template graph
   - node/edge の種類, node 間の関係があらかじめ決まっているようなグラフの型をグラフとして定義する
   - そのグラフのかたの定義に基づいて, sheet を作成する
+  - すでにある sheet に, 後から template を当てる
+  - 種類の名前と説明を, 言語ごとに持たせる (見る人の言語で表示される)
   - 既存の template graph を元に, 拡張や変更した template graph を作る
 - toulmin model
   - template graph のサンプルとなる
