@@ -87,4 +87,4 @@ label を描く所だけが訳を使い、編集・diff・保存は今までど�
 | K1 | 済 | shared `template/kindLocale.ts`。`Template` の種類に `labels`・`descriptions`。訳は既定値から外す。性質 2 つと往復の性質を変異で確かめた |
 | K2 | 済 | `multilingualSeed`。App の「+ Toulmin model を追加」等はこれを通す。module の種も同じ形なので変更なし |
 | K3 | 済 | `graph/kindLabelContext.ts` (表示の関数を `GraphEditor` が配る)。`NodeLabel`・`EditableLabelEdge`・2 つのメニュー。検索は生の label のまま |
-| K4 | 手順を書いた | `user-test-environment.md` §5.12。利用者の確認待ち |
+| K4 | 済 | `user-test-environment.md` §5.12。利用者が確認した (2026-11-11) |
