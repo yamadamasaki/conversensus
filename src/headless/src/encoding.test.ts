@@ -1,9 +1,11 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  appliedTemplatePropertyOf,
   type EdgeId,
   type GraphFile,
   type NodeId,
   type Sheet,
+  type SheetId,
   type Template,
   TemplateSchema,
 } from '@conversensus/shared';
@@ -340,6 +342,26 @@ describe('encodeFile', () => {
 
   test('template を引けない種別プロパティは、そうと注釈する', () => {
     expect(encodeFile(example)).toContain('# 種別 (template を引けない)');
+  });
+
+  test('後から当てた template (#355) のプロパティには、その template の名前を注釈する', () => {
+    const sheet = example.sheets[0] as Sheet;
+    const applied = {
+      ...example,
+      sheets: [
+        {
+          ...sheet,
+          templateIds: undefined,
+          properties: {
+            [appliedTemplatePropertyOf(TEMPLATE_SHEET as SheetId)]: { at: {} },
+          },
+        },
+      ],
+    } as GraphFile;
+    expect(encodeFile(applied, () => [toulmin])).toContain(
+      '# 後から当てた template "toulmin"',
+    );
+    expect(encodeFile(applied)).toContain('# 後から当てた template (引けない)');
   });
 
   test('system の property には「書き換えない」と注釈する', () => {

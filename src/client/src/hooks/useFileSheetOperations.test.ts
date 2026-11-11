@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test';
-import type { ConversensusFile, FileId, SheetId } from '@conversensus/shared';
+import {
+  appliedTemplateRefs,
+  type ConversensusFile,
+  type FileId,
+  type SheetId,
+} from '@conversensus/shared';
 import type { GraphEvent } from '../events/GraphEvent';
 import type { DetectedOverwrites } from '../sync/overwrites';
 import type { ConflictNoticeState } from './useBranchOperations';
@@ -576,6 +581,51 @@ describe('useFileSheetOperations', () => {
         await result.current.handleSaveSheetSettings(sheetId, currentName, '');
       });
 
+      expect(emittedTypes(syncRecord)).toEqual([]);
+    });
+  });
+
+  describe('handleApplyTemplates (#355)', () => {
+    it('template graph ごとに Sheet のプロパティを 1 つ置き、手元の Sheet にも映す', async () => {
+      const { result, syncRecord } = await render();
+      await act(async () => {
+        await result.current.handleCreate();
+      });
+      const sheetId = result.current.activeSheetId as SheetId;
+      const at = { 'did:plc:alice#dev-a': 3 };
+      const [T1, T2] = [1, 2].map(
+        (n) => `00000000-0000-4000-8000-0000000000a${n}` as SheetId,
+      ) as [SheetId, SheetId];
+
+      act(() => {
+        result.current.handleApplyTemplates(sheetId, [T1, T2], at);
+      });
+
+      expect(emittedTypes(syncRecord)).toEqual([
+        'SHEET_PROPERTY_CHANGED',
+        'SHEET_PROPERTY_CHANGED',
+      ]);
+      const sheet = result.current.activeFile?.sheets.find(
+        (s) => s.id === sheetId,
+      );
+      expect(sheet && appliedTemplateRefs(sheet)).toEqual([
+        { sheet: T1, at },
+        { sheet: T2, at },
+      ]);
+    });
+
+    it('何も選ばなければ何も emit しない (空 batch 回避)', async () => {
+      const { result, syncRecord } = await render();
+      await act(async () => {
+        await result.current.handleCreate();
+      });
+      act(() => {
+        result.current.handleApplyTemplates(
+          result.current.activeSheetId as SheetId,
+          [],
+          {},
+        );
+      });
       expect(emittedTypes(syncRecord)).toEqual([]);
     });
   });

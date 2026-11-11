@@ -1,5 +1,5 @@
 import type { FileId, SheetId } from '@conversensus/shared';
-import { FileDown, Trash2, Upload } from 'lucide-react';
+import { FileDown, Shapes, Trash2, Upload } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useMessages } from './i18n/messages';
 import { color, font, radius, shadow, space } from './theme';
@@ -21,6 +21,8 @@ type Props = {
   onExport?: () => void;
   /** この端末だけの File をアカウントに保存する (#253)。渡したときだけ出す */
   onSaveToAccount?: () => void;
+  /** 既にあるシートに template を後から当てる (#355)。当てられるものがあるときだけ渡す */
+  onApplyTemplate?: () => void;
 };
 
 export function SettingsPopup({
@@ -32,6 +34,7 @@ export function SettingsPopup({
   deleteLabel,
   onExport,
   onSaveToAccount,
+  onApplyTemplate,
 }: Props) {
   const t = useMessages();
   const [draftName, setDraftName] = useState(name);
@@ -167,6 +170,11 @@ export function SettingsPopup({
           }}
         />
       </div>
+      {onApplyTemplate && (
+        <Button icon={Shapes} onClick={onApplyTemplate}>
+          {t.settings.applyTemplate}
+        </Button>
+      )}
       {onSaveToAccount && (
         // この端末だけの File を後から送る口 (#253)。ログインのときに「この端末に残す」と答えた File
         <Button icon={Upload} onClick={onSaveToAccount}>

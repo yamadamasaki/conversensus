@@ -1,5 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import type { FileId, SheetId } from '@conversensus/shared';
+import {
+  appliedTemplatePropertyOf,
+  appliedTemplateValueOf,
+  type FileId,
+  heldMaxima,
+  type NodeId,
+  SHEET_KIND_PROPERTY,
+  type SheetId,
+  TEMPLATE_SHEET_KIND,
+} from '@conversensus/shared';
 import { Headless } from './headless';
 import { contentChanged, nodeAdded } from './testing/events';
 import {
@@ -138,5 +147,49 @@ describe('Headless: 読み書き (H3)', () => {
         (r.value as { actor: string }).actor.startsWith(AGENT.did),
       );
     expect(own).toHaveLength(2);
+  });
+
+  it('既にある Sheet に後から当てた template の種別が、encoding の注釈に出る (#355)', async () => {
+    const alice = await as(aliceDir, ALICE);
+    const fileId = await alice.createFile('後から当てる');
+    const sheetId = firstSheet(alice, fileId);
+    // template graph を作り、種類の node (label のある node) を 1 つ置く
+    const templateSheet = crypto.randomUUID() as SheetId;
+    alice.record(fileId, templateSheet, {
+      id: crypto.randomUUID(),
+      timestamp: Date.now(),
+      category: 'file',
+      type: 'SHEET_CREATED',
+      sheetId: templateSheet,
+      name: '依頼の型',
+      properties: { [SHEET_KIND_PROPERTY]: TEMPLATE_SHEET_KIND },
+    });
+    const kind = crypto.randomUUID() as NodeId;
+    alice.record(fileId, templateSheet, {
+      id: crypto.randomUUID(),
+      timestamp: Date.now(),
+      category: 'structure',
+      type: 'NODE_ADDED',
+      nodeId: kind,
+      data: { id: kind, content: '答えてほしいこと', label: '依頼' },
+    });
+    await alice.settled(fileId);
+    expect(alice.encode(fileId)).not.toContain('# template "依頼の型"');
+
+    // 最初の Sheet に、今の姿 (切断面) で当てる
+    alice.record(fileId, sheetId, {
+      id: crypto.randomUUID(),
+      timestamp: Date.now(),
+      category: 'file',
+      type: 'SHEET_PROPERTY_CHANGED',
+      sheetId,
+      name: appliedTemplatePropertyOf(templateSheet),
+      value: appliedTemplateValueOf(heldMaxima(alice.batches(fileId))),
+    });
+    await alice.settled(fileId);
+    const encoding = alice.encode(fileId);
+    expect(encoding).toContain(`# template "依頼の型"`);
+    expect(encoding).toContain(`node 種別 "依頼"=${kind}`);
+    expect(encoding).toContain('# 後から当てた template "依頼の型"');
   });
 });

@@ -28,6 +28,7 @@ HTTP に置いたままだと、ブラウザ側に**第 2 の実装**ができ�
 | 🔴 importFile: 同梱 blobs は op-log に入らない | base64 を op-log に流すとレコード上限に当たる (ANA-116 の再発) |
 | 🔴 importFile: metagraph の graph node を二重にしない | 書き出した File には導出した graph node が載る。ふつうの node として取り込むと、古い Sheet を指す node が残って二重になっていた (step4)。graph node は取り込まず、その id を新しい Sheet の導出 node に付け替えるので、張った edge と置き場所はそのまま付いてくる |
 | 🔴 importFile: template を当てた Sheet は、取り込んだ後も新しい template graph を指す | 取り込みは id を振り直すので、`templateIds` の `{sheet, at}`・種別の property 名・その値を付け替えないと template が黙って落ちる (#327)。`at` は genesis 全体にする — 元の切断面は取り込んだ File に無い actor を指す。付け替えの細部は `importTemplateRefs.test.ts` |
+| 🔴 importFile: 後から当てた template (#355) も、取り込んだ後に新しい template graph を指す | 後から当てたものは Sheet のプロパティ (`app.conversensus.appliedTemplate.<id>`) にあり、名前が template graph の Sheet の id を含む。付け替えないと、取り込んだ File で当てたはずの種類が引けない |
 | importFile: 形が合わなければ理由を返し、何も書かない | |
 | 自分の追記は marker を立てず、受信は立てる | 受信の経路を分けている理由 (step1 Phase 4d-5) |
 | 追記はべき等 | |

@@ -75,6 +75,7 @@ import {
   type Actor,
   type AgentDeclaration,
   type AgentProfile,
+  appliedTemplateRefs,
   type Batch,
   type BatchId,
   CausalClock,
@@ -255,7 +256,7 @@ export class Headless {
     const trunk = this.store.events.getBatches(fileId);
     return encodeFile(
       projectFile(trunk, fileId),
-      (sheet) => resolveTemplates(sheet.templateIds, trunk, fileId),
+      (sheet) => resolveTemplates(appliedTemplateRefs(sheet), trunk, fileId),
       annotate,
     );
   }
@@ -328,7 +329,7 @@ export class Headless {
     }
     return {
       sheet,
-      templates: resolveTemplates(sheet.templateIds, trunk, fileId),
+      templates: resolveTemplates(appliedTemplateRefs(sheet), trunk, fileId),
     };
   }
 

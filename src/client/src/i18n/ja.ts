@@ -169,6 +169,7 @@ export const ja = {
     description: '概要',
     descriptionPlaceholder: '概要を入力…',
     saveToAccount: 'アカウントに保存する',
+    applyTemplate: 'template を当てる',
     export: 'エクスポート (.conversensus)',
     ok: 'OK',
   },
@@ -332,6 +333,10 @@ export const ja = {
     title: 'Sheet を追加',
     body: '当てる template graph を選んでください',
     submit: 'Sheet を追加',
+    applyTitle: 'template を当てる',
+    applyBody:
+      'この Sheet に当てる template graph を選んでください。今ある node の種類は変わりません',
+    applySubmit: '当てる',
   },
   conflicts: {
     region: '競合の通知',

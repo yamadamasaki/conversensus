@@ -322,6 +322,29 @@ template graph の中身は、React Flow の中の文字の入力を避けて、
 変異で確かめたこと: `GraphEditor` に解決した template を渡さない変異と、既定値を書かない変異で 1 件目が、
 種の中身を積まない変異で 2 件目が落ちる。
 
+## 既にあるシートに template を後から当てる (#355)
+
+### なぜ
+
+後から当てた template は Sheet のプロパティに載り、描いているシートの template を解決する所
+(`useResolvedTemplates` に渡す参照) が `appliedTemplateRefs` で読まなければ、当てても種類のメニューが出ない。
+入口・ダイアログ・切断面・書き込み・解決が一周して初めて効くので、作った node の op まで見る。
+
+### テストケース
+
+- **sheet の「…」から Toulmin model を当てると、そのシートで Toulmin の種類を使える。当てた後は入口が消える**:
+  template graph が無いうちは Sheet 1 の「…」に「template を当てる」が無い → Toulmin model を追加する →
+  template graph のシート自身の「…」にも無い → Sheet 1 を開き「…」→「template を当てる」→ 何も選ばないうちは
+  「当てる」を押せない → Toulmin model を選んで当てる → 種類のメニューの「主張」で node を作ると、op-log の
+  その node が Toulmin の種別を持つ (Sheet 1 の `templateIds` は無いまま) → 当てられるものが無くなった
+  Sheet 1 の「…」には入口が無い
+
+サイドバーの行は、本文がシートの名前に一致するボタンで探す。template graph の行は種別の印の分だけ accessible
+name がずれるため。
+
+変異で確かめたこと: 入口の絞り込み (`applicableTemplateGraphs`) を外す変異と、描いているシートの template を
+`templateIds` だけで解決する変異で落ちる。
+
 ## metagraph (step3 Phase 4 S4-2b)
 
 ### なぜ

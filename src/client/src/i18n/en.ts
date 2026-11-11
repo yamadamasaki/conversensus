@@ -168,6 +168,7 @@ export const en: Messages = {
     description: 'Description',
     descriptionPlaceholder: 'Enter a description…',
     saveToAccount: 'Save to account',
+    applyTemplate: 'Apply template',
     export: 'Export (.conversensus)',
     ok: 'OK',
   },
@@ -326,6 +327,10 @@ export const en: Messages = {
     title: 'Add Sheet',
     body: 'Choose the template graphs to apply',
     submit: 'Add Sheet',
+    applyTitle: 'Apply template',
+    applyBody:
+      'Choose the template graphs to apply to this sheet. Existing nodes keep their kinds',
+    applySubmit: 'Apply',
   },
   conflicts: {
     region: 'Conflict notice',

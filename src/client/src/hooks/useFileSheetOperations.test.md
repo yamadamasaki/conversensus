@@ -42,6 +42,9 @@ tap は `syncRecord` として注入し、実ネットワーク (LocalServerSync
 - handleDeleteSheet: 2 シート以上ならシートを削除し op-log へ `SHEET_REMOVED` を emit すること (dual-write)
 - handleSaveSheetSettings: シート名と説明を更新し、変化した項目のみ op-log へ emit すること (`SHEET_RENAMED` / `SHEET_DESCRIBED`)
 - handleSaveSheetSettings: 変化が無ければ何も emit しないこと (空 batch 回避)
+- handleApplyTemplates (#355): template graph ごとに `SHEET_PROPERTY_CHANGED` を 1 つ emit し、手元の Sheet にも
+  プロパティを映すこと (映さないと、同期を待つ間の画面が古く、入口も消えない)。読み戻すと渡した切断面の参照になる
+- handleApplyTemplates: 何も選ばなければ何も emit しないこと (空 batch 回避)
 
 ### 読み取り経路 — op-log 単独 (Phase 6 p6-3)
 

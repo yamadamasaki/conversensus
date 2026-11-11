@@ -14,7 +14,7 @@ agent は graph をこのテキストで読み、書く道具に node・edge の
 
 - **例**: id・本文・label・layout が行に出る / 改行を含む本文が 1 行に収まる (JSON の文字列) /
   template を渡すと種別の一覧・種別の名前・種別の説明 (種類ごとの指示、D13) を注釈に出す /
-  template を引けない種別プロパティ・system の property に注釈が付く / module の注釈 (依頼の状態など、
+  template を引けない種別プロパティ・system の property に注釈が付く / 後から当てた template のプロパティ (#355) には、その template の名前 (引けなければ「引けない」) を注釈する / module の注釈 (依頼の状態など、
   `AnnotateNode`) は node の行の直後に `# ` を付けて出し、無ければ何も足さない (依頼の注釈そのものは依頼の
   module の `requestHeadless.test.ts` が見る、計画 node-actions-request-module.md B3) /
   例が読み戻せる

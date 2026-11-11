@@ -17,7 +17,13 @@ import {
   EdgeIdSchema,
   type FileId,
   NodeIdSchema,
+  type SheetId,
 } from '../schemas';
+import {
+  appliedTemplatePropertyOf,
+  appliedTemplateRefs,
+  appliedTemplateValueOf,
+} from '../template/applied';
 import { resolveTemplates, templateIdOf } from '../template/fromSheet';
 import { kindPropertyOf, nodeKindIn } from '../template/kind';
 import { BunSqliteDriver, IN_MEMORY } from './bunSqliteDriver';
@@ -273,6 +279,55 @@ describe('importFile', () => {
     expect(Object.keys(claim?.properties ?? {})).not.toContain(kindOf(TPL));
     const [edge] = used.edges;
     expect(edge?.properties?.[kindOf(tpl.id)]).toBe(tpl.edges[0]?.id);
+  });
+
+  test('🔴 後から当てた template (#355) も、取り込んだ後に新しい template graph を指す', () => {
+    const TPL = '33333333-3333-4333-8333-333333333333';
+    const raw = payload({
+      version: CONVERSENSUS_FILE_VERSION,
+      sheets: [
+        {
+          id: TPL,
+          name: '依頼の型',
+          properties: { [SHEET_KIND_PROPERTY]: TEMPLATE_SHEET_KIND },
+          nodes: [
+            {
+              id: '44444444-4444-4444-8444-444444444444',
+              content: '',
+              label: '依頼',
+            },
+          ],
+          edges: [],
+        },
+        {
+          id: 'ffffffff-0000-4111-8222-333333333333',
+          name: '後から当てた',
+          // 元の File の actor の切断面。取り込んだ File には無い actor である
+          properties: {
+            [appliedTemplatePropertyOf(TPL as SheetId)]: appliedTemplateValueOf(
+              {
+                'did:plc:alice#dev': 4,
+              },
+            ),
+          },
+          nodes: [],
+          edges: [],
+        },
+      ],
+    });
+
+    const result = store.importFile(raw);
+    if (!result.ok) throw new Error('取り込めなかった');
+    const batches = store.getBatches(result.file.id);
+    const [tpl, used] = projectFile(batches, result.file.id).sheets;
+    if (!tpl || !used) throw new Error('Sheet が足りない');
+    const templates = resolveTemplates(
+      appliedTemplateRefs(used),
+      batches,
+      result.file.id,
+    );
+    expect(templates.map((t) => t.id)).toEqual([templateIdOf(tpl.id)]);
+    expect(templates[0]?.nodeKinds.map((k) => k.label)).toEqual(['依頼']);
   });
 
   test('形の合わないものは取り込まず、理由を返す', () => {
