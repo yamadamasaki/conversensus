@@ -1027,6 +1027,7 @@ gh release create vX.Y.Z --title "..." --notes-file <説明> --verify-tag
 | v1.1.0 | 2026-10-07 | `cec0444` | セキュリティのヘッダ、ログアウトのときにこの端末のデータも消せる、描画の例外を部分に留める、Markdown の画像はリンクに、他人の repo から読む量に上限、依存の更新 |
 | v1.2.0 | 2026-10-14 | `26b5cb4` | 新しい版の知らせ・端末だけの File の注意、検索、近リアルタイム同期、背後のタブの通知、Deep Link、無限キャンバスと map、timeline view、i18n、deps を差分で送る (`depsBase`、古い版は全体として読むので壊れない) |
 | v1.3.0 | 2026-11-05 | `f311b7c` | 入門へのリンク (左サイドバー)、metagraph の graph node に label `graph`、import で label が落ちる・graph node が二重になるのを直す、branch の Sheet に他の Sheet の batch が混ざるのを直す。入門と文書のサイト (docs.conversensus.site) |
+| v1.4.0 | (出した日) | (出した commit) | agent を actor にする (headless・MCP・常駐の agent、宣言と operator の裏付け)、依頼・相談の node と node の操作、書いた人の avatar、既にある Sheet に template を当てる、種類の名前を見る人の言語で、読み取り専用の property を表示するトグル。入門の更新 |
 
 ### 11.4 一度だけの作業 (済んだもの)
 
