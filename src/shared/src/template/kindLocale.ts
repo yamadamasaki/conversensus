@@ -120,3 +120,37 @@ export function displayKindLabel(
   }
   return label;
 }
+
+/** 種別の property の、人が読める形 (#384): どの template の種類か・その種類の名前 */
+export type KindPropertyLabel = { template: string; kind: string };
+
+/**
+ * 要素の種別の property (`<template id>.kind`、値は種類の id) を、人が読める名前にする (#384)。
+ *
+ * 読み取り専用の表示 (#357) では種別の property が名前も値も id のまま出て、何の種類か読めなかった。
+ * 名前は template の名前、値は種類の名前を見る人の言語で (`kindLabelIn`)。知らない template・知らない種類の
+ * property は含めない (id のまま出す)
+ */
+export function kindPropertyLabels(
+  templates: readonly Template[],
+  element: 'node' | 'edge',
+  properties: Readonly<Record<PropertyName, unknown>> | undefined,
+  locale: KindLocale,
+): Record<PropertyName, KindPropertyLabel> {
+  const labels: Record<PropertyName, KindPropertyLabel> = {};
+  for (const template of templates) {
+    const name = kindPropertyOf(template.id);
+    const id = properties?.[name];
+    if (typeof id !== 'string') continue;
+    const kinds: readonly (NodeKind | EdgeKind)[] =
+      element === 'node' ? template.nodeKinds : template.edgeKinds;
+    const kind = kinds.find((k) => k.id === id);
+    if (kind) {
+      labels[name] = {
+        template: template.name,
+        kind: kindLabelIn(kind, locale),
+      };
+    }
+  }
+  return labels;
+}

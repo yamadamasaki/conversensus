@@ -10,6 +10,7 @@ import {
   kindDescriptionPropertyOf,
   kindLabelIn,
   kindLabelPropertyOf,
+  kindPropertyLabels,
   translationProperties,
   translationsIn,
 } from './kindLocale';
@@ -200,5 +201,58 @@ describe('templateFromSheet と訳 (#356)', () => {
       descriptions: { en: 'The conclusion' },
       defaults: { weight: 1 },
     });
+  });
+});
+
+describe('kindPropertyLabels (#384): 種別の property を人が読める名前に', () => {
+  test('名前は template の名前、値は種類の名前を見る人の言語で', () => {
+    const template = templateOf(T, { en: 'Claim' }, { en: 'Supports' });
+    expect(
+      kindPropertyLabels([template], 'node', kindOf(T, 'claim'), 'en'),
+    ).toEqual({
+      [kindPropertyOf(T as Template['id'])]: { template: 'T', kind: 'Claim' },
+    });
+    // 訳が無い言語では template graph の名前
+    expect(
+      kindPropertyLabels([template], 'node', kindOf(T, 'claim'), 'fr'),
+    ).toEqual({
+      [kindPropertyOf(T as Template['id'])]: { template: 'T', kind: '主張' },
+    });
+  });
+
+  test('edge は edge の種類で引く', () => {
+    const template = templateOf(T, {}, { ja: '支える' });
+    expect(
+      kindPropertyLabels([template], 'edge', kindOf(T, 'supports'), 'ja'),
+    ).toEqual({
+      [kindPropertyOf(T as Template['id'])]: { template: 'T', kind: '支える' },
+    });
+    // node の種類の id を edge として引いても当たらない
+    expect(
+      kindPropertyLabels([template], 'edge', kindOf(T, 'claim'), 'ja'),
+    ).toEqual({});
+  });
+
+  test('知らない template・知らない種類・文字列でない値は含めない (id のまま出す)', () => {
+    const template = templateOf(T, {});
+    expect(
+      kindPropertyLabels(
+        [template],
+        'node',
+        kindOf('template.other', 'claim'),
+        'ja',
+      ),
+    ).toEqual({});
+    expect(
+      kindPropertyLabels([template], 'node', kindOf(T, 'unknown'), 'ja'),
+    ).toEqual({});
+    expect(
+      kindPropertyLabels(
+        [template],
+        'node',
+        { [kindPropertyOf(T as Template['id'])]: 1 },
+        'ja',
+      ),
+    ).toEqual({});
   });
 });

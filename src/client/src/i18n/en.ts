@@ -479,6 +479,7 @@ export const en: Messages = {
     add: 'Add',
     valueOf: (name: string) => `Value of ${name}`,
     remove: (name: string) => `Delete ${name}`,
+    kindOf: (template: string) => `Kind in ${template}`,
     readOnly: {
       templateKind: 'The kind is fixed at creation and cannot be changed',
       system: 'Set by the app and cannot be changed',

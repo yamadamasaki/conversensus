@@ -78,6 +78,16 @@ describe('App 結合: agent の宣言 (設計 agent-actor.md D2、計画 agent-d
       );
       await waitFor(() => expect(agentMark()).toBe('claimed'), WIRING_TIMEOUT);
       expect(world.pds.records(ALICE.did, NSID.operatedAgent)).toEqual([]);
+
+      // 宣言を持たない alice・裏付けの無い agent を読んでも、4xx を出さない (#383)。
+      // ブラウザでは「Failed to load resource」としてコンソールに出る
+      expect(
+        world.pds
+          .rejected()
+          .filter(
+            (r) => r.includes('agentProfile') || r.includes('operatedAgent'),
+          ),
+      ).toEqual([]);
     },
     TEST_TIMEOUT_MS,
   );

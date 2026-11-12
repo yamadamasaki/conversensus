@@ -1144,8 +1144,7 @@ export default function App() {
   /** 依頼の宛先の候補 (agent 段 4 R4)。開いている File の参加者 */
   const requestParticipants = useFileParticipants(
     viewAddress?.fileId ?? null,
-    roster,
-    atprotoSession !== null,
+    fileOps.participating,
   );
   /** node の操作の文脈 (計画 node-actions-request-module.md N2)。変わったときだけ作り直す */
   const actionEnv = useMemo(
@@ -1501,7 +1500,11 @@ export default function App() {
       {viewAddress && panels.propertyOpen && panels.selection && (
         <PropertyEditor
           title={panels.selection.title}
-          rows={propertyRows(panels.selection.properties, showReadOnly)}
+          rows={propertyRows(
+            panels.selection.properties,
+            showReadOnly,
+            panels.selection.kindLabels,
+          )}
           addable={panels.selection.addable}
           onSet={(name, value) => panels.controls?.setProperty(name, value)}
           onRemove={(name) => panels.controls?.setProperty(name, undefined)}

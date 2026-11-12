@@ -33,6 +33,9 @@ kind-i18n-356.md)。訳は template graph の種類の node・edge の property 
   - 訳が無い言語では template graph の名前・説明
   - 読めない訳 (空の言語・空白だけ・文字列でない値) は落とす
   - `templateFromSheet` は訳の property を名前・説明にし、既定値には入れない
+  - `kindPropertyLabels` (#384): 種別の property を、template の名前と、種類の名前 (見る人の言語、無ければ
+    template graph の名前) にする。edge は edge の種類で引く。知らない template・知らない種類・文字列でない値は
+    含めない — 読み取り専用の表示 (#357) は、そのとき id のまま出す
 
 **生成器**: 言語は 3 つ、名前は 5 つの小さなプールから引く。名前のプールに訳と同じ綴りを入れておくのは、
 「label が別の言語の訳と同じ」場合と「label が名前でも訳でもない」場合の両方に当てるためである。見る人の言語は

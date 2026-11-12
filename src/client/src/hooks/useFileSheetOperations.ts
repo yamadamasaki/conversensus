@@ -277,6 +277,15 @@ export function useFileSheetOperations({
     state: FileSharing;
   } | null>(null);
   /**
+   * 開いている File の参加者の DID (#381)。共有状態と同じく、同期サイクルが読んだ名簿を受け取る —
+   * File を開いた後で参加した人も、次のサイクルで依頼の宛先の候補に出る。中身が変わったときだけ
+   * 差し替える (毎サイクル新しい配列を渡すと、候補のハンドル名の解決が毎回走る)
+   */
+  const [participating, setParticipating] = useState<{
+    fileId: FileId;
+    dids: readonly Did[];
+  } | null>(null);
+  /**
    * 画像 blob の由来 `cid → DID` (step2 Phase 2 S5)。**projection と同じ batch から
    * 導く**ので、projection を差し替える場所で必ず一緒に更新する。
    */
@@ -355,6 +364,12 @@ export function useFileSheetOperations({
     (fileId: FileId, participation: Participation) => {
       const viewer = didFromActor(actor);
       setSharing({ fileId, state: fileSharing(participation, viewer) });
+      const dids = [...participation.participating].sort();
+      setParticipating((prev) =>
+        prev?.fileId === fileId && sameDids(prev.dids, dids)
+          ? prev
+          : { fileId, dids },
+      );
       const founder = participation.founder ?? null;
       setFounders((prev) =>
         prev.get(fileId) === founder
@@ -1315,6 +1330,8 @@ export function useFileSheetOperations({
      * (知るには File の数だけ名簿を読むことになる)。
      */
     sharing,
+    /** 開いている File の参加者の DID (#381)。**開いている File の分しか無い** (`sharing` と同じ) */
+    participating,
     /**
      * 参加を承認した File を手元に立ち上げる (step2 Phase 2 S3)。
      * **承認の直後に呼ぶ** — 呼ばないと次に開き直すまでサイドバーに出てこない。
@@ -1360,6 +1377,11 @@ export function useFileSheetOperations({
     syncNow,
     holdBackground,
   };
+}
+
+/** 並べた DID の列が同じか */
+function sameDids(a: readonly Did[], b: readonly Did[]): boolean {
+  return a.length === b.length && a.every((did, i) => did === b[i]);
 }
 
 /** 未ログインの編集を出し直すか訊く文面 (FPR 前 L-1, 設計 Q1) */

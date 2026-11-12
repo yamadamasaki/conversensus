@@ -23,3 +23,6 @@ agent の宣言から、参加者一覧の印と operator の「認める」ま�
 2. alice が File を作って agent を招き、参加者一覧を開き直す。agent の行に「名乗りのみ」と model が出る
 3. 「自分の agent と認める」を押すと「裏付けあり」になり、alice の repo に裏付けが 1 つ (rkey = agent の DID) 置かれる
 4. 「認めるのをやめる」を押すと「名乗りのみ」に戻り、裏付けは消える
+5. 一連の中で、宣言・裏付けの読みが 4xx を返していない (#383)。宣言を持たない人 (alice) や裏付けの無い agent は
+   普通にいるので、`getRecord` で読むと 400 (RecordNotFound) になり、ブラウザのコンソールに出る。`listRecords` で探す。
+   偽の PDS は 4xx を返した要求を控える (`rejected`)。`getRecord` に戻すとこの確かめが落ちることを確かめた

@@ -33,6 +33,9 @@ const repoDescriptions = new Map<Did, RepoDescription>();
  * 失敗を例外にせず `null` として覚える。
  */
 async function describeRepo(did: Did): Promise<RepoDescription> {
+  // DID でないもの (import した File の書き手 `genesis`、未ログインの `local`) は問い合わせない (#382)。
+  // どの PDS にもいないので答えは決まっていて、問えば 400 がコンソールに出る
+  if (!did.startsWith('did:')) return null;
   const cached = repoDescriptions.get(did);
   if (cached !== undefined) return cached;
   let described: RepoDescription;

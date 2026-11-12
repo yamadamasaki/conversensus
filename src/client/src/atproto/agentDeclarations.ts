@@ -14,10 +14,15 @@ import {
 } from '@conversensus/shared';
 import { agentRecords } from './collections';
 
-/** DID 1 つの宣言と裏付けを読む。読めなければ agent ではない (表示にだけ使う) */
+/**
+ * DID 1 つの宣言と裏付けを読む。読めなければ agent ではない (表示にだけ使う)。
+ * DID でないもの (import した File の書き手 `genesis` など) は読まない (#382) — repo が無い
+ */
 export async function readAgentDeclaration(
   did: Did,
 ): Promise<AgentDeclaration> {
+  if (!did.startsWith('did:'))
+    return agentDeclarationOf(did, undefined, undefined);
   const profile = await agentRecords.getProfile(did);
   const parsed = AgentProfileSchema.safeParse(profile);
   const operated = parsed.success

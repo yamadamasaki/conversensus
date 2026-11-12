@@ -5,6 +5,7 @@ import {
   type Batch,
   compareByClockActorId,
   didFromActor,
+  GENESIS_ACTOR,
   type Op,
 } from './unified';
 
@@ -14,6 +15,8 @@ const E1 = '33333333-3333-4333-8333-333333333333';
 const ALICE = 'did:plc:alice';
 const BOB = 'did:plc:bob';
 const AGENT = 'did:plc:agent';
+/** 作者に数えない actor: 未ログイン (`local`) と import した File の中身 (`genesis`) */
+const NOT_AUTHORS: ReadonlySet<string> = new Set(['local', GENESIS_ACTOR]);
 
 let counter = 0;
 function batch(did: string, clock: number, ops: Op[]): Batch {
@@ -75,6 +78,17 @@ describe('authorsOf (例)', () => {
     expect(authors.get(N1)).toEqual([ALICE]);
   });
 
+  test('import した File の中身 (genesis) は数えない (#382)。その後に書いた人だけが作者', () => {
+    const authors = authorsOf([
+      {
+        ...batch(GENESIS_ACTOR, 0, [op('node.add', N1, { content: '' })]),
+        actor: GENESIS_ACTOR,
+      } as Batch,
+      batch(BOB, 2, [op('node.setContent', N1, { content: 'b' })]),
+    ]);
+    expect(authors.get(N1)).toEqual([BOB]);
+  });
+
   test('作成の op が手元に無い要素 (受信の途中など) は、書いた人を最後に書いた順に並べる', () => {
     const authors = authorsOf([
       batch(BOB, 2, [op('node.setContent', N1, { content: 'b' })]),
@@ -85,9 +99,9 @@ describe('authorsOf (例)', () => {
 });
 
 describe('authorsOf (性質)', () => {
-  /** 小さなプール: 要素 3 つ・人 3 人 + 未ログイン・op は数えるもの数えないもの両方 */
+  /** 小さなプール: 要素 3 つ・人 3 人 + 未ログイン + genesis・op は数えるもの数えないもの両方 */
   const target = fc.constantFrom(N1, N2, E1);
-  const actorDid = fc.constantFrom(ALICE, BOB, AGENT, 'local');
+  const actorDid = fc.constantFrom(ALICE, BOB, AGENT, 'local', GENESIS_ACTOR);
   const kind = fc.constantFrom(
     'node.add',
     'node.setContent',
@@ -132,7 +146,7 @@ describe('authorsOf (性質)', () => {
       ),
     );
 
-  test('作者は、その要素に数える op を出した人ちょうど (重ならず、未ログインを含まない)。batch の並びに依らない', () => {
+  test('作者は、その要素に数える op を出した人ちょうど (重ならず、未ログインと genesis を含まない)。batch の並びに依らない', () => {
     fc.assert(
       fc.property(batchesArb, fc.nat(), (specs, seed) => {
         const batches = build(specs);
@@ -140,7 +154,7 @@ describe('authorsOf (性質)', () => {
         for (const id of [N1, N2, E1]) {
           const expected = new Set(
             batches
-              .filter((b) => didFromActor(b.actor) !== 'local')
+              .filter((b) => !NOT_AUTHORS.has(didFromActor(b.actor)))
               .filter((b) =>
                 b.ops.some(
                   (o) =>
@@ -166,7 +180,7 @@ describe('authorsOf (性質)', () => {
     fc.assert(
       fc.property(batchesArb, (specs) => {
         const sorted = build(specs)
-          .filter((b) => didFromActor(b.actor) !== 'local')
+          .filter((b) => !NOT_AUTHORS.has(didFromActor(b.actor)))
           .sort(compareByClockActorId);
         const authors = authorsOf(sorted);
         for (const id of [N1, N2, E1]) {

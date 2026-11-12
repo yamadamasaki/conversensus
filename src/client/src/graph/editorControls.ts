@@ -6,6 +6,7 @@
  * `useEventStore` に触れるので、中身は `GraphEditor` に残し、外へは口だけを出す。
  */
 
+import type { KindPropertyLabel } from '@conversensus/shared';
 import type { GraphEvent } from '../events/GraphEvent';
 import type { SearchHit } from '../search/searchSheet';
 
@@ -47,6 +48,11 @@ export type PropertyTarget = {
   properties: Record<string, unknown> | undefined;
   /** 追加できる名前の候補 (template の宣言から)。候補は edge にしか無い */
   addable: readonly string[];
+  /**
+   * 種別の property の、人が読める名前 (#384)。読み取り専用の表示 (#357) で、名前と値を id のまま出さない。
+   * 見る人の言語で引いてある (言語が変われば変わる)
+   */
+  kindLabels?: Readonly<Record<string, KindPropertyLabel>>;
 };
 
 /**
@@ -61,5 +67,6 @@ export function propertyTargetKey(target: PropertyTarget | undefined): string {
     target.title,
     target.properties ?? null,
     target.addable,
+    target.kindLabels ?? null,
   ]);
 }

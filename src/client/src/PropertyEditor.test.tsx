@@ -253,6 +253,41 @@ describe('その他', () => {
   });
 });
 
+describe('種別の行は人が読める名前で出す (#384)', () => {
+  it('名前は template の名前の種類、値は種類の名前。id は hover で見られる', () => {
+    show({
+      rows: [
+        row({
+          name: 'template.11111111.kind',
+          value: '22222222-2222-4222-8222-222222222222',
+          readOnly: 'templateKind',
+          kindLabel: { template: 'Toulmin model', kind: '主張' },
+        }),
+      ],
+    });
+    const name = screen.getByText('Toulmin model の種類');
+    expect(name.getAttribute('title')).toBe('template.11111111.kind');
+    const value = screen.getByText('主張');
+    expect(value.getAttribute('title')).toBe(
+      '22222222-2222-4222-8222-222222222222',
+    );
+    expect(screen.queryByText('template.11111111.kind')).toBeNull();
+  });
+
+  it('人が読める名前が無ければ id のまま出す (知らない template)', () => {
+    show({
+      rows: [
+        row({
+          name: 'com.unknown.vendor.kind',
+          value: 'x',
+          readOnly: 'templateKind',
+        }),
+      ],
+    });
+    expect(screen.getByText('com.unknown.vendor.kind')).toBeTruthy();
+  });
+});
+
 describe('読み取り専用も表示 (#357)', () => {
   it('既定は off で、押すと on になり端末に覚える。もう一度押すと off に戻り、覚えたものも消す', () => {
     show();

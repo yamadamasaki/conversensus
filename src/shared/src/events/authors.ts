@@ -10,6 +10,8 @@
  * - 並べ方: **作った人を先頭に**、あとは最後に書いた順 (新しい順)。順序は畳み込みと同じ物差し
  *   (`compareByClockActorId`)
  * - 未ログインの actor (`local`) は数えない (ログインした時に自分の actor に書き換えて出し直す)
+ * - genesis (`GENESIS_ACTOR`、import した File の中身) も数えない (#382)。誰でもない書き手で、DID ではないので、
+ *   avatar に「G」として出したり、ハンドル名・agent の宣言を PDS に問い合わせたりしない
  */
 
 import type { Did } from '../schemas';
@@ -17,6 +19,7 @@ import {
   type Batch,
   compareByClockActorId,
   didFromActor,
+  GENESIS_ACTOR,
   LOCAL_DID,
   type Op,
 } from './unified';
@@ -52,7 +55,7 @@ export function authorsOf(batches: readonly Batch[]): Authors {
   const ordered = [...batches].sort(compareByClockActorId);
   ordered.forEach((batch, position) => {
     const did = didFromActor(batch.actor) as Did;
-    if (did === LOCAL_DID) return;
+    if (did === LOCAL_DID || did === GENESIS_ACTOR) return;
     for (const op of batch.ops) {
       if (!AUTHORING_KINDS.has(op.kind) || !('target' in op)) continue;
       const id = String(op.target);
