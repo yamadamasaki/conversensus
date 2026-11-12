@@ -34,7 +34,10 @@ export type McpKit = {
   ) => Promise<ToolResult>;
   /** 例外を道具の失敗として返す (agent が理由を読んで直せるように) */
   guarded: (run: () => Promise<string>) => Promise<ToolResult>;
+  /** 道具に渡された File の id を読む。起動に範囲があれば、範囲の外は断る (#386) */
   fileIdOf: (value: string) => FileId;
+  /** 参加している File を見つけ直して返す。起動に範囲があれば範囲の中だけ (#386) */
+  visibleFiles: () => Promise<FileId[]>;
   /** 書く先の指定 (fileId・sheetId) の入力の形 */
   where: { fileId: z.ZodString; sheetId: z.ZodString };
 };
@@ -53,6 +56,11 @@ export type ResidentContext = {
   /** 言語モデルを起動する口 (既定は `claude -p`) */
   runner: AgentRunner;
   log: (message: string) => void;
+  /**
+   * 他の agent が送った仕事 (依頼など) にも起動するか (#387)。既定は起動しない — agent 同士の往復が
+   * 人を介さずに続かないように。operator が明示したときだけ起動する
+   */
+  answerAgents?: boolean;
 };
 
 export type HeadlessModule = {

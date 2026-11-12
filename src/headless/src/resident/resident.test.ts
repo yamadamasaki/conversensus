@@ -27,6 +27,39 @@ describe('parseResidentArgs', () => {
     ).toThrow();
   });
 
+  it('使いすぎない上限 (#387): turn は正の整数、費用は正の数', () => {
+    const args = parseResidentArgs([
+      '--handle',
+      'a',
+      '--max-turns',
+      '10',
+      '--max-budget',
+      '0.5',
+    ]);
+    expect(args.maxTurns).toBe(10);
+    expect(args.maxBudgetUsd).toBe(0.5);
+    expect(() =>
+      parseResidentArgs(['--handle', 'a', '--max-turns', '1.5']),
+    ).toThrow('整数');
+    expect(() =>
+      parseResidentArgs(['--handle', 'a', '--max-budget', '0']),
+    ).toThrow();
+  });
+
+  it('--answer-agents は値を取らない。既定は答えない (#387)', () => {
+    expect(parseResidentArgs(['--handle', 'a']).answerAgents).toBe(false);
+    const args = parseResidentArgs([
+      '--answer-agents',
+      '--handle',
+      'a',
+      '--poll',
+      '30',
+    ]);
+    expect(args.answerAgents).toBe(true);
+    expect(args.handle).toBe('a');
+    expect(args.pollIntervalMs).toBe(30_000);
+  });
+
   it('知らない引数・値の無い引数は断る', () => {
     expect(() => parseResidentArgs(['--handle', 'a', '--nope', 'x'])).toThrow(
       '知らない引数',

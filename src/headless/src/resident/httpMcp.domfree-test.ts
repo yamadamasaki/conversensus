@@ -80,4 +80,33 @@ describe('serveMcpHttp (段 5 S4)', () => {
     });
     expect(res.status).toBe(404);
   });
+
+  it('🔴 範囲つきの token (#386): 範囲の File と道具だけを使え、取り消すと 401', async () => {
+    const inside = await headless.createFile('依頼の File');
+    const outside = await headless.createFile('別の File');
+    const grant = http.grant({
+      files: new Set([inside]),
+      tools: new Set(['read_file', 'list_files']),
+    });
+    client = await connectMcpHttp(http.url, grant.token);
+    const { tools } = await client.client.listTools();
+    expect(tools.map((t) => t.name).sort()).toEqual([
+      'list_files',
+      'read_file',
+    ]);
+    expect((await client.call('read_file', { fileId: inside })).isError).toBe(
+      false,
+    );
+    const denied = await client.call('read_file', { fileId: outside });
+    expect(denied.isError).toBe(true);
+    expect(denied.text).toContain('触れられない');
+    const listed = await client.call('list_files');
+    expect(listed.text).toContain(inside);
+    expect(listed.text).not.toContain(outside);
+    await client.close();
+    client = null;
+
+    grant.revoke();
+    await expect(connectMcpHttp(http.url, grant.token)).rejects.toThrow();
+  });
 });

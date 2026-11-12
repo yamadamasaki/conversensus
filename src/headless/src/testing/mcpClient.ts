@@ -10,7 +10,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { Headless } from '../headless';
 import type { HeadlessModule } from '../headlessModule';
-import { createMcpServer } from '../mcpServer';
+import { createMcpServer, type McpScope } from '../mcpServer';
 
 /** 道具を呼んだ結果: 返した文と、失敗か */
 export type Called = { text: string; isError: boolean };
@@ -21,12 +21,13 @@ export type McpTestClient = {
   close(): Promise<void>;
 };
 
-/** `modules` は試験する module の headless の側 (依頼の道具など) */
+/** `modules` は試験する module の headless の側 (依頼の道具など)。`scope` は起動に許す範囲 (#386) */
 export async function connectMcp(
   headless: Headless,
   modules: readonly HeadlessModule[] = [],
+  scope?: McpScope,
 ): Promise<McpTestClient> {
-  const server = createMcpServer(headless, modules);
+  const server = createMcpServer(headless, modules, scope);
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
   await server.connect(serverSide);
   const client = new Client({ name: 'test', version: '0' });

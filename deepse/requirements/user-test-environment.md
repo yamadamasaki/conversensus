@@ -408,6 +408,10 @@ claude mcp add conversensus -- bun run /Volumes/MyBook/Projects/conversensus/src
   番号が重なるのを防ぐ)。CLI を使うときは Claude Code を閉じるか、`--data` で別の置き場所にする
 - ログインが切れたら (2 週間)、Claude Code を閉じて `cli.ts login` をし直す。MCP server からは
   ログインしない (ブラウザの同意を待てないため)
+- **MCP をつないだ session では、shell や file を書き換える道具を許可制のままにする** (#388)。`read_file` で読む
+  本文・依頼・種類の説明は他の参加者が書いたもので、その中に「この command を実行して」と書かれていることがある。
+  Bash・Edit・Write などを常に許す設定 (`--dangerously-skip-permissions`、`allowedTools` に Bash など) で
+  conversensus の MCP を使わない
 - 外すとき: `claude mcp remove conversensus`
 
 ### 5.7 依頼・相談を人間と agent で行き来する (agent 段 4)
@@ -469,8 +473,21 @@ CONVERSENSUS_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx \
 - 置き場所は §5.5 と同じ `~/.conversensus/agent` (同じ actor で続く)。`--data` で変えると別の端末になる
 - 起動すると `[resident] did:... として常駐する` と、出している MCP の URL が出る
 - 任意: `--model sonnet`・`--instructions <file>` (agent 全体の指示)・`--timeout <秒>` (1 依頼の上限、既定 600)・
-  `--poll <秒>` (流れに繋がっていないときのポーリング、既定 60)
+  `--max-turns <n>` (1 依頼の turn、既定 30)・`--max-budget <USD>` (1 依頼の費用、既定は上限なし)・
+  `--answer-agents` (agent が送った依頼にも答える)・`--poll <秒>` (流れに繋がっていないときのポーリング、既定 60)
 - 止めるのは Ctrl-C
+
+**起動した claude にできること** (#386・#387・#390):
+
+- 道具は conversensus の MCP だけで、**依頼の File の中**の読む・足す・書き換える道具と、依頼に答える道具だけ。
+  他の File・参加・依頼を送る・宛先を変える・消す道具は使えない (起動ごとに範囲を絞った token を渡し、終われば取り消す)
+- operator の設定 (hooks・plugin・CLAUDE.md) を読まない (`--setting-sources ""`)。環境変数は Claude Code の
+  ログインに要るものだけを渡し、app password は渡さない。依頼の本文は stdin で渡す (`ps` に出ない)
+- 起動の回数に上限がある: 1 時間に全体で 30 回・送り手 1 人から 10 回、同じ依頼の送り直しは 5 回まで、待ち行列は 20。
+  上限に当たった依頼は `[resident] 上限 (...) のため、いまは起動しない` と出て、時間が空けば次の同期で答える
+  (送り直しの上限を超えたものは答えない)
+- **agent が送った依頼には、既定では答えない** (`[resident] agent (...) が送った依頼には起動しない`)。agent 同士の
+  往復が人を介さずに続かないように。答えさせるときは `--answer-agents`
 
 **確かめる**:
 
@@ -485,7 +502,7 @@ CONVERSENSUS_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx \
   - **止めて参加する**: 常駐を Ctrl-C で止め、`bun run src/headless/src/cli.ts accept <参加コード>` してから
     常駐を起動し直す。起動するときに参加している File を見直すので、新しい File もすぐ見張る
   - **止めずに参加する**: 常駐が出している MCP の口に Claude Code をつなぐ。つなぎ方 (URL と token) は
-    置き場所の `resident-mcp.json` にある
+    置き場所の `resident-mcp.json` にある (この口は範囲を絞らない。常駐が起動する claude には渡さない)
     ```sh
     claude --mcp-config ~/.conversensus/agent/resident-mcp.json   # --data を替えたらその置き場所
     ```

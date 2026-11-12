@@ -8,7 +8,10 @@ import fc from 'fast-check';
 import {
   type AttemptStore,
   createDispatcher,
+  DEFAULT_DISPATCH_LIMITS,
+  type DispatchLimits,
   type RequestJob,
+  type SkipReason,
   storageAttempts,
 } from './requestDispatch';
 
@@ -189,5 +192,106 @@ describe('createDispatcher (段 5 S3)', () => {
         }
       }),
     );
+  });
+});
+
+describe('起動の回数の上限 (#387)', () => {
+  const ALICE = 'did:plc:alice' as RequestJob['from'];
+  const BOB = 'did:plc:bob' as RequestJob['from'];
+  const node = (i: number) =>
+    `${String(i).padStart(8, '0')}-1111-4111-8111-111111111111` as NodeId;
+  const from = (j: RequestJob, who: RequestJob['from']): RequestJob => ({
+    ...j,
+    ...(who && { from: who }),
+  });
+
+  /** 上限と時計を差し替えた世界 */
+  function limited(limits: Partial<DispatchLimits>) {
+    let open: RequestJob[] = [];
+    let clock = 0;
+    const ran: string[] = [];
+    const skipped: SkipReason[] = [];
+    const dispatcher = createDispatcher({
+      requestsOf: () => open,
+      runner: {
+        run: async (j) => {
+          ran.push(`${j.nodeId.slice(0, 8)}#${j.sent}`);
+        },
+      },
+      attempts: memoryAttempts(),
+      limits: { ...DEFAULT_DISPATCH_LIMITS, ...limits },
+      onSkip: (_, reason) => skipped.push(reason),
+      now: () => clock,
+    });
+    return {
+      ran,
+      skipped,
+      offer: async (jobs: RequestJob[]) => {
+        open = jobs;
+        dispatcher.offer(FILE);
+        await dispatcher.idle();
+      },
+      advance: (ms: number) => {
+        clock += ms;
+      },
+    };
+  }
+
+  it('🔴 列に入れる数に上限があり、溢れた分は次の offer で入る', async () => {
+    const w = limited({ queue: 2 });
+    const jobs = [1, 2, 3].map((i) => job(node(i), 1));
+    await w.offer(jobs);
+    expect(w.ran).toHaveLength(2);
+    expect(w.skipped).toEqual(['queueFull']);
+    await w.offer(jobs);
+    expect(w.ran).toHaveLength(3);
+  });
+
+  it('🔴 1 時間あたりの起動に上限があり、時間が空けば次の offer で起動する', async () => {
+    const w = limited({ perHour: 2 });
+    const jobs = [1, 2, 3].map((i) => job(node(i), 1));
+    await w.offer(jobs);
+    expect(w.ran).toHaveLength(2);
+    expect(w.skipped).toEqual(['perHour']);
+    // 1 時間たたないうちは起動しない
+    await w.offer(jobs);
+    expect(w.ran).toHaveLength(2);
+    w.advance(60 * 60_000 + 1);
+    await w.offer(jobs);
+    expect(w.ran).toHaveLength(3);
+  });
+
+  it('🔴 送り手ごとの上限: 1 人が上限に達しても、他の人の依頼は起動する', async () => {
+    const w = limited({ perSenderPerHour: 1 });
+    await w.offer([
+      from(job(node(1), 1), ALICE),
+      from(job(node(2), 1), ALICE),
+      from(job(node(3), 1), BOB),
+    ]);
+    expect(w.ran).toEqual(['00000001#1', '00000003#1']);
+    expect(w.skipped).toEqual(['perSender']);
+  });
+
+  it('🔴 同じ node への起動 (送り直し) に上限があり、超えたら送り直しても起動しない', async () => {
+    const w = limited({ perNode: 2 });
+    for (const sent of [1, 2, 3, 4]) await w.offer([job(N1, sent)]);
+    expect(w.ran).toEqual(['11111111#1', '11111111#2']);
+    expect(w.skipped).toEqual(['perNode', 'perNode']);
+  });
+});
+
+describe('storageAttempts の数の上限 (#387)', () => {
+  it('🔴 上限を超えたら、最後に置いたのが古い印から捨てる', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'attempts-cap-'));
+    const attempts = storageAttempts(new FileStorage(join(dir, 's.json')), 2);
+    attempts.record(FILE, N1, 1);
+    attempts.record(FILE, N2, 1);
+    // N1 を置き直すと新しくなる
+    attempts.record(FILE, N1, 2);
+    const N3 = '33333333-3333-4333-8333-333333333333' as NodeId;
+    attempts.record(FILE, N3, 1);
+    expect(attempts.lastAttempted(FILE, N2)).toBe(0);
+    expect(attempts.lastAttempted(FILE, N1)).toBe(2);
+    expect(attempts.lastAttempted(FILE, N3)).toBe(1);
   });
 });

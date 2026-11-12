@@ -27,3 +27,5 @@ headless の workspace の根 (`src/headless`) で走らせると preload が効
 - 🔴 token を持つ client は、同じ `Headless` の上の道具で読み書きできる。書いたものは常駐のプロセスの手元にも入る
 - token が無い・違う要求は 401。SDK の client もつながらない
 - MCP の path の外は 404
+- 🔴 範囲つきの token (`grant`、#386): 範囲の道具だけが見え (`listTools`)、範囲の File は読め、範囲の外の File は
+  理由つきで断られる。`list_files` も範囲の File だけを出す。取り消すと、その token ではつながらない
