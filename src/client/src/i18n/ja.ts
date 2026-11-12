@@ -291,6 +291,8 @@ export const ja = {
       model: (name: string) => `model: ${name}`,
       acknowledge: '自分の agent と認める',
       unacknowledge: '認めるのをやめる',
+      confirmAcknowledge: (handle: string, did: string) =>
+        `${handle} (${did}) を自分の agent と認めますか? 認めると、参加者全員の画面でこの agent に「裏付けあり」と出ます。自分が動かしている agent か確かめてください。`,
     },
     copied: 'コピーした',
     copyCode: 'コードをコピー',

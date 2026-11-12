@@ -1630,7 +1630,26 @@ export default function App() {
           agentOf={agentDeclarations.declarationOf}
           {...(atprotoSession && { me: atprotoSession.did })}
           onAcknowledgeAgent={(agent, yes) =>
-            void agentDeclarations.acknowledge(agent, yes).catch((error) => {
+            void (async () => {
+              // 認める前に、どの agent かをハンドル名と DID で確かめる (#394)。認めると参加者全員の画面で
+              // 「裏付けあり」になる。やめるのは確かめない (元に戻すだけ)
+              if (
+                yes &&
+                !(await new Promise<boolean>((resolve) =>
+                  setConfirmState({
+                    message: messages().invitation.agent.confirmAcknowledge(
+                      participation.state.labelOf(agent),
+                      agent,
+                    ),
+                    resolve,
+                    confirmLabel: messages().invitation.agent.acknowledge,
+                  }),
+                ))
+              ) {
+                return;
+              }
+              await agentDeclarations.acknowledge(agent, yes);
+            })().catch((error) => {
               console.warn('[agent] 認められなかった:', error);
               void showAlert(messages().app.agentAcknowledgeFailed);
             })

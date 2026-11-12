@@ -1,0 +1,20 @@
+{
+  "lexicon": 1,
+  "id": "app.conversensus.v2.agentProfile",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "An agent's declaration that its DID is an agent operated by a human (agent-actor design D2). Lives in the agent's own repo at rkey 'self'. Used only for display; it does not change how conversensus treats the DID. A declaration is 'verified' only when the operator's repo holds an app.conversensus.v2.operatedAgent record pointing back at this agent. Records that do not match this shape are treated as absent.",
+      "key": "literal:self",
+      "record": {
+        "type": "object",
+        "required": ["operator"],
+        "properties": {
+          "operator": { "type": "string", "format": "did", "maxLength": 2048, "description": "DID of the human who operates this agent." },
+          "model": { "type": "string", "maxLength": 100, "description": "Name of the language model behind the agent (optional)." },
+          "description": { "type": "string", "maxLength": 1000, "description": "What the agent does (optional)." }
+        }
+      }
+    }
+  }
+}
