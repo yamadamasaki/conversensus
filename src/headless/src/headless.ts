@@ -75,6 +75,7 @@ import {
   type Actor,
   type AgentDeclaration,
   type AgentProfile,
+  AgentProfileSchema,
   appliedTemplateRefs,
   type Batch,
   type BatchId,
@@ -288,13 +289,21 @@ export class Headless {
     if (!operator) {
       throw new ToolError(`operator が見つからない: ${profile.operator}`);
     }
-    const declared: AgentProfile = {
+    const candidate = {
       operator,
       ...(profile.model !== undefined && { model: profile.model }),
       ...(profile.description !== undefined && {
         description: profile.description,
       }),
     };
+    // 読む側が「無い」として扱う形 (DID でない operator・長すぎる model と説明) は書かない (#392)
+    const parsed = AgentProfileSchema.safeParse(candidate);
+    if (!parsed.success) {
+      throw new ToolError(
+        `宣言の形が違う: ${parsed.error.issues.map((i) => `${i.path.join('.')} ${i.message}`).join('; ')}`,
+      );
+    }
+    const declared: AgentProfile = parsed.data;
     await agentRecords.putProfile(declared);
     return declared;
   }

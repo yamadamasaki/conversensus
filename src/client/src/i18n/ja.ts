@@ -53,6 +53,8 @@ export const ja = {
     /** module の知らせ (届いた依頼など) を開く */
     open: '開く',
     dismiss: (from: string) => `${from} からの知らせを閉じる`,
+    /** File ごとの上限を超えて畳んだ知らせ (#393) */
+    more: (count: number) => `ほか ${count} 件`,
   },
   rightSidebar: {
     region: '詳細',
@@ -291,6 +293,8 @@ export const ja = {
       model: (name: string) => `model: ${name}`,
       acknowledge: '自分の agent と認める',
       unacknowledge: '認めるのをやめる',
+      confirmAcknowledge: (handle: string, did: string) =>
+        `${handle} (${did}) を自分の agent と認めますか? 認めると、参加者全員の画面でこの agent に「裏付けあり」と出ます。自分が動かしている agent か確かめてください。`,
     },
     copied: 'コピーした',
     copyCode: 'コードをコピー',

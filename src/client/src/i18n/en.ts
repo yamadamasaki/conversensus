@@ -49,6 +49,7 @@ export const en: Messages = {
   notices: {
     open: 'Open',
     dismiss: (from: string) => `Dismiss the notice from ${from}`,
+    more: (count: number) => `${count} more`,
   },
   rightSidebar: {
     region: 'Details',
@@ -284,6 +285,8 @@ export const en: Messages = {
       model: (name: string) => `model: ${name}`,
       acknowledge: 'Acknowledge as my agent',
       unacknowledge: 'Stop acknowledging',
+      confirmAcknowledge: (handle: string, did: string) =>
+        `Acknowledge ${handle} (${did}) as your agent? Every participant will then see this agent as "verified". Make sure it is an agent you run.`,
     },
     copied: 'Copied',
     copyCode: 'Copy code',

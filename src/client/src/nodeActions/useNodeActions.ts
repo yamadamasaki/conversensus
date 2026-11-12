@@ -17,7 +17,11 @@ import type { DispatchOptions } from '../hooks/useEventStore';
 import { useLocale } from '../i18n/messages';
 import { type ActionEnv, actionContextOf } from './flowContext';
 import { type ActionArgs, NodeActionError } from './nodeAction';
-import { type AvailableAction, runNodeAction } from './registry';
+import {
+  type AvailableAction,
+  normalizeInitialArgs,
+  runNodeAction,
+} from './registry';
 import { useNodeActionRegistry } from './registryContext';
 
 /** メニューの幅の見込み (画面の右端からはみ出さないように寄せる) */
@@ -126,7 +130,11 @@ export function useNodeActions({
       setDialog({
         nodeId,
         found,
-        initial: found.action.initial?.(ctx) ?? {},
+        // 宣言に合わない初めの値 (選択肢に無い値など) は直してから出す (#393)
+        initial: normalizeInitialArgs(
+          params,
+          found.action.initial?.(ctx) ?? {},
+        ),
       });
     },
     [execute, ctxEnv, getNodes, getEdges],

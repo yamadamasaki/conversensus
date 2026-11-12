@@ -21,20 +21,33 @@ import type { Did } from '../schemas';
 /** agent の宣言の rkey (1 つの repo に 1 つ) */
 export const AGENT_PROFILE_RKEY = 'self';
 
-/** DID の綴り (中身の検証は PDS がする。ここでは空でない文字列) */
-const DidStringSchema = z.string().min(1);
+/** DID の長さの上限 (atproto の DID の規則) */
+const DID_MAX_LENGTH = 2048;
+/** model の長さの上限 (#392) */
+export const AGENT_MODEL_MAX_LENGTH = 100;
+/** 説明の長さの上限 (#392) */
+export const AGENT_DESCRIPTION_MAX_LENGTH = 1000;
 
-/** agent の宣言 (agent の repo) */
+/**
+ * DID の形 (#392)。atproto の DID の構文 (`did:<method>:<id>`) に合わせる。宣言は他人の repo から読み、
+ * 参加者一覧に出し、operator の repo を読みに行く先にもなるので、空でない文字列なら何でも通す、をやめる
+ */
+export const DidStringSchema = z
+  .string()
+  .max(DID_MAX_LENGTH)
+  .regex(/^did:[a-z]+:[a-zA-Z0-9._:%-]*[a-zA-Z0-9._-]$/);
+
+/** agent の宣言 (agent の repo)。lexicon は `lexicons/app/conversensus/v2/agentProfile.json` */
 export const AgentProfileSchema = z.object({
   operator: DidStringSchema,
   /** 言語モデルの名前 (任意) */
-  model: z.string().optional(),
+  model: z.string().max(AGENT_MODEL_MAX_LENGTH).optional(),
   /** 何をする agent か (任意) */
-  description: z.string().optional(),
+  description: z.string().max(AGENT_DESCRIPTION_MAX_LENGTH).optional(),
 });
 export type AgentProfile = z.infer<typeof AgentProfileSchema>;
 
-/** operator の裏付け (operator の repo、rkey = agent の DID) */
+/** operator の裏付け (operator の repo、rkey = agent の DID)。lexicon は `operatedAgent.json` */
 export const OperatedAgentSchema = z.object({ agent: DidStringSchema });
 export type OperatedAgent = z.infer<typeof OperatedAgentSchema>;
 

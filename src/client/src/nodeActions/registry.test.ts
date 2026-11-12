@@ -13,6 +13,7 @@ import { NodeActionError } from './nodeAction';
 import {
   actionKey,
   createNodeActionRegistry,
+  normalizeInitialArgs,
   noticeKeyOf,
   runNodeAction,
   validateArgs,
@@ -287,6 +288,66 @@ describe('引数の確かめ', () => {
     expect(() => validateArgs([CHOICE], {})).toThrow(NodeActionError);
     expect(() => validateArgs([BODY], { body: '  \n' })).toThrow('空');
     expect(() => validateArgs([ACTORS], { to: ALICE })).toThrow('DID の配列');
+  });
+
+  test('初めの値 (#393): 選択肢に無い値は先頭の選択肢に、形の違う値は空に、知らない名前は落とす', () => {
+    const memo: ActionParam = {
+      name: 'memo',
+      kind: 'text',
+      label: text('memo'),
+    };
+    expect(
+      normalizeInitialArgs([ACTORS, CHOICE, memo], {
+        to: [ALICE, 3, BOB],
+        where: 'self',
+        memo: 42,
+        unknown: 'x',
+      }),
+    ).toEqual({ to: [ALICE, BOB], where: 'linkedNode', memo: '' });
+    // 合う値はそのまま。無い値は無いまま (既定は dialog が決める)
+    expect(
+      normalizeInitialArgs([ACTORS, CHOICE, memo], {
+        where: 'newSheet',
+        memo: 'メモ',
+      }),
+    ).toEqual({ where: 'newSheet', memo: 'メモ' });
+    expect(normalizeInitialArgs([ACTORS], { to: ALICE })).toEqual({ to: [] });
+    // 直した値は確かめを通る (dialog の「実行」が詰まらない)
+    expect(() =>
+      validateArgs(
+        [ACTORS, CHOICE],
+        normalizeInitialArgs([ACTORS, CHOICE], { to: 'x', where: 'self' }),
+      ),
+    ).not.toThrow();
+  });
+
+  test('(性質) 初めの値を直すと、選択肢の値は選択肢の中・名前は宣言の中にあり、直し直しても変わらない (#393)', () => {
+    const value = fc.constantFrom<unknown>(
+      'linkedNode',
+      'newSheet',
+      'self',
+      ALICE,
+      [ALICE, BOB],
+      [ALICE, 1],
+      42,
+      null,
+    );
+    fc.assert(
+      fc.property(
+        fc.dictionary(fc.constantFrom('to', 'where', 'body', 'other'), value),
+        (initial) => {
+          const params = [ACTORS, CHOICE, BODY];
+          const once = normalizeInitialArgs(params, initial);
+          for (const name of Object.keys(once)) {
+            expect(['to', 'where', 'body']).toContain(name);
+          }
+          if (once.where !== undefined) {
+            expect(['linkedNode', 'newSheet']).toContain(once.where as string);
+          }
+          expect(normalizeInitialArgs(params, once)).toEqual(once);
+        },
+      ),
+    );
   });
 
   test('(性質) 確かめは冪等で、actors は同じ人を 1 度だけ持つ', () => {

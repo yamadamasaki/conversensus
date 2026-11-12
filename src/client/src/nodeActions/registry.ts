@@ -1,4 +1,4 @@
-import type { TemplateSeed } from '@conversensus/shared';
+import type { Did, TemplateSeed } from '@conversensus/shared';
 /**
  * 登録された module と、「この node に今使える操作」(計画 node-actions-request-module.md N1)
  *
@@ -194,6 +194,45 @@ export function validateArgs(
   return Object.fromEntries(
     params.map((p) => [p.name, checkParam(p, args[p.name])]),
   );
+}
+
+/**
+ * dialog の初めの値を、宣言に合う形にする (#393)。初めの値は多くは node の property から読むので、他の参加者が
+ * 何を書いたかで決まる。合わない値をそのまま入れると、dialog は選択肢の先頭を見せながら合わない値を持ち、
+ * 「実行」が通らない (property を消すまで戻らない)。
+ *
+ * - `choice`: 選択肢に無い値は先頭の選択肢に置き換える
+ * - `actors`: 文字列でないものを落とす (配列でなければ空)
+ * - `text`: 文字列でなければ空
+ * - 宣言に無い名前は落とす (`validateArgs` が断るので)
+ */
+export function normalizeInitialArgs(
+  params: readonly ActionParam[],
+  initial: Readonly<Record<string, unknown>>,
+): ActionArgs {
+  const args: Record<string, ActionArgValue> = {};
+  for (const param of params) {
+    const value = initial[param.name];
+    if (value === undefined) continue;
+    switch (param.kind) {
+      case 'choice': {
+        const fallback = param.options[0]?.value;
+        const known = param.options.some((o) => o.value === value);
+        if (known) args[param.name] = value as string;
+        else if (fallback !== undefined) args[param.name] = fallback;
+        break;
+      }
+      case 'actors':
+        args[param.name] = Array.isArray(value)
+          ? (value.filter((v) => typeof v === 'string') as Did[])
+          : [];
+        break;
+      case 'text':
+        args[param.name] = typeof value === 'string' ? value : '';
+        break;
+    }
+  }
+  return args;
 }
 
 /**

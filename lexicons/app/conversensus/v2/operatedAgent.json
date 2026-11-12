@@ -1,0 +1,18 @@
+{
+  "lexicon": 1,
+  "id": "app.conversensus.v2.operatedAgent",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "An operator's acknowledgement that an agent DID is theirs (agent-actor design D2). Lives in the operator's repo; rkey is the agent's DID. Counts only when the agent's app.conversensus.v2.agentProfile names this repo's owner as its operator, so nobody can mark someone else as an agent. Deleting the record withdraws the acknowledgement.",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": ["agent"],
+        "properties": {
+          "agent": { "type": "string", "format": "did", "maxLength": 2048, "description": "DID of the acknowledged agent. Must equal the record key." }
+        }
+      }
+    }
+  }
+}
