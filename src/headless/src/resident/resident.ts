@@ -7,8 +7,8 @@
  * 依頼の module は、自分宛てに送られた依頼を見つけると、言語モデルを 1 依頼に 1 回起動する。
  *
  * ```sh
- * CONVERSENSUS_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx \
- *   bun run src/headless/src/resident/resident.ts --handle agent.test
+ * printf 'app password: '; read -s CONVERSENSUS_APP_PASSWORD; echo; export CONVERSENSUS_APP_PASSWORD
+ * bun run src/headless/src/resident/resident.ts --handle agent.test --pds https://pds.example
  * ```
  *
  * 引数は `USAGE` を見る。置き場所 (`--data`) は CLI・stdio の MCP server と同じ形で、**同時には開けない**
@@ -17,9 +17,10 @@
 
 import { join } from 'node:path';
 import { passwordAuth } from '@conversensus/client/src/atproto/passwordAuth';
-import { DEFAULT_DATA_DIR, DEFAULT_PDS_URL } from '../cli';
+import { DEFAULT_DATA_DIR } from '../cli';
 import { Headless } from '../headless';
 import { HEADLESS_MODULES } from '../mcp';
+import { forTerminal } from '../terminalText';
 import {
   claudeRunner,
   DEFAULT_MAX_TURNS,
@@ -40,8 +41,9 @@ export const MCP_CONFIG_FILE = 'resident-mcp.json';
 
 export const USAGE = `使い方: resident.ts --handle <handle> [options]
   環境変数 ${APP_PASSWORD_ENV} に app password を入れる (置き場所には残さない)
+  --pds <url>           PDS (必須。https。http は --allow-insecure-pds のときだけ)
+  --allow-insecure-pds  http の PDS を許す (開発用の PDS)
   --data <dir>          置き場所 (既定 ${DEFAULT_DATA_DIR})
-  --pds <url>           PDS (既定 ${DEFAULT_PDS_URL})
   --claude <path>       起動する claude (既定 claude)
   --model <model>       claude のモデル
   --instructions <file> agent 全体の指示 (operator) を書いた file
@@ -66,7 +68,7 @@ export type ResidentArgs = {
 };
 
 /** 値を取らない引数 */
-const BOOLEAN_FLAGS = new Set(['answer-agents']);
+const BOOLEAN_FLAGS = new Set(['answer-agents', 'allow-insecure-pds']);
 
 const MS_PER_SECOND = 1000;
 
@@ -103,6 +105,23 @@ export function parseResidentArgs(argv: readonly string[]): ResidentArgs {
   }
   const handle = values.get('handle');
   if (!handle) throw new Error('--handle が要る');
+  // 常駐は app password を PDS に送る。既定の PDS (開発用の http) に黙って送らない (#391)
+  const pdsUrl = values.get('pds');
+  if (!pdsUrl) throw new Error('--pds が要る');
+  let pdsProtocol: string;
+  try {
+    pdsProtocol = new URL(pdsUrl).protocol;
+  } catch {
+    throw new Error(`--pds が URL でない: ${pdsUrl}`);
+  }
+  if (
+    pdsProtocol !== 'https:' &&
+    !(pdsProtocol === 'http:' && flags.has('allow-insecure-pds'))
+  ) {
+    throw new Error(
+      `--pds は https (開発用の http の PDS には --allow-insecure-pds): ${pdsUrl}`,
+    );
+  }
   const seconds = (key: string) => {
     const raw = values.get(key);
     if (raw === undefined) return undefined;
@@ -124,7 +143,7 @@ export function parseResidentArgs(argv: readonly string[]): ResidentArgs {
   return {
     handle,
     dataDir: values.get('data') ?? DEFAULT_DATA_DIR,
-    pdsUrl: values.get('pds') ?? DEFAULT_PDS_URL,
+    pdsUrl,
     claude: values.get('claude') ?? 'claude',
     model: values.get('model'),
     instructionsPath: values.get('instructions'),
@@ -159,7 +178,8 @@ if (import.meta.main) {
   const http = serveMcpHttp(headless, { token, modules: HEADLESS_MODULES });
   const mcpConfigPath = join(args.dataDir, MCP_CONFIG_FILE);
   writeMcpConfig(mcpConfigPath, http.url, token);
-  const log = (m: string) => console.error(`[resident] ${m}`);
+  // 依頼の node の id や claude の出力を出す。端末の命令を落としてから出す (#391)
+  const log = (m: string) => console.error(forTerminal(`[resident] ${m}`));
   const runner = claudeRunner({
     command: [args.claude],
     // 起動ごとに範囲を絞った token を出す (#386)
@@ -171,8 +191,7 @@ if (import.meta.main) {
     maxBudgetUsd: args.maxBudgetUsd,
     cwd: args.dataDir,
     timeoutMs: args.timeoutMs,
-    onOutput: (task, text) =>
-      console.error(`[resident] ${task.label} の出力:\n${text.trim()}`),
+    onOutput: (task, text) => log(`${task.label} の出力:\n${text.trim()}`),
   });
   const resident = await startResident({
     headless,

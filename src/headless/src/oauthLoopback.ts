@@ -210,6 +210,18 @@ async function toSignedIn(session: OAuthSession): Promise<SignedIn> {
   };
 }
 
+/** 認可の戻りの形か: GET で、`state` と、`code` か `error` を持つ (#391) */
+export function isAuthorizationResponse(
+  method: string,
+  params: URLSearchParams,
+): boolean {
+  return (
+    method === 'GET' &&
+    !!params.get('state') &&
+    (!!params.get('code') || !!params.get('error'))
+  );
+}
+
 /**
  * 受け口を開き、戻り (`/callback?code=…&state=…`) を 1 回だけ受けて閉じる。
  * @returns 受け口の URL、戻りの query を待つ Promise、待つのをやめて閉じる関数
@@ -232,6 +244,11 @@ function listenOnce(timeoutMs: number): {
       const url = new URL(request.url);
       if (url.pathname !== CALLBACK_PATH) {
         return new Response('not found', { status: 404 });
+      }
+      // 戻りの形をした要求 (GET で、state と code か error を持つ) だけを受ける。それ以外は断って待ち続ける
+      // (#391) — 同じ機械の他のプロセスやページが先に叩いて、受け口を閉じさせないように
+      if (!isAuthorizationResponse(request.method, url.searchParams)) {
+        return new Response('bad request', { status: 400 });
       }
       resolve(url.searchParams);
       return new Response(

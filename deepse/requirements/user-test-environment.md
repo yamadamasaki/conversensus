@@ -463,12 +463,17 @@ curl -s -X POST $PDS/xrpc/com.atproto.server.createAppPassword \
 unset PW JWT
 ```
 
-**常駐を始める** (§5.6 の Claude Code の MCP server は**閉じておく** — 同じ置き場所は同時に開けない):
+**常駐を始める** (§5.6 の Claude Code の MCP server は**閉じておく** — 同じ置き場所は同時に開けない)。
+app password は**コマンド行に書かない** (shell の履歴に残る、#391):
 
 ```bash
-CONVERSENSUS_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx \
-  bun run src/headless/src/resident/resident.ts --handle agent.test
+printf 'app password: '; read -s CONVERSENSUS_APP_PASSWORD; echo; export CONVERSENSUS_APP_PASSWORD
+bun run src/headless/src/resident/resident.ts --handle agent.test \
+  --pds http://localhost:3000 --allow-insecure-pds
+unset CONVERSENSUS_APP_PASSWORD
 ```
+
+- `--pds` は必須 (#391)。https の PDS ならそのまま、開発用の http の PDS には `--allow-insecure-pds` を付ける
 
 - 置き場所は §5.5 と同じ `~/.conversensus/agent` (同じ actor で続く)。`--data` で変えると別の端末になる
 - 起動すると `[resident] did:... として常駐する` と、出している MCP の URL が出る

@@ -28,9 +28,12 @@ import {
 } from '@conversensus/shared';
 import { Headless } from './headless';
 import { oauthLoopback } from './oauthLoopback';
+import { forTerminal } from './terminalText';
 
 /** 既定の PDS (開発用。`deepse/requirements/user-test-environment.md` §1) */
 export const DEFAULT_PDS_URL = 'http://localhost:3000';
+/** ブラウザで開いてよい URL の scheme (#391) */
+const BROWSER_SCHEMES = new Set(['https:', 'http:']);
 /** 既定の置き場所 */
 export const DEFAULT_DATA_DIR = join(homedir(), '.conversensus', 'agent');
 /** OAuth のセッションを置く file (`dataDir` の中) */
@@ -194,7 +197,13 @@ async function run(parsed: Parsed): Promise<string> {
       pdsUrl,
       storePath: join(dataDir, OAUTH_FILE),
       openUrl: (url) => {
-        console.error(`ブラウザで同意してください:\n${url.href}`);
+        // 開くのは同意のページ (http か https) だけ。`open` は file: や他の scheme の app も開く (#391)
+        if (!BROWSER_SCHEMES.has(url.protocol)) {
+          throw new Error(
+            `同意のページの URL が http(s) でない: ${url.protocol}`,
+          );
+        }
+        console.error(`ブラウザで同意してください:\n${forTerminal(url.href)}`);
         if (open) Bun.spawn(['open', url.href]);
       },
     }),
@@ -260,9 +269,12 @@ async function run(parsed: Parsed): Promise<string> {
 
 if (import.meta.main) {
   try {
-    console.log(await run(parseArgs(process.argv.slice(2))));
+    // File の本文は他の参加者が書いたもの。端末の命令を落としてから出す (#391)
+    console.log(forTerminal(await run(parseArgs(process.argv.slice(2)))));
   } catch (error) {
-    console.error(error instanceof Error ? error.message : error);
+    console.error(
+      forTerminal(error instanceof Error ? error.message : String(error)),
+    );
     console.error(USAGE);
     process.exitCode = 1;
   }
