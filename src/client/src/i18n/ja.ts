@@ -53,6 +53,8 @@ export const ja = {
     /** module の知らせ (届いた依頼など) を開く */
     open: '開く',
     dismiss: (from: string) => `${from} からの知らせを閉じる`,
+    /** File ごとの上限を超えて畳んだ知らせ (#393) */
+    more: (count: number) => `ほか ${count} 件`,
   },
   rightSidebar: {
     region: '詳細',

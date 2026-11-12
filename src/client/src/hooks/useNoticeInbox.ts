@@ -54,6 +54,26 @@ function groupByFile(
   return byFile;
 }
 
+/** 溜める知らせの数の上限 (File ごと、#393) */
+export const MAX_NOTICES_PER_FILE = 200;
+
+/** File ごとに新しい方から `max` 件を残す (届いた順のまま)。超えた古いものを落とす */
+export function capPerFile(
+  notices: readonly ArrivedNotice[],
+  max: number = MAX_NOTICES_PER_FILE,
+): readonly ArrivedNotice[] {
+  const remaining = new Map<FileId, number>();
+  for (const n of notices) {
+    remaining.set(n.fileId, (remaining.get(n.fileId) ?? 0) + 1);
+  }
+  return notices.filter((n) => {
+    const left = remaining.get(n.fileId) ?? 0;
+    remaining.set(n.fileId, left - 1);
+    // 後ろから数えて max 件の内に入るものだけを残す
+    return left <= max;
+  });
+}
+
 /**
  * @param did ログインしている DID。null なら既読はこの端末の記憶の中だけになる
  */
@@ -197,6 +217,10 @@ export function useNoticeInbox(did: Did | null) {
    * module が受信から見つけた知らせ。**前に出ている File に限らない** — 依頼は誰かが答えを待っている。
    * 受信のたびに溜め、同じ鍵 (`noticeKeyOf`) は 1 つにする。既読は他の端末にも効く
    */
+  /**
+   * 溜める知らせの数の上限 (File ごと、#393)。知らせは他の参加者が作れるので、数で溜め続けない。超えたら
+   * 古い (先に届いた) ものから落とす。画面に出すのは、さらに少ない (`ArrivedNotices` の `SHOWN_PER_FILE`)
+   */
   const [arrivedNotices, setArrivedNotices] = useState<
     readonly ArrivedNotice[]
   >([]);
@@ -209,10 +233,10 @@ export function useNoticeInbox(did: Did | null) {
           );
           setArrivedNotices((prev) => {
             const known = new Set(prev.map(noticeKeyOf));
-            return [
+            return capPerFile([
               ...prev,
               ...fresh.filter((n) => !known.has(noticeKeyOf(n))),
-            ];
+            ]);
           });
         });
       }

@@ -49,6 +49,7 @@ export const en: Messages = {
   notices: {
     open: 'Open',
     dismiss: (from: string) => `Dismiss the notice from ${from}`,
+    more: (count: number) => `${count} more`,
   },
   rightSidebar: {
     region: 'Details',

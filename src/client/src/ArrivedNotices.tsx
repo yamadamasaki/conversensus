@@ -7,6 +7,9 @@
  *
  * **生きた領域 (`role="status"`) にする** — 依頼は誰かが答えを待っている。上書きの報告のように
  * 控えめにはしない。
+ *
+ * **File ごとに出す数に上限を置く** (#393)。届いた順に `SHOWN_PER_FILE` まで出し、残りは「ほか n 件」に畳む。
+ * 知らせは他の参加者が作れるので、数で画面を埋めさせない。畳んだ知らせは、出ているものを閉じれば順に出る
  */
 
 import type { Did } from '@conversensus/shared';
@@ -37,6 +40,25 @@ type Props = {
 
 /** 知らせの欄の幅 */
 const PANEL_WIDTH = 380;
+/** 1 つの欄で、File ごとに出す知らせの数 (#393) */
+export const SHOWN_PER_FILE = 5;
+
+/** File ごとに先頭の `perFile` 件を出し、残りの数を返す (届いた順のまま) */
+export function foldNotices(
+  notices: readonly ArrivedNotice[],
+  perFile: number = SHOWN_PER_FILE,
+): { shown: ArrivedNotice[]; hidden: number } {
+  const count = new Map<string, number>();
+  const shown: ArrivedNotice[] = [];
+  let hidden = 0;
+  for (const n of notices) {
+    const seen = count.get(n.fileId) ?? 0;
+    count.set(n.fileId, seen + 1);
+    if (seen < perFile) shown.push(n);
+    else hidden += 1;
+  }
+  return { shown, hidden };
+}
 
 export function ArrivedNotices({ notices, labelOf, onOpen, onDismiss }: Props) {
   const t = useMessages();
@@ -53,6 +75,7 @@ export function ArrivedNotices({ notices, labelOf, onOpen, onDismiss }: Props) {
         const source = registry.noticeSource(moduleId);
         // 登録の外の知らせは出さない (module を外した後に残った既読の候補など)
         if (!source) return null;
+        const { shown, hidden } = foldNotices(ofModule);
         return (
           <section
             key={moduleId}
@@ -74,7 +97,7 @@ export function ArrivedNotices({ notices, labelOf, onOpen, onDismiss }: Props) {
             }}
           >
             <ul style={{ margin: 0, padding: 0, listStyle: 'none' }}>
-              {ofModule.map((n) => {
+              {shown.map((n) => {
                 const from = labelOf(n.from);
                 return (
                   <li
@@ -111,6 +134,11 @@ export function ArrivedNotices({ notices, labelOf, onOpen, onDismiss }: Props) {
                 );
               })}
             </ul>
+            {hidden > 0 && (
+              <p style={{ margin: 0, color: color.textMuted }}>
+                {t.notices.more(hidden)}
+              </p>
+            )}
           </section>
         );
       })}
