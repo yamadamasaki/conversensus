@@ -40,6 +40,11 @@ export type FakePds = {
   records: (did: Did, collection: string) => StoredRecord[];
   /** 出したセッション (access と refresh) をすべて失効させる。長く走る client の再ログインを試す */
   expireSessions: () => void;
+  /**
+   * 4xx を返した要求 (`<nsid>?<params>`)。ブラウザはこれをコンソールに「Failed to load resource」と出す
+   * (#382・#383)。無いのが普通のものを読んで 4xx にしていないかを見る
+   */
+  rejected: () => readonly string[];
 };
 
 /** JWT の形をした値。agent は期限を読むので `exp` だけは意味のある値にする */
@@ -159,6 +164,8 @@ export function createFakePds(serviceUrl: string): FakePds {
     });
   };
 
+  /** 4xx を返した要求 (`rejected`) */
+  const rejected: string[] = [];
   const handlers: Record<
     string,
     (request: Request, params: URLSearchParams) => Promise<Response>
@@ -295,8 +302,13 @@ export function createFakePds(serviceUrl: string): FakePds {
       if (!handler) {
         return xrpcError('MethodNotImplemented', `fakePds: ${nsid}`, 501);
       }
-      return handler(request, url.searchParams);
+      const response = await handler(request, url.searchParams);
+      if (response.status >= 400 && response.status < 500) {
+        rejected.push(`${nsid}?${url.searchParams}`);
+      }
+      return response;
     },
+    rejected: () => [...rejected],
     addAccount: (account) => {
       accounts.set(account.did, account);
     },

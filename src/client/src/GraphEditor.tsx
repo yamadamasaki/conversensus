@@ -12,6 +12,7 @@ import {
   DERIVED_FROM_SHEET_PROPERTY,
   displayKindLabel,
   type EdgeKindRef,
+  kindPropertyLabels,
   kindPropertyOf,
   nodeKindsOf,
   type Template,
@@ -288,15 +289,17 @@ function GraphEditorInner({
   const propertyTarget = useMemo((): PropertyTarget | undefined => {
     const node = nodes.find((n) => n.selected && !n.data?.ghost);
     if (node) {
+      const properties = node.data?.properties as
+        | Record<string, unknown>
+        | undefined;
       return {
         kind: 'node',
         id: node.id,
         // **id をそのまま出さない** — UUID は人に読めない。本文か種別で呼ぶ
         title: String(node.data?.content || node.data?.label || 'node'),
-        properties: node.data?.properties as
-          | Record<string, unknown>
-          | undefined,
+        properties,
         addable: [],
+        kindLabels: kindPropertyLabels(templates, 'node', properties, locale),
       };
     }
     const edge = edges.find((e) => e.selected && !e.data?.ghost);
@@ -311,10 +314,11 @@ function GraphEditorInner({
         properties,
         // **候補は edge にしか無い** — 宣言を持つのは `EdgeKind` だけである
         addable: addablePropertyNames(templates, properties),
+        kindLabels: kindPropertyLabels(templates, 'edge', properties, locale),
       };
     }
     return undefined;
-  }, [nodes, edges, templates]);
+  }, [nodes, edges, templates, locale]);
 
   // 選択の写しを外へ知らせる (S3-4a)。**中身が変わったときだけ** — nodes はドラッグの
   // 間じゅう変わるので、毎回知らせると App がドラッグの各フレームで描き直す

@@ -283,6 +283,8 @@ function PropertyField({
 }) {
   const t = useMessages();
   const shown = displayValue(row.value);
+  // 種別は名前も値も id なので、template の名前と種類の名前で出す (#384)。id は hover で見られる
+  const label = row.kindLabel;
   const [draft, setDraft] = useState(shown);
   const composingRef = useRef(false);
 
@@ -322,8 +324,11 @@ function PropertyField({
           gap: 6,
         }}
       >
-        <span style={{ fontWeight: 600, wordBreak: 'break-all' }}>
-          {row.name}
+        <span
+          style={{ fontWeight: 600, wordBreak: 'break-all' }}
+          title={label ? row.name : undefined}
+        >
+          {label ? t.property.kindOf(label.template) : row.name}
         </span>
         <span
           style={{
@@ -337,8 +342,11 @@ function PropertyField({
       </div>
 
       {locked ? (
-        <div style={{ color: color.textMuted, wordBreak: 'break-all' }}>
-          {shown}
+        <div
+          style={{ color: color.textMuted, wordBreak: 'break-all' }}
+          title={label ? shown : undefined}
+        >
+          {label ? label.kind : shown}
         </div>
       ) : (
         <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>

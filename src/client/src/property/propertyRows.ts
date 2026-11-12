@@ -27,6 +27,7 @@ import {
   type EdgeKindRef,
   edgeKindsOf,
   isKindProperty,
+  type KindPropertyLabel,
   kindPropertyOf,
   type PropertyName,
   type PropertyType,
@@ -61,6 +62,11 @@ export type PropertyRow = {
    * 押せそうで押せない要素になる (Phase 5 が label で踏んだ形)。
    */
   readOnly?: ReadOnlyReason;
+  /**
+   * 種別の property の、人が読める名前 (#384)。あれば画面は名前と値を id でなくこちらで出す。
+   * 知らない template・種類のものには無い (id のまま出す)
+   */
+  kindLabel?: KindPropertyLabel;
 };
 
 /**
@@ -113,6 +119,8 @@ export function propertyRows(
   properties: Readonly<Record<string, unknown>> | undefined,
   /** 読み取り専用の property (system と種別) も出すか (#357)。既定は出さない */
   showReadOnly = false,
+  /** 種別の property の、人が読める名前 (#384、`kindPropertyLabels`) */
+  kindLabels: Readonly<Record<string, KindPropertyLabel>> = {},
 ): PropertyRow[] {
   const rows: PropertyRow[] = [];
   for (const [name, value] of Object.entries(properties ?? {})) {
@@ -122,6 +130,7 @@ export function propertyRows(
       continue;
     }
     const readOnly = readOnlyReasonOf(name, value);
+    const kindLabel = kindLabels[name];
     // **型は宣言から来る。**step2 に宣言の仕組みは無く、編集できるプロパティは
     // すべて custom なので文字列である。**推測ではなく事実** — 値が文字列だからである
     rows.push({
@@ -129,6 +138,7 @@ export function propertyRows(
       value,
       type: 'string',
       ...(readOnly ? { readOnly } : {}),
+      ...(kindLabel ? { kindLabel } : {}),
     });
   }
   return rows.sort(byName);

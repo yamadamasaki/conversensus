@@ -477,6 +477,7 @@ export const ja = {
     add: '追加',
     valueOf: (name: string) => `${name} の値`,
     remove: (name: string) => `${name} を削除`,
+    kindOf: (template: string) => `${template} の種類`,
     readOnly: {
       templateKind: '種別は作成時に決まり、変更できません',
       system: 'アプリが付けた値で、変更できません',

@@ -284,7 +284,11 @@ export const filePlacements = {
 
 /**
  * 読んでみて、無ければ undefined (agent の宣言のように、無いのが普通の record)。**読めない理由は区別しない** —
- * 表示にだけ使うので、読めなければ「無い」として出す
+ * 表示にだけ使うので、読めなければ「無い」として出す。
+ *
+ * **`getRecord` ではなく `listRecords` で探す** (#383)。`getRecord` は無いときに 400 (RecordNotFound) を返し、
+ * ブラウザがコンソールに「Failed to load resource」を出す。無いのが普通なので、エラーとして出ない読み方にする。
+ * 1 ページ (100 件) だけを見る — 宣言は 1 件 (`self`)、裏付けは operator の agent の数だけで、それを超えない
  */
 async function getRecordIfAny(
   collection: string,
@@ -292,10 +296,16 @@ async function getRecordIfAny(
   read: ReadRepo,
 ): Promise<unknown> {
   try {
-    return (await getRecord(collection, rkey, read)).value;
+    const { records } = await listRecordsPage(collection, read);
+    return records.find((r) => rkeyOf(r.uri) === rkey)?.value;
   } catch {
     return undefined;
   }
+}
+
+/** at-uri の最後の区切り (rkey) */
+function rkeyOf(uri: string): string {
+  return uri.slice(uri.lastIndexOf('/') + 1);
 }
 
 /** agent の宣言と operator の裏付け (設計 agent-actor.md D2)。形の検証は `agentDeclarationOf` がする */

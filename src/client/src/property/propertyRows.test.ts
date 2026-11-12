@@ -152,6 +152,20 @@ describe('extension は出すが、種別だけは編集させない', () => {
     expect(propertyRows({ 期限: '2026-09-20' })[0].readOnly).toBeUndefined();
   });
 
+  it('種別の人が読める名前 (#384) を渡せば行に載せ、無いものには載せない', () => {
+    const label = { template: 'Toulmin model', kind: '主張' };
+    const rows = propertyRows(
+      { [KIND]: 'claim', 'com.unknown.vendor.kind': 'x' },
+      true,
+      { [KIND]: label },
+    );
+    expect(rows.find((r) => r.name === KIND)?.kindLabel).toEqual(label);
+    // 知らない template の種別は id のまま出す
+    expect(
+      rows.find((r) => r.name === 'com.unknown.vendor.kind')?.kindLabel,
+    ).toBeUndefined();
+  });
+
   it('判定に template を渡していない — 知らない template の種別でも効く', () => {
     // isKindProperty は語尾だけを見る。描画側に template を配るより漏れない
     const rows = propertyRows({ 'com.unknown.vendor.kind': 'x' }, true);

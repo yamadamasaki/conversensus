@@ -60,12 +60,7 @@ async function windowFor(browser: Browser, account: Account): Promise<Page> {
  * その数だけ「Failed to load resource」を問題から外す
  *
  * - `/oauth/par` の 400 `use_dpop_nonce`: DPoP の nonce の受け渡し。OAuth のライブラリがやり直す
- * - agent の宣言 (`agentProfile`) の 400: 人は宣言を持たないので、読むと RecordNotFound になる
- * - `repo=genesis` の 400: import した場面の書き手 (genesis) を DID として読みに行っている。
- *   **不具合** (genesis は DID ではない)。直ったらここから外す
  */
-const AGENT_PROFILE = 'collection=app.conversensus.v2.agentProfile';
-const GENESIS_REPO = 'repo=genesis';
 
 function expectedFailures(page: Page): string[] {
   const seen: string[] = [];
@@ -73,12 +68,7 @@ function expectedFailures(page: Page): string[] {
     const url = response.url();
     const status = response.status();
     if (status !== 400) return;
-    if (
-      url.includes('/oauth/par') ||
-      url.includes(AGENT_PROFILE) ||
-      url.includes(GENESIS_REPO)
-    )
-      seen.push(url);
+    if (url.includes('/oauth/par')) seen.push(url);
   });
   return seen;
 }
@@ -276,11 +266,7 @@ test('参加依頼、参加、一緒に編集、衝突、離脱', async ({
   });
   const request = hanako.locator(NODE).last();
   await rewriteNode(hanako, request, S.request);
-  // 宛先の候補 (名簿) は File を開いたときにしか読まない。hanako が開いたのは taro の参加の前なので、
-  // 読み直させる (不具合。直ったらこの再読み込みは要らない)
-  await hanako.reload();
-  await openSheet(hanako, S.file, S.ch1);
-  await fitAndZoomOut(hanako, 2);
+  // 宛先の候補は同期サイクルの名簿に追随する (#381)。taro の参加は File を開いた後だが、読み直さない
   const sent = nodeWith(hanako, S.request);
   await sent.waitFor({ timeout: SETTLE_TIMEOUT_MS });
   await sent.click({ position: { x: 20, y: 20 } });

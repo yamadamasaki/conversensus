@@ -154,3 +154,7 @@ agent の印は撮っていない (図のための agent の宣言を用意す�
 - 人のアカウントの agent の宣言を読むと 400 (RecordNotFound) になり (#383)、コンソールに「Failed to load resource」が出る。
   宣言が無いのは正常なので、問題として数えない (`05-interact` の `expectedFailures`)
 - 読み取り専用で出す種別の property は、名前も値も id のまま (#384) (`template.<id>.kind` = `<uuid>`) で、人には読めない
+
+4 件とも直した (2026-11-12)。撮影の回避 (送る前の再読み込み) と、起きてよい失敗に数えていた 400 (agent の宣言・`repo=genesis`)
+は外した。ja・en とも 4・5 章を撮り直して通ることを確かめた。読み取り専用の図は「Toulmin model の種類 / 主張」になり、
+import した node から「G」の avatar が消えた。
