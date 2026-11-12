@@ -22,6 +22,10 @@ OAuth client を偽物に差し替える (`createClient`)。偽物の `authorize
 happy-dom の `fetch` は bun の受け口の応答を読めない)。
 
 - 🔴 同意の URL を渡し、戻りを受け口で受けてログインする。戻り先は `127.0.0.1` の空いている port の `/callback`
+- 🔴 戻りの形でない要求 (引数なし・`state` なし・POST) では受け口を閉じず、待ち続けて本物の戻りを受ける (#391)。
+  同じ機械の他のプロセスやページが先に叩いても、ログインを横取り・妨害させない。断るときの 400 は、根の preload の
+  happy-dom が `Response` を差し替えるので根の試験では読めない — 閉じなかったことを、空の戻りを受けていないことで見る
+- 戻りの形 (`isAuthorizationResponse`): GET で、`state` と、`code` か `error` を持つ (拒否の戻りも受ける)
 - ログインした DID を覚え、次に作った口で戻せる (起動をまたぐ)
 - 🔴 戻すときの client は、**ログインしたときと同じ戻り先** (port を含む) で作る。loopback の client_id は
   戻り先から作られるので、違えば token の更新が別の client から来たことになり、PDS が断って

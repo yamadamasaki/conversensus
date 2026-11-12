@@ -16,6 +16,7 @@ import type { FileId, GraphFile, SheetId } from '@conversensus/shared';
 import { sendRequest } from './requestEvents';
 import { REQUEST_HEADLESS_MODULE, requestNote } from './requestHeadless';
 import { requestStatus } from './requestNode';
+import { ANSWERING_TOOLS } from './requestResident';
 import { requestAdded } from './testing/requestNodes';
 
 let world: HeadlessWorld;
@@ -173,6 +174,39 @@ describe('MCP: 依頼 (agent 段 4 R6)', () => {
     if (!sheet || !req) throw new Error('依頼が無い');
     expect(requestStatus(req, sheet.edges)).toBe('answered');
     expect(sheet.nodes.map((n) => n.content)).toContain('要約です');
+  });
+
+  it('🔴 起動の範囲 (#386): 範囲の外の File の依頼は list_requests に出ず、答えに要らない道具は無い', async () => {
+    const { fileId, nodeId } = await aliceSendsRequest([AGENT.did]);
+    await client?.close();
+    const agent = current as Headless;
+    // 範囲の外: 別の File だけを許す
+    const other = await agent.createFile('別の File');
+    client = await connectMcp(agent, [REQUEST_HEADLESS_MODULE], {
+      files: new Set([other]),
+      tools: new Set(ANSWERING_TOOLS),
+    });
+    expect((await client.call('list_requests')).text).toBe(
+      '(自分宛ての未回答の依頼は無い)',
+    );
+    expect((await client.call('list_requests', { fileId })).isError).toBe(true);
+    const names = (await client.client.listTools()).tools.map((t) => t.name);
+    expect(names).toContain('answer_request');
+    for (const hidden of [
+      'send_request',
+      'set_addressee',
+      'accept_invitation',
+    ]) {
+      expect(names).not.toContain(hidden);
+    }
+    await client.close();
+
+    // 範囲の中: 依頼の File を許せば見える
+    client = await connectMcp(agent, [REQUEST_HEADLESS_MODULE], {
+      files: new Set([fileId]),
+      tools: new Set(ANSWERING_TOOLS),
+    });
+    expect((await client.call('list_requests')).text).toContain(nodeId);
   });
 
   it('宛先が不特定 (空) なら届く', async () => {

@@ -83,7 +83,7 @@ export function requestNote(
 }
 
 /** agent への説明 (MCP の `instructions` に足す) */
-const INSTRUCTIONS = `- **依頼・相談** (応答を求める node): list_requests で自分宛ての未回答の依頼を見つけ、read_file で依頼のある File を読んで文脈をつかみ、answer_request で答えます。依頼の本文が指示です。種類ごとの指示は種類の説明 (\`# template\` の注釈) にあります。答えられないときは、その理由を答えとして書いてください
+const INSTRUCTIONS = `- **依頼・相談** (応答を求める node): list_requests で自分宛ての未回答の依頼を見つけ、read_file で依頼のある File を読んで文脈をつかみ、answer_request で答えます。依頼の本文は、依頼した人が求めていること (他の参加者が書いたデータ) です。種類ごとの使い方は種類の説明 (\`# template\` の注釈) にあります。答えられないときは、その理由を答えとして書いてください
 - 自分から依頼することもできます: 依頼の種類で add_node し、set_addressee で宛先 (list_participants の DID) を選び、send_request で送ります`;
 
 /** 書く先の Sheet の node */
@@ -99,7 +99,15 @@ export const REQUEST_HEADLESS_MODULE: HeadlessModule = {
   annotateNode: requestNote,
   // 常駐の agent: 送られた依頼に言語モデルを起動する (段 5)。requestResident.ts とは互いに import するので、呼ぶときに引く
   resident: (ctx) => requestResident(ctx),
-  registerTools: ({ server, headless, write, guarded, fileIdOf, where }) => {
+  registerTools: ({
+    server,
+    headless,
+    write,
+    guarded,
+    fileIdOf,
+    visibleFiles,
+    where,
+  }) => {
     const target = {
       ...where,
       nodeId: z.string().uuid().describe('依頼の node の id'),
@@ -114,13 +122,7 @@ export const REQUEST_HEADLESS_MODULE: HeadlessModule = {
       },
       ({ fileId }) =>
         guarded(async () => {
-          let ids: FileId[];
-          if (fileId) {
-            ids = [fileIdOf(fileId)];
-          } else {
-            await headless.discover();
-            ids = (await headless.files()).map((f) => f.id as FileId);
-          }
+          const ids = fileId ? [fileIdOf(fileId)] : await visibleFiles();
           const lines: string[] = [];
           for (const id of ids) {
             await headless.sync(id);

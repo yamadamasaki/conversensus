@@ -3,7 +3,12 @@ import { mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { OAuthSession } from '@atproto/oauth-client';
-import { JsonStore, type LoopbackClient, oauthLoopback } from './oauthLoopback';
+import {
+  isAuthorizationResponse,
+  JsonStore,
+  type LoopbackClient,
+  oauthLoopback,
+} from './oauthLoopback';
 
 const DID = 'did:plc:agent';
 const HANDLE = 'agent.test';
@@ -92,6 +97,42 @@ describe('oauthLoopback (H4)', () => {
     expect(log).toEqual([`authorize ${HANDLE}`, 'callback the-code the-state']);
     // 戻り先は 127.0.0.1 の空いている port の /callback
     expect(client.seen[0]).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/callback$/);
+  });
+
+  it('🔴 戻りの形でない要求では閉じず、待ち続けて本物の戻りを受ける (#391)', async () => {
+    const log: string[] = [];
+    const client = fakeClient(log);
+    const auth = oauthLoopback({
+      pdsUrl: PDS,
+      storePath,
+      createClient: client.create,
+      // 先に他の誰かが受け口を叩く: 引数なし・state なし・POST。その後で本物の戻り
+      openUrl: async (url) => {
+        const bare = new URL(url.pathname, url);
+        await Bun.fetch(bare);
+        await Bun.fetch(new URL(`${bare.href}?code=x`));
+        await Bun.fetch(url, { method: 'POST' });
+        await browser(url);
+      },
+    });
+    const signed = await auth.signIn(HANDLE);
+    expect(signed.session.did).toBe(DID);
+    // 先の要求で閉じていれば、空の戻り (`callback null null`) を受けていた。
+    // (断るときの 400 は、根の preload の happy-dom が Response を差し替えるので、ここでは読めない)
+    expect(log).toEqual([`authorize ${HANDLE}`, 'callback the-code the-state']);
+  });
+
+  it('戻りの形: GET で、state と code か error を持つ', () => {
+    const params = (q: string) => new URLSearchParams(q);
+    expect(isAuthorizationResponse('GET', params('state=s&code=c'))).toBe(true);
+    expect(
+      isAuthorizationResponse('GET', params('state=s&error=access_denied')),
+    ).toBe(true);
+    expect(isAuthorizationResponse('GET', params('code=c'))).toBe(false);
+    expect(isAuthorizationResponse('GET', params('state=s'))).toBe(false);
+    expect(isAuthorizationResponse('POST', params('state=s&code=c'))).toBe(
+      false,
+    );
   });
 
   it('ログインした DID を覚え、次に作った口で戻せる (起動をまたぐ)', async () => {

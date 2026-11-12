@@ -11,13 +11,15 @@
  *   書かせない
  * - 要求ごとに server と transport を作る (stateless)。道具は `Headless` を通して読み書きするので、
  *   MCP のセッションに覚えておくものが無い
+ * - **起動ごとに範囲を絞った token を出す** (#386、`grant`)。依頼に答える起動には、その依頼の File と答えに要る
+ *   道具だけを許す token を渡し、起動が終われば取り消す。全体の token (`token`) は言語モデルに渡さない
  */
 
 import { timingSafeEqual } from 'node:crypto';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import type { Headless } from '../headless';
 import type { HeadlessModule } from '../headlessModule';
-import { createMcpServer } from '../mcpServer';
+import { createMcpServer, type McpScope } from '../mcpServer';
 
 /** MCP を出す path */
 export const MCP_PATH = '/mcp';
@@ -40,9 +42,18 @@ function sameToken(given: string, expected: string): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
+/** 範囲を絞った token 1 つ */
+export type McpGrant = {
+  token: string;
+  /** 取り消す。以後この token の要求は 401 */
+  revoke: () => void;
+};
+
 export type HttpMcp = {
   /** 言語モデルに渡す URL */
   url: string;
+  /** 範囲を絞った token を出す (起動 1 回ごと) */
+  grant: (scope: McpScope) => McpGrant;
   stop: () => Promise<void>;
 };
 
@@ -55,6 +66,16 @@ export function serveMcpHttp(
     modules?: readonly HeadlessModule[];
   },
 ): HttpMcp {
+  /** 出している範囲つきの token */
+  const grants = new Map<string, McpScope>();
+  /** token に当たる範囲。全体の token は範囲なし (`null`)、知らない token は `undefined` */
+  const scopeOf = (given: string): McpScope | null | undefined => {
+    if (sameToken(given, options.token)) return null;
+    for (const [token, scope] of grants) {
+      if (sameToken(given, token)) return scope;
+    }
+    return undefined;
+  };
   const server = Bun.serve({
     hostname: LOOPBACK_HOST,
     port: options.port ?? 0,
@@ -66,10 +87,15 @@ export function serveMcpHttp(
       const given = auth.startsWith('Bearer ')
         ? auth.slice('Bearer '.length)
         : '';
-      if (!sameToken(given, options.token)) {
+      const scope = scopeOf(given);
+      if (scope === undefined) {
         return new Response('unauthorized', { status: 401 });
       }
-      const mcp = createMcpServer(headless, options.modules);
+      const mcp = createMcpServer(
+        headless,
+        options.modules,
+        scope ?? undefined,
+      );
       const transport = new WebStandardStreamableHTTPServerTransport({
         sessionIdGenerator: undefined,
         enableJsonResponse: true,
@@ -84,6 +110,11 @@ export function serveMcpHttp(
   });
   return {
     url: `http://${LOOPBACK_HOST}:${server.port}${MCP_PATH}`,
+    grant: (scope) => {
+      const token = newToken();
+      grants.set(token, scope);
+      return { token, revoke: () => grants.delete(token) };
+    },
     stop: async () => {
       await server.stop(true);
     },
