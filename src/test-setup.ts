@@ -3,7 +3,11 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator';
 // environment = "happy-dom" (bunfig.toml) が有効な場合は既に DOM が利用可能なため
 // 二重登録を避けるためにスキップする
 if (typeof globalThis.document === 'undefined') {
+  // happy-dom は大域の Response を自分のものに替える。bun 1.4 の Bun.serve は bun の Response しか
+  // 受けず、受け口 (oauthLoopback) の応答が例外になる。Response だけは bun のものに戻す
+  const NativeResponse = globalThis.Response;
   GlobalRegistrator.register();
+  globalThis.Response = NativeResponse;
 }
 
 // 画面の言語を ja に固定する (#50 i18n)。テストは日本語の文言で要素を引くが、happy-dom の
