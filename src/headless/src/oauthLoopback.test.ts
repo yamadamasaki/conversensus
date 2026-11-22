@@ -109,16 +109,18 @@ describe('oauthLoopback (H4)', () => {
       // 先に他の誰かが受け口を叩く: 引数なし・state なし・POST。その後で本物の戻り
       openUrl: async (url) => {
         const bare = new URL(url.pathname, url);
-        await Bun.fetch(bare);
-        await Bun.fetch(new URL(`${bare.href}?code=x`));
-        await Bun.fetch(url, { method: 'POST' });
+        refused.push((await Bun.fetch(bare)).status);
+        refused.push((await Bun.fetch(new URL(`${bare.href}?code=x`))).status);
+        refused.push((await Bun.fetch(url, { method: 'POST' })).status);
         await browser(url);
       },
     });
+    const refused: number[] = [];
     const signed = await auth.signIn(HANDLE);
     expect(signed.session.did).toBe(DID);
-    // 先の要求で閉じていれば、空の戻り (`callback null null`) を受けていた。
-    // (断るときの 400 は、根の preload の happy-dom が Response を差し替えるので、ここでは読めない)
+    // 戻りの形でない要求は、どれも 400 で断る
+    expect(refused).toEqual([400, 400, 400]);
+    // 先の要求で閉じていれば、空の戻り (`callback null null`) を受けていた
     expect(log).toEqual([`authorize ${HANDLE}`, 'callback the-code the-state']);
   });
 
