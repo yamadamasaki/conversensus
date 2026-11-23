@@ -15,6 +15,7 @@ import {
   displayKindLabel,
   type EdgeKindRef,
   effectiveTemplateProperties,
+  isFixedTemplateProperty,
   kindDescriptionIn,
   kindPropertyLabels,
   kindPropertyOf,
@@ -572,9 +573,21 @@ function GraphEditorInner({
       const from = { ...(propertyTarget.properties ?? {}) };
       const to = { ...from };
       for (const [name, value] of Object.entries(changes)) {
+        // template が値を決めている property (editable: false) は書かせない (template-update K8・T8)。
+        // 欄は編集させないが、書き込みの入口をここ 1 つで守る
+        if (
+          isFixedTemplateProperty(
+            templates,
+            propertyTarget.kind,
+            propertyTarget.properties,
+            name,
+          )
+        )
+          continue;
         if (value === undefined) delete to[name];
         else to[name] = value;
       }
+      if (JSON.stringify(from) === JSON.stringify(to)) return;
       dispatch(
         propertyTarget.kind === 'node'
           ? {
@@ -593,7 +606,7 @@ function GraphEditorInner({
             },
       );
     },
-    [propertyTarget, dispatch],
+    [propertyTarget, dispatch, templates],
   );
   const applyPropertyChange = useCallback(
     (name: string, value: unknown) => applyPropertyChanges({ [name]: value }),

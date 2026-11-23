@@ -142,3 +142,20 @@ export function effectiveProperties(
   }
   return result;
 }
+
+/**
+ * template が値を決めている (editable: false の) property か (template-update K8、計画 T8)。書き込みの入口
+ * (UI・MCP の道具) が、書かせる前に問う。op-log は書いた actor しか持たないので、守れるのは入口だけである
+ * (読む側は `effectiveTemplateProperties` が既に template の値を採る)
+ */
+export function isFixedTemplateProperty(
+  templates: readonly Template[],
+  element: 'node' | 'edge',
+  properties: Readonly<Record<PropertyName, unknown>> | undefined,
+  name: PropertyName,
+): boolean {
+  return (
+    effectiveTemplateProperties(templates, element, properties)[name]
+      ?.source === 'fixed'
+  );
+}

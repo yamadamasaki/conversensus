@@ -5,6 +5,7 @@ import {
   copiedDefaultsOf,
   effectiveProperties,
   effectiveTemplateProperties,
+  isFixedTemplateProperty,
 } from './effective';
 import { kindPropertyOf } from './kind';
 import { checkPropertyValue, parsePropertyType } from './propertyType';
@@ -127,5 +128,18 @@ describe('effective: 例', () => {
         memo: 'm',
       }),
     ).toEqual({ [KIND]: 'claim', [P('owner')]: 'alice', memo: 'm' });
+  });
+});
+
+describe('isFixedTemplateProperty (T8)', () => {
+  test('editable: false の property だけが固定。種類を持たない要素では固定しない', () => {
+    const t = templateWith(
+      { [P('owner')]: 'alice' },
+      { [P('owner')]: { editable: false }, [P('due')]: { editable: true } },
+    );
+    const claim = { [KIND]: 'claim' };
+    expect(isFixedTemplateProperty([t], 'node', claim, P('owner'))).toBe(true);
+    expect(isFixedTemplateProperty([t], 'node', claim, P('due'))).toBe(false);
+    expect(isFixedTemplateProperty([t], 'node', {}, P('owner'))).toBe(false);
   });
 });

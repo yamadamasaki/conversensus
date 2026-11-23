@@ -36,3 +36,9 @@
 - 種類を持たない要素・知らない種類・node と edge の取り違えでは空
 - 読むときの全体: 既定値を補い、editable: false の値を template の値にし (要素の `bob` ではなく `alice`)、
   値の無い宣言は含めない。template に関わらない property (`memo`) はそのまま
+
+## isFixedTemplateProperty (T8)
+
+書き込みの入口 (UI の `applyPropertyChanges`、MCP の道具) が書かせる前に問う。editable: false の property だけが
+固定で、種類を持たない要素では (同じ名前でも) 固定しない。op-log は書いた actor しか持たないので、どのコードが
+書いたかでは守れない — 守れるのは入口だけである (review-2 R8)。

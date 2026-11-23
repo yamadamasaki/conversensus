@@ -30,6 +30,7 @@ import {
   type GraphEdge,
   type GraphNode,
   hasAnyEnd,
+  isFixedTemplateProperty,
   isKindProperty,
   isTemplateEdge,
   kindPropertyOf,
@@ -67,6 +68,25 @@ function edgeOf(ctx: ToolContext, edgeId: string): GraphEdge {
 }
 
 /** agent が書いてよい property か。種別と system は本体・template のもの */
+/**
+ * template が値を決めている property (editable: false) は書かせない (template-update K8、T8)。UI ができない
+ * ことは道具もできない (設計 §1.1)
+ */
+function assertNotFixed(
+  ctx: ToolContext,
+  element: 'node' | 'edge',
+  properties: Record<string, unknown> | undefined,
+  names: readonly string[],
+): void {
+  for (const name of names) {
+    if (isFixedTemplateProperty(ctx.templates, element, properties, name)) {
+      throw new ToolError(
+        `${name} は template が値を決めていて (editable: false)、書き換えられない`,
+      );
+    }
+  }
+}
+
 function assertWritable(name: string): void {
   if (isKindProperty(name)) {
     throw new ToolError(`${name} は種別で、作った後は変えられない`);
@@ -147,6 +167,7 @@ export function addNode(
       [kindPropertyOf(kind.templateId)]: kind.kind.id,
     }),
   };
+  assertNotFixed(ctx, 'node', properties, Object.keys(args.properties ?? {}));
   const nodeId = crypto.randomUUID() as NodeId;
   const data: GraphNode = {
     id: nodeId,
@@ -205,6 +226,7 @@ export function setNodeProperty(
 ): GraphEvent {
   assertWritable(args.name);
   const node = nodeOf(ctx, args.nodeId);
+  assertNotFixed(ctx, 'node', node.properties, [args.name]);
   return {
     ...eventBase('content'),
     type: 'NODE_PROPERTIES_CHANGED',
@@ -308,6 +330,7 @@ export function addEdge(
       [kindPropertyOf(kind.templateId)]: kind.kind.id,
     }),
   };
+  assertNotFixed(ctx, 'edge', properties, Object.keys(args.properties ?? {}));
   const edgeId = crypto.randomUUID() as EdgeId;
   const label = kind ? kind.kind.label : args.label;
   const data: GraphEdge = {
@@ -350,6 +373,7 @@ export function setEdgeProperty(
 ): GraphEvent {
   assertWritable(args.name);
   const edge = edgeOf(ctx, args.edgeId);
+  assertNotFixed(ctx, 'edge', edge.properties, [args.name]);
   return {
     ...eventBase('content'),
     type: 'EDGE_PROPERTIES_CHANGED',

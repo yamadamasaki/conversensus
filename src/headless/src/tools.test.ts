@@ -250,6 +250,37 @@ describe('種別', () => {
     ).not.toHaveProperty(`${TEMPLATE_ID}.owner`);
   });
 
+  test('template が値を決めている property (editable: false) は、足すときも書き換えるときも断る (T8)', () => {
+    const fixed = `${TEMPLATE_ID}.owner`;
+    const t = TemplateSchema.parse({
+      ...toulmin(),
+      nodeKinds: toulmin().nodeKinds.map((k) =>
+        k.id === CLAIM
+          ? {
+              ...k,
+              defaults: { [fixed]: 'alice' },
+              schema: { [fixed]: { editable: false } },
+            }
+          : k,
+      ),
+    });
+    const c: ToolContext = { ...ctx(), templates: [t] };
+    expect(() =>
+      setNodeProperty(c, { nodeId: CLAIM_NODE, name: fixed, value: 'bob' }),
+    ).toThrow(/editable: false/);
+    expect(() =>
+      addNode(c, {
+        content: 'x',
+        kind: CLAIM,
+        properties: { [fixed]: 'bob' },
+      }),
+    ).toThrow(/editable: false/);
+    // 種類を持たない node なら、同じ名前でも書ける (template の制約の外)
+    expect(() =>
+      setNodeProperty(c, { nodeId: PLAIN_NODE, name: fixed, value: 'bob' }),
+    ).not.toThrow();
+  });
+
   test('知らない種別は断る', () => {
     expect(() =>
       addNode(ctx(), { content: 'x', kind: 'kind-unknown' }),
