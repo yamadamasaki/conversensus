@@ -101,6 +101,11 @@ type Props = {
   placement?: 'floating' | 'docked';
   /** 領域の名前。同じ画面に 2 つ出るので、呼び分けられるようにする */
   label?: string;
+  /**
+   * template graph の要素の欄か (template-update K9)。そうなら値は適用先の既定値で、**空は「既定値なし」**
+   * (空文字を既定値にすると、型を宣言したときに「型に合わない」になる)
+   */
+  templateGraph?: boolean;
 };
 
 export function PropertyEditor({
@@ -114,6 +119,7 @@ export function PropertyEditor({
   onClose,
   placement = 'floating',
   label = 'property',
+  templateGraph = false,
 }: Props) {
   const t = useMessages();
   const showReadOnly = useShowReadOnlyProperties();
@@ -252,7 +258,12 @@ export function PropertyEditor({
               type="button"
               disabled={!canAdd}
               onClick={() => {
-                onSet(addName, newValue);
+                // template graph で値が空なら、既定値の無い宣言として足す (行は宣言から出る)
+                if (templateGraph && newValue === '' && onChange) {
+                  onChange({
+                    [propertySchemaPropertyOf(addName)]: { editable: true },
+                  });
+                } else onSet(addName, newValue);
                 setNewName('');
                 setNewValue('');
               }}
@@ -336,6 +347,17 @@ function PropertyField({
     // ではない。入力から型を推論して寄せると、`3` と打っただけで数値になり、
     // 文字列の `"3"` を入れる手段が無くなる。template が型を宣言していれば、その型に従って
     // 読む (`valueFromInput`: number なら数に。読めなければ文字列のまま — 型に合わない印が付く)
+    // template graph で空にしたら「既定値なし」: 値を消し、宣言は残す (行が消えないように)
+    if (schema && onChange && draft.trim() === '') {
+      onChange({
+        [row.name]: undefined,
+        [propertySchemaPropertyOf(row.name)]: {
+          ...(schema.type !== '' && { type: schema.type }),
+          editable: schema.editable,
+        },
+      });
+      return;
+    }
     onSet(row.name, valueFromInput(declared, draft));
   };
 

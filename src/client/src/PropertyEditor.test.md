@@ -127,3 +127,11 @@ template graph の要素の行 (`row.schema` を持つ行) には、型の入力
 - 列挙を宣言した property は選択肢 (`select`) から選ばせ、選べば書く
 - 型に合わない値・欠けた必須の値に印を出す (`role="status"`)
 - template が値を決めている行 (editable: false) は編集させず、理由を言う
+
+## template graph で値を空にすると「既定値なし」(template-update K9)
+
+template graph の値は適用先の既定値である。空文字を既定値にすると、`date?` のような型を宣言したとき適用先で
+「型に合わない」になる (空文字は日付ではない)。そこで template graph では空 = 既定値なしとする:
+
+- 値を空にして足すと、既定値の無い宣言 (`{ editable: true }`) として足す。行は宣言から出る
+- 既定値の欄を空にすると、値を消して宣言は残す (行が消えないように)

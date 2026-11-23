@@ -95,6 +95,7 @@ export function RightSidebar({
           label={t.rightSidebar.propertyRegion}
           title={selection.title}
           rows={propertyRowsOf(selection, showReadOnly)}
+          templateGraph={selection.templateGraph}
           addable={selection.addable}
           onSet={onSetProperty}
           onRemove={(name) => onSetProperty(name, undefined)}

@@ -1501,6 +1501,7 @@ export default function App() {
         <PropertyEditor
           title={panels.selection.title}
           rows={propertyRowsOf(panels.selection, showReadOnly)}
+          templateGraph={panels.selection.templateGraph}
           addable={panels.selection.addable}
           onSet={(name, value) => panels.controls?.setProperty(name, value)}
           onRemove={(name) => panels.controls?.setProperty(name, undefined)}

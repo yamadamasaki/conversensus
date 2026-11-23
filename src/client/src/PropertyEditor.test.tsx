@@ -490,3 +490,36 @@ describe('読むときの姿 (template-update K8・K9・K12)', () => {
     ).toBeTruthy();
   });
 });
+
+describe('template graph で値を空にすると「既定値なし」(template-update K9)', () => {
+  const SCHEMA_OF = (name: string) => `app.conversensus.propertySchema.${name}`;
+  const onChange = mock((_changes: Readonly<Record<string, unknown>>) => {});
+  afterEach(() => onChange.mockClear());
+
+  it('値を空にして足すと、既定値の無い宣言として足す (空文字を既定値にしない)', () => {
+    show({ rows: [], onChange, templateGraph: true });
+    fireEvent.change(screen.getByLabelText('追加する property の名前'), {
+      target: { value: '期限' },
+    });
+    fireEvent.click(screen.getByText('追加'));
+    expect(onChange).toHaveBeenCalledWith({
+      [SCHEMA_OF('期限')]: { editable: true },
+    });
+    expect(onSet).not.toHaveBeenCalled();
+  });
+
+  it('既定値の欄を空にすると、値を消して宣言は残す', () => {
+    show({
+      rows: [row({ schema: { type: 'date?', editable: true } })],
+      onChange,
+      templateGraph: true,
+    });
+    const input = screen.getByLabelText('期限 の既定値');
+    fireEvent.change(input, { target: { value: '' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onChange).toHaveBeenCalledWith({
+      期限: undefined,
+      [SCHEMA_OF('期限')]: { type: 'date?', editable: true },
+    });
+  });
+});
