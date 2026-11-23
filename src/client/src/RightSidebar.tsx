@@ -25,6 +25,8 @@ const PANES: readonly RightSidebarPane[] = ['property', 'timeline'];
 type Props = {
   selection: PropertyTarget | undefined;
   onSetProperty: (name: string, value: unknown) => void;
+  /** プロパティをいくつか同時に変える (template graph の宣言、template-update K9) */
+  onSetProperties?: (changes: Readonly<Record<string, unknown>>) => void;
   readOnly: boolean;
   pane: RightSidebarPane;
   onPaneChange: (pane: RightSidebarPane) => void;
@@ -35,6 +37,7 @@ type Props = {
 export function RightSidebar({
   selection,
   onSetProperty,
+  onSetProperties,
   readOnly,
   pane,
   onPaneChange,
@@ -95,10 +98,12 @@ export function RightSidebar({
             selection.properties,
             showReadOnly,
             selection.kindLabels,
+            selection.templateGraph,
           )}
           addable={selection.addable}
           onSet={onSetProperty}
           onRemove={(name) => onSetProperty(name, undefined)}
+          onChange={onSetProperties}
           readOnly={readOnly}
         />
       ) : (

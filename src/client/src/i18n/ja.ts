@@ -483,6 +483,14 @@ export const ja = {
     valueOf: (name: string) => `${name} の値`,
     remove: (name: string) => `${name} を削除`,
     kindOf: (template: string) => `${template} の種類`,
+    typeOf: (name: string) => `${name} の型`,
+    typePlaceholder: "型 (例: number・'高' | '低'・date?)",
+    typeError: (reason: string) => `型を読めません: ${reason}`,
+    editable: '適用先で編集できる',
+    editableTitle:
+      '外すと、適用先ではこの property の値は常に template の値 (既定値) になり、変えられません',
+    defaultValueOf: (name: string) => `${name} の既定値`,
+    noDefault: '既定値なし',
     readOnly: {
       templateKind: '種別は作成時に決まり、変更できません',
       system: 'アプリが付けた値で、変更できません',

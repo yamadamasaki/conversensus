@@ -41,6 +41,7 @@ function shape(t: Template) {
           k.descriptions ?? {},
           k.nodeType ?? 'markdown',
           k.defaults,
+          k.schema,
         ]),
       )
       .sort(),
@@ -54,6 +55,7 @@ function shape(t: Template) {
               nameOf(f),
               nameOf(to),
               k.defaults,
+              k.schema,
             ]),
           ),
         ),
@@ -92,8 +94,26 @@ const arbTemplate: fc.Arbitrary<Template> = fc
       minLength: 4,
       maxLength: 4,
     }),
+    /**
+     * 種類ごとの宣言 (template-update K9)。何も宣言しない形 (型が無く editable) は template graph に
+     * 書かれないので引かない。既定値の無い宣言 (`期限`) も引く
+     */
+    schemas: fc.array(
+      fc.dictionary(
+        fc.constantFrom('weight', '期限'),
+        fc.oneof(
+          fc.record({
+            type: fc.constantFrom('number', "'高' | '低'", 'date?'),
+            editable: fc.boolean(),
+          }),
+          fc.constant({ editable: false }),
+        ),
+        { maxKeys: 2 },
+      ),
+      { minLength: 4, maxLength: 4 },
+    ),
   })
-  .map(({ kinds, edges, translated, nodeTypes }) => {
+  .map(({ kinds, edges, translated, nodeTypes, schemas }) => {
     // 端の番号が種類の数以上なら「任意」にする (任意の端を引くため)
     const end = (i: number) => (i < kinds.length ? `k${i}` : ANY_NODE_KIND);
     return TemplateSchema.parse({
@@ -110,6 +130,7 @@ const arbTemplate: fc.Arbitrary<Template> = fc
           descriptions: { en: `${label} (en)` },
         }),
         ...(nodeTypes[i] && { nodeType: nodeTypes[i] }),
+        schema: schemas[i],
       })),
       // 両端とも任意の edge は種類にならない (template graph の説明書きと同じ) ので引かない
       edgeKinds: edges
@@ -125,13 +146,14 @@ const arbTemplate: fc.Arbitrary<Template> = fc
           ...(e.withDefault && {
             properties: ['weight'],
             defaults: { weight: 1 },
+            schema: { weight: { type: 'number', editable: e.translated } },
           }),
         })),
     });
   });
 
 describe('templateGraphOf: 性質', () => {
-  test('種 → template graph → 読み替え で、同じ種類に戻る (名前・説明・言語ごとの名前と説明・見た目・端・既定値)', () => {
+  test('種 → template graph → 読み替え で、同じ種類に戻る (名前・説明・言語ごとの名前と説明・見た目・端・既定値・宣言)', () => {
     fc.assert(
       fc.property(arbTemplate, (template) => {
         expect(shape(roundTrip(template))).toEqual(shape(template));

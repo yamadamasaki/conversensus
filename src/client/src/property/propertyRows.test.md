@@ -183,3 +183,20 @@ Phase 5 が「**step2 では宣言だけ**である。これを食う property e
   持つ)。仕様が node について同じ宣言を求めたら、そのとき足す
 - **編集した結果が op になること**。`NODE_PROPERTIES_CHANGED` / `EDGE_PROPERTIES_CHANGED`
   の発行は Q2 の仕事で、reducer 側は Q0 で塞いだ
+
+## template graph の行 (template-update K9・Q4)
+
+### 何を・なぜ
+
+template graph の要素では、property は適用先の既定値であり、型と editable を宣言できる。宣言は付随 property
+(`app.conversensus.propertySchema.<名前>`) に置くが、それを system の行として並べると、宣言を直す手段が
+「system は変更できない」で塞がる。そこで宣言は行にせず、宣言する property の行に `schema` として添える
+(画面は型の入力欄と editable のチェックで直す)。
+
+### どのように
+
+- 宣言は行にせず、宣言する property の行に添える。宣言の無い property も editable の既定 (true・型は空) で添える
+- 宣言だけで既定値の無い property も行にする (値は `undefined`)。行が無いと宣言を直す場所も消す場所も無い
+- 読めない型には理由 (`typeError`) を添える
+- 言語ごとの名前・説明 (`label:<言語>`、#356) と system には宣言を添えない (適用先の property ではない)
+- template graph でなければ、宣言の property は今までどおり system の行 (読み取り専用の表示のとき)

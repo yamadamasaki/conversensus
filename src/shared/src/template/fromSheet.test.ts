@@ -238,6 +238,49 @@ describe('templateFromSheet: 例', () => {
     expect(supports?.defaults).toEqual({ weight: 1 });
   });
 
+  test('型・editable の宣言を読み、既定値には入れない。edge の持ちうる property には宣言だけのものも入る (K9)', () => {
+    const t = templateFromSheet(
+      {
+        ...sheet,
+        nodes: sheet.nodes.map((n) =>
+          n.id === claim
+            ? {
+                ...n,
+                properties: {
+                  ...n.properties,
+                  'app.conversensus.propertySchema.owner': { editable: false },
+                },
+              }
+            : n,
+        ),
+        edges: sheet.edges.map((e) =>
+          e.id === 'e1'
+            ? {
+                ...e,
+                properties: {
+                  ...e.properties,
+                  'app.conversensus.propertySchema.weight': { type: 'number' },
+                  'app.conversensus.propertySchema.期限': { type: 'date?' },
+                },
+              }
+            : e,
+        ),
+      },
+      TEMPLATE_ID,
+    );
+    const claimKind = t.nodeKinds.find((k) => String(k.id) === claim);
+    expect(claimKind?.schema).toEqual({ owner: { editable: false } });
+    expect(claimKind?.defaults).toEqual({ owner: '' });
+    const supports = t.edgeKinds.find((k) => k.id === 'e1');
+    // editable は既定で true
+    expect(supports?.schema).toEqual({
+      weight: { type: 'number', editable: true },
+      期限: { type: 'date?', editable: true },
+    });
+    expect(supports?.defaults).toEqual({ weight: 1 });
+    expect(supports?.properties).toEqual(['weight', '期限']);
+  });
+
   test('label の無い node 同士の edge は説明書き (種類にしない)。label のある node との edge は「任意」の端を持つ', () => {
     const t = templateFromSheet(sheet, TEMPLATE_ID);
     expect(t.edgeKinds.map((k) => String(k.id)).sort()).toEqual(['e1', 'e2']);

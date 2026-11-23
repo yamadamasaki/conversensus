@@ -17,7 +17,9 @@
  *   (`ANY_NODE_KIND`: 適用先でこの template の種別を持たない node)。label の重複で無効になった node に
  *   繋がる edge は種類にしない
  * - **label の無い node 同士の edge と、label の無い node** = 使い方の説明書き。種類にしない
- * - 種類になった node / edge の property = 適用先の既定値 (種別プロパティそのものと、言語ごとの名前・説明は除く)
+ * - 種類になった node / edge の property = 適用先の既定値 (種別プロパティそのものと、言語ごとの名前・説明と、
+ *   型・editable の宣言は除く)
+ * - `app.conversensus.propertySchema.<名前>` の property = その property の型・editable の宣言 (template-update K9)
  * - `label:<言語>`・`description:<言語>` の property = 言語ごとの名前・説明 (#356、`kindLocale.ts`)
  */
 
@@ -39,6 +41,7 @@ import {
   KIND_LABEL_PROPERTY_PREFIX,
   translationsIn,
 } from './kindLocale';
+import { isPropertySchemaProperty, propertySchemaIn } from './propertySchema';
 import {
   ANY_NODE_KIND,
   type EdgeKindId,
@@ -57,15 +60,18 @@ export function templateIdOf(templateSheetId: string): TemplateId {
 }
 
 /**
- * 種別プロパティと訳を除いた property (既定値にするもの)。訳を残すと、当てたシートの node ごとに訳が
- * 複製される (#356)
+ * 種別プロパティと訳と宣言を除いた property (既定値にするもの)。訳を残すと、当てたシートの node ごとに訳が
+ * 複製される (#356)。宣言 (型・editable、template-update K9) も template の定義であって既定値ではない
  */
 function defaultsOf(
   properties: Record<PropertyName, unknown> | undefined,
 ): Record<PropertyName, unknown> {
   return Object.fromEntries(
     Object.entries(properties ?? {}).filter(
-      ([name]) => !isKindProperty(name) && !isKindTranslationProperty(name),
+      ([name]) =>
+        !isKindProperty(name) &&
+        !isKindTranslationProperty(name) &&
+        !isPropertySchemaProperty(name),
     ),
   );
 }
@@ -133,6 +139,7 @@ export function templateFromSheet(
       ...(n.nodeType && { nodeType: n.nodeType }),
       ...translationsOf(n.properties, true),
       defaults: defaultsOf(n.properties),
+      schema: propertySchemaIn(n.properties),
     })),
     edgeKinds: sheet.edges
       .filter(
@@ -147,8 +154,15 @@ export function templateFromSheet(
         ...translationsOf(e.properties, false),
         from: [endOf(e.source)],
         to: [endOf(e.target)],
-        properties: Object.keys(defaultsOf(e.properties)),
+        // 持ちうる property = 既定値のあるもの + 宣言だけのもの (既定値の無い宣言もある)
+        properties: [
+          ...new Set([
+            ...Object.keys(defaultsOf(e.properties)),
+            ...Object.keys(propertySchemaIn(e.properties)),
+          ]),
+        ],
         defaults: defaultsOf(e.properties),
+        schema: propertySchemaIn(e.properties),
       })),
   });
 }

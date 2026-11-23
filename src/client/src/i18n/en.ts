@@ -484,6 +484,14 @@ export const en: Messages = {
     valueOf: (name: string) => `Value of ${name}`,
     remove: (name: string) => `Delete ${name}`,
     kindOf: (template: string) => `Kind in ${template}`,
+    typeOf: (name: string) => `type of ${name}`,
+    typePlaceholder: "type (e.g. number, 'high' | 'low', date?)",
+    typeError: (reason: string) => `Cannot read the type: ${reason}`,
+    editable: 'Editable where applied',
+    editableTitle:
+      'When unchecked, this property always has the template value (the default) where the template is applied, and cannot be changed',
+    defaultValueOf: (name: string) => `default value of ${name}`,
+    noDefault: 'no default',
     readOnly: {
       templateKind: 'The kind is fixed at creation and cannot be changed',
       system: 'Set by the app and cannot be changed',

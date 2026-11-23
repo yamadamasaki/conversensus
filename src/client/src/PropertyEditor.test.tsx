@@ -338,3 +338,75 @@ describe('読み取り専用も表示 (#357)', () => {
     expect(screen.getByText('アプリが付けた値で、変更できません')).toBeTruthy();
   });
 });
+
+describe('template graph の行: 型と editable の宣言 (template-update K9・Q4)', () => {
+  const SCHEMA_OF = (name: string) => `app.conversensus.propertySchema.${name}`;
+  const onChange = mock((_changes: Readonly<Record<string, unknown>>) => {});
+  afterEach(() => onChange.mockClear());
+
+  const schemaRow = (over: Partial<PropertyRow> = {}) =>
+    row({ schema: { type: 'date', editable: true }, ...over });
+
+  it('型の入力欄と editable のチェックを出し、値の欄は既定値と呼ぶ', () => {
+    show({ rows: [schemaRow()], onChange });
+    expect((screen.getByLabelText('期限 の型') as HTMLInputElement).value).toBe(
+      'date',
+    );
+    expect(screen.getByLabelText('期限 の既定値')).toBeTruthy();
+    expect(
+      (screen.getByLabelText('適用先で編集できる') as HTMLInputElement).checked,
+    ).toBe(true);
+  });
+
+  it('型を書いて確定すると宣言を 1 つの変更で書く', () => {
+    show({ rows: [schemaRow()], onChange });
+    const input = screen.getByLabelText('期限 の型');
+    fireEvent.change(input, { target: { value: 'date?' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onChange).toHaveBeenCalledWith({
+      [SCHEMA_OF('期限')]: { type: 'date?', editable: true },
+    });
+  });
+
+  it('editable を外すと宣言に書き、型を空にして editable なら宣言ごと消す', () => {
+    show({ rows: [schemaRow()], onChange });
+    fireEvent.click(screen.getByLabelText('適用先で編集できる'));
+    expect(onChange).toHaveBeenLastCalledWith({
+      [SCHEMA_OF('期限')]: { type: 'date', editable: false },
+    });
+    const input = screen.getByLabelText('期限 の型');
+    fireEvent.change(input, { target: { value: '' } });
+    fireEvent.blur(input);
+    expect(onChange).toHaveBeenLastCalledWith({
+      [SCHEMA_OF('期限')]: undefined,
+    });
+  });
+
+  it('行を消すと、値と宣言を 1 つの変更で消す', () => {
+    show({ rows: [schemaRow()], onChange });
+    fireEvent.click(screen.getByLabelText('期限 を削除'));
+    expect(onChange).toHaveBeenCalledWith({
+      期限: undefined,
+      [SCHEMA_OF('期限')]: undefined,
+    });
+    expect(onRemove).not.toHaveBeenCalled();
+  });
+
+  it('読めない型には理由を出す', () => {
+    show({
+      rows: [
+        schemaRow({
+          schema: { type: 'strin', editable: true, typeError: 'x' },
+        }),
+      ],
+      onChange,
+    });
+    expect(screen.getByRole('alert').textContent).toContain('型を読めません');
+  });
+
+  it('onChange が無ければ宣言の欄を出さない (template graph でない画面と同じ)', () => {
+    show({ rows: [schemaRow()] });
+    expect(screen.queryByLabelText('期限 の型')).toBeNull();
+    expect(screen.getByLabelText('期限 の値')).toBeTruthy();
+  });
+});

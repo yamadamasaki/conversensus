@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { PropertyNameSchema } from '../events/unified';
 import { GROUP_NODE_TYPE, IMAGE_NODE_TYPE, TemplateIdSchema } from '../schemas';
+import { PropertySchemaSchema } from './propertySchema';
 
 export const NodeKindIdSchema = z.string().min(1).brand<'NodeKindId'>();
 export type NodeKindId = z.infer<typeof NodeKindIdSchema>;
@@ -49,6 +50,8 @@ export const NodeKindSchema = z.object({
    */
   nodeType: z.enum([GROUP_NODE_TYPE, IMAGE_NODE_TYPE]).optional(),
   defaults: DefaultsSchema,
+  /** property の型と editable の宣言 (template-update K9、`propertySchema.ts`) */
+  schema: PropertySchemaSchema,
 });
 export type NodeKind = z.infer<typeof NodeKindSchema>;
 
@@ -70,6 +73,8 @@ export const EdgeKindSchema = z.object({
    */
   properties: z.array(PropertyNameSchema).default([]),
   defaults: DefaultsSchema,
+  /** property の型と editable の宣言 (template-update K9、`propertySchema.ts`) */
+  schema: PropertySchemaSchema,
 });
 export type EdgeKind = z.infer<typeof EdgeKindSchema>;
 

@@ -1504,10 +1504,12 @@ export default function App() {
             panels.selection.properties,
             showReadOnly,
             panels.selection.kindLabels,
+            panels.selection.templateGraph,
           )}
           addable={panels.selection.addable}
           onSet={(name, value) => panels.controls?.setProperty(name, value)}
           onRemove={(name) => panels.controls?.setProperty(name, undefined)}
+          onChange={(changes) => panels.controls?.setProperties(changes)}
           readOnly={readOnly}
           onClose={panels.closeProperty}
         />
@@ -1923,6 +1925,9 @@ export default function App() {
             selection={viewAddress ? panels.selection : undefined}
             onSetProperty={(name, value) =>
               panels.controls?.setProperty(name, value)
+            }
+            onSetProperties={(changes) =>
+              panels.controls?.setProperties(changes)
             }
             readOnly={readOnly}
             pane={rightPane}

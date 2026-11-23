@@ -42,6 +42,8 @@
 - label の無い node 同士の edge は説明書き、label のある node との edge は「任意」の端を持つ
 - label が重複した node は両方とも種類にせず、そこに繋がる edge も種類にしない (K6)。前後の空白は除いて比べる。
   無効な node を「任意」の端と読むと、`データ → 任意` のような定義した人の意図に無い種類ができる
+- 型・editable の宣言 (`app.conversensus.propertySchema.<名前>`、K9) を読み、既定値には入れない。editable は
+  既定で true。edge の持ちうる property (追加の候補) には、既定値の無い宣言だけのものも入る
 - 種類の見た目は node の見た目 (group・image)。markdown の node の種類は見た目を持たない (template-update K11)。
   読み落とすと、group の種類から適用先で markdown node ができる (#406)
 - template id は template graph の sheet から作り、種別プロパティの名前空間になる (`template.<SheetId>.kind`, Q2)

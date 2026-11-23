@@ -290,6 +290,7 @@ function GraphEditorInner({
    * 表である。ゴーストは対象外 — 消された要素のプロパティを編集させても行き先が無い。
    * 選択の観測経路は React Flow の nodes/edges にしか無いので、そこから読む
    */
+  const isTemplateGraph = sheetKindOf(activeSheet) === TEMPLATE_SHEET_KIND;
   const propertyTarget = useMemo((): PropertyTarget | undefined => {
     const node = nodes.find((n) => n.selected && !n.data?.ghost);
     if (node) {
@@ -304,6 +305,7 @@ function GraphEditorInner({
         properties,
         addable: [],
         kindLabels: kindPropertyLabels(templates, 'node', properties, locale),
+        ...(isTemplateGraph && { templateGraph: true }),
       };
     }
     const edge = edges.find((e) => e.selected && !e.data?.ghost);
@@ -319,10 +321,11 @@ function GraphEditorInner({
         // **候補は edge にしか無い** — 宣言を持つのは `EdgeKind` だけである
         addable: addablePropertyNames(templates, properties),
         kindLabels: kindPropertyLabels(templates, 'edge', properties, locale),
+        ...(isTemplateGraph && { templateGraph: true }),
       };
     }
     return undefined;
-  }, [nodes, edges, templates, locale]);
+  }, [nodes, edges, templates, locale, isTemplateGraph]);
 
   // 選択の写しを外へ知らせる (S3-4a)。**中身が変わったときだけ** — nodes はドラッグの
   // 間じゅう変わるので、毎回知らせると App がドラッグの各フレームで描き直す
@@ -536,13 +539,16 @@ function GraphEditorInner({
    * **`dispatch` より後ろに置く。**`propertyTarget` は nodes/edges だけに依るので
    * 前に置けるが、こちらは `useEventStore` の戻りを使う
    */
-  const applyPropertyChange = useCallback(
-    (name: string, value: unknown) => {
+  /** プロパティをいくつか同時に (1 つの event で) 変える。値が undefined のキーは削除 */
+  const applyPropertyChanges = useCallback(
+    (changes: Readonly<Record<string, unknown>>) => {
       if (!propertyTarget) return;
       const from = { ...(propertyTarget.properties ?? {}) };
       const to = { ...from };
-      if (value === undefined) delete to[name];
-      else to[name] = value;
+      for (const [name, value] of Object.entries(changes)) {
+        if (value === undefined) delete to[name];
+        else to[name] = value;
+      }
       dispatch(
         propertyTarget.kind === 'node'
           ? {
@@ -562,6 +568,10 @@ function GraphEditorInner({
       );
     },
     [propertyTarget, dispatch],
+  );
+  const applyPropertyChange = useCallback(
+    (name: string, value: unknown) => applyPropertyChanges({ [name]: value }),
+    [applyPropertyChanges],
   );
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: mount/unmount のみ (React key 変更による再マウント)
@@ -941,6 +951,7 @@ function GraphEditorInner({
     handleExportPng,
     handleReveal,
     applyPropertyChange,
+    applyPropertyChanges,
     selectIds,
     dispatch,
   };
@@ -958,6 +969,8 @@ function GraphEditorInner({
       reveal: (hit) => latestRef.current.handleReveal(hit),
       setProperty: (name, value) =>
         latestRef.current.applyPropertyChange(name, value),
+      setProperties: (changes) =>
+        latestRef.current.applyPropertyChanges(changes),
       select: (ids) => latestRef.current.selectIds(ids),
       apply: (events) => {
         for (const event of events) latestRef.current.dispatch(event);
@@ -1041,7 +1054,7 @@ function GraphEditorInner({
                     </div>
                   )}
                   {/* template graph では、名前の重なった種類を知らせる (template-update K6) */}
-                  {sheetKindOf(activeSheet) === TEMPLATE_SHEET_KIND && (
+                  {isTemplateGraph && (
                     <DuplicateKindsWarning sheet={activeSheet} />
                   )}
                   {nodeActions.toolbar && (

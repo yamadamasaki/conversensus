@@ -28,9 +28,13 @@ import { ICON_SIZE_SM } from './ui/Button';
  * `ImageNode` と 2 か所に同じ約束が散る。
  */
 
+import {
+  propertySchemaPropertyOf,
+  propertySchemaValueOf,
+} from '@conversensus/shared';
 import { useEffect, useRef, useState } from 'react';
 import { messages, useMessages } from './i18n/messages';
-import type { PropertyRow } from './property/propertyRows';
+import type { PropertyRow, RowSchema } from './property/propertyRows';
 import {
   setShowReadOnlyProperties,
   useShowReadOnlyProperties,
@@ -77,6 +81,11 @@ type Props = {
   /** プロパティ 1 つを消す */
   onRemove: (name: string) => void;
   /**
+   * プロパティをいくつか同時に (1 つの op で) 変える。値が undefined のキーは削除。template graph の行
+   * (`row.schema` を持つ行) の宣言を直すのに使う (template-update K9)。無ければ宣言の欄を出さない
+   */
+  onChange?: (changes: Readonly<Record<string, unknown>>) => void;
+  /**
    * 再参加した後、同期が済むまでは編集させない (step2 Phase 2 S6)。
    * **見るのは止めない** — 読むための操作は残す、という S6 の判断に揃える
    */
@@ -98,6 +107,7 @@ export function PropertyEditor({
   addable,
   onSet,
   onRemove,
+  onChange,
   readOnly = false,
   onClose,
   placement = 'floating',
@@ -199,6 +209,7 @@ export function PropertyEditor({
               readOnly={readOnly}
               onSet={onSet}
               onRemove={onRemove}
+              onChange={onChange}
             />
           ))}
         </ul>
@@ -275,11 +286,13 @@ function PropertyField({
   readOnly,
   onSet,
   onRemove,
+  onChange,
 }: {
   row: PropertyRow;
   readOnly: boolean;
   onSet: (name: string, value: unknown) => void;
   onRemove: (name: string) => void;
+  onChange?: (changes: Readonly<Record<string, unknown>>) => void;
 }) {
   const t = useMessages();
   const shown = displayValue(row.value);
@@ -295,6 +308,16 @@ function PropertyField({
   }, [shown]);
 
   const locked = readOnly || row.readOnly !== undefined;
+  // template graph の行: 値は適用先の既定値で、型と editable を宣言できる (K9)
+  const schema = onChange ? row.schema : undefined;
+  // 宣言ごと消す。値と宣言を 1 つの op にする (2 回に分けると 2 回目が 1 回目を打ち消しうる)
+  const remove = () =>
+    schema && onChange
+      ? onChange({
+          [row.name]: undefined,
+          [propertySchemaPropertyOf(row.name)]: undefined,
+        })
+      : onRemove(row.name);
 
   const commit = () => {
     if (draft === shown) return; // 変わらないものは op-log に積まない (Phase 5 の判断)
@@ -330,15 +353,18 @@ function PropertyField({
         >
           {label ? t.property.kindOf(label.template) : row.name}
         </span>
-        <span
-          style={{
-            color: color.textMuted,
-            fontSize: font.caption,
-            flexShrink: 0,
-          }}
-        >
-          {typeLabel(row.type)}
-        </span>
+        {/* template graph の行は型を宣言の欄で見せる (値から読んだ「文字列」と並べると紛らわしい) */}
+        {!schema && (
+          <span
+            style={{
+              color: color.textMuted,
+              fontSize: font.caption,
+              flexShrink: 0,
+            }}
+          >
+            {typeLabel(row.type)}
+          </span>
+        )}
       </div>
 
       {locked ? (
@@ -351,7 +377,12 @@ function PropertyField({
       ) : (
         <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
           <input
-            aria-label={t.property.valueOf(row.name)}
+            aria-label={
+              schema
+                ? t.property.defaultValueOf(row.name)
+                : t.property.valueOf(row.name)
+            }
+            placeholder={schema ? t.property.noDefault : undefined}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onCompositionStart={() => {
@@ -375,13 +406,22 @@ function PropertyField({
           />
           <button
             type="button"
-            onClick={() => onRemove(row.name)}
+            onClick={remove}
             aria-label={t.property.remove(row.name)}
             className="cs-btn cs-btn--icon cs-btn--sm"
           >
             <Trash2 size={ICON_SIZE_SM} aria-hidden />
           </button>
         </div>
+      )}
+
+      {schema && onChange && (
+        <SchemaFields
+          name={row.name}
+          schema={schema}
+          readOnly={readOnly}
+          onChange={onChange}
+        />
       )}
 
       {/* **なぜ編集できないかを言う。**言わないと「壊れている」に見える */}
@@ -392,5 +432,104 @@ function PropertyField({
         </div>
       )}
     </li>
+  );
+}
+
+/**
+ * template graph の行の宣言の欄: 型の入力欄と editable のチェック (template-update K9・Q4)。
+ *
+ * 書くのは `app.conversensus.propertySchema.<名前>` の値 1 つ。何も宣言しない形 (型が空で editable) になれば
+ * その property を消す (`propertySchemaValueOf`)。型の文字列が読めなければ理由を出す — 読めない型は適用先で
+ * 効かない (型の無い property として扱う) ので、黙っていると「型を付けたのに効かない」になる
+ */
+function SchemaFields({
+  name,
+  schema,
+  readOnly,
+  onChange,
+}: {
+  name: string;
+  schema: RowSchema;
+  readOnly: boolean;
+  onChange: (changes: Readonly<Record<string, unknown>>) => void;
+}) {
+  const t = useMessages();
+  const [draft, setDraft] = useState(schema.type);
+  const composingRef = useRef(false);
+  useEffect(() => {
+    setDraft(schema.type);
+  }, [schema.type]);
+
+  const write = (type: string, editable: boolean) =>
+    onChange({
+      [propertySchemaPropertyOf(name)]: propertySchemaValueOf({
+        type,
+        editable,
+      }),
+    });
+  const commit = () => {
+    if (draft.trim() === schema.type) return;
+    write(draft, schema.editable);
+  };
+
+  return (
+    <div style={{ marginTop: 4 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <input
+          aria-label={t.property.typeOf(name)}
+          placeholder={t.property.typePlaceholder}
+          value={draft}
+          disabled={readOnly}
+          onChange={(e) => setDraft(e.target.value)}
+          onCompositionStart={() => {
+            composingRef.current = true;
+          }}
+          onCompositionEnd={() => {
+            composingRef.current = false;
+          }}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (composingRef.current) return; // IME 変換中は無視
+            if (e.key === 'Enter') commit();
+            if (e.key === 'Escape') setDraft(schema.type);
+          }}
+          style={{
+            flex: 1,
+            minWidth: 0,
+            padding: '2px 6px',
+            fontSize: font.caption,
+            fontFamily: 'monospace',
+          }}
+        />
+        <label
+          title={t.property.editableTitle}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4,
+            color: color.textMuted,
+            fontSize: font.caption,
+            whiteSpace: 'nowrap',
+            flexShrink: 0,
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={schema.editable}
+            disabled={readOnly}
+            onChange={(e) => write(schema.type, e.target.checked)}
+          />
+          {t.property.editable}
+        </label>
+      </div>
+      {schema.typeError !== undefined && (
+        <div
+          role="alert"
+          style={{ color: color.warningText, fontSize: font.caption }}
+        >
+          {t.property.typeError(schema.typeError)}
+        </div>
+      )}
+    </div>
   );
 }

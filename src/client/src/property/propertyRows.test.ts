@@ -319,3 +319,81 @@ describe('追加できる名前の候補 (EdgeKind.properties の最初の消費
     ).toEqual([]);
   });
 });
+
+describe('template graph の行 (template-update K9・Q4)', () => {
+  const SCHEMA = 'app.conversensus.propertySchema.';
+
+  it('宣言は行にせず、宣言する property の行に添える。宣言の無い property も editable の既定で添える', () => {
+    const rows = propertyRows(
+      {
+        期限: '2026-12-01',
+        担当: '',
+        [`${SCHEMA}期限`]: { type: 'date', editable: false },
+      },
+      true,
+      {},
+      true,
+    );
+    // 並びは名前順 (`byName`)。宣言の property は行にならない
+    expect(rows.map((r) => r.name)).toEqual(
+      ['担当', '期限'].sort((a, b) => a.localeCompare(b, 'ja')),
+    );
+    expect(rows.find((r) => r.name === '期限')?.schema).toEqual({
+      type: 'date',
+      editable: false,
+    });
+    expect(rows.find((r) => r.name === '担当')?.schema).toEqual({
+      type: '',
+      editable: true,
+    });
+  });
+
+  it('宣言だけで既定値の無い property も行にする (値は undefined)', () => {
+    const rows = propertyRows(
+      { [`${SCHEMA}優先度`]: { type: "'高' | '低'" } },
+      false,
+      {},
+      true,
+    );
+    expect(rows).toEqual([
+      {
+        name: '優先度',
+        value: undefined,
+        type: 'string',
+        schema: { type: "'高' | '低'", editable: true },
+      },
+    ]);
+  });
+
+  it('読めない型には理由を添える', () => {
+    const [row] = propertyRows(
+      { x: '', [`${SCHEMA}x`]: { type: 'strin' } },
+      false,
+      {},
+      true,
+    );
+    expect(row?.schema?.typeError).toBeDefined();
+  });
+
+  it('言語ごとの名前・説明 (#356) と system には宣言を添えない', () => {
+    const rows = propertyRows(
+      { 'label:en': 'Claim', 'app.conversensus.image': { cid: 'x' } },
+      true,
+      {},
+      true,
+    );
+    expect(rows.every((r) => r.schema === undefined)).toBe(true);
+  });
+
+  it('template graph でなければ宣言は system の行のまま (今までどおり)', () => {
+    const rows = propertyRows({ [`${SCHEMA}x`]: { type: 'number' } }, true);
+    expect(rows).toEqual([
+      {
+        name: `${SCHEMA}x`,
+        value: { type: 'number' },
+        type: 'object',
+        readOnly: 'system',
+      },
+    ]);
+  });
+});

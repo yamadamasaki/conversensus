@@ -27,11 +27,15 @@ import {
   type EdgeKindRef,
   edgeKindsOf,
   isKindProperty,
+  isKindTranslationProperty,
+  isPropertySchemaProperty,
   type KindPropertyLabel,
   kindPropertyOf,
   type PropertyName,
   type PropertyType,
+  parsePropertyType,
   propertyCategory,
+  propertySchemaIn,
   type Template,
 } from '@conversensus/shared';
 
@@ -67,6 +71,20 @@ export type PropertyRow = {
    * 知らない template・種類のものには無い (id のまま出す)
    */
   kindLabel?: KindPropertyLabel;
+  /**
+   * template graph の行だけが持つ、その property の宣言 (template-update K9・Q4)。あれば画面は型の入力欄と
+   * editable のチェックを出す。値 (`value`) は適用先の既定値で、宣言だけの property (既定値なし) では undefined
+   */
+  schema?: RowSchema;
+};
+
+/** template graph の行の宣言 (`propertySchema.ts` の 1 項目を画面向けにしたもの) */
+export type RowSchema = {
+  /** 型の文字列。宣言が無ければ空 */
+  type: string;
+  editable: boolean;
+  /** 型の文字列が読めないときの理由 (`parsePropertyType`)。読めれば無い */
+  typeError?: string;
 };
 
 /**
@@ -121,7 +139,15 @@ export function propertyRows(
   showReadOnly = false,
   /** 種別の property の、人が読める名前 (#384、`kindPropertyLabels`) */
   kindLabels: Readonly<Record<string, KindPropertyLabel>> = {},
+  /**
+   * template graph の要素か (template-update K9・Q4)。そうなら宣言 (`app.conversensus.propertySchema.*`) を
+   * 行にせず、宣言する property の行に `schema` として添える。宣言だけで値の無い property も行にする
+   */
+  templateGraph = false,
 ): PropertyRow[] {
+  if (templateGraph) {
+    return templateGraphRows(properties, showReadOnly, kindLabels);
+  }
   const rows: PropertyRow[] = [];
   for (const [name, value] of Object.entries(properties ?? {})) {
     if (readOnlyByRule(name) && !showReadOnly) continue;
@@ -142,6 +168,59 @@ export function propertyRows(
     });
   }
   return rows.sort(byName);
+}
+
+/**
+ * template graph の行。宣言の property 自体は行にせず、宣言する property の行に添える (宣言は型の入力欄と
+ * editable のチェックで直す)。**言語ごとの名前・説明 (`label:<言語>`、#356) は宣言の対象にしない** — 種類の
+ * 名前であって、適用先の property ではないから
+ */
+function templateGraphRows(
+  properties: Readonly<Record<string, unknown>> | undefined,
+  showReadOnly: boolean,
+  kindLabels: Readonly<Record<string, KindPropertyLabel>>,
+): PropertyRow[] {
+  const declared = propertySchemaIn(properties);
+  const plain = Object.fromEntries(
+    Object.entries(properties ?? {}).filter(
+      ([name]) => !isPropertySchemaProperty(name),
+    ),
+  );
+  const rows = propertyRows(plain, showReadOnly, kindLabels).map((row) =>
+    declares(row.name)
+      ? { ...row, schema: rowSchemaOf(declared[row.name]) }
+      : row,
+  );
+  // 宣言だけで既定値の無い property も行にする (消すと宣言も消える)
+  for (const name of Object.keys(declared)) {
+    if (Object.hasOwn(plain, name) || !declares(name)) continue;
+    rows.push({
+      name,
+      value: undefined,
+      type: 'string',
+      schema: rowSchemaOf(declared[name]),
+    });
+  }
+  return rows.sort(byName);
+}
+
+/** 宣言を添えてよい property か: 利用者の (custom の) property で、言語ごとの名前・説明でないもの */
+function declares(name: string): boolean {
+  return (
+    propertyCategory(name) === 'custom' && !isKindTranslationProperty(name)
+  );
+}
+
+function rowSchemaOf(
+  entry: { type?: string; editable: boolean } | undefined,
+): RowSchema {
+  const type = entry?.type ?? '';
+  const parsed = type === '' ? undefined : parsePropertyType(type);
+  return {
+    type,
+    editable: entry?.editable ?? true,
+    ...(parsed && !parsed.ok && { typeError: parsed.error }),
+  };
 }
 
 /**
