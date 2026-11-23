@@ -45,10 +45,25 @@ export const CLOSED_PROPERTY = `${REQUEST_PROPERTY_PREFIX}closed`;
 export const ANSWERS_PROPERTY = `${REQUEST_PROPERTY_PREFIX}answers`;
 
 /**
- * 答えを置く場所 (D7)。template のふつうの property (名前に `.` を含まない)。
- * conversensus は読まず、強制もしない — 答える側への注文である
+ * 答えを置く場所 (D7)。conversensus は読まず、強制もしない — 答える側への注文である。
+ *
+ * **module の名前空間に置く** (template-update Q3)。以前は `.` を含まない名前 (`answerTarget`) だったが、
+ * template graph に prefix 無しで書かれた名前は、適用先で template の名前空間に入る (K7)。依頼の種から
+ * 当てた種類でも module が読めるよう、module の名前に移した。旧名は `answerTargetOf` が読む
  */
-export const ANSWER_TARGET_PROPERTY = 'answerTarget';
+export const ANSWER_TARGET_PROPERTY = `${REQUEST_PROPERTY_PREFIX}answerTarget`;
+/** 旧名 (template-update より前に書かれた依頼の node が持つ) */
+export const LEGACY_ANSWER_TARGET_PROPERTY = 'answerTarget';
+
+/** 答えを置く場所を読む。新名が無ければ旧名。どちらも文字列でなければ undefined */
+export function answerTargetOf(element: {
+  properties?: Record<string, unknown>;
+}): string | undefined {
+  const value =
+    element.properties?.[ANSWER_TARGET_PROPERTY] ??
+    element.properties?.[LEGACY_ANSWER_TARGET_PROPERTY];
+  return typeof value === 'string' ? value : undefined;
+}
 /** 答えを新しい node に書き、依頼から edge を張る (既定。段 4 はこれだけ — 計画 Q1) */
 export const ANSWER_TARGET_LINKED_NODE = 'linkedNode';
 

@@ -29,6 +29,7 @@ export * from './template/fold';
 export * from './template/fromSheet';
 export * from './template/kind';
 export * from './template/kindLocale';
+export * from './template/propertyName';
 export * from './template/propertySchema';
 export * from './template/propertyType';
 export * from './template/registry';

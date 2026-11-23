@@ -6,7 +6,10 @@
  * `useEventStore` に触れるので、中身は `GraphEditor` に残し、外へは口だけを出す。
  */
 
-import type { KindPropertyLabel } from '@conversensus/shared';
+import type {
+  KindPropertyLabel,
+  TemplatePropertyLabel,
+} from '@conversensus/shared';
 import type { GraphEvent } from '../events/GraphEvent';
 import type { SearchHit } from '../search/searchSheet';
 
@@ -64,6 +67,11 @@ export type PropertyTarget = {
    * 宣言を書ける形で出す
    */
   templateGraph?: boolean;
+  /**
+   * template が配った property (`${templateId}.<名前>`) の、人が読める名前 (template-update K7)。
+   * 画面は prefix を外した名前と template の名前で出す
+   */
+  templateLabels?: Readonly<Record<string, TemplatePropertyLabel>>;
 };
 
 /**
@@ -80,5 +88,6 @@ export function propertyTargetKey(target: PropertyTarget | undefined): string {
     target.addable,
     target.kindLabels ?? null,
     target.templateGraph ?? false,
+    target.templateLabels ?? null,
   ]);
 }

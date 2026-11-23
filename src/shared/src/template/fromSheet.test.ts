@@ -228,14 +228,15 @@ describe('templateFromSheet: 例', () => {
     const claimKind = t.nodeKinds.find((k) => String(k.id) === claim);
     expect(claimKind?.label).toBe('主張');
     expect(claimKind?.description).toBe('結論');
-    expect(claimKind?.defaults).toEqual({ owner: '' });
+    // prefix の無い名前は template の名前空間に入る (template-update K7)
+    expect(claimKind?.defaults).toEqual({ [`${TEMPLATE_ID}.owner`]: '' });
     // 本文の無い node は説明を持たない
     expect(
       t.nodeKinds.find((k) => String(k.id) === data)?.description,
     ).toBeUndefined();
     const supports = t.edgeKinds.find((k) => k.id === 'e1');
-    expect(supports?.properties).toEqual(['weight']);
-    expect(supports?.defaults).toEqual({ weight: 1 });
+    expect(supports?.properties).toEqual([`${TEMPLATE_ID}.weight`]);
+    expect(supports?.defaults).toEqual({ [`${TEMPLATE_ID}.weight`]: 1 });
   });
 
   test('型・editable の宣言を読み、既定値には入れない。edge の持ちうる property には宣言だけのものも入る (K9)', () => {
@@ -269,16 +270,17 @@ describe('templateFromSheet: 例', () => {
       TEMPLATE_ID,
     );
     const claimKind = t.nodeKinds.find((k) => String(k.id) === claim);
-    expect(claimKind?.schema).toEqual({ owner: { editable: false } });
-    expect(claimKind?.defaults).toEqual({ owner: '' });
+    const p = (name: string) => `${TEMPLATE_ID}.${name}`;
+    expect(claimKind?.schema).toEqual({ [p('owner')]: { editable: false } });
+    expect(claimKind?.defaults).toEqual({ [p('owner')]: '' });
     const supports = t.edgeKinds.find((k) => k.id === 'e1');
     // editable は既定で true
     expect(supports?.schema).toEqual({
-      weight: { type: 'number', editable: true },
-      期限: { type: 'date?', editable: true },
+      [p('weight')]: { type: 'number', editable: true },
+      [p('期限')]: { type: 'date?', editable: true },
     });
-    expect(supports?.defaults).toEqual({ weight: 1 });
-    expect(supports?.properties).toEqual(['weight', '期限']);
+    expect(supports?.defaults).toEqual({ [p('weight')]: 1 });
+    expect(supports?.properties).toEqual([p('weight'), p('期限')]);
   });
 
   test('label の無い node 同士の edge は説明書き (種類にしない)。label のある node との edge は「任意」の端を持つ', () => {
@@ -287,6 +289,30 @@ describe('templateFromSheet: 例', () => {
     expect(t.edgeKinds.find((k) => k.id === 'e2')?.from).toEqual([
       ANY_NODE_KIND,
     ]);
+  });
+
+  test('名前空間を持つ名前はそのまま、`kind` は配らない (template-update K7)', () => {
+    const t = templateFromSheet(
+      {
+        ...sheet,
+        nodes: sheet.nodes.map((n) =>
+          n.id === claim
+            ? {
+                ...n,
+                properties: {
+                  'jp.co.example.score': 3,
+                  kind: 'x',
+                  'app.conversensus.propertySchema.kind': { type: 'number' },
+                },
+              }
+            : n,
+        ),
+      },
+      TEMPLATE_ID,
+    );
+    const claimKind = t.nodeKinds.find((k) => String(k.id) === claim);
+    expect(claimKind?.defaults).toEqual({ 'jp.co.example.score': 3 });
+    expect(claimKind?.schema).toEqual({});
   });
 
   test('label が重複した node は両方とも種類にせず、そこに繋がる edge も種類にしない (K6)', () => {

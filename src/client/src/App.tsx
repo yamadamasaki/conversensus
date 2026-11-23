@@ -1505,6 +1505,7 @@ export default function App() {
             showReadOnly,
             panels.selection.kindLabels,
             panels.selection.templateGraph,
+            panels.selection.templateLabels,
           )}
           addable={panels.selection.addable}
           onSet={(name, value) => panels.controls?.setProperty(name, value)}

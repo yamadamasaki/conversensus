@@ -112,3 +112,8 @@ template graph の要素の行 (`row.schema` を持つ行) には、型の入力
 - 行を消すと、値と宣言を 1 つの変更で消す (`onRemove` は呼ばない)
 - 読めない型には理由を出す (読めない型は適用先で効かないので、黙っていると「型を付けたのに効かない」になる)
 - `onChange` が無ければ宣言の欄を出さない (template graph でない画面と同じ)
+
+## template が配った property の名前 (template-update K7)
+
+`templateLabel` を持つ行は、prefix を外した名前 (`期限`) に template の名前を添えて出す。名前そのもの
+(`template.<id>.期限`) は hover (`title`) で見られる。値の欄の名前も読める名前にする (読み上げで uuid を読ませない)。

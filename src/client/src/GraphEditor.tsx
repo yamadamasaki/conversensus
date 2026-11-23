@@ -19,6 +19,7 @@ import {
   sheetKindOf,
   TEMPLATE_SHEET_KIND,
   type Template,
+  templatePropertyLabels,
 } from '@conversensus/shared';
 import {
   Background,
@@ -305,6 +306,7 @@ function GraphEditorInner({
         properties,
         addable: [],
         kindLabels: kindPropertyLabels(templates, 'node', properties, locale),
+        templateLabels: templatePropertyLabels(templates, properties),
         ...(isTemplateGraph && { templateGraph: true }),
       };
     }
@@ -321,6 +323,7 @@ function GraphEditorInner({
         // **候補は edge にしか無い** — 宣言を持つのは `EdgeKind` だけである
         addable: addablePropertyNames(templates, properties),
         kindLabels: kindPropertyLabels(templates, 'edge', properties, locale),
+        templateLabels: templatePropertyLabels(templates, properties),
         ...(isTemplateGraph && { templateGraph: true }),
       };
     }

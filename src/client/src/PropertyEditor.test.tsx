@@ -410,3 +410,19 @@ describe('template graph の行: 型と editable の宣言 (template-update K9�
     expect(screen.getByLabelText('期限 の値')).toBeTruthy();
   });
 });
+
+describe('template が配った property の名前 (template-update K7)', () => {
+  it('prefix を外した名前と template の名前で出し、名前そのものは hover で見られる', () => {
+    show({
+      rows: [
+        row({
+          name: 'template.x.期限',
+          templateLabel: { template: 'Toulmin', name: '期限' },
+        }),
+      ],
+    });
+    const heading = screen.getByTitle('template.x.期限');
+    expect(heading.textContent).toBe('期限Toulmin');
+    expect(screen.getByLabelText('期限 の値')).toBeTruthy();
+  });
+});

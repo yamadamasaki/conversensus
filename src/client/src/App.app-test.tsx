@@ -979,9 +979,11 @@ describe('App 結合: template graph (step3 Phase 4 S4-1b)', () => {
       );
       const node = applied?.nodes[0];
       expect(node?.label).toBe('主張');
+      // 既定値の名前は template の名前空間に入る (template-update K7)
+      const templateId = templateIdOf(templateSheet.id);
       expect(node?.properties).toEqual({
-        owner: '',
-        [kindPropertyOf(templateIdOf(templateSheet.id))]: claim,
+        [`${templateId}.owner`]: '',
+        [kindPropertyOf(templateId)]: claim,
       });
     }, WIRING_TIMEOUT);
   });

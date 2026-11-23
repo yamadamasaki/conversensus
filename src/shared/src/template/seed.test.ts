@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import fc from 'fast-check';
 import type { Sheet, SheetId } from '../schemas';
 import { templateFromSheet, templateIdOf } from './fromSheet';
+import { writtenPropertyNameOf } from './propertyName';
 import { CORE_SEEDS } from './registry';
 import { templateGraphOf } from './seed';
 import { TOULMIN_PLACEMENT, TOULMIN_TEMPLATE } from './toulmin';
@@ -27,6 +28,15 @@ function roundTrip(template: Template): Template {
  * (名前, 端の種類の名前, 既定値)。往復で id は変わるので、名前で比べる
  */
 function shape(t: Template) {
+  // 往復で template の id が変わり、既定値と宣言の名前は template の名前空間に入る (K7)。
+  // template graph に書く名前にそろえて比べる
+  const written = <T>(record: Record<string, T>) =>
+    Object.fromEntries(
+      Object.entries(record).map(([name, value]) => [
+        writtenPropertyNameOf(t.id, name),
+        value,
+      ]),
+    );
   const nameOf = (id: string) =>
     id === ANY_NODE_KIND
       ? '*'
@@ -40,8 +50,8 @@ function shape(t: Template) {
           k.labels ?? {},
           k.descriptions ?? {},
           k.nodeType ?? 'markdown',
-          k.defaults,
-          k.schema,
+          written(k.defaults),
+          written(k.schema),
         ]),
       )
       .sort(),
@@ -54,8 +64,8 @@ function shape(t: Template) {
               k.labels ?? {},
               nameOf(f),
               nameOf(to),
-              k.defaults,
-              k.schema,
+              written(k.defaults),
+              written(k.schema),
             ]),
           ),
         ),

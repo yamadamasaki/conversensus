@@ -18,7 +18,8 @@
  *   繋がる edge は種類にしない
  * - **label の無い node 同士の edge と、label の無い node** = 使い方の説明書き。種類にしない
  * - 種類になった node / edge の property = 適用先の既定値 (種別プロパティそのものと、言語ごとの名前・説明と、
- *   型・editable の宣言は除く)
+ *   型・editable の宣言は除く)。**名前は適用先での名前にする**: prefix の無い名前 (`期限`) は template の
+ *   名前空間に入れる (`${templateId}.期限`、template-update K7)。`kind` は使えない (種別プロパティと重なる)
  * - `app.conversensus.propertySchema.<名前>` の property = その property の型・editable の宣言 (template-update K9)
  * - `label:<言語>`・`description:<言語>` の property = 言語ごとの名前・説明 (#356、`kindLocale.ts`)
  */
@@ -41,6 +42,10 @@ import {
   KIND_LABEL_PROPERTY_PREFIX,
   translationsIn,
 } from './kindLocale';
+import {
+  appliedPropertyNameOf,
+  isReservedTemplatePropertyName,
+} from './propertyName';
 import { isPropertySchemaProperty, propertySchemaIn } from './propertySchema';
 import {
   ANY_NODE_KIND,
@@ -73,6 +78,21 @@ function defaultsOf(
         !isKindTranslationProperty(name) &&
         !isPropertySchemaProperty(name),
     ),
+  );
+}
+
+/**
+ * template graph に書かれた名前を、適用先での名前にする (template-update K7、`propertyName.ts`)。
+ * 使えない名前 (`kind`) は落とす
+ */
+function applied<T>(
+  templateId: TemplateId,
+  record: Record<PropertyName, T>,
+): Record<PropertyName, T> {
+  return Object.fromEntries(
+    Object.entries(record)
+      .filter(([name]) => !isReservedTemplatePropertyName(name))
+      .map(([name, value]) => [appliedPropertyNameOf(templateId, name), value]),
   );
 }
 
@@ -138,8 +158,8 @@ export function templateFromSheet(
       ...(n.content.trim() !== '' && { description: n.content }),
       ...(n.nodeType && { nodeType: n.nodeType }),
       ...translationsOf(n.properties, true),
-      defaults: defaultsOf(n.properties),
-      schema: propertySchemaIn(n.properties),
+      defaults: applied(templateId, defaultsOf(n.properties)),
+      schema: applied(templateId, propertySchemaIn(n.properties)),
     })),
     edgeKinds: sheet.edges
       .filter(
@@ -157,12 +177,12 @@ export function templateFromSheet(
         // 持ちうる property = 既定値のあるもの + 宣言だけのもの (既定値の無い宣言もある)
         properties: [
           ...new Set([
-            ...Object.keys(defaultsOf(e.properties)),
-            ...Object.keys(propertySchemaIn(e.properties)),
+            ...Object.keys(applied(templateId, defaultsOf(e.properties))),
+            ...Object.keys(applied(templateId, propertySchemaIn(e.properties))),
           ]),
         ],
-        defaults: defaultsOf(e.properties),
-        schema: propertySchemaIn(e.properties),
+        defaults: applied(templateId, defaultsOf(e.properties)),
+        schema: applied(templateId, propertySchemaIn(e.properties)),
       })),
   });
 }

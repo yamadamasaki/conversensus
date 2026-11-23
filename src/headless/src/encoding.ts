@@ -42,6 +42,7 @@ import {
   type Sheet,
   type Template,
   templateIdOf,
+  templatePropertyLabels,
 } from '@conversensus/shared';
 
 /** sheet に当たっている template の実体 (種別の名前を引くため)。解決は呼ぶ側が持つ */
@@ -95,6 +96,11 @@ function noteOf(
     return t
       ? `後から当てた template ${value(t.name)}`
       : '後から当てた template (引けない)';
+  }
+  // template が配った property (template-update K7): 名前は template の名前空間に入っている
+  const templated = templatePropertyLabels(templates, { [name]: v })[name];
+  if (templated) {
+    return `template ${value(templated.template)} の property ${value(templated.name)}`;
   }
   return CATEGORY_NOTE[propertyCategory(name)];
 }

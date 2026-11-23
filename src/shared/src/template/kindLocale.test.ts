@@ -199,7 +199,8 @@ describe('templateFromSheet と訳 (#356)', () => {
     expect(kind).toMatchObject({
       labels: { en: 'Claim' },
       descriptions: { en: 'The conclusion' },
-      defaults: { weight: 1 },
+      // 名前は template の名前空間に入る (template-update K7)
+      defaults: { [`${templateIdOf(sheet.id)}.weight`]: 1 },
     });
   });
 });

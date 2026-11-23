@@ -37,6 +37,7 @@ import {
   propertyCategory,
   propertySchemaIn,
   type Template,
+  type TemplatePropertyLabel,
 } from '@conversensus/shared';
 
 /** なぜ編集できないか。**理由を持つ**のは、画面が「なぜ灰色なのか」を言えるようにするため */
@@ -76,6 +77,11 @@ export type PropertyRow = {
    * editable のチェックを出す。値 (`value`) は適用先の既定値で、宣言だけの property (既定値なし) では undefined
    */
   schema?: RowSchema;
+  /**
+   * template が配った property (`${templateId}.<名前>`) の、人が読める名前 (template-update K7)。あれば画面は
+   * prefix を外した名前と template の名前で出す
+   */
+  templateLabel?: TemplatePropertyLabel;
 };
 
 /** template graph の行の宣言 (`propertySchema.ts` の 1 項目を画面向けにしたもの) */
@@ -144,6 +150,8 @@ export function propertyRows(
    * 行にせず、宣言する property の行に `schema` として添える。宣言だけで値の無い property も行にする
    */
   templateGraph = false,
+  /** template が配った property の、人が読める名前 (template-update K7、`templatePropertyLabels`) */
+  templateLabels: Readonly<Record<string, TemplatePropertyLabel>> = {},
 ): PropertyRow[] {
   if (templateGraph) {
     return templateGraphRows(properties, showReadOnly, kindLabels);
@@ -157,6 +165,7 @@ export function propertyRows(
     }
     const readOnly = readOnlyReasonOf(name, value);
     const kindLabel = kindLabels[name];
+    const templateLabel = templateLabels[name];
     // **型は宣言から来る。**step2 に宣言の仕組みは無く、編集できるプロパティは
     // すべて custom なので文字列である。**推測ではなく事実** — 値が文字列だからである
     rows.push({
@@ -165,6 +174,7 @@ export function propertyRows(
       type: 'string',
       ...(readOnly ? { readOnly } : {}),
       ...(kindLabel ? { kindLabel } : {}),
+      ...(templateLabel ? { templateLabel } : {}),
     });
   }
   return rows.sort(byName);

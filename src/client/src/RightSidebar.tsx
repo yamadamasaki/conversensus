@@ -99,6 +99,7 @@ export function RightSidebar({
             showReadOnly,
             selection.kindLabels,
             selection.templateGraph,
+            selection.templateLabels,
           )}
           addable={selection.addable}
           onSet={onSetProperty}

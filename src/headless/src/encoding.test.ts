@@ -353,6 +353,26 @@ describe('encodeFile', () => {
     );
   });
 
+  test('template が配った property は、template の名前と書いた名前を注釈する (template-update K7)', () => {
+    const withProperty = {
+      ...example,
+      sheets: example.sheets.map((sheet) => ({
+        ...sheet,
+        nodes: sheet.nodes.map((n) =>
+          n.id === CLAIM
+            ? {
+                ...n,
+                properties: { ...n.properties, [`${TEMPLATE_ID}.期限`]: '' },
+              }
+            : n,
+        ),
+      })),
+    } as GraphFile;
+    expect(encodeFile(withProperty, () => [toulmin])).toContain(
+      '# template "toulmin" の property "期限"',
+    );
+  });
+
   test('template を引けない種別プロパティは、そうと注釈する', () => {
     expect(encodeFile(example)).toContain('# 種別 (template を引けない)');
   });

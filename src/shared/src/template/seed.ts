@@ -26,6 +26,7 @@ import {
   KIND_LABEL_PROPERTY_PREFIX,
   translationProperties,
 } from './kindLocale';
+import { writtenPropertyNameOf } from './propertyName';
 import { propertySchemaProperties } from './propertySchema';
 import { ANY_NODE_KIND, type Template } from './types';
 
@@ -54,6 +55,14 @@ export function templateGraphOf(
   newId: () => string,
   placement: KindPlacement = {},
 ): TemplateGraphContent {
+  // 適用先での名前 (`${templateId}.期限`) を、template graph に書く名前 (`期限`) に戻す (K7 の逆)
+  const written = <T>(record: Record<string, T>): Record<string, T> =>
+    Object.fromEntries(
+      Object.entries(record).map(([name, value]) => [
+        writtenPropertyNameOf(template.id, name),
+        value,
+      ]),
+    );
   const kindOfNode = new Map<string, string>();
   const nodes: GraphNode[] = [];
   const idOfKind = new Map<string, NodeId>();
@@ -62,13 +71,13 @@ export function templateGraphOf(
     idOfKind.set(kind.id, id);
     kindOfNode.set(id, kind.id);
     const properties = {
-      ...kind.defaults,
+      ...written(kind.defaults),
       ...translationProperties(kind.labels, KIND_LABEL_PROPERTY_PREFIX),
       ...translationProperties(
         kind.descriptions,
         KIND_DESCRIPTION_PROPERTY_PREFIX,
       ),
-      ...propertySchemaProperties(kind.schema),
+      ...propertySchemaProperties(written(kind.schema)),
     };
     nodes.push({
       id,
@@ -93,9 +102,9 @@ export function templateGraphOf(
   const edges: GraphEdge[] = [];
   for (const kind of template.edgeKinds) {
     const properties = {
-      ...kind.defaults,
+      ...written(kind.defaults),
       ...translationProperties(kind.labels, KIND_LABEL_PROPERTY_PREFIX),
-      ...propertySchemaProperties(kind.schema),
+      ...propertySchemaProperties(written(kind.schema)),
     };
     for (const from of kind.from) {
       for (const to of kind.to) {

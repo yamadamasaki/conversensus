@@ -298,6 +298,7 @@ function PropertyField({
   const shown = displayValue(row.value);
   // 種別は名前も値も id なので、template の名前と種類の名前で出す (#384)。id は hover で見られる
   const label = row.kindLabel;
+  const templated = row.templateLabel;
   const [draft, setDraft] = useState(shown);
   const composingRef = useRef(false);
 
@@ -349,9 +350,26 @@ function PropertyField({
       >
         <span
           style={{ fontWeight: 600, wordBreak: 'break-all' }}
-          title={label ? row.name : undefined}
+          title={label || templated ? row.name : undefined}
         >
-          {label ? t.property.kindOf(label.template) : row.name}
+          {label
+            ? t.property.kindOf(label.template)
+            : templated
+              ? templated.name
+              : row.name}
+          {/* template が配った property は、prefix を外した名前に template の名前を添える (K7) */}
+          {!label && templated && (
+            <span
+              style={{
+                marginLeft: 6,
+                fontWeight: 400,
+                color: color.textMuted,
+                fontSize: font.caption,
+              }}
+            >
+              {templated.template}
+            </span>
+          )}
         </span>
         {/* template graph の行は型を宣言の欄で見せる (値から読んだ「文字列」と並べると紛らわしい) */}
         {!schema && (
@@ -380,7 +398,7 @@ function PropertyField({
             aria-label={
               schema
                 ? t.property.defaultValueOf(row.name)
-                : t.property.valueOf(row.name)
+                : t.property.valueOf(templated?.name ?? row.name)
             }
             placeholder={schema ? t.property.noDefault : undefined}
             value={draft}
@@ -407,7 +425,7 @@ function PropertyField({
           <button
             type="button"
             onClick={remove}
-            aria-label={t.property.remove(row.name)}
+            aria-label={t.property.remove(templated?.name ?? row.name)}
             className="cs-btn cs-btn--icon cs-btn--sm"
           >
             <Trash2 size={ICON_SIZE_SM} aria-hidden />

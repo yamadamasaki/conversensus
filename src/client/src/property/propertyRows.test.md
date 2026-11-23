@@ -200,3 +200,9 @@ template graph の要素では、property は適用先の既定値であり、�
 - 読めない型には理由 (`typeError`) を添える
 - 言語ごとの名前・説明 (`label:<言語>`、#356) と system には宣言を添えない (適用先の property ではない)
 - template graph でなければ、宣言の property は今までどおり system の行 (読み取り専用の表示のとき)
+
+## template が配った property の名前 (template-update K7)
+
+template が配った property の名前は `${templateId}.期限` で、template graph から当てたものは id に uuid を含み
+人に読めない。人が読める形 (`templatePropertyLabels` が作る) を行に添え、画面は prefix を外した名前と template の
+名前で出す。添えない行 (custom など) は今までどおり。

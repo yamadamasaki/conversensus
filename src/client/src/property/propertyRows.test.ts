@@ -397,3 +397,19 @@ describe('template graph の行 (template-update K9・Q4)', () => {
     ]);
   });
 });
+
+describe('template が配った property の名前 (template-update K7)', () => {
+  it('人が読める名前を行に添える。添えない行は今までどおり', () => {
+    const rows = propertyRows(
+      { 'template.x.期限': '2026-12-01', メモ: '' },
+      false,
+      {},
+      false,
+      { 'template.x.期限': { template: 'Toulmin', name: '期限' } },
+    );
+    expect(
+      rows.find((r) => r.name === 'template.x.期限')?.templateLabel,
+    ).toEqual({ template: 'Toulmin', name: '期限' });
+    expect(rows.find((r) => r.name === 'メモ')?.templateLabel).toBeUndefined();
+  });
+});
