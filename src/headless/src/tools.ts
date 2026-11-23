@@ -24,6 +24,7 @@ import {
 } from '@conversensus/client/src/nodeGeometry';
 import {
   autoEdgeKind,
+  copiedDefaultsOf,
   type EdgeId,
   edgeKindCandidates,
   type GraphEdge,
@@ -142,7 +143,7 @@ export function addNode(
     ...args.properties,
     // 種類の既定値を先に、種別を最後に置く (UI と同じ。既定値に種別の名前が紛れても種別が勝つ)
     ...(kind && {
-      ...kind.kind.defaults,
+      ...copiedDefaultsOf(kind.templateId, kind.kind),
       [kindPropertyOf(kind.templateId)]: kind.kind.id,
     }),
   };
@@ -303,7 +304,7 @@ export function addEdge(
   const properties = {
     ...args.properties,
     ...(kind && {
-      ...kind.kind.defaults,
+      ...copiedDefaultsOf(kind.templateId, kind.kind),
       [kindPropertyOf(kind.templateId)]: kind.kind.id,
     }),
   };

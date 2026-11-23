@@ -33,6 +33,7 @@
 
 import {
   appliedTemplateSheetOf,
+  effectiveTemplateProperties,
   type GraphEdge,
   type GraphFile,
   type GraphNode,
@@ -69,6 +70,44 @@ function propertyLines(
   for (const [name, v] of Object.entries(properties ?? {})) {
     lines.push(`${depth}# ${noteOf(name, v, templates)}`);
     lines.push(`${depth}prop ${value(name)} ${value(v)}`);
+  }
+  return lines;
+}
+
+/**
+ * template が配った property の、読むときの姿の注釈 (template-update K8・K9・K12)。
+ *
+ * 既定値は作成時に写さず読むときに補うので、`prop` の行 (要素自身の値) には出ない。**注釈として**出す — encoding は
+ * File の完全な写しであり、補った値は File に無いので、`prop` の行にすると書かれた値と区別できなくなる。
+ * editable: false の値と、宣言した型に合わない値もここで言う
+ */
+function effectiveLines(
+  element: 'node' | 'edge',
+  properties: Record<string, unknown> | undefined,
+  depth: string,
+  templates: readonly Template[],
+): string[] {
+  const lines: string[] = [];
+  const entries = effectiveTemplateProperties(templates, element, properties);
+  for (const [name, entry] of Object.entries(entries)) {
+    const label = templatePropertyLabels(templates, { [name]: entry.value })[
+      name
+    ];
+    const what = label
+      ? `template ${value(label.template)} の property ${value(label.name)} (${value(name)})`
+      : value(name);
+    if (entry.source === 'fixed') {
+      lines.push(
+        `${depth}# ${what} は template が値を決めている (変えられない): ${value(entry.value ?? null)}`,
+      );
+    } else if (entry.source === 'default' && entry.value !== undefined) {
+      lines.push(`${depth}# ${what} は既定値: ${value(entry.value)}`);
+    }
+    if (entry.check === 'mismatch') {
+      lines.push(`${depth}# ${what} の値は型 ${entry.type} に合わない`);
+    } else if (entry.check === 'missing') {
+      lines.push(`${depth}# ${what} は型 ${entry.type} で必須だが値が無い`);
+    }
   }
   return lines;
 }
@@ -158,6 +197,7 @@ function nodeLines(
     ...(node.nodeType ? [`${depth}type ${value(node.nodeType)}`] : []),
     ...(node.parentId ? [`${depth}parent ${node.parentId}`] : []),
     ...propertyLines(node.properties, depth, templates),
+    ...effectiveLines('node', node.properties, depth, templates),
     ...layoutLine(layout, 'nodeId', depth),
   ];
 }
@@ -172,6 +212,7 @@ function edgeLines(
     `${INDENT}edge ${edge.id} ${edge.source} -> ${edge.target}`,
     ...(edge.label !== undefined ? [`${depth}label ${value(edge.label)}`] : []),
     ...propertyLines(edge.properties, depth, templates),
+    ...effectiveLines('edge', edge.properties, depth, templates),
     ...layoutLine(layout, 'edgeId', depth),
   ];
 }

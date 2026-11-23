@@ -19,6 +19,7 @@ import { makeEventBase } from './events/GraphEvent';
 import { AuthorAvatars, NODE_AVATAR_CORNER } from './graph/AuthorAvatars';
 import { DiffMark } from './graph/DiffMark';
 import { useGraphNodeHandlers } from './graph/graphNodeContext';
+import { useKindPlaceholder } from './graph/kindLabelContext';
 import { FloatingNodeLabel, NodeLabel } from './graph/NodeLabel';
 import { useInlineEdit } from './hooks/useInlineEdit';
 import { useMessages } from './i18n/messages';
@@ -65,6 +66,9 @@ export function EditableNode({ id, data, selected }: NodeProps) {
   );
 
   const content = String(data.content ?? '');
+  const placeholder = useKindPlaceholder()(
+    data.properties as Record<string, unknown> | undefined,
+  );
   /**
    * LPG の label。**本文 (`content`) とは別物**である — `content` は markdown の本文で、
    * `label` は利用者が自由に付ける名前か、template が与える「主張」「反論」などの種別名、
@@ -300,6 +304,14 @@ export function EditableNode({ id, data, selected }: NodeProps) {
               >
                 {content}
               </ReactMarkdown>
+            ) : placeholder ? (
+              // 種類の content を placeholder として薄く出す (template-update K13、#411)。本文ではない
+              <span
+                data-kind-placeholder
+                style={{ color: color.textMuted, fontStyle: 'italic' }}
+              >
+                {placeholder}
+              </span>
             ) : (
               <span style={{ color: color.textMuted }}>{t.graph.editHint}</span>
             )}

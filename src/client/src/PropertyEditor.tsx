@@ -29,8 +29,10 @@ import { ICON_SIZE_SM } from './ui/Button';
  */
 
 import {
+  parsePropertyType,
   propertySchemaPropertyOf,
   propertySchemaValueOf,
+  valueFromInput,
 } from '@conversensus/shared';
 import { useEffect, useRef, useState } from 'react';
 import { messages, useMessages } from './i18n/messages';
@@ -295,10 +297,16 @@ function PropertyField({
   onChange?: (changes: Readonly<Record<string, unknown>>) => void;
 }) {
   const t = useMessages();
-  const shown = displayValue(row.value);
+  // 既定値を補っただけの行 (template-update K12) は、欄を空にして既定値を薄く出す。打てば要素の値になる
+  const fromDefault = row.origin === 'default';
+  const shown = fromDefault ? '' : displayValue(row.value);
   // 種別は名前も値も id なので、template の名前と種類の名前で出す (#384)。id は hover で見られる
   const label = row.kindLabel;
   const templated = row.templateLabel;
+  // 宣言した型 (適用先は `declaredType`、template graph は宣言の欄の型)。入力を型に従って読む (T7)
+  const typeText = row.declaredType ?? row.schema?.type;
+  const parsedType = typeText ? parsePropertyType(typeText) : undefined;
+  const declared = parsedType?.ok ? parsedType.decl.type : undefined;
   const [draft, setDraft] = useState(shown);
   const composingRef = useRef(false);
 
@@ -322,14 +330,13 @@ function PropertyField({
 
   const commit = () => {
     if (draft === shown) return; // 変わらないものは op-log に積まない (Phase 5 の判断)
-    // **値は文字列のまま保存する** (利用者判断 2026-09-20)。
+    // **型を宣言していなければ値は文字列のまま保存する** (利用者判断 2026-09-20)。
     //
     // 型を指定するのは**実装コードか template のような拡張**であって、入力された値
-    // ではない。custom のプロパティは node のインスタンスごとに値が違いうるので、
-    // その場の値から型を決めても**その型を使う場面が無い**。
-    // 入力から型を推論して寄せると、`3` と打っただけで数値になり、
-    // 文字列の `"3"` を入れる手段が無くなる (step2 に型を指定する口は無い)。
-    onSet(row.name, draft);
+    // ではない。入力から型を推論して寄せると、`3` と打っただけで数値になり、
+    // 文字列の `"3"` を入れる手段が無くなる。template が型を宣言していれば、その型に従って
+    // 読む (`valueFromInput`: number なら数に。読めなければ文字列のまま — 型に合わない印が付く)
+    onSet(row.name, valueFromInput(declared, draft));
   };
 
   return (
@@ -394,42 +401,100 @@ function PropertyField({
         </div>
       ) : (
         <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
-          <input
-            aria-label={
-              schema
-                ? t.property.defaultValueOf(row.name)
-                : t.property.valueOf(templated?.name ?? row.name)
-            }
-            placeholder={schema ? t.property.noDefault : undefined}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onCompositionStart={() => {
-              composingRef.current = true;
-            }}
-            onCompositionEnd={() => {
-              composingRef.current = false;
-            }}
-            onBlur={commit}
-            onKeyDown={(e) => {
-              if (composingRef.current) return; // IME 変換中は無視
-              if (e.key === 'Enter') commit();
-              if (e.key === 'Escape') setDraft(shown);
-            }}
-            style={{
-              flex: 1,
-              minWidth: 0,
-              padding: '4px 6px',
-              fontSize: font.body,
-            }}
-          />
-          <button
-            type="button"
-            onClick={remove}
-            aria-label={t.property.remove(templated?.name ?? row.name)}
-            className="cs-btn cs-btn--icon cs-btn--sm"
-          >
-            <Trash2 size={ICON_SIZE_SM} aria-hidden />
-          </button>
+          {declared?.kind === 'literals' ? (
+            // 列挙を宣言していれば、選択肢から選ばせる (選べば確定する)
+            <select
+              aria-label={
+                schema
+                  ? t.property.defaultValueOf(row.name)
+                  : t.property.valueOf(templated?.name ?? row.name)
+              }
+              value={
+                declared.values.includes(displayValue(row.value)) &&
+                !fromDefault
+                  ? displayValue(row.value)
+                  : ''
+              }
+              onChange={(e) =>
+                e.target.value === ''
+                  ? fromDefault || onRemove(row.name)
+                  : onSet(row.name, e.target.value)
+              }
+              style={{
+                flex: 1,
+                minWidth: 0,
+                padding: '4px 6px',
+                fontSize: font.body,
+              }}
+            >
+              <option value="">
+                {fromDefault ? displayValue(row.value) || '—' : '—'}
+              </option>
+              {declared.values.map((v) => (
+                <option key={v} value={v}>
+                  {v}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              aria-label={
+                schema
+                  ? t.property.defaultValueOf(row.name)
+                  : t.property.valueOf(templated?.name ?? row.name)
+              }
+              placeholder={
+                schema
+                  ? t.property.noDefault
+                  : fromDefault
+                    ? displayValue(row.value)
+                    : undefined
+              }
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onCompositionStart={() => {
+                composingRef.current = true;
+              }}
+              onCompositionEnd={() => {
+                composingRef.current = false;
+              }}
+              onBlur={commit}
+              onKeyDown={(e) => {
+                if (composingRef.current) return; // IME 変換中は無視
+                if (e.key === 'Enter') commit();
+                if (e.key === 'Escape') setDraft(shown);
+              }}
+              style={{
+                flex: 1,
+                minWidth: 0,
+                padding: '4px 6px',
+                fontSize: font.body,
+              }}
+            />
+          )}
+          {/* 既定値を補っただけの行には、消す値が無い */}
+          {!fromDefault && (
+            <button
+              type="button"
+              onClick={remove}
+              aria-label={t.property.remove(templated?.name ?? row.name)}
+              className="cs-btn cs-btn--icon cs-btn--sm"
+            >
+              <Trash2 size={ICON_SIZE_SM} aria-hidden />
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* 宣言した型に合わない値・欠けた必須の値 (K9)。値は書き換えず、印だけを付ける (K2) */}
+      {row.check !== undefined && (
+        <div
+          role="status"
+          style={{ color: color.warningText, fontSize: font.caption }}
+        >
+          {row.check === 'missing'
+            ? t.property.missingValue
+            : t.property.typeMismatch(row.declaredType ?? '')}
         </div>
       )}
 

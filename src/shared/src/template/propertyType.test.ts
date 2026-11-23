@@ -8,6 +8,7 @@ import {
   type PropertyTypeDecl,
   type PropertyTypeExpr,
   parsePropertyType,
+  valueFromInput,
 } from './propertyType';
 
 /**
@@ -200,5 +201,42 @@ describe('checkPropertyValue: 例', () => {
   test('値が無いとき: 必須なら欠けている、optional なら合格', () => {
     expect(checkPropertyValue(decl("'高' | '低'"), undefined)).toBe('missing');
     expect(checkPropertyValue(decl("'高' | '低'?"), undefined)).toBe('ok');
+  });
+});
+
+describe('valueFromInput (T7)', () => {
+  test('性質: number の宣言では、有限の数を書いた文字列は元の数に戻る', () => {
+    fc.assert(
+      fc.property(fc.double({ noNaN: true, noDefaultInfinity: true }), (n) => {
+        expect(
+          valueFromInput({ kind: 'base', name: 'number' }, String(n)),
+        ).toBe(n === 0 ? 0 : n);
+      }),
+    );
+  });
+
+  test('性質: number・boolean 以外の宣言と、宣言の無いときは文字列のまま', () => {
+    fc.assert(
+      fc.property(arbExpr, fc.string(), (type, text) => {
+        if (
+          type.kind === 'base' &&
+          (type.name === 'number' || type.name === 'boolean')
+        )
+          return;
+        expect(valueFromInput(type, text)).toBe(text);
+        expect(valueFromInput(undefined, text)).toBe(text);
+      }),
+    );
+  });
+
+  test('例: 読めない文字列は文字列のまま (型に合わない印が付く)、真偽は true/false だけ', () => {
+    const num = { kind: 'base', name: 'number' } as const;
+    const bool = { kind: 'base', name: 'boolean' } as const;
+    expect(valueFromInput(num, ' 3 ')).toBe(3);
+    expect(valueFromInput(num, '')).toBe('');
+    expect(valueFromInput(num, 'three')).toBe('three');
+    expect(valueFromInput(bool, 'true')).toBe(true);
+    expect(valueFromInput(bool, 'false')).toBe(false);
+    expect(valueFromInput(bool, 'yes')).toBe('yes');
   });
 });

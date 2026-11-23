@@ -306,11 +306,11 @@ template graph のシートを読み替えた種類 (`templateFromSheet`) は、
 
 ### テストケース
 
-- **template graph の label の node が、当てたシートの種類のメニューに出て、作った node は種別と既定値を持つ**:
+- **template graph の label の node が、当てたシートの種類のメニューに出て、作った node は種別を持つ**:
   「▾ → + template graph」で template graph を作る (印が付き、「+ branch」が出ない) → 「主張」(既定値
   owner = '') を置く → 「+ シートを追加」のダイアログで当てる → 種類のメニューの「主張」で node を作る →
-  op-log のその node が label「主張」・種別 (`template.<SheetId>.kind` = 主張の NodeId)・既定値を持つ。
-  既定値の名前は template の名前空間に入る (`template.<SheetId>.owner`、template-update K7)
+  op-log のその node が label「主張」・種別 (`template.<SheetId>.kind` = 主張の NodeId) を持つ。
+  **既定値は op-log に写さない** (読むときに補う、template-update K12)
 
 - **Toulmin model を追加すると種から template graph ができ、当てたシートで Toulmin の種類を使える** (Q1):
   「▾ → + Toulmin model を追加」で 5 つの種類の node を持つ template graph ができ (ふつうの template graph

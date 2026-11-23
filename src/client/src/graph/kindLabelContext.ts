@@ -24,3 +24,21 @@ export const KindLabelProvider = KindLabelContext.Provider;
 export function useKindLabel(): KindLabelOf {
   return useContext(KindLabelContext);
 }
+
+/**
+ * 種類の content の placeholder (template-update K13、#411): 本文が空の node に薄く出す、その種類の template
+ * graph の本文 (見る人の言語)。markdown の種類だけ。無ければ undefined
+ */
+export type KindPlaceholderOf = (
+  properties: Readonly<Record<PropertyName, unknown>> | undefined,
+) => string | undefined;
+
+const KindPlaceholderContext = createContext<KindPlaceholderOf>(
+  () => undefined,
+);
+
+export const KindPlaceholderProvider = KindPlaceholderContext.Provider;
+
+export function useKindPlaceholder(): KindPlaceholderOf {
+  return useContext(KindPlaceholderContext);
+}

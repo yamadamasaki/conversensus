@@ -25,6 +25,7 @@ export * from './events/unified';
 export * from './migrations';
 export * from './schemas';
 export * from './template/applied';
+export * from './template/effective';
 export * from './template/fold';
 export * from './template/fromSheet';
 export * from './template/kind';

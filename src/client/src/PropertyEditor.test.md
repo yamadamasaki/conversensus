@@ -117,3 +117,13 @@ template graph の要素の行 (`row.schema` を持つ行) には、型の入力
 
 `templateLabel` を持つ行は、prefix を外した名前 (`期限`) に template の名前を添えて出す。名前そのもの
 (`template.<id>.期限`) は hover (`title`) で見られる。値の欄の名前も読める名前にする (読み上げで uuid を読ませない)。
+
+## 読むときの姿 (template-update K8・K9・K12)
+
+- 既定値を補っただけの行は、欄を空にして既定値を placeholder で薄く出す (打てば要素の値になる)。消すボタンは
+  出さない (消す値が無い)
+- **number を宣言した property は、打った文字列を数にして書く** (`valueFromInput`)。宣言の無い property は
+  数のような文字列も文字列のまま (値から型を推論しない、2026-09-20 の判断)
+- 列挙を宣言した property は選択肢 (`select`) から選ばせ、選べば書く
+- 型に合わない値・欠けた必須の値に印を出す (`role="status"`)
+- template が値を決めている行 (editable: false) は編集させず、理由を言う

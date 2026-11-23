@@ -256,3 +256,25 @@ export function checkPropertyValue(
   if (value === undefined) return decl.optional ? 'ok' : 'missing';
   return matchesPropertyType(decl.type, value) ? 'ok' : 'mismatch';
 }
+
+/**
+ * 入力欄の文字列を、**宣言された型に従って**値にする (template-update T7)。値から型を推論するのではない —
+ * 型を決めているのは宣言である。number なら数として読める文字列を数に、boolean なら `true`/`false` を真偽値に
+ * する。読めない文字列・それ以外の型 (文字列・日付・列挙) は文字列のまま返す (型に合わなければ印が付く)
+ */
+export function valueFromInput(
+  type: PropertyTypeExpr | undefined,
+  text: string,
+): unknown {
+  if (type?.kind !== 'base') return text;
+  if (type.name === 'number') {
+    const trimmed = text.trim();
+    const n = Number(trimmed);
+    return trimmed !== '' && Number.isFinite(n) ? n : text;
+  }
+  if (type.name === 'boolean') {
+    if (text.trim() === 'true') return true;
+    if (text.trim() === 'false') return false;
+  }
+  return text;
+}

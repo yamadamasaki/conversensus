@@ -14,7 +14,7 @@ import type { ReactNode } from 'react';
 import type { PropertyTarget } from './graph/editorControls';
 import { useMessages } from './i18n/messages';
 import { PropertyEditor } from './PropertyEditor';
-import { propertyRows } from './property/propertyRows';
+import { propertyRowsOf } from './property/propertyRows';
 import { useShowReadOnlyProperties } from './property/readOnlyToggle';
 
 /** 右サイドバーに出す pane */
@@ -94,13 +94,7 @@ export function RightSidebar({
           placement="docked"
           label={t.rightSidebar.propertyRegion}
           title={selection.title}
-          rows={propertyRows(
-            selection.properties,
-            showReadOnly,
-            selection.kindLabels,
-            selection.templateGraph,
-            selection.templateLabels,
-          )}
+          rows={propertyRowsOf(selection, showReadOnly)}
           addable={selection.addable}
           onSet={onSetProperty}
           onRemove={(name) => onSetProperty(name, undefined)}

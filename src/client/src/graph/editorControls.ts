@@ -7,6 +7,7 @@
  */
 
 import type {
+  EffectiveEntry,
   KindPropertyLabel,
   TemplatePropertyLabel,
 } from '@conversensus/shared';
@@ -72,6 +73,11 @@ export type PropertyTarget = {
    * 画面は prefix を外した名前と template の名前で出す
    */
   templateLabels?: Readonly<Record<string, TemplatePropertyLabel>>;
+  /**
+   * template が配った property の、読むときの姿 (template-update K8・K12)。既定値を補った値、editable: false の
+   * 値、型の判定。`properties` は要素自身の値のまま (変更の from/to はそこから組む)
+   */
+  effective?: Readonly<Record<string, EffectiveEntry>>;
 };
 
 /**
@@ -89,5 +95,6 @@ export function propertyTargetKey(target: PropertyTarget | undefined): string {
     target.kindLabels ?? null,
     target.templateGraph ?? false,
     target.templateLabels ?? null,
+    target.effective ?? null,
   ]);
 }

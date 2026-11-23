@@ -25,6 +25,7 @@
 
 import {
   type EdgeKindRef,
+  type EffectiveEntry,
   edgeKindsOf,
   isKindProperty,
   isKindTranslationProperty,
@@ -44,6 +45,8 @@ import {
 export type ReadOnlyReason =
   /** template が付けた種別。作成時に決まり変更できない (仕様 OnMutation) */
   | 'templateKind'
+  /** template が値を固定している (editable: false、template-update K8)。値は常に template の既定値 */
+  | 'templateFixed'
   /** アプリ (system、`app.conversensus.*`) が付けた値。読み取り専用の表示を選んだときだけ出る (#357) */
   | 'system'
   /**
@@ -82,6 +85,15 @@ export type PropertyRow = {
    * prefix を外した名前と template の名前で出す
    */
   templateLabel?: TemplatePropertyLabel;
+  /**
+   * 値の出どころが template のとき (template-update K8・K12)。`default` = 要素に値が無く既定値を補った (既定値も
+   * 無ければ値は undefined)、`fixed` = editable: false で template の値
+   */
+  origin?: 'default' | 'fixed';
+  /** 宣言した型に合わないとき (`mismatch`)・必須の値が無いとき (`missing`)。合えば無い */
+  check?: 'missing' | 'mismatch';
+  /** 宣言した型の文字列 (読めるときだけ)。画面は型に合わせた入力欄を出す */
+  declaredType?: string;
 };
 
 /** template graph の行の宣言 (`propertySchema.ts` の 1 項目を画面向けにしたもの) */
@@ -152,9 +164,18 @@ export function propertyRows(
   templateGraph = false,
   /** template が配った property の、人が読める名前 (template-update K7、`templatePropertyLabels`) */
   templateLabels: Readonly<Record<string, TemplatePropertyLabel>> = {},
+  /** template が配った property の、読むときの姿 (template-update K8・K12、`effectiveTemplateProperties`) */
+  effective: Readonly<Record<string, EffectiveEntry>> = {},
 ): PropertyRow[] {
   if (templateGraph) {
     return templateGraphRows(properties, showReadOnly, kindLabels);
+  }
+  if (Object.keys(effective).length > 0) {
+    return withEffective(
+      propertyRows(properties, showReadOnly, kindLabels, false, templateLabels),
+      effective,
+      templateLabels,
+    );
   }
   const rows: PropertyRow[] = [];
   for (const [name, value] of Object.entries(properties ?? {})) {
@@ -178,6 +199,45 @@ export function propertyRows(
     });
   }
   return rows.sort(byName);
+}
+
+/**
+ * template が配った property を、読むときの姿で行にする (template-update K8・K9・K12)。
+ *
+ * - 要素に値が無ければ既定値を補った行を足す (`origin: 'default'`)。既定値の無い宣言も行にする (値を入れられる
+ *   ように)
+ * - editable: false なら値は template の値で、編集できない (`templateFixed`)。要素が別の値を持っていても出さない
+ * - 型を宣言していれば、合わない値・欠けた必須の値に印を付ける (値は書き換えない)
+ */
+function withEffective(
+  rows: PropertyRow[],
+  effective: Readonly<Record<string, EffectiveEntry>>,
+  templateLabels: Readonly<Record<string, TemplatePropertyLabel>>,
+): PropertyRow[] {
+  const rowOf = new Map(rows.map((r) => [r.name, r]));
+  for (const [name, entry] of Object.entries(effective)) {
+    const marks = {
+      ...(entry.check && entry.check !== 'ok' && { check: entry.check }),
+      ...(entry.type !== undefined && { declaredType: entry.type }),
+    };
+    const fixed = entry.source === 'fixed';
+    const existing = rowOf.get(name);
+    if (existing && !fixed) {
+      rowOf.set(name, { ...existing, ...marks });
+      continue;
+    }
+    const templateLabel = templateLabels[name];
+    rowOf.set(name, {
+      name,
+      value: entry.value,
+      type: 'string',
+      origin: fixed ? 'fixed' : 'default',
+      ...(fixed && { readOnly: 'templateFixed' as const }),
+      ...(templateLabel && { templateLabel }),
+      ...marks,
+    });
+  }
+  return [...rowOf.values()].sort(byName);
 }
 
 /**
@@ -304,4 +364,27 @@ function currentEdgeKind(
     if (found) return found;
   }
   return undefined;
+}
+
+/**
+ * property editor の対象 (`PropertyTarget`) から行を作る。App のボディの欄と右サイドバーの欄が同じ答えを使う
+ */
+export function propertyRowsOf(
+  target: {
+    properties: Readonly<Record<string, unknown>> | undefined;
+    kindLabels?: Readonly<Record<string, KindPropertyLabel>>;
+    templateGraph?: boolean;
+    templateLabels?: Readonly<Record<string, TemplatePropertyLabel>>;
+    effective?: Readonly<Record<string, EffectiveEntry>>;
+  },
+  showReadOnly: boolean,
+): PropertyRow[] {
+  return propertyRows(
+    target.properties,
+    showReadOnly,
+    target.kindLabels,
+    target.templateGraph,
+    target.templateLabels,
+    target.effective,
+  );
 }

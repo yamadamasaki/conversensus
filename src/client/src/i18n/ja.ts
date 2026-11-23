@@ -491,7 +491,10 @@ export const ja = {
       '外すと、適用先ではこの property の値は常に template の値 (既定値) になり、変えられません',
     defaultValueOf: (name: string) => `${name} の既定値`,
     noDefault: '既定値なし',
+    missingValue: '値がありません (template が必須にしています)',
+    typeMismatch: (type: string) => `template の型 ${type} に合いません`,
     readOnly: {
+      templateFixed: 'template が値を決めていて、変更できません',
       templateKind: '種別は作成時に決まり、変更できません',
       system: 'アプリが付けた値で、変更できません',
       structuredValue: '構造を持つ値はこの画面では編集できません',

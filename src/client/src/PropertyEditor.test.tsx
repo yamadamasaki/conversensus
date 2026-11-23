@@ -426,3 +426,67 @@ describe('template が配った property の名前 (template-update K7)', () => 
     expect(screen.getByLabelText('期限 の値')).toBeTruthy();
   });
 });
+
+describe('読むときの姿 (template-update K8・K9・K12)', () => {
+  it('既定値を補っただけの行は、欄を空にして既定値を薄く出し、消すボタンを出さない', () => {
+    show({ rows: [row({ value: '2026-12-01', origin: 'default' })] });
+    const input = screen.getByLabelText('期限 の値') as HTMLInputElement;
+    expect(input.value).toBe('');
+    expect(input.placeholder).toBe('2026-12-01');
+    expect(screen.queryByLabelText('期限 を削除')).toBeNull();
+  });
+
+  it('number を宣言した property は、打った文字列を数にして書く', () => {
+    show({ rows: [row({ value: '', declaredType: 'number' })] });
+    const input = screen.getByLabelText('期限 の値');
+    fireEvent.change(input, { target: { value: '3' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onSet).toHaveBeenCalledWith('期限', 3);
+  });
+
+  it('宣言の無い property は、数のような文字列も文字列のまま書く', () => {
+    show();
+    const input = screen.getByLabelText('期限 の値');
+    fireEvent.change(input, { target: { value: '3' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onSet).toHaveBeenCalledWith('期限', '3');
+  });
+
+  it('列挙を宣言した property は選択肢から選ばせる', () => {
+    show({ rows: [row({ value: '高', declaredType: "'高' | '低'" })] });
+    const select = screen.getByLabelText('期限 の値') as HTMLSelectElement;
+    expect(select.tagName).toBe('SELECT');
+    expect(select.value).toBe('高');
+    fireEvent.change(select, { target: { value: '低' } });
+    expect(onSet).toHaveBeenCalledWith('期限', '低');
+  });
+
+  it('型に合わない値・欠けた必須の値に印を出す', () => {
+    show({
+      rows: [
+        row({ value: 'three', declaredType: 'number', check: 'mismatch' }),
+        row({
+          name: '担当',
+          value: undefined,
+          origin: 'default',
+          check: 'missing',
+        }),
+      ],
+    });
+    const marks = screen.getAllByRole('status').map((e) => e.textContent);
+    expect(marks.some((m) => m?.includes('number'))).toBe(true);
+    expect(marks.some((m) => m?.includes('値がありません'))).toBe(true);
+  });
+
+  it('template が値を決めている行は編集させず、理由を言う', () => {
+    show({
+      rows: [
+        row({ value: 'alice', origin: 'fixed', readOnly: 'templateFixed' }),
+      ],
+    });
+    expect(screen.queryByLabelText('期限 の値')).toBeNull();
+    expect(
+      screen.getByText('template が値を決めていて、変更できません'),
+    ).toBeTruthy();
+  });
+});

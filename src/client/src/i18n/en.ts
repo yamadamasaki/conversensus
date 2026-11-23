@@ -492,7 +492,10 @@ export const en: Messages = {
       'When unchecked, this property always has the template value (the default) where the template is applied, and cannot be changed',
     defaultValueOf: (name: string) => `default value of ${name}`,
     noDefault: 'no default',
+    missingValue: 'No value (the template requires one)',
+    typeMismatch: (type: string) => `Does not match the template type ${type}`,
     readOnly: {
+      templateFixed: 'The template sets this value; it cannot be changed',
       templateKind: 'The kind is fixed at creation and cannot be changed',
       system: 'Set by the app and cannot be changed',
       structuredValue: 'Structured values cannot be edited here',

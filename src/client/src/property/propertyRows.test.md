@@ -206,3 +206,13 @@ template graph の要素では、property は適用先の既定値であり、�
 template が配った property の名前は `${templateId}.期限` で、template graph から当てたものは id に uuid を含み
 人に読めない。人が読める形 (`templatePropertyLabels` が作る) を行に添え、画面は prefix を外した名前と template の
 名前で出す。添えない行 (custom など) は今までどおり。
+
+## 読むときの姿 (template-update K8・K9・K12)
+
+既定値は写さず読むときに補うので、要素の property だけで行を作ると、template の既定値が欄に出ない。
+`effectiveTemplateProperties` の結果を受けて行を足し・直す:
+
+- 値の無い property は既定値を補った行にする (`origin: 'default'`、人が読める名前も添える)
+- editable: false は template の値で、編集させない (`templateFixed`)。要素が別の値 (`bob`) を持っていても出さない
+- 宣言した型に合わない値 (`mismatch`)・欠けた必須の値 (`missing`) に印を付ける。合う値には付けない。
+  値は書き換えない (印だけ)

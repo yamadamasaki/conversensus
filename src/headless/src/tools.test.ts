@@ -216,6 +216,40 @@ describe('種別', () => {
     });
   });
 
+  test('template の名前空間の既定値は写さず、名前空間の外の既定値は写す (template-update K12)', () => {
+    const t = TemplateSchema.parse({
+      ...toulmin(),
+      nodeKinds: [
+        ...toulmin().nodeKinds.filter((k) => k.id !== CLAIM),
+        {
+          id: CLAIM,
+          label: '主張',
+          defaults: {
+            [`${TEMPLATE_ID}.owner`]: 'alice',
+            'app.conversensus.request.addressee': [],
+          },
+        },
+      ],
+    });
+    const { event } = addNode(
+      { ...ctx(), templates: [t] },
+      {
+        content: 'x',
+        kind: CLAIM,
+      },
+    );
+    expect(graphEventToOps(event)[0]).toMatchObject({
+      properties: {
+        'app.conversensus.request.addressee': [],
+        [KIND_PROPERTY]: CLAIM,
+      },
+    });
+    expect(
+      (graphEventToOps(event)[0] as { properties: Record<string, unknown> })
+        .properties,
+    ).not.toHaveProperty(`${TEMPLATE_ID}.owner`);
+  });
+
   test('知らない種別は断る', () => {
     expect(() =>
       addNode(ctx(), { content: 'x', kind: 'kind-unknown' }),

@@ -918,7 +918,7 @@ describe('App 結合: template graph (step3 Phase 4 S4-1b)', () => {
       (s) => sheetKindOf(s) === TEMPLATE_SHEET_KIND,
     );
 
-  test('template graph の label の node が、当てたシートの種類のメニューに出て、作った node は種別と既定値を持つ', async () => {
+  test('template graph の label の node が、当てたシートの種類のメニューに出て、作った node は種別を持つ (既定値は写さない)', async () => {
     await world.activate('solo');
     render(<App />);
     const user = userEvent.setup();
@@ -979,10 +979,9 @@ describe('App 結合: template graph (step3 Phase 4 S4-1b)', () => {
       );
       const node = applied?.nodes[0];
       expect(node?.label).toBe('主張');
-      // 既定値の名前は template の名前空間に入る (template-update K7)
+      // 既定値は写さない (読むときに補う、template-update K12)。node が持つのは種別だけ
       const templateId = templateIdOf(templateSheet.id);
       expect(node?.properties).toEqual({
-        [`${templateId}.owner`]: '',
         [kindPropertyOf(templateId)]: claim,
       });
     }, WIRING_TIMEOUT);

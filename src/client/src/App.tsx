@@ -101,7 +101,7 @@ import { ParticipateDialog } from './ParticipateDialog';
 import { ParticipationHistoryDialog } from './ParticipationHistoryDialog';
 import { PassivePane } from './PassivePane';
 import { PropertyEditor } from './PropertyEditor';
-import { propertyRows } from './property/propertyRows';
+import { propertyRowsOf } from './property/propertyRows';
 import { useShowReadOnlyProperties } from './property/readOnlyToggle';
 import { RightSidebar, type RightSidebarPane } from './RightSidebar';
 import { ReadOnlyProvider } from './readOnlyContext';
@@ -1500,13 +1500,7 @@ export default function App() {
       {viewAddress && panels.propertyOpen && panels.selection && (
         <PropertyEditor
           title={panels.selection.title}
-          rows={propertyRows(
-            panels.selection.properties,
-            showReadOnly,
-            panels.selection.kindLabels,
-            panels.selection.templateGraph,
-            panels.selection.templateLabels,
-          )}
+          rows={propertyRowsOf(panels.selection, showReadOnly)}
           addable={panels.selection.addable}
           onSet={(name, value) => panels.controls?.setProperty(name, value)}
           onRemove={(name) => panels.controls?.setProperty(name, undefined)}
