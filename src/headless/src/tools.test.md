@@ -19,6 +19,7 @@ remove と、edge の add・setLabel・setProperty・remove、それに位置の
   value を省くと消す
 - **種別** (UI の `GraphEditor` と同じ規則):
   - node を種別付きで足すと、label・種別プロパティ・種類の既定値が入る。知らない種別は断る
+  - 見た目を持つ種類 (group) で足すと、その見た目の node になる (template-update K11、#406)
   - 種別プロパティと system の property は書けない (足すときの properties でも)
   - edge の種別の候補 (`edgeKindCandidates`) が 1 つなら自動、複数なら選ばせる、同じ template の
     要素どうしで 0 なら繋げない。種別の無い node どうしは自由に繋げる

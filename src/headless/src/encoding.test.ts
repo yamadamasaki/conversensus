@@ -340,6 +340,19 @@ describe('encodeFile', () => {
     expect(text).toContain('# 種別: "主張" (template "toulmin")');
   });
 
+  test('見た目を持つ種類は、種別の一覧に見た目を添える (template-update K11)', () => {
+    const withGroup = TemplateSchema.parse({
+      ...toulmin,
+      nodeKinds: [
+        ...toulmin.nodeKinds,
+        { id: 'kind-discussion', label: '議論', nodeType: 'group' },
+      ],
+    });
+    expect(encodeFile(example, () => [withGroup])).toContain(
+      '"議論"=kind-discussion (group)',
+    );
+  });
+
   test('template を引けない種別プロパティは、そうと注釈する', () => {
     expect(encodeFile(example)).toContain('# 種別 (template を引けない)');
   });

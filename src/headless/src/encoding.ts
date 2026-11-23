@@ -113,7 +113,12 @@ function layoutLine(
 }
 
 function templateNote(t: Template): string {
-  const nodes = t.nodeKinds.map((k) => `${value(k.label)}=${k.id}`).join(', ');
+  // 見た目を持つ種類は見た目を添える (template-update K11)。無ければ markdown
+  const nodes = t.nodeKinds
+    .map(
+      (k) => `${value(k.label)}=${k.id}${k.nodeType ? ` (${k.nodeType})` : ''}`,
+    )
+    .join(', ');
   const edges = t.edgeKinds.map((k) => `${value(k.label)}=${k.id}`).join(', ');
   return `# template ${value(t.name)} (${t.id}): node 種別 ${nodes || 'なし'} / edge 種別 ${edges || 'なし'}`;
 }

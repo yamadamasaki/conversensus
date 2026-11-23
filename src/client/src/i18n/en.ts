@@ -457,7 +457,6 @@ export const en: Messages = {
     unnamedKind: '(unnamed)',
     connectWithoutKind: 'Connect without a kind',
     nodeAppearance: 'node appearance',
-    nodeKind: 'node kind',
     appearances: { markdown: 'Markdown', group: 'group', image: 'Image' },
     graphNodeTitle: 'Add a Sheet to this File and place its graph node',
     graphNode: 'Graph',

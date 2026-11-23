@@ -157,3 +157,9 @@ F3 により、branch ごとに `at` がずれることは起きない。合意�
 - **D4 で label を template から引く**と、op-log だけを読む側 (通知・agent への encoding) は古い label を見る。encoding には種別の注釈が既にあるので、そこに今の名前を出せば足りると考えている
 - **T1 で `NodeKind` に nodeType を足す**と、`templateFromSheet` と `templateGraphOf` の往復の性質テストの生成器にも nodeType を足す必要がある
 - template-update.md の課題のうち、template 以外のもの (#401〜#405・#407〜#410) はこの計画の外とし、issue ごとに進める
+
+## 8. 進捗
+
+| スライス | 状態 | 備考 |
+| --- | --- | --- |
+| T1 見た目を種類に | 済 (2026-11-23) | `NodeKind.nodeType`。template graph の node の見た目を読み、種がそれを書く (往復の性質に見た目を足した)。作成メニューは各見た目のすぐ下にその見た目の種類を字下げで並べる (見出し「node の種別」は廃止)。headless の `add_node` も種類の見た目で作り、`read_file` の種別の一覧に見た目を添える。**実機の確認は未** |

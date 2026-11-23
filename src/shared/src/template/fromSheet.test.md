@@ -38,6 +38,8 @@
   **種別プロパティは既定値に入れない** (template graph 自身が別の template を
   当てられていても、その種別を適用先に持ち込まない)
 - label の無い node 同士の edge は説明書き、label のある node との edge は「任意」の端を持つ
+- 種類の見た目は node の見た目 (group・image)。markdown の node の種類は見た目を持たない (template-update K11)。
+  読み落とすと、group の種類から適用先で markdown node ができる (#406)
 - template id は template graph の sheet から作り、種別プロパティの名前空間になる (`template.<SheetId>.kind`, Q2)
 - `resolveTemplates`:
   - **切断面で読む**: 当てた後に template graph の label を書き換えても、当てた時点の種類が出る (仕様: 適用する

@@ -214,6 +214,27 @@ describe('templateFromSheet: 例', () => {
     ]);
   });
 
+  test('種類の見た目は node の見た目 (group・image)。markdown の node は見た目を持たない (#406)', () => {
+    const group = '00000000-0000-4000-8000-0000000000b1' as NodeId;
+    const image = '00000000-0000-4000-8000-0000000000b2' as NodeId;
+    const t = templateFromSheet(
+      {
+        ...sheet,
+        nodes: [
+          ...sheet.nodes,
+          { id: group, content: '', label: '議論', nodeType: 'group' },
+          { id: image, content: '', label: '図', nodeType: 'image' },
+        ],
+      },
+      TEMPLATE_ID,
+    );
+    const nodeTypeOf = (id: NodeId) =>
+      t.nodeKinds.find((k) => String(k.id) === id)?.nodeType;
+    expect(nodeTypeOf(group)).toBe('group');
+    expect(nodeTypeOf(image)).toBe('image');
+    expect(nodeTypeOf(claim)).toBeUndefined();
+  });
+
   test('template id は template graph の sheet から作り、種別プロパティの名前空間になる', () => {
     expect(kindPropertyOf(templateIdOf(SHEET))).toBe(`template.${SHEET}.kind`);
   });

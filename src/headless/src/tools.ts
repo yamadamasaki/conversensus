@@ -149,6 +149,8 @@ export function addNode(
     id: nodeId,
     content: args.content,
     ...(kind && { label: kind.kind.label }),
+    // 種類の見た目 (template-update K11)。group の種類は group node になる (#406)
+    ...(kind?.kind.nodeType && { nodeType: kind.kind.nodeType }),
     ...(Object.keys(properties).length > 0 && { properties }),
     ...(parentId && { parentId }),
   };

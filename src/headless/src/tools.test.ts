@@ -39,6 +39,7 @@ const CLAIM = 'kind-claim';
 const GROUND = 'kind-ground';
 const SUPPORTS = 'kind-supports';
 const REBUTS = 'kind-rebuts';
+const DISCUSSION = 'kind-discussion';
 
 /** 主張・根拠と、根拠 → 主張の edge 種別 (`extraEdge` で 2 つ目を足すと候補が複数になる) */
 function toulmin(extraEdge = false): Template {
@@ -48,6 +49,7 @@ function toulmin(extraEdge = false): Template {
     nodeKinds: [
       { id: CLAIM, label: '主張', defaults: { strength: 'normal' } },
       { id: GROUND, label: '根拠' },
+      { id: DISCUSSION, label: '議論', nodeType: 'group' },
     ],
     edgeKinds: [
       { id: SUPPORTS, label: '支える', from: [GROUND], to: [CLAIM] },
@@ -202,6 +204,15 @@ describe('種別', () => {
       kind: 'node.add',
       label: '主張',
       properties: { strength: 'normal', [KIND_PROPERTY]: CLAIM },
+    });
+  });
+
+  test('見た目を持つ種類 (group) で足すと、その見た目の node になる (#406)', () => {
+    const { event } = addNode(ctx(), { content: '', kind: DISCUSSION });
+    expect(graphEventToOps(event)[0]).toMatchObject({
+      kind: 'node.add',
+      label: '議論',
+      nodeType: 'group',
     });
   });
 

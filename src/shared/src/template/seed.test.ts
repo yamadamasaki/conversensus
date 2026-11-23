@@ -39,6 +39,7 @@ function shape(t: Template) {
           k.description ?? '',
           k.labels ?? {},
           k.descriptions ?? {},
+          k.nodeType ?? 'markdown',
           k.defaults,
         ]),
       )
@@ -86,8 +87,13 @@ const arbTemplate: fc.Arbitrary<Template> = fc
       minLength: 4,
       maxLength: 4,
     }),
+    /** 種類ごとの見た目 (template-update K11)。markdown は値を持たない */
+    nodeTypes: fc.array(fc.constantFrom(undefined, 'group', 'image'), {
+      minLength: 4,
+      maxLength: 4,
+    }),
   })
-  .map(({ kinds, edges, translated }) => {
+  .map(({ kinds, edges, translated, nodeTypes }) => {
     // 端の番号が種類の数以上なら「任意」にする (任意の端を引くため)
     const end = (i: number) => (i < kinds.length ? `k${i}` : ANY_NODE_KIND);
     return TemplateSchema.parse({
@@ -103,6 +109,7 @@ const arbTemplate: fc.Arbitrary<Template> = fc
         ...(translated[i] === 'both' && {
           descriptions: { en: `${label} (en)` },
         }),
+        ...(nodeTypes[i] && { nodeType: nodeTypes[i] }),
       })),
       // 両端とも任意の edge は種類にならない (template graph の説明書きと同じ) ので引かない
       edgeKinds: edges
@@ -124,7 +131,7 @@ const arbTemplate: fc.Arbitrary<Template> = fc
   });
 
 describe('templateGraphOf: 性質', () => {
-  test('種 → template graph → 読み替え で、同じ種類に戻る (名前・説明・言語ごとの名前と説明・端・既定値)', () => {
+  test('種 → template graph → 読み替え で、同じ種類に戻る (名前・説明・言語ごとの名前と説明・見た目・端・既定値)', () => {
     fc.assert(
       fc.property(arbTemplate, (template) => {
         expect(shape(roundTrip(template))).toEqual(shape(template));

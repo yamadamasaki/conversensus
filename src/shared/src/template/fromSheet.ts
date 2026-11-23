@@ -8,7 +8,8 @@
  *
  * 読み替えの規則 (仕様):
  *
- * - **label のある node** = node の種類。種類の id は NodeId (Q3)、表示名は label、説明は本文
+ * - **label のある node** = node の種類。種類の id は NodeId (Q3)、表示名は label、説明は本文、
+ *   見た目は node の見た目 (template-update K11)
  * - **少なくとも一方の端に label がある edge** = edge の種類。label の無い端は「任意」
  *   (`ANY_NODE_KIND`: 適用先でこの template の種別を持たない node)
  * - **label の無い node 同士の edge と、label の無い node** = 使い方の説明書き。種類にしない
@@ -100,6 +101,7 @@ export function templateFromSheet(
       id: n.id as string as NodeKindId,
       label: labelOf(n),
       ...(n.content.trim() !== '' && { description: n.content }),
+      ...(n.nodeType && { nodeType: n.nodeType }),
       ...translationsOf(n.properties, true),
       defaults: defaultsOf(n.properties),
     })),

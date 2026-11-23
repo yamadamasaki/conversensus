@@ -456,7 +456,6 @@ export const ja = {
     unnamedKind: '(名前なし)',
     connectWithoutKind: '種類なしで繋ぐ',
     nodeAppearance: 'node の見た目',
-    nodeKind: 'node の種別',
     appearances: { markdown: 'Markdown', group: 'group', image: '画像' },
     graphNodeTitle: 'この File に Sheet を足し、その graph node を置く',
     graphNode: 'グラフ',
