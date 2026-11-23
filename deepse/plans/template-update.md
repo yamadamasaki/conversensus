@@ -165,3 +165,4 @@ F3 により、branch ごとに `at` がずれることは起きない。合意�
 | T1 見た目を種類に | 済 (2026-11-23) | `NodeKind.nodeType`。template graph の node の見た目を読み、種がそれを書く (往復の性質に見た目を足した)。作成メニューは各見た目のすぐ下にその見た目の種類を字下げで並べる (見出し「node の種別」は廃止)。headless の `add_node` も種類の見た目で作り、`read_file` の種別の一覧に見た目を添える。**実機の確認は未** |
 | T2 label の重複 | 済 (2026-11-23) | `duplicateKindLabels` (前後の空白を除いて比べる)。重複した node は両方とも種類にせず、そこに繋がる edge も種類にしない (「任意」の端と読むと意図しない種類ができるため)。template graph の画面の上部に警告 (`DuplicateKindsWarning`)。**実機の確認は未** |
 | T3 片端が任意の edge の種類 | 済 (2026-11-23) | `autoEdgeKind`・`hasAnyEnd` (shared)。client の接続と headless の `add_edge` が同じ規則を使う。片端が任意の種類が候補にあれば、1 つでもメニューを出す。メニューの最後の項目は「ラベルなしで繋ぐ」に改めた。headless は kind を渡さなければラベルなしで繋ぐ。**実機の確認は未** |
+| T4 型の文法と検証 | 済 (2026-11-23) | `shared/src/template/propertyType.ts`。`parsePropertyType` (誤りは位置と理由で返す)・`formatPropertyType`・`checkPropertyValue` (`ok`/`missing`/`mismatch`)。リテラルは単引用符か二重引用符でエスケープ無し。列挙の配列は括弧必須。数字の文字列は number に合わない。画面の変更は無し |
