@@ -266,6 +266,32 @@ describe('種別', () => {
     expect(graphEventToOps(event)[0]).toMatchObject({ label: '反駁する' });
   });
 
+  test('片端が「任意」の種類は自動で付かず、kind を渡さなければラベルなしで繋ぐ (template-update K15)', () => {
+    // 主張 → 任意の node の種類 (接地の慣習の external)
+    const withExternal = TemplateSchema.parse({
+      ...toulmin(),
+      edgeKinds: [
+        ...toulmin().edgeKinds,
+        { id: 'kind-external', label: 'external', from: [CLAIM], to: ['*'] },
+      ],
+    });
+    const c: ToolContext = { ...ctx(), templates: [withExternal] };
+    const plain = addEdge(c, { source: CLAIM_NODE, target: PLAIN_NODE });
+    expect(graphEventToOps(plain.event)[0]).toMatchObject({ kind: 'edge.add' });
+    expect(graphEventToOps(plain.event)[0]).not.toHaveProperty('label');
+    expect(graphEventToOps(plain.event)[0]).not.toHaveProperty('properties');
+    // 渡せば付く
+    const external = addEdge(c, {
+      source: CLAIM_NODE,
+      target: PLAIN_NODE,
+      kind: 'kind-external',
+    });
+    expect(graphEventToOps(external.event)[0]).toMatchObject({
+      label: 'external',
+      properties: { [KIND_PROPERTY]: 'kind-external' },
+    });
+  });
+
   test('同じ template の要素どうしで候補が無ければ繋げない', () => {
     expect(() =>
       addEdge(ctx(), { source: CLAIM_NODE, target: GROUND_NODE }),

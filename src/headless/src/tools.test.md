@@ -23,6 +23,8 @@ remove と、edge の add・setLabel・setProperty・remove、それに位置の
   - 種別プロパティと system の property は書けない (足すときの properties でも)
   - edge の種別の候補 (`edgeKindCandidates`) が 1 つなら自動、複数なら選ばせる、同じ template の
     要素どうしで 0 なら繋げない。種別の無い node どうしは自由に繋げる
+  - 片端が「任意」の種類 (例: 主張 → 任意の node の `external`) は、候補が 1 つでも自動では付かない。kind を
+    渡さなければラベルなしで繋ぎ、渡せば付く (template-update K15、UI の「ラベルなしで繋ぐ」と同じ)
   - 種別のある edge の label は変えられない
 - **検め**: 無い node・edge を指すと断る。group でない node の中には入れない
 - **自動で置く**: 例 (一番下の node の下、空の group は枠の内側から) と、性質:

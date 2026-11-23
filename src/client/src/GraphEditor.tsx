@@ -9,6 +9,7 @@ import type {
   SheetId,
 } from '@conversensus/shared';
 import {
+  autoEdgeKind,
   DERIVED_FROM_SHEET_PROPERTY,
   displayKindLabel,
   type EdgeKindRef,
@@ -701,11 +702,14 @@ function GraphEditorInner({
         connection.source as string,
         connection.target as string,
       );
-      if (candidates.length > 1) {
+      // 選ばせずに付けてよいのは、候補が 1 つで両端が種類のときだけ。片端が「任意」の種類は
+      // 1 つでも選ばせ、ラベルなしで繋ぐことも許す (template-update K15)
+      const auto = autoEdgeKind(candidates);
+      if (!auto && candidates.length > 0) {
         setPendingEdge({ connection, candidates });
         return;
       }
-      createEdge(connection, candidates[0]);
+      createEdge(connection, auto);
     },
     [templates, getNodes, createEdge],
   );

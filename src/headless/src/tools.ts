@@ -23,10 +23,12 @@ import {
   GROUP_TITLE_HEIGHT,
 } from '@conversensus/client/src/nodeGeometry';
 import {
+  autoEdgeKind,
   type EdgeId,
   edgeKindCandidates,
   type GraphEdge,
   type GraphNode,
+  hasAnyEnd,
   isKindProperty,
   isTemplateEdge,
   kindPropertyOf,
@@ -244,7 +246,10 @@ export function removeNode(
 export type AddEdgeArgs = {
   source: string;
   target: string;
-  /** edge の種別の id。候補が 1 つなら省略してよい */
+  /**
+   * edge の種別の id。候補が 1 つで両端が種別の種類なら省略してよい (自動で付く)。片端が「任意」の種類は
+   * 省略するとラベルなしで繋ぐ (template-update K15)
+   */
   kind?: string;
   /** 種別の無い edge の label */
   label?: string;
@@ -274,8 +279,14 @@ export function addEdge(
       `種別 ${args.kind} はこの両端に使えない。使えるのは: ${listed() || 'なし'}`,
     );
   }
-  if (!kind && candidates.length === 1) kind = candidates[0];
-  if (!kind && candidates.length > 1) {
+  // 選ばせずに付けるのは、候補が 1 つで両端が種類のときだけ (UI と同じ、template-update K15)。
+  // 片端が「任意」の種類が候補にあれば、種別を渡されない限りラベルなしで繋ぐ (引かなくてもよい種類)
+  if (!kind) kind = autoEdgeKind(candidates);
+  if (
+    !kind &&
+    candidates.length > 1 &&
+    !candidates.some((c) => hasAnyEnd(c.kind))
+  ) {
     throw new ToolError(`種別を選んでください: ${listed()}`);
   }
   if (

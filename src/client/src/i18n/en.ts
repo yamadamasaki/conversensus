@@ -457,7 +457,7 @@ export const en: Messages = {
       smoothstep: 'Smooth Step (rounded)',
     },
     unnamedKind: '(unnamed)',
-    connectWithoutKind: 'Connect without a kind',
+    connectWithoutKind: 'Connect without a label',
     nodeAppearance: 'node appearance',
     appearances: { markdown: 'Markdown', group: 'group', image: 'Image' },
     graphNodeTitle: 'Add a Sheet to this File and place its graph node',

@@ -1,4 +1,5 @@
 import {
+  autoEdgeKind,
   type EdgeKindRef,
   edgeKindCandidates,
   isTemplateEdge,
@@ -35,11 +36,12 @@ export function edgeKindCandidatesFor(
 }
 
 /**
- * 両端から edge の種類を決める (設計 D5)。**候補がちょうど 1 のときだけ**返す。
+ * 両端から edge の種類を決める (設計 D5)。**候補がちょうど 1 つで、両端が種類の種類のときだけ**返す
+ * (`autoEdgeKind`、template-update K15)。
  *
  * 候補 0 は「繋げない」だが、**止めるのは `canConnectByTemplate` の仕事**である。
  * ここは既に繋がると決まったものに種類を与えるだけなので、決まらなければ何もしない。
- * 候補が複数のときに選ばせる UI は step2 では作らない (D5) ので、同じく何もしない。
+ * 決まらないときに選ばせるのは呼ぶ側 (`GraphEditor` の `EdgeKindMenu`) である。
  */
 export function edgeKindFor(
   templates: readonly Template[],
@@ -47,8 +49,7 @@ export function edgeKindFor(
   source: string,
   target: string,
 ): EdgeKindRef | undefined {
-  const candidates = edgeKindCandidatesFor(templates, nodes, source, target);
-  return candidates.length === 1 ? candidates[0] : undefined;
+  return autoEdgeKind(edgeKindCandidatesFor(templates, nodes, source, target));
 }
 
 /**

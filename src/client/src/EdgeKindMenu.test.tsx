@@ -68,7 +68,7 @@ describe('EdgeKindMenu (step3 Phase 4 Q8)', () => {
       '支える',
       '(名前なし)',
       '引き起こす',
-      '種類なしで繋ぐ',
+      'ラベルなしで繋ぐ',
     ]);
     expect(screen.getByText('論証')).toBeTruthy();
     expect(screen.getByText('因果')).toBeTruthy();
@@ -80,9 +80,9 @@ describe('EdgeKindMenu (step3 Phase 4 Q8)', () => {
     expect(onSelect.mock.calls[0]?.[0]?.kind.id).toBe('supports' as never);
   });
 
-  it('「種類なしで繋ぐ」と Escape は、種類無し (undefined) を返す', () => {
+  it('「ラベルなしで繋ぐ」と Escape は、種類無し (undefined) を返す', () => {
     const onSelect = renderMenu();
-    fireEvent.click(screen.getByRole('menuitem', { name: '種類なしで繋ぐ' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'ラベルなしで繋ぐ' }));
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(onSelect.mock.calls.map((c) => c[0])).toEqual([
       undefined,
