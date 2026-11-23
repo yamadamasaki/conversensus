@@ -170,3 +170,23 @@ F3 により、branch ごとに `at` がずれることは起きない。合意�
 | T6 property の名前の prefix | 済 (2026-11-23) | `propertyName.ts` (shared): prefix の無い名前は `${templateId}.<名前>`、`.` を含む名前はそのまま。**`kind` は使えない** (種別 property `${templateId}.kind` と同じ名前になるので配らない — 計画に無かった制約)。種の複製は逆に戻す。表示: property の欄は prefix を外した名前 + template の名前、`read_file` の注釈も同じ。Q3: 依頼の `answerTarget` を `app.conversensus.request.answerTarget` に移し、旧名も読む (`answerTargetOf`)。**edge の追加候補 (datalist) は prefix 付きの名前のまま** — T7 で既定値を補えば候補から足す場面は減る。実機の確認は未 |
 | T7 読むときに補う | 済 (2026-11-23) | `effective.ts`: 既定値は読むときに補い、editable: false は template の値、型の判定を添える。**計画からの変更: 写すのをやめたのは template の名前空間の既定値だけ** — 依頼の宛先のような module の既定値は「依頼である」印なので写し続ける (`copiedDefaultsOf`)。property の欄: 補った値を薄く出す・number は数で保存 (`valueFromInput`)・列挙は select・型の印・固定は編集不可。`read_file` は注釈で言う。#411: markdown の種類の本文が空なら template の本文を薄く出す。**依頼 module を実効の property で読む件は、写し続けるので不要になった。実機の確認は未** |
 | T8 書き込みの入口で守る | 済 (2026-11-24) | `isFixedTemplateProperty` (shared)。UI は `applyPropertyChanges` (property を書く唯一の口) で固定の property への変更を落とす (欄は T7 で既に編集不可)。MCP の `set_node_property`・`set_edge_property`・`add_node`・`add_edge` は断る。**段 1 (T1〜T8) 完了** |
+
+## 9. 実機の確認 (段 1)
+
+`bun run dev:client` で起動し、`http://127.0.0.1:5173/` を開く (user-test-environment §1)。未ログインのままでよい
+(V8 の agent の確認だけ headless が要る)。File を 1 つ作り、「template 付きで Sheet を追加 ▾」→「+ template graph」で
+template graph を作って、そこに種類を書いていく。
+
+| # | 見ること | 手順 | 期待 | 結果 |
+| --- | --- | --- | --- | --- |
+| V1 | T1 見た目 (#406・#412) | template graph に label「議論」の group node と label「主張」の markdown node を置く → この template を当てた Sheet を足し、空いた所をダブルクリック | メニューは「Markdown」の下に「主張」、「group」の下に「議論」が字下げで並ぶ。「議論」を選ぶと group node ができる | |
+| V2 | T2 名前の重複 | template graph に label「主張」の node をもう 1 つ置く | 上部に「同じ名前の種類があります: 「主張」…」が出る。当てた Sheet のメニューから「主張」が消える。片方の label を変えると警告が消える | |
+| V3 | T3 任意の端 | template graph で「主張」から label の無い node へ edge を引き、label を `external` にする → 当てた Sheet で「主張」を普通の node へ繋ぐ | 繋いだ直後にメニューが出て `external` と「ラベルなしで繋ぐ」が選べる。「ラベルなしで繋ぐ」なら label の無い edge になる | |
+| V4 | T5 宣言 | template graph の「主張」を選び、property `期限` (値は空) を足す → 行の型の欄に `date?` と書いて Enter。別の property `優先度` を足し、型を `'高' \| '低'`、もう 1 つ `担当` (値 `alice`) を足して「適用先で編集できる」を外す。型の欄に `strin` と書く | 型・チェックが残る。`strin` には「型を読めません」が出る (直して戻す)。行のごみ箱で消すと、値も宣言も一緒に消える | |
+| V5 | T6・T7 既定値を補う | 当てた Sheet で「主張」を作って選ぶ | property の欄に `期限`・`優先度`・`担当` が template の名前を添えて並ぶ。`担当` は `alice` で編集できず「template が値を決めていて…」。`期限` は「値がありません」の印は出ない (optional)。`優先度` は選択肢 (高・低) で、選ぶと値になる | |
+| V6 | T7 型の印 | template graph で `期限` の型を `date` (必須) にし、当てた Sheet の「主張」を見る。`期限` に `明日` と打つ | 必須にすると「値がありません」、`明日` には「型 date に合いません」が出る。値は書き換わらない | |
+| V7 | T7 placeholder (#411) | template graph の「主張」の本文に「結論を一文で」と書く → 当てた Sheet で「主張」を作る | 本文が空の間、node に「結論を一文で」が薄い斜体で出る。本文を書くと消える | |
+| V8 | T1・T7 agent (任意) | headless で `read_file` | 種別の一覧に `(group)` が付き、補った既定値・固定の値が `#` の注釈で出る。`set_node_property` で `担当` を書くと断られる | |
+
+**注意**: 作成時に当てた template は、作った時点の版で読まれる (動的適用は段 2)。V4〜V7 で template graph を直した後は、
+**新しく Sheet を当て直して**確かめる (後から当てる「…」→「template を当てる」でもよい)。
