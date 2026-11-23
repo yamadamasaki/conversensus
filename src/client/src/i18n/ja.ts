@@ -440,6 +440,8 @@ export const ja = {
       '参加していなかった間の編集を取り込んでいます。終わるまで読み取り専用です',
     emptyHint: 'ダブルクリックで node を作る',
     emptyHintImage: '画像をドロップしても置けます',
+    duplicateKinds: (labels: string) =>
+      `同じ名前の種類があります: ${labels}。名前の重なった種類は、どれも使えません (当てた Sheet のメニューに出ません)`,
     unnamedEdge: '辺',
     emptyNode: '(空)',
     editHint: 'ダブルクリックで編集',

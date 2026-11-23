@@ -15,6 +15,8 @@ import {
   kindPropertyLabels,
   kindPropertyOf,
   nodeKindsOf,
+  sheetKindOf,
+  TEMPLATE_SHEET_KIND,
   type Template,
 } from '@conversensus/shared';
 import {
@@ -44,6 +46,7 @@ import { EdgeKindMenu } from './EdgeKindMenu';
 import { EventDispatchContext } from './EventDispatchContext';
 import { type GraphEvent, makeEventBase } from './events/GraphEvent';
 import { contentOf, createChangeGate } from './graph/changeGate';
+import { DuplicateKindsWarning } from './graph/DuplicateKindsWarning';
 import { deletionTargets } from './graph/deletion';
 import {
   type GraphEditorControls,
@@ -1032,6 +1035,10 @@ function GraphEditorInner({
                         {t.graph.emptyHintImage}
                       </p>
                     </div>
+                  )}
+                  {/* template graph では、名前の重なった種類を知らせる (template-update K6) */}
+                  {sheetKindOf(activeSheet) === TEMPLATE_SHEET_KIND && (
+                    <DuplicateKindsWarning sheet={activeSheet} />
                   )}
                   {nodeActions.toolbar && (
                     <NodeActionBar

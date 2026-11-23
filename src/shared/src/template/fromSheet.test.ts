@@ -15,7 +15,12 @@ import {
   type SheetId,
   SheetIdSchema,
 } from '../schemas';
-import { resolveTemplates, templateFromSheet, templateIdOf } from './fromSheet';
+import {
+  duplicateKindLabels,
+  resolveTemplates,
+  templateFromSheet,
+  templateIdOf,
+} from './fromSheet';
 import { edgeKindCandidates, isTemplateEdge, kindPropertyOf } from './kind';
 import { ANY_NODE_KIND, TemplateSchema } from './types';
 
@@ -61,17 +66,26 @@ const arbTemplateSheet: fc.Arbitrary<Sheet> = fc
     return { id: SHEET, name: 'T', nodes, edges: graphEdges };
   });
 
-const hasLabel = (sheet: Sheet, id: string) =>
-  (sheet.nodes.find((n) => n.id === id)?.label ?? '') !== '';
+const labelAt = (sheet: Sheet, id: string) =>
+  sheet.nodes.find((n) => n.id === id)?.label ?? '';
+/** その label を持つ node の数 */
+const holders = (sheet: Sheet, label: string) =>
+  sheet.nodes.filter((n) => (n.label ?? '') === label).length;
+/** 種類になる node: label があり、その label を持つ node が他に無い (K6) */
+const isKind = (sheet: Sheet, id: string) =>
+  labelAt(sheet, id) !== '' && holders(sheet, labelAt(sheet, id)) === 1;
+/** 重複で無効になった node: label があり、同じ label の node が他にもある */
+const isInvalid = (sheet: Sheet, id: string) =>
+  labelAt(sheet, id) !== '' && holders(sheet, labelAt(sheet, id)) > 1;
 
 describe('templateFromSheet: 性質', () => {
-  test('label のある node ちょうどが node の種類になる', () => {
+  test('label があり、その label が他の node と重ならない node ちょうどが node の種類になる (K6)', () => {
     fc.assert(
       fc.property(arbTemplateSheet, (sheet) => {
         const t = templateFromSheet(sheet, TEMPLATE_ID);
         expect(t.nodeKinds.map((k) => String(k.id)).sort()).toEqual(
           sheet.nodes
-            .filter((n) => n.label)
+            .filter((n) => isKind(sheet, n.id))
             .map((n) => n.id)
             .sort(),
         );
@@ -79,12 +93,30 @@ describe('templateFromSheet: 性質', () => {
     );
   });
 
-  test('少なくとも一方の端に label がある edge ちょうどが edge の種類になり、label の無い端は「任意」', () => {
+  test('重複した label ちょうどが警告に出る', () => {
+    fc.assert(
+      fc.property(arbTemplateSheet, (sheet) => {
+        const expected = [
+          ...new Set(
+            sheet.nodes
+              .filter((n) => isInvalid(sheet, n.id))
+              .map((n) => n.label as string),
+          ),
+        ].sort();
+        expect(duplicateKindLabels(sheet)).toEqual(expected);
+      }),
+    );
+  });
+
+  test('少なくとも一方の端が種類で、どちらの端も重複で無効でない edge ちょうどが edge の種類になり、種類でない端は「任意」', () => {
     fc.assert(
       fc.property(arbTemplateSheet, (sheet) => {
         const t = templateFromSheet(sheet, TEMPLATE_ID);
         const expected = sheet.edges.filter(
-          (e) => hasLabel(sheet, e.source) || hasLabel(sheet, e.target),
+          (e) =>
+            (isKind(sheet, e.source) || isKind(sheet, e.target)) &&
+            !isInvalid(sheet, e.source) &&
+            !isInvalid(sheet, e.target),
         );
         expect(t.edgeKinds.map((k) => String(k.id)).sort()).toEqual(
           expected.map((e) => e.id).sort(),
@@ -94,10 +126,10 @@ describe('templateFromSheet: 性質', () => {
             (e) => e.id === String(ek.id),
           ) as GraphEdge;
           expect(ek.from.map(String)).toEqual([
-            hasLabel(sheet, edge.source) ? edge.source : ANY_NODE_KIND,
+            isKind(sheet, edge.source) ? edge.source : ANY_NODE_KIND,
           ]);
           expect(ek.to.map(String)).toEqual([
-            hasLabel(sheet, edge.target) ? edge.target : ANY_NODE_KIND,
+            isKind(sheet, edge.target) ? edge.target : ANY_NODE_KIND,
           ]);
         }
       }),
@@ -124,11 +156,11 @@ describe('templateFromSheet: 性質', () => {
         (sheet, fromIndex, toIndex) => {
           const t = templateFromSheet(sheet, TEMPLATE_ID);
           const prop = kindPropertyOf(t.id);
-          // 適用先の node: 種類を持つ (template の label のある node の id) か、持たない (null)
+          // 適用先の node: 種類を持つ (template の種類になった node の id) か、持たない (null)
           const kindAt = (i: number | null) => {
             if (i === null) return undefined;
             const id = NODE_IDS[i] as string;
-            return hasLabel(sheet, id) ? id : undefined;
+            return isKind(sheet, id) ? id : undefined;
           };
           const from = kindAt(fromIndex);
           const to = kindAt(toIndex);
@@ -212,6 +244,21 @@ describe('templateFromSheet: 例', () => {
     expect(t.edgeKinds.find((k) => k.id === 'e2')?.from).toEqual([
       ANY_NODE_KIND,
     ]);
+  });
+
+  test('label が重複した node は両方とも種類にせず、そこに繋がる edge も種類にしない (K6)', () => {
+    const twin = '00000000-0000-4000-8000-0000000000b3' as NodeId;
+    const duplicated: Sheet = {
+      ...sheet,
+      nodes: [...sheet.nodes, { id: twin, content: '', label: ' 主張 ' }],
+    };
+    const t = templateFromSheet(duplicated, TEMPLATE_ID);
+    // 前後の空白は除いて比べる
+    expect(duplicateKindLabels(duplicated)).toEqual(['主張']);
+    expect(t.nodeKinds.map((k) => k.label)).toEqual(['データ']);
+    // データ → 主張 (e1)・説明 → 主張 (e2) は、主張が無効なので種類にならない。
+    // 「任意」の端と読むと、データ → 任意 という意図しない種類ができる
+    expect(t.edgeKinds).toEqual([]);
   });
 
   test('種類の見た目は node の見た目 (group・image)。markdown の node は見た目を持たない (#406)', () => {

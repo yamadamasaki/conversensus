@@ -441,6 +441,8 @@ export const en: Messages = {
       'Taking in the edits made while you were not participating. Read-only until it finishes',
     emptyHint: 'Double-click to create a node',
     emptyHintImage: 'You can also drop an image',
+    duplicateKinds: (labels: string) =>
+      `Some kinds share a name: ${labels}. Kinds with a shared name cannot be used (they do not appear in the menus of Sheets this template is applied to)`,
     unnamedEdge: 'edge',
     emptyNode: '(empty)',
     editHint: 'Double-click to edit',
