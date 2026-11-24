@@ -15,7 +15,8 @@
 import { type Cut, HEAD_CUT, projectAddress } from '../events/address';
 import { sheetKindOf, TEMPLATE_SHEET_KIND } from '../events/sheetKind';
 import type { Batch } from '../events/unified';
-import type { FileId, SheetId, TemplateSheetRef } from '../schemas';
+import type { FileId, Sheet, SheetId, TemplateSheetRef } from '../schemas';
+import { appliedTemplateRefs } from './applied';
 import { templateFromSheet, templateIdOf } from './fromSheet';
 import type { Template } from './types';
 
@@ -65,16 +66,89 @@ function canonical(value: unknown): string {
   );
 }
 
+/** 文字列の短い指紋 (FNV-1a 32 bit、16 進)。暗号ではない — 同じ版かどうかを鍵で見分けるだけ */
+function fingerprint(text: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+/** 当てた template 1 つの版 */
+export type AppliedTemplateVersion = {
+  /** 当てた先の Sheet */
+  sheet: SheetId;
+  /** template graph の Sheet */
+  template: SheetId;
+  version: TemplateVersion;
+  /**
+   * 先端の版の指紋 (`deleted` なら無い)。**どの端末でも同じ op-log から同じ値になる** — 通知の既読の鍵に
+   * 入れて、閉じた通知を、先端がさらに変わるまで出さないために使う (D3)
+   */
+  tip?: string;
+  /** template の名前 (先端の、消されていれば当てた版の)。読めなければ無い */
+  name?: string;
+};
+
+/** 当てた template (`ref`) の版の状態と、先端の版の指紋と、template の名前を求める */
+function versionWithTip(
+  ref: TemplateSheetRef,
+  trunk: Batch[],
+  fileId: FileId,
+): { version: TemplateVersion; tip?: string; name?: string } {
+  const applied = templateAt(ref.sheet, ref.at, trunk, fileId);
+  const tip = templateAt(ref.sheet, HEAD_CUT, trunk, fileId);
+  if (tip === undefined) {
+    // 消された後も名前を出せるよう、当てた版の名前を添える
+    return {
+      version: TEMPLATE_VERSION.DELETED,
+      ...(applied !== undefined && { name: applied.name }),
+    };
+  }
+  const tipText = canonical(tip);
+  return {
+    version:
+      applied !== undefined && canonical(applied) === tipText
+        ? TEMPLATE_VERSION.CURRENT
+        : TEMPLATE_VERSION.NEWER,
+    tip: fingerprint(tipText),
+    name: tip.name,
+  };
+}
+
 /** 当てた template (`ref`) の版の状態を、trunk の先端と比べて求める */
 export function templateVersionOf(
   ref: TemplateSheetRef,
   trunk: Batch[],
   fileId: FileId,
 ): TemplateVersion {
-  const tip = templateAt(ref.sheet, HEAD_CUT, trunk, fileId);
-  if (tip === undefined) return TEMPLATE_VERSION.DELETED;
-  const applied = templateAt(ref.sheet, ref.at, trunk, fileId);
-  return applied !== undefined && canonical(applied) === canonical(tip)
-    ? TEMPLATE_VERSION.CURRENT
-    : TEMPLATE_VERSION.NEWER;
+  return versionWithTip(ref, trunk, fileId).version;
+}
+
+/**
+ * File の Sheet に当たっている template graph すべての版 (D3 の通知の元)。作り込みの id は template graph
+ * ではないので数えない。並びは Sheet の順、その中は `appliedTemplateRefs` の順
+ */
+export function appliedTemplateVersions(
+  sheets: readonly Pick<Sheet, 'id' | 'templateIds' | 'properties'>[],
+  trunk: Batch[],
+  fileId: FileId,
+): AppliedTemplateVersion[] {
+  return sheets.flatMap((sheet) =>
+    appliedTemplateRefs(sheet).flatMap((ref): AppliedTemplateVersion[] => {
+      if (typeof ref === 'string') return [];
+      const { version, tip, name } = versionWithTip(ref, trunk, fileId);
+      return [
+        {
+          sheet: sheet.id,
+          template: ref.sheet,
+          version,
+          ...(tip !== undefined && { tip }),
+          ...(name !== undefined && { name }),
+        },
+      ];
+    }),
+  );
 }

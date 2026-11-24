@@ -88,6 +88,7 @@ import { useRosterSource } from './hooks/useRosterSource';
 import { useSidePanels } from './hooks/useSidePanels';
 import { useTabNavigation } from './hooks/useTabNavigation';
 import { useTabs } from './hooks/useTabs';
+import { useTemplateNotices } from './hooks/useTemplateNotices';
 import { useViewportTier } from './hooks/useViewportTier';
 import { InputDialog } from './InputDialog';
 import { InvitationDialog } from './InvitationDialog';
@@ -124,6 +125,7 @@ import {
 import { participationRounds } from './sync/participationHistoryView';
 import { TabBar } from './TabBar';
 import { TemplateApplyDialog } from './TemplateApplyDialog';
+import { TemplateNotices } from './TemplateNotices';
 import {
   activeTab,
   isMultiple,
@@ -189,6 +191,8 @@ export default function App() {
   } = useAtprotoSession();
   /** 画面右下の通知と、閉じた通知の既読 (step3 Phase 6 S6-1a) */
   const {
+    dismissedIn,
+    dismissKeys,
     forgetFile,
     noteBackgroundConflicts,
     noteBackgroundForks,
@@ -665,6 +669,15 @@ export default function App() {
    */
   const activeFileForUpdates = fileOps.activeFile;
   const { setPopupTarget } = fileOps;
+  /** 当てた template を最新の版にする: 切断面 `at` を今の trunk に進めてプロパティに書く */
+  const pullTemplate = useCallback(
+    (fileId: FileId, sheetId: SheetId, templateSheet: SheetId) => {
+      void currentCut(fileId).then((at) =>
+        handleApplyTemplates(sheetId, [templateSheet], at),
+      );
+    },
+    [currentCut, handleApplyTemplates],
+  );
   const templateUpdatesOf = useCallback(
     async (sheetId: SheetId): Promise<TemplateUpdate[]> => {
       const file = activeFileForUpdates;
@@ -686,20 +699,19 @@ export default function App() {
           name: file.sheets.find((s) => s.id === ref.sheet)?.name ?? '',
           pull: () => {
             setPopupTarget(null);
-            void currentCut(file.id).then((at) =>
-              handleApplyTemplates(sheetId, [ref.sheet], at),
-            );
+            pullTemplate(file.id, sheetId, ref.sheet);
           },
         }));
     },
-    [
-      activeFileForUpdates,
-      currentCut,
-      handleApplyTemplates,
-      setPopupTarget,
-      trunkSettled,
-    ],
+    [activeFileForUpdates, pullTemplate, setPopupTarget, trunkSettled],
   );
+  /** 当てた template の新しい版と削除の通知 (template-update D3)。前に出ている File の分 */
+  const { templateNotices, dismissTemplateNotice } = useTemplateNotices({
+    file: fileOps.activeFile,
+    trunkSettled,
+    dismissedIn,
+    dismissKeys,
+  });
 
   /** 特殊なグラフのシート (template graph・metagraph) を足す */
   const handleAddKindSheet = useCallback(
@@ -2085,6 +2097,16 @@ export default function App() {
           arrivedForks={arrivedForks}
           onOpenMerger={handleOpenMerger}
           onClose={closeConflictNotice}
+        />
+        <TemplateNotices
+          notices={templateNotices}
+          sheetNameOf={(n) =>
+            fileOps.activeFile?.sheets.find((s) => s.id === n.sheet)?.name ??
+            n.sheet
+          }
+          // 既読にはしない: 最新になれば、読み直したときに通知は消える (ほかの端末でも)
+          onPull={(n) => pullTemplate(n.fileId, n.sheet, n.template)}
+          onDismiss={dismissTemplateNotice}
         />
         <ArrivedNotices
           notices={arrivedNotices}

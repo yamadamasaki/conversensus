@@ -49,6 +49,15 @@ export const en: Messages = {
   notices: {
     open: 'Open',
     dismiss: (from: string) => `Dismiss the notice from ${from}`,
+    templateRegion: 'Template versions',
+    templateNewer: (sheet: string, template: string) =>
+      `"${template}" applied to "${sheet}" has a newer version`,
+    templateDeleted: (sheet: string, template: string) =>
+      `"${template}" applied to "${sheet}" was deleted. The Sheet keeps working with the applied version`,
+    templatePull: 'Update to latest',
+    templateDismiss: (sheet: string, template: string) =>
+      `Dismiss the notice for "${template}" on "${sheet}"`,
+    unnamedTemplate: 'template',
     more: (count: number) => `${count} more`,
   },
   rightSidebar: {

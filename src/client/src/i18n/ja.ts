@@ -55,6 +55,17 @@ export const ja = {
     dismiss: (from: string) => `${from} からの知らせを閉じる`,
     /** File ごとの上限を超えて畳んだ知らせ (#393) */
     more: (count: number) => `ほか ${count} 件`,
+    /** template の版の通知 (template-update D3) */
+    templateRegion: 'template の版',
+    templateNewer: (sheet: string, template: string) =>
+      `「${sheet}」に当てた「${template}」に新しい版があります`,
+    templateDeleted: (sheet: string, template: string) =>
+      `「${sheet}」に当てた「${template}」は削除されました。この Sheet は当てた版のまま使えます`,
+    templatePull: '最新の版にする',
+    templateDismiss: (sheet: string, template: string) =>
+      `「${sheet}」の「${template}」の知らせを閉じる`,
+    /** 名前を読めない template */
+    unnamedTemplate: 'template',
   },
   rightSidebar: {
     region: '詳細',

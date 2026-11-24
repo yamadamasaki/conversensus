@@ -172,6 +172,7 @@ F3 により、branch ごとに `at` がずれることは起きない。合意�
 | T8 書き込みの入口で守る | 済 (2026-11-24) | `isFixedTemplateProperty` (shared)。UI は `applyPropertyChanges` (property を書く唯一の口) で固定の property への変更を落とす (欄は T7 で既に編集不可)。MCP の `set_node_property`・`set_edge_property`・`add_node`・`add_edge` は断る。**段 1 (T1〜T8) 完了** |
 | D1 優先規則 | 済 (2026-11-24) | `appliedTemplateRefs`: 同じ template graph がプロパティにもあれば、プロパティの `at` を採る。並びは作るときの位置のまま (pull で種類のメニューの並びが変わらないように) |
 | D2 pull | 済 (2026-11-24) | `templateVersionOf` (shared): `current`・`newer`・`deleted`。**計画からの変更: 「新しい版」は template graph の op の有無ではなく、`at` と先端で読んだ種類 (`templateFromSheet`) が違うこと** — `at` は File 全体の切断面でほかの Sheet の編集でも進み、node を動かしただけでは適用先に何も変わらないため。sheet の「…」を開いたときに op-log を読んで判定し、新しい版がある template ごとに「「<名前>」を最新の版にする」を出す。押すと `at` を今の trunk に進めてプロパティに書く (作るときの template も) |
+| D3 通知 | 済 (2026-11-24) | `appliedTemplateVersions` (shared) が File の当てた template すべての版に、先端の版の指紋と名前を添える。通知は画面右下の「template の版」の欄に、新しい版 (「最新の版にする」でその場で pull) と削除 (閉じるだけ) を出す。**計画からの変更 2 つ**: (1) 既読の鍵は (当てた先, template graph, **先端の版の指紋**) — 先端の切断面は File 全体の vector で、ほかの Sheet の編集で変わり、閉じた通知がまた出るため。削除は `deleted` の印で 1 つの鍵 (2) **前に出ている File だけ**を見る (競合の通知と同じ)。読み直しは File が変わるたびに、同時に 1 つだけ (タイマーで待たない)。pull したときは既読にしない (最新になれば読み直しで消え、ほかの端末でも消える)。**気になること**: 読み直しは当てた template ごとに File 全体を 2 回 projection する — 大きな File で重ければ、template graph の op を含む batch が来たときだけ読み直す形にする |
 
 ## 9. 実機の確認 (段 1)
 

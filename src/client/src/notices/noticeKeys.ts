@@ -6,6 +6,7 @@
  */
 
 import {
+  type AppliedTemplateVersion,
   conflictKeyOf,
   type ForkMeta,
   type MergeConflict,
@@ -41,3 +42,25 @@ export function forkNoticeKeyOf(fork: ForkMeta): NoticeKey {
 export function overwriteNoticeKeyOf(report: OverwriteReport): NoticeKey {
   return [overwriteKeyOf(report), report.mine, report.theirs].join(SEPARATOR);
 }
+
+/**
+ * template の版の通知の既読の鍵 (template-update D3)。(当てた先の Sheet, template graph, 先端の版) で決める。
+ *
+ * 新しい版は先端の版の指紋 (`tip`) を入れるので、閉じた通知は**先端がさらに変わるまで**出ない。削除は
+ * 先端が無いので `deleted` の印を入れる (消されたことは 1 度知らせれば足りる)
+ */
+export function templateNoticeKeyOf(
+  version: Pick<AppliedTemplateVersion, 'sheet' | 'template' | 'tip'>,
+): NoticeKey {
+  return [
+    TEMPLATE_NOTICE_PREFIX,
+    version.sheet,
+    version.template,
+    version.tip ?? TEMPLATE_DELETED_MARK,
+  ].join(SEPARATOR);
+}
+
+/** template の版の通知の鍵の前置き (ほかの通知の鍵と重ならないように) */
+const TEMPLATE_NOTICE_PREFIX = 'template-version';
+/** 削除の通知の鍵に入れる印 (指紋は 16 進なので重ならない) */
+const TEMPLATE_DELETED_MARK = 'deleted';

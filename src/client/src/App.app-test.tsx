@@ -6,7 +6,9 @@ import {
   type FileId,
   kindPropertyOf,
   type NodeId,
+  type Op,
   projectFile,
+  type SheetId,
   sheetKindOf,
   TEMPLATE_SHEET_KIND,
   templateIdOf,
@@ -1167,7 +1169,7 @@ describe('App 結合: 既にあるシートに template を後から当てる (#
   });
 });
 
-describe('App 結合: 当てた template を最新の版にする (template-update D2)', () => {
+describe('App 結合: 当てた template の新しい版 (template-update D2・D3)', () => {
   /** サイドバーの、そのシートの行の「詳細」(…) を開く (#355 の describe と同じ) */
   async function openSheetDetails(
     user: ReturnType<typeof userEvent.setup>,
@@ -1180,13 +1182,18 @@ describe('App 結合: 当てた template を最新の版にする (template-upda
     await user.click(within(row).getByRole('button', { name: '詳細' }));
   }
   const PULL = '「Toulmin model」を最新の版にする';
+  /** 右下の template の版の通知の欄 */
+  const templateRegion = () =>
+    screen.queryByRole('status', { name: 'template の版' });
+  /** 「出ない」ことを見る前に、通知の読み直しが終わるのを待つ */
+  const settle = () => new Promise((r) => setTimeout(r, 600));
 
-  test('作るときに当てた template graph を直すと「…」に入口が出て、押すと新しい種類が使える。入口は消える', async () => {
+  /** Toulmin model を追加し、それを作るときに当てた Sheet を足す */
+  async function setupApplied() {
     await world.activate('solo');
     render(<App />);
     const user = userEvent.setup();
     await createFile(user, FILE_NAME);
-
     await user.click(
       screen.getByRole('button', { name: 'template 付きで Sheet を追加' }),
     );
@@ -1209,7 +1216,55 @@ describe('App 結合: 当てた template を最新の版にする (template-upda
       projectFile(store.getBatches(fileId), fileId).sheets.find(
         (s) => s.templateIds?.length,
       );
-    const appliedName = applied()?.name ?? '';
+    const toulmin = projectFile(store.getBatches(fileId), fileId).sheets.find(
+      (s) => sheetKindOf(s) === TEMPLATE_SHEET_KIND,
+    );
+    if (!toulmin) throw new Error('template graph が正典に無い');
+    let seq = 0;
+    /** template graph への op を、別のタブが書いたものとして正典に入れて知らせる */
+    const writeElsewhere = (ops: Op[], sheetId?: SheetId) => {
+      seq += 1;
+      store.appendBatches(fileId, [
+        {
+          id: crypto.randomUUID() as Batch['id'],
+          actor: `${LOCAL_TEST_ACTOR}#other-tab`,
+          clock: 1000 + seq,
+          seq,
+          deps: {},
+          timestamp: Date.now(),
+          ...(sheetId && { sheetId }),
+          ops,
+        },
+      ]);
+      const channel = new BroadcastChannel(LOCAL_CHANGES_CHANNEL);
+      channel.postMessage({ fileId });
+      channel.close();
+    };
+    /** template graph に種類を 1 つ足す */
+    const addKind = (label: string) => {
+      const id = crypto.randomUUID() as NodeId;
+      writeElsewhere(
+        [
+          { kind: 'node.add', target: id, content: '' },
+          { kind: 'node.setLabel', target: id, label },
+        ],
+        toulmin.id,
+      );
+      return id;
+    };
+    return {
+      user,
+      applied,
+      appliedName: applied()?.name ?? '',
+      toulmin,
+      addKind,
+      writeElsewhere,
+    };
+  }
+
+  test('D2: template graph を直すと「…」に入口が出て、押すと新しい種類が使える。入口は消える', async () => {
+    const { user, applied, appliedName, toulmin, addKind } =
+      await setupApplied();
 
     // 当てたばかりなので入口は無い (開いて読み終えるのを待ってから見る)
     await openSheetDetails(user, appliedName);
@@ -1217,30 +1272,7 @@ describe('App 結合: 当てた template を最新の版にする (template-upda
     expect(screen.queryByRole('button', { name: PULL }) === null).toBe(true);
     await user.keyboard('{Escape}');
 
-    // template graph に種類「反証」を足す (別のタブが書いたものとして正典に入れて知らせる)
-    const toulmin = projectFile(store.getBatches(fileId), fileId).sheets.find(
-      (s) => sheetKindOf(s) === TEMPLATE_SHEET_KIND,
-    );
-    if (!toulmin) throw new Error('template graph が正典に無い');
-    const rebuttal = crypto.randomUUID() as NodeId;
-    store.appendBatches(fileId, [
-      {
-        id: crypto.randomUUID() as Batch['id'],
-        actor: `${LOCAL_TEST_ACTOR}#other-tab`,
-        clock: 1000,
-        seq: 1,
-        deps: {},
-        timestamp: Date.now(),
-        sheetId: toulmin.id,
-        ops: [
-          { kind: 'node.add', target: rebuttal, content: '' },
-          { kind: 'node.setLabel', target: rebuttal, label: '反証' },
-        ],
-      },
-    ]);
-    const channel = new BroadcastChannel(LOCAL_CHANGES_CHANNEL);
-    channel.postMessage({ fileId });
-    channel.close();
+    const rebuttal = addKind('反証');
 
     // 「…」に入口が出る。押すと、作るときの template でもプロパティに書く (K3)
     await waitFor(async () => {
@@ -1268,6 +1300,80 @@ describe('App 結合: 当てた template を最新の版にする (template-upda
     await openSheetDetails(user, appliedName);
     await new Promise((r) => setTimeout(r, 200));
     expect(screen.queryByRole('button', { name: PULL }) === null).toBe(true);
+  });
+
+  test('D3: 新しい版を右下に知らせ、そこから最新の版にすると通知は消える', async () => {
+    const { user, applied, appliedName, toulmin, addKind } =
+      await setupApplied();
+    await settle();
+    expect(templateRegion()).toBeNull();
+
+    addKind('反証');
+    const region = await screen.findByRole(
+      'status',
+      { name: 'template の版' },
+      WIRING_TIMEOUT,
+    );
+    expect(region.textContent).toContain(
+      `「${appliedName}」に当てた「Toulmin model」に新しい版があります`,
+    );
+    await user.click(
+      within(region).getByRole('button', { name: '最新の版にする' }),
+    );
+    // 先に普通に待つ: waitFor で待つ間は、この直前に積まれた通知の state の更新が描かれなかった
+    // (state は 1 秒ほどで空になっていたのに、描かれたのは waitFor の時間切れの後。bun + act の環境で観測)
+    await settle();
+    await waitFor(() => {
+      expect(
+        applied()?.properties?.[appliedTemplatePropertyOf(toulmin.id)],
+      ).toBeDefined();
+      expect(templateRegion()).toBeNull();
+    }, WIRING_TIMEOUT);
+  });
+
+  test('D3: 閉じた通知は、template graph がさらに変わるまで出ない', async () => {
+    const { user, appliedName, addKind } = await setupApplied();
+    addKind('反証');
+    await screen.findByRole(
+      'status',
+      { name: 'template の版' },
+      WIRING_TIMEOUT,
+    );
+    await user.click(
+      screen.getByRole('button', {
+        name: `「${appliedName}」の「Toulmin model」の知らせを閉じる`,
+      }),
+    );
+    expect(templateRegion()).toBeNull();
+
+    // 関係のない編集 (別の Sheet) では読み直しても出ない
+    await user.click(screen.getByRole('button', { name: 'Sheet 1' }));
+    await settle();
+    expect(templateRegion()).toBeNull();
+
+    // template graph がさらに変われば、また出る
+    addKind('限定');
+    await screen.findByRole(
+      'status',
+      { name: 'template の版' },
+      WIRING_TIMEOUT,
+    );
+  });
+
+  test('D3: template graph を削除すると、削除を知らせる (pull の入口は無い)', async () => {
+    const { toulmin, appliedName, writeElsewhere } = await setupApplied();
+    writeElsewhere([{ kind: 'sheet.remove', target: toulmin.id }]);
+    const region = await screen.findByRole(
+      'status',
+      { name: 'template の版' },
+      WIRING_TIMEOUT,
+    );
+    expect(region.textContent).toContain(
+      `「${appliedName}」に当てた「Toulmin model」は削除されました`,
+    );
+    expect(
+      within(region).queryByRole('button', { name: '最新の版にする' }) === null,
+    ).toBe(true);
   });
 });
 

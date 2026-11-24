@@ -11,7 +11,11 @@ import {
   type SheetId,
   SheetIdSchema,
 } from '../schemas';
-import { TEMPLATE_VERSION, templateVersionOf } from './version';
+import {
+  appliedTemplateVersions,
+  TEMPLATE_VERSION,
+  templateVersionOf,
+} from './version';
 
 const FILE: FileId = FileIdSchema.parse('00000000-0000-4000-8000-0000000000f1');
 const TEMPLATE_SHEET = SheetIdSchema.parse(
@@ -169,5 +173,85 @@ describe('templateVersionOf (template-update D2・D3)', () => {
         ],
       ]),
     ).toBe(TEMPLATE_VERSION.DELETED);
+  });
+});
+
+describe('appliedTemplateVersions (template-update D3)', () => {
+  const TARGET = SheetIdSchema.parse('00000000-0000-4000-8000-0000000000c1');
+
+  /** template graph を当てた Sheet を作り、その後に `edits` を足した歴史の、当てた template の版 */
+  function versionsAfter(...edits: Op[][]) {
+    const clock = new CausalClock(ACTOR);
+    const trunk: Batch[] = [];
+    const issue = (ops: Op[], sheetId?: SheetId) => {
+      const stamp = clock.issue();
+      trunk.push({
+        id: `b${stamp.seq}` as Batch['id'],
+        actor: ACTOR,
+        ...stamp,
+        timestamp: stamp.clock,
+        ops,
+        ...(sheetId && { sheetId }),
+      });
+    };
+    issue([
+      { kind: 'sheet.create', target: TEMPLATE_SHEET, name: 'T' },
+      {
+        kind: 'sheet.setProperty',
+        target: TEMPLATE_SHEET,
+        name: SHEET_KIND_PROPERTY,
+        value: TEMPLATE_SHEET_KIND,
+      },
+    ]);
+    issue(
+      [
+        { kind: 'node.add', target: CLAIM, content: '' },
+        { kind: 'node.setLabel', target: CLAIM, label: '主張' },
+      ],
+      TEMPLATE_SHEET,
+    );
+    const at = heldMaxima(trunk);
+    for (const ops of edits) issue(ops, TEMPLATE_SHEET);
+    const target = {
+      id: TARGET,
+      templateIds: ['builtin.toulmin' as never, { sheet: TEMPLATE_SHEET, at }],
+    };
+    return appliedTemplateVersions([target], trunk, FILE);
+  }
+  const relabel = (label: string): Op[] => [
+    { kind: 'node.setLabel', target: CLAIM, label },
+  ];
+
+  test('template graph の参照だけを数え、状態と先端の指紋を添える (作り込みの id は数えない)', () => {
+    const [only, ...rest] = versionsAfter();
+    expect(rest).toEqual([]);
+    expect(only).toMatchObject({
+      sheet: TARGET,
+      template: TEMPLATE_SHEET,
+      version: TEMPLATE_VERSION.CURRENT,
+      name: 'T',
+    });
+    expect(only?.tip).toMatch(/^[0-9a-f]{8}$/);
+  });
+
+  test('先端の指紋は、先端の種類が同じなら歴史によらず同じ、違えば違う', () => {
+    const tipOf = (...edits: Op[][]) => versionsAfter(...edits)[0]?.tip;
+    // 書き換えて戻したら、当てたときと同じ指紋 (状態も current)
+    expect(tipOf(relabel('結論'), relabel('主張'))).toBe(tipOf());
+    expect(versionsAfter(relabel('結論'), relabel('主張'))[0]?.version).toBe(
+      TEMPLATE_VERSION.CURRENT,
+    );
+    expect(tipOf(relabel('結論'))).not.toBe(tipOf());
+    expect(tipOf(relabel('結論'))).not.toBe(tipOf(relabel('根拠')));
+  });
+
+  test('消された template graph は deleted で、指紋は無い', () => {
+    const [only] = versionsAfter([
+      { kind: 'sheet.remove', target: TEMPLATE_SHEET },
+    ]);
+    expect(only?.version).toBe(TEMPLATE_VERSION.DELETED);
+    expect(only?.tip).toBeUndefined();
+    // 消された後も、当てた版の名前を出せる
+    expect(only?.name).toBe('T');
   });
 });

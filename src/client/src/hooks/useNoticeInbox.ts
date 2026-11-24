@@ -489,7 +489,23 @@ export function useNoticeInbox(did: Did | null) {
     return dismissalsRef.current.forgetFile(fileId);
   }, []);
 
+  /**
+   * 既読を引く・書く (template の版の通知が使う、template-update D3)。ログインで置き場が替わったら
+   * 関数も替わるので、使う側は求め直す
+   */
+  const dismissedIn = useCallback(
+    (fileId: FileId) => dismissals.dismissedIn(fileId),
+    [dismissals],
+  );
+  const dismissKeys = useCallback(
+    (fileId: FileId, keys: readonly NoticeKey[]) =>
+      dismissals.dismiss(fileId, keys),
+    [dismissals],
+  );
+
   return {
+    dismissedIn,
+    dismissKeys,
     forgetFile,
     noteBackgroundConflicts,
     noteBackgroundForks,
