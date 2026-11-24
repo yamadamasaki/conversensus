@@ -1360,6 +1360,82 @@ describe('App 結合: 当てた template の新しい版 (template-update D2・D
     );
   });
 
+  test('D4: template graph で種類の名前を変えて最新の版にすると、既にある node の表示も新しい名前になる', async () => {
+    // 訳を持たない template graph で見る。Toulmin の種は言語ごとの訳 (`label:ja`) を持ち、日本語では訳が勝つ
+    await world.activate('solo');
+    render(<App />);
+    const user = userEvent.setup();
+    await createFile(user, FILE_NAME);
+    await user.click(
+      screen.getByRole('button', { name: 'template 付きで Sheet を追加' }),
+    );
+    await user.click(screen.getByRole('button', { name: '+ template graph' }));
+    await screen.findByTitle('template graph', {}, WIRING_TIMEOUT);
+    const store = world.localStore();
+    const fileId = store.listFiles()[0]?.id as FileId;
+    const file = () => projectFile(store.getBatches(fileId), fileId);
+    const templateSheet = file().sheets.find(
+      (s) => sheetKindOf(s) === TEMPLATE_SHEET_KIND,
+    );
+    if (!templateSheet) throw new Error('template graph が正典に無い');
+    const claim = crypto.randomUUID() as NodeId;
+    let seq = 0;
+    const writeElsewhere = (ops: Op[]) => {
+      seq += 1;
+      store.appendBatches(fileId, [
+        {
+          id: crypto.randomUUID() as Batch['id'],
+          actor: `${LOCAL_TEST_ACTOR}#other-tab`,
+          clock: 1000 + seq,
+          seq,
+          deps: {},
+          timestamp: Date.now(),
+          sheetId: templateSheet.id,
+          ops,
+        },
+      ]);
+      const channel = new BroadcastChannel(LOCAL_CHANGES_CHANNEL);
+      channel.postMessage({ fileId });
+      channel.close();
+    };
+    writeElsewhere([
+      { kind: 'node.add', target: claim, content: '' },
+      { kind: 'node.setLabel', target: claim, label: '主張' },
+    ]);
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+
+    // 当てて Sheet を足し、「主張」の node を作る
+    await user.click(screen.getByText('+ Sheet を追加'));
+    const dialog = await screen.findByRole('dialog', { name: 'Sheet を追加' });
+    await user.click(within(dialog).getByRole('checkbox'));
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Sheet を追加' }),
+    );
+    await waitFor(() => expect(renderedNodeCount()).toBe(0), WIRING_TIMEOUT);
+    await addNode(user, '主張');
+    const chip = () =>
+      document.querySelector('.react-flow__node [data-node-label]')
+        ?.textContent;
+    await waitFor(() => expect(chip()).toBe('主張'), WIRING_TIMEOUT);
+
+    // template graph で名前を変える。最新の版にするまでは、当てた版の名前のまま
+    writeElsewhere([{ kind: 'node.setLabel', target: claim, label: '結論' }]);
+    const region = await screen.findByRole(
+      'status',
+      { name: 'template の版' },
+      WIRING_TIMEOUT,
+    );
+    expect(chip()).toBe('主張');
+    await user.click(
+      within(region).getByRole('button', { name: '最新の版にする' }),
+    );
+    await settle();
+    await waitFor(() => expect(chip()).toBe('結論'), WIRING_TIMEOUT);
+    // 変わるのは表示だけ。op-log の label は作ったときの名前のまま
+    const applied = file().sheets.find((s) => s.templateIds?.length);
+    expect(applied?.nodes[0]?.label).toBe('主張');
+  });
+
   test('D3: template graph を削除すると、削除を知らせる (pull の入口は無い)', async () => {
     const { toulmin, appliedName, writeElsewhere } = await setupApplied();
     writeElsewhere([{ kind: 'sheet.remove', target: toulmin.id }]);

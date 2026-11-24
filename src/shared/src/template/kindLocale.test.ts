@@ -52,7 +52,7 @@ const kindOf = (templateId: string, kind: string) => ({
 });
 
 describe('displayKindLabel (#356): 性質', () => {
-  test('label が種類の名前かその訳なら見る人の言語の訳 (無ければ template graph の名前)、それ以外は label のまま', () => {
+  test('種類を持てば、保存された label によらず、見る人の言語の訳 (無ければ template graph の名前) になる (D4)', () => {
     fc.assert(
       fc.property(
         arbTranslations,
@@ -60,10 +60,6 @@ describe('displayKindLabel (#356): 性質', () => {
         fc.constantFrom(...LOCALES),
         (labels, label, locale) => {
           const template = templateOf(T, labels);
-          const names = ['主張', ...Object.values(labels)];
-          const expected = names.includes(label)
-            ? (labels[locale] ?? '主張')
-            : label;
           expect(
             displayKindLabel(
               [template],
@@ -72,7 +68,7 @@ describe('displayKindLabel (#356): 性質', () => {
               label,
               locale,
             ),
-          ).toBe(expected);
+          ).toBe(labels[locale] ?? '主張');
         },
       ),
     );
@@ -93,6 +89,14 @@ describe('displayKindLabel (#356): 性質', () => {
 
 describe('displayKindLabel (#356): 例', () => {
   const template = templateOf(T, { en: 'Claim' }, { en: 'supports' });
+
+  test('template graph で種類の名前を変えたら、作ったときの label のままの要素も新しい名前で出る (D4)', () => {
+    const renamed = templateOf(T, {});
+    renamed.nodeKinds = renamed.nodeKinds.map((k) => ({ ...k, label: '結論' }));
+    expect(
+      displayKindLabel([renamed], 'node', kindOf(T, 'claim'), '主張', 'ja'),
+    ).toBe('結論');
+  });
 
   test('種類を持たない要素・知らない種類の要素は label のまま', () => {
     expect(displayKindLabel([template], 'node', {}, '主張', 'en')).toBe('主張');
