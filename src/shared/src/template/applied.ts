@@ -60,8 +60,9 @@ export function appliedTemplateSheetOf(
  *
  * - 並びは「作るときのもの (その順) → 後から当てたもの (template graph の sheet の id の順)」。
  *   プロパティの並びは畳み込みの順に依るので、id で並べて誰の手元でも同じ順にする
- * - 同じ template graph が両方にあれば**作るときのもの**を採る。後から当てる入口には既に当たっている
- *   ものを出さないので、同時に当てたときだけ起きうる
+ * - 同じ template graph が両方にあれば、**プロパティの切断面**を採り、並びは作るときの位置に置く
+ *   (計画 template-update.md K3・D1)。版を進める (pull) ときは、作るときに当てたものでもプロパティに
+ *   書くからである。`sheet.create` は書き換えられない
  * - 読めない値 (形の違う切断面) は黙って落とす。相手の新しい書き方でも sheet を開けるべきだから
  *   (`sheetKindOf` と同じ)
  */
@@ -69,20 +70,30 @@ export function appliedTemplateRefs(
   sheet: Pick<Sheet, 'templateIds' | 'properties'>,
 ): TemplateRef[] {
   const created = sheet.templateIds ?? [];
-  const taken = new Set(
-    created.flatMap((ref) => (typeof ref === 'string' ? [] : [ref.sheet])),
-  );
-  const later = Object.entries(sheet.properties ?? {})
-    .flatMap(([name, value]): TemplateSheetRef[] => {
-      const templateSheet = appliedTemplateSheetOf(name);
-      if (templateSheet === undefined || taken.has(templateSheet)) return [];
-      const at = VersionVectorSchema.safeParse(
-        (value as { at?: unknown } | null)?.at,
-      );
-      return at.success ? [{ sheet: templateSheet, at: at.data }] : [];
-    })
+  const fromProperties = new Map<SheetId, VersionVector>();
+  for (const [name, value] of Object.entries(sheet.properties ?? {})) {
+    const templateSheet = appliedTemplateSheetOf(name);
+    if (templateSheet === undefined) continue;
+    const at = VersionVectorSchema.safeParse(
+      (value as { at?: unknown } | null)?.at,
+    );
+    if (at.success) fromProperties.set(templateSheet, at.data);
+  }
+  if (fromProperties.size === 0) return created;
+  const taken = new Set<SheetId>();
+  const pulled = created.map((ref): TemplateRef => {
+    if (typeof ref === 'string') return ref;
+    taken.add(ref.sheet);
+    const at = fromProperties.get(ref.sheet);
+    return at === undefined ? ref : { sheet: ref.sheet, at };
+  });
+  const later = [...fromProperties]
+    .filter(([templateSheet]) => !taken.has(templateSheet))
+    .map(
+      ([templateSheet, at]): TemplateSheetRef => ({ sheet: templateSheet, at }),
+    )
     .sort((a, b) => (a.sheet < b.sheet ? -1 : a.sheet > b.sheet ? 1 : 0));
-  return later.length === 0 ? created : [...created, ...later];
+  return [...pulled, ...later];
 }
 
 /** sheet に当たっている template graph の sheet の id (後から当てる候補から除くため) */
