@@ -36,8 +36,8 @@ import {
 } from './requestEvents';
 import {
   ANSWER_TARGET_LINKED_NODE,
-  ANSWER_TARGET_PROPERTY,
   addresseeOf,
+  answerTargetOf,
   isRequestNode,
   type RequestStatus,
   requestStatus,
@@ -120,11 +120,9 @@ const SEND_PARAMS: NodeAction['params'] = [
 
 /** dialog の初めの値: 今の宛先と答えの置き場所 (送り直すときは前に送った値) */
 function sendInitial(ctx: NodeActionContext): ActionArgs {
-  const target = ctx.node.properties?.[ANSWER_TARGET_PROPERTY];
   return {
     [ADDRESSEE_ARG]: addresseeOf(ctx.node) ?? [],
-    [ANSWER_TARGET_ARG]:
-      typeof target === 'string' ? target : ANSWER_TARGET_LINKED_NODE,
+    [ANSWER_TARGET_ARG]: answerTargetOf(ctx.node) ?? ANSWER_TARGET_LINKED_NODE,
   };
 }
 

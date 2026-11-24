@@ -319,3 +319,157 @@ describe('追加できる名前の候補 (EdgeKind.properties の最初の消費
     ).toEqual([]);
   });
 });
+
+describe('template graph の行 (template-update K9・Q4)', () => {
+  const SCHEMA = 'app.conversensus.propertySchema.';
+
+  it('宣言は行にせず、宣言する property の行に添える。宣言の無い property も editable の既定で添える', () => {
+    const rows = propertyRows(
+      {
+        期限: '2026-12-01',
+        担当: '',
+        [`${SCHEMA}期限`]: { type: 'date', editable: false },
+      },
+      true,
+      {},
+      true,
+    );
+    // 並びは名前順 (`byName`)。宣言の property は行にならない
+    expect(rows.map((r) => r.name)).toEqual(
+      ['担当', '期限'].sort((a, b) => a.localeCompare(b, 'ja')),
+    );
+    expect(rows.find((r) => r.name === '期限')?.schema).toEqual({
+      type: 'date',
+      editable: false,
+    });
+    expect(rows.find((r) => r.name === '担当')?.schema).toEqual({
+      type: '',
+      editable: true,
+    });
+  });
+
+  it('宣言だけで既定値の無い property も行にする (値は undefined)', () => {
+    const rows = propertyRows(
+      { [`${SCHEMA}優先度`]: { type: "'高' | '低'" } },
+      false,
+      {},
+      true,
+    );
+    expect(rows).toEqual([
+      {
+        name: '優先度',
+        value: undefined,
+        type: 'string',
+        schema: { type: "'高' | '低'", editable: true },
+      },
+    ]);
+  });
+
+  it('読めない型には理由を添える', () => {
+    const [row] = propertyRows(
+      { x: '', [`${SCHEMA}x`]: { type: 'strin' } },
+      false,
+      {},
+      true,
+    );
+    expect(row?.schema?.typeError).toBeDefined();
+  });
+
+  it('言語ごとの名前・説明 (#356) と system には宣言を添えない', () => {
+    const rows = propertyRows(
+      { 'label:en': 'Claim', 'app.conversensus.image': { cid: 'x' } },
+      true,
+      {},
+      true,
+    );
+    expect(rows.every((r) => r.schema === undefined)).toBe(true);
+  });
+
+  it('template graph でなければ宣言は system の行のまま (今までどおり)', () => {
+    const rows = propertyRows({ [`${SCHEMA}x`]: { type: 'number' } }, true);
+    expect(rows).toEqual([
+      {
+        name: `${SCHEMA}x`,
+        value: { type: 'number' },
+        type: 'object',
+        readOnly: 'system',
+      },
+    ]);
+  });
+});
+
+describe('template が配った property の名前 (template-update K7)', () => {
+  it('人が読める名前を行に添える。添えない行は今までどおり', () => {
+    const rows = propertyRows(
+      { 'template.x.期限': '2026-12-01', メモ: '' },
+      false,
+      {},
+      false,
+      { 'template.x.期限': { template: 'Toulmin', name: '期限' } },
+    );
+    expect(
+      rows.find((r) => r.name === 'template.x.期限')?.templateLabel,
+    ).toEqual({ template: 'Toulmin', name: '期限' });
+    expect(rows.find((r) => r.name === 'メモ')?.templateLabel).toBeUndefined();
+  });
+});
+
+describe('読むときの姿 (template-update K8・K9・K12)', () => {
+  const P = 'template.x.';
+
+  it('値の無い property は既定値を補った行にし、editable: false は template の値で編集させない', () => {
+    const rows = propertyRows(
+      { [`${P}owner`]: 'bob' },
+      false,
+      {},
+      false,
+      { [`${P}due`]: { template: 'T', name: 'due' } },
+      {
+        [`${P}due`]: { value: '2026-12-01', source: 'default' },
+        [`${P}owner`]: { value: 'alice', source: 'fixed' },
+      },
+    );
+    expect(rows.find((r) => r.name === `${P}due`)).toMatchObject({
+      value: '2026-12-01',
+      origin: 'default',
+      templateLabel: { template: 'T', name: 'due' },
+    });
+    expect(rows.find((r) => r.name === `${P}owner`)).toMatchObject({
+      value: 'alice',
+      origin: 'fixed',
+      readOnly: 'templateFixed',
+    });
+  });
+
+  it('型に合わない値・欠けた必須の値に印を付け、合う値には付けない', () => {
+    const rows = propertyRows(
+      { [`${P}n`]: 'three' },
+      false,
+      {},
+      false,
+      {},
+      {
+        [`${P}n`]: {
+          value: 'three',
+          source: 'own',
+          check: 'mismatch',
+          type: 'number',
+        },
+        [`${P}m`]: {
+          value: undefined,
+          source: 'default',
+          check: 'missing',
+          type: 'date',
+        },
+        [`${P}k`]: { value: 3, source: 'default', check: 'ok', type: 'number' },
+      },
+    );
+    expect(rows.find((r) => r.name === `${P}n`)).toMatchObject({
+      check: 'mismatch',
+      declaredType: 'number',
+      value: 'three',
+    });
+    expect(rows.find((r) => r.name === `${P}m`)?.check).toBe('missing');
+    expect(rows.find((r) => r.name === `${P}k`)?.check).toBeUndefined();
+  });
+});

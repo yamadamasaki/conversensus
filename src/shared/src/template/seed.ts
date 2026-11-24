@@ -4,7 +4,8 @@
  * 種 (`CORE_SEEDS` と module の種) を File に複製するときに使う。`templateFromSheet` の逆向きで、
  * **往復すると同じ種類に戻る** (性質テストで固める):
  *
- * - node の種類 → label = 種類名、本文 = 説明、property = 既定値と言語ごとの名前・説明 (#356) の node
+ * - node の種類 → label = 種類名、本文 = 説明、見た目 = 種類の見た目 (template-update K11)、
+ *   property = 既定値と言語ごとの名前・説明 (#356) と型・editable の宣言 (template-update K9) の node
  * - edge の種類 → 端の種類の node どうしを繋ぐ edge (label = 種類名、property = 既定値と言語ごとの名前)。端が複数なら
  *   組ごとに 1 本。端が「任意」なら、label の無い node (「任意の node」) を 1 つ置いてそこへ繋ぐ
  *
@@ -25,6 +26,8 @@ import {
   KIND_LABEL_PROPERTY_PREFIX,
   translationProperties,
 } from './kindLocale';
+import { writtenPropertyNameOf } from './propertyName';
+import { propertySchemaProperties } from './propertySchema';
 import { ANY_NODE_KIND, type Template } from './types';
 
 export type TemplateGraphContent = {
@@ -52,6 +55,14 @@ export function templateGraphOf(
   newId: () => string,
   placement: KindPlacement = {},
 ): TemplateGraphContent {
+  // 適用先での名前 (`${templateId}.期限`) を、template graph に書く名前 (`期限`) に戻す (K7 の逆)
+  const written = <T>(record: Record<string, T>): Record<string, T> =>
+    Object.fromEntries(
+      Object.entries(record).map(([name, value]) => [
+        writtenPropertyNameOf(template.id, name),
+        value,
+      ]),
+    );
   const kindOfNode = new Map<string, string>();
   const nodes: GraphNode[] = [];
   const idOfKind = new Map<string, NodeId>();
@@ -60,17 +71,19 @@ export function templateGraphOf(
     idOfKind.set(kind.id, id);
     kindOfNode.set(id, kind.id);
     const properties = {
-      ...kind.defaults,
+      ...written(kind.defaults),
       ...translationProperties(kind.labels, KIND_LABEL_PROPERTY_PREFIX),
       ...translationProperties(
         kind.descriptions,
         KIND_DESCRIPTION_PROPERTY_PREFIX,
       ),
+      ...propertySchemaProperties(written(kind.schema)),
     };
     nodes.push({
       id,
       content: kind.description ?? '',
       label: kind.label,
+      ...(kind.nodeType && { nodeType: kind.nodeType }),
       ...(Object.keys(properties).length > 0 && { properties }),
     });
   }
@@ -89,8 +102,9 @@ export function templateGraphOf(
   const edges: GraphEdge[] = [];
   for (const kind of template.edgeKinds) {
     const properties = {
-      ...kind.defaults,
+      ...written(kind.defaults),
       ...translationProperties(kind.labels, KIND_LABEL_PROPERTY_PREFIX),
+      ...propertySchemaProperties(written(kind.schema)),
     };
     for (const from of kind.from) {
       for (const to of kind.to) {

@@ -340,6 +340,82 @@ describe('encodeFile', () => {
     expect(text).toContain('# 種別: "主張" (template "toulmin")');
   });
 
+  test('見た目を持つ種類は、種別の一覧に見た目を添える (template-update K11)', () => {
+    const withGroup = TemplateSchema.parse({
+      ...toulmin,
+      nodeKinds: [
+        ...toulmin.nodeKinds,
+        { id: 'kind-discussion', label: '議論', nodeType: 'group' },
+      ],
+    });
+    expect(encodeFile(example, () => [withGroup])).toContain(
+      '"議論"=kind-discussion (group)',
+    );
+  });
+
+  test('template が配った property は、template の名前と書いた名前を注釈する (template-update K7)', () => {
+    const withProperty = {
+      ...example,
+      sheets: example.sheets.map((sheet) => ({
+        ...sheet,
+        nodes: sheet.nodes.map((n) =>
+          n.id === CLAIM
+            ? {
+                ...n,
+                properties: { ...n.properties, [`${TEMPLATE_ID}.期限`]: '' },
+              }
+            : n,
+        ),
+      })),
+    } as GraphFile;
+    expect(encodeFile(withProperty, () => [toulmin])).toContain(
+      '# template "toulmin" の property "期限"',
+    );
+  });
+
+  test('補った既定値・template が決めている値・型に合わない値を注釈で言う (prop の行にはしない、T7)', () => {
+    const typed = TemplateSchema.parse({
+      ...toulmin,
+      nodeKinds: toulmin.nodeKinds.map((k) =>
+        k.id === KIND_CLAIM
+          ? {
+              ...k,
+              defaults: {
+                [`${TEMPLATE_ID}.due`]: '2026-12-01',
+                [`${TEMPLATE_ID}.owner`]: 'alice',
+              },
+              schema: {
+                [`${TEMPLATE_ID}.owner`]: { editable: false },
+                [`${TEMPLATE_ID}.n`]: { type: 'number?', editable: true },
+              },
+            }
+          : k,
+      ),
+    });
+    const withN = {
+      ...example,
+      sheets: example.sheets.map((sheet) => ({
+        ...sheet,
+        nodes: sheet.nodes.map((n) =>
+          n.id === CLAIM
+            ? {
+                ...n,
+                properties: { ...n.properties, [`${TEMPLATE_ID}.n`]: 'x' },
+              }
+            : n,
+        ),
+      })),
+    } as GraphFile;
+    const text = encodeFile(withN, () => [typed]);
+    expect(text).toContain('の property "due"');
+    expect(text).toContain('は既定値: "2026-12-01"');
+    expect(text).toContain(
+      'は template が値を決めている (変えられない): "alice"',
+    );
+    expect(text).toContain('の値は型 number? に合わない');
+    expect(text).not.toContain(`prop "${TEMPLATE_ID}.due"`);
+  });
+
   test('template を引けない種別プロパティは、そうと注釈する', () => {
     expect(encodeFile(example)).toContain('# 種別 (template を引けない)');
   });

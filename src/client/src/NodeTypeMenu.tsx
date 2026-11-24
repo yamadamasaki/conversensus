@@ -56,16 +56,24 @@ const APPEARANCES = [
   'image',
 ] as const satisfies readonly NodeTypeOption[];
 
+/** 見た目の下に並べる種類の字下げ。どの見た目の種類かを、見出しを足さずに位置で示す */
+const KIND_ITEM: React.CSSProperties = {
+  ...ITEM,
+  paddingLeft: 30,
+};
+
+/** 種類の見た目 (無ければ markdown。`NodeKind.nodeType` の約束) */
+function appearanceOf(ref: NodeKindRef): NodeTypeOption {
+  return ref.kind.nodeType ?? 'markdown';
+}
+
 /**
- * ノード生成メニュー。**2 段**にする (設計 D3)。
+ * ノード生成メニュー。**見た目を選んでから、その見た目の種類を選ぶ**形にする (#412、template-update K11)。
  *
- * 上段の「見た目」(markdown / グループ / 画像) と下段の「種別」(主張 / データ / …) は
- * **直交する 2 つの軸**である。同じ「種類」という語が 2 つの意味を持っていたので、
- * 画面の文言を分けてある。
- *
- * 見た目は必ず決まるが種別は決まらなくてよいので、**上段は即座に作り、
- * 下段は上段の選択を伴う**という非対称な形にはしない — 下段を選ぶときも
- * 見た目は markdown で確定する (種別を持つのは意味のあるノードだけである)。
+ * 「見た目」(markdown / グループ / 画像) と「種別」(主張 / データ / …) は直交する 2 つの軸だが、
+ * 種類は見た目を 1 つ持つ (group の種類は group node になる、#406)。そこで各見た目のすぐ下に、
+ * その見た目の種類を字下げして並べる。見た目だけを選べば種類を持たない node、種類を選べば
+ * その見た目の node ができる。1 回の選択で済み、見た目の合わない種類は選べない。
  *
  * **ここが種別を決める唯一の場所である** (設計 D3, 2026-09-12)。toulmin node の
  * 種別とラベルは作成時に決まり、その後変更できない。
@@ -106,33 +114,26 @@ export function NodeTypeMenu({
       )}
       <div style={HEADING}>{t.graph.nodeAppearance}</div>
       {APPEARANCES.map((type) => (
-        <button
-          key={type}
-          type="button"
-          onClick={() => onSelect(type)}
-          style={ITEM}
-        >
-          {t.graph.appearances[type]}
-        </button>
+        <div key={type}>
+          <button type="button" onClick={() => onSelect(type)} style={ITEM}>
+            {t.graph.appearances[type]}
+          </button>
+          {/* template が当たっていないシートでは種類が並ばない (設計 D3) */}
+          {nodeKinds
+            .filter((ref) => appearanceOf(ref) === type)
+            .map((ref) => (
+              <button
+                key={`${ref.templateId}/${ref.kind.id}`}
+                type="button"
+                title={kindDescriptionIn(ref.kind, locale)}
+                onClick={() => onSelect(type, ref)}
+                style={KIND_ITEM}
+              >
+                {kindLabelIn(ref.kind, locale)}
+              </button>
+            ))}
+        </div>
       ))}
-
-      {/* template が当たっていないシートでは段そのものが無い (設計 D3) */}
-      {nodeKinds.length > 0 && (
-        <>
-          <div style={{ ...HEADING, marginTop: 4 }}>{t.graph.nodeKind}</div>
-          {nodeKinds.map((ref) => (
-            <button
-              key={`${ref.templateId}/${ref.kind.id}`}
-              type="button"
-              title={kindDescriptionIn(ref.kind, locale)}
-              onClick={() => onSelect('markdown', ref)}
-              style={ITEM}
-            >
-              {kindLabelIn(ref.kind, locale)}
-            </button>
-          ))}
-        </>
-      )}
     </div>
   );
 }

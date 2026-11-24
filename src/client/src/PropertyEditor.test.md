@@ -93,3 +93,45 @@
   結線の側で、reducer は Q0 で塞いだ
 - **どの要素を対象にするか**。選択の観測は結線の仕事
 - **見た目** (位置・色・寸法)。UI/UX の見直しは step 3
+
+## template graph の行: 型と editable の宣言 (template-update K9・Q4)
+
+### 何を・なぜ
+
+template graph の要素の行 (`row.schema` を持つ行) には、型の入力欄と「適用先で編集できる」のチェックを出す。
+値の欄は適用先の既定値なので、そう呼ぶ (「既定値なし」の placeholder)。
+
+**行を消すときは値と宣言を 1 つの変更 (`onChange`) で消す。**`onRemove` と宣言の削除を 2 回に分けると、
+呼び出し側は 2 回目を 1 回目の前の properties から組むので、1 回目を打ち消しうる (`applyPropertyChanges`)。
+
+### どのように
+
+- 型の入力欄・editable のチェックを出し、値の欄は「既定値」と呼ぶ
+- 型を書いて確定すると、宣言を 1 つの変更で書く
+- editable を外すと宣言に書く。型を空にして editable なら、宣言ごと消す (`undefined`)
+- 行を消すと、値と宣言を 1 つの変更で消す (`onRemove` は呼ばない)
+- 読めない型には理由を出す (読めない型は適用先で効かないので、黙っていると「型を付けたのに効かない」になる)
+- `onChange` が無ければ宣言の欄を出さない (template graph でない画面と同じ)
+
+## template が配った property の名前 (template-update K7)
+
+`templateLabel` を持つ行は、prefix を外した名前 (`期限`) に template の名前を添えて出す。名前そのもの
+(`template.<id>.期限`) は hover (`title`) で見られる。値の欄の名前も読める名前にする (読み上げで uuid を読ませない)。
+
+## 読むときの姿 (template-update K8・K9・K12)
+
+- 既定値を補っただけの行は、欄を空にして既定値を placeholder で薄く出す (打てば要素の値になる)。消すボタンは
+  出さない (消す値が無い)
+- **number を宣言した property は、打った文字列を数にして書く** (`valueFromInput`)。宣言の無い property は
+  数のような文字列も文字列のまま (値から型を推論しない、2026-09-20 の判断)
+- 列挙を宣言した property は選択肢 (`select`) から選ばせ、選べば書く
+- 型に合わない値・欠けた必須の値に印を出す (`role="status"`)
+- template が値を決めている行 (editable: false) は編集させず、理由を言う
+
+## template graph で値を空にすると「既定値なし」(template-update K9)
+
+template graph の値は適用先の既定値である。空文字を既定値にすると、`date?` のような型を宣言したとき適用先で
+「型に合わない」になる (空文字は日付ではない)。そこで template graph では空 = 既定値なしとする:
+
+- 値を空にして足すと、既定値の無い宣言 (`{ editable: true }`) として足す。行は宣言から出る
+- 既定値の欄を空にすると、値を消して宣言は残す (行が消えないように)

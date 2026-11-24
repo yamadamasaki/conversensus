@@ -39,6 +39,7 @@ const CLAIM = 'kind-claim';
 const GROUND = 'kind-ground';
 const SUPPORTS = 'kind-supports';
 const REBUTS = 'kind-rebuts';
+const DISCUSSION = 'kind-discussion';
 
 /** 主張・根拠と、根拠 → 主張の edge 種別 (`extraEdge` で 2 つ目を足すと候補が複数になる) */
 function toulmin(extraEdge = false): Template {
@@ -48,6 +49,7 @@ function toulmin(extraEdge = false): Template {
     nodeKinds: [
       { id: CLAIM, label: '主張', defaults: { strength: 'normal' } },
       { id: GROUND, label: '根拠' },
+      { id: DISCUSSION, label: '議論', nodeType: 'group' },
     ],
     edgeKinds: [
       { id: SUPPORTS, label: '支える', from: [GROUND], to: [CLAIM] },
@@ -205,6 +207,80 @@ describe('種別', () => {
     });
   });
 
+  test('見た目を持つ種類 (group) で足すと、その見た目の node になる (#406)', () => {
+    const { event } = addNode(ctx(), { content: '', kind: DISCUSSION });
+    expect(graphEventToOps(event)[0]).toMatchObject({
+      kind: 'node.add',
+      label: '議論',
+      nodeType: 'group',
+    });
+  });
+
+  test('template の名前空間の既定値は写さず、名前空間の外の既定値は写す (template-update K12)', () => {
+    const t = TemplateSchema.parse({
+      ...toulmin(),
+      nodeKinds: [
+        ...toulmin().nodeKinds.filter((k) => k.id !== CLAIM),
+        {
+          id: CLAIM,
+          label: '主張',
+          defaults: {
+            [`${TEMPLATE_ID}.owner`]: 'alice',
+            'app.conversensus.request.addressee': [],
+          },
+        },
+      ],
+    });
+    const { event } = addNode(
+      { ...ctx(), templates: [t] },
+      {
+        content: 'x',
+        kind: CLAIM,
+      },
+    );
+    expect(graphEventToOps(event)[0]).toMatchObject({
+      properties: {
+        'app.conversensus.request.addressee': [],
+        [KIND_PROPERTY]: CLAIM,
+      },
+    });
+    expect(
+      (graphEventToOps(event)[0] as { properties: Record<string, unknown> })
+        .properties,
+    ).not.toHaveProperty(`${TEMPLATE_ID}.owner`);
+  });
+
+  test('template が値を決めている property (editable: false) は、足すときも書き換えるときも断る (T8)', () => {
+    const fixed = `${TEMPLATE_ID}.owner`;
+    const t = TemplateSchema.parse({
+      ...toulmin(),
+      nodeKinds: toulmin().nodeKinds.map((k) =>
+        k.id === CLAIM
+          ? {
+              ...k,
+              defaults: { [fixed]: 'alice' },
+              schema: { [fixed]: { editable: false } },
+            }
+          : k,
+      ),
+    });
+    const c: ToolContext = { ...ctx(), templates: [t] };
+    expect(() =>
+      setNodeProperty(c, { nodeId: CLAIM_NODE, name: fixed, value: 'bob' }),
+    ).toThrow(/editable: false/);
+    expect(() =>
+      addNode(c, {
+        content: 'x',
+        kind: CLAIM,
+        properties: { [fixed]: 'bob' },
+      }),
+    ).toThrow(/editable: false/);
+    // 種類を持たない node なら、同じ名前でも書ける (template の制約の外)
+    expect(() =>
+      setNodeProperty(c, { nodeId: PLAIN_NODE, name: fixed, value: 'bob' }),
+    ).not.toThrow();
+  });
+
   test('知らない種別は断る', () => {
     expect(() =>
       addNode(ctx(), { content: 'x', kind: 'kind-unknown' }),
@@ -253,6 +329,32 @@ describe('種別', () => {
       kind: REBUTS,
     });
     expect(graphEventToOps(event)[0]).toMatchObject({ label: '反駁する' });
+  });
+
+  test('片端が「任意」の種類は自動で付かず、kind を渡さなければラベルなしで繋ぐ (template-update K15)', () => {
+    // 主張 → 任意の node の種類 (接地の慣習の external)
+    const withExternal = TemplateSchema.parse({
+      ...toulmin(),
+      edgeKinds: [
+        ...toulmin().edgeKinds,
+        { id: 'kind-external', label: 'external', from: [CLAIM], to: ['*'] },
+      ],
+    });
+    const c: ToolContext = { ...ctx(), templates: [withExternal] };
+    const plain = addEdge(c, { source: CLAIM_NODE, target: PLAIN_NODE });
+    expect(graphEventToOps(plain.event)[0]).toMatchObject({ kind: 'edge.add' });
+    expect(graphEventToOps(plain.event)[0]).not.toHaveProperty('label');
+    expect(graphEventToOps(plain.event)[0]).not.toHaveProperty('properties');
+    // 渡せば付く
+    const external = addEdge(c, {
+      source: CLAIM_NODE,
+      target: PLAIN_NODE,
+      kind: 'kind-external',
+    });
+    expect(graphEventToOps(external.event)[0]).toMatchObject({
+      label: 'external',
+      properties: { [KIND_PROPERTY]: 'kind-external' },
+    });
   });
 
   test('同じ template の要素どうしで候補が無ければ繋げない', () => {

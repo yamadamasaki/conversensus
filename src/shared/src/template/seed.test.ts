@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import fc from 'fast-check';
 import type { Sheet, SheetId } from '../schemas';
 import { templateFromSheet, templateIdOf } from './fromSheet';
+import { writtenPropertyNameOf } from './propertyName';
 import { CORE_SEEDS } from './registry';
 import { templateGraphOf } from './seed';
 import { TOULMIN_PLACEMENT, TOULMIN_TEMPLATE } from './toulmin';
@@ -27,6 +28,15 @@ function roundTrip(template: Template): Template {
  * (名前, 端の種類の名前, 既定値)。往復で id は変わるので、名前で比べる
  */
 function shape(t: Template) {
+  // 往復で template の id が変わり、既定値と宣言の名前は template の名前空間に入る (K7)。
+  // template graph に書く名前にそろえて比べる
+  const written = <T>(record: Record<string, T>) =>
+    Object.fromEntries(
+      Object.entries(record).map(([name, value]) => [
+        writtenPropertyNameOf(t.id, name),
+        value,
+      ]),
+    );
   const nameOf = (id: string) =>
     id === ANY_NODE_KIND
       ? '*'
@@ -39,7 +49,9 @@ function shape(t: Template) {
           k.description ?? '',
           k.labels ?? {},
           k.descriptions ?? {},
-          k.defaults,
+          k.nodeType ?? 'markdown',
+          written(k.defaults),
+          written(k.schema),
         ]),
       )
       .sort(),
@@ -52,7 +64,8 @@ function shape(t: Template) {
               k.labels ?? {},
               nameOf(f),
               nameOf(to),
-              k.defaults,
+              written(k.defaults),
+              written(k.schema),
             ]),
           ),
         ),
@@ -86,8 +99,31 @@ const arbTemplate: fc.Arbitrary<Template> = fc
       minLength: 4,
       maxLength: 4,
     }),
+    /** 種類ごとの見た目 (template-update K11)。markdown は値を持たない */
+    nodeTypes: fc.array(fc.constantFrom(undefined, 'group', 'image'), {
+      minLength: 4,
+      maxLength: 4,
+    }),
+    /**
+     * 種類ごとの宣言 (template-update K9)。何も宣言しない形 (型が無く editable) は template graph に
+     * 書かれないので引かない。既定値の無い宣言 (`期限`) も引く
+     */
+    schemas: fc.array(
+      fc.dictionary(
+        fc.constantFrom('weight', '期限'),
+        fc.oneof(
+          fc.record({
+            type: fc.constantFrom('number', "'高' | '低'", 'date?'),
+            editable: fc.boolean(),
+          }),
+          fc.constant({ editable: false }),
+        ),
+        { maxKeys: 2 },
+      ),
+      { minLength: 4, maxLength: 4 },
+    ),
   })
-  .map(({ kinds, edges, translated }) => {
+  .map(({ kinds, edges, translated, nodeTypes, schemas }) => {
     // 端の番号が種類の数以上なら「任意」にする (任意の端を引くため)
     const end = (i: number) => (i < kinds.length ? `k${i}` : ANY_NODE_KIND);
     return TemplateSchema.parse({
@@ -103,6 +139,8 @@ const arbTemplate: fc.Arbitrary<Template> = fc
         ...(translated[i] === 'both' && {
           descriptions: { en: `${label} (en)` },
         }),
+        ...(nodeTypes[i] && { nodeType: nodeTypes[i] }),
+        schema: schemas[i],
       })),
       // 両端とも任意の edge は種類にならない (template graph の説明書きと同じ) ので引かない
       edgeKinds: edges
@@ -118,13 +156,14 @@ const arbTemplate: fc.Arbitrary<Template> = fc
           ...(e.withDefault && {
             properties: ['weight'],
             defaults: { weight: 1 },
+            schema: { weight: { type: 'number', editable: e.translated } },
           }),
         })),
     });
   });
 
 describe('templateGraphOf: 性質', () => {
-  test('種 → template graph → 読み替え で、同じ種類に戻る (名前・説明・言語ごとの名前と説明・端・既定値)', () => {
+  test('種 → template graph → 読み替え で、同じ種類に戻る (名前・説明・言語ごとの名前と説明・見た目・端・既定値・宣言)', () => {
     fc.assert(
       fc.property(arbTemplate, (template) => {
         expect(shape(roundTrip(template))).toEqual(shape(template));

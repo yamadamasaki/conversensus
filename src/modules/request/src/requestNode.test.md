@@ -25,7 +25,10 @@ agent が答える、が起こる。値は op-log から来るので、形の違
   - 生成器: 回数は小さなプール (無し・1〜3・0・負・小数・文字列) から引く。広いと「答えの回数 =
     送った回数」に当たらず、回答ありの場合が試されない。edge の始点は依頼 node と別の node の 2 つ
 - **宛先**: 宛先に入っていれば宛てたもの、空 (不特定) なら誰にでも、応答を求める node でなければ誰にも
-- **名前空間**: 4 つのシステム・プロパティは依頼の module の名前空間 (`app.conversensus.request.`) にあり、
+- **答えの置き場所** (template-update Q3): 新名 (`app.conversensus.request.answerTarget`) を読み、無ければ旧名
+  (`answerTarget`) を読む。両方あれば新名が勝つ。文字列でなければ読まない。旧名だった頃の依頼の node を読むため
+  (prefix の無い名前は、template graph から当てると template の名前空間に入るので、module の名前に移した)
+- **名前空間**: 5 つのシステム・プロパティ (答えの置き場所を含む) は依頼の module の名前空間 (`app.conversensus.request.`) にあり、
   system として扱われる (property の欄・検索・`set_property` からは見えず変えられない)。module へ
   切り出す計画 (node-actions-request-module.md N0) で core の名前から移した
 - **`requestsInFile`**: 状態つきで並べ、**template graph の sheet は除く** (依頼の種類の node は既定値として

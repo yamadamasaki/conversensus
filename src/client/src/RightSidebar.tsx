@@ -14,7 +14,7 @@ import type { ReactNode } from 'react';
 import type { PropertyTarget } from './graph/editorControls';
 import { useMessages } from './i18n/messages';
 import { PropertyEditor } from './PropertyEditor';
-import { propertyRows } from './property/propertyRows';
+import { propertyRowsOf } from './property/propertyRows';
 import { useShowReadOnlyProperties } from './property/readOnlyToggle';
 
 /** 右サイドバーに出す pane */
@@ -25,6 +25,8 @@ const PANES: readonly RightSidebarPane[] = ['property', 'timeline'];
 type Props = {
   selection: PropertyTarget | undefined;
   onSetProperty: (name: string, value: unknown) => void;
+  /** プロパティをいくつか同時に変える (template graph の宣言、template-update K9) */
+  onSetProperties?: (changes: Readonly<Record<string, unknown>>) => void;
   readOnly: boolean;
   pane: RightSidebarPane;
   onPaneChange: (pane: RightSidebarPane) => void;
@@ -35,6 +37,7 @@ type Props = {
 export function RightSidebar({
   selection,
   onSetProperty,
+  onSetProperties,
   readOnly,
   pane,
   onPaneChange,
@@ -91,14 +94,12 @@ export function RightSidebar({
           placement="docked"
           label={t.rightSidebar.propertyRegion}
           title={selection.title}
-          rows={propertyRows(
-            selection.properties,
-            showReadOnly,
-            selection.kindLabels,
-          )}
+          rows={propertyRowsOf(selection, showReadOnly)}
+          templateGraph={selection.templateGraph}
           addable={selection.addable}
           onSet={onSetProperty}
           onRemove={(name) => onSetProperty(name, undefined)}
+          onChange={onSetProperties}
           readOnly={readOnly}
         />
       ) : (

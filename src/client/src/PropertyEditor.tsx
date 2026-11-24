@@ -28,9 +28,15 @@ import { ICON_SIZE_SM } from './ui/Button';
  * `ImageNode` と 2 か所に同じ約束が散る。
  */
 
+import {
+  parsePropertyType,
+  propertySchemaPropertyOf,
+  propertySchemaValueOf,
+  valueFromInput,
+} from '@conversensus/shared';
 import { useEffect, useRef, useState } from 'react';
 import { messages, useMessages } from './i18n/messages';
-import type { PropertyRow } from './property/propertyRows';
+import type { PropertyRow, RowSchema } from './property/propertyRows';
 import {
   setShowReadOnlyProperties,
   useShowReadOnlyProperties,
@@ -77,6 +83,11 @@ type Props = {
   /** プロパティ 1 つを消す */
   onRemove: (name: string) => void;
   /**
+   * プロパティをいくつか同時に (1 つの op で) 変える。値が undefined のキーは削除。template graph の行
+   * (`row.schema` を持つ行) の宣言を直すのに使う (template-update K9)。無ければ宣言の欄を出さない
+   */
+  onChange?: (changes: Readonly<Record<string, unknown>>) => void;
+  /**
    * 再参加した後、同期が済むまでは編集させない (step2 Phase 2 S6)。
    * **見るのは止めない** — 読むための操作は残す、という S6 の判断に揃える
    */
@@ -90,6 +101,11 @@ type Props = {
   placement?: 'floating' | 'docked';
   /** 領域の名前。同じ画面に 2 つ出るので、呼び分けられるようにする */
   label?: string;
+  /**
+   * template graph の要素の欄か (template-update K9)。そうなら値は適用先の既定値で、**空は「既定値なし」**
+   * (空文字を既定値にすると、型を宣言したときに「型に合わない」になる)
+   */
+  templateGraph?: boolean;
 };
 
 export function PropertyEditor({
@@ -98,10 +114,12 @@ export function PropertyEditor({
   addable,
   onSet,
   onRemove,
+  onChange,
   readOnly = false,
   onClose,
   placement = 'floating',
   label = 'property',
+  templateGraph = false,
 }: Props) {
   const t = useMessages();
   const showReadOnly = useShowReadOnlyProperties();
@@ -199,6 +217,7 @@ export function PropertyEditor({
               readOnly={readOnly}
               onSet={onSet}
               onRemove={onRemove}
+              onChange={onChange}
             />
           ))}
         </ul>
@@ -239,7 +258,12 @@ export function PropertyEditor({
               type="button"
               disabled={!canAdd}
               onClick={() => {
-                onSet(addName, newValue);
+                // template graph で値が空なら、既定値の無い宣言として足す (行は宣言から出る)
+                if (templateGraph && newValue === '' && onChange) {
+                  onChange({
+                    [propertySchemaPropertyOf(addName)]: { editable: true },
+                  });
+                } else onSet(addName, newValue);
                 setNewName('');
                 setNewValue('');
               }}
@@ -275,16 +299,25 @@ function PropertyField({
   readOnly,
   onSet,
   onRemove,
+  onChange,
 }: {
   row: PropertyRow;
   readOnly: boolean;
   onSet: (name: string, value: unknown) => void;
   onRemove: (name: string) => void;
+  onChange?: (changes: Readonly<Record<string, unknown>>) => void;
 }) {
   const t = useMessages();
-  const shown = displayValue(row.value);
+  // 既定値を補っただけの行 (template-update K12) は、欄を空にして既定値を薄く出す。打てば要素の値になる
+  const fromDefault = row.origin === 'default';
+  const shown = fromDefault ? '' : displayValue(row.value);
   // 種別は名前も値も id なので、template の名前と種類の名前で出す (#384)。id は hover で見られる
   const label = row.kindLabel;
+  const templated = row.templateLabel;
+  // 宣言した型 (適用先は `declaredType`、template graph は宣言の欄の型)。入力を型に従って読む (T7)
+  const typeText = row.declaredType ?? row.schema?.type;
+  const parsedType = typeText ? parsePropertyType(typeText) : undefined;
+  const declared = parsedType?.ok ? parsedType.decl.type : undefined;
   const [draft, setDraft] = useState(shown);
   const composingRef = useRef(false);
 
@@ -295,17 +328,37 @@ function PropertyField({
   }, [shown]);
 
   const locked = readOnly || row.readOnly !== undefined;
+  // template graph の行: 値は適用先の既定値で、型と editable を宣言できる (K9)
+  const schema = onChange ? row.schema : undefined;
+  // 宣言ごと消す。値と宣言を 1 つの op にする (2 回に分けると 2 回目が 1 回目を打ち消しうる)
+  const remove = () =>
+    schema && onChange
+      ? onChange({
+          [row.name]: undefined,
+          [propertySchemaPropertyOf(row.name)]: undefined,
+        })
+      : onRemove(row.name);
 
   const commit = () => {
     if (draft === shown) return; // 変わらないものは op-log に積まない (Phase 5 の判断)
-    // **値は文字列のまま保存する** (利用者判断 2026-09-20)。
+    // **型を宣言していなければ値は文字列のまま保存する** (利用者判断 2026-09-20)。
     //
     // 型を指定するのは**実装コードか template のような拡張**であって、入力された値
-    // ではない。custom のプロパティは node のインスタンスごとに値が違いうるので、
-    // その場の値から型を決めても**その型を使う場面が無い**。
-    // 入力から型を推論して寄せると、`3` と打っただけで数値になり、
-    // 文字列の `"3"` を入れる手段が無くなる (step2 に型を指定する口は無い)。
-    onSet(row.name, draft);
+    // ではない。入力から型を推論して寄せると、`3` と打っただけで数値になり、
+    // 文字列の `"3"` を入れる手段が無くなる。template が型を宣言していれば、その型に従って
+    // 読む (`valueFromInput`: number なら数に。読めなければ文字列のまま — 型に合わない印が付く)
+    // template graph で空にしたら「既定値なし」: 値を消し、宣言は残す (行が消えないように)
+    if (schema && onChange && draft.trim() === '') {
+      onChange({
+        [row.name]: undefined,
+        [propertySchemaPropertyOf(row.name)]: {
+          ...(schema.type !== '' && { type: schema.type }),
+          editable: schema.editable,
+        },
+      });
+      return;
+    }
+    onSet(row.name, valueFromInput(declared, draft));
   };
 
   return (
@@ -326,19 +379,39 @@ function PropertyField({
       >
         <span
           style={{ fontWeight: 600, wordBreak: 'break-all' }}
-          title={label ? row.name : undefined}
+          title={label || templated ? row.name : undefined}
         >
-          {label ? t.property.kindOf(label.template) : row.name}
+          {label
+            ? t.property.kindOf(label.template)
+            : templated
+              ? templated.name
+              : row.name}
+          {/* template が配った property は、prefix を外した名前に template の名前を添える (K7) */}
+          {!label && templated && (
+            <span
+              style={{
+                marginLeft: 6,
+                fontWeight: 400,
+                color: color.textMuted,
+                fontSize: font.caption,
+              }}
+            >
+              {templated.template}
+            </span>
+          )}
         </span>
-        <span
-          style={{
-            color: color.textMuted,
-            fontSize: font.caption,
-            flexShrink: 0,
-          }}
-        >
-          {typeLabel(row.type)}
-        </span>
+        {/* template graph の行は型を宣言の欄で見せる (値から読んだ「文字列」と並べると紛らわしい) */}
+        {!schema && (
+          <span
+            style={{
+              color: color.textMuted,
+              fontSize: font.caption,
+              flexShrink: 0,
+            }}
+          >
+            {typeLabel(row.type)}
+          </span>
+        )}
       </div>
 
       {locked ? (
@@ -350,38 +423,110 @@ function PropertyField({
         </div>
       ) : (
         <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
-          <input
-            aria-label={t.property.valueOf(row.name)}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onCompositionStart={() => {
-              composingRef.current = true;
-            }}
-            onCompositionEnd={() => {
-              composingRef.current = false;
-            }}
-            onBlur={commit}
-            onKeyDown={(e) => {
-              if (composingRef.current) return; // IME 変換中は無視
-              if (e.key === 'Enter') commit();
-              if (e.key === 'Escape') setDraft(shown);
-            }}
-            style={{
-              flex: 1,
-              minWidth: 0,
-              padding: '4px 6px',
-              fontSize: font.body,
-            }}
-          />
-          <button
-            type="button"
-            onClick={() => onRemove(row.name)}
-            aria-label={t.property.remove(row.name)}
-            className="cs-btn cs-btn--icon cs-btn--sm"
-          >
-            <Trash2 size={ICON_SIZE_SM} aria-hidden />
-          </button>
+          {declared?.kind === 'literals' ? (
+            // 列挙を宣言していれば、選択肢から選ばせる (選べば確定する)
+            <select
+              aria-label={
+                schema
+                  ? t.property.defaultValueOf(row.name)
+                  : t.property.valueOf(templated?.name ?? row.name)
+              }
+              value={
+                declared.values.includes(displayValue(row.value)) &&
+                !fromDefault
+                  ? displayValue(row.value)
+                  : ''
+              }
+              onChange={(e) =>
+                e.target.value === ''
+                  ? fromDefault || onRemove(row.name)
+                  : onSet(row.name, e.target.value)
+              }
+              style={{
+                flex: 1,
+                minWidth: 0,
+                padding: '4px 6px',
+                fontSize: font.body,
+              }}
+            >
+              <option value="">
+                {fromDefault ? displayValue(row.value) || '—' : '—'}
+              </option>
+              {declared.values.map((v) => (
+                <option key={v} value={v}>
+                  {v}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              aria-label={
+                schema
+                  ? t.property.defaultValueOf(row.name)
+                  : t.property.valueOf(templated?.name ?? row.name)
+              }
+              placeholder={
+                schema
+                  ? t.property.noDefault
+                  : fromDefault
+                    ? displayValue(row.value)
+                    : undefined
+              }
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onCompositionStart={() => {
+                composingRef.current = true;
+              }}
+              onCompositionEnd={() => {
+                composingRef.current = false;
+              }}
+              onBlur={commit}
+              onKeyDown={(e) => {
+                if (composingRef.current) return; // IME 変換中は無視
+                if (e.key === 'Enter') commit();
+                if (e.key === 'Escape') setDraft(shown);
+              }}
+              style={{
+                flex: 1,
+                minWidth: 0,
+                padding: '4px 6px',
+                fontSize: font.body,
+              }}
+            />
+          )}
+          {/* 既定値を補っただけの行には、消す値が無い */}
+          {!fromDefault && (
+            <button
+              type="button"
+              onClick={remove}
+              aria-label={t.property.remove(templated?.name ?? row.name)}
+              className="cs-btn cs-btn--icon cs-btn--sm"
+            >
+              <Trash2 size={ICON_SIZE_SM} aria-hidden />
+            </button>
+          )}
         </div>
+      )}
+
+      {/* 宣言した型に合わない値・欠けた必須の値 (K9)。値は書き換えず、印だけを付ける (K2) */}
+      {row.check !== undefined && (
+        <div
+          role="status"
+          style={{ color: color.warningText, fontSize: font.caption }}
+        >
+          {row.check === 'missing'
+            ? t.property.missingValue
+            : t.property.typeMismatch(row.declaredType ?? '')}
+        </div>
+      )}
+
+      {schema && onChange && (
+        <SchemaFields
+          name={row.name}
+          schema={schema}
+          readOnly={readOnly}
+          onChange={onChange}
+        />
       )}
 
       {/* **なぜ編集できないかを言う。**言わないと「壊れている」に見える */}
@@ -392,5 +537,104 @@ function PropertyField({
         </div>
       )}
     </li>
+  );
+}
+
+/**
+ * template graph の行の宣言の欄: 型の入力欄と editable のチェック (template-update K9・Q4)。
+ *
+ * 書くのは `app.conversensus.propertySchema.<名前>` の値 1 つ。何も宣言しない形 (型が空で editable) になれば
+ * その property を消す (`propertySchemaValueOf`)。型の文字列が読めなければ理由を出す — 読めない型は適用先で
+ * 効かない (型の無い property として扱う) ので、黙っていると「型を付けたのに効かない」になる
+ */
+function SchemaFields({
+  name,
+  schema,
+  readOnly,
+  onChange,
+}: {
+  name: string;
+  schema: RowSchema;
+  readOnly: boolean;
+  onChange: (changes: Readonly<Record<string, unknown>>) => void;
+}) {
+  const t = useMessages();
+  const [draft, setDraft] = useState(schema.type);
+  const composingRef = useRef(false);
+  useEffect(() => {
+    setDraft(schema.type);
+  }, [schema.type]);
+
+  const write = (type: string, editable: boolean) =>
+    onChange({
+      [propertySchemaPropertyOf(name)]: propertySchemaValueOf({
+        type,
+        editable,
+      }),
+    });
+  const commit = () => {
+    if (draft.trim() === schema.type) return;
+    write(draft, schema.editable);
+  };
+
+  return (
+    <div style={{ marginTop: 4 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <input
+          aria-label={t.property.typeOf(name)}
+          placeholder={t.property.typePlaceholder}
+          value={draft}
+          disabled={readOnly}
+          onChange={(e) => setDraft(e.target.value)}
+          onCompositionStart={() => {
+            composingRef.current = true;
+          }}
+          onCompositionEnd={() => {
+            composingRef.current = false;
+          }}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (composingRef.current) return; // IME 変換中は無視
+            if (e.key === 'Enter') commit();
+            if (e.key === 'Escape') setDraft(schema.type);
+          }}
+          style={{
+            flex: 1,
+            minWidth: 0,
+            padding: '2px 6px',
+            fontSize: font.caption,
+            fontFamily: 'monospace',
+          }}
+        />
+        <label
+          title={t.property.editableTitle}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4,
+            color: color.textMuted,
+            fontSize: font.caption,
+            whiteSpace: 'nowrap',
+            flexShrink: 0,
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={schema.editable}
+            disabled={readOnly}
+            onChange={(e) => write(schema.type, e.target.checked)}
+          />
+          {t.property.editable}
+        </label>
+      </div>
+      {schema.typeError !== undefined && (
+        <div
+          role="alert"
+          style={{ color: color.warningText, fontSize: font.caption }}
+        >
+          {t.property.typeError(schema.typeError)}
+        </div>
+      )}
+    </div>
   );
 }

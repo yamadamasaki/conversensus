@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { PropertyNameSchema } from '../events/unified';
-import { TemplateIdSchema } from '../schemas';
+import { GROUP_NODE_TYPE, IMAGE_NODE_TYPE, TemplateIdSchema } from '../schemas';
+import { PropertySchemaSchema } from './propertySchema';
 
 export const NodeKindIdSchema = z.string().min(1).brand<'NodeKindId'>();
 export type NodeKindId = z.infer<typeof NodeKindIdSchema>;
@@ -42,7 +43,15 @@ export const NodeKindSchema = z.object({
   labels: TranslationsSchema,
   /** 言語ごとの説明 (#356)。無い言語では `description` */
   descriptions: TranslationsSchema,
+  /**
+   * 種類の見た目 (template-update K11、#406・#412)。無ければ markdown (`GraphNode.nodeType` と同じ約束)。
+   * template graph の node の見た目がそのまま種類の見た目になる。**見た目も種類の一部**であり、
+   * 適用先で種類を選ぶと見た目も決まる (group の種類から markdown node ができていたのが #406)
+   */
+  nodeType: z.enum([GROUP_NODE_TYPE, IMAGE_NODE_TYPE]).optional(),
   defaults: DefaultsSchema,
+  /** property の型と editable の宣言 (template-update K9、`propertySchema.ts`) */
+  schema: PropertySchemaSchema,
 });
 export type NodeKind = z.infer<typeof NodeKindSchema>;
 
@@ -64,6 +73,8 @@ export const EdgeKindSchema = z.object({
    */
   properties: z.array(PropertyNameSchema).default([]),
   defaults: DefaultsSchema,
+  /** property の型と editable の宣言 (template-update K9、`propertySchema.ts`) */
+  schema: PropertySchemaSchema,
 });
 export type EdgeKind = z.infer<typeof EdgeKindSchema>;
 

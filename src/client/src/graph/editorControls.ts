@@ -6,7 +6,11 @@
  * `useEventStore` に触れるので、中身は `GraphEditor` に残し、外へは口だけを出す。
  */
 
-import type { KindPropertyLabel } from '@conversensus/shared';
+import type {
+  EffectiveEntry,
+  KindPropertyLabel,
+  TemplatePropertyLabel,
+} from '@conversensus/shared';
 import type { GraphEvent } from '../events/GraphEvent';
 import type { SearchHit } from '../search/searchSheet';
 
@@ -24,6 +28,12 @@ export type GraphEditorControls = {
   reveal: (hit: SearchHit) => boolean;
   /** 選ばれている要素のプロパティを 1 つ設定する。値の省略 (undefined) は削除 */
   setProperty: (name: string, value: unknown) => void;
+  /**
+   * 選ばれている要素のプロパティを**いくつか同時に** (1 つの op で) 設定する。値が undefined のキーは削除。
+   * template graph で、property とその宣言 (template-update K9) を一緒に消すときに使う。1 つずつ
+   * `setProperty` を 2 回呼ぶと、2 回目が 1 回目の前の状態から組まれて 1 回目を打ち消しうる
+   */
+  setProperties: (changes: Readonly<Record<string, unknown>>) => void;
   /**
    * 要素を外から選ぶ (step3 Phase 5 S5-1b)。merger で、見るだけの pane で選んだ要素を merge 後でも
    * 選ばせる (Phase 3 U1: 選択の正は React Flow に置いたまま、外から選ばせる口を足す)
@@ -53,6 +63,21 @@ export type PropertyTarget = {
    * 見る人の言語で引いてある (言語が変われば変わる)
    */
   kindLabels?: Readonly<Record<string, KindPropertyLabel>>;
+  /**
+   * template graph の要素か (template-update K9・Q4)。そうなら property の欄は、property ごとに型と editable の
+   * 宣言を書ける形で出す
+   */
+  templateGraph?: boolean;
+  /**
+   * template が配った property (`${templateId}.<名前>`) の、人が読める名前 (template-update K7)。
+   * 画面は prefix を外した名前と template の名前で出す
+   */
+  templateLabels?: Readonly<Record<string, TemplatePropertyLabel>>;
+  /**
+   * template が配った property の、読むときの姿 (template-update K8・K12)。既定値を補った値、editable: false の
+   * 値、型の判定。`properties` は要素自身の値のまま (変更の from/to はそこから組む)
+   */
+  effective?: Readonly<Record<string, EffectiveEntry>>;
 };
 
 /**
@@ -68,5 +93,8 @@ export function propertyTargetKey(target: PropertyTarget | undefined): string {
     target.properties ?? null,
     target.addable,
     target.kindLabels ?? null,
+    target.templateGraph ?? false,
+    target.templateLabels ?? null,
+    target.effective ?? null,
   ]);
 }

@@ -328,7 +328,7 @@ export function createMcpServer(
     'add_edge',
     {
       description:
-        'edge を足す。両端に種別があれば、edge の種別は template の規則に従う (候補が 1 つなら自動、複数なら kind で選ぶ)。足した edge の id を返す',
+        'edge を足す。両端に種別があれば、edge の種別は template の規則に従う (候補が 1 つなら自動、複数なら kind で選ぶ。片端が種別の無い node に当たる種類は自動では付かず、kind を渡さなければラベルなしで繋ぐ)。足した edge の id を返す',
       inputSchema: {
         ...where,
         source: z.string().uuid().describe('始点の node の id'),

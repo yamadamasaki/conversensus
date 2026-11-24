@@ -1,7 +1,11 @@
 import { describe, expect, test } from 'bun:test';
+import fc from 'fast-check';
 import { SYSTEM_PROPERTY_PREFIX } from '../events/properties';
+import type { EdgeKindRef } from './fold';
 import {
+  autoEdgeKind,
   edgeKindCandidates,
+  hasAnyEnd,
   hasTemplateKind,
   isKindProperty,
   isTemplateEdge,
@@ -10,7 +14,7 @@ import {
   nodeKindIn,
 } from './kind';
 import { TOULMIN_TEMPLATE } from './toulmin';
-import { TemplateSchema } from './types';
+import { ANY_NODE_KIND, type EdgeKind, TemplateSchema } from './types';
 
 const KIND = kindPropertyOf(TOULMIN_TEMPLATE.id);
 /** その種別を持つノードの properties */
@@ -210,5 +214,56 @@ describe('isTemplateEdge', () => {
     const free = [asKind('claim'), undefined] as const;
     expect(edgeKindCandidates([TOULMIN_TEMPLATE], ...free)).toEqual([]);
     expect(isTemplateEdge([TOULMIN_TEMPLATE], ...free)).toBe(false); // 自由
+  });
+});
+
+describe('autoEdgeKind (template-update K15)', () => {
+  /** 端は種類 a・b か「任意」から引く。両端とも任意の種類は template graph で作られないので引かない */
+  const arbKind: fc.Arbitrary<EdgeKind> = fc
+    .record({
+      from: fc.constantFrom('a', 'b', ANY_NODE_KIND),
+      to: fc.constantFrom('a', 'b', ANY_NODE_KIND),
+    })
+    .filter(({ from, to }) => from !== ANY_NODE_KIND || to !== ANY_NODE_KIND)
+    .map(
+      ({ from, to }) =>
+        ({
+          id: `${from}-${to}`,
+          label: 'k',
+          from: [from],
+          to: [to],
+          properties: [],
+          defaults: {},
+        }) as unknown as EdgeKind,
+    );
+  const arbCandidates: fc.Arbitrary<EdgeKindRef[]> = fc.array(
+    arbKind.map(
+      (kind) => ({ templateId: TOULMIN_TEMPLATE.id, kind }) as EdgeKindRef,
+    ),
+    { maxLength: 3 },
+  );
+
+  test('付けるのは、候補がちょうど 1 つで両端が種類のときちょうど。付けるならその候補', () => {
+    fc.assert(
+      fc.property(arbCandidates, (candidates) => {
+        const auto = autoEdgeKind(candidates);
+        const [first] = candidates;
+        const expected =
+          candidates.length === 1 &&
+          first !== undefined &&
+          !hasAnyEnd(first.kind);
+        expect(auto !== undefined).toBe(expected);
+        if (auto) expect(auto).toBe(first as EdgeKindRef);
+      }),
+    );
+  });
+
+  test('例: Toulmin の 支える (データ → 主張) は 1 つなら付く', () => {
+    const [supports] = edgeKindCandidates(
+      [TOULMIN_TEMPLATE],
+      asKind('data'),
+      asKind('claim'),
+    );
+    expect(autoEdgeKind(supports ? [supports] : [])?.kind.label).toBe('支える');
   });
 });

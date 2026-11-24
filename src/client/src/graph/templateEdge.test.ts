@@ -55,7 +55,7 @@ describe('edgeKindFor', () => {
     expect(edgeKindFor([], NODES, 'data', 'claim')).toBeUndefined();
   });
 
-  it('候補が複数なら何も返さない — 選ばせる UI は step2 では作らない', () => {
+  it('候補が複数なら何も返さない — 選ばせるのは呼ぶ側 (EdgeKindMenu)', () => {
     const ambiguous: Template = TemplateSchema.parse({
       id: 'com.example.ambiguous',
       name: 'ambiguous',
@@ -82,6 +82,24 @@ describe('edgeKindFor', () => {
       },
     ] as Node[];
     expect(edgeKindFor([ambiguous], nodes, 'x', 'y')).toBeUndefined();
+  });
+
+  it('片端が「任意」の種類は、候補が 1 つでも返さない — 選ばせ、ラベルなしも許す (template-update K15)', () => {
+    const withExternal: Template = TemplateSchema.parse({
+      ...TOULMIN_TEMPLATE,
+      edgeKinds: [
+        ...TOULMIN_TEMPLATE.edgeKinds,
+        { id: 'external', label: 'external', from: ['claim'], to: ['*'] },
+      ],
+    });
+    expect(
+      edgeKindCandidatesFor([withExternal], NODES, 'claim', 'plain').map((r) =>
+        String(r.kind.id),
+      ),
+    ).toEqual(['external']);
+    expect(
+      edgeKindFor([withExternal], NODES, 'claim', 'plain'),
+    ).toBeUndefined();
   });
 
   it('居ないノードを指しても落ちない (受信で消えた直後などに起こる)', () => {

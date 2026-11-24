@@ -11,9 +11,11 @@ import {
 import fc from 'fast-check';
 import {
   ADDRESSEE_PROPERTY,
+  ANSWER_TARGET_PROPERTY,
   ANSWERS_PROPERTY,
   addresseeOf,
   answersOf,
+  answerTargetOf,
   CLOSED_PROPERTY,
   isAddressedTo,
   isRequestNode,
@@ -214,15 +216,34 @@ describe('requestsInFile', () => {
 });
 
 describe('名前空間', () => {
-  test('4 つのシステム・プロパティは依頼の module の名前空間にあり、system として扱われる', () => {
+  test('5 つのシステム・プロパティ (答えの置き場所を含む) は依頼の module の名前空間にあり、system として扱われる', () => {
     for (const name of [
       ADDRESSEE_PROPERTY,
       SENT_PROPERTY,
       CLOSED_PROPERTY,
       ANSWERS_PROPERTY,
+      ANSWER_TARGET_PROPERTY,
     ]) {
       expect(name.startsWith(REQUEST_PROPERTY_PREFIX)).toBe(true);
       expect(propertyCategory(name)).toBe('system');
     }
+  });
+});
+
+describe('答えの置き場所 (template-update Q3)', () => {
+  test('新名を読み、無ければ旧名 (answerTarget) を読む。新名が勝つ', () => {
+    expect(answerTargetOf({ properties: { answerTarget: 'linkedNode' } })).toBe(
+      'linkedNode',
+    );
+    expect(
+      answerTargetOf({
+        properties: {
+          [ANSWER_TARGET_PROPERTY]: 'new',
+          answerTarget: 'old',
+        },
+      }),
+    ).toBe('new');
+    expect(answerTargetOf({ properties: { answerTarget: 3 } })).toBeUndefined();
+    expect(answerTargetOf({})).toBeUndefined();
   });
 });

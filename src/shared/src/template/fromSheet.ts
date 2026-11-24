@@ -8,11 +8,19 @@
  *
  * 読み替えの規則 (仕様):
  *
- * - **label のある node** = node の種類。種類の id は NodeId (Q3)、表示名は label、説明は本文
- * - **少なくとも一方の端に label がある edge** = edge の種類。label の無い端は「任意」
- *   (`ANY_NODE_KIND`: 適用先でこの template の種別を持たない node)
+ * - **label のある node** = node の種類。ただし **label が重複した node は種類にしない** (template-update K6)。
+ *   どちらを採るかを決める根拠が無く、共同編集では書き込みの時点で一意を強制できないので、読む側で両方とも
+ *   無効にする。重複は template graph の画面で警告する (`duplicateKindLabels`)
+ * - label のある node の種類の id は NodeId (Q3)、表示名は label、説明は本文、
+ *   見た目は node の見た目 (template-update K11)
+ * - **少なくとも一方の端が種類である edge** = edge の種類。種類でない端は「任意」
+ *   (`ANY_NODE_KIND`: 適用先でこの template の種別を持たない node)。label の重複で無効になった node に
+ *   繋がる edge は種類にしない
  * - **label の無い node 同士の edge と、label の無い node** = 使い方の説明書き。種類にしない
- * - 種類になった node / edge の property = 適用先の既定値 (種別プロパティそのものと、言語ごとの名前・説明は除く)
+ * - 種類になった node / edge の property = 適用先の既定値 (種別プロパティそのものと、言語ごとの名前・説明と、
+ *   型・editable の宣言は除く)。**名前は適用先での名前にする**: prefix の無い名前 (`期限`) は template の
+ *   名前空間に入れる (`${templateId}.期限`、template-update K7)。`kind` は使えない (種別プロパティと重なる)
+ * - `app.conversensus.propertySchema.<名前>` の property = その property の型・editable の宣言 (template-update K9)
  * - `label:<言語>`・`description:<言語>` の property = 言語ごとの名前・説明 (#356、`kindLocale.ts`)
  */
 
@@ -35,6 +43,11 @@ import {
   translationsIn,
 } from './kindLocale';
 import {
+  appliedPropertyNameOf,
+  isReservedTemplatePropertyName,
+} from './propertyName';
+import { isPropertySchemaProperty, propertySchemaIn } from './propertySchema';
+import {
   ANY_NODE_KIND,
   type EdgeKindId,
   type NodeKindId,
@@ -52,16 +65,34 @@ export function templateIdOf(templateSheetId: string): TemplateId {
 }
 
 /**
- * 種別プロパティと訳を除いた property (既定値にするもの)。訳を残すと、当てたシートの node ごとに訳が
- * 複製される (#356)
+ * 種別プロパティと訳と宣言を除いた property (既定値にするもの)。訳を残すと、当てたシートの node ごとに訳が
+ * 複製される (#356)。宣言 (型・editable、template-update K9) も template の定義であって既定値ではない
  */
 function defaultsOf(
   properties: Record<PropertyName, unknown> | undefined,
 ): Record<PropertyName, unknown> {
   return Object.fromEntries(
     Object.entries(properties ?? {}).filter(
-      ([name]) => !isKindProperty(name) && !isKindTranslationProperty(name),
+      ([name]) =>
+        !isKindProperty(name) &&
+        !isKindTranslationProperty(name) &&
+        !isPropertySchemaProperty(name),
     ),
+  );
+}
+
+/**
+ * template graph に書かれた名前を、適用先での名前にする (template-update K7、`propertyName.ts`)。
+ * 使えない名前 (`kind`) は落とす
+ */
+function applied<T>(
+  templateId: TemplateId,
+  record: Record<PropertyName, T>,
+): Record<PropertyName, T> {
+  return Object.fromEntries(
+    Object.entries(record)
+      .filter(([name]) => !isReservedTemplatePropertyName(name))
+      .map(([name, value]) => [appliedPropertyNameOf(templateId, name), value]),
   );
 }
 
@@ -83,13 +114,38 @@ function translationsOf(
 const labelOf = (element: GraphNode | GraphEdge): string =>
   element.label?.trim() ?? '';
 
+/**
+ * template graph の中で、2 つ以上の node が持っている label (template-update K6)。前後の空白は除いて比べる。
+ * 並びは label の順 (誰の手元でも同じ警告になるように)
+ */
+export function duplicateKindLabels(sheet: Pick<Sheet, 'nodes'>): string[] {
+  const counts = new Map<string, number>();
+  for (const n of sheet.nodes) {
+    const label = labelOf(n);
+    if (label !== '') counts.set(label, (counts.get(label) ?? 0) + 1);
+  }
+  return [...counts]
+    .filter(([, count]) => count > 1)
+    .map(([label]) => label)
+    .sort();
+}
+
 /** template graph の sheet を `Template` に読み替える */
 export function templateFromSheet(
   sheet: Sheet,
   templateId: TemplateId,
 ): Template {
-  const kindNodes = sheet.nodes.filter((n) => labelOf(n) !== '');
+  const duplicated = new Set(duplicateKindLabels(sheet));
+  const isDuplicated = (n: GraphNode) => duplicated.has(labelOf(n));
+  const kindNodes = sheet.nodes.filter(
+    (n) => labelOf(n) !== '' && !isDuplicated(n),
+  );
   const kinds = new Set<string>(kindNodes.map((n) => n.id));
+  // 無効にした種類の node。そこに繋がる edge は種類にしない — 「任意」の端と読むと、
+  // 定義した人の意図に無い「任意の node と繋がる種類」ができてしまう
+  const invalid = new Set<string>(
+    sheet.nodes.filter(isDuplicated).map((n) => n.id),
+  );
   const endOf = (nodeId: string): NodeKindId =>
     (kinds.has(nodeId) ? nodeId : ANY_NODE_KIND) as NodeKindId;
 
@@ -100,19 +156,33 @@ export function templateFromSheet(
       id: n.id as string as NodeKindId,
       label: labelOf(n),
       ...(n.content.trim() !== '' && { description: n.content }),
+      ...(n.nodeType && { nodeType: n.nodeType }),
       ...translationsOf(n.properties, true),
-      defaults: defaultsOf(n.properties),
+      defaults: applied(templateId, defaultsOf(n.properties)),
+      schema: applied(templateId, propertySchemaIn(n.properties)),
     })),
     edgeKinds: sheet.edges
-      .filter((e) => kinds.has(e.source) || kinds.has(e.target))
+      .filter(
+        (e) =>
+          (kinds.has(e.source) || kinds.has(e.target)) &&
+          !invalid.has(e.source) &&
+          !invalid.has(e.target),
+      )
       .map((e) => ({
         id: e.id as string as EdgeKindId,
         label: labelOf(e),
         ...translationsOf(e.properties, false),
         from: [endOf(e.source)],
         to: [endOf(e.target)],
-        properties: Object.keys(defaultsOf(e.properties)),
-        defaults: defaultsOf(e.properties),
+        // 持ちうる property = 既定値のあるもの + 宣言だけのもの (既定値の無い宣言もある)
+        properties: [
+          ...new Set([
+            ...Object.keys(applied(templateId, defaultsOf(e.properties))),
+            ...Object.keys(applied(templateId, propertySchemaIn(e.properties))),
+          ]),
+        ],
+        defaults: applied(templateId, defaultsOf(e.properties)),
+        schema: applied(templateId, propertySchemaIn(e.properties)),
       })),
   });
 }

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, mock } from 'bun:test';
 import {
   multilingualSeed,
   nodeKindsOf,
+  TemplateSchema,
   TOULMIN_SEED,
   TOULMIN_TEMPLATE,
 } from '@conversensus/shared';
@@ -13,6 +14,21 @@ const { render, screen, fireEvent, cleanup } = await import(
 const { NodeTypeMenu } = await import('./NodeTypeMenu');
 
 const KINDS = nodeKindsOf([TOULMIN_TEMPLATE]);
+
+/** 見た目の違う種類を持つ template (template-update K11) */
+const MIXED_KINDS = nodeKindsOf([
+  TemplateSchema.parse({
+    id: 'template.mixed',
+    name: '混在',
+    nodeKinds: [
+      { id: 'claim', label: '主張' },
+      { id: 'discussion', label: '議論', nodeType: 'group' },
+      { id: 'data', label: 'データ' },
+      { id: 'figure', label: '図', nodeType: 'image' },
+    ],
+    edgeKinds: [],
+  }),
+]);
 const POS = { x: 0, y: 0 };
 
 afterEach(() => {
@@ -21,24 +37,33 @@ afterEach(() => {
 });
 
 describe('NodeTypeMenu', () => {
-  it('template が当たっていなければ「種別」の段そのものが無い', () => {
+  it('template が当たっていなければ見た目だけが並ぶ', () => {
     render(<NodeTypeMenu position={POS} nodeKinds={[]} onSelect={() => {}} />);
 
     expect(screen.getByText('node の見た目')).toBeDefined();
-    expect(screen.queryByText('node の種別')).toBeNull();
     expect(screen.queryByText('主張')).toBeNull();
   });
 
-  it('template が当たっていれば 2 段になる', () => {
+  it('template が当たっていれば、各見た目のすぐ下にその見た目の種類が並ぶ (#412)', () => {
     render(
-      <NodeTypeMenu position={POS} nodeKinds={KINDS} onSelect={() => {}} />,
+      <NodeTypeMenu
+        position={POS}
+        nodeKinds={MIXED_KINDS}
+        onSelect={() => {}}
+      />,
     );
 
-    expect(screen.getByText('node の見た目')).toBeDefined();
-    expect(screen.getByText('node の種別')).toBeDefined();
-    for (const label of ['主張', 'データ', '論拠', '反論', '裏付け']) {
-      expect(screen.getByText(label)).toBeDefined();
-    }
+    // 並びの順: 見た目、その見た目の種類、次の見た目、…
+    const items = screen.getAllByRole('button').map((b) => b.textContent);
+    expect(items).toEqual([
+      'Markdown',
+      '主張',
+      'データ',
+      'group',
+      '議論',
+      '画像',
+      '図',
+    ]);
   });
 
   it('見た目を選ぶと種別を伴わない', () => {
@@ -52,7 +77,27 @@ describe('NodeTypeMenu', () => {
     expect(onSelect).toHaveBeenCalledWith('group');
   });
 
-  it('種別を選ぶと見た目は markdown に決まり、NodeKindRef ごと渡す', () => {
+  it('種類を選ぶと、その種類の見た目と NodeKindRef を渡す (#406)', () => {
+    const onSelect = mock(() => {});
+    render(
+      <NodeTypeMenu
+        position={POS}
+        nodeKinds={MIXED_KINDS}
+        onSelect={onSelect}
+      />,
+    );
+
+    fireEvent.click(screen.getByText('議論'));
+
+    expect(onSelect).toHaveBeenCalledWith(
+      'group',
+      expect.objectContaining({
+        kind: expect.objectContaining({ id: 'discussion' }),
+      }),
+    );
+  });
+
+  it('見た目を持たない種類を選ぶと見た目は markdown に決まり、NodeKindRef ごと渡す', () => {
     // 種別を持つのは意味のあるノードだけなので、種別の選択で見た目を訊き直さない。
     // 渡すのは label ではなく NodeKindRef — id が実体で label は表示であり (D3)、
     // さらに書き込み先のプロパティ名が template ごとに分かれるので template も要る

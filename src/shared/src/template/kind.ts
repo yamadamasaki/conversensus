@@ -3,6 +3,7 @@ import type { TemplateId } from '../schemas';
 import type { EdgeKindRef } from './fold';
 import {
   ANY_NODE_KIND,
+  type EdgeKind,
   type NodeKind,
   type NodeKindId,
   type Template,
@@ -114,6 +115,32 @@ export function edgeKindCandidates(
       .filter((ek) => matches(ek.from, from) && matches(ek.to, to))
       .map((kind) => ({ templateId: t.id, kind }));
   });
+}
+
+/** 片端が「任意」の edge の種類か (template graph で label の無い node と繋がっていた種類) */
+export function hasAnyEnd(kind: EdgeKind): boolean {
+  return kind.from.includes(ANY_NODE_KIND) || kind.to.includes(ANY_NODE_KIND);
+}
+
+/**
+ * 候補から、**選ばせずに付けてよい**種類を返す (template-update K15)。無ければ undefined。
+ *
+ * 付けてよいのは、候補がちょうど 1 つで、その種類の両端が種類のとき (template の制約の内側) だけである。
+ * **片端が「任意」の種類は自動で付けない** — 種類の node を普通の node へ繋ぐたびに、その種類
+ * (例: 接地の慣習の `external`) の label が付いてしまう。任意の端の種類は「引けるが引かなくてもよい」
+ * ものなので、選ばせて、ラベルなしで繋ぐことも許す。
+ *
+ * 片端が任意の種類と、両端が種類の種類は、同じ template の中では同じ組の候補に並ばない
+ * (両端とも種類を持つ組は任意の端に当たらない)。別の template から並んだときは、任意の端の種類が
+ * 1 つでもあれば選ばせる
+ */
+export function autoEdgeKind(
+  candidates: readonly EdgeKindRef[],
+): EdgeKindRef | undefined {
+  const [only] = candidates;
+  return candidates.length === 1 && only && !hasAnyEnd(only.kind)
+    ? only
+    : undefined;
 }
 
 /**

@@ -23,10 +23,14 @@ import {
   GROUP_TITLE_HEIGHT,
 } from '@conversensus/client/src/nodeGeometry';
 import {
+  autoEdgeKind,
+  copiedDefaultsOf,
   type EdgeId,
   edgeKindCandidates,
   type GraphEdge,
   type GraphNode,
+  hasAnyEnd,
+  isFixedTemplateProperty,
   isKindProperty,
   isTemplateEdge,
   kindPropertyOf,
@@ -64,6 +68,25 @@ function edgeOf(ctx: ToolContext, edgeId: string): GraphEdge {
 }
 
 /** agent が書いてよい property か。種別と system は本体・template のもの */
+/**
+ * template が値を決めている property (editable: false) は書かせない (template-update K8、T8)。UI ができない
+ * ことは道具もできない (設計 §1.1)
+ */
+function assertNotFixed(
+  ctx: ToolContext,
+  element: 'node' | 'edge',
+  properties: Record<string, unknown> | undefined,
+  names: readonly string[],
+): void {
+  for (const name of names) {
+    if (isFixedTemplateProperty(ctx.templates, element, properties, name)) {
+      throw new ToolError(
+        `${name} は template が値を決めていて (editable: false)、書き換えられない`,
+      );
+    }
+  }
+}
+
 function assertWritable(name: string): void {
   if (isKindProperty(name)) {
     throw new ToolError(`${name} は種別で、作った後は変えられない`);
@@ -140,15 +163,18 @@ export function addNode(
     ...args.properties,
     // 種類の既定値を先に、種別を最後に置く (UI と同じ。既定値に種別の名前が紛れても種別が勝つ)
     ...(kind && {
-      ...kind.kind.defaults,
+      ...copiedDefaultsOf(kind.templateId, kind.kind),
       [kindPropertyOf(kind.templateId)]: kind.kind.id,
     }),
   };
+  assertNotFixed(ctx, 'node', properties, Object.keys(args.properties ?? {}));
   const nodeId = crypto.randomUUID() as NodeId;
   const data: GraphNode = {
     id: nodeId,
     content: args.content,
     ...(kind && { label: kind.kind.label }),
+    // 種類の見た目 (template-update K11)。group の種類は group node になる (#406)
+    ...(kind?.kind.nodeType && { nodeType: kind.kind.nodeType }),
     ...(Object.keys(properties).length > 0 && { properties }),
     ...(parentId && { parentId }),
   };
@@ -200,6 +226,7 @@ export function setNodeProperty(
 ): GraphEvent {
   assertWritable(args.name);
   const node = nodeOf(ctx, args.nodeId);
+  assertNotFixed(ctx, 'node', node.properties, [args.name]);
   return {
     ...eventBase('content'),
     type: 'NODE_PROPERTIES_CHANGED',
@@ -242,7 +269,10 @@ export function removeNode(
 export type AddEdgeArgs = {
   source: string;
   target: string;
-  /** edge の種別の id。候補が 1 つなら省略してよい */
+  /**
+   * edge の種別の id。候補が 1 つで両端が種別の種類なら省略してよい (自動で付く)。片端が「任意」の種類は
+   * 省略するとラベルなしで繋ぐ (template-update K15)
+   */
   kind?: string;
   /** 種別の無い edge の label */
   label?: string;
@@ -272,8 +302,14 @@ export function addEdge(
       `種別 ${args.kind} はこの両端に使えない。使えるのは: ${listed() || 'なし'}`,
     );
   }
-  if (!kind && candidates.length === 1) kind = candidates[0];
-  if (!kind && candidates.length > 1) {
+  // 選ばせずに付けるのは、候補が 1 つで両端が種類のときだけ (UI と同じ、template-update K15)。
+  // 片端が「任意」の種類が候補にあれば、種別を渡されない限りラベルなしで繋ぐ (引かなくてもよい種類)
+  if (!kind) kind = autoEdgeKind(candidates);
+  if (
+    !kind &&
+    candidates.length > 1 &&
+    !candidates.some((c) => hasAnyEnd(c.kind))
+  ) {
     throw new ToolError(`種別を選んでください: ${listed()}`);
   }
   if (
@@ -290,10 +326,11 @@ export function addEdge(
   const properties = {
     ...args.properties,
     ...(kind && {
-      ...kind.kind.defaults,
+      ...copiedDefaultsOf(kind.templateId, kind.kind),
       [kindPropertyOf(kind.templateId)]: kind.kind.id,
     }),
   };
+  assertNotFixed(ctx, 'edge', properties, Object.keys(args.properties ?? {}));
   const edgeId = crypto.randomUUID() as EdgeId;
   const label = kind ? kind.kind.label : args.label;
   const data: GraphEdge = {
@@ -336,6 +373,7 @@ export function setEdgeProperty(
 ): GraphEvent {
   assertWritable(args.name);
   const edge = edgeOf(ctx, args.edgeId);
+  assertNotFixed(ctx, 'edge', edge.properties, [args.name]);
   return {
     ...eventBase('content'),
     type: 'EDGE_PROPERTIES_CHANGED',

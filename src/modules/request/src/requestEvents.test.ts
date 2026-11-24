@@ -14,6 +14,7 @@ import {
 } from './requestEvents';
 import {
   ADDRESSEE_PROPERTY,
+  ANSWER_TARGET_PROPERTY,
   ANSWERS_PROPERTY,
   CLOSED_PROPERTY,
   requestStatus,
@@ -31,7 +32,7 @@ const requestNode = (extra: Record<string, unknown> = {}): GraphNode =>
     content: '要約して',
     properties: {
       [ADDRESSEE_PROPERTY]: [AGENT],
-      answerTarget: 'linkedNode',
+      [ANSWER_TARGET_PROPERTY]: 'linkedNode',
       ...extra,
     },
   }) as unknown as GraphNode;

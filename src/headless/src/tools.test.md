@@ -19,9 +19,17 @@ remove と、edge の add・setLabel・setProperty・remove、それに位置の
   value を省くと消す
 - **種別** (UI の `GraphEditor` と同じ規則):
   - node を種別付きで足すと、label・種別プロパティ・種類の既定値が入る。知らない種別は断る
+  - ただし **template の名前空間の既定値 (`${templateId}.<名前>`) は写さない** — 読むときに補う (template-update K12)。
+    名前空間の外の既定値 (依頼の宛先など、module の印) は写す
+  - 見た目を持つ種類 (group) で足すと、その見た目の node になる (template-update K11、#406)
   - 種別プロパティと system の property は書けない (足すときの properties でも)
+  - template が値を決めている property (editable: false、template-update K8・T8) は、足すときも書き換えるときも
+    断る。種類を持たない node なら同じ名前でも書ける (template の制約の外)。読む側は既に template の値を採るが、
+    書かせると op-log に効かない値が溜まり、人には「書いたのに変わらない」に見える
   - edge の種別の候補 (`edgeKindCandidates`) が 1 つなら自動、複数なら選ばせる、同じ template の
     要素どうしで 0 なら繋げない。種別の無い node どうしは自由に繋げる
+  - 片端が「任意」の種類 (例: 主張 → 任意の node の `external`) は、候補が 1 つでも自動では付かない。kind を
+    渡さなければラベルなしで繋ぎ、渡せば付く (template-update K15、UI の「ラベルなしで繋ぐ」と同じ)
   - 種別のある edge の label は変えられない
 - **検め**: 無い node・edge を指すと断る。group でない node の中には入れない
 - **自動で置く**: 例 (一番下の node の下、空の group は枠の内側から) と、性質:
