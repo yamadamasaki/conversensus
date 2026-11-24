@@ -196,3 +196,33 @@ template graph を作って、そこに種類を書いていく。
 
 **注意**: 作成時に当てた template は、作った時点の版で読まれる (動的適用は段 2)。V4〜V7 で template graph を直した後は、
 **新しく Sheet を当て直して**確かめる (後から当てる「…」→「template を当てる」でもよい)。
+
+## 10. 実機の確認 (段 2)
+
+`bun run dev:client` で起動し、`http://127.0.0.1:5173/` を開く (user-test-environment §1)。未ログインのままでよい
+(W10・W11 だけログインと headless が要る)。File を 1 つ作り、「template 付きで Sheet を追加 ▾」→「+ template graph」で
+template graph を作り、label「根拠」と「主張」の node を置いて「根拠」から「主張」へ edge を引き、label を「支える」に
+する。この template を当てた Sheet を **作るときに** 1 つ足し (「+ Sheet を追加」で選ぶ)、そこに「根拠」と「主張」の
+node を作って「支える」で繋いでおく。
+
+「…」は左サイドバーの Sheet の行の「詳細」のボタン、「通知」は画面右下の「template の版」の欄である。
+
+| # | 見ること | 手順 | 期待 | 結果 |
+| --- | --- | --- | --- | --- |
+| W1 | D2 新しい版が無いとき | 当てた Sheet の「…」を開く。次に template graph で node を動かすだけ・label の無い node を足すだけ、をしてからもう一度開く | どちらも「「<template graph の名前>」を最新の版にする」は出ない | |
+| W2 | D2・D3 新しい版が出る | template graph に label「反証」の node を足す | 少しして右下に「「<Sheet>」に当てた「<template graph>」に新しい版があります」が出る。当てた Sheet の「…」にも「…を最新の版にする」が出る。ほかの Sheet を編集しただけでは出ない | |
+| W3 | D2 最新の版にする | 当てた Sheet の「…」の「…を最新の版にする」を押す → 空いた所をダブルクリック | 種類のメニューに「反証」が出る。右下の通知と「…」の入口が消える | |
+| W4 | D3 閉じた通知 | template graph の「反証」の label を「反論」に変える → 右下の通知を × で閉じる → ほかの Sheet を編集する → template graph に label「限定」の node を足す | 閉じた後、ほかの編集では出ない。「限定」を足すとまた出る | |
+| W5 | D3 通知から pull・D4 名前の変更 | W4 の通知の「最新の版にする」を押す | 通知が消える。既にある「主張」などの node の表示はそのまま、メニューに「反論」「限定」が出る。template graph で「主張」を「結論」に変えて同じように最新の版にすると、**既にある「主張」の node の label の表示も「結論」になる** | |
+| W6 | 訳の追随 | 「template 付きで Sheet を追加 ▾」→「+ Toulmin model を追加」→ それを当てた Sheet を足し「主張」を 1 つ作る → Toulmin の template graph で「主張」の label を「結論」に変え、通知から最新の版にする → 画面の言語を English に切り替える → 日本語に戻し、template graph で取り消し (undo) する | 日本語では「結論」と出る (前は訳 `label:ja` が勝って「主張」のままだった)。英語では `Claim` のまま (英語の訳は残す)。undo すると template graph の label と `label:ja` の両方が「主張」に戻る (property の欄で確かめる) | |
+| W7 | D5 端の組が合わない | template graph で「支える」の edge の**始点の端をドラッグして**「反論」(W4) へ付け替える (消して引き直すと種類の id が変わり W8 になる)。通知から最新の版にする | 当てた Sheet の「根拠」→「結論」(W5 で「主張」から改名) の「支える」が警告色の破線になり、線か label に hover すると「この edge の種類は、今の template ではこの両端の組に使えません」。edge は消えない。template graph で始点を「根拠」へ戻して最新の版にすると印が消える | |
+| W8 | D5 種類が消えた edge | template graph で「支える」の edge を消す → 通知から最新の版にする | 当てた Sheet の「支える」の edge が**消えずに**残り、破線になる。hover すると「この edge の種類は、今の template にありません」 | |
+| W9 | D3 削除 | template graph の Sheet を消す (「…」→ 削除) | 右下に「…は削除されました。この Sheet は当てた版のまま使えます」が出て、「最新の版にする」は無い。当てた Sheet の種類のメニューは使えるまま | |
+| W10 | D6 外す | Toulmin model を、既にある Sheet (例: Sheet 1) に「…」→「template を当てる」で当て、「主張」を 1 つ作る → Sheet 1 の「…」を開く。W6 の Sheet (作るときに当てた) の「…」も開く | Sheet 1 にだけ「「Toulmin model」を外す」が出る。押すと、メニューから Toulmin の種類が消え、作った「主張」の node は label のまま残る。「…」に「template を当てる」がまた出る | |
+| W11 | 2 人 (任意) | alice (5173) と bob (5174) で同じ File に参加し (user-test-environment §5)、alice が template graph に種類を足す | bob の画面にも右下の通知が出る。bob が最新の版にすると、alice の画面の通知も消える (Sheet のプロパティが届いて読み直すため) | |
+| W12 | agent (任意) | W5 の後、headless で `read_file` | 当てた Sheet の `# template` の注釈と node の `# 種別:` に、新しい名前 (「結論」) が出る | |
+
+**注意**:
+
+- 右下の通知は**前に出ている File** の分だけ出る。File を切り替えたら、切り替えた先の分に入れ替わる
+- 段 1 の §9 の注意 (template graph を直したら Sheet を当て直す) は、段 2 では「最新の版にする」で足りる
