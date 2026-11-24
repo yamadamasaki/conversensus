@@ -659,6 +659,48 @@ describe('graphEventToOps: node の種別 (Phase 5 P4)', () => {
     ).toEqual([{ kind: 'node.setLabel', target: nodeId, label: 'データ' }]);
   });
 
+  test('一緒に書き換える訳は、同じ batch の setProperty として続く (node・edge)', () => {
+    const nodeId = nid();
+    const translation = { name: 'label:ja', from: '主張', to: '結論' };
+    expect(
+      graphEventToOps({
+        ...makeEventBase('content'),
+        type: 'NODE_LABEL_CHANGED',
+        nodeId,
+        from: '主張',
+        to: '結論',
+        translation,
+      }),
+    ).toEqual([
+      { kind: 'node.setLabel', target: nodeId, label: '結論' },
+      {
+        kind: 'node.setProperty',
+        target: nodeId,
+        name: 'label:ja',
+        value: '結論',
+      },
+    ]);
+    const edgeId = EdgeIdSchema.parse(crypto.randomUUID());
+    expect(
+      graphEventToOps({
+        ...makeEventBase('content'),
+        type: 'EDGE_RELABELED',
+        edgeId,
+        from: '支える',
+        to: '裏付ける',
+        translation: { name: 'label:ja', from: '支える', to: '裏付ける' },
+      }),
+    ).toEqual([
+      { kind: 'edge.setLabel', target: edgeId, label: '裏付ける' },
+      {
+        kind: 'edge.setProperty',
+        target: edgeId,
+        name: 'label:ja',
+        value: '裏付ける',
+      },
+    ]);
+  });
+
   test('種別を外すのは空文字を載せることである (op が消えるのではない)', () => {
     const nodeId = nid();
     expect(

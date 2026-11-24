@@ -297,6 +297,33 @@ describe('NODE_LABEL_CHANGED (Phase 5 P4)', () => {
     expect(inv.to).toBe('主張');
   });
 
+  it('一緒に書き換えた訳も戻す (label と訳が食い違わない)', () => {
+    const event: GraphEvent = {
+      ...base,
+      category: 'content',
+      type: 'NODE_LABEL_CHANGED',
+      nodeId: 'n1' as NodeId,
+      from: '主張',
+      to: '結論',
+      translation: { name: 'label:ja', from: '主張', to: '結論' },
+    };
+    const inv = invertEvent(event) as Extract<
+      GraphEvent,
+      { type: 'NODE_LABEL_CHANGED' }
+    >;
+    expect(inv.translation).toEqual({
+      name: 'label:ja',
+      from: '結論',
+      to: '主張',
+    });
+    // 訳の無いものには訳を付けない
+    const plain = invertEvent({ ...event, translation: undefined }) as Extract<
+      GraphEvent,
+      { type: 'NODE_LABEL_CHANGED' }
+    >;
+    expect('translation' in plain).toBe(false);
+  });
+
   it('種別を与えた操作を戻すと種別が外れる (from が空文字)', () => {
     const event: GraphEvent = {
       ...base,
@@ -350,6 +377,23 @@ describe('EDGE_RELABELED', () => {
     >;
     expect(inv.from).toBe('新');
     expect(inv.to).toBe('旧');
+  });
+
+  it('一緒に書き換えた訳も戻す', () => {
+    const event: GraphEvent = {
+      ...base,
+      category: 'content',
+      type: 'EDGE_RELABELED',
+      edgeId: 'e1' as EdgeId,
+      from: '旧',
+      to: '新',
+      translation: { name: 'label:ja', from: '旧', to: '新' },
+    };
+    const inv = invertEvent(event) as Extract<
+      GraphEvent,
+      { type: 'EDGE_RELABELED' }
+    >;
+    expect(inv.translation).toEqual({ name: 'label:ja', from: '新', to: '旧' });
   });
 });
 

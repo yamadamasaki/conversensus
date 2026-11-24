@@ -1361,7 +1361,8 @@ describe('App 結合: 当てた template の新しい版 (template-update D2・D
   });
 
   test('D4: template graph で種類の名前を変えて最新の版にすると、既にある node の表示も新しい名前になる', async () => {
-    // 訳を持たない template graph で見る。Toulmin の種は言語ごとの訳 (`label:ja`) を持ち、日本語では訳が勝つ
+    // 訳を持たない template graph で見る。Toulmin の種は言語ごとの訳 (`label:ja`) を持ち、日本語では訳が勝つ。
+    // ここでは名前を op で直に変えるので、画面の編集が訳も書き換える所 (`renamedTranslation`) は通らない
     await world.activate('solo');
     render(<App />);
     const user = userEvent.setup();

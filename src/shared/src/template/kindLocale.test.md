@@ -8,6 +8,7 @@ kind-i18n-356.md)。訳は template graph の種類の node・edge の property 
 - `displayKindLabel` — 当てたシートの node・edge の label を、見る人の言語で表示する形にする
 - `translationsIn` / `translationProperties` — property と言語ごとの訳の読み書き
 - `kindLabelIn` / `kindDescriptionIn` — 種類の名前・説明をその言語で
+- `renamedTranslation` — template graph で種類の名前を変えたときに、変えた人の言語の訳も新しい名前にする
 - `templateFromSheet` が訳を種類の名前・説明として読み、既定値には入れないこと
 
 ## なぜ
@@ -20,6 +21,10 @@ kind-i18n-356.md)。訳は template graph の種類の node・edge の property 
   (画面は固定、MCP の道具は断る) ので、利用者の言葉を消すおそれは無い
 - **訳とも照らす。**#330 案 B では、種を作った人の言語の名前が焼き込まれた。英語の参加者が作った File の
   `Claim` を、日本語の参加者には `主張` で見せるため
+- **名前を変えたら、変えた人の言語の訳も変える。**表示は訳が勝つ (`kindLabelIn`) ので、種 (Toulmin など) から
+  作った template graph で label だけを変えると、その言語の画面には古い名前が出続ける (D4 で見つけた)。
+  **ほかの言語の訳は残す** — 訳し直せるのはその言語の利用者で、消すと手で付けた訳まで失う。訳が無ければ足さない
+  (label がそのままその言語の名前になる)
 - **訳を既定値に入れない。**template graph の property は当てた先の既定値になる。訳を外さないと、node を
   作るたびに訳が複製される
 
@@ -37,6 +42,8 @@ kind-i18n-356.md)。訳は template graph の種類の node・edge の property 
   - 訳が無い言語では template graph の名前・説明
   - 読めない訳 (空の言語・空白だけ・文字列でない値) は落とす
   - `templateFromSheet` は訳の property を名前・説明にし、既定値には入れない
+  - `renamedTranslation`: 変えた人の言語の訳があれば `{ name, from, to }`。その言語の訳が無い・新しい名前と
+    同じ・文字列でないなら `undefined`
   - `kindPropertyLabels` (#384): 種別の property を、template の名前と、種類の名前 (見る人の言語、無ければ
     template graph の名前) にする。edge は edge の種類で引く。知らない template・知らない種類・文字列でない値は
     含めない — 読み取り専用の表示 (#357) は、そのとき id のまま出す

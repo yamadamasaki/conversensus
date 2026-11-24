@@ -1,5 +1,11 @@
+import type { RenamedTranslation } from '@conversensus/shared';
 import type { GraphEvent, LayoutFit } from './GraphEvent';
 import { makeEventBase } from './GraphEvent';
+
+/** 一緒に書き換えた訳を逆にする (label の変更と一緒に戻す) */
+function invertTranslation(t: RenamedTranslation): RenamedTranslation {
+  return { name: t.name, from: t.to, to: t.from };
+}
 
 export function invertEvent(event: GraphEvent): GraphEvent {
   const base = makeEventBase(event.category);
@@ -142,6 +148,9 @@ export function invertEvent(event: GraphEvent): GraphEvent {
         nodeId: event.nodeId,
         from: event.to,
         to: event.from,
+        ...(event.translation && {
+          translation: invertTranslation(event.translation),
+        }),
       };
     case 'EDGE_RELABELED':
       return {
@@ -151,6 +160,9 @@ export function invertEvent(event: GraphEvent): GraphEvent {
         edgeId: event.edgeId,
         from: event.to,
         to: event.from,
+        ...(event.translation && {
+          translation: invertTranslation(event.translation),
+        }),
       };
     case 'NODE_MOVED':
       return {

@@ -162,6 +162,24 @@ describe('EditableLabelEdge', () => {
     expect(screen.queryByRole('textbox')).toBeNull();
   });
 
+  it('画面の言語の訳 (label:ja) があれば、label と一緒に書き換える', () => {
+    render(
+      <EditableLabelEdge
+        {...makeProps('支える')}
+        data={{ properties: { 'label:ja': '支える' } }}
+      />,
+    );
+    fireEvent.dblClick(screen.getByText('支える'));
+    const input = screen.getByRole('textbox') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '裏付ける' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(mockDispatch.mock.calls[0]?.[0]).toMatchObject({
+      type: 'EDGE_RELABELED',
+      to: '裏付ける',
+      translation: { name: 'label:ja', from: '支える', to: '裏付ける' },
+    });
+  });
+
   it('Escape でキャンセルし dispatch を呼ばない', () => {
     render(<EditableLabelEdge {...makeProps('テストラベル')} />);
     fireEvent.dblClick(screen.getByText('テストラベル'));

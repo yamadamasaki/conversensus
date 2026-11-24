@@ -10,11 +10,12 @@
  * - 置き場所は呼び出し側が決める (`FloatingNodeLabel` は node の上辺の上に浮かせる)
  */
 
-import type { NodeId } from '@conversensus/shared';
+import { type NodeId, renamedTranslation } from '@conversensus/shared';
 import type { CSSProperties, ReactNode } from 'react';
 import { useEventDispatch } from '../EventDispatchContext';
 import { makeEventBase } from '../events/GraphEvent';
 import { useInlineEdit } from '../hooks/useInlineEdit';
+import { useLocale } from '../i18n/messages';
 import { color, font, radius } from '../theme';
 import { useKindLabel } from './kindLabelContext';
 
@@ -64,16 +65,20 @@ export function NodeLabel({
   properties,
 }: Props) {
   const { dispatch } = useEventDispatch();
+  const locale = useLocale();
   // 表示だけを見る人の言語にする (#356)。編集は生の label を扱う
   const shown = useKindLabel()('node', properties, label);
   const edit = useInlineEdit(label, (value) => {
     if (value === label) return;
+    // 自分の言語の訳があれば一緒に書き換える (種の訳が勝って古い名前が出ないように)
+    const translation = renamedTranslation(properties, locale, value);
     dispatch({
       ...makeEventBase('content'),
       type: 'NODE_LABEL_CHANGED',
       nodeId: nodeId as NodeId,
       from: label,
       to: value,
+      ...(translation && { translation }),
     });
   });
 

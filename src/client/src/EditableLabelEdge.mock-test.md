@@ -47,3 +47,9 @@
 - **label は context (`KindLabelProvider`) の訳で出す**。context には edge であること・edge の property・元の label を
   渡す。訳すかどうか (種類の名前か、書き換えた label か) は shared の `displayKindLabel` が決める
   (`kindLocale.test.md`)。ここでは部品が context を通して描くことと、渡すものを固める
+
+## 名前を変えたときの訳 (template-update D4 の後)
+
+- **画面の言語の訳 (`label:ja`) があれば、label と一緒に書き換える**。template graph で edge の種類の名前を
+  変えても、種の訳が残っていると表示は訳が勝つ。`EDGE_RELABELED` の `translation` に載せる (node の label と同じ、
+  `renamedTranslation`)

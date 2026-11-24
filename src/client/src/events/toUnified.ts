@@ -230,9 +230,33 @@ export function graphEventToOps(event: GraphEvent): Op[] {
         { kind: 'node.setContent', target: event.nodeId, content: event.to },
       ];
     case 'NODE_LABEL_CHANGED':
-      return [{ kind: 'node.setLabel', target: event.nodeId, label: event.to }];
+      return [
+        { kind: 'node.setLabel', target: event.nodeId, label: event.to },
+        ...(event.translation
+          ? [
+              {
+                kind: 'node.setProperty' as const,
+                target: event.nodeId,
+                name: event.translation.name,
+                value: event.translation.to,
+              },
+            ]
+          : []),
+      ];
     case 'EDGE_RELABELED':
-      return [{ kind: 'edge.setLabel', target: event.edgeId, label: event.to }];
+      return [
+        { kind: 'edge.setLabel', target: event.edgeId, label: event.to },
+        ...(event.translation
+          ? [
+              {
+                kind: 'edge.setProperty' as const,
+                target: event.edgeId,
+                name: event.translation.name,
+                value: event.translation.to,
+              },
+            ]
+          : []),
+      ];
     case 'NODE_PROPERTIES_CHANGED':
       return diffProperties(event.from, event.to).map((change) => ({
         kind: 'node.setProperty',

@@ -58,6 +58,9 @@ actor 節と `step1-phase4d-receive.md` §3.1)。
 - **`NODE_LABEL_CHANGED` → `node.setLabel`**: 後から変える経路。
 - **外すのは空文字を載せることである**: op が消えるのではない。op-log は追記なので、
   「外した」を表せるのは値だけである。
+- **一緒に書き換える訳は、同じ batch の `setProperty` として続く** (node・edge): template graph で種類の名前を
+  変えたとき、変えた人の言語の訳 (`label:ja` など) も書き換える (`renamedTranslation`)。別の batch にすると、
+  label と訳の片方だけが届く・片方だけが undo される、という食い違いが起きる
 
 ## シートのプロパティ (step3 Phase 4 S4-0)
 

@@ -11,6 +11,7 @@ import {
   kindLabelIn,
   kindLabelPropertyOf,
   kindPropertyLabels,
+  renamedTranslation,
   translationProperties,
   translationsIn,
 } from './kindLocale';
@@ -259,5 +260,26 @@ describe('kindPropertyLabels (#384): 種別の property を人が読める名前
         'ja',
       ),
     ).toEqual({});
+  });
+});
+
+describe('renamedTranslation (種類の名前を変えたときの訳)', () => {
+  const translated = { 'label:ja': '主張', 'label:en': 'Claim' };
+
+  test('変えた人の言語の訳があれば、新しい名前に書き換える (ほかの言語の訳は対象にしない)', () => {
+    expect(renamedTranslation(translated, 'ja', '結論')).toEqual({
+      name: 'label:ja',
+      from: '主張',
+      to: '結論',
+    });
+  });
+
+  test('その言語の訳が無い・新しい名前と同じ・文字列でないなら何もしない', () => {
+    expect(renamedTranslation({ 'label:en': 'Claim' }, 'ja', '結論')).toBe(
+      undefined,
+    );
+    expect(renamedTranslation(undefined, 'ja', '結論')).toBe(undefined);
+    expect(renamedTranslation(translated, 'ja', '主張')).toBe(undefined);
+    expect(renamedTranslation({ 'label:ja': 3 }, 'ja', '結論')).toBe(undefined);
   });
 });

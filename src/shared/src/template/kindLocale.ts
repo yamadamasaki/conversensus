@@ -71,6 +71,35 @@ export function translationProperties(
   );
 }
 
+/** 名前を変えたときに一緒に書き換える訳 (`renamedTranslation`) */
+export type RenamedTranslation = {
+  name: PropertyName;
+  from: string;
+  to: string;
+};
+
+/**
+ * template graph で種類の名前 (label) を変えたときに、**変えた人の言語の訳**も新しい名前にする
+ * (template-update D4 の後)。
+ *
+ * 種 (Toulmin など) は言語ごとの訳 (`label:ja` など) を持ち、表示は訳が勝つ (`kindLabelIn`)。label だけを
+ * 変えると、その言語の画面には古い名前が出続ける。
+ *
+ * - 書き換えるのは**変えた人の言語の訳が既にあるとき**だけ。無ければ足さない (label がその言語の名前になる)
+ * - **ほかの言語の訳は残す。**訳し直せるのはその言語の利用者であり、消すと手で付けた訳まで失う
+ * - 訳が新しい名前と同じなら何もしない
+ */
+export function renamedTranslation(
+  properties: Readonly<Record<PropertyName, unknown>> | undefined,
+  locale: KindLocale,
+  to: string,
+): RenamedTranslation | undefined {
+  const name = kindLabelPropertyOf(locale);
+  const from = properties?.[name];
+  if (typeof from !== 'string' || from === to) return undefined;
+  return { name, from, to };
+}
+
 /** 種類の名前をその言語で。訳が無ければ template graph の名前 */
 export function kindLabelIn(
   kind: NodeKind | EdgeKind,

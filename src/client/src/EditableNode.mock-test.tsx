@@ -252,6 +252,27 @@ describe('EditableNode', () => {
       );
     });
 
+    it('画面の言語の訳 (label:ja) があれば、label と一緒に書き換える (種の訳が勝って古い名前が出ないように)', () => {
+      const props = withKind('主張');
+      props.data.properties = { 'label:ja': '主張', 'label:en': 'Claim' };
+      const { container } = render(<EditableNode {...props} />);
+      const chip = container.querySelector('[data-node-label]');
+      if (!chip) throw new Error('ラベルが無い');
+      fireEvent.click(chip);
+      const input = container.querySelector('[data-node-label-input]');
+      if (!input) throw new Error('編集に入っていない');
+      fireEvent.change(input, { target: { value: '結論' } });
+      fireEvent.blur(input);
+
+      expect(mockDispatch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'NODE_LABEL_CHANGED',
+          to: '結論',
+          translation: { name: 'label:ja', from: '主張', to: '結論' },
+        }),
+      );
+    });
+
     it('値が変わらなければ op-log に積まない', () => {
       const { container } = render(<EditableNode {...withKind('私見')} />);
       const chip = container.querySelector('[data-node-label]');

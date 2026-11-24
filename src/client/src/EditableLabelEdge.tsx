@@ -2,6 +2,7 @@ import {
   type EdgeId,
   type EdgePathType,
   hasTemplateKind,
+  renamedTranslation,
 } from '@conversensus/shared';
 import {
   BaseEdge,
@@ -22,6 +23,7 @@ import { facingAnchors, type Rect } from './graph/facingSides';
 import { useKindLabel } from './graph/kindLabelContext';
 import { DEFAULT_EDGE_PATH_TYPE } from './graphTransform';
 import { useInlineEdit } from './hooks/useInlineEdit';
+import { useLocale } from './i18n/messages';
 import { color, font, radius } from './theme';
 
 function getEdgePath(
@@ -114,6 +116,7 @@ export function EditableLabelEdge({
    *
    * **どの template かは見ない。**ここで要るのは「編集させるか」だけである。
    */
+  const locale = useLocale();
   const fromTemplate = hasTemplateKind(
     data?.properties as Record<string, unknown> | undefined,
   );
@@ -136,12 +139,19 @@ export function EditableLabelEdge({
   } = useInlineEdit(String(label ?? ''), (value) => {
     const from = String(label ?? '');
     if (value !== from) {
+      // 自分の言語の訳があれば一緒に書き換える (node の label と同じ)
+      const translation = renamedTranslation(
+        data?.properties as Record<string, unknown> | undefined,
+        locale,
+        value,
+      );
       dispatch({
         ...makeEventBase('content'),
         type: 'EDGE_RELABELED',
         edgeId: id as EdgeId,
         from,
         to: value,
+        ...(translation && { translation }),
       });
     }
   });

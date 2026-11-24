@@ -206,7 +206,19 @@ export function applyEvent(
       return {
         nodes: nodes.map((n) =>
           n.id === event.nodeId
-            ? { ...n, data: { ...n.data, label: event.to } }
+            ? {
+                ...n,
+                data: {
+                  ...n.data,
+                  label: event.to,
+                  ...(event.translation && {
+                    properties: {
+                      ...(n.data.properties as Properties | undefined),
+                      [event.translation.name]: event.translation.to,
+                    },
+                  }),
+                },
+              }
             : n,
         ),
         edges,
@@ -216,7 +228,21 @@ export function applyEvent(
       return {
         nodes,
         edges: edges.map((e) =>
-          e.id === event.edgeId ? { ...e, label: event.to } : e,
+          e.id === event.edgeId
+            ? {
+                ...e,
+                label: event.to,
+                ...(event.translation && {
+                  data: {
+                    ...e.data,
+                    properties: {
+                      ...(e.data?.properties as Properties | undefined),
+                      [event.translation.name]: event.translation.to,
+                    },
+                  },
+                }),
+              }
+            : e,
         ),
       };
 
