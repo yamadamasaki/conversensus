@@ -3,6 +3,7 @@ import {
   appliedTemplatePropertyOf,
   type Batch,
   type Did,
+  type EdgeId,
   type FileId,
   kindPropertyOf,
   type NodeId,
@@ -1435,6 +1436,124 @@ describe('App 結合: 当てた template の新しい版 (template-update D2・D
     // 変わるのは表示だけ。op-log の label は作ったときの名前のまま
     const applied = file().sheets.find((s) => s.templateIds?.length);
     expect(applied?.nodes[0]?.label).toBe('主張');
+  });
+
+  test('D5: template graph から edge の種類を消して最新の版にしても、既にある edge は消さない (印は単体で見る)', async () => {
+    await world.activate('solo');
+    render(<App />);
+    const user = userEvent.setup();
+    await createFile(user, FILE_NAME);
+    await user.click(
+      screen.getByRole('button', { name: 'template 付きで Sheet を追加' }),
+    );
+    await user.click(screen.getByRole('button', { name: '+ template graph' }));
+    await screen.findByTitle('template graph', {}, WIRING_TIMEOUT);
+    const store = world.localStore();
+    const fileId = store.listFiles()[0]?.id as FileId;
+    const file = () => projectFile(store.getBatches(fileId), fileId);
+    const templateSheet = file().sheets.find(
+      (s) => sheetKindOf(s) === TEMPLATE_SHEET_KIND,
+    );
+    if (!templateSheet) throw new Error('template graph が正典に無い');
+    let seq = 0;
+    const writeElsewhere = (sheetId: SheetId, ops: Op[]) => {
+      seq += 1;
+      store.appendBatches(fileId, [
+        {
+          id: crypto.randomUUID() as Batch['id'],
+          actor: `${LOCAL_TEST_ACTOR}#other-tab`,
+          clock: 1000 + seq,
+          seq,
+          deps: {},
+          timestamp: Date.now(),
+          sheetId,
+          ops,
+        },
+      ]);
+      const channel = new BroadcastChannel(LOCAL_CHANGES_CHANNEL);
+      channel.postMessage({ fileId });
+      channel.close();
+    };
+    // template graph: 根拠 --支える--> 主張
+    const [claim, ground, supports] = [
+      crypto.randomUUID() as NodeId,
+      crypto.randomUUID() as NodeId,
+      crypto.randomUUID() as EdgeId,
+    ];
+    writeElsewhere(templateSheet.id, [
+      { kind: 'node.add', target: claim, content: '' },
+      { kind: 'node.setLabel', target: claim, label: '主張' },
+      { kind: 'node.add', target: ground, content: '' },
+      { kind: 'node.setLabel', target: ground, label: '根拠' },
+      {
+        kind: 'edge.add',
+        target: supports,
+        source: ground,
+        dest: claim,
+        label: '支える',
+      },
+    ]);
+    await waitFor(() => expect(renderedNodeCount()).toBe(2), WIRING_TIMEOUT);
+
+    // 当てた Sheet に、種類を持つ node 2 つと「支える」の edge を置く
+    await user.click(screen.getByText('+ Sheet を追加'));
+    const dialog = await screen.findByRole('dialog', { name: 'Sheet を追加' });
+    await user.click(within(dialog).getByRole('checkbox'));
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Sheet を追加' }),
+    );
+    await waitFor(() => expect(renderedNodeCount()).toBe(0), WIRING_TIMEOUT);
+    const applied = () => file().sheets.find((s) => s.templateIds?.length);
+    const appliedId = applied()?.id;
+    if (!appliedId) throw new Error('当てた Sheet が無い');
+    const kindProperty = kindPropertyOf(templateIdOf(templateSheet.id));
+    const [a, b, e] = [
+      crypto.randomUUID() as NodeId,
+      crypto.randomUUID() as NodeId,
+      crypto.randomUUID() as EdgeId,
+    ];
+    writeElsewhere(appliedId, [
+      { kind: 'node.add', target: a, content: 'データ' },
+      { kind: 'node.setLabel', target: a, label: '根拠' },
+      {
+        kind: 'node.setProperty',
+        target: a,
+        name: kindProperty,
+        value: ground,
+      },
+      { kind: 'node.add', target: b, content: '結論' },
+      { kind: 'node.setLabel', target: b, label: '主張' },
+      { kind: 'node.setProperty', target: b, name: kindProperty, value: claim },
+      {
+        kind: 'edge.add',
+        target: e,
+        source: a,
+        dest: b,
+        label: '支える',
+        properties: { [kindProperty]: supports },
+      },
+    ]);
+    await waitFor(() => expect(renderedNodeCount()).toBe(2), WIRING_TIMEOUT);
+
+    // template graph から「支える」を消して、最新の版にする
+    writeElsewhere(templateSheet.id, [
+      { kind: 'edge.remove', target: supports },
+    ]);
+    const region = await screen.findByRole(
+      'status',
+      { name: 'template の版' },
+      WIRING_TIMEOUT,
+    );
+    await user.click(
+      within(region).getByRole('button', { name: '最新の版にする' }),
+    );
+    await settle();
+    await waitFor(() => expect(templateRegion()).toBeNull(), WIRING_TIMEOUT);
+    // 消しも置き換えもしない (K2)。印は happy-dom では edge が描かれないので単体で見る
+    // (`graph/templateEdge.test.ts`・`EditableLabelEdge.mock-test.tsx`)
+    const edgeNow = applied()?.edges.find((x) => x.id === e);
+    expect(edgeNow?.label).toBe('支える');
+    expect(edgeNow?.properties?.[kindProperty]).toBe(supports);
   });
 
   test('D3: template graph を削除すると、削除を知らせる (pull の入口は無い)', async () => {

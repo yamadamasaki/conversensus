@@ -4,7 +4,9 @@ import { SYSTEM_PROPERTY_PREFIX } from '../events/properties';
 import type { EdgeKindRef } from './fold';
 import {
   autoEdgeKind,
+  EDGE_VIOLATION,
   edgeKindCandidates,
+  edgeViolationOf,
   hasAnyEnd,
   hasTemplateKind,
   isKindProperty,
@@ -265,5 +267,60 @@ describe('autoEdgeKind (template-update K15)', () => {
       asKind('claim'),
     );
     expect(autoEdgeKind(supports ? [supports] : [])?.kind.label).toBe('支える');
+  });
+});
+
+describe('edgeViolationOf (template-update D5)', () => {
+  const T = TOULMIN_TEMPLATE;
+  /** 端の種類: 今の種類・種類なし・消された種類 */
+  const arbEnd = fc.constantFrom<string | undefined>(
+    ...T.nodeKinds.map((k) => k.id),
+    undefined,
+    'deleted-node-kind',
+  );
+  /** edge の種類: 今の種類・消された種類 */
+  const arbEdgeKind = fc.constantFrom(
+    ...T.edgeKinds.map((k) => k.id),
+    'deleted-edge-kind',
+  );
+  const props = (id: string | undefined) =>
+    id === undefined ? undefined : asKind(id);
+
+  test('性質: 種類が今の template に無ければ unknownKind、あれば「その組の候補に入るか」と一致する', () => {
+    fc.assert(
+      fc.property(arbEdgeKind, arbEnd, arbEnd, (edgeKind, from, to) => {
+        const violation = edgeViolationOf(
+          [T],
+          asKind(edgeKind),
+          props(from),
+          props(to),
+        );
+        if (!T.edgeKinds.some((k) => k.id === edgeKind)) {
+          expect(violation).toBe(EDGE_VIOLATION.UNKNOWN_KIND);
+          return;
+        }
+        const allowed = edgeKindCandidates([T], props(from), props(to)).some(
+          (c) => c.kind.id === edgeKind,
+        );
+        expect(violation).toBe(allowed ? undefined : EDGE_VIOLATION.ENDS);
+      }),
+    );
+  });
+
+  test('種類を持たない edge・当たっていない template の種類は見ない', () => {
+    expect(edgeViolationOf([T], undefined, undefined, undefined)).toBe(
+      undefined,
+    );
+    expect(
+      edgeViolationOf(
+        [T],
+        { 'template.other.kind': 'x' },
+        undefined,
+        undefined,
+      ),
+    ).toBe(undefined);
+    expect(
+      edgeViolationOf([], asKind('deleted-edge-kind'), undefined, undefined),
+    ).toBe(undefined);
   });
 });

@@ -391,6 +391,12 @@ op-log の読み直し (`useTemplateNotices`) → 既読で落とす → 右下�
   変える → 最新の版にするまでは「主張」のまま → 通知から最新の版にすると「結論」と出る → op-log の label は
   「主張」のまま (変わるのは表示だけ)。Toulmin の種で見ないのは、種が言語ごとの訳 (`label:ja`) を持ち、日本語では
   訳が勝つためである
+- **D5: template graph から edge の種類を消して最新の版にしても、既にある edge は消さない**: 訳の無い
+  template graph (根拠 --支える--> 主張) を当て、種類を持つ node 2 つと「支える」の edge を置く → template graph
+  から「支える」を消して、通知から最新の版にする → edge は label も種類の property もそのまま残る (計画 K2)。
+  **違反の印そのものはここでは見ない** — happy-dom では React Flow が edge を描かない (node の大きさが測られない)
+  ので、印の DOM に届かない。印は `graph/templateEdge.test.ts` (求める所) と `EditableLabelEdge.mock-test.tsx`
+  (描く所) が見る
 - **D3: template graph を削除すると、削除を知らせる (pull の入口は無い)**: template graph の Sheet を消す op を
   入れると「…は削除されました」が出て、「最新の版にする」は無い
 - **待ち方の注意**: 通知の欄から pull した後は、`waitFor` の前に普通に待つ (`settle`)。`waitFor` で待つ間は、

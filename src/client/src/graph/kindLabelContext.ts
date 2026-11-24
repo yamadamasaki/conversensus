@@ -6,7 +6,7 @@
  * 生の label を扱う。無ければ label のまま (template の無い所・単体のテスト)
  */
 
-import type { PropertyName } from '@conversensus/shared';
+import type { EdgeViolation, PropertyName } from '@conversensus/shared';
 import { createContext, useContext } from 'react';
 
 export type KindLabelOf = (
@@ -41,4 +41,18 @@ export const KindPlaceholderProvider = KindPlaceholderContext.Provider;
 
 export function useKindPlaceholder(): KindPlaceholderOf {
   return useContext(KindPlaceholderContext);
+}
+
+/**
+ * 種類を持つ edge が、当たっている template の今の規則を満たさない理由 (template-update D5、K2)。pull で
+ * template が変わって外れた edge に印を付ける。無ければ (満たす・対象外・template の無い所) undefined
+ */
+export type EdgeViolationOf = (edgeId: string) => EdgeViolation | undefined;
+
+const EdgeViolationContext = createContext<EdgeViolationOf>(() => undefined);
+
+export const EdgeViolationProvider = EdgeViolationContext.Provider;
+
+export function useEdgeViolation(): EdgeViolationOf {
+  return useContext(EdgeViolationContext);
 }

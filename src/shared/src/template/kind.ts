@@ -161,3 +161,44 @@ export function isTemplateEdge(
       kindIdIn(t, toProperties) !== undefined,
   );
 }
+
+/** 種類を持つ edge が、今の template の規則を満たさない理由 (template-update D5) */
+export const EDGE_VIOLATION = {
+  /** edge の種類が template に無い (template graph で消された) */
+  UNKNOWN_KIND: 'unknownKind',
+  /** 両端の種類の組が、その種類の接続規則に合わない */
+  ENDS: 'ends',
+} as const;
+export type EdgeViolation =
+  (typeof EDGE_VIOLATION)[keyof typeof EDGE_VIOLATION];
+
+/**
+ * 種類を持つ edge が、当たっている template の今の規則を満たすかを見る (template-update D5、K2)。
+ * 満たさなければ理由を、満たすか対象外なら `undefined` を返す。
+ *
+ * pull で template が変わると、既にある edge が規則を外れることがある。**消しも置き換えもせず**、印で
+ * 見せるために使う (K2: 違反は違反として見せる)。
+ *
+ * - 見るのは、edge が種類を持つ template だけ。**当たっていない template の種類は見ない** — 相手の template
+ *   を持たないせいで違反に見せない (`canReconnectByTemplate` と同じ判断)
+ * - 端の node の種類は `kindIdIn` で読む。今の template に無い種類 (消された) の node は「任意」に当たる
+ * - 複数の template の種類を持つときは、どれか 1 つでも外れていれば、最初の理由を返す
+ */
+export function edgeViolationOf(
+  templates: readonly Template[],
+  edgeProperties: Readonly<Record<string, unknown>> | undefined,
+  fromProperties: Readonly<Record<string, unknown>> | undefined,
+  toProperties: Readonly<Record<string, unknown>> | undefined,
+): EdgeViolation | undefined {
+  for (const t of templates) {
+    const value = edgeProperties?.[kindPropertyOf(t.id)];
+    if (typeof value !== 'string' || value === '') continue;
+    const kind = t.edgeKinds.find((k) => k.id === value);
+    if (!kind) return EDGE_VIOLATION.UNKNOWN_KIND;
+    const from = kindIdIn(t, fromProperties) ?? ANY_NODE_KIND;
+    const to = kindIdIn(t, toProperties) ?? ANY_NODE_KIND;
+    if (!kind.from.includes(from) || !kind.to.includes(to))
+      return EDGE_VIOLATION.ENDS;
+  }
+  return undefined;
+}

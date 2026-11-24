@@ -20,10 +20,10 @@ import { useEventDispatch } from './EventDispatchContext';
 import { makeEventBase } from './events/GraphEvent';
 import { AuthorAvatars, EDGE_AVATAR_OFFSET_Y } from './graph/AuthorAvatars';
 import { facingAnchors, type Rect } from './graph/facingSides';
-import { useKindLabel } from './graph/kindLabelContext';
+import { useEdgeViolation, useKindLabel } from './graph/kindLabelContext';
 import { DEFAULT_EDGE_PATH_TYPE } from './graphTransform';
 import { useInlineEdit } from './hooks/useInlineEdit';
-import { useLocale } from './i18n/messages';
+import { useLocale, useMessages } from './i18n/messages';
 import { color, font, radius } from './theme';
 
 function getEdgePath(
@@ -117,6 +117,10 @@ export function EditableLabelEdge({
    * **どの template かは見ない。**ここで要るのは「編集させるか」だけである。
    */
   const locale = useLocale();
+  const t = useMessages();
+  /** 種類の規則を外れているか (template-update D5)。外れていれば線を破線の警告色にし、hover で理由を出す */
+  const violation = useEdgeViolation()(id);
+  const violationText = violation && t.graph.edgeViolation[violation];
   const fromTemplate = hasTemplateKind(
     data?.properties as Record<string, unknown> | undefined,
   );
@@ -242,7 +246,15 @@ export function EditableLabelEdge({
 
   return (
     <>
-      <BaseEdge path={edgePath} markerEnd={markerEnd} style={style} />
+      <BaseEdge
+        path={edgePath}
+        markerEnd={markerEnd}
+        style={
+          violation
+            ? { ...style, stroke: color.danger, strokeDasharray: '6 4' }
+            : style
+        }
+      />
       {/* ダブルクリック用の透明な幅広パス: SVG path は role/keyboard 対応が不要なインタラクション */}
       {/* biome-ignore lint/a11y/noStaticElementInteractions: SVG path element for visual double-click interaction */}
       <path
@@ -251,6 +263,7 @@ export function EditableLabelEdge({
         stroke="transparent"
         fill="none"
         style={{ cursor: 'pointer' }}
+        {...(violation && { 'data-edge-violation': violation })}
         onDoubleClick={
           fromTemplate
             ? undefined
@@ -259,7 +272,10 @@ export function EditableLabelEdge({
                 startEdit();
               }
         }
-      />
+      >
+        {/* 規則を外れた理由は hover で出す (template-update D5、計画 Q6 案 A) */}
+        {violationText && <title>{violationText}</title>}
+      </path>
       <EdgeLabelRenderer>
         <button
           type="button"
@@ -314,12 +330,13 @@ export function EditableLabelEdge({
             label != null &&
             label !== '' && (
               <span
+                {...(violationText && { title: violationText })}
                 style={{
                   fontSize: font.body,
                   background: 'white',
                   padding: '2px 6px',
                   borderRadius: radius.sm,
-                  border: `1px solid ${color.border}`,
+                  border: `1px solid ${violation ? color.danger : color.border}`,
                   cursor: 'grab',
                 }}
               >

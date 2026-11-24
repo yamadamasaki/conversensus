@@ -68,6 +68,8 @@ import {
 } from './graph/flowTypes';
 import { GraphNodeProvider } from './graph/graphNodeContext';
 import {
+  type EdgeViolationOf,
+  EdgeViolationProvider,
   type KindLabelOf,
   KindLabelProvider,
   type KindPlaceholderOf,
@@ -77,6 +79,7 @@ import {
   canConnectByTemplate,
   canReconnectByTemplate,
   edgeKindCandidatesFor,
+  edgeViolationsIn,
 } from './graph/templateEdge';
 import {
   DEFAULT_EDGE_PATH_TYPE,
@@ -282,6 +285,17 @@ function GraphEditorInner({
       addedEdgeIds,
       updatedEdgeIds,
     ),
+  );
+
+  // 種類の規則を外れた edge (template-update D5)。pull で template が変わると既にある edge が外れることが
+  // あるが、消しも置き換えもせず、印で見せる (K2)
+  const edgeViolations = useMemo(
+    () => edgeViolationsIn(templates, nodes, edges),
+    [templates, nodes, edges],
+  );
+  const edgeViolationFor = useCallback<EdgeViolationOf>(
+    (edgeId) => edgeViolations.get(edgeId),
+    [edgeViolations],
   );
 
   // 画像の受け入れに失敗した理由 (上限超過・保存失敗)。App へ持ち上げず GraphEditor 内で
@@ -1028,146 +1042,148 @@ function GraphEditorInner({
           <GraphNodeProvider value={graphNodeHandlers}>
             <KindLabelProvider value={kindLabelOf}>
               <KindPlaceholderProvider value={kindPlaceholderOf}>
-                {/* biome-ignore lint/a11y/noStaticElementInteractions: drop target wrapper */}
-                <div
-                  ref={fitOnResize.containerRef}
-                  style={{ width: '100%', height: '100%' }}
-                  onDragOver={handleDragOver}
-                  onDrop={handleDrop}
-                >
-                  <ReactFlow
-                    nodes={nodes}
-                    edges={edges}
-                    nodeTypes={FLOW_NODE_TYPES}
-                    edgeTypes={FLOW_EDGE_TYPES}
-                    onNodesChange={handleNodesChange}
-                    onEdgesChange={handleEdgesChange}
-                    connectionMode={FLOW_CONNECTION_MODE}
-                    onConnect={onConnect}
-                    onConnectEnd={onConnectEnd}
-                    isValidConnection={isValidConnection}
-                    onReconnect={onReconnect}
-                    onReconnectStart={onReconnectStart}
-                    onReconnectEnd={onReconnectEnd}
-                    onNodeDragStart={onNodeDragStart}
-                    onNodeDrag={onNodeDrag}
-                    onNodeDragStop={onNodeDragStop}
-                    // 読み取り専用のときは動かす・繋ぐ・繋ぎ替えるを止める
-                    // (step2 Phase 2 S6)。**選択と拡大縮小は残す** — 読むための操作である
-                    nodesDraggable={!readOnly}
-                    nodesConnectable={!readOnly}
-                    edgesReconnectable={!readOnly}
-                    onPaneClick={onPaneClick}
-                    onMoveStart={fitOnResize.onMoveStart}
-                    onEdgeContextMenu={onEdgeContextMenu}
-                    onNodeContextMenu={nodeActions.onNodeContextMenu}
-                    zoomOnDoubleClick={false}
-                    deleteKeyCode={null}
-                    minZoom={MIN_ZOOM}
-                    fitView
+                <EdgeViolationProvider value={edgeViolationFor}>
+                  {/* biome-ignore lint/a11y/noStaticElementInteractions: drop target wrapper */}
+                  <div
+                    ref={fitOnResize.containerRef}
+                    style={{ width: '100%', height: '100%' }}
+                    onDragOver={handleDragOver}
+                    onDrop={handleDrop}
                   >
-                    {readOnly && (
-                      <Panel position="top-center">
-                        {/* **なぜ編集できないかを出す。**出さないと「動かない」に見える */}
-                        <div
-                          role="status"
-                          style={{
-                            background: color.warningBg,
-                            border: `1px solid ${color.warning}`,
-                            color: color.warningText,
-                            borderRadius: radius.sm,
-                            padding: '4px 10px',
-                            fontSize: font.body,
-                          }}
-                        >
-                          {t.graph.readOnlyCatchingUp}
+                    <ReactFlow
+                      nodes={nodes}
+                      edges={edges}
+                      nodeTypes={FLOW_NODE_TYPES}
+                      edgeTypes={FLOW_EDGE_TYPES}
+                      onNodesChange={handleNodesChange}
+                      onEdgesChange={handleEdgesChange}
+                      connectionMode={FLOW_CONNECTION_MODE}
+                      onConnect={onConnect}
+                      onConnectEnd={onConnectEnd}
+                      isValidConnection={isValidConnection}
+                      onReconnect={onReconnect}
+                      onReconnectStart={onReconnectStart}
+                      onReconnectEnd={onReconnectEnd}
+                      onNodeDragStart={onNodeDragStart}
+                      onNodeDrag={onNodeDrag}
+                      onNodeDragStop={onNodeDragStop}
+                      // 読み取り専用のときは動かす・繋ぐ・繋ぎ替えるを止める
+                      // (step2 Phase 2 S6)。**選択と拡大縮小は残す** — 読むための操作である
+                      nodesDraggable={!readOnly}
+                      nodesConnectable={!readOnly}
+                      edgesReconnectable={!readOnly}
+                      onPaneClick={onPaneClick}
+                      onMoveStart={fitOnResize.onMoveStart}
+                      onEdgeContextMenu={onEdgeContextMenu}
+                      onNodeContextMenu={nodeActions.onNodeContextMenu}
+                      zoomOnDoubleClick={false}
+                      deleteKeyCode={null}
+                      minZoom={MIN_ZOOM}
+                      fitView
+                    >
+                      {readOnly && (
+                        <Panel position="top-center">
+                          {/* **なぜ編集できないかを出す。**出さないと「動かない」に見える */}
+                          <div
+                            role="status"
+                            style={{
+                              background: color.warningBg,
+                              border: `1px solid ${color.warning}`,
+                              color: color.warningText,
+                              borderRadius: radius.sm,
+                              padding: '4px 10px',
+                              fontSize: font.body,
+                            }}
+                          >
+                            {t.graph.readOnlyCatchingUp}
+                          </div>
+                        </Panel>
+                      )}
+                      {nodes.length === 0 && !readOnly && (
+                        // 空の Sheet (visual language §9.1, #279): 何をすれば node ができるかを言う。
+                        // 押す操作を邪魔しないよう、ポインタは下の pane へ通す
+                        <div aria-live="polite" style={EMPTY_SHEET_HINT}>
+                          <p style={{ margin: 0 }}>{t.graph.emptyHint}</p>
+                          <p style={{ margin: 0, fontSize: font.caption }}>
+                            {t.graph.emptyHintImage}
+                          </p>
                         </div>
-                      </Panel>
+                      )}
+                      {/* template graph では、名前の重なった種類を知らせる (template-update K6) */}
+                      {isTemplateGraph && (
+                        <DuplicateKindsWarning sheet={activeSheet} />
+                      )}
+                      {nodeActions.toolbar && (
+                        <NodeActionBar
+                          nodeId={nodeActions.toolbar.nodeId}
+                          actions={nodeActions.toolbar.actions}
+                          onPick={nodeActions.pick}
+                        />
+                      )}
+                      <Background />
+                      <Controls />
+                      {/* map で見る範囲を動かす・拡大縮小する (#182) */}
+                      {showMap && <MiniMap pannable zoomable />}
+                    </ReactFlow>
+                    {nodeTypeMenu && (
+                      <NodeTypeMenu
+                        position={nodeTypeMenu.screenPos}
+                        nodeKinds={nodeKinds}
+                        graphNodeOption={graphNodes !== undefined}
+                        onSelect={(nodeType, kind) => {
+                          if (nodeType === 'graph') {
+                            graphNodes?.onAdd(nodeTypeMenu.position);
+                            clearNodeTypeMenu();
+                            return;
+                          }
+                          addNode(
+                            nodeTypeMenu.position,
+                            nodeType,
+                            undefined,
+                            kind,
+                            nodeTypeMenu.containerId,
+                          );
+                          clearNodeTypeMenu();
+                        }}
+                      />
                     )}
-                    {nodes.length === 0 && !readOnly && (
-                      // 空の Sheet (visual language §9.1, #279): 何をすれば node ができるかを言う。
-                      // 押す操作を邪魔しないよう、ポインタは下の pane へ通す
-                      <div aria-live="polite" style={EMPTY_SHEET_HINT}>
-                        <p style={{ margin: 0 }}>{t.graph.emptyHint}</p>
-                        <p style={{ margin: 0, fontSize: font.caption }}>
-                          {t.graph.emptyHintImage}
-                        </p>
-                      </div>
+                    {pendingEdge?.position && (
+                      <EdgeKindMenu
+                        position={pendingEdge.position}
+                        candidates={pendingEdge.candidates}
+                        templates={templates}
+                        onSelect={resolvePendingEdge}
+                      />
                     )}
-                    {/* template graph では、名前の重なった種類を知らせる (template-update K6) */}
-                    {isTemplateGraph && (
-                      <DuplicateKindsWarning sheet={activeSheet} />
+                    {contextMenu && (
+                      <EdgeContextMenu
+                        contextMenu={contextMenu}
+                        onSelect={setEdgePathType}
+                      />
                     )}
-                    {nodeActions.toolbar && (
-                      <NodeActionBar
-                        nodeId={nodeActions.toolbar.nodeId}
-                        actions={nodeActions.toolbar.actions}
+                    {nodeActions.menu && (
+                      <NodeActionMenu
+                        menu={nodeActions.menu}
                         onPick={nodeActions.pick}
                       />
                     )}
-                    <Background />
-                    <Controls />
-                    {/* map で見る範囲を動かす・拡大縮小する (#182) */}
-                    {showMap && <MiniMap pannable zoomable />}
-                  </ReactFlow>
-                  {nodeTypeMenu && (
-                    <NodeTypeMenu
-                      position={nodeTypeMenu.screenPos}
-                      nodeKinds={nodeKinds}
-                      graphNodeOption={graphNodes !== undefined}
-                      onSelect={(nodeType, kind) => {
-                        if (nodeType === 'graph') {
-                          graphNodes?.onAdd(nodeTypeMenu.position);
-                          clearNodeTypeMenu();
-                          return;
-                        }
-                        addNode(
-                          nodeTypeMenu.position,
-                          nodeType,
-                          undefined,
-                          kind,
-                          nodeTypeMenu.containerId,
-                        );
-                        clearNodeTypeMenu();
-                      }}
-                    />
-                  )}
-                  {pendingEdge?.position && (
-                    <EdgeKindMenu
-                      position={pendingEdge.position}
-                      candidates={pendingEdge.candidates}
-                      templates={templates}
-                      onSelect={resolvePendingEdge}
-                    />
-                  )}
-                  {contextMenu && (
-                    <EdgeContextMenu
-                      contextMenu={contextMenu}
-                      onSelect={setEdgePathType}
-                    />
-                  )}
-                  {nodeActions.menu && (
-                    <NodeActionMenu
-                      menu={nodeActions.menu}
-                      onPick={nodeActions.pick}
-                    />
-                  )}
-                  {nodeActions.dialog && (
-                    <NodeActionDialog
-                      action={nodeActions.dialog.found.action}
-                      initial={nodeActions.dialog.initial}
-                      participants={actionEnv.participants}
-                      onSubmit={nodeActions.submitDialog}
-                      onCancel={nodeActions.closeDialog}
-                    />
-                  )}
-                  {imageError && (
-                    <AlertDialog
-                      message={imageError}
-                      onClose={() => setImageError(null)}
-                    />
-                  )}
-                </div>
+                    {nodeActions.dialog && (
+                      <NodeActionDialog
+                        action={nodeActions.dialog.found.action}
+                        initial={nodeActions.dialog.initial}
+                        participants={actionEnv.participants}
+                        onSubmit={nodeActions.submitDialog}
+                        onCancel={nodeActions.closeDialog}
+                      />
+                    )}
+                    {imageError && (
+                      <AlertDialog
+                        message={imageError}
+                        onClose={() => setImageError(null)}
+                      />
+                    )}
+                  </div>
+                </EdgeViolationProvider>
               </KindPlaceholderProvider>
             </KindLabelProvider>
           </GraphNodeProvider>

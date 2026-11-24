@@ -84,3 +84,16 @@ edge を繋ぐときの 2 つの判断を見る。
   繋いだ直後に選ばせる (`EdgeKindMenu`)
 - **繋ぎ替えは、いまの種類が候補に入っていれば許す。**以前は「候補がちょうど 1 つでそれが同じ種類」
   だけを許していたので、候補が複数の組では種類が変わらない繋ぎ替えまで塞いでいた (変異: 旧規則に戻すと落ちる)
+
+## `edgeViolationsIn` (template-update D5)
+
+GraphEditor が、種類の規則を外れた edge を edge の id ごとに求める所 (印は `EditableLabelEdge` が付ける)。
+判定そのもの (`edgeViolationOf`) の性質は shared の `kind.test.ts` が見るので、ここは**React Flow の node・edge
+から両端の種類を引いて渡す配線**を例で見る。
+
+- 規則を外れた edge だけを理由と一緒に返す: 端の組が合わない (`ends`)・種類が今の template に無い
+  (`unknownKind`)。規則を満たす edge・種類を持たない edge は含めない
+- template が当たっていなければ何も返さない
+
+App 結合では見られない — happy-dom では React Flow が edge を描かない (node の大きさが測られない) ので、印の DOM
+に届かない。

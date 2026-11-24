@@ -460,6 +460,11 @@ export const ja = {
     groupDefault: 'グループ',
     diff: { add: '追加', update: '変更' },
     edgeKind: 'edge の種類',
+    /** 種類の規則を外れた edge の理由 (template-update D5)。hover で出す */
+    edgeViolation: {
+      unknownKind: 'この edge の種類は、今の template にありません',
+      ends: 'この edge の種類は、今の template ではこの両端の組に使えません',
+    },
     edgesToChange: (count: number) => `${count} 本の edge を変更`,
     pathTypes: {
       default: 'Bezier（曲線）',

@@ -53,3 +53,13 @@
 - **画面の言語の訳 (`label:ja`) があれば、label と一緒に書き換える**。template graph で edge の種類の名前を
   変えても、種の訳が残っていると表示は訳が勝つ。`EDGE_RELABELED` の `translation` に載せる (node の label と同じ、
   `renamedTranslation`)
+
+## 種類の規則を外れた edge (template-update D5)
+
+pull で template が変わり、既にある edge が種類の規則を外れたとき (種類が消された・端の組が許されなくなった)、
+消しも置き換えもせず印で見せる (計画 K2、Q6 案 A)。判定は GraphEditor が `edgeViolationOf` で行い、
+`EdgeViolationProvider` で渡す。
+
+- **外れていれば線に印 (`data-edge-violation`、警告色の破線) を付け、hover で理由を出す** (線の当たり判定の
+  path の `<title>`)。label の枠にも同じ理由を `title` で付ける — 線は細くて hover しにくい
+- **外れていなければ印も理由も無い** (context の既定は「外れていない」)

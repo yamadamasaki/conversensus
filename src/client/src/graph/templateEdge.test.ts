@@ -11,6 +11,7 @@ import {
   canReconnectByTemplate,
   edgeKindCandidatesFor,
   edgeKindFor,
+  edgeViolationsIn,
 } from './templateEdge';
 
 const KIND = kindPropertyOf(TOULMIN_TEMPLATE.id);
@@ -229,5 +230,34 @@ describe('候補が複数の組 (step3 Phase 4 Q8)', () => {
         'claim2',
       ),
     ).toBe(true);
+  });
+});
+
+describe('edgeViolationsIn (template-update D5)', () => {
+  const edge = (id: string, source: string, target: string, kind?: string) =>
+    ({
+      id,
+      source,
+      target,
+      data: kind ? { properties: { [KIND]: kind } } : {},
+    }) as Edge;
+
+  it('種類の規則を外れた edge だけを、理由と一緒に返す (両端の node の種類で見る)', () => {
+    const violations = edgeViolationsIn(T, NODES, [
+      edge('ok', 'data', 'claim', 'supports'),
+      edge('ends', 'warrant', 'claim', 'supports'),
+      edge('gone', 'data', 'claim', 'deleted-kind'),
+      edge('free', 'plain', 'claim'),
+    ]);
+    expect([...violations]).toEqual([
+      ['ends', 'ends'],
+      ['gone', 'unknownKind'],
+    ]);
+  });
+
+  it('template が当たっていなければ何も返さない', () => {
+    expect(
+      edgeViolationsIn([], NODES, [edge('gone', 'data', 'claim', 'x')]).size,
+    ).toBe(0);
   });
 });

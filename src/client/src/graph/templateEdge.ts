@@ -1,7 +1,9 @@
 import {
   autoEdgeKind,
   type EdgeKindRef,
+  type EdgeViolation,
   edgeKindCandidates,
+  edgeViolationOf,
   isTemplateEdge,
   kindPropertyOf,
   type Template,
@@ -134,4 +136,28 @@ export function canReconnectByTemplate(
     (next) =>
       next.templateId === current.templateId && next.kind.id === current.kindId,
   );
+}
+
+/**
+ * 種類の規則を外れた edge を、edge の id ごとに求める (template-update D5、K2)。pull で template が変わると
+ * 既にある edge が外れることがあるが、消しも置き換えもせず、印で見せる (`EditableLabelEdge`)。
+ * 外れていない edge は含めない
+ */
+export function edgeViolationsIn(
+  templates: readonly Template[],
+  nodes: readonly Node[],
+  edges: readonly Edge[],
+): Map<string, EdgeViolation> {
+  const byId = new Map<string, EdgeViolation>();
+  if (templates.length === 0) return byId;
+  for (const e of edges) {
+    const violation = edgeViolationOf(
+      templates,
+      e.data?.properties as Record<string, unknown> | undefined,
+      propertiesOf(nodes, e.source),
+      propertiesOf(nodes, e.target),
+    );
+    if (violation) byId.set(e.id, violation);
+  }
+  return byId;
 }
