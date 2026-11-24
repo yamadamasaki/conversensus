@@ -184,6 +184,7 @@ export const ja = {
     saveToAccount: 'アカウントに保存する',
     applyTemplate: 'template を当てる',
     pullTemplate: (name: string) => `「${name}」を最新の版にする`,
+    detachTemplate: (name: string) => `「${name}」を外す`,
     export: 'エクスポート (.conversensus)',
     ok: 'OK',
   },

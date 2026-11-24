@@ -15,6 +15,7 @@ import {
   appliedTemplateRefs,
   appliedTemplateSheetIds,
   appliedTemplateValueOf,
+  detachableTemplateSheets,
 } from './applied';
 
 const sheetId = (n: number): SheetId =>
@@ -164,6 +165,30 @@ describe('appliedTemplateRefs (#355)', () => {
         properties: propertiesOf([sheetId(1)]),
       }),
     ).toEqual(new Set([sheetId(0), sheetId(1)]));
+  });
+});
+
+describe('detachableTemplateSheets (template-update D6)', () => {
+  test('性質: 外せるのは後から当てたもののうち作るときに無いものちょうど (id の順)。作るときのものは、pull でプロパティにあっても外せない', () => {
+    fc.assert(
+      fc.property(arbSheet, ({ created, later }) => {
+        expect(
+          detachableTemplateSheets({
+            templateIds: refsOf(created),
+            properties: propertiesOf(later),
+          }),
+        ).toEqual(later.filter((id) => !created.includes(id)).sort());
+      }),
+    );
+  });
+
+  test('作り込みの id は数えない', () => {
+    expect(
+      detachableTemplateSheets({
+        templateIds: ['builtin.toulmin' as TemplateRef],
+        properties: propertiesOf([sheetId(1)]),
+      }),
+    ).toEqual([sheetId(1)]);
   });
 });
 

@@ -1556,6 +1556,51 @@ describe('App 結合: 当てた template の新しい版 (template-update D2・D
     expect(edgeNow?.properties?.[kindProperty]).toBe(supports);
   });
 
+  test('D6: 後から当てた template は「…」から外せる。作るときに当てたものには入口が無い', async () => {
+    const { user, appliedName } = await setupApplied();
+    const DETACH = '「Toulmin model」を外す';
+
+    // 作るときに当てたものは外せない
+    await openSheetDetails(user, appliedName);
+    expect(screen.queryByRole('button', { name: DETACH }) === null).toBe(true);
+    await user.keyboard('{Escape}');
+
+    // Sheet 1 に後から当てると、外す入口が出る
+    await user.click(screen.getByRole('button', { name: 'Sheet 1' }));
+    await openSheetDetails(user, 'Sheet 1');
+    await user.click(screen.getByRole('button', { name: 'template を当てる' }));
+    const dialog = await screen.findByRole('dialog', {
+      name: 'template を当てる',
+    });
+    await user.click(
+      within(dialog).getByRole('checkbox', { name: 'Toulmin model' }),
+    );
+    await user.click(within(dialog).getByRole('button', { name: '当てる' }));
+    const store = world.localStore();
+    const fileId = store.listFiles()[0]?.id as FileId;
+    const sheet1 = () =>
+      projectFile(store.getBatches(fileId), fileId).sheets.find(
+        (s) => s.name === 'Sheet 1',
+      );
+    await waitFor(
+      () => expect(sheet1()?.properties).toBeDefined(),
+      WIRING_TIMEOUT,
+    );
+    await openSheetDetails(user, 'Sheet 1');
+    await user.click(await screen.findByRole('button', { name: DETACH }));
+
+    // 外すとプロパティが消え、また当てられるようになる
+    await waitFor(
+      () => expect(sheet1()?.properties).toBeUndefined(),
+      WIRING_TIMEOUT,
+    );
+    await openSheetDetails(user, 'Sheet 1');
+    expect(screen.queryByRole('button', { name: DETACH }) === null).toBe(true);
+    expect(
+      screen.getByRole('button', { name: 'template を当てる' }),
+    ).toBeDefined();
+  });
+
   test('D3: template graph を削除すると、削除を知らせる (pull の入口は無い)', async () => {
     const { toulmin, appliedName, writeElsewhere } = await setupApplied();
     writeElsewhere([{ kind: 'sheet.remove', target: toulmin.id }]);

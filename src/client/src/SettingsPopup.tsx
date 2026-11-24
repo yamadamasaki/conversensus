@@ -1,5 +1,12 @@
 import type { FileId, SheetId } from '@conversensus/shared';
-import { FileDown, RefreshCw, Shapes, Trash2, Upload } from 'lucide-react';
+import {
+  FileDown,
+  RefreshCw,
+  Shapes,
+  Trash2,
+  Unlink,
+  Upload,
+} from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useMessages } from './i18n/messages';
 import { color, font, radius, shadow, space } from './theme';
@@ -13,6 +20,14 @@ export type TemplateUpdate = {
   name: string;
   /** 最新の版にする */
   pull: () => void;
+};
+
+/** 後から当てた template で、外せるもの 1 つ (template-update D6) */
+export type TemplateDetach = {
+  /** template graph の名前 */
+  name: string;
+  /** 外す */
+  detach: () => void;
 };
 
 export type PopupTarget =
@@ -36,6 +51,11 @@ type Props = {
    * op-log を読むので非同期。新しい版が無ければ入口を出さない
    */
   templateUpdates?: () => Promise<TemplateUpdate[]>;
+  /**
+   * 外せる template (後から当てたもの、template-update D6・K4)。作るときに当てたものは入らない
+   * (外せないので入口を出さない)
+   */
+  templateDetaches?: readonly TemplateDetach[];
 };
 
 export function SettingsPopup({
@@ -49,6 +69,7 @@ export function SettingsPopup({
   onSaveToAccount,
   onApplyTemplate,
   templateUpdates,
+  templateDetaches = [],
 }: Props) {
   const t = useMessages();
   const [updates, setUpdates] = useState<TemplateUpdate[]>([]);
@@ -208,6 +229,11 @@ export function SettingsPopup({
       {updates.map((update) => (
         <Button key={update.name} icon={RefreshCw} onClick={update.pull}>
           {t.settings.pullTemplate(update.name)}
+        </Button>
+      ))}
+      {templateDetaches.map((d) => (
+        <Button key={d.name} icon={Unlink} onClick={d.detach}>
+          {t.settings.detachTemplate(d.name)}
         </Button>
       ))}
       {onSaveToAccount && (

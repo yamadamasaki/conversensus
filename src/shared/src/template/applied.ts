@@ -8,7 +8,7 @@
  *   `sheet.setProperty` はキーごとに後勝ちなので、1 つのキーに配列を置くと、2 人が同時に別の template を
  *   当てたときに片方が消える。キーを分ければ両方残る
  * - 値は当てた時点の切断面 `{ at }` (`TemplateSheetRef` から、キーにある `sheet` を除いたもの)
- * - 値を消せば外れる形にしてある (外す入口は今は無い)
+ * - 値を消せば外れる (`detachableTemplateSheets`、template-update D6)
  */
 
 import type { VersionVector } from '../events/causality';
@@ -104,5 +104,25 @@ export function appliedTemplateSheetIds(
     appliedTemplateRefs(sheet).flatMap((ref) =>
       typeof ref === 'string' ? [] : [ref.sheet],
     ),
+  );
+}
+
+/**
+ * sheet の「…」から**外せる** template graph の id (template-update D6、計画 K4)。後から当てたものだけで、
+ * 作るときに当てたもの (`sheet.create.templateIds`) は外せない。
+ *
+ * 作るときのものはプロパティを消しても外れない — 版を進める (pull) とプロパティに書くが、消すと作るときの
+ * 切断面に戻るだけである (`appliedTemplateRefs`)。だから入口を出さない。並びは `appliedTemplateRefs` の順
+ */
+export function detachableTemplateSheets(
+  sheet: Pick<Sheet, 'templateIds' | 'properties'>,
+): SheetId[] {
+  const created = new Set(
+    (sheet.templateIds ?? []).flatMap((ref) =>
+      typeof ref === 'string' ? [] : [ref.sheet],
+    ),
+  );
+  return appliedTemplateRefs(sheet).flatMap((ref) =>
+    typeof ref === 'string' || created.has(ref.sheet) ? [] : [ref.sheet],
   );
 }

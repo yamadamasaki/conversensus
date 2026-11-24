@@ -397,6 +397,10 @@ op-log の読み直し (`useTemplateNotices`) → 既読で落とす → 右下�
   **違反の印そのものはここでは見ない** — happy-dom では React Flow が edge を描かない (node の大きさが測られない)
   ので、印の DOM に届かない。印は `graph/templateEdge.test.ts` (求める所) と `EditableLabelEdge.mock-test.tsx`
   (描く所) が見る
+- **D6: 後から当てた template は「…」から外せる。作るときに当てたものには入口が無い**: 作るときに Toulmin を
+  当てた Sheet の「…」に「「Toulmin model」を外す」は無い (計画 K4) → Sheet 1 に「template を当てる」で後から
+  当てると入口が出る → 押すと Sheet 1 のプロパティが消え、入口が消えて「template を当てる」がまた出る。
+  **変異で確かめた**: 作るときのものも外せるようにすると、最初の「無い」で落ちる
 - **D3: template graph を削除すると、削除を知らせる (pull の入口は無い)**: template graph の Sheet を消す op を
   入れると「…は削除されました」が出て、「最新の版にする」は無い
 - **待ち方の注意**: 通知の欄から pull した後は、`waitFor` の前に普通に待つ (`settle`)。`waitFor` で待つ間は、

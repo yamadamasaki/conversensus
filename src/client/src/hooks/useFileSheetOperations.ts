@@ -995,6 +995,35 @@ export function useFileSheetOperations({
     [activeFile, updateFileState, syncRecord],
   );
 
+  /**
+   * 後から当てた template graph を外す (template-update D6、K4)。当てたときのプロパティを消す。作るときに
+   * 当てたものは外せない (入口を出さない — `detachableTemplateSheets`)。要素が持つ種別の property は残る
+   * (外した template の種類は引けなくなり、保存された label のまま出る)
+   */
+  const handleDetachTemplate = useCallback(
+    (sheetId: SheetId, templateSheetId: SheetId) => {
+      if (!activeFile) return;
+      const name = appliedTemplatePropertyOf(templateSheetId);
+      syncRecord({
+        ...makeEventBase('file'),
+        type: 'SHEET_PROPERTY_CHANGED',
+        sheetId,
+        name,
+      });
+      updateFileState({
+        ...activeFile,
+        sheets: activeFile.sheets.map((s) => {
+          if (s.id !== sheetId || !s.properties) return s;
+          const { [name]: _removed, ...rest } = s.properties;
+          return Object.keys(rest).length === 0
+            ? { ...s, properties: undefined }
+            : { ...s, properties: rest };
+        }),
+      });
+    },
+    [activeFile, updateFileState, syncRecord],
+  );
+
   const handleDeleteSheet = useCallback(
     async (sheetId: string) => {
       if (!activeFile) return;
@@ -1355,6 +1384,7 @@ export function useFileSheetOperations({
     handleDeleteFile,
     handleSaveSheetSettings,
     handleApplyTemplates,
+    handleDetachTemplate,
     handleDeleteSheet,
     handleImportFile,
     handleExportFile,

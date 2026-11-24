@@ -180,6 +180,7 @@ export const en: Messages = {
     saveToAccount: 'Save to account',
     applyTemplate: 'Apply template',
     pullTemplate: (name: string) => `Update "${name}" to the latest version`,
+    detachTemplate: (name: string) => `Detach "${name}"`,
     export: 'Export (.conversensus)',
     ok: 'OK',
   },

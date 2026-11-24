@@ -8,6 +8,7 @@ import {
   DERIVED_FROM_SHEET_PROPERTY,
   type Did,
   derivedNodeIdOf,
+  detachableTemplateSheets,
   type FileId,
   type FolderId,
   type GraphFile,
@@ -110,7 +111,7 @@ import { useShowReadOnlyProperties } from './property/readOnlyToggle';
 import { RightSidebar, type RightSidebarPane } from './RightSidebar';
 import { ReadOnlyProvider } from './readOnlyContext';
 import { SearchPanel } from './SearchPanel';
-import type { TemplateUpdate } from './SettingsPopup';
+import type { TemplateDetach, TemplateUpdate } from './SettingsPopup';
 import { type OpenOptions, Sidebar } from './Sidebar';
 import { SidePanel } from './SidePanel';
 import { GlobalSearchDialog } from './search/GlobalSearchDialog';
@@ -704,6 +705,26 @@ export default function App() {
         }));
     },
     [activeFileForUpdates, pullTemplate, setPopupTarget, trunkSettled],
+  );
+  /**
+   * Sheet から外せる template (template-update D6、K4)。後から当てたものだけ — 作るときに当てたものは
+   * 外せないので入口を出さない (`detachableTemplateSheets`)
+   */
+  const { handleDetachTemplate } = fileOps;
+  const templateDetachesOf = useCallback(
+    (sheetId: SheetId): TemplateDetach[] => {
+      const file = activeFileForUpdates;
+      const sheet = file?.sheets.find((s) => s.id === sheetId);
+      if (!file || !sheet) return [];
+      return detachableTemplateSheets(sheet).map((templateSheet) => ({
+        name: file.sheets.find((s) => s.id === templateSheet)?.name ?? '',
+        detach: () => {
+          setPopupTarget(null);
+          handleDetachTemplate(sheetId, templateSheet);
+        },
+      }));
+    },
+    [activeFileForUpdates, handleDetachTemplate, setPopupTarget],
   );
   /** 当てた template の新しい版と削除の通知 (template-update D3)。前に出ている File の分 */
   const { templateNotices, dismissTemplateNotice } = useTemplateNotices({
@@ -1636,6 +1657,7 @@ export default function App() {
             onDeleteSheet={fileOps.handleDeleteSheet}
             onApplyTemplate={setApplyTarget}
             templateUpdatesOf={templateUpdatesOf}
+            templateDetachesOf={templateDetachesOf}
             sheetBranches={branchOps.sheetBranches}
             activeBranchId={branchOps.activeBranch?.id ?? null}
             onSelectBranch={(sheetId, selected, options) =>
