@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import {
+  appliedTemplatePropertyOf,
   type Batch,
   type Did,
   type FileId,
@@ -1163,6 +1164,110 @@ describe('App 結合: 既にあるシートに template を後から当てる (#
     expect(
       screen.queryByRole('button', { name: 'template を当てる' }) === null,
     ).toBe(true);
+  });
+});
+
+describe('App 結合: 当てた template を最新の版にする (template-update D2)', () => {
+  /** サイドバーの、そのシートの行の「詳細」(…) を開く (#355 の describe と同じ) */
+  async function openSheetDetails(
+    user: ReturnType<typeof userEvent.setup>,
+    name: string,
+  ) {
+    const row = screen
+      .getAllByRole('button')
+      .find((b) => b.textContent === name)?.parentElement;
+    if (!row) throw new Error(`シート「${name}」の行が無い`);
+    await user.click(within(row).getByRole('button', { name: '詳細' }));
+  }
+  const PULL = '「Toulmin model」を最新の版にする';
+
+  test('作るときに当てた template graph を直すと「…」に入口が出て、押すと新しい種類が使える。入口は消える', async () => {
+    await world.activate('solo');
+    render(<App />);
+    const user = userEvent.setup();
+    await createFile(user, FILE_NAME);
+
+    await user.click(
+      screen.getByRole('button', { name: 'template 付きで Sheet を追加' }),
+    );
+    await user.click(
+      screen.getByRole('button', { name: '+ Toulmin model を追加' }),
+    );
+    await waitFor(() => expect(renderedNodeCount()).toBe(5), WIRING_TIMEOUT);
+    await user.click(screen.getByText('+ Sheet を追加'));
+    const dialog = await screen.findByRole('dialog', { name: 'Sheet を追加' });
+    await user.click(
+      within(dialog).getByRole('checkbox', { name: 'Toulmin model' }),
+    );
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Sheet を追加' }),
+    );
+    await waitFor(() => expect(renderedNodeCount()).toBe(0), WIRING_TIMEOUT);
+    const store = world.localStore();
+    const fileId = store.listFiles()[0]?.id as FileId;
+    const applied = () =>
+      projectFile(store.getBatches(fileId), fileId).sheets.find(
+        (s) => s.templateIds?.length,
+      );
+    const appliedName = applied()?.name ?? '';
+
+    // 当てたばかりなので入口は無い (開いて読み終えるのを待ってから見る)
+    await openSheetDetails(user, appliedName);
+    await new Promise((r) => setTimeout(r, 200));
+    expect(screen.queryByRole('button', { name: PULL }) === null).toBe(true);
+    await user.keyboard('{Escape}');
+
+    // template graph に種類「反証」を足す (別のタブが書いたものとして正典に入れて知らせる)
+    const toulmin = projectFile(store.getBatches(fileId), fileId).sheets.find(
+      (s) => sheetKindOf(s) === TEMPLATE_SHEET_KIND,
+    );
+    if (!toulmin) throw new Error('template graph が正典に無い');
+    const rebuttal = crypto.randomUUID() as NodeId;
+    store.appendBatches(fileId, [
+      {
+        id: crypto.randomUUID() as Batch['id'],
+        actor: `${LOCAL_TEST_ACTOR}#other-tab`,
+        clock: 1000,
+        seq: 1,
+        deps: {},
+        timestamp: Date.now(),
+        sheetId: toulmin.id,
+        ops: [
+          { kind: 'node.add', target: rebuttal, content: '' },
+          { kind: 'node.setLabel', target: rebuttal, label: '反証' },
+        ],
+      },
+    ]);
+    const channel = new BroadcastChannel(LOCAL_CHANGES_CHANNEL);
+    channel.postMessage({ fileId });
+    channel.close();
+
+    // 「…」に入口が出る。押すと、作るときの template でもプロパティに書く (K3)
+    await waitFor(async () => {
+      await openSheetDetails(user, appliedName);
+      await screen.findByRole('button', { name: PULL }, { timeout: 500 });
+    }, WIRING_TIMEOUT);
+    await user.click(screen.getByRole('button', { name: PULL }));
+    await waitFor(() => {
+      expect(
+        applied()?.properties?.[appliedTemplatePropertyOf(toulmin.id)],
+      ).toBeDefined();
+    }, WIRING_TIMEOUT);
+
+    // 新しい種類がメニューに出て、作った node は種別を持つ
+    await addNode(user, '反証');
+    await waitFor(() => {
+      const node = applied()?.nodes[0];
+      expect(node?.label).toBe('反証');
+      expect(node?.properties?.[kindPropertyOf(templateIdOf(toulmin.id))]).toBe(
+        rebuttal,
+      );
+    }, WIRING_TIMEOUT);
+
+    // 最新になったので入口は消える
+    await openSheetDetails(user, appliedName);
+    await new Promise((r) => setTimeout(r, 200));
+    expect(screen.queryByRole('button', { name: PULL }) === null).toBe(true);
   });
 });
 

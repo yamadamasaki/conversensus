@@ -362,6 +362,26 @@ name がずれるため。
 変異で確かめたこと: 入口の絞り込み (`applicableTemplateGraphs`) を外す変異と、描いているシートの template を
 `templateIds` だけで解決する変異で落ちる。
 
+## 当てた template を最新の版にする (template-update D2)
+
+### なぜ
+
+pull は、新しい版の判定 (`templateVersionOf`、op-log を読む)・sheet の「…」の入口・切断面を進める書き込み・
+解決 (`appliedTemplateRefs` → `useResolvedTemplates`) が一周して初めて効く。とくに**作るときに当てた template**
+は `sheet.create` を書き換えられないのでプロパティに書き、プロパティが勝つこと (K3・D1) で効く。どこかが
+欠けると、押しても種類のメニューが古いままになる。
+
+### テストケース
+
+- **作るときに当てた template graph を直すと「…」に入口が出て、押すと新しい種類が使える。入口は消える**:
+  Toulmin model を追加し、それを当てた Sheet を足す → 当てたばかりなので「…」に「「Toulmin model」を最新の版にする」は
+  無い → template graph に種類「反証」を足す (別のタブが書いたものとして正典に入れて知らせる) → 「…」に入口が出る
+  → 押すと、その Sheet に `app.conversensus.appliedTemplate.<template graph>` のプロパティが書かれる → 種類の
+  メニューの「反証」で node を作ると、op-log のその node が「反証」の種別を持つ → 最新になったので入口は消える
+- 入口が「無い」ことは、popup が op-log を読み終えるのを少し待ってから見る (読み終える前は常に無いため)
+- **変異で確かめた**: 判定を常に「新しい版あり」にすると、当てたばかりの所で落ちる。押しても書かないと、
+  プロパティを待つ所で落ちる
+
 ## metagraph (step3 Phase 4 S4-2b)
 
 ### なぜ

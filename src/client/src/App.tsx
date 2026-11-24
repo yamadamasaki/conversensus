@@ -28,10 +28,13 @@ import {
   type SheetKind,
   sheetKindOf,
   TEMPLATE_SHEET_KIND,
+  TEMPLATE_VERSION,
   type TemplateGraphContent,
   type TemplateRef,
   type TemplateSeed,
+  type TemplateSheetRef,
   templateGraphOf,
+  templateVersionOf,
 } from '@conversensus/shared';
 import { FilePlus, Files, FileUp, PanelLeft, UserPlus } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -106,6 +109,7 @@ import { useShowReadOnlyProperties } from './property/readOnlyToggle';
 import { RightSidebar, type RightSidebarPane } from './RightSidebar';
 import { ReadOnlyProvider } from './readOnlyContext';
 import { SearchPanel } from './SearchPanel';
+import type { TemplateUpdate } from './SettingsPopup';
 import { type OpenOptions, Sidebar } from './Sidebar';
 import { SidePanel } from './SidePanel';
 import { GlobalSearchDialog } from './search/GlobalSearchDialog';
@@ -652,6 +656,49 @@ export default function App() {
       handleApplyTemplates(sheetId, templateSheetIds as SheetId[], at);
     },
     [fileOps.activeFile?.id, currentCut, handleApplyTemplates],
+  );
+
+  /**
+   * Sheet に当てている template のうち、新しい版があるもの (template-update D2、K1・K3)。「最新の版にする」は
+   * 切断面 `at` を今の trunk に進める。**作るときに当てた template も、後から当てたものと同じプロパティに
+   * 書く** (`sheet.create` は書き換えられないので、プロパティが勝つ — `appliedTemplateRefs`)
+   */
+  const activeFileForUpdates = fileOps.activeFile;
+  const { setPopupTarget } = fileOps;
+  const templateUpdatesOf = useCallback(
+    async (sheetId: SheetId): Promise<TemplateUpdate[]> => {
+      const file = activeFileForUpdates;
+      const sheet = file?.sheets.find((s) => s.id === sheetId);
+      if (!file || !sheet) return [];
+      const refs = appliedTemplateRefs(sheet).filter(
+        (ref): ref is TemplateSheetRef => typeof ref !== 'string',
+      );
+      if (refs.length === 0) return [];
+      // 直前の template graph の編集が漏れないよう、書き込みが落ち切ってから読む (`currentCut` と同じ)
+      await trunkSettled();
+      const trunk = await fetchBatches(file.id);
+      return refs
+        .filter(
+          (ref) =>
+            templateVersionOf(ref, trunk, file.id) === TEMPLATE_VERSION.NEWER,
+        )
+        .map((ref) => ({
+          name: file.sheets.find((s) => s.id === ref.sheet)?.name ?? '',
+          pull: () => {
+            setPopupTarget(null);
+            void currentCut(file.id).then((at) =>
+              handleApplyTemplates(sheetId, [ref.sheet], at),
+            );
+          },
+        }));
+    },
+    [
+      activeFileForUpdates,
+      currentCut,
+      handleApplyTemplates,
+      setPopupTarget,
+      trunkSettled,
+    ],
   );
 
   /** 特殊なグラフのシート (template graph・metagraph) を足す */
@@ -1576,6 +1623,7 @@ export default function App() {
             onSaveSheetSettings={fileOps.handleSaveSheetSettings}
             onDeleteSheet={fileOps.handleDeleteSheet}
             onApplyTemplate={setApplyTarget}
+            templateUpdatesOf={templateUpdatesOf}
             sheetBranches={branchOps.sheetBranches}
             activeBranchId={branchOps.activeBranch?.id ?? null}
             onSelectBranch={(sheetId, selected, options) =>

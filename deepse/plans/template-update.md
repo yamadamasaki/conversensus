@@ -171,6 +171,7 @@ F3 により、branch ごとに `at` がずれることは起きない。合意�
 | T7 読むときに補う | 済 (2026-11-23) | `effective.ts`: 既定値は読むときに補い、editable: false は template の値、型の判定を添える。**計画からの変更: 写すのをやめたのは template の名前空間の既定値だけ** — 依頼の宛先のような module の既定値は「依頼である」印なので写し続ける (`copiedDefaultsOf`)。property の欄: 補った値を薄く出す・number は数で保存 (`valueFromInput`)・列挙は select・型の印・固定は編集不可。`read_file` は注釈で言う。#411: markdown の種類の本文が空なら template の本文を薄く出す。**依頼 module を実効の property で読む件は、写し続けるので不要になった。実機の確認は未** |
 | T8 書き込みの入口で守る | 済 (2026-11-24) | `isFixedTemplateProperty` (shared)。UI は `applyPropertyChanges` (property を書く唯一の口) で固定の property への変更を落とす (欄は T7 で既に編集不可)。MCP の `set_node_property`・`set_edge_property`・`add_node`・`add_edge` は断る。**段 1 (T1〜T8) 完了** |
 | D1 優先規則 | 済 (2026-11-24) | `appliedTemplateRefs`: 同じ template graph がプロパティにもあれば、プロパティの `at` を採る。並びは作るときの位置のまま (pull で種類のメニューの並びが変わらないように) |
+| D2 pull | 済 (2026-11-24) | `templateVersionOf` (shared): `current`・`newer`・`deleted`。**計画からの変更: 「新しい版」は template graph の op の有無ではなく、`at` と先端で読んだ種類 (`templateFromSheet`) が違うこと** — `at` は File 全体の切断面でほかの Sheet の編集でも進み、node を動かしただけでは適用先に何も変わらないため。sheet の「…」を開いたときに op-log を読んで判定し、新しい版がある template ごとに「「<名前>」を最新の版にする」を出す。押すと `at` を今の trunk に進めてプロパティに書く (作るときの template も) |
 
 ## 9. 実機の確認 (段 1)
 

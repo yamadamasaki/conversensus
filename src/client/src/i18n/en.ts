@@ -170,6 +170,7 @@ export const en: Messages = {
     descriptionPlaceholder: 'Enter a description…',
     saveToAccount: 'Save to account',
     applyTemplate: 'Apply template',
+    pullTemplate: (name: string) => `Update "${name}" to the latest version`,
     export: 'Export (.conversensus)',
     ok: 'OK',
   },

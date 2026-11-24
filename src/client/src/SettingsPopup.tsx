@@ -1,11 +1,19 @@
 import type { FileId, SheetId } from '@conversensus/shared';
-import { FileDown, Shapes, Trash2, Upload } from 'lucide-react';
+import { FileDown, RefreshCw, Shapes, Trash2, Upload } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useMessages } from './i18n/messages';
 import { color, font, radius, shadow, space } from './theme';
 import { Button } from './ui/Button';
 
 export const FLOATING_UI_Z_INDEX = 100;
+
+/** 当てている template に新しい版があるもの 1 つ (template-update D2) */
+export type TemplateUpdate = {
+  /** template graph の名前 */
+  name: string;
+  /** 最新の版にする */
+  pull: () => void;
+};
 
 export type PopupTarget =
   | { type: 'file'; id: FileId }
@@ -23,6 +31,11 @@ type Props = {
   onSaveToAccount?: () => void;
   /** 既にあるシートに template を後から当てる (#355)。当てられるものがあるときだけ渡す */
   onApplyTemplate?: () => void;
+  /**
+   * 当てている template のうち、新しい版があるものを求める (template-update D2)。開いたときに 1 度だけ呼ぶ。
+   * op-log を読むので非同期。新しい版が無ければ入口を出さない
+   */
+  templateUpdates?: () => Promise<TemplateUpdate[]>;
 };
 
 export function SettingsPopup({
@@ -35,8 +48,25 @@ export function SettingsPopup({
   onExport,
   onSaveToAccount,
   onApplyTemplate,
+  templateUpdates,
 }: Props) {
   const t = useMessages();
+  const [updates, setUpdates] = useState<TemplateUpdate[]>([]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 開いたときに 1 度だけ求める
+  useEffect(() => {
+    if (!templateUpdates) return;
+    let cancelled = false;
+    templateUpdates()
+      .then((found) => {
+        if (!cancelled) setUpdates(found);
+      })
+      .catch((error) =>
+        console.warn('[template] 新しい版を確かめられなかった:', error),
+      );
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const [draftName, setDraftName] = useState(name);
   const [draftDesc, setDraftDesc] = useState(description);
   const popupRef = useRef<HTMLDivElement>(null);
@@ -175,6 +205,11 @@ export function SettingsPopup({
           {t.settings.applyTemplate}
         </Button>
       )}
+      {updates.map((update) => (
+        <Button key={update.name} icon={RefreshCw} onClick={update.pull}>
+          {t.settings.pullTemplate(update.name)}
+        </Button>
+      ))}
       {onSaveToAccount && (
         // この端末だけの File を後から送る口 (#253)。ログインのときに「この端末に残す」と答えた File
         <Button icon={Upload} onClick={onSaveToAccount}>

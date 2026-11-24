@@ -38,6 +38,7 @@ export * from './template/seed';
 export * from './template/seedLocale';
 export * from './template/toulmin';
 export * from './template/types';
+export * from './template/version';
 
 // --- HTTP API request/response schemas ---
 export const CreateFileRequestSchema = z.object({

@@ -172,6 +172,7 @@ export const ja = {
     descriptionPlaceholder: '概要を入力…',
     saveToAccount: 'アカウントに保存する',
     applyTemplate: 'template を当てる',
+    pullTemplate: (name: string) => `「${name}」を最新の版にする`,
     export: 'エクスポート (.conversensus)',
     ok: 'OK',
   },
