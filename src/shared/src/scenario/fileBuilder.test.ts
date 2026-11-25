@@ -6,11 +6,17 @@ import {
   GRAPH_NODE_LABEL,
 } from '../events/derivedNode';
 import { projectFile } from '../events/project';
-import { METAGRAPH_SHEET_KIND, sheetKindOf } from '../events/sheetKind';
+import {
+  METAGRAPH_SHEET_KIND,
+  sheetKindOf,
+  TEMPLATE_SHEET_KIND,
+} from '../events/sheetKind';
 import { ConversensusFileSchema, type GraphFile } from '../schemas';
 import { BunSqliteDriver, IN_MEMORY } from '../store/bunSqliteDriver';
 import { EventStore } from '../store/eventStore';
 import { LocalStore } from '../store/localStore';
+import { templateFromSheet, templateIdOf } from '../template/fromSheet';
+import { propertySchemaPropertyOf } from '../template/propertySchema';
 import { FileBuilder } from './fileBuilder';
 
 const COVER = {
@@ -127,5 +133,46 @@ describe('FileBuilder', () => {
       x: 300,
       y: 0,
     });
+  });
+
+  test('template graph は、import した先でも template graph として種類を読める', () => {
+    // 入門の図 (グラフのカタ) は、場面で用意した template graph を画面で当てる。import で Sheet の種別や
+    // 宣言の property (system の名前空間) が落ちると、当てる dialog に出ないか、型の欄が空になる
+    const file = new FileBuilder('論証');
+    const template = file.templateGraph('論証のメモ');
+    const group = template.group('論証', { at: { x: 0, y: 0 }, label: '論証' });
+    const ground = template.note('', {
+      at: { x: 20, y: 50 },
+      label: '根拠',
+      parent: group,
+    });
+    const claim = template.note('結論を一文で', {
+      at: { x: 260, y: 50 },
+      label: '主張',
+      parent: group,
+      properties: {
+        確かさ: '中',
+        [propertySchemaPropertyOf('確かさ')]: {
+          type: "'高' | '中' | '低'",
+          editable: true,
+        },
+      },
+    });
+    template.connect(ground, claim, '支える');
+
+    const sheet = sheetNamed(importAndProject(file.build()), '論証のメモ');
+    expect(sheetKindOf(sheet)).toBe(TEMPLATE_SHEET_KIND);
+    const templateId = templateIdOf(sheet.id);
+    const read = templateFromSheet(sheet, templateId);
+    // 並びは projection の順で、ここでは問わない
+    const kinds = new Map(read.nodeKinds.map((k) => [k.label, k]));
+    expect([...kinds.keys()].sort()).toEqual(['主張', '根拠', '論証'].sort());
+    expect(kinds.get('論証')?.nodeType).toBe('group');
+    expect(kinds.get('主張')?.nodeType).toBeUndefined();
+    // 適用先の名前 (`${templateId}.<名前>`、K7) で読める
+    expect(kinds.get('主張')?.schema).toEqual({
+      [`${templateId}.確かさ`]: { type: "'高' | '中' | '低'", editable: true },
+    });
+    expect(read.edgeKinds.map((k) => k.label)).toEqual(['支える']);
   });
 });

@@ -14,6 +14,7 @@ import {
   type SheetBuilder,
 } from '../../../src/shared/src/scenario/fileBuilder';
 import type { ConversensusFile, NodeId } from '../../../src/shared/src/schemas';
+import { propertySchemaPropertyOf } from '../../../src/shared/src/template/propertySchema';
 import { LOCALE } from './support';
 
 const TEXT = {
@@ -63,6 +64,25 @@ const TEXT = {
       'ミルは世論による縛りにも危害原理を当てはめているだろうか? 第 1 章から根拠を探してほしい',
     answer:
       '当てはめている. 第 1 章は「多数者の専制」として, 法律だけでなく世論への備えも説いている',
+    template: {
+      name: '論証のメモ',
+      notes: '読書メモ',
+      argument: '論証',
+      claim: '主張',
+      claimHint: '結論を一文で',
+      ground: '根拠',
+      supports: '支える',
+      ontology: 'https://schema.org/Claim',
+      external: 'external',
+      note: '「主張」には, 章と確かさを書く. 出典は決まっている',
+      chapter: '章',
+      certainty: '確かさ',
+      certaintyType: "'高' | '中' | '低'",
+      certaintyDefault: '中',
+      source: '出典',
+      sourceValue: 'J. S. ミル『自由論』',
+      groundText: '異論にも真理がある',
+    },
   },
   en: {
     file: 'Reading On Liberty',
@@ -112,6 +132,25 @@ const TEXT = {
       'Does Mill apply the harm principle to the constraint of public opinion too? Please find grounds in Ch. 1',
     answer:
       'Yes. Under "the tyranny of the majority", Ch. 1 guards against public opinion as well as law',
+    template: {
+      name: 'Argument notes',
+      notes: 'Reading notes',
+      argument: 'argument',
+      claim: 'claim',
+      claimHint: 'State the conclusion in one sentence',
+      ground: 'ground',
+      supports: 'supports',
+      ontology: 'https://schema.org/Claim',
+      external: 'external',
+      note: 'Write the chapter and certainty of a claim. The source is fixed',
+      chapter: 'chapter',
+      certainty: 'certainty',
+      certaintyType: "'high' | 'mid' | 'low'",
+      certaintyDefault: 'mid',
+      source: 'source',
+      sourceValue: 'J. S. Mill, On Liberty',
+      groundText: 'Dissent may be true',
+    },
   },
 } as const;
 
@@ -250,5 +289,63 @@ export function buildScene(
     index.connect(g2, g1, S.applies);
     index.connect(note, g2);
   }
+  return file.build();
+}
+
+/**
+ * 7 章 (グラフのカタ) の「種類の書き方」「template を育てる」: 手で書いた template graph と、まだ何も
+ * 当てていない Sheet。当てる・node を作る・繋ぐは画面で行う (当てた先の種別 property は template graph の
+ * id を含み、import が id を振り直すので、場面の側では書けない)
+ *
+ * template graph に写すもの: group の種類 (「論証」) の中に 2 つの種類、その間の edge の種類、既存の
+ * オントロジへの `external` の edge (ラベルなし node に URI)、property の既定値・型・固定、本文の案内、
+ * 説明書き (ラベルなし node)
+ */
+export function buildTemplateScene(): ConversensusFile {
+  const T = S.template;
+  const file = new FileBuilder(S.file);
+  const template = file.templateGraph(T.name);
+  const argument = template.group(T.argument, {
+    at: { x: 0, y: 0 },
+    size: { width: 560, height: 190 },
+    label: T.argument,
+  });
+  const ground = template.note('', {
+    at: { x: 30, y: 60 },
+    size: { width: 200, height: 90 },
+    label: T.ground,
+    parent: argument,
+  });
+  const claim = template.note(T.claimHint, {
+    at: { x: 320, y: 60 },
+    size: { width: 200, height: 90 },
+    label: T.claim,
+    parent: argument,
+    properties: {
+      // 既定値なし: 画面で値を空のまま足すと、値は書かず宣言だけを書く (`PropertyEditor`)
+      [propertySchemaPropertyOf(T.chapter)]: {
+        type: 'number?',
+        editable: true,
+      },
+      [T.certainty]: T.certaintyDefault,
+      [propertySchemaPropertyOf(T.certainty)]: {
+        type: T.certaintyType,
+        editable: true,
+      },
+      [T.source]: T.sourceValue,
+      [propertySchemaPropertyOf(T.source)]: { editable: false },
+    },
+  });
+  template.connect(ground, claim, T.supports);
+  const ontology = template.note(T.ontology, {
+    at: { x: 660, y: 70 },
+    size: { width: 220, height: 70 },
+  });
+  template.connect(claim, ontology, T.external);
+  template.note(T.note, {
+    at: { x: 0, y: 250 },
+    size: { width: 360, height: 70 },
+  });
+  file.sheet(T.notes);
   return file.build();
 }

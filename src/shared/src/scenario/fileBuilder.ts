@@ -16,7 +16,11 @@
 import { IMAGE_PROPERTY_KEY } from '../blob';
 import { derivedNodeIdOf } from '../events/derivedNode';
 import { deterministicUuid } from '../events/genesis';
-import { METAGRAPH_SHEET_KIND, SHEET_KIND_PROPERTY } from '../events/sheetKind';
+import {
+  METAGRAPH_SHEET_KIND,
+  SHEET_KIND_PROPERTY,
+  TEMPLATE_SHEET_KIND,
+} from '../events/sheetKind';
 import {
   CONVERSENSUS_FILE_VERSION,
   type ConversensusFile,
@@ -197,6 +201,19 @@ export class FileBuilder {
     return this.push(
       new SheetBuilder(this, name, {
         [SHEET_KIND_PROPERTY]: METAGRAPH_SHEET_KIND,
+      }),
+    );
+  }
+
+  /**
+   * template graph の Sheet を足す (画面の「+ template graph」に当たる)。label のある node が種類になる
+   * (`templateFromSheet`)。**当てるのは画面で行う** — 当てた先の要素の種別 property は template graph の
+   * Sheet の id を含むが、import が id を振り直すので、場面の側では書けない
+   */
+  templateGraph(name: string): SheetBuilder {
+    return this.push(
+      new SheetBuilder(this, name, {
+        [SHEET_KIND_PROPERTY]: TEMPLATE_SHEET_KIND,
       }),
     );
   }

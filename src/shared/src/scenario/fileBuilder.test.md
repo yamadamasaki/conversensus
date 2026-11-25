@@ -2,7 +2,7 @@
 
 ## 何を
 
-`FileBuilder` / `SheetBuilder` が、短く書いた場面 (Sheet・node・edge・画像・metagraph の graph node)
+`FileBuilder` / `SheetBuilder` が、短く書いた場面 (Sheet・node・edge・画像・metagraph の graph node・template graph)
 から `.conversensus` を作り、それを import すると書いたとおりの姿になること。
 
 ## なぜ
@@ -25,6 +25,7 @@ node の label が落ちる、graph node が二重になる)。
 | 同じ名前の Sheet は足せない | id が名前から決まるので、同じ名前は同じ id になってぶつかる。黙って重ねず、組み立ての時点で断る |
 | import すると、書いたとおりになる | node の本文・label・property、edge の向きと label、置き場所 |
 | 画像は実体ごと同梱される | 同梱しないと、import した先で「画像を読み込めません」になる (ANA-116 D1) |
+| template graph は、import した先でも template graph として種類を読める | Sheet の種別、group の種類の見た目、宣言の property (system の名前空間) が import で落ちない。入門の図はこれを画面で当てる (当てた先の種別 property は template graph の id を含むので、場面では書けない) |
 | 🔴 metagraph の graph node は、import した先の Sheet の graph node になる | graph node は保存せず導出する。置き場所と edge が新しい Sheet の graph node に付く。index 自身も graph node として出る。label は `graph` |
 
 場面は 1 つ (`scene()`) を使い回す。入門の場面と同じ題材 (『自由論』) にしてあるが、入門の中身とは独立している。
