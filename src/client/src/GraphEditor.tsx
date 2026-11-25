@@ -1128,6 +1128,10 @@ function GraphEditorInner({
                       onEdgeContextMenu={onEdgeContextMenu}
                       onNodeContextMenu={nodeActions.onNodeContextMenu}
                       zoomOnDoubleClick={false}
+                      // 選んだ edge を一番上に描く (#410)。同じ接続点に繋がる edge が重なると、端を掴んで付け替える
+                      // つまみ所は一番上の edge のものだった。線の途中や label で選んだ edge が上に来るので、
+                      // 選んでから端を掴めば、その edge を付け替えられる
+                      elevateEdgesOnSelect
                       deleteKeyCode={null}
                       minZoom={MIN_ZOOM}
                       {...(savedViewport
