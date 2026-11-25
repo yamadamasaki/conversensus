@@ -130,3 +130,51 @@ step 2 では競合判定を**キー単位**にする (→ [merging](./merging.m
 ## プロパティの可視化
 
 プロパティの値によって, グラフ上での node/edge の見た目を (システム側から) 設定できるようにしたい (→ step 3).
+
+## template が宣言する property (template-update, 2026-11)
+
+> 追記。上の「型制約」「名前」「Property Editor」の節で step 3 以降に送っていた、型の宣言と検証・編集の可否を、
+> [template-update](../../architecture/step4/template-update.md) の計画 ([plans/template-update.md](../../plans/template-update.md)
+> K7〜K10・K12) で次のように決めた。型を指定するのは template (拡張) であって入力された値ではない、という
+> 上の決定 (2026-09-20) はそのまま保つ。カスタムの property は今も文字列で、型の宣言を持たない。
+
+### 名前 (K7)
+
+- template graph の種類の node/edge には、prefix 無しの名前 (`期限`) で書く
+- 適用先では `${templateId}.<名前>` (例: `template.<sheet id>.期限`) とシステムが導く。**template の id が
+  名前空間を兼ねる**のは、上の「実際に使われている extension」の種別 property (`${templateId}.kind`) と同じ
+- `.` を含む名前 (system・extension) はそのまま。`kind` という名前は使えない (種別 property と重なる)
+- property の欄の表示は prefix を外し、template の名前を添える
+
+### 型と editable の宣言 (K9・K10)
+
+- 宣言は、種類の node/edge の付随 property `app.conversensus.propertySchema.<名前>` に `{ type?, editable }` で置く。
+  既定値・訳と同じく、適用先へは写さない
+- 型の文法 (上の「型制約」の具体化):
+  - 基本の型: `string`・`number`・`boolean`・`date`・`datetime`
+  - 配列 `T[]`。リテラルのユニオンの配列は括弧で囲む (`('高' | '低')[]`)
+  - リテラルのユニオン `'高' | '中' | '低'` (単引用符か二重引用符、エスケープ無し)
+  - optional `T?` (値が無くてもよい)
+  - **型のユニオン (`string | number`) は扱わない**
+- 書く場所は template graph の画面の property の欄だけ (行ごとに型の入力欄と「適用先で編集できる」)。値と宣言は
+  1 つの op で書く
+- 読めない型の文字列も捨てずに持ち、欄に「型を読めません」と理由を出す
+
+### 読むときに補う (K8・K12)
+
+- 既定値は**適用先へ写さず、読むときに補う** (実効の property)。既に写された値はそのまま残す
+- editable: false の property は、値が常に template の既定値になる
+- 型の検証は**読み取り側**で行う。合わない値 (数字の文字列は number に合わない) と、値の無い必須の property に
+  印を付ける。値は書き換えない (template の版が変わって合わなくなった値も同じ)
+- 上の「不整合があった場合には入力を受け付けず」は、こう改めた: 入力は受け付けて印を付ける。number の型の
+  欄に打った値は数として保存し、リテラルのユニオンは選択肢から選ばせる
+- 補った値は property の欄に薄く出し、agent の `read_file` にも注釈で出す。merger の差分・競合・検索は、
+  op-log の生の値を見る (補った値はデータではない)
+
+### 編集の可否 (K8)
+
+上の表の「extension: … 可視性は拡張システム側で制御する」を、template については宣言で行う。
+
+- editable: false の property は、UI では編集させず、MCP の道具 (`set_node_property`・`set_edge_property`・
+  `add_node`・`add_edge`) は断る
+- 種別 property (`${templateId}.kind`) は今までどおり編集できない
