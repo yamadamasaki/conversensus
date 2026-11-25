@@ -8,7 +8,8 @@
  * 持たない edge は、**2 つの node の中心を結ぶ線が、それぞれの node の枠と交わる所**を端にする (#410)。
  * 以前は向かい合う辺の中点にしていたので、同じ辺を向く edge の端がすべて 1 点に集まって重なり、
  * 一番上の edge しか選べなかった。中心線の交点なら、相手の node の方向ごとに端がずれ、人が見ても自然である。
- * 人が繋いだ edge は接続点を持つのでここを通らない (人が選んだ辺を勝手に変えない)。
+ * **端はすべて自動** (利用者判断、#410)。人が繋いだ edge も、繋いだ接続点を保存しない。以前に保存された
+ * 接続点も表示には使わない — 手で同じ接続点に繋いだ edge が重なったままになるため。
  *
  * **端は接続点として React Flow に渡す** (`withFacingHandles`、template-update 段 2 の実機の確認 W7)。
  * 付け替えのつかみ所は React Flow が接続点の位置に描くので、線の端だけをずらすとつかみ所とずれて
@@ -142,18 +143,17 @@ function handleFor(anchor: Anchor, shape: NodeShape): string | undefined {
 }
 
 /**
- * 端の接続点を持たない edge に、中心線と枠の交点にいちばん近い接続点を当てる (表示だけ)。
+ * edge の端に、中心線と枠の交点にいちばん近い接続点を当てる (表示だけ)。
  *
- * - 当てるのは**両端とも**接続点を持たない edge だけ (片方だけ持つ edge は、人が選んだ端を残す)
+ * - **保存された接続点があっても上書きする** (端はすべて自動、#410)
  * - 両端の node の形が分からない (まだ測られていない) ・その辺に接続点を持たない (group) なら当てない
- * - 当てる必要の無い edge は同じオブジェクトのまま返す (React Flow に要らない描き直しをさせない)
+ * - 当てても変わらない edge は同じオブジェクトのまま返す (React Flow に要らない描き直しをさせない)
  */
 export function withFacingHandles<E extends HandledEdge>(
   edges: readonly E[],
   shapeOf: (nodeId: string) => NodeShape | undefined,
 ): E[] {
   return edges.map((e) => {
-    if (e.sourceHandle != null || e.targetHandle != null) return e;
     const source = shapeOf(e.source);
     const target = shapeOf(e.target);
     if (!source || !target) return e;
@@ -161,6 +161,8 @@ export function withFacingHandles<E extends HandledEdge>(
     const sourceHandle = handleFor(anchors.source, source);
     const targetHandle = handleFor(anchors.target, target);
     if (!sourceHandle || !targetHandle) return e;
+    if (e.sourceHandle === sourceHandle && e.targetHandle === targetHandle)
+      return e;
     return { ...e, sourceHandle, targetHandle };
   });
 }

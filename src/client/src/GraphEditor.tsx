@@ -697,17 +697,15 @@ function GraphEditorInner({
         ...makeEventBase('structure'),
         type: 'EDGE_RECONNECTED',
         edgeId: oldEdge.id as EdgeId,
+        // 接続点は書かない。端はすべて自動 (#410)。画面の edge の接続点は表示のために当てたもので
+        // (`withFacingHandles`)、保存すると表示と保存が混ざる
         from: {
           source: oldEdge.source as NodeId,
           target: oldEdge.target as NodeId,
-          sourceHandle: oldEdge.sourceHandle ?? undefined,
-          targetHandle: oldEdge.targetHandle ?? undefined,
         },
         to: {
           source: newConnection.source as NodeId,
           target: newConnection.target as NodeId,
-          sourceHandle: newConnection.sourceHandle ?? undefined,
-          targetHandle: newConnection.targetHandle ?? undefined,
         },
       });
     },
@@ -779,10 +777,9 @@ function GraphEditorInner({
             }
           : {}),
       };
+      // 繋いだ接続点は保存しない。端はすべて自動で、中心線と枠の交点に描く (#410、`facingSides.ts`)
       const edgeLayout: EdgeLayout = {
         edgeId,
-        sourceHandle: connection.sourceHandle ?? undefined,
-        targetHandle: connection.targetHandle ?? undefined,
         pathType: DEFAULT_EDGE_PATH_TYPE,
       };
       dispatch({
