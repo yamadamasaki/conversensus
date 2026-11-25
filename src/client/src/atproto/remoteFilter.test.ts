@@ -87,6 +87,24 @@ describe('filterBatchesForRemote', () => {
     expect(filterBatchesForRemote([b], MY_DID)).toEqual([]);
   });
 
+  it('手元のログに残る小数の label の位置は、丸めた複製で送る。元の batch は変えない (#409)', () => {
+    // #409 より前は presentation で送らなかったので、丸めていない値が手元に溜まっている。
+    // 丸めずに送ると PDS が断り、outbox が詰まって以降の同期が止まる
+    const float: Op = {
+      kind: 'edge.setLabelOffset',
+      target: 'e1' as EdgeId,
+      offsetX: 40.6,
+      offsetY: -12.4,
+    };
+    const b = batch({ ops: [addNode('n1'), float] });
+    const out = filterBatchesForRemote([b], MY_DID);
+    expect(out).toHaveLength(1);
+    expect(out[0]).not.toBe(b);
+    expect(out[0]?.id).toBe(b.id);
+    expect(out[0]?.ops[1]).toMatchObject({ offsetX: 41, offsetY: -12 });
+    expect(b.ops[1]).toBe(float);
+  });
+
   it('label の位置 (edge.setLabelOffset) は layout なので remote へ送る (#409)', () => {
     const b = batch({ ops: [setLabelOffset('e1')] });
     expect(filterBatchesForRemote([b], MY_DID)).toEqual([b]);

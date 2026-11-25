@@ -32,6 +32,7 @@ import {
   type Batch,
   BatchIdSchema,
   diffProperties,
+  edgeSetLabelOffsetOp,
   isFork,
   nodeSetLayoutOp,
   type Op,
@@ -313,13 +314,9 @@ export function graphEventToOps(event: GraphEvent): Op[] {
         ];
       }
     case 'EDGE_LABEL_MOVED':
+      // 整数へ丸める生成口を通す (#409 — 小数は PDS が断り、同期が止まる)
       return [
-        {
-          kind: 'edge.setLabelOffset',
-          target: event.edgeId,
-          offsetX: event.to.offsetX,
-          offsetY: event.to.offsetY,
-        },
+        edgeSetLabelOffsetOp(event.edgeId, event.to.offsetX, event.to.offsetY),
       ];
     // file 構造 (W3c1): シート/ファイル構造イベント → file op
     case 'SHEET_CREATED':

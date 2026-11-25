@@ -49,6 +49,7 @@ import {
   didFromActor,
   GENESIS_ACTOR,
   isSyncable,
+  remoteReadyOp,
 } from '@conversensus/shared';
 
 /**
@@ -56,6 +57,7 @@ import {
  *
  * - **著者が `myDid` でない batch を除外する** (genesis を除く, step2 Phase 2 S0)。
  * - 各 batch の ops を `isSyncable` で絞り、空になったら除外する。
+ * - 残った ops を PDS に載せられる形にする (`remoteReadyOp`: 小数の label の位置を丸める、#409)。
  * - ops が減った mixed batch は複製し、`id`/`clock`/`timestamp`/`actor`/`sheetId` を
  *   保存する (ローカル batch と `id`・`clock` で対応づけられるようにする)。
  * - ops が減らない batch は元の参照をそのまま返す (不要な複製を避ける)。
@@ -75,12 +77,16 @@ export function filterBatchesForRemote(
     // actor で見れば自分の repo に出る
     if (batch.actor !== GENESIS_ACTOR && didFromActor(batch.actor) !== myDid)
       continue;
-    // presentation op を除外 (genesis batch も同様に非 presentation だけ通す)
-    const ops = batch.ops.filter(isSyncable);
+    // presentation op を除外 (genesis batch も同様に非 presentation だけ通す)。残りは PDS に載せられる形に
+    // する — 手元のログに残る小数の label の位置を丸める (#409。小数は PDS が断り、outbox が詰まる)
+    const ops = batch.ops.filter(isSyncable).map(remoteReadyOp);
     // 全 op が presentation だった batch (group/paste 複合含む) は送らない
     if (ops.length === 0) continue;
-    // 減っていなければ元の参照、減ったら他フィールド保存の複製
-    result.push(ops.length === batch.ops.length ? batch : { ...batch, ops });
+    // 変わっていなければ元の参照、減った・丸めたら他フィールド保存の複製
+    const unchanged =
+      ops.length === batch.ops.length &&
+      ops.every((op, i) => op === batch.ops[i]);
+    result.push(unchanged ? batch : { ...batch, ops });
   }
   return result;
 }

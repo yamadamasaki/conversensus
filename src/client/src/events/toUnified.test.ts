@@ -816,3 +816,25 @@ describe('EDGE_STYLE_CHANGED の線種 (#409)', () => {
     ]);
   });
 });
+
+describe('EDGE_LABEL_MOVED (#409)', () => {
+  test('label の位置は整数に丸めて書く (小数は PDS が断る)', () => {
+    const edgeId = crypto.randomUUID() as EdgeId;
+    expect(
+      graphEventToOps({
+        ...makeEventBase('layout'),
+        type: 'EDGE_LABEL_MOVED',
+        edgeId,
+        from: { offsetX: 0, offsetY: 0 },
+        to: { offsetX: 40.6, offsetY: -12.4 },
+      }),
+    ).toEqual([
+      {
+        kind: 'edge.setLabelOffset',
+        target: edgeId,
+        offsetX: 41,
+        offsetY: -12,
+      },
+    ]);
+  });
+});

@@ -25,6 +25,7 @@ import { z } from 'zod';
 import {
   BranchIdSchema,
   CommitIdSchema,
+  type EdgeId,
   EdgeIdSchema,
   EdgePathTypeSchema,
   FileIdSchema,
@@ -480,6 +481,42 @@ export function nodeSetLayoutOp(
     ...(width !== undefined && { width: roundLayoutValue(width) }),
     ...(height !== undefined && { height: roundLayoutValue(height) }),
   };
+}
+
+/**
+ * **`edge.setLabelOffset` op の生成口** (#409)。`nodeSetLayoutOp` と同じく整数へ丸める。
+ *
+ * label の位置は #409 で layout (同期する) にした。ドラッグの移動量はサブピクセルの小数なので、丸めずに
+ * 書くと PDS が batch を断り、outbox が詰まって以降の同期が止まる (W3d5-7 と同じ事故)。
+ */
+export function edgeSetLabelOffsetOp(
+  target: EdgeId,
+  offsetX: number,
+  offsetY: number,
+): Op {
+  return {
+    kind: 'edge.setLabelOffset',
+    target,
+    offsetX: Math.round(offsetX),
+    offsetY: Math.round(offsetY),
+  };
+}
+
+/**
+ * op を remote (PDS) に載せられる形にする。**手元の op-log に既にある小数**のための関所である (#409)。
+ *
+ * `edge.setLabelOffset` は #409 より前は presentation で送らなかったので、手元のログには丸めていない
+ * 値が溜まっている。layout にした今、起動時の catch-up がそれを送り直すので、ここで丸めないと全員の同期が
+ * 止まる。ほかの op は生成口で丸めているので、そのまま返す (同じ参照)
+ */
+export function remoteReadyOp(op: Op): Op {
+  if (
+    op.kind === 'edge.setLabelOffset' &&
+    (!Number.isInteger(op.offsetX) || !Number.isInteger(op.offsetY))
+  ) {
+    return edgeSetLabelOffsetOp(op.target, op.offsetX, op.offsetY);
+  }
+  return op;
 }
 
 /**
