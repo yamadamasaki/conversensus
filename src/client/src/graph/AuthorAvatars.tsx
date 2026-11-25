@@ -35,18 +35,25 @@ const OVERLAP = 6;
 export const MAX_STACKED = 3;
 /** 色相を決める余り (色相環の度) */
 const HUE_RANGE = 360;
-/** 丸の色の彩度・明度 (白い頭文字が読める濃さ) */
-const SATURATION = 55;
-const LIGHTNESS = 42;
+/**
+ * 丸の色: **淡い地に、同じ色相の濃い頭文字** (#403)。書いた人は補助の情報なので、薄い画面の中で目立ちすぎない
+ * ようにする (以前は濃い地に白い字で、node より強く見えた)。字は地より十分に暗くして読めるようにする
+ */
+const SATURATION = 45;
+const FILL_LIGHTNESS = 86;
+const INK_LIGHTNESS = 28;
 /** bot の icon の大きさ */
 const BOT_ICON_SIZE = 12;
 
-/** DID から決まる色 (同じ人はどの node でも同じ色) */
-export function colorOfDid(did: Did): string {
+/** DID から決まる色 (同じ人はどの node でも同じ色)。地 (`fill`) と頭文字 (`ink`) は同じ色相 */
+export function colorOfDid(did: Did): { fill: string; ink: string } {
   let hash = 0;
   for (const ch of did) hash = (hash * 31 + (ch.codePointAt(0) ?? 0)) | 0;
   const hue = Math.abs(hash) % HUE_RANGE;
-  return `hsl(${hue} ${SATURATION}% ${LIGHTNESS}%)`;
+  return {
+    fill: `hsl(${hue} ${SATURATION}% ${FILL_LIGHTNESS}%)`,
+    ink: `hsl(${hue} ${SATURATION}% ${INK_LIGHTNESS}%)`,
+  };
 }
 
 /** 頭文字: ハンドル名の最初の字。DID のまま (引けていない) なら、最後の `:` の後の最初の字 */
@@ -168,6 +175,7 @@ function Avatar({
   title: string;
 }) {
   const agent = declaration && declaration.status !== 'none';
+  const { fill, ink } = colorOfDid(did);
   return (
     <span
       title={title}
@@ -176,8 +184,8 @@ function Avatar({
         width: AVATAR_SIZE,
         height: AVATAR_SIZE,
         borderRadius: '50%',
-        background: colorOfDid(did),
-        color: 'white',
+        background: fill,
+        color: ink,
         display: 'inline-flex',
         alignItems: 'center',
         justifyContent: 'center',
