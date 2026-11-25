@@ -25,3 +25,4 @@
 
 op-log から通知を求めて既読で落とす所は `notices/templateNotices.test.ts`、App を一周させる所は
 `App.app-test.tsx` が見る。
+- **多いときは `SHOWN_TEMPLATE_NOTICES` (5) 件だけ出し、残りは「ほか N 件」にする** (v1.5.0 の UI レビュー U3)。届いた知らせ (#393) と同じ数。前に出ている File の分だけを出すので File ごとには分けない。畳んだ分も Sheet の「…」から最新の版にできる
