@@ -220,7 +220,7 @@ node を作って「支える」で繋いでおく。
 | W9 | D3 削除 | template graph の Sheet を消す (「…」→ 削除) | 右下に「…は削除されました。この Sheet は当てた版のまま使えます」が出て、「最新の版にする」は無い。当てた Sheet の種類のメニューは使えるまま | OK|
 | W10 | D6 外す | Toulmin model を、既にある Sheet (例: Sheet 1) に「…」→「template を当てる」で当て、「主張」を 1 つ作る → Sheet 1 の「…」を開く。W6 の Sheet (作るときに当てた) の「…」も開く | Sheet 1 にだけ「「Toulmin model」を外す」が出る。押すと、メニューから Toulmin の種類が消え、作った「主張」の node は label のまま残る。「…」に「template を当てる」がまた出る | OK|
 | W11 | 2 人 (任意) | alice (5173) と bob (5174) で同じ File に参加し (user-test-environment §5)、alice が template graph に種類を足す | bob の画面にも右下の通知が出る。bob が最新の版にすると、alice の画面の通知も消える (Sheet のプロパティが届いて読み直すため) | OK|
-| W12 | agent (任意) | W5 の後、headless で `read_file` | 当てた Sheet の `# template` の注釈と node の `# 種別:` に、新しい名前 (「結論」) が出る | |
+| W12 | agent (任意) | W5 の後、headless で `read_file` | 当てた Sheet の `# template` の注釈と node の `# 種別:` に、新しい名前 (「結論」) が出る | ✓ (Sheet 2 の node の `# 種別:` に新しい名前「結論」。種類が template に無い edge の注釈も確認。端の組が合わない edge の注釈は単体テストのみ) |
 
 **注意**:
 
