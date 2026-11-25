@@ -192,30 +192,16 @@ describe('withFacingHandles (表示だけの接続点、段 2 の実機の確認
     expect(out?.targetHandle).toBe('source-left');
   });
 
-  it('保存された接続点があっても上書きする (端はすべて自動、#410)', () => {
-    // 手で同じ接続点に繋いだ edge が重なったままにならないように
-    const saved: TestEdge = {
-      ...edge('left', 'right'),
+  it('人が選んだ端・測られていない node・接続点の無い node (group) は、そのままのオブジェクトを返す', () => {
+    const chosen = {
+      source: 'left',
+      target: 'right',
       sourceHandle: 'source-top',
-      targetHandle: 'source-top',
-    };
-    const [out] = withFacingHandles([saved], shapeOf);
-    expect(out).toMatchObject({
-      sourceHandle: 'source-right',
-      targetHandle: 'source-left',
-    });
-  });
-
-  it('当てても変わらない edge・測られていない node・接続点の無い node (group) は、同じオブジェクトを返す', () => {
-    const same: TestEdge = {
-      ...edge('left', 'right'),
-      sourceHandle: 'source-right',
-      targetHandle: 'source-left',
     };
     const unmeasured = edge('left', 'nowhere');
     const toGroup = edge('left', 'group');
-    const out = withFacingHandles([same, unmeasured, toGroup], shapeOf);
-    expect(out[0]).toBe(same);
+    const out = withFacingHandles([chosen, unmeasured, toGroup], shapeOf);
+    expect(out[0]).toBe(chosen);
     expect(out[1]).toBe(unmeasured);
     expect(out[2]).toBe(toGroup);
   });
