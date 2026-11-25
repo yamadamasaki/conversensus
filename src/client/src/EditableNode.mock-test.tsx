@@ -47,6 +47,8 @@ const { render, screen, fireEvent, cleanup } = await import(
 const { EditableNode } = await import('./EditableNode');
 const { MARKDOWN_COMPONENTS } = await import('./markdownComponents');
 const { ReadOnlyProvider } = await import('./readOnlyContext');
+const { GraphNodeProvider } = await import('./graph/graphNodeContext');
+const { ja } = await import('./i18n/ja');
 const { DERIVED_FROM_SHEET_PROPERTY, GRAPH_NODE_LABEL } = await import(
   '@conversensus/shared'
 );
@@ -335,6 +337,56 @@ describe('EditableNode', () => {
       expect(chip.tagName).not.toBe('BUTTON');
       fireEvent.click(chip);
       expect(container.querySelector('[data-node-label-input]')).toBeNull();
+    });
+
+    describe('graph node の名前を変える口 (#402)', () => {
+      const sheetId = '00000000-0000-4000-8000-000000000001';
+      const openSheet = mock((_sheetId: string) => {});
+      const graphNode = (selected: boolean) => (
+        <GraphNodeProvider
+          value={{
+            openSheet,
+            renameRequest: null,
+            clearRenameRequest: () => {},
+          }}
+        >
+          <EditableNode
+            {...plain(selected, {
+              content: 'Sheet 1',
+              label: GRAPH_NODE_LABEL,
+              properties: { [DERIVED_FROM_SHEET_PROPERTY]: sheetId },
+            })}
+          />
+        </GraphNodeProvider>
+      );
+      const renameButton = () =>
+        screen.queryByRole('button', { name: ja.graph.renameGraphNode });
+
+      it('選んだときだけ口を出し、押すと名前 (本文) の編集に入る。ダブルクリックは開くのまま', () => {
+        // ダブルクリックは Sheet を開くので、名前の変え方が Enter / F2 しか無く、見つけられなかった
+        const { rerender } = render(graphNode(false));
+        expect(renameButton()).toBeNull();
+
+        rerender(graphNode(true));
+        const button = renameButton();
+        if (!button) throw new Error('名前を変える口が無い');
+        fireEvent.click(button);
+        expect(screen.getByRole('textbox')).toHaveProperty('value', 'Sheet 1');
+      });
+
+      it('hover で開き方と名前の変え方を出す', () => {
+        const { container } = render(graphNode(false));
+        expect(
+          container.querySelector('[data-node-body]')?.getAttribute('title'),
+        ).toBe(ja.graph.graphNodeHint);
+      });
+
+      it('読み取り専用の画面では口を出さない', () => {
+        render(
+          <ReadOnlyProvider value={true}>{graphNode(true)}</ReadOnlyProvider>,
+        );
+        expect(renameButton()).toBeNull();
+      });
     });
 
     it('差分の node には、色だけでなく形の印を添える (追加 / 変更)', () => {

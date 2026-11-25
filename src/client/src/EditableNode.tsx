@@ -248,6 +248,8 @@ export function EditableNode({ id, data, selected }: NodeProps) {
           overflow: 'auto',
           cursor: 'default',
         }}
+        // graph node はダブルクリックで開くので、名前の変え方を hover で出す (#402)
+        {...(graphNodeSheet && graphNodes && { title: t.graph.graphNodeHint })}
         onDoubleClick={
           editing
             ? undefined
@@ -259,6 +261,30 @@ export function EditableNode({ id, data, selected }: NodeProps) {
         }
       >
         {label && labelSlot}
+        {/* graph node の名前を変える口 (#402)。ダブルクリックは開くに使うので、選んだときに出す。
+            Enter / F2 だけでは見つけられなかった */}
+        {graphNodeSheet && graphNodes && selected && !readOnly && !editing && (
+          <button
+            type="button"
+            className="nodrag nopan"
+            onClick={(e) => {
+              e.stopPropagation();
+              startEdit();
+            }}
+            style={{
+              marginLeft: 6,
+              fontSize: font.caption,
+              padding: '0 6px',
+              borderRadius: radius.sm,
+              border: `1px solid ${color.border}`,
+              background: color.bg,
+              color: color.text,
+              cursor: 'pointer',
+            }}
+          >
+            {t.graph.renameGraphNode}
+          </button>
+        )}
         {/* 印は module が決める (依頼の状態など、計画 node-actions-request-module.md N3) */}
         <NodeBadges
           nodeId={id}

@@ -477,6 +477,9 @@ export const en: Messages = {
     appearances: { markdown: 'Markdown', group: 'group', image: 'Image' },
     graphNodeTitle: 'Add a Sheet to this File and place its graph node',
     graphNode: 'Graph',
+    renameGraphNode: 'Rename',
+    graphNodeHint:
+      'Double-click to open. To rename, select it and press "Rename", or Enter / F2',
   },
   image: {
     blocked:
