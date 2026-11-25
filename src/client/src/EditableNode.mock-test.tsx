@@ -432,15 +432,12 @@ describe('EditableNode', () => {
     it('ハンドル自体は消さない (ghost エッジの端点として座標が要る)', () => {
       render(<EditableNode {...makeGhostProps()} />);
       const ids = mockHandle.mock.calls.map(([props]) => props.id);
-      expect(ids.slice(0, 4)).toEqual([
+      expect(ids).toEqual([
         'source-top',
         'source-bottom',
         'source-left',
         'source-right',
       ]);
-      // 端を散らす並べた接続点も持つ (#410)。ghost の edge の端も同じ所に描くため
-      expect(ids).toContain('source-right-1');
-      expect(ids).toHaveLength(4 + 16);
     });
 
     it('通常のノードのハンドルは接続可能なまま', () => {

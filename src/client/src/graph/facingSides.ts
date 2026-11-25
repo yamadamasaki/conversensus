@@ -1,123 +1,68 @@
 /**
- * 端の位置を決めていない edge の、端の置き方 (visual language §8.2, #256・#410)
+ * 端の位置を決めていない edge の、向かい合う辺 (visual language §8.2, #256)
  *
  * node の接続点は 4 辺にあり、edge が端の接続点を持たない (`sourceHandle` が無い) と React Flow は
  * **最初の接続点 (上辺) を両端に使う**。すると横に並んだ node どうしの edge が上辺の外を回り、
- * label が node の上で重なる (Toulmin model の template graph で起きた、#256)。
+ * label が node の上で重なる (Toulmin model の template graph で起きた)。
  *
- * 持たない edge は、**2 つの node の中心を結ぶ線が、それぞれの node の枠と交わる所**を端にする (#410)。
- * 以前は向かい合う辺の中点にしていたので、同じ辺を向く edge の端がすべて 1 点に集まって重なり、
- * 一番上の edge しか選べなかった。中心線の交点なら、相手の node の方向ごとに端がずれ、人が見ても自然である。
- * 人が繋いだ edge は接続点を持つのでここを通らない (人が選んだ辺を勝手に変えない)。
+ * 持たない edge は、**2 つの node の中心を結ぶ向きで、向かい合う辺の中点**を端にする。
+ * 横に離れていれば左右の辺、縦に離れていれば上下の辺。人が繋いだ edge は接続点を持つので
+ * ここを通らない (人が選んだ辺を勝手に変えない)。
  *
  * **端は接続点として React Flow に渡す** (`withFacingHandles`、template-update 段 2 の実機の確認 W7)。
- * 付け替えのつかみ所は React Flow が接続点の位置に描くので、線の端だけをずらすとつかみ所とずれて
- * 付け替えられない。そこで各辺に**接続点を `SLOTS` か所並べ** (`SlotHandles`)、交点にいちばん近いものを
- * 使う。交点そのものではないが、つかみ所と線の端が一致する。**渡すのは表示だけ**で、保存はしない
+ * 以前は edge の部品の中で線の端だけをずらしていたが、付け替えのつかみ所は React Flow が最初の接続点
+ * (上辺) に描くので、線の端とつかみ所がずれて**付け替えられなかった** (種から作った Toulmin の edge)。
+ * 接続点として渡せば、線もつかみ所も同じ所に描かれる。**渡すのは表示だけ**で、保存はしない
  */
 
 import { Position } from '@xyflow/react';
 
 export type Rect = { x: number; y: number; width: number; height: number };
-export type Point = { x: number; y: number };
+export type Anchor = { x: number; y: number; position: Position };
 
-/**
- * 1 辺に並べる接続点の数。辺を `SLOTS + 1` 等分した点に置く。真ん中は今までの接続点
- * (`source-top` など) なので、保存済みの端は変わらない
- */
-export const SLOTS = 5;
-/** 真ん中の接続点の番号 (1 始まり) */
-const MIDDLE_SLOT = (SLOTS + 1) / 2;
+function sideOf(rect: Rect, position: Position): Anchor {
+  const cx = rect.x + rect.width / 2;
+  const cy = rect.y + rect.height / 2;
+  switch (position) {
+    case Position.Left:
+      return { x: rect.x, y: cy, position };
+    case Position.Right:
+      return { x: rect.x + rect.width, y: cy, position };
+    case Position.Top:
+      return { x: cx, y: rect.y, position };
+    default:
+      return { x: cx, y: rect.y + rect.height, position };
+  }
+}
 
-/** 辺の位置から真ん中の接続点の id (`EditableNode`・`ImageNode` の 4 辺の接続点) */
+export function facingAnchors(
+  source: Rect,
+  target: Rect,
+): { source: Anchor; target: Anchor } {
+  const dx = target.x + target.width / 2 - (source.x + source.width / 2);
+  const dy = target.y + target.height / 2 - (source.y + source.height / 2);
+  // 大きさの違う node でも向きを素直に取れるよう、中心の差の大きい方の軸で選ぶ
+  if (Math.abs(dx) >= Math.abs(dy)) {
+    const toRight = dx >= 0;
+    return {
+      source: sideOf(source, toRight ? Position.Right : Position.Left),
+      target: sideOf(target, toRight ? Position.Left : Position.Right),
+    };
+  }
+  const down = dy >= 0;
+  return {
+    source: sideOf(source, down ? Position.Bottom : Position.Top),
+    target: sideOf(target, down ? Position.Top : Position.Bottom),
+  };
+}
+
+/** 辺の位置から node の接続点の id (`EditableNode`・`ImageNode` の 4 辺の接続点) */
 const HANDLE_OF: Record<Position, string> = {
   [Position.Top]: 'source-top',
   [Position.Bottom]: 'source-bottom',
   [Position.Left]: 'source-left',
   [Position.Right]: 'source-right',
 };
-
-/**
- * 辺の `slot` 番目 (1〜SLOTS、上・下の辺は左から、左・右の辺は上から) の接続点の id。
- * 真ん中は今までの id
- */
-export function slotHandleId(position: Position, slot: number): string {
-  return slot === MIDDLE_SLOT
-    ? HANDLE_OF[position]
-    : `${HANDLE_OF[position]}-${slot}`;
-}
-
-/** 真ん中を除いた接続点の番号 (`SlotHandles` が足す分) */
-export const EXTRA_SLOTS: readonly number[] = Array.from(
-  { length: SLOTS },
-  (_, i) => i + 1,
-).filter((slot) => slot !== MIDDLE_SLOT);
-
-/** `slot` 番目の接続点の、辺の上での位置 (0〜1) */
-export function slotFraction(slot: number): number {
-  return slot / (SLOTS + 1);
-}
-
-/** 枠の上の端。`along` は辺の上の位置 (0〜1。上・下の辺は左から、左・右の辺は上から) */
-export type Anchor = Point & { position: Position; along: number };
-
-const centerOf = (r: Rect): Point => ({
-  x: r.x + r.width / 2,
-  y: r.y + r.height / 2,
-});
-
-/**
- * `rect` の中心から `toward` へ向かう線が、`rect` の枠と交わる所。
- * 中心が同じ (向きが決まらない) ときは右辺の真ん中にする
- */
-export function borderAnchor(rect: Rect, toward: Point): Anchor {
-  const c = centerOf(rect);
-  const dx = toward.x - c.x;
-  const dy = toward.y - c.y;
-  const halfW = rect.width / 2;
-  const halfH = rect.height / 2;
-  if (dx === 0 && dy === 0) {
-    return {
-      x: rect.x + rect.width,
-      y: c.y,
-      position: Position.Right,
-      along: 0.5,
-    };
-  }
-  // 左右の辺に先に当たるか、上下の辺に先に当たるか (枠の縦横比で比べる)
-  if (Math.abs(dx) * halfH >= Math.abs(dy) * halfW) {
-    const y = c.y + (dy * halfW) / Math.abs(dx);
-    return {
-      x: dx >= 0 ? rect.x + rect.width : rect.x,
-      y,
-      position: dx >= 0 ? Position.Right : Position.Left,
-      along: (y - rect.y) / rect.height,
-    };
-  }
-  const x = c.x + (dx * halfH) / Math.abs(dy);
-  return {
-    x,
-    y: dy >= 0 ? rect.y + rect.height : rect.y,
-    position: dy >= 0 ? Position.Bottom : Position.Top,
-    along: (x - rect.x) / rect.width,
-  };
-}
-
-/** 2 つの node の中心を結ぶ線が、それぞれの枠と交わる所 */
-export function facingAnchors(
-  source: Rect,
-  target: Rect,
-): { source: Anchor; target: Anchor } {
-  return {
-    source: borderAnchor(source, centerOf(target)),
-    target: borderAnchor(target, centerOf(source)),
-  };
-}
-
-/** 辺の上の位置にいちばん近い接続点の番号 */
-export function nearestSlot(along: number): number {
-  return Math.min(SLOTS, Math.max(1, Math.round(along * (SLOTS + 1))));
-}
 
 /** edge の両端の node の、位置と大きさと持っている接続点の id */
 export type NodeShape = { rect: Rect; handleIds: ReadonlySet<string> };
@@ -131,21 +76,10 @@ type HandledEdge = {
 };
 
 /**
- * 端に使う接続点。交点にいちばん近い接続点を持っていればそれ、持たなければ (並べた接続点の無い node)
- * その辺の真ん中、それも無ければ (group) 無し
- */
-function handleFor(anchor: Anchor, shape: NodeShape): string | undefined {
-  const nearest = slotHandleId(anchor.position, nearestSlot(anchor.along));
-  if (shape.handleIds.has(nearest)) return nearest;
-  const middle = HANDLE_OF[anchor.position];
-  return shape.handleIds.has(middle) ? middle : undefined;
-}
-
-/**
- * 端の接続点を持たない edge に、中心線と枠の交点にいちばん近い接続点を当てる (表示だけ)。
+ * 端の接続点を持たない edge に、向かい合う辺の接続点を当てる (表示だけ)。
  *
  * - 当てるのは**両端とも**接続点を持たない edge だけ (片方だけ持つ edge は、人が選んだ端を残す)
- * - 両端の node の形が分からない (まだ測られていない) ・その辺に接続点を持たない (group) なら当てない
+ * - 両端の node の形が分からない (まだ測られていない) ・その辺の接続点を持たない (group) なら当てない
  * - 当てる必要の無い edge は同じオブジェクトのまま返す (React Flow に要らない描き直しをさせない)
  */
 export function withFacingHandles<E extends HandledEdge>(
@@ -158,9 +92,13 @@ export function withFacingHandles<E extends HandledEdge>(
     const target = shapeOf(e.target);
     if (!source || !target) return e;
     const anchors = facingAnchors(source.rect, target.rect);
-    const sourceHandle = handleFor(anchors.source, source);
-    const targetHandle = handleFor(anchors.target, target);
-    if (!sourceHandle || !targetHandle) return e;
+    const sourceHandle = HANDLE_OF[anchors.source.position];
+    const targetHandle = HANDLE_OF[anchors.target.position];
+    if (
+      !source.handleIds.has(sourceHandle) ||
+      !target.handleIds.has(targetHandle)
+    )
+      return e;
     return { ...e, sourceHandle, targetHandle };
   });
 }

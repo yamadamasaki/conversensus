@@ -21,7 +21,6 @@ import { DiffMark } from './graph/DiffMark';
 import { useGraphNodeHandlers } from './graph/graphNodeContext';
 import { useKindPlaceholder } from './graph/kindLabelContext';
 import { FloatingNodeLabel, NodeLabel } from './graph/NodeLabel';
-import { SlotHandles } from './graph/SlotHandles';
 import { useInlineEdit } from './hooks/useInlineEdit';
 import { useMessages } from './i18n/messages';
 import { MARKDOWN_COMPONENTS } from './markdownComponents';
@@ -193,7 +192,6 @@ export function EditableNode({ id, data, selected }: NodeProps) {
           id="source-right"
           isConnectable={false}
         />
-        <SlotHandles connectable={false} />
       </>
     );
   }
@@ -349,8 +347,6 @@ export function EditableNode({ id, data, selected }: NodeProps) {
       <Handle type="source" position={Position.Bottom} id="source-bottom" />
       <Handle type="source" position={Position.Left} id="source-left" />
       <Handle type="source" position={Position.Right} id="source-right" />
-      {/* 端を決めていない edge の端を散らす、見えない接続点 (#410) */}
-      <SlotHandles />
     </>
   );
 }
