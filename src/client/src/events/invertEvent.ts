@@ -188,7 +188,7 @@ export function invertEvent(event: GraphEvent): GraphEvent {
       return {
         ...base,
         type: 'EDGE_STYLE_CHANGED',
-        category: 'presentation',
+        category: 'layout',
         edgeId: event.edgeId,
         from: event.to,
         to: event.from,
@@ -206,7 +206,7 @@ export function invertEvent(event: GraphEvent): GraphEvent {
       return {
         ...base,
         type: 'EDGE_LABEL_MOVED',
-        category: 'presentation',
+        category: 'layout',
         edgeId: event.edgeId,
         from: event.to,
         to: event.from,

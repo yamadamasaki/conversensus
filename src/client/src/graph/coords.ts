@@ -235,6 +235,24 @@ export function innermostGroupAt(
 }
 
 /**
+ * **掴んだ node** の新しい親グループを、カーソルの位置 (flow 座標) で解決する (#407)。undefined はトップレベル。
+ *
+ * 中心で決めると、大きな node の端を掴んで小さな group へ持っていったとき、カーソルは group の上なのに
+ * 中心が外にあって入らない。利用者が狙っているのはカーソルの所なので、掴んだ node はそこで決める。
+ * 出るときもカーソルが group の外に出れば出る (中心で決めるときの、親に留まる余裕は持たない —
+ * カーソルは小さいので、境目が見たとおりになる)
+ */
+export function resolveDropTargetAt(
+  node: Node,
+  pointer: Position,
+  nodes: Node[],
+): Node | undefined {
+  const excluded = descendantIdsOf(node.id, nodes);
+  excluded.add(node.id);
+  return innermostGroupAt(pointer, nodes, excluded);
+}
+
+/**
  * ドラッグされたノードの新しい親グループを解決する。undefined はトップレベルを意味する。
  *
  * `node` にはドラッグ中の最新の位置を持つノードを渡す (`nodes` 内の同じノードは stale で

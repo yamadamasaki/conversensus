@@ -18,6 +18,7 @@ projection は step1 §4 の「集約は projection (導出ビュー)」を実�
 - **プロパティ名の正規化 (#137)**: `image` / `imageUrl` のような名前空間化する前のシステム・プロパティが、projection 後のグラフでは新名 (`app.conversensus.*`) になっていることを確認する。op-log は書き換えられないので旧名の op は残り続けるが、**グラフに現れるのは新名だけ**という不変条件がここで決まる。旧名の op が新名で書かれたプロパティを上書きできることも固定する — 移行期は端末ごとに綴りが混じるので、別プロパティと見なすと片方の編集が相手から見えないまま両方が残る。
 - **旧形式 (`setProperties`) も読む**: 既存の op-log には置換の op が積まれている。新規には発行しないが、読めなくなると過去のグラフが再現できない。旧形式の置換の後にキー単位の op が重なる順序まで確認する。
 - **presentation の分離**: presentation op (edge.setStyle 等) は presentation マップに入り、意味的な状態 (edges の properties 等) に影響しないことを確認する (D7: presentation はローカル限定)。
+- **線種と label の位置は edge の layout (#409)**: `edge.setLabelOffset` は edge の layout (`labelOffsetX/Y`) に載る。#409 より前の画面が `edge.setStyle` に書いた線種は、読める値だけ layout の `pathType` として拾い、後の `edge.setLayout` が勝つ。以前はどちらも presentation マップにだけ入って誰も読まず、読み直すと消えていた。
 - **toSheet**: projection が既存の `Sheet` 形式へ変換されることを確認する (現行資産との接続点)。
 
 ### add-wins / tombstone (Phase 3 T2)

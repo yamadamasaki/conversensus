@@ -12,7 +12,7 @@ A metagraph is a graph whose nodes are graphs (actually, the Sheets on which gra
 
 When you create a new File, a metagraph named index is created as a special Sheet. Each time you add a Sheet to the File, a node for that Sheet (called a graph node) is added to index, and when you delete a Sheet, its graph node is removed from index.
 
-The reverse also holds. If you choose "Graph" when creating a node in index, a Sheet is added, and if you delete a graph node, its Sheet is deleted (after a confirmation dialog). If you rename a graph node, the Sheet is renamed too. In other words, the File's Sheets and the metagraph's graph nodes are kept in sync. index itself also appears in index as a graph node.
+The reverse also holds. If you choose "Graph" when creating a node in index, a Sheet is added, and if you delete a graph node, its Sheet is deleted (after a confirmation dialog). If you rename a graph node, the Sheet is renamed too (to rename it, select the graph node and press "Rename", or press Enter or F2; double-clicking opens the Sheet). In other words, the File's Sheets and the metagraph's graph nodes are kept in sync. index itself also appears in index as a graph node.
 
 Graph nodes have the label `graph`, which tells them apart from ordinary nodes. This label cannot be changed.
 

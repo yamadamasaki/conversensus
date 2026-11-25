@@ -40,6 +40,7 @@ remote leg のフィルタは設計 §3.2 の不変条件を担う要のコー�
 - **mixed** (content + presentation): presentation を除いた複製を返し、他フィールド
   (id/clock/timestamp/actor/sheetId) を保存する。
 - **presentation only**: skip (出力に含めない)。
+- **label の位置 (#409)**: `edge.setLabelOffset` は layout なので remote へ通す (以前は presentation だった)。
 - **genesis actor 通過** (Phase 4e-0): syncable op を持つ genesis batch は remote へ通す。
   全 op syncable なら同一参照。
 - **genesis + presentation**: genesis batch にも presentation 除外がかかり、絞った複製が
@@ -66,3 +67,4 @@ merge した人の batch として届くので、相手には「merged なのに
 - **他人が書いた編集でも、自分が merge した写しは送る** (写しの actor は自分)
 - **自分が書いた編集でも、他人が merge した写しは送らない** (それは相手の batch で、相手の repo にある)
 
+- **小数の label の位置 (#409)**: 手元のログに残る小数は、丸めた複製で送る。元の batch は変えない

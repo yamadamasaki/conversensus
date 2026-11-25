@@ -345,7 +345,7 @@ describe('graphEventToOps: 全 21 イベント型を網羅する', () => {
       to: { width: 2, height: 2 },
     },
     {
-      ...makeEventBase('presentation'),
+      ...makeEventBase('layout'),
       type: 'EDGE_STYLE_CHANGED',
       edgeId,
       from: {},
@@ -359,7 +359,7 @@ describe('graphEventToOps: 全 21 イベント型を網羅する', () => {
       to: { nodeId, width: 10, height: 10 },
     },
     {
-      ...makeEventBase('presentation'),
+      ...makeEventBase('layout'),
       type: 'EDGE_LABEL_MOVED',
       edgeId,
       from: { offsetX: 0, offsetY: 0 },
@@ -784,5 +784,57 @@ describe('シートのプロパティ (step3 Phase 4 S4-0)', () => {
       (s) => s.id === sheetId,
     );
     expect(sheet && sheetKindOf(sheet)).toBe(METAGRAPH_SHEET_KIND);
+  });
+});
+
+describe('EDGE_STYLE_CHANGED の線種 (#409)', () => {
+  const edgeId = crypto.randomUUID() as EdgeId;
+  test('線種は edge.setLayout の pathType になる (layout = 共有する)', () => {
+    expect(
+      graphEventToOps({
+        ...makeEventBase('layout'),
+        type: 'EDGE_STYLE_CHANGED',
+        edgeId,
+        from: { pathType: 'bezier' },
+        to: { pathType: 'step' },
+      }),
+    ).toEqual([{ kind: 'edge.setLayout', target: edgeId, pathType: 'step' }]);
+  });
+
+  test('線種のほかの見た目は今までどおり edge.setStyle (端末ごと)', () => {
+    expect(
+      graphEventToOps({
+        ...makeEventBase('layout'),
+        type: 'EDGE_STYLE_CHANGED',
+        edgeId,
+        from: {},
+        to: { pathType: 'step', stroke: 'red' },
+      }),
+    ).toEqual([
+      { kind: 'edge.setLayout', target: edgeId, pathType: 'step' },
+      { kind: 'edge.setStyle', target: edgeId, style: { stroke: 'red' } },
+    ]);
+  });
+});
+
+describe('EDGE_LABEL_MOVED (#409)', () => {
+  test('label の位置は整数に丸めて書く (小数は PDS が断る)', () => {
+    const edgeId = crypto.randomUUID() as EdgeId;
+    expect(
+      graphEventToOps({
+        ...makeEventBase('layout'),
+        type: 'EDGE_LABEL_MOVED',
+        edgeId,
+        from: { offsetX: 0, offsetY: 0 },
+        to: { offsetX: 40.6, offsetY: -12.4 },
+      }),
+    ).toEqual([
+      {
+        kind: 'edge.setLabelOffset',
+        target: edgeId,
+        offsetX: 41,
+        offsetY: -12,
+      },
+    ]);
   });
 });

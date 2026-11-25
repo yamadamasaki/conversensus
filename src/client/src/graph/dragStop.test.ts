@@ -314,3 +314,34 @@ describe('resolveDropTargets', () => {
     ).toBe(targets.get('n1')?.id as string | undefined);
   });
 });
+
+describe('掴んだ node はカーソルで、ほかの node は中心で決める (#407)', () => {
+  it('掴んだ node だけがカーソルの group に入り、一緒に動いた node は自分の中心で決まる', () => {
+    // g1 は (0, 0) から 200x200。カーソル (50, 50) は g1 の中
+    const g1 = groupNode('g1', { x: 0, y: 0 }, { width: 200, height: 200 });
+    const a = node('a', { x: 500, y: 500 });
+    const b = node('b', { x: 600, y: 600 });
+    const movedA = dragged(a, { x: 300, y: 30 }); // 中心 (350, 55) は g1 の外
+    const movedB = dragged(b, { x: 400, y: 400 }); // 中心は g1 の外
+    const targets = resolveDropTargets([movedA, movedB], [g1, a, b], {
+      nodeId: 'a',
+      at: { x: 50, y: 50 },
+    });
+    expect(targets.get('a')?.id).toBe('g1');
+    expect(targets.get('b')).toBeUndefined();
+  });
+
+  it('確定でも同じ判定を使う (見えた印のとおりに入る)', () => {
+    const g1 = groupNode('g1', { x: 0, y: 0 }, { width: 200, height: 200 });
+    const a = node('a', { x: 500, y: 500 });
+    const movedA = dragged(a, { x: 300, y: 30 });
+    const events = buildDragStopEvents([movedA], [g1, a], positionsOf([a]), {
+      nodeId: 'a',
+      at: { x: 50, y: 50 },
+    });
+    expect(events[0]).toMatchObject({
+      type: 'NODE_REPARENTED',
+      newParentId: 'g1',
+    });
+  });
+});

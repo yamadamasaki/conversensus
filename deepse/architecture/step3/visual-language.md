@@ -52,6 +52,7 @@ CSS 変数は `--cs-` を前置して `:root` に置く (`index.css`)。**ダー
 | 主の操作 (hover) | `--cs-primary-hover` | `#2f4bb8` | |
 | 選択 | `--cs-selection` | `#3a5bd9` | 選ばれた node・edge・行の枠 |
 | 選択の地 | `--cs-selection-bg` | `#eef2ff` | 選ばれた行・開いているタブ |
+| template graph の地 | `--cs-template-bg` | `#ece8fa` | template graph の画面の背景 (#404)。当てた先のグラフと取り違えないための、ごく薄い色 |
 | フォーカス | `--cs-focus` | `#3a5bd9` | `:focus-visible` の輪 (2px) |
 
 - **主の色は 1 つの画面の 1 つの面につき 1 個だけ**。ダイアログの「OK」、merger の「merge」など。

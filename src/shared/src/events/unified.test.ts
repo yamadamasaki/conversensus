@@ -1,9 +1,11 @@
 import { describe, expect, test } from 'bun:test';
 import fc from 'fast-check';
+import { EdgeIdSchema } from '../schemas';
 import {
   type Batch,
   BatchSchema,
   CONTAINER_OP_KINDS,
+  edgeSetLabelOffsetOp,
   FILE_OP_KINDS,
   isContentOp,
   isFileOp,
@@ -12,9 +14,11 @@ import {
   knownOpsOf,
   LamportClock,
   OP_CATEGORY,
+  type Op,
   OpSchema,
   opCategory,
   ReceivedBatchSchema,
+  remoteReadyOp,
   SEMANTIC_OP_KINDS,
   StoredBatchSchema,
 } from './unified';
@@ -319,5 +323,64 @@ describe('知らない種類の op (step3 FPR の確認 §5.3)', () => {
           expect(result).toBe(batch);
       }),
     );
+  });
+});
+
+describe('label の位置を PDS に載せられる形にする (#409)', () => {
+  const target = EdgeIdSchema.parse(crypto.randomUUID());
+  // 小数を広く引くと整数に当たらないので、整数と小数の両方を混ぜる
+  const arbOffset = fc.oneof(
+    fc.integer({ min: -2000, max: 2000 }),
+    fc.double({ min: -2000, max: 2000, noNaN: true, noDefaultInfinity: true }),
+  );
+
+  test('生成口も関所も、どんな値でも整数の offset を返す', () => {
+    // 小数が 1 つでも載ると PDS が batch を断り、outbox が詰まって以降の同期が止まる
+    fc.assert(
+      fc.property(arbOffset, arbOffset, (x, y) => {
+        const made = edgeSetLabelOffsetOp(target, x, y);
+        const ready = remoteReadyOp({
+          kind: 'edge.setLabelOffset',
+          target,
+          offsetX: x,
+          offsetY: y,
+        });
+        for (const op of [made, ready]) {
+          if (op.kind !== 'edge.setLabelOffset') return false;
+          if (!Number.isInteger(op.offsetX) || !Number.isInteger(op.offsetY))
+            return false;
+        }
+        return true;
+      }),
+    );
+  });
+
+  test('丸める必要の無い op は同じ参照のまま返す', () => {
+    // 参照が変わらなければ remoteFilter は batch を複製しない
+    const whole: Op = {
+      kind: 'edge.setLabelOffset',
+      target,
+      offsetX: 3,
+      offsetY: -4,
+    };
+    const other: Op = { kind: 'edge.setLayout', target, pathType: 'step' };
+    expect(remoteReadyOp(whole)).toBe(whole);
+    expect(remoteReadyOp(other)).toBe(other);
+  });
+
+  test('小数は四捨五入する (表示上の意味が無いサブピクセルだけを落とす)', () => {
+    expect(
+      remoteReadyOp({
+        kind: 'edge.setLabelOffset',
+        target,
+        offsetX: 40.6,
+        offsetY: -12.4,
+      }),
+    ).toEqual({
+      kind: 'edge.setLabelOffset',
+      target,
+      offsetX: 41,
+      offsetY: -12,
+    });
   });
 });

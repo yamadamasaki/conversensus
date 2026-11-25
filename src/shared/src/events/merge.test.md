@@ -54,11 +54,12 @@ step 2 で structure の競合検出を追加した (#206)。DtR (dialogue to re
 
 | 観点 | 何を束ねるか |
 | --- | --- |
-| `position` | 移動 (x, y) |
+| `position` | 移動 (x, y)。edge では label の位置 (`edge.setLabelOffset`、#409 で layout にした)。観点を足さないのは、観点の列挙が op の語彙にも載っているため |
 | `size` | リサイズ (width, height) |
 | `route` | edge の描かれ方 (sourceHandle / targetHandle / pathType)。経路の付け替えは一動作で決まる |
 
 - **同じノードを二人が動かす** → `position` の対立 1 件。
+- **同じ edge の label を二人が動かす** → `position` の対立 1 件。同じ batch の経路の変更は別の単位なので混ざらない (#409)。
 - **🔴 移動とリサイズは対立にしない**: 別の観点なので混ざらない。projection でも両方そのまま残る。
 - **移動とリサイズを両方触った op は 2 つの観点に割れる**: 一つの op が複数の単位を生む (`setProperties` と同じ形)。
 - **触っていない観点は単位にしない**: 移動しかしていない op が「大きさを undefined に変えた」ことになると、リサイズした相手と偽の競合になる。

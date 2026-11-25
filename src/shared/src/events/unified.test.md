@@ -96,3 +96,5 @@ FPR の後で op の種類を足すと、更新していないクライアント
 - 保存から読んだ batch は ops が空でもよい (知らない op だけの batch)
 - `knownOpsOf` は性質で書く: 知っている op だけを順に残し、batch の他の値は変えず、落とすものが無ければ
   同じ参照を返す。生成器は知っている種類 2 つと知らない種類 2 つ (node と sheet の名前空間) のプール
+
+- **小数の label の位置を丸める (#409)**: `edgeSetLabelOffsetOp` と `remoteReadyOp` は、どんな値でも整数の offset を返す (性質)。小数は PDS が断り、outbox が詰まって同期が止まる。丸める必要の無い op は同じ参照を返す

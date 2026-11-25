@@ -33,8 +33,10 @@ const nextFrame = () =>
 let moveStart: (
   event: MouseEvent | TouchEvent | null | Record<string, unknown>,
 ) => void = () => {};
-function Canvas({ fit }: { fit: () => void }) {
-  const { containerRef, onMoveStart } = useFitOnResize(fit);
+function Canvas({ fit, restored }: { fit: () => void; restored?: boolean }) {
+  const { containerRef, onMoveStart } = useFitOnResize(fit, {
+    userMoved: restored,
+  });
   moveStart = onMoveStart;
   return <div ref={containerRef} />;
 }
@@ -73,6 +75,16 @@ describe('useFitOnResize (#257)', () => {
     act(() => notify());
     await nextFrame();
     expect(fit).toHaveBeenCalledTimes(1);
+  });
+
+  test('前に見ていた表示に戻したときは、大きさが変わっても合わせ直さない (#405)', async () => {
+    // 戻した表示は利用者が選んだもの。合わせ直すと、タブを戻ったときに見ていた所を見失う
+    const fit = mock(() => {});
+    render(<Canvas fit={fit} restored />);
+    act(() => notify());
+    act(() => notify());
+    await nextFrame();
+    expect(fit).not.toHaveBeenCalled();
   });
 
   test('外したら観測をやめる', () => {

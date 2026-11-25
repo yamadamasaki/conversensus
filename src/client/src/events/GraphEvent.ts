@@ -253,9 +253,9 @@ export type NodeResizedEvent = EventBase & {
   fitted?: LayoutFit[];
 };
 
-// --- Presentation ---
+// --- 線種と label の位置は layout (共有する、#409)。node の大きさは presentation の名前のまま ---
 export type EdgeStyleChangedEvent = EventBase & {
-  category: 'presentation';
+  category: 'layout';
   type: 'EDGE_STYLE_CHANGED';
   edgeId: EdgeId;
   from: Partial<EdgeStyle>;
@@ -269,7 +269,7 @@ export type NodeStyleChangedEvent = EventBase & {
   to: NodeLayout;
 };
 export type EdgeLabelMovedEvent = EventBase & {
-  category: 'presentation';
+  category: 'layout';
   type: 'EDGE_LABEL_MOVED';
   edgeId: EdgeId;
   from: { offsetX: number; offsetY: number };

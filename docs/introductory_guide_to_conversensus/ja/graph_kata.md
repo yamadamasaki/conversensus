@@ -12,7 +12,7 @@ metagraph は, グラフ (実際には グラフを描いている Sheet) を no
 
 File を新たに作成すると, index という名前の metagraph が特別な Sheet として作成されます. File に Sheet を追加するたびに, その Sheet に対応する node (graph node と呼びます) が index に追加され, Sheet を削除すると, その Sheet に対応する graph node が index から削除されます.
 
-逆も同じです. index で node を作るときに「グラフ」を選ぶと Sheet が追加され, graph node を削除すると (確認のダイアログの後で) その Sheet が削除されます. graph node の名前を変えると, Sheet の名前も変わります. つまり, File の Sheet と metagraph の graph node は同期しています. index 自身も, 一つの graph node として index に現れます.
+逆も同じです. index で node を作るときに「グラフ」を選ぶと Sheet が追加され, graph node を削除すると (確認のダイアログの後で) その Sheet が削除されます. graph node の名前を変えると, Sheet の名前も変わります (名前を変えるには, graph node を選んで「名前を変える」を押すか, Enter か F2 を押します. ダブルクリックは Sheet を開きます). つまり, File の Sheet と metagraph の graph node は同期しています. index 自身も, 一つの graph node として index に現れます.
 
 graph node には `graph` というラベルが付いていて, ふつうの node と見分けられるようになっています. このラベルは変えられません.
 

@@ -96,8 +96,14 @@ describe('AuthorAvatars', () => {
   });
 
   test('色は DID で決まり (同じ人は同じ色)、頭文字は DID のままでも読める字にする', () => {
-    expect(colorOfDid(ALICE)).toBe(colorOfDid(ALICE));
-    expect(colorOfDid(ALICE)).not.toBe(colorOfDid(BOB));
+    expect(colorOfDid(ALICE)).toEqual(colorOfDid(ALICE));
+    expect(colorOfDid(ALICE).fill).not.toBe(colorOfDid(BOB).fill);
+    // 淡い地に同じ色相の濃い字 (#403)。色相が同じで、明度だけが違う
+    const { fill, ink } = colorOfDid(ALICE);
+    const hueOf = (c: string) => c.match(/^hsl\((\d+) /)?.[1];
+    const lightnessOf = (c: string) => Number(c.match(/(\d+)%\)$/)?.[1]);
+    expect(hueOf(fill)).toBe(hueOf(ink));
+    expect(lightnessOf(fill)).toBeGreaterThan(lightnessOf(ink) + 40);
     expect(initialOf('alice.test')).toBe('A');
     expect(initialOf('did:plc:zed')).toBe('Z');
     expect(initialOf('')).toBe('?');

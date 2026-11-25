@@ -51,6 +51,8 @@ function setup(initial: Node[]) {
     useNodeDragTracking(
       () => nodes,
       (e) => dispatched.push(e),
+      // 画面座標と flow 座標を同じにしておく (拡大も移動もしていない画面)
+      (point) => point,
     ),
   );
   return {
@@ -141,5 +143,46 @@ describe('useNodeDragTracking: ドラッグ中の印', () => {
 
     expect(groupEl.hasAttribute(DROP_TARGET_ATTR)).toBe(false);
     expect(groupEl.hasAttribute(LEAVING_GROUP_ATTR)).toBe(false);
+  });
+});
+
+describe('useNodeDragTracking: 掴んだ node はカーソルの位置で group を決める (#407)', () => {
+  /** 大きな node の左端を掴み、カーソルを小さな group の上に置いた画面 */
+  const BIG = { width: 600, height: 50 };
+  const big = (x: number, y: number): Node =>
+    ({ id: 'big', position: { x, y }, data: {}, measured: BIG }) as Node;
+  const at = (x: number, y: number) =>
+    new MouseEvent('mousemove', { clientX: x, clientY: y });
+
+  it('カーソルが group の上なら、node の中心が外でも入る', () => {
+    renderNodeElement('g1');
+    // group は (1000, 0) から 400x300。node の中心は x = 700 で group の外
+    const g = group('g1', 1000, 0);
+    const moved = big(400, 100);
+    const { handlers, dispatched, moveTo } = setup([g, big(0, 0)]);
+    handlers.onNodeDragStart(NO_EVENT, big(0, 0), []);
+    moveTo([g, moved]);
+
+    handlers.onNodeDrag(at(1050, 120), moved, [moved]);
+    expect(
+      document.querySelector('[data-id="g1"]')?.getAttribute(DROP_TARGET_ATTR),
+    ).toBe('true');
+
+    handlers.onNodeDragStop(at(1050, 120), moved, [moved]);
+    expect(dispatched[0]).toMatchObject({
+      type: 'NODE_REPARENTED',
+      newParentId: 'g1',
+    });
+  });
+
+  it('カーソルが group の外なら、node の中心が中でも入らない', () => {
+    const g = group('g1', 1000, 0);
+    // 中心は x = 1100 で group の中。カーソルは node の左端 (x = 820) で外
+    const moved = big(800, 100);
+    const { handlers, dispatched, moveTo } = setup([g, big(0, 0)]);
+    handlers.onNodeDragStart(NO_EVENT, big(0, 0), []);
+    moveTo([g, moved]);
+    handlers.onNodeDragStop(at(820, 120), moved, [moved]);
+    expect(dispatched[0]).toMatchObject({ type: 'NODE_MOVED' });
   });
 });

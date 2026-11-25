@@ -479,6 +479,10 @@ export const ja = {
     appearances: { markdown: 'Markdown', group: 'group', image: '画像' },
     graphNodeTitle: 'この File に Sheet を足し、その graph node を置く',
     graphNode: 'グラフ',
+    /** graph node の名前を変える口 (#402)。ダブルクリックは Sheet を開くので、別に出す */
+    renameGraphNode: '名前を変える',
+    graphNodeHint:
+      'ダブルクリックで開く。名前は、選んで「名前を変える」か Enter / F2 で変えられる',
   },
   image: {
     blocked:

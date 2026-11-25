@@ -104,11 +104,21 @@ const relabel = () => ({
 const restyle = () => ({
   id: uuid(),
   timestamp: Date.now(),
-  category: 'presentation' as const,
+  category: 'layout' as const,
   type: 'EDGE_STYLE_CHANGED' as const,
   edgeId: uuid() as EdgeId,
   from: {},
   to: { stroke: '#f00' },
+});
+/** 線種を変える (#409)。線種は layout で、相手にも送る */
+const repath = () => ({
+  id: uuid(),
+  timestamp: Date.now(),
+  category: 'layout' as const,
+  type: 'EDGE_STYLE_CHANGED' as const,
+  edgeId: uuid() as EdgeId,
+  from: { pathType: 'bezier' as const },
+  to: { pathType: 'step' as const },
 });
 
 class RecordingProvider implements SyncProvider, RemoteBatchTarget {
@@ -252,6 +262,22 @@ describe('useEventSyncTap (remote 配線 W3d5-5)', () => {
 
       expect(local.pushed).toHaveLength(1); // ローカル正典には残す (W3e 保全)
       expect(remote.pushed).toHaveLength(0); // remote へは送らない
+    });
+
+    it('線種の変更は remote にも載る (#409 — 線種は layout で共有する)', async () => {
+      const local = new RecordingProvider();
+      const remote = new RecordingProvider();
+      const remoteQueue = new RemoteSyncQueue({
+        provider: remote,
+        did: MY_DID,
+      });
+      const { result } = await renderTap({ local, remoteQueue });
+
+      result.current.record(repath());
+      await settle();
+
+      expect(local.pushed).toHaveLength(1);
+      expect(remote.pushed).toHaveLength(1);
     });
   });
 

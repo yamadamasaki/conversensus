@@ -14,9 +14,16 @@
 
 import { useCallback, useEffect, useRef } from 'react';
 
-export function useFitOnResize(fitView: () => void) {
+/**
+ * @param options.userMoved 始めから「利用者が動かした」扱いにする。前に見ていた表示に戻したとき (#405) —
+ *   その表示は利用者が選んだものなので、合わせ直すと #405 の「見ていた所が分からなくなる」に戻ってしまう
+ */
+export function useFitOnResize(
+  fitView: () => void,
+  options: { userMoved?: boolean } = {},
+) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const userMovedRef = useRef(false);
+  const userMovedRef = useRef(options.userMoved ?? false);
   const fitRef = useRef(fitView);
   fitRef.current = fitView;
 

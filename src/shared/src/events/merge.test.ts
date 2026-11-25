@@ -540,6 +540,30 @@ describe('mergeBranches — layout の競合 (Phase 3 T3)', () => {
     expect(conflicts[0]).toMatchObject({ category: 'layout', aspect: 'route' });
   });
 
+  test('edge の label の位置の並行変更は position の対立になる (#409)', () => {
+    // label の位置は layout (共有する)。edge の「位置」として比べ、経路とは別の単位にする
+    const e = eid();
+    const { conflicts } = mergeBranches(
+      NO_BASE,
+      [
+        batch(2, [
+          { kind: 'edge.setLabelOffset', target: e, offsetX: 10, offsetY: 0 },
+        ]),
+      ],
+      [
+        batch(3, [
+          { kind: 'edge.setLabelOffset', target: e, offsetX: -10, offsetY: 0 },
+          { kind: 'edge.setLayout', target: e, pathType: 'step' },
+        ]),
+      ],
+    );
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0]).toMatchObject({
+      category: 'layout',
+      aspect: 'position',
+    });
+  });
+
   test('🔴 layout は確認では止めない (3 段の一番下)', () => {
     // content / structure は人の判断が要るので取り込む前に問うが、layout は通知だけ。
     // **この分岐が生きるのは T3 で layout の category ができてからである**

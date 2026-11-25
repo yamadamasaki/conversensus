@@ -28,10 +28,10 @@
  * |---|---|---|
  * | content | `content` / `properties` | `label` / `properties` |
  * | structure | 存在 / `nodeType` / `parentId` | 存在 / `source` / `target` |
- * | layout | `x` / `y` / `width` / `height` | `sourceHandle` / `targetHandle` / `pathType` |
+ * | layout | `x` / `y` / `width` / `height` | `sourceHandle` / `targetHandle` / `pathType` / label の位置 |
  * | presentation | **比較しない** | **比較しない** |
  *
- * presentation (`node.setStyle` / `edge.setStyle` / `edge.setLabelOffset`) を外すのは、
+ * presentation (`node.setStyle` / `edge.setStyle`) を外すのは、
  * それがローカル限定で remote にも出ない (`isSyncable` が false) ためである。
  * `toSheet` も presentation を Sheet に載せない。
  */
@@ -96,6 +96,8 @@ type ViewEdgeLayout = {
   sourceHandle: string | undefined;
   targetHandle: string | undefined;
   pathType: string;
+  labelOffsetX: number;
+  labelOffsetY: number;
 };
 
 function viewEdgeLayout(layout: EdgeLayout | undefined): ViewEdgeLayout {
@@ -104,6 +106,9 @@ function viewEdgeLayout(layout: EdgeLayout | undefined): ViewEdgeLayout {
     targetHandle: layout?.targetHandle,
     // 明示されていないエッジも画面では既定の経路で描かれる (`toFlowEdges`)
     pathType: layout?.pathType ?? DEFAULT_EDGE_PATH_TYPE,
+    // label の位置は layout (#409)。動かしていなければ画面は 0 で描く (`toFlowEdges`)
+    labelOffsetX: layout?.labelOffsetX ?? 0,
+    labelOffsetY: layout?.labelOffsetY ?? 0,
   };
 }
 
@@ -171,7 +176,9 @@ function edgeLayoutChanged(
   return (
     b.sourceHandle !== c.sourceHandle ||
     b.targetHandle !== c.targetHandle ||
-    b.pathType !== c.pathType
+    b.pathType !== c.pathType ||
+    b.labelOffsetX !== c.labelOffsetX ||
+    b.labelOffsetY !== c.labelOffsetY
   );
 }
 

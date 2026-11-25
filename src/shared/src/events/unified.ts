@@ -25,6 +25,7 @@ import { z } from 'zod';
 import {
   BranchIdSchema,
   CommitIdSchema,
+  type EdgeId,
   EdgeIdSchema,
   EdgePathTypeSchema,
   FileIdSchema,
@@ -316,7 +317,8 @@ export const OpSchema = z.discriminatedUnion('kind', [
     targetHandle: z.string().optional(),
     pathType: EdgePathTypeSchema.optional(),
   }),
-  // presentation (ローカル限定)
+  // presentation (ローカル限定)。edge.setLabelOffset は語彙の並びとしてここに置くが、
+  // 分類は layout (OP_CATEGORY、#409)
   z.object({
     kind: z.literal('node.setStyle'),
     target: NodeIdSchema,
@@ -482,6 +484,42 @@ export function nodeSetLayoutOp(
 }
 
 /**
+ * **`edge.setLabelOffset` op の生成口** (#409)。`nodeSetLayoutOp` と同じく整数へ丸める。
+ *
+ * label の位置は #409 で layout (同期する) にした。ドラッグの移動量はサブピクセルの小数なので、丸めずに
+ * 書くと PDS が batch を断り、outbox が詰まって以降の同期が止まる (W3d5-7 と同じ事故)。
+ */
+export function edgeSetLabelOffsetOp(
+  target: EdgeId,
+  offsetX: number,
+  offsetY: number,
+): Op {
+  return {
+    kind: 'edge.setLabelOffset',
+    target,
+    offsetX: Math.round(offsetX),
+    offsetY: Math.round(offsetY),
+  };
+}
+
+/**
+ * op を remote (PDS) に載せられる形にする。**手元の op-log に既にある小数**のための関所である (#409)。
+ *
+ * `edge.setLabelOffset` は #409 より前は presentation で送らなかったので、手元のログには丸めていない
+ * 値が溜まっている。layout にした今、起動時の catch-up がそれを送り直すので、ここで丸めないと全員の同期が
+ * 止まる。ほかの op は生成口で丸めているので、そのまま返す (同じ参照)
+ */
+export function remoteReadyOp(op: Op): Op {
+  if (
+    op.kind === 'edge.setLabelOffset' &&
+    (!Number.isInteger(op.offsetX) || !Number.isInteger(op.offsetY))
+  ) {
+    return edgeSetLabelOffsetOp(op.target, op.offsetX, op.offsetY);
+  }
+  return op;
+}
+
+/**
  * **器**の op。グラフを入れる箱 (シート / ファイル)。`foldFileStructure` が畳む。
  */
 export const CONTAINER_OP_KINDS = [
@@ -553,7 +591,9 @@ export const OP_CATEGORY: Record<OpKind, Category> = {
   'edge.setLayout': 'layout',
   'node.setStyle': 'presentation',
   'edge.setStyle': 'presentation',
-  'edge.setLabelOffset': 'presentation',
+  // label の位置は利用者がドラッグで決めるもので、node の位置と同じく共有する (#409)。
+  // 以前は presentation (ローカル限定) で、しかも projection が読まず、読み直すと消えていた
+  'edge.setLabelOffset': 'layout',
   'sheet.create': 'file',
   'sheet.remove': 'file',
   'sheet.setName': 'file',
@@ -623,7 +663,7 @@ export function isContentOp(op: Op): op is ContentOp {
 /** layout カテゴリの op (位置・大きさ・経路)。merge の対立検出に使う */
 export type LayoutOp = Extract<
   Op,
-  { kind: 'node.setLayout' | 'edge.setLayout' }
+  { kind: 'node.setLayout' | 'edge.setLayout' | 'edge.setLabelOffset' }
 >;
 
 /**

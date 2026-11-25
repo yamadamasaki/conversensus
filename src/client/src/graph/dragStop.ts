@@ -7,8 +7,26 @@ import {
   absolutePositionOf,
   type Position,
   resolveDropTarget,
+  resolveDropTargetAt,
   toParentRelative,
 } from './coords';
+
+/**
+ * 掴んだ node とカーソルの位置 (flow 座標)。掴んだ node だけはカーソルで入る group を決める (#407)。
+ * 一緒に動いたほかの node は自分の中心で決める — 掴んだ node の判定を全体に当てると、離れた node が
+ * 見た目と無関係な group に入る
+ */
+export type DragPointer = { nodeId: string; at: Position };
+
+function dropTargetOf(
+  node: Node,
+  nodes: Node[],
+  pointer: DragPointer | undefined,
+): Node | undefined {
+  return pointer?.nodeId === node.id
+    ? resolveDropTargetAt(node, pointer.at, nodes)
+    : resolveDropTarget(node, nodes);
+}
 
 /** ドラッグ確定で記録されうるイベント */
 export type DragStopEvent = NodeMovedEvent | NodeReparentedEvent;
@@ -58,15 +76,17 @@ export function withDraggedPositions(dragged: Node[], nodes: Node[]): Node[] {
 export function resolveDropTargets(
   dragged: Node[],
   nodes: Node[],
+  pointer?: DragPointer,
 ): Map<string, Node | undefined> {
   const withFreshPositions = withDraggedPositions(dragged, nodes);
 
   return new Map(
     dragged.map((node) => [
       node.id,
-      resolveDropTarget(
+      dropTargetOf(
         withFreshPositions.find((n) => n.id === node.id) ?? node,
         withFreshPositions,
+        pointer,
       ),
     ]),
   );
@@ -86,6 +106,7 @@ export function buildDragStopEvents(
   dragged: Node[],
   nodes: Node[],
   preDragPositions: PreDragPositions,
+  pointer?: DragPointer,
 ): DragStopEvent[] {
   const events: DragStopEvent[] = [];
   let current = withDraggedPositions(dragged, nodes);
@@ -94,7 +115,12 @@ export function buildDragStopEvents(
     const node = current.find((n) => n.id === id);
     if (!node) continue;
 
-    const event = buildDragStopEvent(node, current, preDragPositions.get(id));
+    const event = buildDragStopEvent(
+      node,
+      current,
+      preDragPositions.get(id),
+      pointer,
+    );
     if (!event) continue;
 
     events.push(event);
@@ -109,9 +135,12 @@ function buildDragStopEvent(
   node: Node,
   nodes: Node[],
   from: Position | undefined,
+  pointer: DragPointer | undefined,
 ): DragStopEvent | undefined {
   const oldParentId = node.parentId as NodeId | undefined;
-  const newParentId = resolveDropTarget(node, nodes)?.id as NodeId | undefined;
+  const newParentId = dropTargetOf(node, nodes, pointer)?.id as
+    | NodeId
+    | undefined;
 
   if (newParentId !== oldParentId) {
     // 親が変わっても画面上の位置は変えない。絶対座標を保ったまま新しい親からの相対へ直す
