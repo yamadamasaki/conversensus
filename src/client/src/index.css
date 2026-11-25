@@ -23,7 +23,7 @@
   --cs-selection: #3a5bd9;
   --cs-selection-bg: #eef2ff;
   /* template graph の画面の地 (#404)。当てた先のグラフと取り違えないための、ごく薄い色 */
-  --cs-template-bg: #f7f5fd;
+  --cs-template-bg: #ece8fa;
   --cs-focus: #3a5bd9;
 
   /* §1.3 差分と競合 (グラフの言語。ほかの用途に使わない) */
