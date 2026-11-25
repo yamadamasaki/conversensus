@@ -969,6 +969,7 @@ function GraphEditorInner({
   const { onNodeDragStart, onNodeDrag, onNodeDragStop } = useNodeDragTracking(
     getNodes,
     dispatch,
+    screenToFlowPosition,
   );
   const { handleDragOver, handleDrop } = useImageIntake({
     addNode,
