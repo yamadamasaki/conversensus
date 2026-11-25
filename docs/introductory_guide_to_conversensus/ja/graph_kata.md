@@ -83,6 +83,18 @@ template graph に描いたものは, 当てた Sheet で次のように働き�
   - `kind` という名前は使えません (種類を表す property と重なるため)
 - **本文**: Markdown の種類の node に書いた本文は, 当てた Sheet で作った node の本文が空の間, 薄く表示されます. 「結論を一文で」のような書き方の案内に使えます. 本文を書けば消えます
 
+<figure>
+	<img src="../images/ja/graph_kata-template-kinds.webp" alt="手で書いた template graph と, それを当てた Sheet の種類のメニュー">
+	<img src="../images/ja/graph_kata-template-kind-menu.webp" alt="手で書いた template graph と, それを当てた Sheet の種類のメニュー">
+	<figcaption>手で書いた template graph と, それを当てた Sheet の種類のメニュー</figcaption>
+</figure>
+
+<figure>
+	<img src="../images/ja/graph_kata-template-schema.webp" alt="template graph での property の宣言と, 当てた Sheet での見え方">
+	<img src="../images/ja/graph_kata-template-defaults.webp" alt="template graph での property の宣言と, 当てた Sheet での見え方">
+	<figcaption>template graph での property の宣言と, 当てた Sheet での見え方</figcaption>
+</figure>
+
 group の中に種類を描いても, その種類が group の中でしか使えなくなるわけではありません. conversensus は group を範囲としては扱わないので, 当てた Sheet ではどこにでも置けます. ただ, template を作った人がまとまりとして group の中に書いたのなら, その意図を汲んで, 当てた Sheet でも group の中に書くのがよいでしょう. つまり, template graph の group は緩いガイドラインです.
 
 #### 既存のオントロジに繋ぐ
@@ -108,6 +120,11 @@ template は, 最初から完成している必要はありません. グラフ�
 
 template graph を書き換えて, 当てた Sheet から見て種類が変わると (種類の追加・削除・名前の変更・edge の両端の組・property・本文), 画面の右下の「template の版」に「「〈Sheet〉」に当てた「〈template graph〉」に新しい版があります」と出ます. node を動かしただけ, ラベルのない node (説明書き) を足しただけでは出ません.
 
+<figure>
+	<img src="../images/ja/graph_kata-template-newer.webp" alt="新しい版の知らせ">
+	<figcaption>新しい版の知らせ</figcaption>
+</figure>
+
 - 「最新の版にする」を押すと, その Sheet が template graph の今の版を使うようになります. Sheet の「…」にも, 新しい版があるときだけ「「〈template graph〉」を最新の版にする」が出ます
 - × で閉じた知らせは, template graph がさらに変わるまで出ません
 - 最新の版にすると, 既にある要素の種類の名前も新しい名前で表示されます
@@ -116,9 +133,19 @@ template graph を書き換えて, 当てた Sheet から見て種類が変わ�
 - 知らせは, 開いている File の分だけ出ます. 共同作業では, 誰かが最新の版にすると, ほかの参加者の知らせも消えます
 - agent は最新の版にはしません. template の版を進めるのは Sheet 全体に効く判断なので, 人が行います
 
+<figure>
+	<img src="../images/ja/graph_kata-template-violation.webp" alt="種類がなくなった edge は, 消されずに警告色の破線になる">
+	<figcaption>種類がなくなった edge は, 消されずに警告色の破線になる</figcaption>
+</figure>
+
 ### 当てた template を外す
 
 後から当てた template は, Sheet の「…」の「「〈template graph〉」を外す」で外せます. 外すと, 種類のメニューからその template の種類が消えます. 既に作った node や edge は消えず, ラベルのまま残ります. 外した template は,「template を当てる」でまた当てられます.
+
+<figure>
+	<img src="../images/ja/graph_kata-template-detach.webp" alt="後から当てた template を外す">
+	<figcaption>後から当てた template を外す</figcaption>
+</figure>
 
 **Sheet を作るときに当てた template は外せません.** 作るときの template は Sheet を作ったことそのものに記録されていて, 後から取り消せないからです (最新の版にしたものでも, 外す入口は出ません). その template を使わない Sheet が欲しいときは, 新しい Sheet を作ってください.
 

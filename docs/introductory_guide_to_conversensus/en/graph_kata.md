@@ -83,6 +83,18 @@ What you draw in a template graph works as follows in the Sheets it is applied t
   - The name `kind` cannot be used (it would collide with the property that holds the kind)
 - **Body**: the body written in a Markdown kind's node is shown faintly in nodes of that kind created in an applied Sheet, while their body is empty. Use it as a hint for what to write, such as "State the conclusion in one sentence". It disappears once you write a body
 
+<figure>
+	<img src="../images/en/graph_kata-template-kinds.webp" alt="A hand-written template graph, and the kind menu of a Sheet it is applied to">
+	<img src="../images/en/graph_kata-template-kind-menu.webp" alt="A hand-written template graph, and the kind menu of a Sheet it is applied to">
+	<figcaption>A hand-written template graph, and the kind menu of a Sheet it is applied to</figcaption>
+</figure>
+
+<figure>
+	<img src="../images/en/graph_kata-template-schema.webp" alt="Declaring properties in a template graph, and how they look in an applied Sheet">
+	<img src="../images/en/graph_kata-template-defaults.webp" alt="Declaring properties in a template graph, and how they look in an applied Sheet">
+	<figcaption>Declaring properties in a template graph, and how they look in an applied Sheet</figcaption>
+</figure>
+
 Drawing kinds inside a group does not mean that those kinds can only be used inside a group. conversensus does not treat a group as a scope, so in an applied Sheet they can be placed anywhere. But if the template's author wrote them inside a group as a unit, it is good to respect that intent and write them inside a group in the applied Sheet too. In other words, groups in a template graph are a loose guideline.
 
 #### Connecting to existing ontologies
@@ -108,6 +120,11 @@ A template does not have to be complete from the start. As you draw graphs, add 
 
 When you change the template graph so that its kinds change as seen from an applied Sheet (kinds added, removed or renamed, the pair of an edge's ends, properties, the body), the "Template versions" area at the bottom right of the screen shows `"<template graph>" applied to "<Sheet>" has a newer version`. Only moving nodes, or only adding nodes without a label (notes), does not show it.
 
+<figure>
+	<img src="../images/en/graph_kata-template-newer.webp" alt="The notice of a newer version">
+	<figcaption>The notice of a newer version</figcaption>
+</figure>
+
 - Pressing "Update to latest" makes the Sheet use the current version of the template graph. The "…" of the Sheet also shows `Update "<template graph>" to the latest version`, only while there is a newer version
 - A notice closed with × does not appear again until the template graph changes further
 - After updating, the kind names of existing elements are shown with the new names
@@ -116,9 +133,19 @@ When you change the template graph so that its kinds change as seen from an appl
 - Notices appear only for the File you have open. When working together, once someone updates to the latest version, the notice disappears for the other participants too
 - Agents do not update to the latest version. Moving a template's version is a decision that affects the whole Sheet, so people make it
 
+<figure>
+	<img src="../images/en/graph_kata-template-violation.webp" alt="An edge whose kind is gone is not deleted; it becomes a dashed line in the warning color">
+	<figcaption>An edge whose kind is gone is not deleted; it becomes a dashed line in the warning color</figcaption>
+</figure>
+
 ### Detaching an applied template
 
 A template applied afterwards can be detached with `Detach "<template graph>"` in the "…" of the Sheet. Detaching removes that template's kinds from the kind menu. Nodes and edges you already made are not deleted and keep their labels. You can apply a detached template again with "Apply template".
+
+<figure>
+	<img src="../images/en/graph_kata-template-detach.webp" alt="Detaching a template applied afterwards">
+	<figcaption>Detaching a template applied afterwards</figcaption>
+</figure>
 
 **A template applied when the Sheet was created cannot be detached.** It is recorded in the creation of the Sheet itself and cannot be undone later (even after updating it to the latest version, no detach entry appears). If you want a Sheet without that template, make a new Sheet.
 
