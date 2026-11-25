@@ -1173,7 +1173,10 @@ function GraphEditorInner({
                           onPick={nodeActions.pick}
                         />
                       )}
-                      <Background />
+                      {/* template graph は地を薄く色付けし、当てた先のグラフと取り違えないようにする (#404) */}
+                      <Background
+                        {...(isTemplateGraph && { bgColor: color.templateBg })}
+                      />
                       <Controls />
                       {/* map で見る範囲を動かす・拡大縮小する (#182) */}
                       {showMap && <MiniMap pannable zoomable />}

@@ -25,6 +25,8 @@ export const color = {
   primaryHover: 'var(--cs-primary-hover)',
   selection: 'var(--cs-selection)',
   selectionBg: 'var(--cs-selection-bg)',
+  /** template graph の画面の地 (#404) */
+  templateBg: 'var(--cs-template-bg)',
   focus: 'var(--cs-focus)',
   // §1.3 差分と競合 — グラフの言語。ほかの用途に使わない
   diffAdd: 'var(--cs-diff-add)',
