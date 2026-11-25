@@ -61,6 +61,7 @@ import {
   propertyTargetKey,
 } from './graph/editorControls';
 import { exportPng } from './graph/exportPng';
+import { withFacingHandles } from './graph/facingSides';
 import {
   FLOW_CONNECTION_MODE,
   FLOW_EDGE_TYPES,
@@ -229,8 +230,14 @@ function GraphEditorInner({
   actionEnv = NO_ACTION_ENV,
 }: Props) {
   const t = useMessages();
-  const { screenToFlowPosition, getNodes, getEdges, setCenter, fitView } =
-    useReactFlow();
+  const {
+    screenToFlowPosition,
+    getNodes,
+    getEdges,
+    getInternalNode,
+    setCenter,
+    fitView,
+  } = useReactFlow();
   // キャンバスの大きさが変わったら表示を合わせ直す。自分で動かした後は動かさない (#257)
   const fitOnResize = useFitOnResize(fitView);
   // 再参加した後、同期が済むまでは編集させない (step2 Phase 2 S6)。
@@ -292,6 +299,28 @@ function GraphEditorInner({
   const edgeViolations = useMemo(
     () => edgeViolationsIn(templates, nodes, edges),
     [templates, nodes, edges],
+  );
+  // 端の接続点を持たない edge (種から作った・agent が作った) に、向かい合う辺の接続点を当てる (#256)。
+  // **表示だけ** — React Flow が線と付け替えのつかみ所を同じ所に描くため (段 2 の実機の確認 W7)。
+  // nodes が変われば (測られた・動いた) 当て直す
+  // biome-ignore lint/correctness/useExhaustiveDependencies: nodes は getInternalNode の中身が変わった合図
+  const shownEdges = useMemo(
+    () =>
+      withFacingHandles(edges, (id) => {
+        const node = getInternalNode(id);
+        const width = node?.measured.width;
+        const height = node?.measured.height;
+        if (!node || !width || !height) return undefined;
+        const { x, y } = node.internals.positionAbsolute;
+        const handleIds = new Set(
+          [
+            ...(node.internals.handleBounds?.source ?? []),
+            ...(node.internals.handleBounds?.target ?? []),
+          ].flatMap((h) => (h.id ? [h.id] : [])),
+        );
+        return { rect: { x, y, width, height }, handleIds };
+      }),
+    [edges, nodes, getInternalNode],
   );
   const edgeViolationFor = useCallback<EdgeViolationOf>(
     (edgeId) => edgeViolations.get(edgeId),
@@ -1052,7 +1081,7 @@ function GraphEditorInner({
                   >
                     <ReactFlow
                       nodes={nodes}
-                      edges={edges}
+                      edges={shownEdges}
                       nodeTypes={FLOW_NODE_TYPES}
                       edgeTypes={FLOW_EDGE_TYPES}
                       onNodesChange={handleNodesChange}

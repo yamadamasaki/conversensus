@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'bun:test';
 import { Position } from '@xyflow/react';
 import fc from 'fast-check';
-import { facingAnchors, type Rect } from './facingSides';
+import {
+  facingAnchors,
+  type NodeShape,
+  type Rect,
+  withFacingHandles,
+} from './facingSides';
 
 const box = (x: number, y: number): Rect => ({ x, y, width: 160, height: 80 });
 
@@ -78,5 +83,53 @@ describe('facingAnchors: 性質', () => {
         );
       }),
     );
+  });
+});
+
+describe('withFacingHandles (表示だけの接続点、段 2 の実機の確認 W7)', () => {
+  const ALL = new Set([
+    'source-top',
+    'source-bottom',
+    'source-left',
+    'source-right',
+  ]);
+  const shapes: Record<string, NodeShape> = {
+    left: { rect: box(0, 0), handleIds: ALL },
+    right: { rect: box(480, 0), handleIds: ALL },
+    below: { rect: box(0, 400), handleIds: ALL },
+    group: { rect: box(480, 400), handleIds: new Set() },
+  };
+  const shapeOf = (id: string) => shapes[id];
+
+  it('両端とも接続点を持たない edge に、向かい合う辺の接続点を当てる', () => {
+    const [sideways, vertical] = withFacingHandles(
+      [
+        { source: 'left', target: 'right' },
+        { source: 'below', target: 'left' },
+      ],
+      shapeOf,
+    );
+    expect(sideways).toMatchObject({
+      sourceHandle: 'source-right',
+      targetHandle: 'source-left',
+    });
+    expect(vertical).toMatchObject({
+      sourceHandle: 'source-top',
+      targetHandle: 'source-bottom',
+    });
+  });
+
+  it('人が選んだ端・測られていない node・接続点の無い node (group) は、そのままのオブジェクトを返す', () => {
+    const chosen = {
+      source: 'left',
+      target: 'right',
+      sourceHandle: 'source-top',
+    };
+    const unmeasured = { source: 'left', target: 'nowhere' };
+    const toGroup = { source: 'left', target: 'group' };
+    const out = withFacingHandles([chosen, unmeasured, toGroup], shapeOf);
+    expect(out[0]).toBe(chosen);
+    expect(out[1]).toBe(unmeasured);
+    expect(out[2]).toBe(toGroup);
   });
 });

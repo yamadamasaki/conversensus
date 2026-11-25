@@ -28,13 +28,13 @@
 | IME 変換中は Enter で確定しない | `compositionStart` 後の Enter は無視される |
 | compositionEnd 後は Enter で確定できる | `compositionEnd` 後の Enter で `setEdges` が呼ばれる |
 
-## 向かい合う辺 (#256) とモック
+## 向かい合う辺 (#256)
 
-端の接続点を持たない edge は、測られた node の矩形から向かい合う辺を端にする
-(`graph/facingSides.ts`、性質はそちらのテストが見る)。ここでは `useInternalNode` を
-「測られた node が無い」(`undefined`) に差し替えるので、その計算を通らず、渡された端を
-そのまま使う — ラベルの編集の振る舞いだけを見るためである。`mock.module` はプロセス全体に
-効くので、`Position` は本物と同じ値をモックに持たせてある。
+端の接続点を持たない edge の向かい合う辺は、**この部品ではなく GraphEditor が接続点として渡す**
+(`graph/facingSides.ts` の `withFacingHandles`、テストもそちら)。以前はこの部品が `useInternalNode` で
+node を測って線の端だけをずらしていたが、付け替えのつかみ所は React Flow が別に描くので、線の端と
+つかみ所がずれて付け替えられなかった (template-update 段 2 の実機の確認 W7)。この部品は渡された端を
+そのまま使う。
 
 ## 別のプロセスで走らせる (#265)
 
