@@ -607,6 +607,32 @@ describe('NODE_LABEL_CHANGED (Phase 5 P4)', () => {
     expect(nodes[0].data.content).toBe('ノード1');
     expect(nodes[1].data.label).toBeUndefined();
   });
+
+  it('一緒に書き換える訳があれば、その property も書き換える (ほかの property は残す)', () => {
+    const withTranslations = {
+      ...n1,
+      data: {
+        ...n1.data,
+        label: '主張',
+        properties: { 'label:ja': '主張', 'label:en': 'Claim' },
+      },
+    };
+    const event: GraphEvent = {
+      ...base,
+      category: 'content',
+      type: 'NODE_LABEL_CHANGED',
+      nodeId: 'n1' as NodeId,
+      from: '主張',
+      to: '結論',
+      translation: { name: 'label:ja', from: '主張', to: '結論' },
+    };
+    const { nodes } = applyEvent(event, [withTranslations, n2], []);
+    expect(nodes[0].data.label).toBe('結論');
+    expect(nodes[0].data.properties).toEqual({
+      'label:ja': '結論',
+      'label:en': 'Claim',
+    });
+  });
 });
 
 describe('EDGE_RELABELED', () => {
@@ -621,6 +647,29 @@ describe('EDGE_RELABELED', () => {
     };
     const { edges } = applyEvent(event, [], [e1]);
     expect(edges[0].label).toBe('エッジラベル');
+  });
+
+  it('一緒に書き換える訳があれば、その property も書き換える', () => {
+    const withTranslation = {
+      ...e1,
+      label: '支える',
+      data: { properties: { 'label:ja': '支える', other: 1 } },
+    };
+    const event: GraphEvent = {
+      ...base,
+      category: 'content',
+      type: 'EDGE_RELABELED',
+      edgeId: 'e1' as EdgeId,
+      from: '支える',
+      to: '裏付ける',
+      translation: { name: 'label:ja', from: '支える', to: '裏付ける' },
+    };
+    const { edges } = applyEvent(event, [], [withTranslation]);
+    expect(edges[0].label).toBe('裏付ける');
+    expect(edges[0].data?.properties).toEqual({
+      'label:ja': '裏付ける',
+      other: 1,
+    });
   });
 });
 

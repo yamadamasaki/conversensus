@@ -420,6 +420,74 @@ describe('encodeFile', () => {
     expect(encodeFile(example)).toContain('# 種別 (template を引けない)');
   });
 
+  test('template は引けるが種類が無い種別プロパティは、そうと注釈する (template-update D5)', () => {
+    const gone = {
+      ...example,
+      sheets: example.sheets.map((sh) => ({
+        ...sh,
+        nodes: sh.nodes.map((n) =>
+          n.id === CLAIM
+            ? { ...n, properties: { [KIND_PROPERTY]: 'deleted-kind' } }
+            : n,
+        ),
+      })),
+    } as GraphFile;
+    const text = encodeFile(gone, () => [toulmin]);
+    expect(text).toContain(
+      '# 種別 (template "toulmin" に無い種類。この要素は消されずに残っている)',
+    );
+    expect(text).not.toContain('template を引けない');
+  });
+
+  test('両端の組が種類の規則に合わない edge には、違反の注釈を付ける (template-update D5)', () => {
+    const KIND_GROUND = '88888888-8888-4888-8888-888888888888';
+    const KIND_SUPPORTS = '99999999-9999-4999-8999-999999999999';
+    const withEdgeKind: Template = TemplateSchema.parse({
+      ...toulmin,
+      nodeKinds: [...toulmin.nodeKinds, { id: KIND_GROUND, label: '根拠' }],
+      // 主張 → 根拠 の向きだけ許す (例の edge は 根拠 → 主張)
+      edgeKinds: [
+        {
+          id: KIND_SUPPORTS,
+          label: '支える',
+          from: [KIND_CLAIM],
+          to: [KIND_GROUND],
+        },
+      ],
+    });
+    const file = (from: string) =>
+      ({
+        ...example,
+        sheets: example.sheets.map((sh) => ({
+          ...sh,
+          nodes: sh.nodes.map((n) =>
+            n.id === GROUND
+              ? { ...n, properties: { [KIND_PROPERTY]: from } }
+              : n,
+          ),
+          edges: sh.edges.map((e) => ({
+            ...e,
+            properties: { [KIND_PROPERTY]: KIND_SUPPORTS },
+          })),
+        })),
+      }) as GraphFile;
+    const NOTE = 'この両端の組に使えない (違反。消されずに残っている)';
+    expect(encodeFile(file(KIND_GROUND), () => [withEdgeKind])).toContain(NOTE);
+    // 規則を満たす向きの template なら注釈しない
+    const reversed: Template = TemplateSchema.parse({
+      ...withEdgeKind,
+      edgeKinds: [
+        {
+          id: KIND_SUPPORTS,
+          label: '支える',
+          from: [KIND_GROUND],
+          to: [KIND_CLAIM],
+        },
+      ],
+    });
+    expect(encodeFile(file(KIND_GROUND), () => [reversed])).not.toContain(NOTE);
+  });
+
   test('後から当てた template (#355) のプロパティには、その template の名前を注釈する', () => {
     const sheet = example.sheets[0] as Sheet;
     const applied = {

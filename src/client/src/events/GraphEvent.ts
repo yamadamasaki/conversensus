@@ -11,6 +11,7 @@ import type {
   NodeId,
   NodeLayout,
   PropertyName,
+  RenamedTranslation,
   SheetId,
   TemplateRef,
 } from '@conversensus/shared';
@@ -202,6 +203,11 @@ export type NodeLabelChangedEvent = EventBase & {
   /** 種別を外すときは空文字。undefined は「変えない」ではなく使わない */
   from: string;
   to: string;
+  /**
+   * 一緒に書き換える、変えた人の言語の訳 (`renamedTranslation`)。template graph で種類の名前を変えたとき。
+   * **同じ batch に書き、undo で一緒に戻す** (label と訳が食い違わないように)
+   */
+  translation?: RenamedTranslation;
 };
 export type EdgeRelabeledEvent = EventBase & {
   category: 'content';
@@ -209,6 +215,8 @@ export type EdgeRelabeledEvent = EventBase & {
   edgeId: EdgeId;
   from: string;
   to: string;
+  /** 一緒に書き換える訳 (`NodeLabelChangedEvent.translation` と同じ) */
+  translation?: RenamedTranslation;
 };
 export type NodePropertiesChangedEvent = EventBase & {
   category: 'content';

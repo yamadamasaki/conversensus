@@ -28,13 +28,13 @@
 | IME 変換中は Enter で確定しない | `compositionStart` 後の Enter は無視される |
 | compositionEnd 後は Enter で確定できる | `compositionEnd` 後の Enter で `setEdges` が呼ばれる |
 
-## 向かい合う辺 (#256) とモック
+## 向かい合う辺 (#256)
 
-端の接続点を持たない edge は、測られた node の矩形から向かい合う辺を端にする
-(`graph/facingSides.ts`、性質はそちらのテストが見る)。ここでは `useInternalNode` を
-「測られた node が無い」(`undefined`) に差し替えるので、その計算を通らず、渡された端を
-そのまま使う — ラベルの編集の振る舞いだけを見るためである。`mock.module` はプロセス全体に
-効くので、`Position` は本物と同じ値をモックに持たせてある。
+端の接続点を持たない edge の向かい合う辺は、**この部品ではなく GraphEditor が接続点として渡す**
+(`graph/facingSides.ts` の `withFacingHandles`、テストもそちら)。以前はこの部品が `useInternalNode` で
+node を測って線の端だけをずらしていたが、付け替えのつかみ所は React Flow が別に描くので、線の端と
+つかみ所がずれて付け替えられなかった (template-update 段 2 の実機の確認 W7)。この部品は渡された端を
+そのまま使う。
 
 ## 別のプロセスで走らせる (#265)
 
@@ -47,3 +47,19 @@
 - **label は context (`KindLabelProvider`) の訳で出す**。context には edge であること・edge の property・元の label を
   渡す。訳すかどうか (種類の名前か、書き換えた label か) は shared の `displayKindLabel` が決める
   (`kindLocale.test.md`)。ここでは部品が context を通して描くことと、渡すものを固める
+
+## 名前を変えたときの訳 (template-update D4 の後)
+
+- **画面の言語の訳 (`label:ja`) があれば、label と一緒に書き換える**。template graph で edge の種類の名前を
+  変えても、種の訳が残っていると表示は訳が勝つ。`EDGE_RELABELED` の `translation` に載せる (node の label と同じ、
+  `renamedTranslation`)
+
+## 種類の規則を外れた edge (template-update D5)
+
+pull で template が変わり、既にある edge が種類の規則を外れたとき (種類が消された・端の組が許されなくなった)、
+消しも置き換えもせず印で見せる (計画 K2、Q6 案 A)。判定は GraphEditor が `edgeViolationOf` で行い、
+`EdgeViolationProvider` で渡す。
+
+- **外れていれば線に印 (`data-edge-violation`、警告色の破線) を付け、hover で理由を出す** (線の当たり判定の
+  path の `<title>`)。label の枠にも同じ理由を `title` で付ける — 線は細くて hover しにくい
+- **外れていなければ印も理由も無い** (context の既定は「外れていない」)

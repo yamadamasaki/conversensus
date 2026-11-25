@@ -362,6 +362,53 @@ name がずれるため。
 変異で確かめたこと: 入口の絞り込み (`applicableTemplateGraphs`) を外す変異と、描いているシートの template を
 `templateIds` だけで解決する変異で落ちる。
 
+## 当てた template の新しい版 (template-update D2・D3)
+
+### なぜ
+
+pull は、新しい版の判定 (`templateVersionOf`、op-log を読む)・sheet の「…」の入口・切断面を進める書き込み・
+解決 (`appliedTemplateRefs` → `useResolvedTemplates`) が一周して初めて効く。通知 (D3) も、File の変化 →
+op-log の読み直し (`useTemplateNotices`) → 既読で落とす → 右下の欄 → pull の書き込み → 読み直しで消える、が
+一周して初めて効く。とくに**作るときに当てた template**
+は `sheet.create` を書き換えられないのでプロパティに書き、プロパティが勝つこと (K3・D1) で効く。どこかが
+欠けると、押しても種類のメニューが古いままになる。
+
+### テストケース
+
+- **D2: template graph を直すと「…」に入口が出て、押すと新しい種類が使える。入口は消える**:
+  Toulmin model を追加し、それを当てた Sheet を足す → 当てたばかりなので「…」に「「Toulmin model」を最新の版にする」は
+  無い → template graph に種類「反証」を足す (別のタブが書いたものとして正典に入れて知らせる) → 「…」に入口が出る
+  → 押すと、その Sheet に `app.conversensus.appliedTemplate.<template graph>` のプロパティが書かれる → 種類の
+  メニューの「反証」で node を作ると、op-log のその node が「反証」の種別を持つ → 最新になったので入口は消える
+- 入口が「無い」ことは、popup が op-log を読み終えるのを少し待ってから見る (読み終える前は常に無いため)
+- **D3: 新しい版を右下に知らせ、そこから最新の版にすると通知は消える**: 当てたばかりでは通知の欄
+  (「template の版」) は無い → template graph に種類を足すと「「<Sheet>」に当てた「Toulmin model」に新しい版が
+  あります」が出る → 欄の「最新の版にする」を押すと、プロパティが書かれ、欄が消える
+- **D3: 閉じた通知は、template graph がさらに変わるまで出ない**: 出た通知を × で閉じる → 別の Sheet を開いて
+  読み直させても出ない → template graph にさらに種類を足すと、また出る (鍵に先端の版の指紋が入るため)
+- **D4: template graph で種類の名前を変えて最新の版にすると、既にある node の表示も新しい名前になる**:
+  訳を持たない template graph (「主張」) を作って当て、「主張」の node を作る → template graph で名前を「結論」に
+  変える → 最新の版にするまでは「主張」のまま → 通知から最新の版にすると「結論」と出る → op-log の label は
+  「主張」のまま (変わるのは表示だけ)。Toulmin の種で見ないのは、種が言語ごとの訳 (`label:ja`) を持ち、日本語では
+  訳が勝つためである
+- **D5: template graph から edge の種類を消して最新の版にしても、既にある edge は消さない**: 訳の無い
+  template graph (根拠 --支える--> 主張) を当て、種類を持つ node 2 つと「支える」の edge を置く → template graph
+  から「支える」を消して、通知から最新の版にする → edge は label も種類の property もそのまま残る (計画 K2)。
+  **違反の印そのものはここでは見ない** — happy-dom では React Flow が edge を描かない (node の大きさが測られない)
+  ので、印の DOM に届かない。印は `graph/templateEdge.test.ts` (求める所) と `EditableLabelEdge.mock-test.tsx`
+  (描く所) が見る
+- **D6: 後から当てた template は「…」から外せる。作るときに当てたものには入口が無い**: 作るときに Toulmin を
+  当てた Sheet の「…」に「「Toulmin model」を外す」は無い (計画 K4) → Sheet 1 に「template を当てる」で後から
+  当てると入口が出る → 押すと Sheet 1 のプロパティが消え、入口が消えて「template を当てる」がまた出る。
+  **変異で確かめた**: 作るときのものも外せるようにすると、最初の「無い」で落ちる
+- **D3: template graph を削除すると、削除を知らせる (pull の入口は無い)**: template graph の Sheet を消す op を
+  入れると「…は削除されました」が出て、「最新の版にする」は無い
+- **待ち方の注意**: 通知の欄から pull した後は、`waitFor` の前に普通に待つ (`settle`)。`waitFor` で待つ間は、
+  直前に積まれた通知の state の更新が描かれなかった (state は空になっていたのに、描かれたのは `waitFor` の
+  時間切れの後。bun + act の環境で観測した。実装の問題ではない)
+- **変異で確かめた**: 判定を常に「新しい版あり」にすると、当てたばかりの所で落ちる。押しても書かないと、
+  プロパティを待つ所で落ちる
+
 ## metagraph (step3 Phase 4 S4-2b)
 
 ### なぜ

@@ -8,6 +8,7 @@ import {
   DERIVED_FROM_SHEET_PROPERTY,
   type Did,
   derivedNodeIdOf,
+  detachableTemplateSheets,
   type FileId,
   type FolderId,
   type GraphFile,
@@ -28,10 +29,13 @@ import {
   type SheetKind,
   sheetKindOf,
   TEMPLATE_SHEET_KIND,
+  TEMPLATE_VERSION,
   type TemplateGraphContent,
   type TemplateRef,
   type TemplateSeed,
+  type TemplateSheetRef,
   templateGraphOf,
+  templateVersionOf,
 } from '@conversensus/shared';
 import { FilePlus, Files, FileUp, PanelLeft, UserPlus } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -85,6 +89,7 @@ import { useRosterSource } from './hooks/useRosterSource';
 import { useSidePanels } from './hooks/useSidePanels';
 import { useTabNavigation } from './hooks/useTabNavigation';
 import { useTabs } from './hooks/useTabs';
+import { useTemplateNotices } from './hooks/useTemplateNotices';
 import { useViewportTier } from './hooks/useViewportTier';
 import { InputDialog } from './InputDialog';
 import { InvitationDialog } from './InvitationDialog';
@@ -106,6 +111,7 @@ import { useShowReadOnlyProperties } from './property/readOnlyToggle';
 import { RightSidebar, type RightSidebarPane } from './RightSidebar';
 import { ReadOnlyProvider } from './readOnlyContext';
 import { SearchPanel } from './SearchPanel';
+import type { TemplateDetach, TemplateUpdate } from './SettingsPopup';
 import { type OpenOptions, Sidebar } from './Sidebar';
 import { SidePanel } from './SidePanel';
 import { GlobalSearchDialog } from './search/GlobalSearchDialog';
@@ -120,6 +126,7 @@ import {
 import { participationRounds } from './sync/participationHistoryView';
 import { TabBar } from './TabBar';
 import { TemplateApplyDialog } from './TemplateApplyDialog';
+import { TemplateNotices } from './TemplateNotices';
 import {
   activeTab,
   isMultiple,
@@ -185,6 +192,8 @@ export default function App() {
   } = useAtprotoSession();
   /** 画面右下の通知と、閉じた通知の既読 (step3 Phase 6 S6-1a) */
   const {
+    dismissedIn,
+    dismissKeys,
     forgetFile,
     noteBackgroundConflicts,
     noteBackgroundForks,
@@ -653,6 +662,77 @@ export default function App() {
     },
     [fileOps.activeFile?.id, currentCut, handleApplyTemplates],
   );
+
+  /**
+   * Sheet に当てている template のうち、新しい版があるもの (template-update D2、K1・K3)。「最新の版にする」は
+   * 切断面 `at` を今の trunk に進める。**作るときに当てた template も、後から当てたものと同じプロパティに
+   * 書く** (`sheet.create` は書き換えられないので、プロパティが勝つ — `appliedTemplateRefs`)
+   */
+  const activeFileForUpdates = fileOps.activeFile;
+  const { setPopupTarget } = fileOps;
+  /** 当てた template を最新の版にする: 切断面 `at` を今の trunk に進めてプロパティに書く */
+  const pullTemplate = useCallback(
+    (fileId: FileId, sheetId: SheetId, templateSheet: SheetId) => {
+      void currentCut(fileId).then((at) =>
+        handleApplyTemplates(sheetId, [templateSheet], at),
+      );
+    },
+    [currentCut, handleApplyTemplates],
+  );
+  const templateUpdatesOf = useCallback(
+    async (sheetId: SheetId): Promise<TemplateUpdate[]> => {
+      const file = activeFileForUpdates;
+      const sheet = file?.sheets.find((s) => s.id === sheetId);
+      if (!file || !sheet) return [];
+      const refs = appliedTemplateRefs(sheet).filter(
+        (ref): ref is TemplateSheetRef => typeof ref !== 'string',
+      );
+      if (refs.length === 0) return [];
+      // 直前の template graph の編集が漏れないよう、書き込みが落ち切ってから読む (`currentCut` と同じ)
+      await trunkSettled();
+      const trunk = await fetchBatches(file.id);
+      return refs
+        .filter(
+          (ref) =>
+            templateVersionOf(ref, trunk, file.id) === TEMPLATE_VERSION.NEWER,
+        )
+        .map((ref) => ({
+          name: file.sheets.find((s) => s.id === ref.sheet)?.name ?? '',
+          pull: () => {
+            setPopupTarget(null);
+            pullTemplate(file.id, sheetId, ref.sheet);
+          },
+        }));
+    },
+    [activeFileForUpdates, pullTemplate, setPopupTarget, trunkSettled],
+  );
+  /**
+   * Sheet から外せる template (template-update D6、K4)。後から当てたものだけ — 作るときに当てたものは
+   * 外せないので入口を出さない (`detachableTemplateSheets`)
+   */
+  const { handleDetachTemplate } = fileOps;
+  const templateDetachesOf = useCallback(
+    (sheetId: SheetId): TemplateDetach[] => {
+      const file = activeFileForUpdates;
+      const sheet = file?.sheets.find((s) => s.id === sheetId);
+      if (!file || !sheet) return [];
+      return detachableTemplateSheets(sheet).map((templateSheet) => ({
+        name: file.sheets.find((s) => s.id === templateSheet)?.name ?? '',
+        detach: () => {
+          setPopupTarget(null);
+          handleDetachTemplate(sheetId, templateSheet);
+        },
+      }));
+    },
+    [activeFileForUpdates, handleDetachTemplate, setPopupTarget],
+  );
+  /** 当てた template の新しい版と削除の通知 (template-update D3)。前に出ている File の分 */
+  const { templateNotices, dismissTemplateNotice } = useTemplateNotices({
+    file: fileOps.activeFile,
+    trunkSettled,
+    dismissedIn,
+    dismissKeys,
+  });
 
   /** 特殊なグラフのシート (template graph・metagraph) を足す */
   const handleAddKindSheet = useCallback(
@@ -1576,6 +1656,8 @@ export default function App() {
             onSaveSheetSettings={fileOps.handleSaveSheetSettings}
             onDeleteSheet={fileOps.handleDeleteSheet}
             onApplyTemplate={setApplyTarget}
+            templateUpdatesOf={templateUpdatesOf}
+            templateDetachesOf={templateDetachesOf}
             sheetBranches={branchOps.sheetBranches}
             activeBranchId={branchOps.activeBranch?.id ?? null}
             onSelectBranch={(sheetId, selected, options) =>
@@ -2037,6 +2119,16 @@ export default function App() {
           arrivedForks={arrivedForks}
           onOpenMerger={handleOpenMerger}
           onClose={closeConflictNotice}
+        />
+        <TemplateNotices
+          notices={templateNotices}
+          sheetNameOf={(n) =>
+            fileOps.activeFile?.sheets.find((s) => s.id === n.sheet)?.name ??
+            n.sheet
+          }
+          // 既読にはしない: 最新になれば、読み直したときに通知は消える (ほかの端末でも)
+          onPull={(n) => pullTemplate(n.fileId, n.sheet, n.template)}
+          onDismiss={dismissTemplateNotice}
         />
         <ArrivedNotices
           notices={arrivedNotices}

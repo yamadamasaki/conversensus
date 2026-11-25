@@ -11,6 +11,7 @@ import {
   kindLabelIn,
   kindLabelPropertyOf,
   kindPropertyLabels,
+  renamedTranslation,
   translationProperties,
   translationsIn,
 } from './kindLocale';
@@ -52,7 +53,7 @@ const kindOf = (templateId: string, kind: string) => ({
 });
 
 describe('displayKindLabel (#356): 性質', () => {
-  test('label が種類の名前かその訳なら見る人の言語の訳 (無ければ template graph の名前)、それ以外は label のまま', () => {
+  test('種類を持てば、保存された label によらず、見る人の言語の訳 (無ければ template graph の名前) になる (D4)', () => {
     fc.assert(
       fc.property(
         arbTranslations,
@@ -60,10 +61,6 @@ describe('displayKindLabel (#356): 性質', () => {
         fc.constantFrom(...LOCALES),
         (labels, label, locale) => {
           const template = templateOf(T, labels);
-          const names = ['主張', ...Object.values(labels)];
-          const expected = names.includes(label)
-            ? (labels[locale] ?? '主張')
-            : label;
           expect(
             displayKindLabel(
               [template],
@@ -72,7 +69,7 @@ describe('displayKindLabel (#356): 性質', () => {
               label,
               locale,
             ),
-          ).toBe(expected);
+          ).toBe(labels[locale] ?? '主張');
         },
       ),
     );
@@ -93,6 +90,14 @@ describe('displayKindLabel (#356): 性質', () => {
 
 describe('displayKindLabel (#356): 例', () => {
   const template = templateOf(T, { en: 'Claim' }, { en: 'supports' });
+
+  test('template graph で種類の名前を変えたら、作ったときの label のままの要素も新しい名前で出る (D4)', () => {
+    const renamed = templateOf(T, {});
+    renamed.nodeKinds = renamed.nodeKinds.map((k) => ({ ...k, label: '結論' }));
+    expect(
+      displayKindLabel([renamed], 'node', kindOf(T, 'claim'), '主張', 'ja'),
+    ).toBe('結論');
+  });
 
   test('種類を持たない要素・知らない種類の要素は label のまま', () => {
     expect(displayKindLabel([template], 'node', {}, '主張', 'en')).toBe('主張');
@@ -255,5 +260,26 @@ describe('kindPropertyLabels (#384): 種別の property を人が読める名前
         'ja',
       ),
     ).toEqual({});
+  });
+});
+
+describe('renamedTranslation (種類の名前を変えたときの訳)', () => {
+  const translated = { 'label:ja': '主張', 'label:en': 'Claim' };
+
+  test('変えた人の言語の訳があれば、新しい名前に書き換える (ほかの言語の訳は対象にしない)', () => {
+    expect(renamedTranslation(translated, 'ja', '結論')).toEqual({
+      name: 'label:ja',
+      from: '主張',
+      to: '結論',
+    });
+  });
+
+  test('その言語の訳が無い・新しい名前と同じ・文字列でないなら何もしない', () => {
+    expect(renamedTranslation({ 'label:en': 'Claim' }, 'ja', '結論')).toBe(
+      undefined,
+    );
+    expect(renamedTranslation(undefined, 'ja', '結論')).toBe(undefined);
+    expect(renamedTranslation(translated, 'ja', '主張')).toBe(undefined);
+    expect(renamedTranslation({ 'label:ja': 3 }, 'ja', '結論')).toBe(undefined);
   });
 });

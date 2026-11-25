@@ -18,8 +18,6 @@ mock.module('@xyflow/react', () => ({
   getSmoothStepPath: () => ['M0,0 L100,100', 50, 50],
   getStraightPath: () => ['M0,0 L100,100', 50, 50],
   useReactFlow: () => ({ setEdges: mockSetEdges }),
-  // 測られた node が無い = 向かい合う辺の計算 (#256) を通らず、渡された端をそのまま使う
-  useInternalNode: () => undefined,
 }));
 
 const mockDispatch = mock((_event: unknown) => {});
@@ -36,7 +34,9 @@ const { render, screen, fireEvent, cleanup } = await import(
   '@testing-library/react'
 );
 const { EditableLabelEdge } = await import('./EditableLabelEdge');
-const { KindLabelProvider } = await import('./graph/kindLabelContext');
+const { EdgeViolationProvider, KindLabelProvider } = await import(
+  './graph/kindLabelContext'
+);
 
 // EdgeProps の最小スタブ
 // biome-ignore lint/suspicious/noExplicitAny: テスト用 EdgeProps スタブ
@@ -160,6 +160,55 @@ describe('EditableLabelEdge', () => {
       'EDGE_RELABELED',
     );
     expect(screen.queryByRole('textbox')).toBeNull();
+  });
+
+  it('画面の言語の訳 (label:ja) があれば、label と一緒に書き換える', () => {
+    render(
+      <EditableLabelEdge
+        {...makeProps('支える')}
+        data={{ properties: { 'label:ja': '支える' } }}
+      />,
+    );
+    fireEvent.dblClick(screen.getByText('支える'));
+    const input = screen.getByRole('textbox') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '裏付ける' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(mockDispatch.mock.calls[0]?.[0]).toMatchObject({
+      type: 'EDGE_RELABELED',
+      to: '裏付ける',
+      translation: { name: 'label:ja', from: '支える', to: '裏付ける' },
+    });
+  });
+
+  describe('種類の規則を外れた edge (template-update D5)', () => {
+    it('外れていれば線に印を付け、hover で理由を出す。label の枠にも同じ理由', () => {
+      const { container } = render(
+        // React Flow と同じく svg の中に描く (svg の外の <title> は React が document の head へ移す)
+        <svg>
+          <title>edge</title>
+          <EdgeViolationProvider
+            value={(edgeId) => (edgeId === 'edge-1' ? 'ends' : undefined)}
+          >
+            <EditableLabelEdge {...makeProps('支える')} />
+          </EdgeViolationProvider>
+        </svg>,
+      );
+      const marked = container.querySelector('[data-edge-violation]');
+      expect(marked?.getAttribute('data-edge-violation')).toBe('ends');
+      const reason =
+        'この edge の種類は、今の template ではこの両端の組に使えません';
+      expect(marked?.querySelector('title')?.textContent).toBe(reason);
+      expect(screen.getByText('支える').getAttribute('title')).toBe(reason);
+    });
+
+    it('外れていなければ印も理由も無い', () => {
+      const { container } = render(
+        <EditableLabelEdge {...makeProps('支える')} />,
+      );
+      expect(container.querySelector('[data-edge-violation]')).toBeNull();
+      expect(container.querySelector('title')).toBeNull();
+      expect(screen.getByText('支える').getAttribute('title')).toBeNull();
+    });
   });
 
   it('Escape でキャンセルし dispatch を呼ばない', () => {

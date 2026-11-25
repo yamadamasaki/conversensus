@@ -2,6 +2,7 @@ import {
   type EdgeId,
   type EdgePathType,
   hasTemplateKind,
+  renamedTranslation,
 } from '@conversensus/shared';
 import {
   BaseEdge,
@@ -10,18 +11,16 @@ import {
   getBezierPath,
   getSmoothStepPath,
   getStraightPath,
-  type InternalNode,
-  useInternalNode,
   useReactFlow,
 } from '@xyflow/react';
 import { useCallback, useRef } from 'react';
 import { useEventDispatch } from './EventDispatchContext';
 import { makeEventBase } from './events/GraphEvent';
 import { AuthorAvatars, EDGE_AVATAR_OFFSET_Y } from './graph/AuthorAvatars';
-import { facingAnchors, type Rect } from './graph/facingSides';
-import { useKindLabel } from './graph/kindLabelContext';
+import { useEdgeViolation, useKindLabel } from './graph/kindLabelContext';
 import { DEFAULT_EDGE_PATH_TYPE } from './graphTransform';
 import { useInlineEdit } from './hooks/useInlineEdit';
+import { useLocale, useMessages } from './i18n/messages';
 import { color, font, radius } from './theme';
 
 function getEdgePath(
@@ -49,27 +48,14 @@ function getEdgePath(
 
 const DRAG_THRESHOLD_PX = 3;
 
-/** 描かれた node の矩形。まだ測られていなければ null */
-function rectOf(node: InternalNode | undefined): Rect | null {
-  const width = node?.measured.width;
-  const height = node?.measured.height;
-  if (!node || !width || !height) return null;
-  const { x, y } = node.internals.positionAbsolute;
-  return { x, y, width, height };
-}
-
 export function EditableLabelEdge({
   id,
-  source,
-  target,
-  sourceHandleId,
-  targetHandleId,
-  sourceX: givenSourceX,
-  sourceY: givenSourceY,
-  targetX: givenTargetX,
-  targetY: givenTargetY,
-  sourcePosition: givenSourcePosition,
-  targetPosition: givenTargetPosition,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  sourcePosition,
+  targetPosition,
   label,
   markerEnd,
   style,
@@ -79,20 +65,8 @@ export function EditableLabelEdge({
   const { setEdges } = useReactFlow();
   const { dispatch, setDragging } = useEventDispatch();
 
-  // 端の接続点を持たない edge は、向かい合う辺を端にする (#256)。持たないと React Flow が
-  // 両端に上辺を使い、横に並んだ node の edge が上を回って label が重なる
-  const sourceRect = rectOf(useInternalNode(source));
-  const targetRect = rectOf(useInternalNode(target));
-  const floating =
-    sourceHandleId == null && targetHandleId == null && sourceRect && targetRect
-      ? facingAnchors(sourceRect, targetRect)
-      : null;
-  const sourceX = floating?.source.x ?? givenSourceX;
-  const sourceY = floating?.source.y ?? givenSourceY;
-  const sourcePosition = floating?.source.position ?? givenSourcePosition;
-  const targetX = floating?.target.x ?? givenTargetX;
-  const targetY = floating?.target.y ?? givenTargetY;
-  const targetPosition = floating?.target.position ?? givenTargetPosition;
+  // 端の接続点を持たない edge の向かい合う辺 (#256) は、GraphEditor が接続点として渡す
+  // (`withFacingHandles`)。ここで線の端だけをずらすと、付け替えのつかみ所とずれる
 
   const pathType =
     (data?.pathType as EdgePathType | undefined) ?? DEFAULT_EDGE_PATH_TYPE;
@@ -114,6 +88,11 @@ export function EditableLabelEdge({
    *
    * **どの template かは見ない。**ここで要るのは「編集させるか」だけである。
    */
+  const locale = useLocale();
+  const t = useMessages();
+  /** 種類の規則を外れているか (template-update D5)。外れていれば線を破線の警告色にし、hover で理由を出す */
+  const violation = useEdgeViolation()(id);
+  const violationText = violation && t.graph.edgeViolation[violation];
   const fromTemplate = hasTemplateKind(
     data?.properties as Record<string, unknown> | undefined,
   );
@@ -136,12 +115,19 @@ export function EditableLabelEdge({
   } = useInlineEdit(String(label ?? ''), (value) => {
     const from = String(label ?? '');
     if (value !== from) {
+      // 自分の言語の訳があれば一緒に書き換える (node の label と同じ)
+      const translation = renamedTranslation(
+        data?.properties as Record<string, unknown> | undefined,
+        locale,
+        value,
+      );
       dispatch({
         ...makeEventBase('content'),
         type: 'EDGE_RELABELED',
         edgeId: id as EdgeId,
         from,
         to: value,
+        ...(translation && { translation }),
       });
     }
   });
@@ -232,7 +218,15 @@ export function EditableLabelEdge({
 
   return (
     <>
-      <BaseEdge path={edgePath} markerEnd={markerEnd} style={style} />
+      <BaseEdge
+        path={edgePath}
+        markerEnd={markerEnd}
+        style={
+          violation
+            ? { ...style, stroke: color.danger, strokeDasharray: '6 4' }
+            : style
+        }
+      />
       {/* ダブルクリック用の透明な幅広パス: SVG path は role/keyboard 対応が不要なインタラクション */}
       {/* biome-ignore lint/a11y/noStaticElementInteractions: SVG path element for visual double-click interaction */}
       <path
@@ -241,6 +235,7 @@ export function EditableLabelEdge({
         stroke="transparent"
         fill="none"
         style={{ cursor: 'pointer' }}
+        {...(violation && { 'data-edge-violation': violation })}
         onDoubleClick={
           fromTemplate
             ? undefined
@@ -249,7 +244,10 @@ export function EditableLabelEdge({
                 startEdit();
               }
         }
-      />
+      >
+        {/* 規則を外れた理由は hover で出す (template-update D5、計画 Q6 案 A) */}
+        {violationText && <title>{violationText}</title>}
+      </path>
       <EdgeLabelRenderer>
         <button
           type="button"
@@ -304,12 +302,13 @@ export function EditableLabelEdge({
             label != null &&
             label !== '' && (
               <span
+                {...(violationText && { title: violationText })}
                 style={{
                   fontSize: font.body,
                   background: 'white',
                   padding: '2px 6px',
                   borderRadius: radius.sm,
-                  border: `1px solid ${color.border}`,
+                  border: `1px solid ${violation ? color.danger : color.border}`,
                   cursor: 'grab',
                 }}
               >

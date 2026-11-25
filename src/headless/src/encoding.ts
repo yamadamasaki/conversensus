@@ -33,6 +33,8 @@
 
 import {
   appliedTemplateSheetOf,
+  EDGE_VIOLATION,
+  edgeViolationOf,
   effectiveTemplateProperties,
   type GraphEdge,
   type GraphFile,
@@ -125,6 +127,8 @@ function noteOf(
         t.nodeKinds.find((k) => k.id === v) ??
         t.edgeKinds.find((k) => k.id === v);
       if (kind) return `種別: ${value(kind.label)} (template ${value(t.name)})`;
+      // template は引けるが、その種類が今の template に無い (template graph で消された、template-update D5)
+      return `種別 (template ${value(t.name)} に無い種類。この要素は消されずに残っている)`;
     }
     return '種別 (template を引けない)';
   }
@@ -202,16 +206,43 @@ function nodeLines(
   ];
 }
 
+/**
+ * 種類の規則を外れた edge の注釈 (template-update D5)。種類が template に無いことは種別の注釈 (`noteOf`) が
+ * 言うので、ここは**両端の組が合わない**ときだけ言う。画面の破線の印と同じ判定 (`edgeViolationOf`)
+ */
+function edgeViolationLines(
+  edge: GraphEdge,
+  nodes: readonly GraphNode[],
+  templates: readonly Template[],
+  depth: string,
+): string[] {
+  const propertiesOf = (id: string) =>
+    nodes.find((n) => n.id === id)?.properties;
+  const violation = edgeViolationOf(
+    templates,
+    edge.properties,
+    propertiesOf(edge.source),
+    propertiesOf(edge.target),
+  );
+  return violation === EDGE_VIOLATION.ENDS
+    ? [
+        `${depth}# この edge の種類は、今の template ではこの両端の組に使えない (違反。消されずに残っている)`,
+      ]
+    : [];
+}
+
 function edgeLines(
   edge: GraphEdge,
   layout: Record<string, unknown> | undefined,
   templates: readonly Template[],
+  nodes: readonly GraphNode[],
 ): string[] {
   const depth = INDENT.repeat(2);
   return [
     `${INDENT}edge ${edge.id} ${edge.source} -> ${edge.target}`,
     ...(edge.label !== undefined ? [`${depth}label ${value(edge.label)}`] : []),
     ...propertyLines(edge.properties, depth, templates),
+    ...edgeViolationLines(edge, nodes, templates, depth),
     ...effectiveLines('edge', edge.properties, depth, templates),
     ...layoutLine(layout, 'edgeId', depth),
   ];
@@ -249,7 +280,7 @@ function sheetLines(
       nodeLines(n, nodeLayouts.get(n.id), templates, sheet.edges, annotate),
     ),
     ...sheet.edges.flatMap((e) =>
-      edgeLines(e, edgeLayouts.get(e.id), templates),
+      edgeLines(e, edgeLayouts.get(e.id), templates, sheet.nodes),
     ),
     ...orphanNodeLayouts.map((l) => `${INDENT}node-layout ${value(l)}`),
     ...orphanEdgeLayouts.map((l) => `${INDENT}edge-layout ${value(l)}`),

@@ -1,11 +1,15 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import {
+  appliedTemplatePropertyOf,
   type Batch,
   type Did,
+  type EdgeId,
   type FileId,
   kindPropertyOf,
   type NodeId,
+  type Op,
   projectFile,
+  type SheetId,
   sheetKindOf,
   TEMPLATE_SHEET_KIND,
   templateIdOf,
@@ -1162,6 +1166,454 @@ describe('App 結合: 既にあるシートに template を後から当てる (#
     await openSheetDetails(user, 'Sheet 1');
     expect(
       screen.queryByRole('button', { name: 'template を当てる' }) === null,
+    ).toBe(true);
+  });
+});
+
+describe('App 結合: 当てた template の新しい版 (template-update D2・D3)', () => {
+  /** サイドバーの、そのシートの行の「詳細」(…) を開く (#355 の describe と同じ) */
+  async function openSheetDetails(
+    user: ReturnType<typeof userEvent.setup>,
+    name: string,
+  ) {
+    const row = screen
+      .getAllByRole('button')
+      .find((b) => b.textContent === name)?.parentElement;
+    if (!row) throw new Error(`シート「${name}」の行が無い`);
+    await user.click(within(row).getByRole('button', { name: '詳細' }));
+  }
+  const PULL = '「Toulmin model」を最新の版にする';
+  /** 右下の template の版の通知の欄 */
+  const templateRegion = () =>
+    screen.queryByRole('status', { name: 'template の版' });
+  /** 「出ない」ことを見る前に、通知の読み直しが終わるのを待つ */
+  const settle = () => new Promise((r) => setTimeout(r, 600));
+
+  /** Toulmin model を追加し、それを作るときに当てた Sheet を足す */
+  async function setupApplied() {
+    await world.activate('solo');
+    render(<App />);
+    const user = userEvent.setup();
+    await createFile(user, FILE_NAME);
+    await user.click(
+      screen.getByRole('button', { name: 'template 付きで Sheet を追加' }),
+    );
+    await user.click(
+      screen.getByRole('button', { name: '+ Toulmin model を追加' }),
+    );
+    await waitFor(() => expect(renderedNodeCount()).toBe(5), WIRING_TIMEOUT);
+    await user.click(screen.getByText('+ Sheet を追加'));
+    const dialog = await screen.findByRole('dialog', { name: 'Sheet を追加' });
+    await user.click(
+      within(dialog).getByRole('checkbox', { name: 'Toulmin model' }),
+    );
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Sheet を追加' }),
+    );
+    await waitFor(() => expect(renderedNodeCount()).toBe(0), WIRING_TIMEOUT);
+    const store = world.localStore();
+    const fileId = store.listFiles()[0]?.id as FileId;
+    const applied = () =>
+      projectFile(store.getBatches(fileId), fileId).sheets.find(
+        (s) => s.templateIds?.length,
+      );
+    const toulmin = projectFile(store.getBatches(fileId), fileId).sheets.find(
+      (s) => sheetKindOf(s) === TEMPLATE_SHEET_KIND,
+    );
+    if (!toulmin) throw new Error('template graph が正典に無い');
+    let seq = 0;
+    /** template graph への op を、別のタブが書いたものとして正典に入れて知らせる */
+    const writeElsewhere = (ops: Op[], sheetId?: SheetId) => {
+      seq += 1;
+      store.appendBatches(fileId, [
+        {
+          id: crypto.randomUUID() as Batch['id'],
+          actor: `${LOCAL_TEST_ACTOR}#other-tab`,
+          clock: 1000 + seq,
+          seq,
+          deps: {},
+          timestamp: Date.now(),
+          ...(sheetId && { sheetId }),
+          ops,
+        },
+      ]);
+      const channel = new BroadcastChannel(LOCAL_CHANGES_CHANNEL);
+      channel.postMessage({ fileId });
+      channel.close();
+    };
+    /** template graph に種類を 1 つ足す */
+    const addKind = (label: string) => {
+      const id = crypto.randomUUID() as NodeId;
+      writeElsewhere(
+        [
+          { kind: 'node.add', target: id, content: '' },
+          { kind: 'node.setLabel', target: id, label },
+        ],
+        toulmin.id,
+      );
+      return id;
+    };
+    return {
+      user,
+      applied,
+      appliedName: applied()?.name ?? '',
+      toulmin,
+      addKind,
+      writeElsewhere,
+    };
+  }
+
+  test('D2: template graph を直すと「…」に入口が出て、押すと新しい種類が使える。入口は消える', async () => {
+    const { user, applied, appliedName, toulmin, addKind } =
+      await setupApplied();
+
+    // 当てたばかりなので入口は無い (開いて読み終えるのを待ってから見る)
+    await openSheetDetails(user, appliedName);
+    await new Promise((r) => setTimeout(r, 200));
+    expect(screen.queryByRole('button', { name: PULL }) === null).toBe(true);
+    await user.keyboard('{Escape}');
+
+    const rebuttal = addKind('反証');
+
+    // 「…」に入口が出る。押すと、作るときの template でもプロパティに書く (K3)
+    await waitFor(async () => {
+      await openSheetDetails(user, appliedName);
+      await screen.findByRole('button', { name: PULL }, { timeout: 500 });
+    }, WIRING_TIMEOUT);
+    await user.click(screen.getByRole('button', { name: PULL }));
+    await waitFor(() => {
+      expect(
+        applied()?.properties?.[appliedTemplatePropertyOf(toulmin.id)],
+      ).toBeDefined();
+    }, WIRING_TIMEOUT);
+
+    // 新しい種類がメニューに出て、作った node は種別を持つ
+    await addNode(user, '反証');
+    await waitFor(() => {
+      const node = applied()?.nodes[0];
+      expect(node?.label).toBe('反証');
+      expect(node?.properties?.[kindPropertyOf(templateIdOf(toulmin.id))]).toBe(
+        rebuttal,
+      );
+    }, WIRING_TIMEOUT);
+
+    // 最新になったので入口は消える
+    await openSheetDetails(user, appliedName);
+    await new Promise((r) => setTimeout(r, 200));
+    expect(screen.queryByRole('button', { name: PULL }) === null).toBe(true);
+  });
+
+  test('D3: 新しい版を右下に知らせ、そこから最新の版にすると通知は消える', async () => {
+    const { user, applied, appliedName, toulmin, addKind } =
+      await setupApplied();
+    await settle();
+    expect(templateRegion()).toBeNull();
+
+    addKind('反証');
+    const region = await screen.findByRole(
+      'status',
+      { name: 'template の版' },
+      WIRING_TIMEOUT,
+    );
+    expect(region.textContent).toContain(
+      `「${appliedName}」に当てた「Toulmin model」に新しい版があります`,
+    );
+    await user.click(
+      within(region).getByRole('button', { name: '最新の版にする' }),
+    );
+    // 先に普通に待つ: waitFor で待つ間は、この直前に積まれた通知の state の更新が描かれなかった
+    // (state は 1 秒ほどで空になっていたのに、描かれたのは waitFor の時間切れの後。bun + act の環境で観測)
+    await settle();
+    await waitFor(() => {
+      expect(
+        applied()?.properties?.[appliedTemplatePropertyOf(toulmin.id)],
+      ).toBeDefined();
+      expect(templateRegion()).toBeNull();
+    }, WIRING_TIMEOUT);
+  });
+
+  test('D3: 閉じた通知は、template graph がさらに変わるまで出ない', async () => {
+    const { user, appliedName, addKind } = await setupApplied();
+    addKind('反証');
+    await screen.findByRole(
+      'status',
+      { name: 'template の版' },
+      WIRING_TIMEOUT,
+    );
+    await user.click(
+      screen.getByRole('button', {
+        name: `「${appliedName}」の「Toulmin model」の知らせを閉じる`,
+      }),
+    );
+    expect(templateRegion()).toBeNull();
+
+    // 関係のない編集 (別の Sheet) では読み直しても出ない
+    await user.click(screen.getByRole('button', { name: 'Sheet 1' }));
+    await settle();
+    expect(templateRegion()).toBeNull();
+
+    // template graph がさらに変われば、また出る
+    addKind('限定');
+    await screen.findByRole(
+      'status',
+      { name: 'template の版' },
+      WIRING_TIMEOUT,
+    );
+  });
+
+  test('D4: template graph で種類の名前を変えて最新の版にすると、既にある node の表示も新しい名前になる', async () => {
+    // 訳を持たない template graph で見る。Toulmin の種は言語ごとの訳 (`label:ja`) を持ち、日本語では訳が勝つ。
+    // ここでは名前を op で直に変えるので、画面の編集が訳も書き換える所 (`renamedTranslation`) は通らない
+    await world.activate('solo');
+    render(<App />);
+    const user = userEvent.setup();
+    await createFile(user, FILE_NAME);
+    await user.click(
+      screen.getByRole('button', { name: 'template 付きで Sheet を追加' }),
+    );
+    await user.click(screen.getByRole('button', { name: '+ template graph' }));
+    await screen.findByTitle('template graph', {}, WIRING_TIMEOUT);
+    const store = world.localStore();
+    const fileId = store.listFiles()[0]?.id as FileId;
+    const file = () => projectFile(store.getBatches(fileId), fileId);
+    const templateSheet = file().sheets.find(
+      (s) => sheetKindOf(s) === TEMPLATE_SHEET_KIND,
+    );
+    if (!templateSheet) throw new Error('template graph が正典に無い');
+    const claim = crypto.randomUUID() as NodeId;
+    let seq = 0;
+    const writeElsewhere = (ops: Op[]) => {
+      seq += 1;
+      store.appendBatches(fileId, [
+        {
+          id: crypto.randomUUID() as Batch['id'],
+          actor: `${LOCAL_TEST_ACTOR}#other-tab`,
+          clock: 1000 + seq,
+          seq,
+          deps: {},
+          timestamp: Date.now(),
+          sheetId: templateSheet.id,
+          ops,
+        },
+      ]);
+      const channel = new BroadcastChannel(LOCAL_CHANGES_CHANNEL);
+      channel.postMessage({ fileId });
+      channel.close();
+    };
+    writeElsewhere([
+      { kind: 'node.add', target: claim, content: '' },
+      { kind: 'node.setLabel', target: claim, label: '主張' },
+    ]);
+    await waitFor(() => expect(renderedNodeCount()).toBe(1), WIRING_TIMEOUT);
+
+    // 当てて Sheet を足し、「主張」の node を作る
+    await user.click(screen.getByText('+ Sheet を追加'));
+    const dialog = await screen.findByRole('dialog', { name: 'Sheet を追加' });
+    await user.click(within(dialog).getByRole('checkbox'));
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Sheet を追加' }),
+    );
+    await waitFor(() => expect(renderedNodeCount()).toBe(0), WIRING_TIMEOUT);
+    await addNode(user, '主張');
+    const chip = () =>
+      document.querySelector('.react-flow__node [data-node-label]')
+        ?.textContent;
+    await waitFor(() => expect(chip()).toBe('主張'), WIRING_TIMEOUT);
+
+    // template graph で名前を変える。最新の版にするまでは、当てた版の名前のまま
+    writeElsewhere([{ kind: 'node.setLabel', target: claim, label: '結論' }]);
+    const region = await screen.findByRole(
+      'status',
+      { name: 'template の版' },
+      WIRING_TIMEOUT,
+    );
+    expect(chip()).toBe('主張');
+    await user.click(
+      within(region).getByRole('button', { name: '最新の版にする' }),
+    );
+    await settle();
+    await waitFor(() => expect(chip()).toBe('結論'), WIRING_TIMEOUT);
+    // 変わるのは表示だけ。op-log の label は作ったときの名前のまま
+    const applied = file().sheets.find((s) => s.templateIds?.length);
+    expect(applied?.nodes[0]?.label).toBe('主張');
+  });
+
+  test('D5: template graph から edge の種類を消して最新の版にしても、既にある edge は消さない (印は単体で見る)', async () => {
+    await world.activate('solo');
+    render(<App />);
+    const user = userEvent.setup();
+    await createFile(user, FILE_NAME);
+    await user.click(
+      screen.getByRole('button', { name: 'template 付きで Sheet を追加' }),
+    );
+    await user.click(screen.getByRole('button', { name: '+ template graph' }));
+    await screen.findByTitle('template graph', {}, WIRING_TIMEOUT);
+    const store = world.localStore();
+    const fileId = store.listFiles()[0]?.id as FileId;
+    const file = () => projectFile(store.getBatches(fileId), fileId);
+    const templateSheet = file().sheets.find(
+      (s) => sheetKindOf(s) === TEMPLATE_SHEET_KIND,
+    );
+    if (!templateSheet) throw new Error('template graph が正典に無い');
+    let seq = 0;
+    const writeElsewhere = (sheetId: SheetId, ops: Op[]) => {
+      seq += 1;
+      store.appendBatches(fileId, [
+        {
+          id: crypto.randomUUID() as Batch['id'],
+          actor: `${LOCAL_TEST_ACTOR}#other-tab`,
+          clock: 1000 + seq,
+          seq,
+          deps: {},
+          timestamp: Date.now(),
+          sheetId,
+          ops,
+        },
+      ]);
+      const channel = new BroadcastChannel(LOCAL_CHANGES_CHANNEL);
+      channel.postMessage({ fileId });
+      channel.close();
+    };
+    // template graph: 根拠 --支える--> 主張
+    const [claim, ground, supports] = [
+      crypto.randomUUID() as NodeId,
+      crypto.randomUUID() as NodeId,
+      crypto.randomUUID() as EdgeId,
+    ];
+    writeElsewhere(templateSheet.id, [
+      { kind: 'node.add', target: claim, content: '' },
+      { kind: 'node.setLabel', target: claim, label: '主張' },
+      { kind: 'node.add', target: ground, content: '' },
+      { kind: 'node.setLabel', target: ground, label: '根拠' },
+      {
+        kind: 'edge.add',
+        target: supports,
+        source: ground,
+        dest: claim,
+        label: '支える',
+      },
+    ]);
+    await waitFor(() => expect(renderedNodeCount()).toBe(2), WIRING_TIMEOUT);
+
+    // 当てた Sheet に、種類を持つ node 2 つと「支える」の edge を置く
+    await user.click(screen.getByText('+ Sheet を追加'));
+    const dialog = await screen.findByRole('dialog', { name: 'Sheet を追加' });
+    await user.click(within(dialog).getByRole('checkbox'));
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Sheet を追加' }),
+    );
+    await waitFor(() => expect(renderedNodeCount()).toBe(0), WIRING_TIMEOUT);
+    const applied = () => file().sheets.find((s) => s.templateIds?.length);
+    const appliedId = applied()?.id;
+    if (!appliedId) throw new Error('当てた Sheet が無い');
+    const kindProperty = kindPropertyOf(templateIdOf(templateSheet.id));
+    const [a, b, e] = [
+      crypto.randomUUID() as NodeId,
+      crypto.randomUUID() as NodeId,
+      crypto.randomUUID() as EdgeId,
+    ];
+    writeElsewhere(appliedId, [
+      { kind: 'node.add', target: a, content: 'データ' },
+      { kind: 'node.setLabel', target: a, label: '根拠' },
+      {
+        kind: 'node.setProperty',
+        target: a,
+        name: kindProperty,
+        value: ground,
+      },
+      { kind: 'node.add', target: b, content: '結論' },
+      { kind: 'node.setLabel', target: b, label: '主張' },
+      { kind: 'node.setProperty', target: b, name: kindProperty, value: claim },
+      {
+        kind: 'edge.add',
+        target: e,
+        source: a,
+        dest: b,
+        label: '支える',
+        properties: { [kindProperty]: supports },
+      },
+    ]);
+    await waitFor(() => expect(renderedNodeCount()).toBe(2), WIRING_TIMEOUT);
+
+    // template graph から「支える」を消して、最新の版にする
+    writeElsewhere(templateSheet.id, [
+      { kind: 'edge.remove', target: supports },
+    ]);
+    const region = await screen.findByRole(
+      'status',
+      { name: 'template の版' },
+      WIRING_TIMEOUT,
+    );
+    await user.click(
+      within(region).getByRole('button', { name: '最新の版にする' }),
+    );
+    await settle();
+    await waitFor(() => expect(templateRegion()).toBeNull(), WIRING_TIMEOUT);
+    // 消しも置き換えもしない (K2)。印は happy-dom では edge が描かれないので単体で見る
+    // (`graph/templateEdge.test.ts`・`EditableLabelEdge.mock-test.tsx`)
+    const edgeNow = applied()?.edges.find((x) => x.id === e);
+    expect(edgeNow?.label).toBe('支える');
+    expect(edgeNow?.properties?.[kindProperty]).toBe(supports);
+  });
+
+  test('D6: 後から当てた template は「…」から外せる。作るときに当てたものには入口が無い', async () => {
+    const { user, appliedName } = await setupApplied();
+    const DETACH = '「Toulmin model」を外す';
+
+    // 作るときに当てたものは外せない
+    await openSheetDetails(user, appliedName);
+    expect(screen.queryByRole('button', { name: DETACH }) === null).toBe(true);
+    await user.keyboard('{Escape}');
+
+    // Sheet 1 に後から当てると、外す入口が出る
+    await user.click(screen.getByRole('button', { name: 'Sheet 1' }));
+    await openSheetDetails(user, 'Sheet 1');
+    await user.click(screen.getByRole('button', { name: 'template を当てる' }));
+    const dialog = await screen.findByRole('dialog', {
+      name: 'template を当てる',
+    });
+    await user.click(
+      within(dialog).getByRole('checkbox', { name: 'Toulmin model' }),
+    );
+    await user.click(within(dialog).getByRole('button', { name: '当てる' }));
+    const store = world.localStore();
+    const fileId = store.listFiles()[0]?.id as FileId;
+    const sheet1 = () =>
+      projectFile(store.getBatches(fileId), fileId).sheets.find(
+        (s) => s.name === 'Sheet 1',
+      );
+    await waitFor(
+      () => expect(sheet1()?.properties).toBeDefined(),
+      WIRING_TIMEOUT,
+    );
+    await openSheetDetails(user, 'Sheet 1');
+    await user.click(await screen.findByRole('button', { name: DETACH }));
+
+    // 外すとプロパティが消え、また当てられるようになる
+    await waitFor(
+      () => expect(sheet1()?.properties).toBeUndefined(),
+      WIRING_TIMEOUT,
+    );
+    await openSheetDetails(user, 'Sheet 1');
+    expect(screen.queryByRole('button', { name: DETACH }) === null).toBe(true);
+    expect(
+      screen.getByRole('button', { name: 'template を当てる' }),
+    ).toBeDefined();
+  });
+
+  test('D3: template graph を削除すると、削除を知らせる (pull の入口は無い)', async () => {
+    const { toulmin, appliedName, writeElsewhere } = await setupApplied();
+    writeElsewhere([{ kind: 'sheet.remove', target: toulmin.id }]);
+    const region = await screen.findByRole(
+      'status',
+      { name: 'template の版' },
+      WIRING_TIMEOUT,
+    );
+    expect(region.textContent).toContain(
+      `「${appliedName}」に当てた「Toulmin model」は削除されました`,
+    );
+    expect(
+      within(region).queryByRole('button', { name: '最新の版にする' }) === null,
     ).toBe(true);
   });
 });

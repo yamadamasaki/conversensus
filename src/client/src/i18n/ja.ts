@@ -55,6 +55,17 @@ export const ja = {
     dismiss: (from: string) => `${from} からの知らせを閉じる`,
     /** File ごとの上限を超えて畳んだ知らせ (#393) */
     more: (count: number) => `ほか ${count} 件`,
+    /** template の版の通知 (template-update D3) */
+    templateRegion: 'template の版',
+    templateNewer: (sheet: string, template: string) =>
+      `「${sheet}」に当てた「${template}」に新しい版があります`,
+    templateDeleted: (sheet: string, template: string) =>
+      `「${sheet}」に当てた「${template}」は削除されました。この Sheet は当てた版のまま使えます`,
+    templatePull: '最新の版にする',
+    templateDismiss: (sheet: string, template: string) =>
+      `「${sheet}」の「${template}」の知らせを閉じる`,
+    /** 名前を読めない template */
+    unnamedTemplate: 'template',
   },
   rightSidebar: {
     region: '詳細',
@@ -172,6 +183,8 @@ export const ja = {
     descriptionPlaceholder: '概要を入力…',
     saveToAccount: 'アカウントに保存する',
     applyTemplate: 'template を当てる',
+    pullTemplate: (name: string) => `「${name}」を最新の版にする`,
+    detachTemplate: (name: string) => `「${name}」を外す`,
     export: 'エクスポート (.conversensus)',
     ok: 'OK',
   },
@@ -448,6 +461,11 @@ export const ja = {
     groupDefault: 'グループ',
     diff: { add: '追加', update: '変更' },
     edgeKind: 'edge の種類',
+    /** 種類の規則を外れた edge の理由 (template-update D5)。hover で出す */
+    edgeViolation: {
+      unknownKind: 'この edge の種類は、今の template にありません',
+      ends: 'この edge の種類は、今の template ではこの両端の組に使えません',
+    },
     edgesToChange: (count: number) => `${count} 本の edge を変更`,
     pathTypes: {
       default: 'Bezier（曲線）',

@@ -15,6 +15,7 @@ import {
   appliedTemplateRefs,
   appliedTemplateSheetIds,
   appliedTemplateValueOf,
+  detachableTemplateSheets,
 } from './applied';
 
 const sheetId = (n: number): SheetId =>
@@ -87,18 +88,46 @@ describe('appliedTemplateRefs (#355)', () => {
     );
   });
 
-  test('同じ template graph が両方にあれば、作るときの切断面を採る', () => {
-    const [t] = TEMPLATE_SHEETS as [SheetId];
-    const created = { sheet: t, at: { 'did:plc:alice#dev-a': 1 } };
+  test('同じ template graph が両方にあれば、プロパティの切断面を採り、作るときの位置に置く (K3・D1)', () => {
+    const [t, u] = TEMPLATE_SHEETS as [SheetId, SheetId];
+    const pulled = { 'did:plc:bob#dev-b': 9 };
     const refs = appliedTemplateRefs({
-      templateIds: [created],
+      templateIds: [
+        { sheet: u, at: { 'did:plc:alice#dev-a': 1 } },
+        { sheet: t, at: { 'did:plc:alice#dev-a': 1 } },
+      ],
       properties: {
-        [appliedTemplatePropertyOf(t)]: appliedTemplateValueOf({
-          'did:plc:bob#dev-b': 9,
-        }),
+        [appliedTemplatePropertyOf(t)]: appliedTemplateValueOf(pulled),
       },
     });
-    expect(refs).toEqual([created]);
+    expect(refs).toEqual([
+      { sheet: u, at: { 'did:plc:alice#dev-a': 1 } },
+      { sheet: t, at: pulled },
+    ]);
+  });
+
+  test('性質: 切断面は、プロパティにあればプロパティの、無ければ作るときのものになる', () => {
+    const CREATED_AT = { 'did:plc:alice#dev-a': 1 };
+    const PULLED_AT = { 'did:plc:bob#dev-b': 9 };
+    fc.assert(
+      fc.property(arbSheet, ({ created, later }) => {
+        const refs = appliedTemplateRefs({
+          templateIds: created.map((sheet) => ({ sheet, at: CREATED_AT })),
+          properties: Object.fromEntries(
+            later.map((id) => [
+              appliedTemplatePropertyOf(id),
+              appliedTemplateValueOf(PULLED_AT),
+            ]),
+          ),
+        });
+        for (const ref of refs) {
+          if (typeof ref === 'string') continue;
+          expect(ref.at).toEqual(
+            later.includes(ref.sheet) ? PULLED_AT : CREATED_AT,
+          );
+        }
+      }),
+    );
   });
 
   test('後から当てたものが無ければ、作るときのもの (配列そのもの) を返す', () => {
@@ -136,6 +165,30 @@ describe('appliedTemplateRefs (#355)', () => {
         properties: propertiesOf([sheetId(1)]),
       }),
     ).toEqual(new Set([sheetId(0), sheetId(1)]));
+  });
+});
+
+describe('detachableTemplateSheets (template-update D6)', () => {
+  test('性質: 外せるのは後から当てたもののうち作るときに無いものちょうど (id の順)。作るときのものは、pull でプロパティにあっても外せない', () => {
+    fc.assert(
+      fc.property(arbSheet, ({ created, later }) => {
+        expect(
+          detachableTemplateSheets({
+            templateIds: refsOf(created),
+            properties: propertiesOf(later),
+          }),
+        ).toEqual(later.filter((id) => !created.includes(id)).sort());
+      }),
+    );
+  });
+
+  test('作り込みの id は数えない', () => {
+    expect(
+      detachableTemplateSheets({
+        templateIds: ['builtin.toulmin' as TemplateRef],
+        properties: propertiesOf([sheetId(1)]),
+      }),
+    ).toEqual([sheetId(1)]);
   });
 });
 

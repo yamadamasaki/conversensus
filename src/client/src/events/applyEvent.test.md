@@ -145,6 +145,10 @@ React Flow は親が居ない子の相対座標の扱いを規定していない
 画面側でも分かれていることの確認で、`NODE_CONTENT_CHANGED` の対になる。
 対象でないノードに `label` が生えないことも併せて見る。
 
+一緒に書き換える訳 (`translation`) があれば、その property も書き換え、**ほかの property は残す** (ほかの言語の
+訳を消さない)。edge (`EDGE_RELABELED`) も同じ。画面と op-log (`toUnified` が同じ batch に `setProperty` を足す) が
+食い違わないことの確認である。
+
 ## 親 group を広げる (#250)
 
 - `NODE_MOVED` で group の中の node がはみ出したら、親を広げる (以前は親を変えたとき・大きさを変えたとき

@@ -49,6 +49,15 @@ export const en: Messages = {
   notices: {
     open: 'Open',
     dismiss: (from: string) => `Dismiss the notice from ${from}`,
+    templateRegion: 'Template versions',
+    templateNewer: (sheet: string, template: string) =>
+      `"${template}" applied to "${sheet}" has a newer version`,
+    templateDeleted: (sheet: string, template: string) =>
+      `"${template}" applied to "${sheet}" was deleted. The Sheet keeps working with the applied version`,
+    templatePull: 'Update to latest',
+    templateDismiss: (sheet: string, template: string) =>
+      `Dismiss the notice for "${template}" on "${sheet}"`,
+    unnamedTemplate: 'template',
     more: (count: number) => `${count} more`,
   },
   rightSidebar: {
@@ -170,6 +179,8 @@ export const en: Messages = {
     descriptionPlaceholder: 'Enter a description…',
     saveToAccount: 'Save to account',
     applyTemplate: 'Apply template',
+    pullTemplate: (name: string) => `Update "${name}" to the latest version`,
+    detachTemplate: (name: string) => `Detach "${name}"`,
     export: 'Export (.conversensus)',
     ok: 'OK',
   },
@@ -441,6 +452,10 @@ export const en: Messages = {
       'Taking in the edits made while you were not participating. Read-only until it finishes',
     emptyHint: 'Double-click to create a node',
     emptyHintImage: 'You can also drop an image',
+    edgeViolation: {
+      unknownKind: 'The kind of this edge is not in the current template',
+      ends: 'The current template does not allow the kind of this edge between these ends',
+    },
     duplicateKinds: (labels: string) =>
       `Some kinds share a name: ${labels}. Kinds with a shared name cannot be used (they do not appear in the menus of Sheets this template is applied to)`,
     unnamedEdge: 'edge',

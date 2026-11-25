@@ -51,7 +51,11 @@ import { LanguageSwitcher } from './i18n/LanguageSwitcher';
 import { messages, useMessages } from './i18n/messages';
 import { LocalOnlyBanner } from './LocalOnlyBanner';
 import { usePersistenceState } from './local/storagePersistence';
-import type { PopupTarget } from './SettingsPopup';
+import type {
+  PopupTarget,
+  TemplateDetach,
+  TemplateUpdate,
+} from './SettingsPopup';
 import { SettingsPopup } from './SettingsPopup';
 import { ShareStatusIcon } from './ShareStatusIcon';
 import { StorageAtRiskBanner } from './StorageAtRiskBanner';
@@ -164,6 +168,10 @@ type Props = {
   onDeleteSheet: (sheetId: string) => void;
   /** 既にあるシートに template を後から当てるダイアログを開く (#355) */
   onApplyTemplate: (sheetId: SheetId) => void;
+  /** Sheet に当てている template のうち、新しい版があるもの (template-update D2)。渡したときだけ確かめる */
+  templateUpdatesOf?: (sheetId: SheetId) => Promise<TemplateUpdate[]>;
+  /** Sheet から外せる template (後から当てたもの、template-update D6)。渡したときだけ出す */
+  templateDetachesOf?: (sheetId: SheetId) => TemplateDetach[];
   onSelectBranch: (
     sheetId: SheetId,
     branch: BranchMeta | null,
@@ -238,6 +246,8 @@ export function Sidebar({
   onSaveSheetSettings,
   onDeleteSheet,
   onApplyTemplate,
+  templateUpdatesOf,
+  templateDetachesOf,
   onSelectBranch,
   onCreateBranch,
   onMergeBranch,
@@ -643,6 +653,13 @@ export function Sidebar({
                             onSetPopupTarget(null);
                             onApplyTemplate(s.id as SheetId);
                           },
+                        })}
+                        {...(templateUpdatesOf && {
+                          templateUpdates: () =>
+                            templateUpdatesOf(s.id as SheetId),
+                        })}
+                        {...(templateDetachesOf && {
+                          templateDetaches: templateDetachesOf(s.id as SheetId),
                         })}
                       />
                     )}

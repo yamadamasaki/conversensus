@@ -8,6 +8,11 @@
  * 持たない edge は、**2 つの node の中心を結ぶ向きで、向かい合う辺の中点**を端にする。
  * 横に離れていれば左右の辺、縦に離れていれば上下の辺。人が繋いだ edge は接続点を持つので
  * ここを通らない (人が選んだ辺を勝手に変えない)。
+ *
+ * **端は接続点として React Flow に渡す** (`withFacingHandles`、template-update 段 2 の実機の確認 W7)。
+ * 以前は edge の部品の中で線の端だけをずらしていたが、付け替えのつかみ所は React Flow が最初の接続点
+ * (上辺) に描くので、線の端とつかみ所がずれて**付け替えられなかった** (種から作った Toulmin の edge)。
+ * 接続点として渡せば、線もつかみ所も同じ所に描かれる。**渡すのは表示だけ**で、保存はしない
  */
 
 import { Position } from '@xyflow/react';
@@ -49,4 +54,51 @@ export function facingAnchors(
     source: sideOf(source, down ? Position.Bottom : Position.Top),
     target: sideOf(target, down ? Position.Top : Position.Bottom),
   };
+}
+
+/** 辺の位置から node の接続点の id (`EditableNode`・`ImageNode` の 4 辺の接続点) */
+const HANDLE_OF: Record<Position, string> = {
+  [Position.Top]: 'source-top',
+  [Position.Bottom]: 'source-bottom',
+  [Position.Left]: 'source-left',
+  [Position.Right]: 'source-right',
+};
+
+/** edge の両端の node の、位置と大きさと持っている接続点の id */
+export type NodeShape = { rect: Rect; handleIds: ReadonlySet<string> };
+
+/** 端の接続点を決められる edge の形 (React Flow の `Edge` の一部) */
+type HandledEdge = {
+  source: string;
+  target: string;
+  sourceHandle?: string | null;
+  targetHandle?: string | null;
+};
+
+/**
+ * 端の接続点を持たない edge に、向かい合う辺の接続点を当てる (表示だけ)。
+ *
+ * - 当てるのは**両端とも**接続点を持たない edge だけ (片方だけ持つ edge は、人が選んだ端を残す)
+ * - 両端の node の形が分からない (まだ測られていない) ・その辺の接続点を持たない (group) なら当てない
+ * - 当てる必要の無い edge は同じオブジェクトのまま返す (React Flow に要らない描き直しをさせない)
+ */
+export function withFacingHandles<E extends HandledEdge>(
+  edges: readonly E[],
+  shapeOf: (nodeId: string) => NodeShape | undefined,
+): E[] {
+  return edges.map((e) => {
+    if (e.sourceHandle != null || e.targetHandle != null) return e;
+    const source = shapeOf(e.source);
+    const target = shapeOf(e.target);
+    if (!source || !target) return e;
+    const anchors = facingAnchors(source.rect, target.rect);
+    const sourceHandle = HANDLE_OF[anchors.source.position];
+    const targetHandle = HANDLE_OF[anchors.target.position];
+    if (
+      !source.handleIds.has(sourceHandle) ||
+      !target.handleIds.has(targetHandle)
+    )
+      return e;
+    return { ...e, sourceHandle, targetHandle };
+  });
 }

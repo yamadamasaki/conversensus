@@ -71,6 +71,35 @@ export function translationProperties(
   );
 }
 
+/** 名前を変えたときに一緒に書き換える訳 (`renamedTranslation`) */
+export type RenamedTranslation = {
+  name: PropertyName;
+  from: string;
+  to: string;
+};
+
+/**
+ * template graph で種類の名前 (label) を変えたときに、**変えた人の言語の訳**も新しい名前にする
+ * (template-update D4 の後)。
+ *
+ * 種 (Toulmin など) は言語ごとの訳 (`label:ja` など) を持ち、表示は訳が勝つ (`kindLabelIn`)。label だけを
+ * 変えると、その言語の画面には古い名前が出続ける。
+ *
+ * - 書き換えるのは**変えた人の言語の訳が既にあるとき**だけ。無ければ足さない (label がその言語の名前になる)
+ * - **ほかの言語の訳は残す。**訳し直せるのはその言語の利用者であり、消すと手で付けた訳まで失う
+ * - 訳が新しい名前と同じなら何もしない
+ */
+export function renamedTranslation(
+  properties: Readonly<Record<PropertyName, unknown>> | undefined,
+  locale: KindLocale,
+  to: string,
+): RenamedTranslation | undefined {
+  const name = kindLabelPropertyOf(locale);
+  const from = properties?.[name];
+  if (typeof from !== 'string' || from === to) return undefined;
+  return { name, from, to };
+}
+
 /** 種類の名前をその言語で。訳が無ければ template graph の名前 */
 export function kindLabelIn(
   kind: NodeKind | EdgeKind,
@@ -87,20 +116,15 @@ export function kindDescriptionIn(
   return kind.descriptions?.[locale] ?? kind.description;
 }
 
-/** その種類の名前のどれか (template graph の名前か、どれかの言語の訳) か */
-function isNameOf(kind: NodeKind | EdgeKind, label: string): boolean {
-  return (
-    label === kind.label || Object.values(kind.labels ?? {}).includes(label)
-  );
-}
-
 /**
  * 当てたシートの node・edge の label を、見る人の言語で表示する形にする。
  *
- * - 要素がどれかの template の種類を持ち、label が**その種類の名前かその訳のどれか**に等しければ、その言語の訳
- *   (無ければ template graph の名前) を返す。訳とも照らすのは、別の言語の名前で焼き込まれた既にある File
- *   (#330 案 B で英語の参加者が作った種) も訳すため
- * - それ以外 (書き換えた label・種類を持たない要素) は label のまま
+ * - 要素がどれかの template の種類を持てば、**保存された label によらず**、その種類の今の名前を見る人の言語で
+ *   返す (訳が無ければ template graph の名前)。template graph で種類の名前を変えて pull すると、既にある
+ *   要素の表示も新しい名前になる (template-update D4、K2)。保存された label は作ったときの名前のままである
+ * - 種類の label は書き換えられない (画面は固定、MCP の道具は断る) ので、保存された label が種類の名前と
+ *   違うのは「名前が変わった」か「別の言語の名前で焼き込まれた」(#330 案 B) ときだけである
+ * - 種類を持たない要素・今の template に無い種類 (template graph で消された) の要素は label のまま
  * - 複数の template の種類を持つときは、先に当たった template で決める (`nodeKindsOf` の和と同じ順)
  */
 export function displayKindLabel(
@@ -116,7 +140,7 @@ export function displayKindLabel(
     const kinds: readonly (NodeKind | EdgeKind)[] =
       element === 'node' ? t.nodeKinds : t.edgeKinds;
     const kind = kinds.find((k) => k.id === id);
-    if (kind && isNameOf(kind, label)) return kindLabelIn(kind, locale);
+    if (kind) return kindLabelIn(kind, locale);
   }
   return label;
 }

@@ -170,6 +170,12 @@ F3 により、branch ごとに `at` がずれることは起きない。合意�
 | T6 property の名前の prefix | 済 (2026-11-23) | `propertyName.ts` (shared): prefix の無い名前は `${templateId}.<名前>`、`.` を含む名前はそのまま。**`kind` は使えない** (種別 property `${templateId}.kind` と同じ名前になるので配らない — 計画に無かった制約)。種の複製は逆に戻す。表示: property の欄は prefix を外した名前 + template の名前、`read_file` の注釈も同じ。Q3: 依頼の `answerTarget` を `app.conversensus.request.answerTarget` に移し、旧名も読む (`answerTargetOf`)。**edge の追加候補 (datalist) は prefix 付きの名前のまま** — T7 で既定値を補えば候補から足す場面は減る。実機の確認は未 |
 | T7 読むときに補う | 済 (2026-11-23) | `effective.ts`: 既定値は読むときに補い、editable: false は template の値、型の判定を添える。**計画からの変更: 写すのをやめたのは template の名前空間の既定値だけ** — 依頼の宛先のような module の既定値は「依頼である」印なので写し続ける (`copiedDefaultsOf`)。property の欄: 補った値を薄く出す・number は数で保存 (`valueFromInput`)・列挙は select・型の印・固定は編集不可。`read_file` は注釈で言う。#411: markdown の種類の本文が空なら template の本文を薄く出す。**依頼 module を実効の property で読む件は、写し続けるので不要になった。実機の確認は未** |
 | T8 書き込みの入口で守る | 済 (2026-11-24) | `isFixedTemplateProperty` (shared)。UI は `applyPropertyChanges` (property を書く唯一の口) で固定の property への変更を落とす (欄は T7 で既に編集不可)。MCP の `set_node_property`・`set_edge_property`・`add_node`・`add_edge` は断る。**段 1 (T1〜T8) 完了** |
+| D1 優先規則 | 済 (2026-11-24) | `appliedTemplateRefs`: 同じ template graph がプロパティにもあれば、プロパティの `at` を採る。並びは作るときの位置のまま (pull で種類のメニューの並びが変わらないように) |
+| D2 pull | 済 (2026-11-24) | `templateVersionOf` (shared): `current`・`newer`・`deleted`。**計画からの変更: 「新しい版」は template graph の op の有無ではなく、`at` と先端で読んだ種類 (`templateFromSheet`) が違うこと** — `at` は File 全体の切断面でほかの Sheet の編集でも進み、node を動かしただけでは適用先に何も変わらないため。sheet の「…」を開いたときに op-log を読んで判定し、新しい版がある template ごとに「「<名前>」を最新の版にする」を出す。押すと `at` を今の trunk に進めてプロパティに書く (作るときの template も) |
+| D3 通知 | 済 (2026-11-24) | `appliedTemplateVersions` (shared) が File の当てた template すべての版に、先端の版の指紋と名前を添える。通知は画面右下の「template の版」の欄に、新しい版 (「最新の版にする」でその場で pull) と削除 (閉じるだけ) を出す。**計画からの変更 2 つ**: (1) 既読の鍵は (当てた先, template graph, **先端の版の指紋**) — 先端の切断面は File 全体の vector で、ほかの Sheet の編集で変わり、閉じた通知がまた出るため。削除は `deleted` の印で 1 つの鍵 (2) **前に出ている File だけ**を見る (競合の通知と同じ)。読み直しは File が変わるたびに、同時に 1 つだけ (タイマーで待たない)。pull したときは既読にしない (最新になれば読み直しで消え、ほかの端末でも消える)。**気になること**: 読み直しは当てた template ごとに File 全体を 2 回 projection する — 大きな File で重ければ、template graph の op を含む batch が来たときだけ読み直す形にする |
+| D4 名前の変更の反映 | 済 (2026-11-24) | 先に確かめた: 種類を持つ要素の label は書き換えられない (node は `labelLocked`、edge は `hasTemplateKind`、MCP の `set_edge_label` は断る)。そこで `displayKindLabel` の「label が種類の名前か訳のときだけ」の条件を外し、種類があれば今の名前を出す。encoding (agent) の種別の注釈は前から template の名前を出していた。**見つけて直したこと** (利用者判断「今直す」): 種 (Toulmin など) は言語ごとの訳 (`label:ja` など) を持つので、template graph で label だけを変えても、その言語の画面では訳が勝って古い名前が出た。画面で label を変えるとき、**変えた人の言語の訳が既にあれば一緒に書き換える** (`renamedTranslation`)。ほかの言語の訳は残す (訳し直せるのはその言語の利用者)。label のイベントに任意の `translation` を持たせ、同じ batch に書き、undo で一緒に戻す。MCP (agent) は対象外: node の label を変える道具は無い。`set_edge_label` は template graph の edge の label を変えられるが、agent の言語が分からないので訳は書き換えない |
+| D5 違反を見せる | 済 (2026-11-24) | `edgeViolationOf` (shared): 種類を持つ edge が今の template の規則を外れる理由 — 種類が template に無い (`unknownKind`)・端の組が合わない (`ends`)。判定は「新しく繋いでよいか」(`edgeKindCandidates`) と同じ規則 (性質で一致を確かめた)。当たっていない template の種類は見ない。画面 (Q6 案 A): 線を警告色の破線にし、hover で理由 (線の `<title>` と label の枠の `title`)。node には印を付けない。消しも置き換えもしない (K2)。**型に合わない property の印は T7 で既に property の欄に出ている** (V6 で確認済) ので足していない。**実機の確認の途中で直した** (利用者判断): agent の `read_file` で、種類が今の template に無い edge が「template を引けない」と出ていた → 「template "…" に無い種類」にし、両端の組が合わない edge にも違反の注釈を付けた (`encoding.ts`) |
+| D6 外す | 済 (2026-11-24) | `detachableTemplateSheets` (shared): 後から当てたもののうち作るときに無いものだけ。作るときのものは、pull でプロパティに書かれていても外せない (消すと作るときの切断面に戻るだけ)。sheet の「…」に「「<名前>」を外す」を出し、押すとプロパティを消す (確認は出さない — 「template を当てる」で当て直せる)。要素が持つ種別の property は残り、外した template の種類は引けなくなって保存された label のまま出る。**段 2 (D1〜D6) 完了** |
 
 ## 9. 実機の確認 (段 1)
 
@@ -190,3 +196,38 @@ template graph を作って、そこに種類を書いていく。
 
 **注意**: 作成時に当てた template は、作った時点の版で読まれる (動的適用は段 2)。V4〜V7 で template graph を直した後は、
 **新しく Sheet を当て直して**確かめる (後から当てる「…」→「template を当てる」でもよい)。
+
+## 10. 実機の確認 (段 2)
+
+`bun run dev:client` で起動し、`http://127.0.0.1:5173/` を開く (user-test-environment §1)。未ログインのままでよい
+(W10・W11 だけログインと headless が要る)。File を 1 つ作り、「template 付きで Sheet を追加 ▾」→「+ template graph」で
+template graph を作り、label「根拠」と「主張」の node を置いて「根拠」から「主張」へ edge を引き、label を「支える」に
+する。この template を当てた Sheet を **作るときに** 1 つ足し (「+ Sheet を追加」で選ぶ)、そこに「根拠」と「主張」の
+node を作って「支える」で繋いでおく。
+
+「…」は左サイドバーの Sheet の行の「詳細」のボタン、「通知」は画面右下の「template の版」の欄である。
+
+| # | 見ること | 手順 | 期待 | 結果 |
+| --- | --- | --- | --- | --- |
+| W1 | D2 新しい版が無いとき | 当てた Sheet の「…」を開く。次に template graph で node を動かすだけ・label の無い node を足すだけ、をしてからもう一度開く | どちらも「「<template graph の名前>」を最新の版にする」は出ない | OK |
+| W2 | D2・D3 新しい版が出る | template graph に label「反証」の node を足す | 少しして右下に「「<Sheet>」に当てた「<template graph>」に新しい版があります」が出る。当てた Sheet の「…」にも「…を最新の版にする」が出る。ほかの Sheet を編集しただけでは出ない | OK|
+| W3 | D2 最新の版にする | 当てた Sheet の「…」の「…を最新の版にする」を押す → 空いた所をダブルクリック | 種類のメニューに「反証」が出る。右下の通知と「…」の入口が消える | OK|
+| W4 | D3 閉じた通知 | template graph の「反証」の label を「反論」に変える → 右下の通知を × で閉じる → ほかの Sheet を編集する → template graph に label「限定」の node を足す | 閉じた後、ほかの編集では出ない。「限定」を足すとまた出る | OK|
+| W5 | D3 通知から pull・D4 名前の変更 | W4 の通知の「最新の版にする」を押す | 通知が消える。既にある「主張」などの node の表示はそのまま、メニューに「反論」「限定」が出る。template graph で「主張」を「結論」に変えて同じように最新の版にすると、**既にある「主張」の node の label の表示も「結論」になる** | OK|
+| W6 | 訳の追随 | 「template 付きで Sheet を追加 ▾」→「+ Toulmin model を追加」→ それを当てた Sheet を足し「主張」を 1 つ作る → Toulmin の template graph で「主張」の label を「結論」に変え、通知から最新の版にする → 画面の言語を English に切り替える → 日本語に戻し、template graph で取り消し (undo) する | 日本語では「結論」と出る (前は訳 `label:ja` が勝って「主張」のままだった)。英語では `Claim` のまま (英語の訳は残す)。undo すると template graph の label と `label:ja` の両方が「主張」に戻る (property の欄で確かめる) | OK|
+| W7 | D5 端の組が合わない | template graph で「支える」の edge の**始点の端をドラッグして**「反論」(W4) へ付け替える (消して引き直すと種類の id が変わり W8 になる)。通知から最新の版にする | 当てた Sheet の「根拠」→「結論」(W5 で「主張」から改名) の「支える」が警告色の破線になり、線か label に hover すると「この edge の種類は、今の template ではこの両端の組に使えません」。edge は消えない。template graph で始点を「根拠」へ戻して最新の版にすると印が消える | Toulmin Model では edge を動かせない! 手書きの template で同じことをした場合には OK → **直した** (下の注)。直した後に利用者が実機で再確認 OK |
+| W8 | D5 種類が消えた edge | template graph で「支える」の edge を消す → 通知から最新の版にする | 当てた Sheet の「支える」の edge が**消えずに**残り、破線になる。hover すると「この edge の種類は、今の template にありません」 | OK|
+| W9 | D3 削除 | template graph の Sheet を消す (「…」→ 削除) | 右下に「…は削除されました。この Sheet は当てた版のまま使えます」が出て、「最新の版にする」は無い。当てた Sheet の種類のメニューは使えるまま | OK|
+| W10 | D6 外す | Toulmin model を、既にある Sheet (例: Sheet 1) に「…」→「template を当てる」で当て、「主張」を 1 つ作る → Sheet 1 の「…」を開く。W6 の Sheet (作るときに当てた) の「…」も開く | Sheet 1 にだけ「「Toulmin model」を外す」が出る。押すと、メニューから Toulmin の種類が消え、作った「主張」の node は label のまま残る。「…」に「template を当てる」がまた出る | OK|
+| W11 | 2 人 (任意) | alice (5173) と bob (5174) で同じ File に参加し (user-test-environment §5)、alice が template graph に種類を足す | bob の画面にも右下の通知が出る。bob が最新の版にすると、alice の画面の通知も消える (Sheet のプロパティが届いて読み直すため) | OK|
+| W12 | agent (任意) | W5 の後、headless で `read_file` | 当てた Sheet の `# template` の注釈と node の `# 種別:` に、新しい名前 (「結論」) が出る | ✓ (Sheet 2 の node の `# 種別:` に新しい名前「結論」。種類が template に無い edge の注釈も確認。端の組が合わない edge の注釈は単体テストのみ) |
+
+**注意**:
+
+- 右下の通知は**前に出ている File** の分だけ出る。File を切り替えたら、切り替えた先の分に入れ替わる
+- 段 1 の §9 の注意 (template graph を直したら Sheet を当て直す) は、段 2 では「最新の版にする」で足りる
+- **W7 で見つけて直したこと** (段 2 の外、#256 の作り): 端の接続点を持たない edge (種から作った・agent の `add_edge` が
+  作った) は、edge の部品が線の端だけを向かい合う辺にずらしていた。付け替えのつかみ所は React Flow が最初の接続点 (上辺)
+  に描くので、線の端をつかんでも動かなかった。向かい合う辺を**接続点として React Flow に渡す** (`withFacingHandles`、
+  表示だけで保存しない) ようにし、線とつかみ所を一致させた。Chromium で、Toulmin の「支える」の端をつかんで付け替えられる
+  ことを確かめた
