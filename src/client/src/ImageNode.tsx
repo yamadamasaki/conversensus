@@ -17,6 +17,7 @@ import { makeEventBase } from './events/GraphEvent';
 import { AuthorAvatars, NODE_AVATAR_CORNER } from './graph/AuthorAvatars';
 import { DiffMark } from './graph/DiffMark';
 import { FloatingNodeLabel, NodeLabel } from './graph/NodeLabel';
+import { SlotHandles } from './graph/SlotHandles';
 import { useInlineEdit } from './hooks/useInlineEdit';
 import { useMessages } from './i18n/messages';
 import { useBlobOrigin } from './images/blobOriginContext';
@@ -541,6 +542,8 @@ export function ImageNode({ id, data, selected }: NodeProps) {
       <Handle type="source" position={Position.Bottom} id="source-bottom" />
       <Handle type="source" position={Position.Left} id="source-left" />
       <Handle type="source" position={Position.Right} id="source-right" />
+      {/* 端を決めていない edge の端を散らす、見えない接続点 (#410) */}
+      <SlotHandles />
     </>
   );
 }
