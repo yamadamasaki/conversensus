@@ -37,6 +37,7 @@ import {
   templateGraphOf,
   templateVersionOf,
 } from '@conversensus/shared';
+import type { Viewport } from '@xyflow/react';
 import { FilePlus, Files, FileUp, PanelLeft, UserPlus } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AcceptInvitationDialog } from './AcceptInvitationDialog';
@@ -182,6 +183,8 @@ export default function App() {
     resolve: () => void;
   } | null>(null);
   const undoStateMapRef = useRef<Map<string, UndoState>>(new Map());
+  /** 表示の位置と拡大をタブのアドレスごとに覚える (#405)。端末の中だけ・再読み込みで忘れる */
+  const viewportMapRef = useRef<Map<string, Viewport>>(new Map());
 
   // ATProto セッション
   const {
@@ -1463,6 +1466,7 @@ export default function App() {
                   key={addressKey(viewAddress)}
                   graphKey={addressKey(viewAddress)}
                   undoStateMap={undoStateMapRef}
+                  viewportMap={viewportMapRef}
                   showMap={panels.mapOpen}
                   sheet={editorSheet ?? viewSheet}
                   fileId={fileOps.activeFile.id}

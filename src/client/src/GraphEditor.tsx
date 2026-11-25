@@ -42,6 +42,7 @@ import {
   useEdgesState,
   useNodesState,
   useReactFlow,
+  type Viewport,
 } from '@xyflow/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { color, font, radius, space } from './theme';
@@ -151,6 +152,11 @@ type Props = {
   deletedEdgeLayouts?: EdgeLayout[];
   graphKey?: string;
   undoStateMap?: React.MutableRefObject<Map<string, UndoState>>;
+  /**
+   * 表示の位置と拡大を `graphKey` ごとに覚える所 (#405)。タブを切り替えるとこの部品は作り直されるので、
+   * 覚えていないと戻るたびに全体表示 (fit) になり、拡大して見ていた所を見失う
+   */
+  viewportMap?: React.MutableRefObject<Map<string, Viewport>>;
   // 受信 swap の世代番号 (Phase 4e-3/4e-4)。同一 file.id のまま activeFile が受信で
   // 差し替わったとき、この値の増加を契機に React Flow の state を再 seed する。
   receiveEpoch?: number;
@@ -219,6 +225,7 @@ function GraphEditorInner({
   deletedEdgeLayouts,
   graphKey,
   undoStateMap,
+  viewportMap,
   receiveEpoch,
   templates,
   transformEvent,
@@ -239,7 +246,20 @@ function GraphEditorInner({
     fitView,
   } = useReactFlow();
   // キャンバスの大きさが変わったら表示を合わせ直す。自分で動かした後は動かさない (#257)
-  const fitOnResize = useFitOnResize(fitView);
+  // 前に見ていた表示 (#405)。あればそこから始め、全体表示にしない。戻した表示は利用者が選んだものなので、
+  // キャンバスの大きさが変わっても合わせ直さない
+  const [savedViewport] = useState(() =>
+    graphKey ? viewportMap?.current.get(graphKey) : undefined,
+  );
+  const fitOnResize = useFitOnResize(fitView, {
+    userMoved: savedViewport !== undefined,
+  });
+  const onMoveEnd = useCallback(
+    (_event: unknown, viewport: Viewport) => {
+      if (graphKey) viewportMap?.current.set(graphKey, viewport);
+    },
+    [graphKey, viewportMap],
+  );
   // 再参加した後、同期が済むまでは編集させない (step2 Phase 2 S6)。
   // **props ではなく context で受ける** — 途中の層はこの値に用が無い
   const readOnly = useReadOnly();
@@ -1103,12 +1123,15 @@ function GraphEditorInner({
                       edgesReconnectable={!readOnly}
                       onPaneClick={onPaneClick}
                       onMoveStart={fitOnResize.onMoveStart}
+                      onMoveEnd={onMoveEnd}
                       onEdgeContextMenu={onEdgeContextMenu}
                       onNodeContextMenu={nodeActions.onNodeContextMenu}
                       zoomOnDoubleClick={false}
                       deleteKeyCode={null}
                       minZoom={MIN_ZOOM}
-                      fitView
+                      {...(savedViewport
+                        ? { defaultViewport: savedViewport }
+                        : { fitView: true })}
                     >
                       {readOnly && (
                         <Panel position="top-center">
