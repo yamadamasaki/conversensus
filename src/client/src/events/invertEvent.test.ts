@@ -443,7 +443,7 @@ describe('EDGE_STYLE_CHANGED', () => {
   it('from/to を入れ替える', () => {
     const event: GraphEvent = {
       ...base,
-      category: 'presentation',
+      category: 'layout',
       type: 'EDGE_STYLE_CHANGED',
       edgeId: 'e1' as EdgeId,
       from: { pathType: 'bezier' },
@@ -481,7 +481,7 @@ describe('EDGE_LABEL_MOVED', () => {
   it('from/to を入れ替える', () => {
     const event: GraphEvent = {
       ...base,
-      category: 'presentation',
+      category: 'layout',
       type: 'EDGE_LABEL_MOVED',
       edgeId: 'e1' as EdgeId,
       from: { offsetX: 0, offsetY: 0 },
@@ -557,7 +557,7 @@ describe('二重反転対称性: invertEvent(invertEvent(e)).type === e.type', (
       label: 'EDGE_STYLE_CHANGED',
       event: {
         ...base,
-        category: 'presentation',
+        category: 'layout',
         type: 'EDGE_STYLE_CHANGED',
         edgeId: 'e1' as EdgeId,
         from: { pathType: 'bezier' as const },
@@ -568,7 +568,7 @@ describe('二重反転対称性: invertEvent(invertEvent(e)).type === e.type', (
       label: 'EDGE_LABEL_MOVED',
       event: {
         ...base,
-        category: 'presentation',
+        category: 'layout',
         type: 'EDGE_LABEL_MOVED',
         edgeId: 'e1' as EdgeId,
         from: { offsetX: 0, offsetY: 0 },

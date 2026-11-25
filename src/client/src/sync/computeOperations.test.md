@@ -62,7 +62,8 @@ UI 表示だけに絞られた。
 | layout の省略と既定値の明示は同じ | projection は layout を持たないが、React Flow を往復すると x=0 / 既定サイズが明示的に入る |
 | pathType の省略と既定値の明示は同じ | 同上。`toFlowEdges` が既定の経路を埋める |
 | 丸めで消える差 (1px 未満) は差分にしない | op-log は整数へ丸めて記録するので、丸めた後に同じなら op としては変化が無い |
-| presentation (ラベル位置) は差分にしない | `edge.setLabelOffset` はローカル限定でバージョン管理の対象外 |
+| ラベル位置は layout として差分に出る (#409) | `edge.setLabelOffset` は layout (共有する)。以前は presentation で対象外だった |
+| ラベル位置の省略と 0 の明示は同じ | 動かしていない label は画面で 0 として描かれる。往復で入る 0 を差分にしない |
 | properties の `undefined` と `{}` は同じ | 「プロパティが無い」の表し方が経路によって違う |
 | properties はキーの順序に左右されない | JSON 文字列の一致で比べると順序で誤検知する |
 

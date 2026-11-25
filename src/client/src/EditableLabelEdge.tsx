@@ -203,7 +203,7 @@ export function EditableLabelEdge({
           offsetY: dragStartRef.current.offsetY + dy,
         };
         dispatch({
-          ...makeEventBase('presentation'),
+          ...makeEventBase('layout'),
           type: 'EDGE_LABEL_MOVED',
           edgeId: id as EdgeId,
           from: fromOffset,

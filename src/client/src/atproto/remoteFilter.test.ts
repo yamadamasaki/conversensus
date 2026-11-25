@@ -83,8 +83,13 @@ describe('filterBatchesForRemote', () => {
   });
 
   it('全 op が presentation の batch は remote へ送らない (skip)', () => {
-    const b = batch({ ops: [setStyle('n1'), setLabelOffset('e1')] });
+    const b = batch({ ops: [setStyle('n1')] });
     expect(filterBatchesForRemote([b], MY_DID)).toEqual([]);
+  });
+
+  it('label の位置 (edge.setLabelOffset) は layout なので remote へ送る (#409)', () => {
+    const b = batch({ ops: [setLabelOffset('e1')] });
+    expect(filterBatchesForRemote([b], MY_DID)).toEqual([b]);
   });
 
   it('genesis actor の batch も remote へ通す (Phase 4e-0・C1 見直し)', () => {

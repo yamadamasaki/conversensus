@@ -221,6 +221,18 @@ function layoutKeyOf(target: string, aspect: LayoutAspect): string {
  * 変えた」ことになり、リサイズした相手と競合してしまう。
  */
 function layoutUnitsOf(t: TaggedOp, op: LayoutOp): ConflictUnit[] {
+  if (op.kind === 'edge.setLabelOffset') {
+    // edge の label の位置 (#409)。edge には node のような位置が無いので、edge の「位置」は label の位置である。
+    // 観点を新しく足さないのは、観点の列挙が op の語彙 (`unified.ts`) にも載っているため
+    return [
+      {
+        ...t,
+        key: layoutKeyOf(op.target, 'position'),
+        value: { offsetX: op.offsetX, offsetY: op.offsetY },
+        aspect: 'position',
+      },
+    ];
+  }
   if (op.kind === 'node.setLayout') {
     const units: ConflictUnit[] = [];
     if (op.x !== undefined || op.y !== undefined) {

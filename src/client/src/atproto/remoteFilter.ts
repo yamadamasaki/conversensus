@@ -8,7 +8,7 @@
  * 落とす理由は 2 つある。
  *
  *   - **presentation 除外** (§3.2・D7): batch の ops を `isSyncable` で絞る。
- *     presentation (node.setStyle / edge.setStyle / edge.setLabelOffset) はローカル
+ *     presentation (node.setStyle / edge.setStyle) はローカル
  *     限定で、remote には載せない (再導出可能)。フィルタ後 ops が空になった batch は送らない。
  *   - **他 actor が書いた batch の除外** (step2 Phase 2 S0): 下記。
  *

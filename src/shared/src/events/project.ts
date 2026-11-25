@@ -20,6 +20,7 @@ import type {
   Style,
   TemplateRef,
 } from '../schemas';
+import { EdgePathTypeSchema } from '../schemas';
 import { cascadeOfNodeRemoval, selfAndAncestors } from './cascade';
 import {
   type DerivedNodes,
@@ -375,15 +376,28 @@ function applyOp(g: FoldState, op: GraphOp): void {
       });
       break;
     }
-    case 'node.setStyle':
     case 'edge.setStyle': {
+      // 線種は edge.setLayout の pathType に書く (#409)。それ以前の画面は線種をここ (presentation) に
+      // 書いていて、誰も読まずに読み直すと消えていた。手元の op-log に残っている選択は拾って戻す
+      // (同期はされない — presentation は送らないので、相手の手元にはもともと無い)
+      const pathType = EdgePathTypeSchema.safeParse(op.style.pathType);
+      if (pathType.success) {
+        const prev = g.edgeLayouts.get(op.target) ?? { edgeId: op.target };
+        g.edgeLayouts.set(op.target, { ...prev, pathType: pathType.data });
+      }
+      const prev = g.presentation.get(op.target) ?? {};
+      g.presentation.set(op.target, { ...prev, ...op.style });
+      break;
+    }
+    case 'node.setStyle': {
       const prev = g.presentation.get(op.target) ?? {};
       g.presentation.set(op.target, { ...prev, ...op.style });
       break;
     }
     case 'edge.setLabelOffset': {
-      const prev = g.presentation.get(op.target) ?? {};
-      g.presentation.set(op.target, {
+      // label の位置は layout (#409)。edge の layout に載せ、Sheet と画面に出す
+      const prev = g.edgeLayouts.get(op.target) ?? { edgeId: op.target };
+      g.edgeLayouts.set(op.target, {
         ...prev,
         labelOffsetX: op.offsetX,
         labelOffsetY: op.offsetY,

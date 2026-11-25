@@ -414,8 +414,8 @@ describe('computeSheetChanges: 正規化', () => {
     expect(computeSheetChanges(base, current)).toEqual([]);
   });
 
-  it('presentation (ラベル位置) は差分にしない', () => {
-    // edge.setLabelOffset は presentation カテゴリ = ローカル限定でバージョン管理外
+  it('ラベル位置は layout として差分に出る (#409)', () => {
+    // edge.setLabelOffset は layout (共有する)。以前は presentation で差分に出さなかった
     const base: Sheet = {
       id: sid,
       name: 'test',
@@ -432,7 +432,27 @@ describe('computeSheetChanges: 正規化', () => {
         { edgeId: 'e1' as EdgeId, labelOffsetX: 40, labelOffsetY: -12 },
       ],
     };
-    expect(computeSheetChanges(base, current)).toEqual([]);
+    const changes = computeSheetChanges(base, current);
+    expect(changes).toHaveLength(1);
+    expect(changes[0].op).toMatchObject({ op: 'edge.update', edgeId: 'e1' });
+    expect(changes[0].categories).toEqual(['layout']);
+  });
+
+  it('ラベル位置の省略と 0 の明示は同じ', () => {
+    // 動かしていない label は画面で 0 として描かれ、React Flow を往復すると 0 が入りうる
+    const sheet = (edgeLayouts: EdgeLayout[]): Sheet => ({
+      id: sid,
+      name: 'test',
+      nodes: [],
+      edges: [e('e1', 'n1', 'n2')],
+      edgeLayouts,
+    });
+    expect(
+      computeSheetChanges(
+        sheet([{ edgeId: 'e1' as EdgeId }]),
+        sheet([{ edgeId: 'e1' as EdgeId, labelOffsetX: 0, labelOffsetY: 0 }]),
+      ),
+    ).toEqual([]);
   });
 
   it('properties の undefined と {} は同じ', () => {

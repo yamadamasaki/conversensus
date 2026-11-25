@@ -72,3 +72,4 @@ actor 節と `step1-phase4d-receive.md` §3.1)。
   種別の無いシートが一瞬存在し、その間に届いた相手にはただのシートとして出る
 - **`SHEET_PROPERTY_CHANGED` → `sheet.setProperty`。値の省略は削除** (`value` を持たない op)
 - **作成時に置いた種別は、projection で読める** (event → batch → `projectFile` → `sheetKindOf`)
+- **線種は `edge.setLayout` の `pathType` (#409)**: `EDGE_STYLE_CHANGED` の線種は layout として共有する。線種のほかの見た目 (stroke など) は今までどおり `edge.setStyle` (端末ごと)

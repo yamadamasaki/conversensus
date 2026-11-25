@@ -833,7 +833,7 @@ describe('EDGE_STYLE_CHANGED', () => {
   it('エッジの data に style プロパティをマージする', () => {
     const event: GraphEvent = {
       ...base,
-      category: 'presentation',
+      category: 'layout',
       type: 'EDGE_STYLE_CHANGED',
       edgeId: 'e1' as EdgeId,
       from: { pathType: 'bezier' },
@@ -869,7 +869,7 @@ describe('EDGE_LABEL_MOVED', () => {
   it('エッジの labelOffsetX/Y を更新する', () => {
     const event: GraphEvent = {
       ...base,
-      category: 'presentation',
+      category: 'layout',
       type: 'EDGE_LABEL_MOVED',
       edgeId: 'e1' as EdgeId,
       from: { offsetX: 5, offsetY: 10 },
@@ -954,7 +954,7 @@ describe('round-trip: apply → invert → apply = 元の状態', () => {
   it('EDGE_STYLE_CHANGED', () => {
     const event: GraphEvent = {
       ...base,
-      category: 'presentation',
+      category: 'layout',
       type: 'EDGE_STYLE_CHANGED',
       edgeId: 'e1' as EdgeId,
       from: { pathType: 'bezier' },

@@ -432,6 +432,49 @@ describe('projectBatches', () => {
     expect(g.edges.get(e)?.properties).toBeUndefined();
   });
 
+  test('label の位置 (edge.setLabelOffset) は edge の layout に載る (#409)', () => {
+    // 以前は presentation マップにだけ入り、誰も読まずに読み直すと消えていた
+    const e = eid();
+    const g = projectBatches([
+      batch(1, [
+        { kind: 'edge.setLabelOffset', target: e, offsetX: 40, offsetY: -12 },
+      ]),
+    ]);
+    expect(g.edgeLayouts.get(e)).toEqual({
+      edgeId: e,
+      labelOffsetX: 40,
+      labelOffsetY: -12,
+    });
+  });
+
+  test('手元に残った edge.setStyle の線種を拾う。後の edge.setLayout が勝つ (#409)', () => {
+    // #409 より前の画面は線種を edge.setStyle に書いていた。手元の op-log の選択は戻す。
+    // 読めない値は拾わない (presentation の style は何でも入りうる)
+    const e = eid();
+    const f = eid();
+    const g = projectBatches([
+      batch(1, [
+        { kind: 'edge.setLayout', target: e, sourceHandle: 'source-top' },
+        { kind: 'edge.setStyle', target: e, style: { pathType: 'step' } },
+        { kind: 'edge.setStyle', target: f, style: { pathType: 'zigzag' } },
+      ]),
+    ]);
+    expect(g.edgeLayouts.get(e)).toEqual({
+      edgeId: e,
+      sourceHandle: 'source-top',
+      pathType: 'step',
+    });
+    expect(g.edgeLayouts.get(f)).toBeUndefined();
+
+    const later = projectBatches([
+      batch(1, [
+        { kind: 'edge.setStyle', target: e, style: { pathType: 'step' } },
+      ]),
+      batch(2, [{ kind: 'edge.setLayout', target: e, pathType: 'straight' }]),
+    ]);
+    expect(later.edgeLayouts.get(e)?.pathType).toBe('straight');
+  });
+
   test('toSheet は projection を Sheet 形式へ変換する', () => {
     const a = nid();
     const sheetId: SheetId = SheetIdSchema.parse(crypto.randomUUID());

@@ -42,7 +42,8 @@ tap の provider 構成が切り替わること (local 単体 / `FanoutSyncProvi
 - **remoteQueue なし**: 編集 1 回 → local に 1 batch、remote は登場しない。
 - **remoteQueue あり**: 編集 1 回 → local と remote の両方に 1 batch、かつ **batch id が一致**
   (同じ batch が両系統へ渡っている)。
-- **presentation**: `EDGE_STYLE_CHANGED` → local には載る (W3e 保全)、remote には 0 件。
+- **presentation**: `EDGE_STYLE_CHANGED` (stroke) → local には載る (W3e 保全)、remote には 0 件。
+- **線種 (#409)**: `EDGE_STYLE_CHANGED` (pathType) → `edge.setLayout` になり、remote にも載る。線種は利用者が選ぶもので、共有する
 - **起動時 catch-up**: local の既存ログ ['1','2'] / remote に '1' → mount だけで '2' が remote へ
   push される。local の genesis actor の batch も remote へ送られる (Phase 4e-0・C1 見直し)。
   remoteQueue が無ければ catch-up 自体が起きない。

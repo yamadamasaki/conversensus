@@ -64,7 +64,7 @@ export function useEdgeContextMenu(
           (edge?.data?.pathType as EdgePathType | undefined) ??
           DEFAULT_EDGE_PATH_TYPE;
         dispatch({
-          ...makeEventBase('presentation'),
+          ...makeEventBase('layout'),
           type: 'EDGE_STYLE_CHANGED',
           edgeId: edgeId as EdgeId,
           from: { pathType: fromPathType },

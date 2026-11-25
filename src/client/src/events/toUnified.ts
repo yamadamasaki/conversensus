@@ -292,8 +292,26 @@ export function graphEventToOps(event: GraphEvent): Op[] {
         ops.push(nodeSetLayoutOp(event.nodeId, { width, height }));
       return ops;
     }
-    case 'EDGE_STYLE_CHANGED':
-      return [{ kind: 'edge.setStyle', target: event.edgeId, style: event.to }];
+    case 'EDGE_STYLE_CHANGED': // 線種は layout (edge.setLayout の pathType) に書き、共有する (#409)。edge.setStyle (presentation) に
+      // 書くと、送られず、projection も読まず、読み直すと消えていた
+      // 線種のほかの見た目 (presentation) は、今までどおり端末ごと
+      {
+        const { pathType, ...style } = event.to;
+        return [
+          ...(pathType !== undefined
+            ? [
+                {
+                  kind: 'edge.setLayout' as const,
+                  target: event.edgeId,
+                  pathType,
+                },
+              ]
+            : []),
+          ...(Object.keys(style).length > 0
+            ? [{ kind: 'edge.setStyle' as const, target: event.edgeId, style }]
+            : []),
+        ];
+      }
     case 'EDGE_LABEL_MOVED':
       return [
         {

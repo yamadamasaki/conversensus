@@ -316,7 +316,8 @@ export const OpSchema = z.discriminatedUnion('kind', [
     targetHandle: z.string().optional(),
     pathType: EdgePathTypeSchema.optional(),
   }),
-  // presentation (ローカル限定)
+  // presentation (ローカル限定)。edge.setLabelOffset は語彙の並びとしてここに置くが、
+  // 分類は layout (OP_CATEGORY、#409)
   z.object({
     kind: z.literal('node.setStyle'),
     target: NodeIdSchema,
@@ -553,7 +554,9 @@ export const OP_CATEGORY: Record<OpKind, Category> = {
   'edge.setLayout': 'layout',
   'node.setStyle': 'presentation',
   'edge.setStyle': 'presentation',
-  'edge.setLabelOffset': 'presentation',
+  // label の位置は利用者がドラッグで決めるもので、node の位置と同じく共有する (#409)。
+  // 以前は presentation (ローカル限定) で、しかも projection が読まず、読み直すと消えていた
+  'edge.setLabelOffset': 'layout',
   'sheet.create': 'file',
   'sheet.remove': 'file',
   'sheet.setName': 'file',
@@ -623,7 +626,7 @@ export function isContentOp(op: Op): op is ContentOp {
 /** layout カテゴリの op (位置・大きさ・経路)。merge の対立検出に使う */
 export type LayoutOp = Extract<
   Op,
-  { kind: 'node.setLayout' | 'edge.setLayout' }
+  { kind: 'node.setLayout' | 'edge.setLayout' | 'edge.setLabelOffset' }
 >;
 
 /**
