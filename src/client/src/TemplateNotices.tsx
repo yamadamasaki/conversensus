@@ -17,6 +17,12 @@ import { Button, ICON_SIZE_SM } from './ui/Button';
 
 /** 通知の欄の幅 (ほかの知らせの欄と同じ) */
 const PANEL_WIDTH = 380;
+/**
+ * 出す知らせの数 (v1.5.0 の UI レビュー U3)。当てた template が多い File で template graph をまとめて書き換えると、
+ * 右下に積み上がる。届いた知らせ (#393) と同じ数で切り、残りは「ほか N 件」にする。前に出ている File の分だけを
+ * 出すので、File ごとには分けない。畳んだ分も、その Sheet の「…」から最新の版にできる
+ */
+export const SHOWN_TEMPLATE_NOTICES = 5;
 
 type Props = {
   notices: readonly TemplateNotice[];
@@ -34,6 +40,8 @@ export function TemplateNotices({
 }: Props) {
   const t = useMessages();
   if (notices.length === 0) return null;
+  const shown = notices.slice(0, SHOWN_TEMPLATE_NOTICES);
+  const hidden = notices.length - shown.length;
   return (
     <section
       role="status"
@@ -54,7 +62,7 @@ export function TemplateNotices({
       }}
     >
       <ul style={{ margin: 0, padding: 0, listStyle: 'none' }}>
-        {notices.map((n) => {
+        {shown.map((n) => {
           const sheet = sheetNameOf(n);
           const template = n.templateName ?? t.notices.unnamedTemplate;
           const newer = n.version === TEMPLATE_VERSION.NEWER;
@@ -94,6 +102,11 @@ export function TemplateNotices({
           );
         })}
       </ul>
+      {hidden > 0 && (
+        <p style={{ margin: 0, color: color.textMuted }}>
+          {t.notices.more(hidden)}
+        </p>
+      )}
     </section>
   );
 }

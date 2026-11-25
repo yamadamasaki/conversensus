@@ -7,7 +7,7 @@ import {
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { TemplateNotice } from './notices/templateNotices';
-import { TemplateNotices } from './TemplateNotices';
+import { SHOWN_TEMPLATE_NOTICES, TemplateNotices } from './TemplateNotices';
 
 const FILE = '11111111-1111-4111-8111-111111111111' as FileId;
 const SHEET = '22222222-2222-4222-8222-222222222222' as SheetId;
@@ -78,5 +78,18 @@ describe('TemplateNotices (template-update D3)', () => {
     expect(
       screen.queryByRole('button', { name: '最新の版にする' }) === null,
     ).toBe(true);
+  });
+
+  test('多いときは決まった数だけ出し、残りは「ほか N 件」にする (v1.5.0 の UI レビュー U3)', () => {
+    // 当てた template が多い File で template graph をまとめて書き換えると、右下に積み上がっていた
+    const many = Array.from({ length: SHOWN_TEMPLATE_NOTICES + 2 }, (_, i) => ({
+      ...newer,
+      key: `k-${i}`,
+    }));
+    renderNotices(many);
+    expect(
+      screen.getAllByRole('button', { name: '最新の版にする' }),
+    ).toHaveLength(SHOWN_TEMPLATE_NOTICES);
+    expect(screen.getByRole('status').textContent).toContain('ほか 2 件');
   });
 });

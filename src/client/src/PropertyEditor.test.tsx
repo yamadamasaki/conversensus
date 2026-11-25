@@ -436,6 +436,25 @@ describe('読むときの姿 (template-update K8・K9・K12)', () => {
     expect(screen.queryByLabelText('期限 を削除')).toBeNull();
   });
 
+  it('型の列は、宣言した型を書いたとおりに出す。宣言が無ければ値の型 (v1.5.0 の UI レビュー U1)', () => {
+    // 値から読んだ「文字列」を出すと、型を宣言したのに効いていないように見えた
+    const { container } = show({
+      rows: [
+        row({ value: '', declaredType: 'number?' }),
+        row({ name: '確かさ', value: '高', declaredType: "'高' | '低'" }),
+        row({ name: '出典', value: '自由論' }),
+      ],
+    });
+    const types = [...container.querySelectorAll('[data-property-type]')];
+    expect(types.map((e) => e.textContent)).toEqual([
+      'number?',
+      "'高' | '低'",
+      '文字列',
+    ]);
+    // 長い選択肢の型は省略しうるので、hover で全体を出す
+    expect(types[1]?.getAttribute('title')).toBe("'高' | '低'");
+  });
+
   it('number を宣言した property は、打った文字列を数にして書く', () => {
     show({ rows: [row({ value: '', declaredType: 'number' })] });
     const input = screen.getByLabelText('期限 の値');

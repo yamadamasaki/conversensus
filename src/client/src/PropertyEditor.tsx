@@ -57,6 +57,9 @@ const PANEL_MAX_HEIGHT = '60vh';
  * **宣言から型が引ける step 3 のため**で、そのとき拡張が `number` や `date` を
  * 宣言しうる。消すと、そのたびに表を作り直すことになる。
  */
+/** 型の列の最大の幅 (px)。宣言した選択肢の型が長くても、名前の場所を奪わない */
+const TYPE_COLUMN_MAX_WIDTH = 120;
+
 function typeLabel(type: string): string {
   const types: Record<string, string> = messages().property.types;
   return types[type] ?? type;
@@ -403,13 +406,22 @@ function PropertyField({
         {/* template graph の行は型を宣言の欄で見せる (値から読んだ「文字列」と並べると紛らわしい) */}
         {!schema && (
           <span
+            data-property-type
+            // 宣言した型は、template graph で書いた文字列のまま出す (v1.5.0 の UI レビュー U1)。値から読んだ
+            // 「文字列」を出すと、型を宣言したのに効いていないように見えた。選択肢の型は長くなりうるので省略し、
+            // hover で全体を出す
+            {...(row.declaredType && { title: row.declaredType })}
             style={{
               color: color.textMuted,
               fontSize: font.caption,
               flexShrink: 0,
+              maxWidth: TYPE_COLUMN_MAX_WIDTH,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
             }}
           >
-            {typeLabel(row.type)}
+            {row.declaredType ?? typeLabel(row.type)}
           </span>
         )}
       </div>
